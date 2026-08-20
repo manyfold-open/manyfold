@@ -103,15 +103,12 @@ export class AgentRuntimesController {
             return
         }
         if (row.kind === 'k8s') {
-            const [firstAgent] = await this.db
-                .select({ id: agents.id })
-                .from(agents)
-                .where(eq(agents.runtimeId, row.id))
-                .limit(1)
-            await this.k8sProvisioner.teardownRuntime(
-                row,
-                firstAgent?.id ?? row.id
-            )
+            // Container-model resources are keyed by RUNTIME id (the
+            // provisioner names deployment/PVC/ingress after it). The old
+            // first-agent key dated the pre-container per-agent model; with
+            // ignoreNotFound it silently deleted nothing and orphaned the
+            // pod. Seen on a kind BYO cluster [2026-08-20].
+            await this.k8sProvisioner.teardownRuntime(row, row.id)
             await this.cloudComputer?.onRuntimeTeardown(row.id)
             return
         }

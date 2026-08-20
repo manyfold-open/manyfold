@@ -3,6 +3,7 @@ import {
     AgentFramework,
     AgentRuntime,
     EXPERIMENT_KEYS,
+    FEATURE_TOGGLE_KEYS,
     FrameworkRuntimeDefaultsSettings,
     FrameworkVersionSelection,
     RotateRuntimeTokenResponse,
@@ -82,8 +83,10 @@ import {
 } from '@/common/ports/acquisition.ports'
 import {
     CLOUD_COMPUTER_PORT,
+    openCloudComputerPort,
     type CloudComputerPort
 } from '@/common/ports/cloud-computer.ports'
+import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-orchestrator'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
@@ -331,7 +334,12 @@ export class AgentOrchestratorService {
         // cloud-only; absence means the open default (attach allowed).
         @Optional()
         @Inject(CLOUD_COMPUTER_PORT)
-        private readonly cloudComputer?: CloudComputerPort
+        private readonly cloudComputer?: CloudComputerPort,
+        // Appended last + @Optional: only the self-serve (BYO k8s) create
+        // branch needs it; when absent that branch answers CONTAINER_REQUIRED
+        // exactly like the purchased-container edition.
+        @Optional()
+        private readonly k8sProvisioner?: K8sContainerProvisioner
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -575,7 +583,7 @@ export class AgentOrchestratorService {
               )
         let result: AgentSummary
         if (runtime === agentRuntime.K8S)
-            result = await this.createK8sOnExistingContainer(ctx, emitter)
+            result = await this.createK8sAgent(ctx, emitter)
         else if (runtime === agentRuntime.DAEMON)
             throw new ConflictException(
                 'daemon runtimes are created by the daemon itself; attach via POST /agent-runtimes/:id/agents instead'
@@ -598,51 +606,96 @@ export class AgentOrchestratorService {
         return result
     }
 
-    private async createK8sOnExistingContainer(
+    private async createK8sAgent(
         ctx: OrchestratorContext,
         emitter: AgentProgressEmitter
     ): Promise<AgentSummary> {
         const { userId, dto, isAdmin } = ctx
         emitter.step('validating')
-        if (!dto.runtimeId)
-            throw new ConflictException({
-                message:
-                    'k8s agents must be attached to a purchased container. Provide runtimeId or visit /containers to purchase one.',
-                code: 'CONTAINER_REQUIRED'
+        let runtimeRow: AgentRuntimeRow
+        if (dto.runtimeId) {
+            const existing = await this.runtimes.findById(dto.runtimeId)
+            if (!existing || (existing.userId !== userId && !isAdmin))
+                throw new NotFoundException(
+                    `agent runtime ${dto.runtimeId} not found`
+                )
+            if (existing.kind !== 'k8s')
+                throw new ConflictException({
+                    message: `runtime ${dto.runtimeId} is not a k8s container`,
+                    code: 'RUNTIME_KIND_MISMATCH',
+                    kind: existing.kind
+                })
+            if (existing.framework !== dto.framework)
+                throw new ConflictException({
+                    message: `container is for framework ${existing.framework}; cannot attach ${dto.framework} agent`,
+                    code: 'FRAMEWORK_MISMATCH',
+                    expected: existing.framework,
+                    got: dto.framework
+                })
+            if (existing.status !== 'ready')
+                throw new ConflictException({
+                    message: `container ${dto.runtimeId} is not ready (status=${existing.status})`,
+                    code: 'CONTAINER_NOT_READY',
+                    status: existing.status
+                })
+            const attachDenial = this.cloudComputer?.agentAttachDenial({
+                runtimeSkuId: existing.skuId,
+                isAdmin
             })
-        const runtimeRow = await this.runtimes.findById(dto.runtimeId)
-        if (!runtimeRow || (runtimeRow.userId !== userId && !isAdmin))
-            throw new NotFoundException(
-                `agent runtime ${dto.runtimeId} not found`
+            if (attachDenial)
+                throw new ConflictException({
+                    message: attachDenial.message,
+                    code: attachDenial.code
+                })
+            runtimeRow = existing
+        } else {
+            // No purchased container named. The port decides whether creates
+            // may provision one on the fly (self-hosted BYO k8s) or whether
+            // containers are strictly a purchased product (cloud) — #971.
+            const spec = this.cloudComputer
+                ? this.cloudComputer.selfServeContainerSpec()
+                : openCloudComputerPort.selfServeContainerSpec()
+            if (!spec || !this.k8sProvisioner)
+                throw new ConflictException({
+                    message:
+                        'k8s agents must be attached to a purchased container. Provide runtimeId or visit /containers to purchase one.',
+                    code: 'CONTAINER_REQUIRED'
+                })
+            emitter.step('checking_quota')
+            // The master switch governs new k8s provisioning on every
+            // edition (§6.3: BYO k8s = open the toggle) — same gate
+            // reserveRuntime applies to purchased containers.
+            if (
+                !(await this.adminSettings.isFeatureEnabled(
+                    FEATURE_TOGGLE_KEYS.CLOUD_COMPUTER
+                ))
             )
-        if (runtimeRow.kind !== 'k8s')
-            throw new ConflictException({
-                message: `runtime ${dto.runtimeId} is not a k8s container`,
-                code: 'RUNTIME_KIND_MISMATCH',
-                kind: runtimeRow.kind
+                throw new ForbiddenException({
+                    message: 'cloud computer is not currently available',
+                    code: 'CLOUD_COMPUTER_DISABLED',
+                    kind: 'k8s'
+                })
+            const resolved = await this.credentialsResolver.resolve(
+                userId,
+                dto
+            )
+            emitter.step('creating_deployment')
+            const provisioned = await this.k8sProvisioner.provision({
+                userId,
+                sku: {
+                    id: null,
+                    framework: dto.framework,
+                    region: null,
+                    cpuMillicores: spec.cpuMillicores,
+                    memoryMb: spec.memoryMb,
+                    diskGb: spec.diskGb
+                },
+                name: dto.name,
+                credentials: resolved.value,
+                clusterId: dto.clusterId ?? null
             })
-        if (runtimeRow.framework !== dto.framework)
-            throw new ConflictException({
-                message: `container is for framework ${runtimeRow.framework}; cannot attach ${dto.framework} agent`,
-                code: 'FRAMEWORK_MISMATCH',
-                expected: runtimeRow.framework,
-                got: dto.framework
-            })
-        if (runtimeRow.status !== 'ready')
-            throw new ConflictException({
-                message: `container ${dto.runtimeId} is not ready (status=${runtimeRow.status})`,
-                code: 'CONTAINER_NOT_READY',
-                status: runtimeRow.status
-            })
-        const attachDenial = this.cloudComputer?.agentAttachDenial({
-            runtimeSkuId: runtimeRow.skuId,
-            isAdmin
-        })
-        if (attachDenial)
-            throw new ConflictException({
-                message: attachDenial.message,
-                code: attachDenial.code
-            })
+            runtimeRow = provisioned.runtime
+        }
         emitter.step('inserting_agent')
         return this.attach.attach({
             runtime: runtimeRow,

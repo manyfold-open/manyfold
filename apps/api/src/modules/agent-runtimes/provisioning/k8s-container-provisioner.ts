@@ -15,7 +15,8 @@ import {
     agentRuntimes,
     k8sClusters,
     type AgentRuntimeRow,
-    type Database
+    type Database,
+    type K8sCluster
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -57,10 +58,60 @@ export interface ProvisionContainerInput {
     sku: ProvisionableContainerSku
     name: string
     credentials: unknown
+    // Self-serve (BYO) creates name their cluster; purchased SKUs pick by
+    // region. Ignored when null/undefined.
+    clusterId?: string | null
 }
 
 export interface ProvisionContainerResult {
     runtime: AgentRuntimeRow
+}
+
+// Cluster choice for a container: an explicit cluster (BYO self-serve) must
+// exist and have passed its last health check; otherwise the healthiest
+// match wins — region-scoped for purchased SKUs, any region for self-serve
+// (whose sku.region is null).
+export const pickProvisionCluster = async (
+    db: Database,
+    args: { clusterId: string | null; region: string | null }
+): Promise<K8sCluster> => {
+    if (args.clusterId) {
+        const [row] = await db
+            .select()
+            .from(k8sClusters)
+            .where(
+                and(
+                    eq(k8sClusters.id, args.clusterId),
+                    eq(k8sClusters.lastHealthStatus, 'ok')
+                )
+            )
+            .limit(1)
+        if (!row)
+            throw new ServiceUnavailableException(
+                `k8s cluster ${args.clusterId} is not available (unknown, or its last health check failed)`
+            )
+        return row
+    }
+    const [row] = await db
+        .select()
+        .from(k8sClusters)
+        .where(
+            args.region !== null
+                ? and(
+                      eq(k8sClusters.region, args.region),
+                      eq(k8sClusters.lastHealthStatus, 'ok')
+                  )
+                : eq(k8sClusters.lastHealthStatus, 'ok')
+        )
+        .orderBy(desc(k8sClusters.priority))
+        .limit(1)
+    if (!row)
+        throw new ServiceUnavailableException(
+            args.region !== null
+                ? `no healthy k8s cluster available in region ${args.region}`
+                : 'no healthy k8s cluster available'
+        )
+    return row
 }
 
 @Injectable()
@@ -86,22 +137,11 @@ export class K8sContainerProvisioner {
         const { userId, sku, name, credentials } = input
         const framework = sku.framework as K8sFramework
 
-        // 1. Pick cluster by region
-        const [cluster] = await this.db
-            .select()
-            .from(k8sClusters)
-            .where(
-                and(
-                    eq(k8sClusters.region, sku.region),
-                    eq(k8sClusters.lastHealthStatus, 'ok')
-                )
-            )
-            .orderBy(desc(k8sClusters.priority))
-            .limit(1)
-        if (!cluster)
-            throw new ServiceUnavailableException(
-                `no healthy k8s cluster available in region ${sku.region}`
-            )
+        // 1. Pick cluster (explicit for self-serve, by region for SKUs)
+        const cluster = await pickProvisionCluster(this.db, {
+            clusterId: input.clusterId ?? null,
+            region: sku.region
+        })
 
         const runtimeId = createObjectId('agentRuntime')
         const client = await this.k8s.getClient(cluster.id)
@@ -113,6 +153,25 @@ export class K8sContainerProvisioner {
             DEFAULT_HOST_SUFFIX
         const host = `${resourceName(runtimeId)}.${hostSuffix}`
         const image = this.imageForFramework(framework)
+
+        // The bootstrap plan is built before the row insert so mountPath can
+        // record the pod's actual persistent mount. Seen on a kind BYO
+        // cluster [2026-08-20]: the old hardcoded '/workspace' pointed
+        // outside the PVC for service frameworks (openclaw mounts at
+        // ~/.openclaw), so workspace derivation hit 'mkdir /workspace:
+        // Permission denied' inside the pod.
+        const bootstrap = this.pickBootstrap(framework)
+        const bootstrapCtx: K8sBootstrapContext = {
+            agentId: runtimeId,
+            runtimeId,
+            userId,
+            namespace,
+            host,
+            image,
+            controlUiEnabled: true,
+            dashboardEnabled: false
+        }
+        const plan = bootstrap.plan(bootstrapCtx, credentials)
 
         // 2. Insert agentRuntimes row WITHOUT going through reserveRuntime
         // (subscription replaces plan-quota gating for purchased containers).
@@ -130,7 +189,7 @@ export class K8sContainerProvisioner {
                 clusterId: cluster.id,
                 namespace,
                 ingressHost: host,
-                mountPath: '/workspace',
+                mountPath: plan.pvcMountPath,
                 skuId: sku.id,
                 cpuMillicores: sku.cpuMillicores,
                 memoryMb: sku.memoryMb,
@@ -140,22 +199,9 @@ export class K8sContainerProvisioner {
             })
 
         const envSecretName = `${resourceName(runtimeId)}-env`
-        let plan!: ReturnType<K8sFrameworkBootstrap['plan']>
         let spec!: K8sResourceSpec
 
         try {
-            const bootstrap = this.pickBootstrap(framework)
-            const bootstrapCtx: K8sBootstrapContext = {
-                agentId: runtimeId,
-                runtimeId,
-                userId,
-                namespace,
-                host,
-                image,
-                controlUiEnabled: true,
-                dashboardEnabled: false
-            }
-            plan = bootstrap.plan(bootstrapCtx, credentials)
             spec = {
                 agentId: runtimeId,
                 runtimeId,
@@ -233,12 +279,18 @@ export class K8sContainerProvisioner {
                 deadline: Date.now() + timeoutMs
             })
 
-            if (framework === 'narranexus' && plan.generatedCredentials) {
-                await this.persistRuntimeCredentials(
-                    runtimeId,
-                    framework,
-                    plan.generatedCredentials
-                )
+            // Persist the container's credential record: the RESOLVED
+            // credentials merged with whatever secrets the bootstrap minted.
+            // The chat adapters load this by runtimeId and need both halves —
+            // openclaw reads primaryModelName/provider from the resolved part
+            // and its generated gatewayToken; storing the generated half
+            // alone broke first chat with 'credentials missing
+            // primaryModelName'. Seen on a kind BYO cluster [2026-08-20].
+            if (plan.generatedCredentials || credentials) {
+                await this.persistRuntimeCredentials(runtimeId, framework, {
+                    ...((credentials as Record<string, unknown> | null) ?? {}),
+                    ...(plan.generatedCredentials ?? {})
+                })
             }
 
             const readyAt = new Date()
@@ -342,7 +394,7 @@ export class K8sContainerProvisioner {
     private async persistRuntimeCredentials(
         runtimeId: string,
         framework: K8sFramework,
-        payload: Record<string, string>
+        payload: Record<string, unknown>
     ): Promise<void> {
         const enc = this.crypto.encrypt(JSON.stringify(payload))
         await this.db.insert(agentCredentials).values({
