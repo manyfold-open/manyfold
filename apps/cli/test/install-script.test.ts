@@ -14,6 +14,12 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// The open-source installer resolves GitHub Releases: one API call for the
+// release JSON, then the platform asset and its .sha256. The fake curl below
+// serves the JSON when invoked without -o and writes empty files otherwise,
+// so these tests pin the call shape (1 API read; downloads only when the
+// installed version is outdated) without touching the network.
+
 interface InstallerHarness {
     env: NodeJS.ProcessEnv
     installDir: string
@@ -22,6 +28,23 @@ interface InstallerHarness {
 }
 
 const installerUrl = new URL('../install.sh', import.meta.url)
+
+const platformTarget = (): string => {
+    const os = process.platform === 'darwin' ? 'darwin' : 'linux'
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    return `${os}-${arch}`
+}
+
+const releaseJson = (): string => {
+    const asset = `https://release.invalid/download/v9.9.9/mf-9.9.9-${platformTarget()}.tar.gz`
+    return JSON.stringify({
+        tag_name: 'v9.9.9',
+        assets: [
+            { browser_download_url: asset },
+            { browser_download_url: `${asset}.sha256` }
+        ]
+    })
+}
 
 const executable = async (path: string, source: string): Promise<void> => {
     await writeFile(path, source, { mode: 0o755 })
@@ -52,7 +75,7 @@ done
 if [ -n "$out" ]; then
     : >"$out"
 else
-    printf '%s\n' "$MF_TEST_LATEST_VERSION"
+    printf '%s\n' "$MF_TEST_RELEASE_JSON"
 fi
 `
     )
@@ -99,7 +122,7 @@ fi
             MF_TEST_CURL_LOG: curlLog,
             MF_TEST_FAKE_MF: fakeMf,
             MF_TEST_INSTALLED_VERSION: '9.9.9',
-            MF_TEST_LATEST_VERSION: '9.9.9'
+            MF_TEST_RELEASE_JSON: releaseJson()
         },
         installDir,
         installScript,
@@ -163,7 +186,7 @@ test('installer skips archive downloads for an already-installed target version'
             .trimEnd()
             .split('\n')
         assert.equal(curlCalls.length, 1)
-        assert.match(curlCalls[0], /\/latest\/version\.txt$/)
+        assert.match(curlCalls[0], /\/releases\/latest(?:$| )/)
         assert.doesNotMatch(curlCalls[0], /(?:^| )-o(?: |$)/)
     } finally {
         await rm(harness.root, { recursive: true, force: true })
@@ -189,9 +212,17 @@ test('installer downloads when the target version is outdated', async () => {
         )
             .trimEnd()
             .split('\n')
-        assert.equal(curlCalls.length, 2)
+        assert.equal(curlCalls.length, 3)
+        assert.match(
+            curlCalls[0],
+            /\/releases\/tags\/v9\.9\.9(?:$| )/,
+            'VERSION pins the tagged release'
+        )
+        assert.doesNotMatch(curlCalls[0], /(?:^| )-o(?: |$)/)
         assert.ok(
-            curlCalls.every((call) => /(?:^| )-o(?: |$)/.test(call)),
+            curlCalls
+                .slice(1)
+                .every((call) => /(?:^| )-o(?: |$)/.test(call)),
             'outdated install should download the archive and checksum'
         )
     } finally {

@@ -1,27 +1,28 @@
 #!/bin/sh
-# mf CLI installer (POSIX sh).
+# mf CLI installer (POSIX sh) — open-source edition.
+# Downloads the newest mf binary from this repository's GitHub Releases.
 # Usage:
-#   curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh
-#   curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup
-#   curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | VERSION=0.1.0 sh
-#   curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
-#   curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | MF_CHANNEL=dev sh
+#   curl -fsSL https://raw.githubusercontent.com/manyfold-open/manyfold/main/apps/cli/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/manyfold-open/manyfold/main/apps/cli/install.sh | sh -s -- setup
+#   curl -fsSL https://raw.githubusercontent.com/manyfold-open/manyfold/main/apps/cli/install.sh | VERSION=0.1.0 sh
+#   curl -fsSL https://raw.githubusercontent.com/manyfold-open/manyfold/main/apps/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
 
 set -eu
 
-CDN="https://cdn1.manyfold.ai/cli"
-ISSUES_URL="https://github.com/protagolabs/manyfold/issues"
+REPO="manyfold-open/manyfold"
+API="https://api.github.com/repos/$REPO/releases"
+RELEASES_URL="https://github.com/$REPO/releases"
+ISSUES_URL="https://github.com/$REPO/issues"
 INSTALL_DIR="${MF_INSTALL_DIR:-$HOME/.local/bin}"
 
 err() { printf 'install: error: %s\n' "$1" >&2; exit 1; }
 log() { printf 'install: %s\n' "$1"; }
 
-# Single line below is the sed anchor for the staging release workflow.
-CHANNEL="${MF_CHANNEL:-stable}"
-case "$CHANNEL" in
-    dev|staging) CHANNEL="dev"; CDN="$CDN/staging" ;;
+# The open-source releases have a single channel; the dev/staging channel of
+# the hosted platform's CDN installer does not exist here.
+case "${MF_CHANNEL:-stable}" in
     stable) ;;
-    *) err "unknown channel '$CHANNEL' (expected dev or stable)" ;;
+    *) err "unknown channel '${MF_CHANNEL}' (the open-source installer only has stable releases)" ;;
 esac
 
 uname_s=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -30,7 +31,7 @@ uname_m=$(uname -m)
 case "$uname_s" in
     linux)  os=linux ;;
     darwin) os=darwin ;;
-    *)      err "unsupported OS '$uname_s' (this script handles linux/darwin; for windows download from $CDN/latest/)" ;;
+    *)      err "unsupported OS '$uname_s' (this script handles linux/darwin; for windows download from $RELEASES_URL)" ;;
 esac
 
 case "$uname_m" in
@@ -41,22 +42,30 @@ esac
 
 target="${os}-${arch}"
 
-resolve_version() {
-    if [ -n "${VERSION:-}" ]; then
-        printf '%s' "$VERSION"
-        return
-    fi
-    v=$(curl -fsSL "$CDN/latest/version.txt" 2>/dev/null | tr -d '\r\n ')
-    [ -n "$v" ] || err "could not resolve latest version from $CDN/latest/version.txt; pass VERSION=x.y.z"
-    printf '%s' "$v"
-}
+# VERSION picks a release tag (with or without the leading v); default is the
+# latest release. Asset names embed the CLI's own version, so it is recovered
+# from the matching asset URL rather than assumed equal to the tag.
+if [ -n "${VERSION:-}" ]; then
+    tag="v${VERSION#v}"
+    release_api="$API/tags/$tag"
+else
+    release_api="$API/latest"
+fi
 
-version=$(resolve_version)
-asset="mf-${version}-${target}.tar.gz"
-url="$CDN/v${version}/${asset}"
+release_json=$(curl -fsSL --retry 3 -H 'accept: application/vnd.github+json' "$release_api" 2>/dev/null) \
+    || err "could not read $release_api (release missing, or GitHub API rate limit — try again shortly)"
+tag=$(printf '%s' "$release_json" \
+    | grep -o '"tag_name": *"[^"]*"' | head -n 1 | cut -d'"' -f4)
+url=$(printf '%s' "$release_json" \
+    | grep -o '"browser_download_url": *"[^"]*"' | cut -d'"' -f4 \
+    | grep "/mf-.*-${target}\.tar\.gz$" | head -n 1)
+[ -n "$url" ] || err "release ${tag:-?} has no asset for ${target}; see $RELEASES_URL"
+asset=$(basename "$url")
+cli_version=${asset#mf-}
+cli_version=${cli_version%"-${target}.tar.gz"}
 sum_url="${url}.sha256"
 
-log "platform=${target}  version=${version}  channel=${CHANNEL}"
+log "platform=${target}  release=${tag}  cli=${cli_version}"
 log "url=${url}"
 
 installed_version=""
@@ -65,8 +74,8 @@ if [ -x "$INSTALL_DIR/mf" ]; then
     installed_version=$(printf '%s' "$installed_version" | tr -d '\r\n ')
 fi
 
-if [ "$installed_version" = "$version" ]; then
-    log "already installed: $INSTALL_DIR/mf ($version); skipping download"
+if [ "$installed_version" = "$cli_version" ]; then
+    log "already installed: $INSTALL_DIR/mf ($cli_version); skipping download"
 else
     tmp=$(mktemp -d 2>/dev/null || mktemp -d -t mf-install)
     cleanup() { rm -rf "$tmp"; }
