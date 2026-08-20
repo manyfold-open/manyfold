@@ -1,0 +1,120 @@
+# Self-hosted Manyfold: postgres + api + web + admin in one stack.
+#
+# Quickstart:
+#   cp .env.selfhost.example .env
+#   # set MF_API_CRYPTO_KEY (openssl rand -base64 32) and MF_AUTH_SETUP_TOKEN
+#   docker compose -f docker-compose.selfhost.yml up -d --build
+#   open http://localhost:3001/setup   # admin first-run: create the admin user
+#   open http://localhost:3002         # workspace
+#
+# The web/admin bundles bake the API base URL at build time (VITE_API_URL).
+# When the stack is reached from anywhere but this machine, set
+# MF_SELFHOST_API_URL to the API URL browsers will use and rebuild.
+# Runtime is Postgres-only (no Redis); execution environments are brought by
+# you: run `mf daemon` on your machines, add a kubeconfig, or paste a
+# sprites.dev account token in the admin.
+
+name: manyfold-selfhost
+
+services:
+    postgres:
+        image: postgres:16
+        environment:
+            POSTGRES_PASSWORD: ${MF_SELFHOST_PG_PASSWORD:-manyfold}
+            POSTGRES_DB: manyfold
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+        healthcheck:
+            # -h 127.0.0.1 forces TCP: during first-run init postgres briefly
+            # serves a socket-only temporary server that would pass a socket
+            # probe while still rejecting real connections.
+            test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d manyfold']
+            interval: 2s
+            timeout: 3s
+            retries: 30
+
+    api-migrate:
+        image: manyfold-selfhost-api
+        build:
+            context: .
+            dockerfile: apps/api/Dockerfile
+        command: ['node', 'dist/db/migrate.js']
+        restart: 'no'
+        environment:
+            DATABASE_URL: postgres://postgres:${MF_SELFHOST_PG_PASSWORD:-manyfold}@postgres:5432/manyfold
+        depends_on:
+            postgres:
+                condition: service_healthy
+
+    api:
+        image: manyfold-selfhost-api
+        build:
+            context: .
+            dockerfile: apps/api/Dockerfile
+        environment:
+            DATABASE_URL: postgres://postgres:${MF_SELFHOST_PG_PASSWORD:-manyfold}@postgres:5432/manyfold
+            API_CRYPTO_KEY: ${MF_API_CRYPTO_KEY:?set MF_API_CRYPTO_KEY (openssl rand -base64 32) — it encrypts stored credentials and must be kept with your database backups}
+            AUTH_SETUP_TOKEN: ${MF_AUTH_SETUP_TOKEN:?set MF_AUTH_SETUP_TOKEN — one-time token for the first-run /setup flow in the admin}
+            MF_WEB_URL: ${MF_SELFHOST_WEB_URL:-http://localhost:3002}
+            MF_ADMIN_URL: ${MF_SELFHOST_ADMIN_URL:-http://localhost:3001}
+            PUBLIC_API_BASE_URL: ${MF_SELFHOST_PUBLIC_API_URL:-http://localhost:2222}
+            # Empty = reflect any origin (fine on localhost). Pin to the exact
+            # web + admin origins when the API is reachable from elsewhere.
+            CORS_ORIGIN: ${MF_SELFHOST_CORS_ORIGIN:-}
+            # Single-node deployment: chat uploads may fall back to local disk
+            # instead of requiring S3.
+            CHAT_UPLOAD_ALLOW_DISK: 'true'
+            # New accounts land on the seeded unlimited plan instead of the
+            # cloud 'free' tier.
+            MF_DEFAULT_PLAN_ID: self_hosted
+        ports:
+            - '${MF_SELFHOST_API_PORT:-2222}:2222'
+        depends_on:
+            api-migrate:
+                condition: service_completed_successfully
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'node',
+                    '-e',
+                    "fetch('http://127.0.0.1:2222/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 20s
+
+    web:
+        build:
+            context: .
+            dockerfile: apps/web/Dockerfile
+            args:
+                VITE_API_URL: ${MF_SELFHOST_API_URL:-http://localhost:2222/api}
+                # Absolute post-sign-in redirect targets. Empty = same-origin
+                # paths only (the safe self-host default); set to your domain
+                # when agent dashboards live on sibling subdomains.
+                VITE_DASHBOARD_ORIGIN_SUFFIXES: ${MF_SELFHOST_DASHBOARD_SUFFIXES:-}
+        environment:
+            # /r/* short links proxy to the API service-side.
+            MF_API_ORIGIN: http://api:2222
+        ports:
+            - '${MF_SELFHOST_WEB_PORT:-3002}:8080'
+        depends_on:
+            api:
+                condition: service_healthy
+
+    admin:
+        build:
+            context: .
+            dockerfile: apps/admin/Dockerfile
+            args:
+                VITE_API_URL: ${MF_SELFHOST_API_URL:-http://localhost:2222/api}
+        ports:
+            - '${MF_SELFHOST_ADMIN_PORT:-3001}:8080'
+        depends_on:
+            api:
+                condition: service_healthy
+
+volumes:
+    pgdata:

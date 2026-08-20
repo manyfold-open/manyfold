@@ -1,0 +1,125 @@
+{
+    "version": "v3",
+    "renderer": {
+        "runtime": "container",
+        "image": "mcr.microsoft.com/playwright:v1.60.0-noble@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9",
+        "imagePlatform": "linux/amd64",
+        "browserVersion": "148.0.7778.96",
+        "origin": "playwright",
+        "platform": "linux/x64",
+        "viewport": {
+            "width": 1200,
+            "height": 630,
+            "deviceScaleFactor": 1
+        },
+        "args": [
+            "--force-color-profile=srgb",
+            "--font-render-hinting=none",
+            "--disable-lcd-text",
+            "--disable-font-subpixel-positioning",
+            "--disable-skia-runtime-opts",
+            "--disable-gpu",
+            "--hide-scrollbars",
+            "--disable-dev-shm-usage"
+        ]
+    },
+    "template": "f0f509ba34fe38af20f3c94948d1a3a21f19de4b6f6db6972479d3aaf181faa6",
+    "css": "fa90d50007f2b6dc4727240b95f08821d2c892c9328003937dd4b505ab5aae62",
+    "generator": {
+        "apps/web/scripts/og/canonical.ts": "3b7189b7094256ef4bfc7f74ec7f72993c470e4ad4d5ab62f60647a4a091c49e",
+        "apps/web/scripts/og/contract.ts": "b464b48e9b4eef5371682ce14624578afb232b067a5a999b7d3ff6a341946c93",
+        "apps/web/scripts/og/fonts.ts": "b06778d7d95000e04191e3033647e1caaec5ce163761ea202e32813cbdf1327b",
+        "apps/web/scripts/og/paths.ts": "92d96537125953814d06a37c1e1ddc33a4993bf617ecfd9c54c5ba985b3866ee",
+        "apps/web/scripts/og/poster.ts": "fb134c941191d4d3036b0a74c972829b5b75ca60ca4201035b8cc3daa3ca5057",
+        "apps/web/scripts/og/render.ts": "39886404463de061fdf03196ecc189c016e0e9bb560ab1fb7575d22f389e1b8d",
+        "apps/web/scripts/og/runtime.ts": "c0f3807b3b671726e2d4685a4a01f853ce533dc8bec83e6f21edccacb3f08eaa"
+    },
+    "toolchain": {
+        "playwright": "1.60.0",
+        "tsx": "4.21.0"
+    },
+    "alias": {
+        "file": "manyfold-og.png",
+        "locale": "en"
+    },
+    "apps": [
+        "web",
+        "docs"
+    ],
+    "locales": {
+        "en": {
+            "file": "manyfold-og-v3.png",
+            "copy": {
+                "web.landing.heroTitleBefore": "Many agents.",
+                "web.landing.heroTitleAfter": "One",
+                "web.landing.heroTitleAccent": "fold.",
+                "web.landing.heroTagline": "Any agent framework, or bring your own, all from one workspace."
+            },
+            "fonts": [
+                {
+                    "family": "Geist",
+                    "weight": 400,
+                    "sha256": "ead637fd0b6b887d829b3ce3f25fdc242b1de0cfb69c0d97987933675d1315ba"
+                },
+                {
+                    "family": "Geist",
+                    "weight": 500,
+                    "sha256": "6145bf6706dbc1b6686f04f871489cf724951f00b752745896ccdcac07639a53"
+                },
+                {
+                    "family": "Geist Mono",
+                    "weight": 400,
+                    "sha256": "3f98383b122fe015a48536cd4a1cda855a201718923ffe74931a01597107b9b5"
+                }
+            ],
+            "layout": {
+                "bodyBottom": 489.8125,
+                "minFontPx": 23
+            },
+            "bytes": 443622,
+            "sha256": "c00029964ec1a093fd65d58ebf194f63e68f82e82a1f65a328413f1b0a172f0f"
+        },
+        "zh": {
+            "file": "manyfold-og-zh-v3.png",
+            "copy": {
+                "web.landing.heroTitleBefore": "多个 Agent。",
+                "web.landing.heroTitleAfter": "同一个",
+                "web.landing.heroTitleAccent": "工作区。",
+                "web.landing.heroTagline": "任何 agent 框架，或带上你自己的，都在同一个工作区运行。"
+            },
+            "fonts": [
+                {
+                    "family": "Geist",
+                    "weight": 400,
+                    "sha256": "ead637fd0b6b887d829b3ce3f25fdc242b1de0cfb69c0d97987933675d1315ba"
+                },
+                {
+                    "family": "Geist",
+                    "weight": 500,
+                    "sha256": "6145bf6706dbc1b6686f04f871489cf724951f00b752745896ccdcac07639a53"
+                },
+                {
+                    "family": "Geist Mono",
+                    "weight": 400,
+                    "sha256": "3f98383b122fe015a48536cd4a1cda855a201718923ffe74931a01597107b9b5"
+                },
+                {
+                    "family": "Noto Sans SC",
+                    "weight": 400,
+                    "sha256": "95e3633b6a98f764ba3adfb54504a0cd4799328c009adf9081d6c1850f9c4c78"
+                },
+                {
+                    "family": "Noto Sans SC",
+                    "weight": 500,
+                    "sha256": "885f52ca6a25fddde7641eaf9cf6d6fd9e8f1a454f99f77f0f1be1be0c6470a5"
+                }
+            ],
+            "layout": {
+                "bodyBottom": 492.53125,
+                "minFontPx": 23
+            },
+            "bytes": 441720,
+            "sha256": "10e049ebc72a2f8cf83a28d82cbacb99bd1a416b872b3df6af73adb8ce9221e6"
+        }
+    }
+}

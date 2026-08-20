@@ -1,0 +1,29 @@
+name: Feature request
+description: Propose a change to the open-source edition
+labels: [enhancement]
+body:
+    - type: textarea
+      id: problem
+      attributes:
+          label: Problem
+          description: What you are trying to do and where the current behavior falls short.
+      validations:
+          required: true
+    - type: textarea
+      id: proposal
+      attributes:
+          label: Proposal
+          description: What you would like to happen. Sketches and alternatives welcome.
+      validations:
+          required: true
+    - type: textarea
+      id: placement
+      attributes:
+          label: Feature placement
+          description: |
+              Is this useful to everyone self-hosting, with no proprietary
+              dependency? (See CONTRIBUTING.md — features that only make sense
+              in a hosted product belong to a downstream edition; the core can
+              still gain a neutral seam for them.)
+      validations:
+          required: true

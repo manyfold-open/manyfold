@@ -1,0 +1,17 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import SupportPage from '@/components/SupportPage.astro'
+import { getSupportUi, type Locale } from '@/lib/i18n'
+
+const locale: Locale = 'en'
+const copy = getSupportUi(locale)
+---
+
+<BaseLayout
+    title={copy.supportTitle}
+    description={copy.supportDescription}
+    locale={locale}
+    hideSupportBubble
+>
+    <SupportPage locale={locale} />
+</BaseLayout>

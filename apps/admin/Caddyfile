@@ -1,0 +1,40 @@
+:8080 {
+    encode gzip zstd
+    root * /srv
+
+    # Values MUST use double quotes: Caddyfile does not treat single quotes
+    # as quoting, so a single-quoted multi-word value tokenizes into extra
+    # arguments and silently turns `header` into a find/replace no-op (the
+    # pre-2026-08 assets cache bug, see apps/web/Caddyfile).
+    #
+    # Immutable is gated on the file actually existing (#540): header ops
+    # run before file_server resolves the path, so a path-only matcher
+    # stamps the one-year header onto missing-asset 404s too, and a
+    # transient miss during a rolling deploy would be negatively cached for
+    # a year. Invariants enforced by check-governance.mjs; behavior locked
+    # by apps/web/test/caddyContract.test.ts, which reads this file too.
+    @assetHit {
+        path /assets/*
+        file {path}
+    }
+    header @assetHit Cache-Control "public, max-age=31536000, immutable"
+    @assetMiss {
+        path /assets/*
+        not file {path}
+    }
+    header @assetMiss Cache-Control "no-cache"
+    @notAssets not path /assets/*
+    header @notAssets Cache-Control "no-cache"
+
+    # Hashed assets bypass the SPA fallback: after a deploy removes old
+    # hashes, a stale tab's chunk request must be a real 404 so the client
+    # can detect the stale deployment — never the app shell as HTML 200
+    # (#540).
+    handle /assets/* {
+        file_server
+    }
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
+}

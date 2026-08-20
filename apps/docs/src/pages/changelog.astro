@@ -1,0 +1,12 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import ChangelogTimeline from '@/components/ChangelogTimeline.astro'
+import { getUi, type Locale } from '@/lib/i18n'
+
+const locale: Locale = 'en'
+const copy = getUi(locale)
+---
+
+<BaseLayout title={copy.changelogTitle} description={copy.changelogDescription} locale={locale}>
+    <ChangelogTimeline locale={locale} />
+</BaseLayout>

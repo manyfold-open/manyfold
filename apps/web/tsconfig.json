@@ -1,0 +1,17 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "jsx": "react-jsx",
+        "lib": ["ES2022", "DOM", "DOM.Iterable"],
+        "useDefineForClassFields": true,
+        "noEmit": true,
+        "baseUrl": "./",
+        "paths": {
+            "@/*": ["src/*"],
+            "@manyfold/i18n": ["../../packages/i18n/src/index.ts"]
+        }
+    },
+    "include": ["src/**/*"]
+}

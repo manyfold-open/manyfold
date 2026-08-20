@@ -1,0 +1,19 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Some tests import @manyfold/sdk source through its workspace package,
+        // so the test program's root must cover both apps/api and packages/sdk.
+        "rootDir": "../..",
+        "noEmit": true,
+        "incremental": false,
+        "declaration": false,
+        "sourceMap": false
+    },
+    "include": [
+        // Loads Fastify multipart/websocket module augmentations used by tests.
+        "src/main.ts",
+        "test/**/*.test.ts",
+        "scripts/run-pg-audit.ts"
+    ],
+    "exclude": ["dist", "node_modules"]
+}

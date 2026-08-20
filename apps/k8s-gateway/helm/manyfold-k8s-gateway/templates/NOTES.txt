@@ -1,0 +1,17 @@
+The Manyfold k8s exec gateway is rolling out.
+
+Verify it from inside the cluster:
+
+    kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "mkg.fullname" . }}
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mkg.fullname" . }} 8080:{{ .Values.service.port }} &
+    curl -fsS http://127.0.0.1:8080/healthz
+
+Then wire the Manyfold API to it:
+
+    MF_K8S_GATEWAY_URL   = the HTTPS URL you publish this Service at
+{{- if .Values.ingress.enabled }}
+                           (this release: https://{{ .Values.ingress.host }})
+{{- end }}
+    MF_K8S_GATEWAY_TOKEN = the token in the {{ include "mkg.secretName" . }} Secret
+
+plus KUBECONFIG for the same cluster, and restart the API.

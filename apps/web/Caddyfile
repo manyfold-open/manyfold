@@ -1,0 +1,88 @@
+:8080 {
+    encode gzip zstd
+    root * /srv
+
+    # Short links: /r/<code> is the public face, the
+    # API owns resolution and click counting. This handle must win over the
+    # static/SPA serving below, which would otherwise 200 the app shell and
+    # bounce the visitor to the landing page. Host is rewritten because the
+    # upstream is a Fly public hostname whose edge routes by Host header.
+    handle /r/* {
+        rewrite * /api{uri}
+        reverse_proxy {$MF_API_ORIGIN:https://api.manyfold.ai} {
+            header_up Host {upstream_hostport}
+        }
+    }
+
+    handle {
+        # Values MUST use double quotes: Caddyfile does not treat single
+        # quotes as quoting, so a single-quoted multi-word value tokenizes
+        # into extra arguments and silently turns `header` into a
+        # find/replace no-op (the pre-2026-08 assets cache bug). Verify with
+        # `caddy adapt`: each header must adapt to a `set` operation.
+        #
+        # Immutable is gated on the file actually existing (#540): header
+        # ops run before file_server resolves the path, so a path-only
+        # matcher stamps the one-year header onto missing-asset 404s too,
+        # and a transient miss during a rolling deploy would be negatively
+        # cached for a year. Invariants enforced by check-governance.mjs;
+        # behavior locked by apps/web/test/caddyContract.test.ts.
+        @assetHit {
+            path /assets/*
+            file {path}
+        }
+        header @assetHit Cache-Control "public, max-age=31536000, immutable"
+        @assetMiss {
+            path /assets/*
+            not file {path}
+        }
+        header @assetMiss Cache-Control "no-cache"
+        @notAssets not path /assets/*
+        header @notAssets Cache-Control "no-cache"
+
+        # SPA route families (mirrors SPA_ROUTE_PREFIXES in
+        # apps/web/src/seo/artifacts.ts, which also generates robots.txt):
+        # they get the contentless app shell and a hard noindex. The header
+        # matcher runs against the pre-rewrite path, so it and the rewrite
+        # can share @spa.
+        @spa path \
+            /login /login/* \
+            /cli-login /cli-login/* \
+            /connect /connect/* \
+            /grant-permission /grant-permission/* \
+            /invite /invite/* \
+            /workspace /workspace/* \
+            /agents /agents/* \
+            /automations /automations/* \
+            /skills /skills/* \
+            /mcp /mcp/* \
+            /connections /connections/* \
+            /connectors /connectors/* \
+            /settings /settings/* \
+            /agent-runtimes /agent-runtimes/* \
+            /usage /usage/* \
+            /challenge /challenge/* \
+            /chat /chat/*
+        header @spa X-Robots-Tag "noindex, nofollow"
+        rewrite @spa /app.html
+
+        # The static renderer's canonical Chinese URL carries a trailing slash.
+        # Keep the query string because signed-in visits use ?stay=1 and
+        # short links may carry attribution parameters.
+        redir /zh /zh/{?query} 308
+
+        # Marketing pages are real files (dist/<path>/index.html) rendered at
+        # build time. Anything that resolves to no file is a genuine 404 —
+        # unknown top-level URLs must stop soft-404ing as the app shell.
+        try_files {path} {path}/index.html {path}index.html
+        file_server
+    }
+
+    handle_errors {
+        @notfound expression {http.error.status_code} == 404
+        handle @notfound {
+            rewrite * /404.html
+            file_server
+        }
+    }
+}

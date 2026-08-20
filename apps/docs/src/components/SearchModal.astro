@@ -1,0 +1,205 @@
+---
+import { getUi, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale?: Locale
+}
+
+const { locale = 'en' } = Astro.props
+const copy = getUi(locale)
+---
+
+<div
+    class="docs-search-overlay"
+    id="docs-search"
+    data-locale={locale}
+    data-empty-label={copy.searchEmpty}
+    role="dialog"
+    aria-modal="true"
+    aria-label={copy.searchLabel}
+    hidden
+>
+    <div class="docs-search-panel">
+        <div class="border-divider flex items-center gap-2.5 border-b px-3.5">
+            <svg
+                class="text-subtle shrink-0"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+            >
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m21 21-4.3-4.3"></path>
+            </svg>
+            <input
+                id="docs-search-input"
+                type="search"
+                class="text-body text-fg placeholder:text-placeholder h-12 min-w-0 flex-1 bg-transparent outline-none"
+                placeholder={copy.searchPlaceholder}
+                autocomplete="off"
+                spellcheck="false"
+            />
+            <span class="docs-kbd">esc</span>
+        </div>
+        <div id="docs-search-results" class="max-h-[60vh] overflow-y-auto p-2"></div>
+    </div>
+</div>
+
+<script>
+    const overlay = document.getElementById('docs-search')
+    const input = document.getElementById(
+        'docs-search-input'
+    ) as HTMLInputElement | null
+    const results = document.getElementById('docs-search-results')
+
+    if (overlay && input && results) {
+        const locale = overlay.dataset.locale || 'en'
+        const emptyLabel = overlay.dataset.emptyLabel || 'No matches found.'
+
+        type Record = {
+            title: string
+            description: string
+            url: string
+            locale: string
+            section: string
+            text: string
+        }
+
+        let index: Record[] | null = null
+        let active = 0
+        let current: Record[] = []
+
+        const load = async () => {
+            if (index) return
+            try {
+                const res = await fetch('/search.json')
+                const all = (await res.json()) as Record[]
+                index = all.filter((r) => r.locale === locale)
+            } catch {
+                index = []
+            }
+        }
+
+        const escapeHtml = (s: string) =>
+            s.replace(
+                /[&<>"]/g,
+                (c) =>
+                    ({
+                        '&': '&amp;',
+                        '<': '&lt;',
+                        '>': '&gt;',
+                        '"': '&quot;'
+                    })[c] || c
+            )
+
+        const render = () => {
+            if (!current.length) {
+                results.innerHTML = `<p class="text-ui text-subtle px-3 py-6 text-center">${escapeHtml(
+                    emptyLabel
+                )}</p>`
+                return
+            }
+            results.innerHTML = current
+                .map((r, i) => {
+                    const sub = r.description || r.text.slice(0, 90)
+                    return `<a class="docs-search-result${
+                        i === active ? ' is-active' : ''
+                    }" href="${r.url}" data-i="${i}">
+                        <div class="flex items-center gap-2">
+                            <span class="text-body font-medium">${escapeHtml(r.title)}</span>
+                            <span class="docs-pill ml-auto shrink-0">${escapeHtml(r.section)}</span>
+                        </div>
+                        <p class="text-ui text-muted mt-0.5 line-clamp-1">${escapeHtml(sub)}</p>
+                    </a>`
+                })
+                .join('')
+        }
+
+        const search = (q: string) => {
+            const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
+            if (!terms.length || !index) {
+                current = []
+                active = 0
+                render()
+                return
+            }
+            current = index
+                .map((r) => {
+                    const hay = `${r.title} ${r.description} ${r.text}`.toLowerCase()
+                    if (!terms.every((t) => hay.includes(t))) return null
+                    const title = r.title.toLowerCase()
+                    const desc = r.description.toLowerCase()
+                    let score = 0
+                    terms.forEach((t) => {
+                        if (title.includes(t)) score += 10
+                        if (desc.includes(t)) score += 3
+                    })
+                    return { r, score }
+                })
+                .filter((x): x is { r: Record; score: number } => x !== null)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 12)
+                .map((x) => x.r)
+            active = 0
+            render()
+        }
+
+        const open = async () => {
+            await load()
+            overlay.classList.add('is-open')
+            overlay.removeAttribute('hidden')
+            input.value = ''
+            current = []
+            render()
+            requestAnimationFrame(() => input.focus())
+        }
+
+        const close = () => {
+            overlay.classList.remove('is-open')
+            overlay.setAttribute('hidden', '')
+        }
+
+        input.addEventListener('input', () => search(input.value.trim()))
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                active = Math.min(active + 1, current.length - 1)
+                render()
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                active = Math.max(active - 1, 0)
+                render()
+            } else if (e.key === 'Enter') {
+                const target = current[active]
+                if (target) window.location.href = target.url
+            }
+        })
+
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close()
+        })
+
+        document.addEventListener('keydown', (e) => {
+            const tag = (e.target as HTMLElement)?.tagName
+            const typing = tag === 'INPUT' || tag === 'TEXTAREA'
+            if (
+                (e.key === '/' && !typing) ||
+                ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')
+            ) {
+                e.preventDefault()
+                open()
+            } else if (e.key === 'Escape') {
+                close()
+            }
+        })
+
+        document
+            .querySelectorAll('[data-search-trigger]')
+            .forEach((el) => el.addEventListener('click', open))
+    }
+</script>

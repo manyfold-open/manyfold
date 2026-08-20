@@ -1,0 +1,95 @@
+{
+    "$schema": "https://unpkg.com/knip@5/schema.json",
+    "ignoreExportsUsedInFile": true,
+    "ignoreWorkspaces": [],
+    "workspaces": {
+        ".": {
+            "entry": [
+                "scripts/*.{mjs,sh}"
+            ],
+            "project": [
+                "scripts/**"
+            ]
+        },
+        "apps/api": {
+            "entry": [
+                "src/main.ts",
+                "test/*.test.ts"
+            ],
+            "project": [
+                "src/**",
+                "test/**"
+            ],
+            "ignoreDependencies": [
+                "@manyfold/sdk"
+            ],
+            "ignore": [
+                "src/common/raw-body-paths.ts"
+            ]
+        },
+        "apps/cli": {
+            "entry": [
+                "scripts/*.{ts,mjs}",
+                "test/*.test.ts"
+            ],
+            "project": [
+                "src/**",
+                "scripts/**",
+                "test/**"
+            ],
+            "ignoreDependencies": [
+                "undici"
+            ]
+        },
+        "apps/k8s-gateway": {
+            "entry": [
+                "test/*.test.ts"
+            ],
+            "project": [
+                "src/**",
+                "test/**"
+            ]
+        },
+        "apps/admin": {
+            "project": [
+                "src/**"
+            ]
+        },
+        "apps/web": {
+            "entry": [
+                "test/*.test.ts",
+                "scripts/*.ts",
+                "scripts/og/canonical.ts",
+                "scripts/og/render.ts",
+                "scripts/og/check.ts"
+            ],
+            "project": [
+                "src/**",
+                "test/**",
+                "scripts/**"
+            ],
+            "ignore": [
+                "scripts/og/poster.css"
+            ]
+        },
+        "apps/docs": {
+            "entry": [
+                "scripts/*.mjs",
+                "test/*.test.ts"
+            ],
+            "project": [
+                "src/**",
+                "scripts/**",
+                "test/**"
+            ],
+            "ignoreDependencies": [
+                "wrangler"
+            ]
+        },
+        "packages/*": {
+            "project": [
+                "src/**"
+            ]
+        }
+    }
+}

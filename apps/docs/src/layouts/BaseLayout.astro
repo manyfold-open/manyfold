@@ -1,0 +1,225 @@
+---
+import '@/styles/global.css'
+import Header from '@/components/Header.astro'
+import Footer from '@/components/Footer.astro'
+import SearchModal from '@/components/SearchModal.astro'
+import SupportBubble from '@/components/SupportBubble.astro'
+import {
+    alternateLocalePath,
+    getUi,
+    localeOption,
+    locales,
+    type Locale
+} from '@/lib/i18n'
+
+interface Props {
+    title: string
+    description?: string
+    locale?: Locale
+    type?: 'website' | 'article'
+    availableLocales?: Locale[]
+    breadcrumbs?: { name: string; href?: string }[]
+    hideSupportBubble?: boolean
+}
+
+const {
+    title,
+    description,
+    locale = 'en',
+    type = 'website',
+    availableLocales = locales,
+    breadcrumbs = [],
+    hideSupportBubble = false
+} = Astro.props
+const fullTitle = title === 'Manyfold' ? title : `${title} — Manyfold`
+const option = localeOption(locale)
+const desc = description ?? getUi(locale).defaultDescription
+const canonical = new URL(Astro.url.pathname, Astro.site).toString()
+// Per-locale because the headline is baked into the art. Source and exporter
+// live in apps/web/scripts/og, which also writes the PNGs into this app's
+// public/social; `pnpm social-card:check` fails if these names, that app's
+// copies and the exporter's POSTER_VERSION ever disagree.
+const ogImage = new URL(
+    locale === 'zh'
+        ? '/social/manyfold-og-zh-v3.png'
+        : '/social/manyfold-og-v3.png',
+    Astro.site
+).toString()
+const alternateLinks = availableLocales.map((alternateLocale) => ({
+    href: new URL(
+        alternateLocalePath(Astro.url.pathname, alternateLocale),
+        Astro.site
+    ).toString(),
+    hreflang: localeOption(alternateLocale).locale,
+    ogLocale: localeOption(alternateLocale).locale.replace('-', '_')
+}))
+const defaultAlternateLocale = availableLocales.includes('en') ? 'en' : locale
+const xDefault = new URL(
+    alternateLocalePath(Astro.url.pathname, defaultAlternateLocale),
+    Astro.site
+).toString()
+const breadcrumbJsonLd =
+    breadcrumbs.length >= 2
+        ? JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'BreadcrumbList',
+              itemListElement: breadcrumbs.map((breadcrumb, index) => ({
+                  '@type': 'ListItem',
+                  position: index + 1,
+                  name: breadcrumb.name,
+                  ...(breadcrumb.href
+                      ? {
+                            item: new URL(
+                                breadcrumb.href,
+                                Astro.site
+                            ).toString()
+                        }
+                      : {})
+              }))
+          }).replace(/</g, '\\u003c')
+        : null
+---
+
+<!doctype html>
+<html lang={option.locale} dir={option.direction}>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <script is:inline>
+            try {
+                const t = localStorage.getItem('mf-theme')
+                if (t === 'dark')
+                    document.documentElement.setAttribute('data-theme', 'dark')
+                else if (
+                    !t &&
+                    window.matchMedia('(prefers-color-scheme: dark)').matches
+                )
+                    document.documentElement.setAttribute('data-theme', 'dark')
+            } catch (e) {}
+        </script>
+        <!-- Microsoft YaHei ships only 400 and 700, so a CJK run at 500
+             resolves to Regular and <strong> loses its only signal. Windows
+             keeps 600, which maps to Bold; every other platform has a real
+             Medium and gets the lighter 500. -->
+        <script is:inline>
+            if (/Windows/.test(navigator.userAgent))
+                document.documentElement.setAttribute(
+                    'data-cjk-weights',
+                    'coarse'
+                )
+        </script>
+        <meta name="generator" content={Astro.generator} />
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="canonical" href={canonical} />
+        {
+            alternateLinks.map((link) => (
+                <link rel="alternate" hreflang={link.hreflang} href={link.href} />
+            ))
+        }
+        <link rel="alternate" hreflang="x-default" href={xDefault} />
+        <title>{fullTitle}</title>
+        <meta name="description" content={desc} />
+        <meta property="og:site_name" content="Manyfold" />
+        <meta property="og:title" content={fullTitle} />
+        <meta property="og:description" content={desc} />
+        <meta property="og:url" content={canonical} />
+        <meta property="og:type" content={type} />
+        <meta property="og:locale" content={option.locale.replace('-', '_')} />
+        {
+            alternateLinks
+                .filter((link) => link.ogLocale !== option.locale.replace('-', '_'))
+                .map((link) => (
+                    <meta property="og:locale:alternate" content={link.ogLocale} />
+                ))
+        }
+        <meta property="og:image" content={ogImage} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content={getUi(locale).socialImageAlt} />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={fullTitle} />
+        <meta name="twitter:description" content={desc} />
+        <meta name="twitter:image" content={ogImage} />
+        <meta name="twitter:image:alt" content={getUi(locale).socialImageAlt} />
+        <meta name="theme-color" content="#dde0e3" />
+        {
+            breadcrumbJsonLd && (
+                <script
+                    type="application/ld+json"
+                    is:inline
+                    set:html={breadcrumbJsonLd}
+                />
+            )
+        }
+    </head>
+    <body class="bg-app text-fg flex min-h-screen flex-col">
+        <Header locale={locale} availableLocales={availableLocales} />
+        <main class="docs-main flex-1">
+            <slot />
+        </main>
+        <Footer locale={locale} />
+        <SearchModal locale={locale} />
+        {!hideSupportBubble && <SupportBubble locale={locale} />}
+        <script>
+            const ICON_COPY =
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'
+            const ICON_DONE =
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+            const LANG_LABEL: Record<string, string> = {
+                sh: 'bash',
+                shell: 'bash',
+                bash: 'bash',
+                zsh: 'bash',
+                console: 'bash',
+                js: 'javascript',
+                ts: 'typescript',
+                json: 'json',
+                yaml: 'yaml',
+                yml: 'yaml',
+                toml: 'toml',
+                http: 'http',
+                text: '',
+                plaintext: ''
+            }
+            document
+                .querySelectorAll<HTMLElement>('[data-copy-scope] pre')
+                .forEach((pre) => {
+                    if (pre.closest('.docs-code')) return
+                    const code = pre.querySelector('code')
+                    if (!code) return
+
+                    const raw = (pre.dataset.language || '').toLowerCase()
+                    const lang = raw in LANG_LABEL ? LANG_LABEL[raw] : raw
+
+                    const bar = document.createElement('div')
+                    bar.className = 'docs-codebar'
+                    const label = document.createElement('span')
+                    label.className = 'docs-codebar-lang'
+                    label.textContent = lang
+                    bar.appendChild(label)
+
+                    const btn = document.createElement('button')
+                    btn.type = 'button'
+                    btn.className = 'docs-copy-btn'
+                    btn.setAttribute('aria-label', 'Copy code')
+                    btn.innerHTML = ICON_COPY
+                    btn.addEventListener('click', () => {
+                        navigator.clipboard?.writeText(code.innerText)
+                        btn.innerHTML = ICON_DONE
+                        btn.classList.add('is-done')
+                        setTimeout(() => {
+                            btn.innerHTML = ICON_COPY
+                            btn.classList.remove('is-done')
+                        }, 1300)
+                    })
+                    bar.appendChild(btn)
+
+                    const fig = document.createElement('figure')
+                    fig.className = 'docs-code'
+                    pre.parentNode?.insertBefore(fig, pre)
+                    fig.appendChild(bar)
+                    fig.appendChild(pre)
+                })
+        </script>
+    </body>
+</html>

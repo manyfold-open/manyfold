@@ -1,0 +1,49 @@
+# Default values for manyfold-k8s-gateway.
+
+replicaCount: 2
+
+image:
+    repository: ghcr.io/protagolabs/manyfold-k8s-gateway
+    tag: '' # defaults to the chart appVersion
+    pullPolicy: IfNotPresent
+
+auth:
+    # The bearer token the Manyfold API presents (MF_K8S_GATEWAY_TOKEN on the
+    # API side). Set exactly one of:
+    # - token: the chart creates a Secret with it
+    # - existingSecret: name of a Secret you manage, carrying the key
+    #   MF_K8S_GATEWAY_TOKEN
+    token: ''
+    existingSecret: ''
+
+logLevel: info
+defaultExecTimeoutMs: 60000
+
+service:
+    type: ClusterIP
+    port: 80
+
+# The Manyfold API reaches the gateway over HTTPS. Either enable this Ingress
+# (set the host your cluster serves) or publish the Service any other way
+# (tunnel, LoadBalancer, same-network URL) and point MF_K8S_GATEWAY_URL at it.
+ingress:
+    enabled: false
+    className: ''
+    annotations: {}
+    host: ''
+    tls: []
+    # tls:
+    #     - secretName: gateway-tls
+    #       hosts: [gw.example.com]
+
+resources:
+    requests:
+        cpu: 50m
+        memory: 128Mi
+    limits:
+        cpu: 500m
+        memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

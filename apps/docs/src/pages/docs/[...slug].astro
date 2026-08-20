@@ -1,0 +1,44 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import DocArticle from '@/components/DocArticle.astro'
+import { getCollection } from 'astro:content'
+import {
+    entrySlug,
+    filterDocsByLocale,
+    getUi,
+    localePath,
+    type Locale
+} from '@/lib/i18n'
+
+export async function getStaticPaths() {
+    const entries = filterDocsByLocale(await getCollection('docs'), 'en')
+    return entries.map((entry) => ({
+        params: { slug: entrySlug(entry) },
+        props: { entry }
+    }))
+}
+
+const locale: Locale = 'en'
+const { entry } = Astro.props
+const entries = filterDocsByLocale(await getCollection('docs'), locale)
+const breadcrumbs =
+    entrySlug(entry) === 'getting-started'
+        ? undefined
+        : [
+              {
+                  name: getUi(locale).docs,
+                  href: localePath(locale, '/docs/getting-started/')
+              },
+              { name: entry.data.title }
+          ]
+---
+
+<BaseLayout
+    title={entry.data.title}
+    description={entry.data.description}
+    locale={locale}
+    type="article"
+    breadcrumbs={breadcrumbs}
+>
+    <DocArticle entry={entry} entries={entries} locale={locale} />
+</BaseLayout>

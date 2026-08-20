@@ -1,0 +1,24 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import SupportPage from '@/components/SupportPage.astro'
+import { getSupportUi, nonDefaultLocales, type Locale } from '@/lib/i18n'
+
+export function getStaticPaths() {
+    return nonDefaultLocales.map((locale) => ({
+        params: { locale },
+        props: { locale }
+    }))
+}
+
+const { locale } = Astro.props as { locale: Locale }
+const copy = getSupportUi(locale)
+---
+
+<BaseLayout
+    title={copy.supportTitle}
+    description={copy.supportDescription}
+    locale={locale}
+    hideSupportBubble
+>
+    <SupportPage locale={locale} />
+</BaseLayout>

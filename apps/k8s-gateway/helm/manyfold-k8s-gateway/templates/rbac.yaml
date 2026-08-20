@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+    name: {{ include "mkg.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+    labels:
+        {{- include "mkg.labels" . | nindent 8 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+    name: {{ include "mkg.fullname" . }}
+    labels:
+        {{- include "mkg.labels" . | nindent 8 }}
+rules:
+    - apiGroups: ['']
+      resources: ['pods']
+      verbs: ['get', 'list']
+    - apiGroups: ['']
+      resources: ['pods/exec']
+      # both verbs required: WebSocket exec upgrade is a GET, JSON exec is a POST
+      verbs: ['get', 'create']
+    - apiGroups: ['']
+      resources: ['pods/log']
+      verbs: ['get']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+    name: {{ include "mkg.fullname" . }}
+    labels:
+        {{- include "mkg.labels" . | nindent 8 }}
+roleRef:
+    apiGroup: rbac.authorization.k8s.io
+    kind: ClusterRole
+    name: {{ include "mkg.fullname" . }}
+subjects:
+    - kind: ServiceAccount
+      name: {{ include "mkg.fullname" . }}
+      namespace: {{ .Release.Namespace }}

@@ -1,0 +1,295 @@
+/* Source of truth for the exported social card (og:image / twitter:image).
+   Rendered head-less at exactly 1200x630 by render.ts.
+
+   Every value here is traced to apps/web/src/styles.css — the landing page is
+   the design, this file is a still of it. When the landing changes, change it
+   here and re-export; nothing reads this at runtime.
+
+   The @font-face rules are not here: fonts.ts inlines the pinned faces ahead
+   of this file, so the card cannot pick up a host face. Copy is not here
+   either — poster.ts composes it from the landing hero keys.
+
+   Layout contract, asserted by render.ts against the live layout:
+   - Content ends above the groove at y=520, because X stamps the card title as
+     a dark pill over the lower-left of the image (~800x110 at this scale). The
+     groove marks the top of that band so it reads as a machined section rather
+     than leftover space.
+   - Nothing below 22px: at the 504px width X renders the card, 0.42x turns
+     22px into 9px. */
+
+:root {
+    --lp-bg: #dde0e3;
+    --lp-ink: #0a0c0f;
+    --lp-ink-soft: #1f242c;
+    --lp-muted: #525861;
+    --lp-subtle: #828891;
+    --lp-line: rgba(10, 12, 15, 0.18);
+    --lp-info: #3b82c9;
+    --lp-info-strong: #2666ad;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+}
+
+.poster {
+    position: relative;
+    width: 1200px;
+    height: 630px;
+    overflow: hidden;
+    background: var(--lp-bg);
+    /* Geist covers latin exactly as tailwind.config.ts `sans` does. The host
+       fallbacks that stack carries are deliberately absent: on a page they let
+       every reader see CJK, but in an exported still they let two supported
+       hosts bake different glyphs into the same card, so the CJK face is
+       pinned and embedded instead. */
+    font-family: 'Geist', 'Noto Sans SC';
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    padding: 72px;
+}
+
+/* Page-level brushed-aluminium grain — .landing-root::before */
+.poster::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-image:
+        repeating-linear-gradient(
+            90deg,
+            rgba(10, 12, 15, 0) 0,
+            rgba(10, 12, 15, 0) 1px,
+            rgba(10, 12, 15, 0.026) 1px,
+            rgba(10, 12, 15, 0.026) 2px
+        ),
+        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.08 0 0 0 0 0.1 0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+    mix-blend-mode: multiply;
+    opacity: 0.85;
+}
+
+/* Directional sheen, lit from the top-left. Low-frequency on purpose: this is
+   the layer that survives the thumbnail, unlike the grain. */
+.poster::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-image:
+        radial-gradient(
+            120% 80% at 0% 0%,
+            rgba(255, 255, 255, 0.34) 0%,
+            rgba(255, 255, 255, 0.06) 22%,
+            rgba(255, 255, 255, 0) 52%
+        ),
+        radial-gradient(
+            80% 60% at 100% 100%,
+            rgba(10, 12, 15, 0.09) 0%,
+            rgba(10, 12, 15, 0) 46%
+        );
+}
+
+/* Milled chamfer on all four edges plus the 1px --lp-line ring every landing
+   surface carries. */
+.p-chassis {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    box-shadow:
+        inset 0 2px 0 rgba(255, 255, 255, 0.55),
+        inset 2px 0 0 rgba(255, 255, 255, 0.2),
+        inset -2px 0 0 rgba(10, 12, 15, 0.1),
+        inset 0 0 0 1px var(--lp-line);
+}
+
+/* The bottom edge gets thickness rather than a line: the surface turns away
+   into shade, then a bright lip catches light on the very edge. */
+.p-lip {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 34px;
+    z-index: 0;
+    background-image: linear-gradient(
+        to bottom,
+        rgba(10, 12, 15, 0) 0%,
+        rgba(10, 12, 15, 0.05) 55%,
+        rgba(10, 12, 15, 0.11) 88%,
+        rgba(255, 255, 255, 0.5) 94%,
+        rgba(255, 255, 255, 0.62) 100%
+    );
+}
+
+.p-groove {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 520px;
+    height: 2px;
+    z-index: 0;
+    background-image: linear-gradient(
+        to bottom,
+        rgba(10, 12, 15, 0.14) 0,
+        rgba(10, 12, 15, 0.14) 1px,
+        rgba(255, 255, 255, 0.55) 1px,
+        rgba(255, 255, 255, 0.55) 2px
+    );
+}
+
+/* Precision screws — the §7.3 recipe at poster density (1.5/2.2/3px becomes
+   3/4.4/6px). background-size must match each dot or `at center` resolves
+   against the full 1200x630 box and all four pile up in the middle. */
+.p-screws {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background-image:
+        radial-gradient(
+            circle at center,
+            rgba(10, 12, 15, 0.5) 0,
+            rgba(10, 12, 15, 0.5) 3px,
+            rgba(255, 255, 255, 0.7) 3px,
+            rgba(255, 255, 255, 0.7) 4.4px,
+            rgba(255, 255, 255, 0) 6px
+        ),
+        radial-gradient(
+            circle at center,
+            rgba(10, 12, 15, 0.5) 0,
+            rgba(10, 12, 15, 0.5) 3px,
+            rgba(255, 255, 255, 0.7) 3px,
+            rgba(255, 255, 255, 0.7) 4.4px,
+            rgba(255, 255, 255, 0) 6px
+        ),
+        radial-gradient(
+            circle at center,
+            rgba(10, 12, 15, 0.5) 0,
+            rgba(10, 12, 15, 0.5) 3px,
+            rgba(255, 255, 255, 0.7) 3px,
+            rgba(255, 255, 255, 0.7) 4.4px,
+            rgba(255, 255, 255, 0) 6px
+        ),
+        radial-gradient(
+            circle at center,
+            rgba(10, 12, 15, 0.5) 0,
+            rgba(10, 12, 15, 0.5) 3px,
+            rgba(255, 255, 255, 0.7) 3px,
+            rgba(255, 255, 255, 0.7) 4.4px,
+            rgba(255, 255, 255, 0) 6px
+        );
+    background-repeat: no-repeat;
+    background-size: 12px 12px;
+    background-position:
+        24px 24px,
+        calc(100% - 24px) 24px,
+        24px calc(100% - 24px),
+        calc(100% - 24px) calc(100% - 24px);
+}
+
+.p-row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+/* BrandMark + wordmark, scaled up from the nav's 28px mark / 19px word. */
+.p-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 35px;
+    font-weight: 500;
+    letter-spacing: -0.015em;
+    color: var(--lp-ink);
+}
+
+.p-brand svg {
+    height: 50px;
+    width: auto;
+    display: block;
+}
+
+.p-domain {
+    font: 400 23px/1 'Geist Mono';
+    color: var(--lp-subtle);
+}
+
+.p-body {
+    position: relative;
+    z-index: 1;
+    margin-top: 48px;
+}
+
+/* Matches .lp-h1 (styles.css:2752): weight 500, line-height 0.92,
+   letter-spacing -0.05em. The -0.055em in the earlier .lp-h1/.lp-h2 rule is
+   overridden by that later one, so it is not the live value. */
+.p-h1 {
+    margin: 0;
+    font-size: 108px;
+    font-weight: 500;
+    line-height: 0.92;
+    letter-spacing: -0.05em;
+    color: var(--lp-ink);
+}
+
+/* Etched metal on the headline's own face, inheriting weight and tracking from
+   .p-h1 — what .lp-h-accent does once styles.css:2707 drops it back to Geist
+   normal. Stops are the landing's own 0/55/100. */
+.p-accent {
+    background: linear-gradient(
+        to bottom,
+        #d6e0e8 0%,
+        var(--lp-info) 55%,
+        var(--lp-info-strong) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5))
+        drop-shadow(0 0 1px rgba(10, 12, 15, 0.18));
+}
+
+.p-sub {
+    margin: 34px 0 0;
+    font-size: 33px;
+    font-weight: 400;
+    line-height: 1.32;
+    letter-spacing: -0.01em;
+    color: var(--lp-muted);
+}
+
+/* CJK is full-width: there are no latin sidebearings to reclaim, so -0.05em
+   reads as cramped, and a smaller face carries the same optical size.
+
+   line-height matters more than any of that. CJK glyphs fill the em box, so the
+   landing's 0.92 makes consecutive lines collide — the landing never shows it
+   because .lp-h1 there is a single line. Two lines need room. */
+html[lang^='zh'] .p-h1 {
+    font-size: 96px;
+    line-height: 1.16;
+    letter-spacing: -0.02em;
+}
+
+/* Taller CJK lines push the block down, so it starts higher to keep the same
+   clearance above the y=520 groove that the en card has. */
+html[lang^='zh'] .p-body {
+    margin-top: 32px;
+}
+
+html[lang^='zh'] .p-sub {
+    font-size: 31px;
+    letter-spacing: 0;
+}

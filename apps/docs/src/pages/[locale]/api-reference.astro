@@ -1,0 +1,15 @@
+---
+import ApiReferencePage from '@/components/ApiReferencePage.astro'
+import { nonDefaultLocales, type Locale } from '@/lib/i18n'
+
+export function getStaticPaths() {
+    return nonDefaultLocales.map((locale) => ({
+        params: { locale },
+        props: { locale }
+    }))
+}
+
+const { locale } = Astro.props as { locale: Locale }
+---
+
+<ApiReferencePage locale={locale} />

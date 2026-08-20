@@ -1,0 +1,49 @@
+# gitleaks configuration for the `secret-scan` job in ci.yml.
+#
+# Every allowlist entry below is a verified non-secret and says why. Nothing
+# here exists to quieten a finding nobody looked at: if the scan flags
+# something new, triage it — do not extend this file to make CI green.
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = """
+Build output and run artefacts. None of it is committed, so this only matters
+when a local scan follows a build. pnpm-lock.yaml is deliberately NOT here: a
+registry credential or an authenticated tarball URL in the lockfile is exactly
+the kind of thing this job exists to catch, and scanning it is clean today.
+"""
+paths = [
+    '''(^|/)dist/''',
+    '''(^|/)build/''',
+    '''(^|/)\.turbo/''',
+    '''(^|/)\.astro/''',
+    '''(^|/)\.vite/''',
+    '''(^|/)\.wrangler/''',
+    '''(^|/)\.e2e-runs/'''
+]
+
+[[allowlists]]
+description = """
+VITE_AXIOM_TOKEN in the fly configs. A dataset-scoped ingest-only token that
+Vite bakes into the browser bundle, so it is public to every visitor by
+construction — see docs/engineering/security.md and observability.md, which
+require exactly that shape. Committed deliberately; rotating it does not make
+it private.
+"""
+regexes = ['''xaat-829c6fb6-e857-4421-b1af-63c47071f6b0''']
+
+[[allowlists]]
+description = """
+Test fixtures. Each is a literal in a committed test: an argon2 placeholder, a
+log-redaction corpus that has to contain something key-shaped for the test to
+mean anything, sequential hex standing in for a WeCom AES key, and a
+structurally-valid but fabricated Discord bot token.
+"""
+regexes = [
+    '''argon2-placeholder''',
+    '''sk-test1234567890''',
+    '''00112233445566778899aabbccddeeff''',
+    '''QQ_QQ_QQ_QQ_QQ_QQ_QQ_QQ_QQ_QQ_QQ'''
+]

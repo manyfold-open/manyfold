@@ -1,0 +1,40 @@
+name: Bug report
+description: Something behaves incorrectly in the open-source edition
+labels: [bug]
+body:
+    - type: markdown
+      attributes:
+          value: |
+              For suspected security vulnerabilities use private reporting
+              (Security tab → "Report a vulnerability"), never a public issue.
+    - type: textarea
+      id: what
+      attributes:
+          label: What happened
+          description: What you did, what you expected, what you got instead.
+      validations:
+          required: true
+    - type: textarea
+      id: repro
+      attributes:
+          label: Reproduction
+          description: Smallest sequence that reproduces it (commands, agent framework, runtime).
+      validations:
+          required: true
+    - type: input
+      id: version
+      attributes:
+          label: Version / commit
+          description: Release version or commit SHA, and the surface (api / web / admin / cli / k8s-gateway).
+      validations:
+          required: true
+    - type: textarea
+      id: environment
+      attributes:
+          label: Environment
+          description: How you run it (docker compose selfhost, just dev, k8s...), OS, anything unusual.
+    - type: textarea
+      id: logs
+      attributes:
+          label: Logs
+          description: Relevant log excerpts. Redact tokens and personal data.

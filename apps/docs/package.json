@@ -1,0 +1,32 @@
+{
+    "name": "@manyfold/docs",
+    "version": "0.0.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "astro dev --port 3003",
+        "build": "astro check && astro build && pnpm check:seo",
+        "check": "astro check",
+        "check:seo": "node scripts/check-seo.mjs",
+        "check:cli-content": "node scripts/check-cli-content.mjs",
+        "test": "tsx --test test/*.test.ts",
+        "preview": "astro preview --port 3003"
+    },
+    "dependencies": {
+        "@fontsource/geist": "^5.3.0",
+        "@fontsource/geist-mono": "^5.3.0",
+        "@manyfold/i18n": "workspace:*",
+        "astro": "^6.2.2",
+        "@astrojs/check": "^0.9.9",
+        "@astrojs/mdx": "^5.0.4",
+        "@astrojs/sitemap": "^3.7.2",
+        "@tailwindcss/vite": "^4.2.4",
+        "shiki": "^4.0.2",
+        "tailwindcss": "^4.2.4",
+        "typescript": "^5.6.3"
+    },
+    "devDependencies": {
+        "tsx": "^4.21.0",
+        "wrangler": "^4.87.0"
+    }
+}

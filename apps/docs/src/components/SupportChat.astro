@@ -1,0 +1,94 @@
+---
+import { getSupportUi, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale?: Locale
+    variant?: 'bubble' | 'page'
+}
+
+const { locale = 'en', variant = 'bubble' } = Astro.props
+const copy = getSupportUi(locale)
+---
+
+<div
+    class="docs-support"
+    data-support-root
+    data-variant={variant}
+    data-locale={locale}
+    data-copy-thinking={copy.thinking}
+    data-copy-stopped={copy.stopped}
+    data-copy-sources-label={copy.sourcesLabel}
+    data-copy-source-unavailable={copy.sourceUnavailable}
+    data-copy-feedback-like={copy.feedbackLike}
+    data-copy-feedback-dislike={copy.feedbackDislike}
+    data-copy-sr-answering={copy.srAnswering}
+    data-copy-sr-answer-ready={copy.srAnswerReady}
+    data-copy-sr-stopped={copy.srStopped}
+    data-copy-error-generic={copy.errorGeneric}
+    data-copy-error-offline={copy.errorOffline}
+    data-copy-error-unavailable={copy.errorUnavailable}
+    data-copy-retry={copy.retry}
+>
+    <div class="docs-support-body">
+        <div class="docs-support-empty" data-support-empty>
+            <p class="docs-support-greeting">{copy.greeting}</p>
+            <div class="docs-support-starters">
+                {
+                    copy.starterQuestions.map((question) => (
+                        <button
+                            type="button"
+                            class="docs-support-starter"
+                            data-support-starter
+                        >
+                            {question}
+                        </button>
+                    ))
+                }
+            </div>
+        </div>
+        <div class="docs-support-scroll" data-support-transcript aria-live="off">
+        </div>
+        <button
+            type="button"
+            class="docs-support-jump"
+            data-support-jump
+            hidden
+        >
+            {copy.jumpToLatest}
+        </button>
+    </div>
+
+    <p class="sr-only" role="status" aria-live="polite" aria-atomic="true" data-support-status></p>
+
+    <div class="docs-support-footer">
+        <div class="docs-support-toolbar">
+            <button type="button" class="docs-support-new" data-support-new hidden>
+                {copy.newChat}
+            </button>
+        </div>
+        <form class="docs-support-composer" data-support-form>
+            <label class="sr-only" for={`support-input-${variant}`}>
+                {copy.composerLabel}
+            </label>
+            <textarea
+                id={`support-input-${variant}`}
+                class="docs-support-input"
+                data-support-input
+                rows="1"
+                placeholder={copy.composerPlaceholder}
+                autocomplete="off"></textarea>
+            <button type="submit" class="docs-support-send" data-support-send>
+                {copy.send}
+            </button>
+            <button
+                type="button"
+                class="docs-support-send is-stop"
+                data-support-stop
+                hidden
+            >
+                {copy.stop}
+            </button>
+        </form>
+        <p class="docs-support-disclaimer">{copy.disclaimer}</p>
+    </div>
+</div>

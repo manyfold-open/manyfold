@@ -1,0 +1,19 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import ChangelogTimeline from '@/components/ChangelogTimeline.astro'
+import { getUi, nonDefaultLocales, type Locale } from '@/lib/i18n'
+
+export function getStaticPaths() {
+    return nonDefaultLocales.map((locale) => ({
+        params: { locale },
+        props: { locale }
+    }))
+}
+
+const { locale } = Astro.props as { locale: Locale }
+const copy = getUi(locale)
+---
+
+<BaseLayout title={copy.changelogTitle} description={copy.changelogDescription} locale={locale}>
+    <ChangelogTimeline locale={locale} />
+</BaseLayout>

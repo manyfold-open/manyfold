@@ -1,0 +1,104 @@
+export interface PollControllerOptions {
+    task: () => Promise<unknown> | unknown
+    intervalMs: number
+    minSpacingMs?: number
+    isVisible: () => boolean
+    now?: () => number
+}
+
+export interface PollController {
+    start: () => void
+    stop: () => void
+    handleVisibilityChange: () => void
+    kick: () => void
+    refresh: () => void
+}
+
+const DEFAULT_MIN_SPACING_MS = 5_000
+
+export const createPollController = (
+    options: PollControllerOptions
+): PollController => {
+    const { task, intervalMs, isVisible } = options
+    const minSpacingMs = options.minSpacingMs ?? DEFAULT_MIN_SPACING_MS
+    const now = options.now ?? Date.now
+    let active = false
+    let running = false
+    let rerunRequested = false
+    let timer: ReturnType<typeof setInterval> | null = null
+    let lastRunStartedAt = -Infinity
+
+    const run = async (): Promise<void> => {
+        if (running) return
+        running = true
+        do {
+            rerunRequested = false
+            lastRunStartedAt = now()
+            try {
+                await task()
+            } catch {
+                /* task owns its errors; polling must survive */
+            }
+        } while (rerunRequested && active)
+        running = false
+    }
+
+    const clearTimer = (): void => {
+        if (timer === null) return
+        clearInterval(timer)
+        timer = null
+    }
+
+    const scheduleTimer = (): void => {
+        clearTimer()
+        timer = setInterval(() => {
+            if (!isVisible()) return
+            void run()
+        }, intervalMs)
+    }
+
+    const runNowAndReschedule = (): void => {
+        if (now() - lastRunStartedAt < minSpacingMs) {
+            if (timer === null) scheduleTimer()
+            return
+        }
+        void run()
+        scheduleTimer()
+    }
+
+    return {
+        start: (): void => {
+            if (active) return
+            active = true
+            if (!isVisible()) return
+            void run()
+            scheduleTimer()
+        },
+        stop: (): void => {
+            active = false
+            clearTimer()
+        },
+        handleVisibilityChange: (): void => {
+            if (!active) return
+            if (isVisible()) runNowAndReschedule()
+            else clearTimer()
+        },
+        kick: (): void => {
+            if (!active || !isVisible()) return
+            runNowAndReschedule()
+        },
+        // Post-mutation refresh: unlike kick, it must not be dropped by min
+        // spacing (the caller just changed the data), and a run already in
+        // flight may carry a pre-mutation snapshot, so coalesce into one
+        // follow-up run instead of issuing a concurrent request.
+        refresh: (): void => {
+            if (!active) return
+            if (running) {
+                rerunRequested = true
+                return
+            }
+            void run()
+            scheduleTimer()
+        }
+    }
+}

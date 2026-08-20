@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Manyfold</title>
+        <!-- Single favicon for both themes — the logo sits on a rounded
+             dark square that's readable on both light and dark browser tabs. -->
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <script>
+            ;(() => {
+                const key = 'nca.web.theme'
+                let theme = null
+
+                try {
+                    theme = window.localStorage.getItem(key)
+                } catch {
+                    theme = null
+                }
+
+                if (theme !== 'light' && theme !== 'dark') {
+                    theme = window.matchMedia('(prefers-color-scheme: dark)')
+                        .matches
+                        ? 'dark'
+                        : 'light'
+                }
+
+                document.documentElement.dataset.theme = theme
+                document.documentElement.style.colorScheme = theme
+            })()
+        </script>
+        <!-- Microsoft YaHei ships only 400 and 700, so a CJK run at 500
+             resolves to Regular and <strong> loses its only signal —
+             weight is all it has. Windows keeps 600, which maps to Bold
+             and preserves today's look; every other platform has a real
+             Medium and gets the lighter 500. Set here rather than in React
+             so the weight never flashes. -->
+        <script>
+            ;(() => {
+                const ua = navigator.userAgent
+                if (/Windows/.test(ua)) {
+                    document.documentElement.dataset.cjkWeights = 'coarse'
+                }
+            })()
+        </script>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>

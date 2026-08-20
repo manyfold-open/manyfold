@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer components {
+    .admin-table {
+        @apply text-caption text-heading w-full text-left;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .admin-table thead {
+        @apply border-border bg-surface-subtle text-caption-sm border-b tracking-wider uppercase;
+        color: #64748d;
+    }
+
+    .admin-table th {
+        @apply px-2.5 py-1.5 align-middle font-normal;
+    }
+
+    .admin-table td {
+        @apply px-2.5 py-1.5 align-middle;
+    }
+
+    .admin-table tbody {
+        @apply divide-border divide-y;
+    }
+
+    .admin-table tbody tr {
+        @apply transition-colors;
+    }
+
+    .admin-table tbody tr:hover {
+        @apply bg-surface-muted/70;
+    }
+
+    .admin-page-description {
+        @apply text-caption font-normal;
+        color: #64748d;
+    }
+}
+
+@layer base {
+    html {
+        font-feature-settings: 'ss01' on;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    html,
+    body,
+    #root {
+        height: 100%;
+    }
+
+    body {
+        font-family:
+            'Inter',
+            -apple-system,
+            BlinkMacSystemFont,
+            'SF Pro Display',
+            'Segoe UI',
+            Roboto,
+            sans-serif;
+        color: #64748d;
+        background: #ffffff;
+    }
+
+    code,
+    pre,
+    .font-mono {
+        font-family: 'Source Code Pro', SFMono-Regular, Menlo, monospace;
+    }
+
+    .tnum {
+        font-variant-numeric: tabular-nums;
+    }
+}

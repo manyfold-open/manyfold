@@ -1,0 +1,1130 @@
+@import 'tailwindcss';
+@import '@fontsource/geist/400.css';
+@import '@fontsource/geist/500.css';
+@import '@fontsource/geist/600.css';
+@import '@fontsource/geist-mono/400.css';
+@import '@fontsource/geist-mono/500.css';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* ====================================================== */
+/* Docs site — cool-graphite anodized chassis             */
+/*                                                        */
+/* Mirrors the @manyfold/web DESIGN.md design system at   */
+/* "compact desktop" volume (§2 product posture):         */
+/* same tokens, same milled-chassis shadow anatomy, no    */
+/* brushed grain, no corner screws, no serif italic.      */
+/*                                                        */
+/* Workbench surface ramp (DESIGN.md §2 / §9.3):          */
+/*   bg-app    — html/body floor, only visible on         */
+/*               overscroll bounce                        */
+/*   bg-main   — docs canvas: header, nav, article and    */
+/*               footer all share it (one sheet of paper) */
+/*   bg-surface— code block / card / popover              */
+/* Values are taken from the product's ramp so the docs   */
+/* canvas and the chat canvas are the same room. bg-rail  */
+/* has no consumer here: unlike the app, a docs sidebar   */
+/* is reading aid, not chrome, so it is never filled.     */
+/* ====================================================== */
+
+@theme {
+    /* === Text === */
+    --color-fg: rgb(10 12 15);                  /* --lp-ink         */
+    --color-muted: rgb(82 88 97);               /* --lp-muted       */
+    --color-subtle: rgb(130 136 145);           /* --lp-subtle      */
+    --color-placeholder: rgb(155 161 170);
+
+    /* === Lines / dividers === */
+    --color-divider: rgba(10, 12, 15, 0.18);    /* --lp-line        */
+
+    /* === Workbench surface ramp ===
+       Same-hue cool graphite stepping, values shared with the product
+       (apps/web styles.css) so a reader moving between the workspace
+       and the docs never sees the ground change under them. */
+    --color-app: rgb(222 226 230);              /* floor — overscroll only */
+    --color-main: rgb(247 249 251);             /* docs canvas === chat canvas */
+    --color-rail: rgb(235 238 241);             /* unconsumed; kept aligned to the product rail */
+    --color-soft: rgb(234 237 241);             /* list-row hover */
+    --color-soft-hover: rgb(226 230 234);       /* one step down, toward the floor */
+    --color-surface: rgb(251 252 254);          /* code blocks, cards, popovers */
+    --color-surface-subtle: rgb(235 238 241);   /* recessed inside surface */
+    --color-surface-elevated: rgb(253 254 255); /* top-most popover */
+    --color-surface-hover: rgb(233 237 241);
+
+    /* === Primary button (class P, DESIGN.md §8.1 / §8.10) ===
+       Dark fill in light mode; hover steps up the graphite ramp.
+       Text stays pure white — no filter:brightness, no text-color
+       change on hover. */
+    --color-strong: rgb(10 12 15);              /* --lp-ink */
+    --color-strong-hover: rgb(42 49 56);        /* graphite mid-tone */
+    --color-strong-fg: rgb(236 240 243);        /* --lp-paper, not pure white */
+
+    /* === Status spectrum (DESIGN.md §4.1 / §10.6) ===
+       Five clearly-separated hues with adequate saturation
+       and 55°+ hue gaps so adjacent states are instantly
+       distinguishable. Each role has -fg (solid color),
+       -bg (low-alpha tint for banners/badges), -strong
+       (saturated pressed/highlight). */
+    --color-info: rgb(59 130 201);              /* #3B82C9 — cool blue: active / brand / info */
+    --color-info-bg: rgb(232 240 249);
+    --color-info-strong: rgb(38 102 173);
+    --color-success: rgb(46 158 110);           /* #2E9E6E — teal-green: confirmed / shipped */
+    --color-success-bg: rgb(230 244 237);
+    --color-success-strong: rgb(31 126 84);
+    --color-warning: rgb(200 148 54);           /* #C89436 — amber-ochre: queued / pending */
+    --color-warning-bg: rgb(248 240 224);
+    --color-warning-strong: rgb(160 115 33);
+    --color-error: rgb(196 76 58);              /* #C44C3A — brick-red: failed / destructive */
+    --color-error-bg: rgb(247 226 222);
+    --color-error-strong: rgb(154 53 39);
+    --color-idle: rgb(138 144 153);             /* #8A9099 — neutral grey: idle / disabled */
+    --color-idle-bg: rgb(234 235 237);
+
+    /* === Legacy aliases ===
+       Existing rules reference --color-danger-*, --color-workflow-*,
+       --color-badge-*. Aliased to the new spectrum so call sites
+       keep working; new rules should use the status-named tokens. */
+    --color-danger-bg: var(--color-error-bg);
+    --color-danger-hover: rgb(244 218 213);
+    --color-danger-fg: var(--color-error-strong);
+    --color-workflow-develop: var(--color-info);      /* active / running */
+    --color-workflow-preview: var(--color-warning);   /* queued */
+    --color-workflow-ship: var(--color-success);      /* shipped — note: prior token meant "destructive"; the docs use it for changelog "shipped", which is success-semantics */
+    --color-badge-bg: var(--color-info-bg);
+    --color-badge-text: var(--color-info-strong);
+
+    /* === LED accent (DESIGN.md §8.4) ===
+       The brand power-on hue. Inline doc links and focus
+       rings use this — semantically identical to info, but
+       declared independently so a future status retune
+       doesn't drag the brand mark with it. */
+    --color-link: var(--color-info);
+    --color-link-hover: var(--color-info-strong);
+    --color-focus: var(--color-info);
+
+    /* === Typography ===
+       Identical to the web app and landing — Geist sans for
+       everything, Geist Mono only for technical signal. Those
+       two families are the whole system; there is no third
+       display face anywhere (DESIGN.md §5). */
+    --font-sans:
+        'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial,
+        sans-serif;
+    --font-mono:
+        'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
+        'Courier New', monospace;
+
+    --text-display: 2.5rem;
+    --text-display--line-height: 1.05;
+    --text-display--letter-spacing: -0.025em;
+    --text-display--font-weight: 500;
+
+    --text-h1: 1.75rem;
+    --text-h1--line-height: 1.1;
+    --text-h1--letter-spacing: -0.02em;
+    --text-h1--font-weight: 500;
+
+    --text-h2: 1.25rem;
+    --text-h2--line-height: 1.25;
+    --text-h2--letter-spacing: -0.015em;
+    --text-h2--font-weight: 500;
+
+    --text-h3: 1rem;
+    --text-h3--line-height: 1.4;
+    --text-h3--letter-spacing: -0.01em;
+    --text-h3--font-weight: 500;
+
+    --text-body: 0.9375rem;
+    --text-body--line-height: 1.5;
+    --text-ui: 0.8125rem;
+    --text-ui--line-height: 1.43;
+    --text-caption: 0.6875rem;
+    --text-caption--line-height: 1.33;
+    /* One rung for every code surface, inline and block alike — docs has no
+       display-mode switch, so it is a single value rather than the webapp's
+       three-column ramp (DESIGN.md §5). 13px against the 15px body is the
+       same ~0.87 optical ratio the webapp runs. */
+    --text-code: 0.8125rem;
+    --text-code--line-height: 1.6;
+
+    /* === Product radius scale (DESIGN.md §6.1) ===
+       An honest ascending scale matching the webapp's product scale
+       (apps/web/tailwind.config.ts). The working tiers — Xs 8 / Sm 10 /
+       Md 14 — carry the whole docs surface: **Md 14 is the ceiling** for
+       every card, panel, and popover; Sm 10 for controls and nested
+       elements; Xs 8 for micro-glyphs. Lg / Xl / 2xl / 3xl exist as real
+       larger steps (matching the webapp's landing tiers) but docs, being
+       a dense product surface with no hero-scale or composer surface,
+       never climbs above Md — see DESIGN.md §6.1 for the split. */
+    --radius-DEFAULT: 10px;
+    --radius-xs: 8px;
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --radius-xl: 24px;
+    --radius-2xl: 28px;
+    --radius-3xl: 32px;
+    --radius-pill: 9999px;
+
+    /* === Flat surface shadows (DESIGN.md §7) ===
+       Solid fill + a single 1px hairline ring + a quiet downward drop.
+       NO inset top gleam, NO cool-platinum band — the milled-chassis
+       volume now lives only on the webapp chat composer and the landing
+       .lp-* surfaces. --shadow-card grounds a resting card; --shadow-
+       elevated lifts a floating popover / drawer a step further. */
+    --shadow-ring: rgba(10, 12, 15, 0.18) 0 0 0 1px;
+    --shadow-ring-light: rgba(10, 12, 15, 0.12) 0 0 0 1px;
+    --shadow-card:
+        0 1px 2px -1px rgba(10, 12, 15, 0.05),
+        0 4px 10px -5px rgba(10, 12, 15, 0.07),
+        rgba(10, 12, 15, 0.12) 0 0 0 1px;
+    --shadow-elevated:
+        0 2px 6px -2px rgba(10, 12, 15, 0.08),
+        0 12px 28px -10px rgba(10, 12, 15, 0.13),
+        rgba(10, 12, 15, 0.14) 0 0 0 1px;
+    /* Docs colors are whole values, so color-mix expresses the same halo
+       alpha as the web baseline's channel-based rgb() syntax. */
+    --shadow-focus:
+        var(--color-focus) 0 0 0 1px,
+        color-mix(in srgb, var(--color-focus) 18%, transparent) 0 0 0 4px;
+
+    --container-prose: 700px;
+    --container-content: 1080px;
+}
+
+@layer base {
+    html[data-theme='dark'] {
+        color-scheme: dark;
+
+        --color-fg: rgb(228 231 236);              /* --lp-ink */
+        --color-muted: rgb(124 131 140);
+        --color-subtle: rgb(80 85 92);
+        --color-placeholder: rgb(100 106 114);
+
+        --color-divider: rgba(255, 255, 255, 0.13);
+
+        /* Aligned with the product's dark ramp (apps/web styles.css), same
+           reasoning as the light block: one room, one set of values. The
+           canvas is lifted above the floor rather than pressed into it —
+           dark mode reads a fill below the canvas as a hole. */
+        --color-app: rgb(7 9 12);                  /* floor — overscroll only */
+        --color-main: rgb(20 23 27);               /* docs canvas === chat canvas */
+        --color-rail: rgb(13 16 20);               /* unconsumed; aligned to the product rail */
+        --color-soft: rgb(28 32 38);               /* list-row hover — lifts off the canvas */
+        --color-soft-hover: rgb(38 43 50);
+        --color-surface: rgb(32 36 42);            /* code blocks, cards, popovers */
+        --color-surface-subtle: rgb(26 30 36);
+        --color-surface-elevated: rgb(42 47 54);
+        --color-surface-hover: rgb(48 53 60);
+
+        /* Primary button flips: cool platinum fill, deep-ink text */
+        --color-strong: rgb(230 233 236);
+        --color-strong-hover: rgb(244 246 248);
+        --color-strong-fg: rgb(15 17 20);
+
+        /* Status spectrum — dark variant (DESIGN.md §4.2). Hues
+           brightened so perceived saturation matches light mode. */
+        --color-info: rgb(123 182 232);              /* #7BB6E8 */
+        --color-info-bg: rgb(24 38 56);
+        --color-info-strong: rgb(92 153 210);
+        --color-success: rgb(91 197 152);            /* #5BC598 */
+        --color-success-bg: rgb(22 50 38);
+        --color-success-strong: rgb(58 166 122);
+        --color-warning: rgb(228 185 104);           /* #E4B968 */
+        --color-warning-bg: rgb(56 44 22);
+        --color-warning-strong: rgb(195 153 69);
+        --color-error: rgb(224 122 106);             /* #E07A6A */
+        --color-error-bg: rgb(64 36 34);
+        --color-error-strong: rgb(191 89 70);
+        --color-idle: rgb(110 118 130);              /* #6E7682 */
+        --color-idle-bg: rgb(36 40 46);
+
+        --color-danger-bg: var(--color-error-bg);
+        --color-danger-hover: rgb(82 44 40);
+        --color-danger-fg: var(--color-error);
+        --color-workflow-develop: var(--color-info);
+        --color-workflow-preview: var(--color-warning);
+        --color-workflow-ship: var(--color-success);
+        --color-badge-bg: var(--color-info-bg);
+        --color-badge-text: var(--color-info);
+
+        --color-link: var(--color-info);
+        --color-link-hover: var(--color-info-strong);
+        --color-focus: var(--color-info);
+
+        --shadow-ring: rgba(255, 255, 255, 0.14) 0 0 0 1px;
+        --shadow-ring-light: rgba(255, 255, 255, 0.10) 0 0 0 1px;
+        /* Flat in the dimmed graphite room: the 1px light ring carries
+           most of the separation, the drop only grounds the surface. */
+        --shadow-card:
+            0 1px 2px -1px rgba(0, 0, 0, 0.28),
+            0 4px 12px -6px rgba(0, 0, 0, 0.38),
+            rgba(255, 255, 255, 0.12) 0 0 0 1px;
+        --shadow-elevated:
+            0 2px 8px -2px rgba(0, 0, 0, 0.42),
+            0 16px 34px -12px rgba(0, 0, 0, 0.5),
+            rgba(255, 255, 255, 0.14) 0 0 0 1px;
+        /* Halo runs stronger than light mode: a low-alpha value over a
+           near-black canvas is eaten by the same perceptual compression
+           the hover tokens are tuned around, so 0.18 reads as no halo
+           here. Both modes are matched on perceived contrast, not alpha. */
+        --shadow-focus:
+            var(--color-focus) 0 0 0 1px,
+            color-mix(in srgb, var(--color-focus) 26%, transparent) 0 0 0 4px;
+    }
+
+    html {
+        background: var(--color-app);
+        color: var(--color-fg);
+        color-scheme: light;
+        font-family: var(--font-sans);
+        font-feature-settings: 'liga' on, 'ss01', 'cv11';
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+    }
+
+    body {
+        margin: 0;
+        background: var(--color-app);
+        color: var(--color-fg);
+        font-size: var(--text-body);
+        line-height: var(--text-body--line-height);
+    }
+
+    a {
+        color: var(--color-link);
+        text-underline-offset: 4px;
+    }
+
+    a:hover {
+        text-decoration: underline;
+        color: var(--color-link-hover);
+    }
+
+    code,
+    pre,
+    .font-mono {
+        font-family: var(--font-mono);
+        font-variant-ligatures: none;
+    }
+
+    :focus-visible {
+        outline: 2px solid var(--color-focus);
+        outline-offset: 2px;
+    }
+}
+
+@layer components {
+    /* === Page canvas ===
+       Flat fill on bg-main (DESIGN.md §9.6: the canvas is a
+       single tone, no gradient, no radial wash). The previous
+       asymmetric blue corner wash + vertical gradient broke
+       the "one material, one canvas" reading. */
+    .docs-main {
+        background: var(--color-main);
+    }
+
+    .docs-container {
+        @apply max-w-content mx-auto w-full px-4 md:px-6;
+    }
+
+    .docs-prose-container {
+        @apply mx-auto w-full max-w-prose px-4 md:px-6;
+    }
+
+    .docs-page-section {
+        @apply py-7 md:py-9;
+    }
+
+    .docs-page-header {
+        @apply max-w-3xl;
+    }
+
+    .docs-kicker {
+        @apply font-mono text-caption text-subtle tracking-[0.18em] uppercase;
+    }
+
+    .docs-copy {
+        @apply text-body text-muted;
+    }
+
+    /* === Cards (DESIGN.md §8.2) ===
+       Flat paper fill + milled-chassis shadow. All separation
+       lives in shadow; no border, no inner gradient. */
+    .docs-panel {
+        @apply bg-surface rounded-md;
+        box-shadow: var(--shadow-card);
+    }
+
+    .docs-panel-soft {
+        @apply bg-surface rounded-md;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* Recessed inset panel — sits *below* the surface tone with
+       a uniform 1px inset ring. The chip / stage-block grammar
+       (§8.3) at panel scale. */
+    .docs-panel-subtle {
+        @apply bg-surface-subtle rounded-md;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* === Card-link (clickable card, class S hover) ===
+       Resting fill = surface. Hover lifts the fill by one
+       same-hue step to surface-hover. No filter:brightness,
+       no text-color change. */
+    .docs-card-link {
+        @apply bg-surface text-fg hover:bg-surface-hover block rounded-md p-4 no-underline transition-colors hover:no-underline;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* === Primary button (class P, DESIGN.md §8.10) ===
+       Dark fill in light mode; hover steps up the graphite
+       ramp. Text and icon color stay put — the fill carries
+       the hover signal. */
+    .docs-button-primary {
+        @apply bg-strong text-strong-fg text-ui hover:bg-strong-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+    }
+
+    /* === Secondary button (class S, DESIGN.md §8.10) ===
+       Paper fill + the uniform 1px ring; hover steps the
+       fill up one same-hue notch. */
+    .docs-button-secondary {
+        @apply text-ui text-fg bg-surface hover:bg-surface-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* === Status pill / tag / badge (DESIGN.md §8.3) ===
+       Pill + soft fill + single uniform 1px inset ring. No
+       shadow, no top hairline — all four edges share the
+       same line so the perceived thickness is consistent. */
+    .docs-pill {
+        @apply rounded-pill bg-soft font-sans text-caption text-subtle inline-flex items-center px-2.5 py-0.5;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* === Command pill (inline mono CLI command) ===
+       Surface fill + milled-chassis shadow because a command
+       is interactive (copy-on-click affordance). */
+    .docs-command {
+        @apply bg-surface text-ui flex w-full min-w-0 items-center gap-2 overflow-x-auto rounded-sm px-3.5 py-2.5 font-mono;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* === Sidebar (popover / drawer surface) ===
+       The docs sidebar is a popover-class surface: paper
+       fill + md shadow. The `/90` backdrop-blur dance from
+       the warm-paper era is gone — at workbench density a
+       flat opaque surface reads cleaner. */
+    .docs-sidebar {
+        @apply bg-surface text-ui rounded-md p-1.5;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* List-row inside the sidebar / menu (class L, §8.10).
+       Hover = bg-soft, not surface-hover; rows are wide and
+       a strong fill on every hover would feel like the list
+       is flashing. The nav sits directly on the canvas (it
+       has no fill of its own), so the hover steps DOWN from
+       it — on a near-white page a row acknowledges by
+       darkening, never by getting brighter. */
+    .docs-sidebar-link {
+        @apply block rounded-sm px-2.5 py-1.5 no-underline transition-colors hover:no-underline;
+    }
+
+    /* Prose-scoped panel (article surface) — same anatomy as
+       docs-panel but with prose-friendly padding. */
+    .docs-prose-panel {
+        @apply bg-surface rounded-md px-4 py-5 md:px-6 md:py-6;
+        box-shadow: var(--shadow-card);
+    }
+
+    /* === Long-form prose ===
+       Sans for everything (no serif italic — landing-only,
+       §5). Headings descend one step to ink-soft via the
+       default token system. */
+    .prose-doc {
+        max-width: var(--container-prose);
+    }
+
+    .prose-doc h1 {
+        @apply text-h1 text-fg mt-1 mb-4;
+    }
+
+    .prose-doc h2 {
+        @apply text-h2 text-fg mt-8 mb-3;
+    }
+
+    .prose-doc h3 {
+        @apply text-h3 text-fg mt-6 mb-2.5;
+    }
+
+    .prose-doc p {
+        @apply text-body text-fg/90 my-3.5 leading-[1.7];
+    }
+
+    .prose-doc ul,
+    .prose-doc ol {
+        @apply text-body text-fg/90 my-3.5 pl-5 leading-[1.7];
+    }
+
+    .prose-doc ul {
+        @apply list-disc;
+    }
+
+    /* Ordered lists render as numbered steps — circular accent badge
+       in place of the default decimal marker. */
+    .prose-doc ol {
+        @apply my-4 list-none pl-0;
+        counter-reset: docs-step;
+    }
+
+    .prose-doc ol > li {
+        @apply relative my-2 pl-9;
+        counter-increment: docs-step;
+    }
+
+    .prose-doc ol > li::before,
+    .docs-steps > li::before {
+        content: counter(docs-step);
+        @apply bg-info-bg text-info-strong absolute left-0 top-0.5 flex h-6 w-6 items-center justify-center rounded-pill text-caption font-medium;
+    }
+
+    .prose-doc li {
+        @apply my-1;
+    }
+
+    .prose-doc a {
+        @apply font-medium;
+    }
+
+    /* Without a rule of its own this fell to the browser default 700, which
+       reads as shouting next to 500 headings. */
+    .prose-doc strong {
+        @apply font-medium;
+    }
+
+    /* See BaseLayout.astro for why: on Windows the CJK fallback has no
+       Medium, so 500 would render Regular and emphasis would vanish. */
+    html[data-cjk-weights='coarse'] .prose-doc strong {
+        font-weight: 600;
+    }
+
+    /* Inline code chip — light tinted fill, no ring. Sentences carry
+       several of these; a ring on each reads as visual noise. */
+    .prose-doc code:not(pre code) {
+        @apply bg-soft rounded-xs px-1 py-0.5 font-mono;
+        font-size: var(--text-code);
+        color: var(--color-info-strong);
+    }
+
+    /* Code in a heading steps down with the heading instead of sitting at
+       the body rung, so a heading that is entirely code still reads as a
+       heading. */
+    .prose-doc h1 code:not(pre code) {
+        font-size: var(--text-h2);
+    }
+
+    .prose-doc h2 code:not(pre code) {
+        font-size: var(--text-h3);
+    }
+
+    .prose-doc h3 code:not(pre code) {
+        font-size: var(--text-body);
+    }
+
+    /* Code block — recessed surface, the figure wrapper (.docs-code,
+       added by script) owns the ring + rounding + margin so the bar
+       and body read as one panel. */
+    .prose-doc pre {
+        @apply bg-surface-subtle my-4 overflow-x-auto rounded-sm px-4 py-3.5 font-mono leading-[1.7];
+        font-size: var(--text-code);
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-code {
+        @apply my-4 overflow-hidden rounded-sm;
+        /* Outset ring, not inset: the codebar + <pre> fill the figure
+           edge-to-edge with opaque backgrounds, so an inset ring would be
+           painted over and vanish. The outset ring sits outside the
+           children — a visible 1px border around the whole component. */
+        box-shadow: var(--shadow-ring);
+    }
+
+    .docs-code > pre {
+        @apply my-0 rounded-none;
+        box-shadow: none;
+    }
+
+    .docs-codebar {
+        @apply bg-surface flex h-9 items-center justify-between gap-2 pl-3.5 pr-1.5;
+        box-shadow: inset 0 -1px 0 0 var(--color-divider);
+    }
+
+    .docs-codebar-lang {
+        @apply text-subtle font-mono text-[0.6875rem] uppercase tracking-[0.08em];
+    }
+
+    /* Callout — full-ring recessed panel (no colored side-stripe). */
+    .prose-doc blockquote {
+        @apply bg-surface-subtle text-muted my-4 rounded-sm px-4 py-3;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .prose-doc blockquote > :first-child {
+        @apply mt-0;
+    }
+
+    .prose-doc blockquote > :last-child {
+        @apply mb-0;
+    }
+
+    .prose-doc table {
+        @apply text-ui my-5 w-full border-collapse;
+    }
+
+    .prose-doc th,
+    .prose-doc td {
+        @apply border-divider border-b px-3 py-2.5 text-left align-top;
+    }
+
+    .prose-doc thead th {
+        @apply text-subtle text-caption font-medium uppercase tracking-[0.05em];
+    }
+
+    .prose-doc tbody tr:last-child td {
+        @apply border-b-0;
+    }
+
+    .prose-doc tbody td:first-child {
+        @apply text-fg font-medium;
+    }
+
+    .prose-doc hr {
+        @apply border-divider my-8;
+    }
+
+    /* === Brand mark — the four-blade Manyfold logo, matching the
+       landing nav. Outer blades take currentColor (ink); the two
+       inner blades step down to muted for the folded-plane read. */
+    .docs-brand-mark {
+        @apply block h-[22px] w-auto shrink-0;
+    }
+
+    .docs-brand-mark polygon:nth-child(2),
+    .docs-brand-mark polygon:nth-child(4) {
+        fill: var(--color-muted);
+    }
+
+    /* Beta pill sitting after the wordmark — mirrors the landing
+       `.lp-brand-beta`: info-tinted capsule, uppercase, 1px inset ring. */
+    .docs-brand-beta {
+        @apply text-link inline-flex flex-shrink-0 items-center rounded-pill px-2 py-0.5 text-[0.65625rem] font-medium uppercase leading-none tracking-[0.04em];
+        background: var(--color-info-bg);
+        box-shadow: inset 0 0 0 1px
+            color-mix(in srgb, var(--color-link) 40%, transparent);
+    }
+
+    .docs-footer .docs-brand-beta {
+        @apply px-1.5 text-[0.59375rem];
+    }
+
+    /* === Primary nav tabs (Guides / API reference / Changelog) ===
+       Filled-tab pattern (DESIGN.md §8.13): active = solid fill one
+       tone above the bar + full-ink text, NO ring and NO border — the
+       tonal step alone marks the active tab (unlike the §8.10 selected
+       row, which adds a ring). Rest = muted-ink text on a transparent
+       chip; hover lifts the text and reveals a faint same-tier fill. */
+    .docs-nav-link {
+        @apply text-fg/60 hover:text-fg hover:bg-surface-hover inline-flex items-center whitespace-nowrap rounded-pill px-3 py-1.5 no-underline transition-colors hover:no-underline;
+    }
+
+    .docs-nav-link-active,
+    .docs-nav-link-active:hover {
+        @apply bg-surface text-fg;
+    }
+
+    /* === Header chrome (DESIGN.md §8.10 ghost/icon buttons) === */
+    .docs-icon-btn {
+        @apply text-muted hover:bg-surface-hover hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+    /* Bare variant for the header's outward link and its preference toggles.
+       The search field is the only control up there that takes input, so it
+       is the only one that keeps a ring — which leaves the row reading as
+       "input box → utilities → primary action" without needing a divider. */
+    .docs-icon-bare {
+        box-shadow: none;
+    }
+
+    .docs-search-trigger {
+        @apply text-subtle hover:text-muted bg-surface flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-pill px-3 text-ui transition-colors;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* Language-switcher code — mono short code (EN / ZH) beside the
+       globe, mirroring the landing nav `.lp-nav-chip-code`. */
+    .docs-lang-code {
+        @apply font-mono text-[0.71875rem] tracking-[0.02em];
+    }
+
+    .docs-kbd {
+        @apply text-subtle font-mono text-[0.625rem] rounded-xs px-1.5 py-0.5;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* === Code block copy affordance (lives in the codebar) === */
+    .docs-copy-btn {
+        @apply text-subtle hover:bg-soft hover:text-fg inline-flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
+    }
+
+    .docs-copy-btn.is-done {
+        @apply text-success;
+    }
+
+    /* === Right-rail table of contents === */
+    .docs-toc-link {
+        @apply text-muted hover:text-fg block border-l py-1 pl-3 text-ui no-underline transition-colors hover:no-underline;
+        border-color: var(--color-divider);
+        margin-left: -1px;
+    }
+
+    .docs-toc-link[data-depth='3'] {
+        @apply pl-6 text-[0.8125rem];
+    }
+
+    .docs-toc-link.is-active {
+        @apply text-fg font-medium;
+        border-color: var(--color-link);
+    }
+
+    /* === Sidebar group heading === */
+    .docs-sidebar-group {
+        @apply text-subtle px-2.5 pt-3 pb-1 text-caption font-medium uppercase tracking-[0.1em];
+    }
+
+    .docs-sidebar-group:first-child {
+        @apply pt-1;
+    }
+
+    /* === Prev / next pager — bordered, not filled === */
+    .docs-pager-link {
+        @apply hover:bg-soft text-fg block flex-1 rounded-md p-3.5 no-underline transition-colors hover:no-underline;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    /* === Numbered steps (shared by prose ol + API reference) === */
+    .docs-steps {
+        @apply my-4 list-none pl-0;
+        counter-reset: docs-step;
+    }
+
+    .docs-steps > li {
+        @apply relative my-2 pl-9;
+        counter-increment: docs-step;
+    }
+
+    /* === Bordered block / row primitives (single elevation, no nesting) ===
+       Replace filled-card-in-filled-card stacks: one hairline ring on the
+       canvas, no shadow. */
+    .docs-block {
+        @apply rounded-md p-4 md:p-5;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-cell {
+        @apply bg-soft rounded-sm px-3.5 py-2.5;
+    }
+
+    .docs-row {
+        @apply hover:bg-soft flex items-start gap-3 rounded-sm px-3.5 py-3 no-underline transition-colors hover:no-underline;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-meta {
+        @apply text-ui text-muted flex flex-wrap gap-x-8 gap-y-1;
+    }
+
+    .docs-meta b {
+        @apply text-fg font-medium;
+    }
+
+    /* === Changelog timeline === */
+    .docs-timeline {
+        @apply relative pl-7;
+    }
+
+    .docs-timeline::before {
+        content: '';
+        @apply absolute bottom-1.5 top-2 w-px;
+        left: 3px;
+        background: var(--color-divider);
+    }
+
+    .docs-timeline-entry {
+        @apply relative;
+    }
+
+    .docs-timeline-entry::before {
+        content: '';
+        @apply absolute top-1.5 h-2 w-2 rounded-full;
+        left: -27px;
+        background: var(--color-link);
+        box-shadow: 0 0 0 3px var(--color-main);
+    }
+
+    /* === Search modal === */
+    .docs-search-overlay {
+        @apply fixed inset-0 z-50 hidden items-start justify-center px-4 pt-[12vh];
+        background: color-mix(in srgb, var(--color-app) 55%, transparent);
+        backdrop-filter: blur(2px);
+    }
+
+    .docs-search-overlay.is-open {
+        @apply flex;
+    }
+
+    .docs-search-panel {
+        @apply bg-surface-elevated w-full max-w-xl overflow-hidden rounded-md;
+        box-shadow: var(--shadow-elevated);
+    }
+
+    .docs-search-result {
+        @apply text-fg block rounded-sm px-3 py-2 no-underline transition-colors hover:no-underline;
+    }
+
+    .docs-search-result.is-active,
+    .docs-search-result:hover {
+        @apply bg-soft;
+    }
+
+    /* === Support chat ===
+       Launcher 40 / panel 45 sit above the header (30) but below the search
+       overlay (50), so Cmd-K still visibly wins while the chat is open. */
+    .docs-support-launcher {
+        @apply text-strong-fg fixed right-5 bottom-5 z-40 flex h-12 w-12 items-center justify-center rounded-pill transition-colors;
+        background: var(--color-strong);
+        box-shadow: var(--shadow-elevated);
+    }
+
+    .docs-support-launcher:hover {
+        background: var(--color-strong-hover);
+    }
+
+    .docs-support-launcher:focus-visible {
+        outline: none;
+        box-shadow: var(--shadow-elevated), var(--shadow-focus);
+    }
+
+    .docs-support-panel {
+        @apply bg-surface-elevated fixed right-5 bottom-5 z-45 flex w-[24rem] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-md;
+        height: min(38rem, calc(100vh - 6rem));
+        box-shadow: var(--shadow-elevated);
+    }
+
+    .docs-support-head {
+        @apply border-divider flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3;
+    }
+
+    .docs-support-heading {
+        @apply text-body text-fg font-medium;
+    }
+
+    .docs-support-sub {
+        @apply text-caption text-subtle mt-0.5;
+    }
+
+    .docs-support {
+        @apply flex min-h-0 flex-1 flex-col;
+    }
+
+    .docs-support-page .docs-support {
+        @apply bg-surface rounded-md;
+        height: min(40rem, calc(100vh - 16rem));
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-support-body {
+        @apply relative flex min-h-0 flex-1 flex-col;
+    }
+
+    .docs-support-scroll {
+        @apply flex-1 overflow-y-auto px-4 py-3;
+        overscroll-behavior: contain;
+    }
+
+    .docs-support-empty {
+        @apply flex flex-1 flex-col justify-end px-4 pt-6 pb-2;
+    }
+
+    .docs-support-greeting {
+        @apply text-body text-muted;
+    }
+
+    .docs-support-starters {
+        @apply mt-3 flex flex-col items-start gap-2;
+    }
+
+    .docs-support-starter {
+        @apply bg-soft text-ui text-fg rounded-sm px-3 py-2 text-left transition-colors;
+    }
+
+    .docs-support-starter:hover {
+        @apply bg-soft-hover;
+    }
+
+    .docs-support-jump {
+        @apply bg-surface text-caption text-muted absolute bottom-2 left-1/2 rounded-pill px-3 py-1;
+        transform: translateX(-50%);
+        box-shadow: var(--shadow-card);
+    }
+
+    .docs-support-msg {
+        @apply mb-4;
+    }
+
+    .docs-support-msg.is-user {
+        @apply flex justify-end;
+    }
+
+    .docs-support-bubble {
+        @apply bg-soft text-body text-fg max-w-[85%] rounded-sm px-3 py-2 whitespace-pre-wrap;
+    }
+
+    .docs-support-thinking {
+        @apply text-ui text-subtle flex items-center gap-2;
+    }
+
+    .docs-support-dots {
+        @apply inline-block h-1.5 w-1.5 rounded-full;
+        background: var(--color-subtle);
+        animation: docs-support-pulse 1.2s ease-in-out infinite;
+    }
+
+    .docs-support-answer {
+        @apply text-body text-fg;
+    }
+
+    .docs-support-answer > *:first-child {
+        @apply mt-0;
+    }
+
+    .docs-support-answer p,
+    .docs-support-answer ul,
+    .docs-support-answer ol,
+    .docs-support-answer blockquote,
+    .docs-support-answer table {
+        @apply mt-2;
+    }
+
+    .docs-support-answer h3,
+    .docs-support-answer h4,
+    .docs-support-answer h5,
+    .docs-support-answer h6 {
+        @apply text-h3 mt-4;
+    }
+
+    .docs-support-answer ul {
+        @apply list-disc pl-5;
+    }
+
+    .docs-support-answer ol {
+        @apply list-decimal pl-5;
+    }
+
+    .docs-support-answer li {
+        @apply mt-1;
+    }
+
+    .docs-support-answer code {
+        @apply bg-surface-subtle rounded-xs px-1 py-0.5;
+        font-family: var(--font-mono);
+        font-size: 0.875em;
+    }
+
+    .docs-support-answer blockquote {
+        @apply text-muted border-l-2 pl-3;
+        border-color: var(--color-divider);
+    }
+
+    .docs-support-answer table {
+        @apply text-ui w-full border-collapse;
+    }
+
+    .docs-support-answer th,
+    .docs-support-answer td {
+        @apply border-divider border px-2 py-1 text-left;
+    }
+
+    .docs-support-code {
+        @apply bg-surface-subtle mt-2 overflow-x-auto rounded-sm p-3;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-support-code code {
+        @apply bg-transparent p-0;
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+    }
+
+    .docs-support-note {
+        @apply text-caption text-subtle mt-2;
+    }
+
+    .docs-support-sources {
+        @apply mt-3 flex flex-wrap items-center gap-1.5;
+    }
+
+    .docs-support-sources-label {
+        @apply text-caption text-subtle;
+    }
+
+    .docs-support-source {
+        @apply bg-soft text-caption text-fg rounded-pill px-2 py-1 no-underline transition-colors;
+    }
+
+    a.docs-support-source:hover {
+        @apply bg-soft-hover no-underline;
+    }
+
+    .docs-support-source.is-missing {
+        @apply text-subtle;
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-support-feedback {
+        @apply mt-2 flex items-center gap-1;
+    }
+
+    .docs-support-rate {
+        @apply text-subtle rounded-xs p-1.5 transition-colors;
+    }
+
+    .docs-support-rate:hover {
+        @apply bg-soft text-fg;
+    }
+
+    .docs-support-rate.is-active {
+        @apply text-link;
+    }
+
+    .docs-support-error {
+        @apply bg-error-bg text-ui text-error mt-2 flex items-center justify-between gap-3 rounded-sm px-3 py-2;
+    }
+
+    .docs-support-retry {
+        @apply text-ui shrink-0 underline;
+    }
+
+    .docs-support-footer {
+        @apply border-divider shrink-0 border-t px-4 py-3;
+    }
+
+    .docs-support-toolbar {
+        @apply flex justify-end;
+    }
+
+    .docs-support-new {
+        @apply text-caption text-muted mb-2 underline;
+    }
+
+    .docs-support-composer {
+        @apply bg-app flex items-end gap-2 rounded-sm px-2 py-1.5;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-support-composer:focus-within {
+        box-shadow: inset 0 0 0 1px var(--color-focus);
+    }
+
+    .docs-support-input {
+        @apply text-body text-fg placeholder:text-placeholder max-h-40 min-w-0 flex-1 resize-none bg-transparent px-1 py-1 outline-none;
+    }
+
+    .docs-support-send {
+        @apply text-strong-fg text-ui shrink-0 rounded-xs px-3 py-1.5 transition-colors;
+        background: var(--color-strong);
+    }
+
+    .docs-support-send:hover {
+        background: var(--color-strong-hover);
+    }
+
+    .docs-support-send.is-stop {
+        @apply text-fg;
+        background: var(--color-soft-hover);
+    }
+
+    .docs-support-disclaimer {
+        @apply text-caption text-subtle mt-2;
+    }
+}
+
+@keyframes docs-support-pulse {
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* The panel is effectively full-screen on phones, so the page behind it must
+   not scroll. On desktop it is a side panel and locking the page is hostile. */
+@media (max-width: 640px) {
+    .docs-support-panel {
+        @apply inset-0 w-full max-w-none rounded-none;
+        height: 100%;
+    }
+
+    body.is-support-open {
+        overflow: hidden;
+    }
+}
+
+/* === Shiki dual theme ===
+   defaultColor:false emits --shiki-light / --shiki-dark per token. We
+   pin the code surface to the cool-graphite recessed tone in both modes
+   and swap only the token colors with data-theme. */
+.prose-doc pre.astro-code {
+    background-color: var(--color-surface-subtle) !important;
+}
+
+/* Token colors — unified across the guides (markdown Shiki, pre.astro-code)
+   and the API reference (Shiki-highlighted HTML injected into our own <pre>).
+   Both emit per-token spans carrying inline --shiki-light / --shiki-dark, so
+   we key off that custom prop rather than a wrapper class. */
+[data-copy-scope] pre span[style*='--shiki-light'] {
+    color: var(--shiki-light);
+}
+
+html[data-theme='dark'] [data-copy-scope] pre span[style*='--shiki-light'] {
+    color: var(--shiki-dark);
+}
+
+/* Smooth in-page anchor jumps for TOC / endpoint links, with headroom
+   for the sticky header. */
+html {
+    scroll-behavior: smooth;
+}
+
+:where(h1, h2, h3) {
+    scroll-margin-top: 5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html {
+        scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

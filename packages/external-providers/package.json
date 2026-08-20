@@ -1,0 +1,30 @@
+{
+    "name": "@manyfold/external-providers",
+    "version": "0.0.1",
+    "private": true,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "dev": "tsc --watch --preserveWatchOutput",
+        "check": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@manyfold/a2a": "workspace:*",
+        "@manyfold/shared": "workspace:*",
+        "undici": "^6.21.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "typescript": "^5.6.3"
+    }
+}

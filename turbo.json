@@ -1,0 +1,86 @@
+{
+    "$schema": "https://turbo.build/schema.json",
+    "ui": "tui",
+    "concurrency": "20",
+    "globalDependencies": [
+        ".github/workflows/ci.yml"
+    ],
+    "tasks": {
+        "dev": {
+            "cache": false,
+            "persistent": true,
+            "dependsOn": [
+                "^build"
+            ],
+            "passThroughEnv": [
+                "NCA_DEV_HOST",
+                "NCA_DEV_API_TARGET"
+            ]
+        },
+        "build": {
+            "dependsOn": [
+                "^build"
+            ],
+            "outputs": [
+                "dist/**"
+            ],
+            "env": [
+                "VITE_*",
+                "GIT_SHA",
+                "SENTRY_ORG",
+                "SENTRY_PROJECT"
+            ],
+            "passThroughEnv": [
+                "SENTRY_AUTH_TOKEN"
+            ]
+        },
+        "test": {
+            "dependsOn": [
+                "^build"
+            ],
+            "cache": false
+        },
+        "test:watch": {
+            "cache": false,
+            "persistent": true
+        },
+        "lint": {
+            "inputs": [
+                "src/**/*.ts",
+                "src/**/*.tsx",
+                "eslint.config.js"
+            ],
+            "outputs": []
+        },
+        "check": {
+            "dependsOn": [
+                "^build"
+            ],
+            "inputs": [
+                "src/**/*.ts",
+                "src/**/*.tsx",
+                "src/**/*.astro",
+                "src/**/*.md",
+                "src/**/*.mdx",
+                "scripts/**/*.ts",
+                "scripts/**/*.ts",
+                "test/**",
+                "package.json",
+                "tsconfig.json",
+                "tsconfig.tests.json"
+            ],
+            "outputs": []
+        },
+        "typecheck": {
+            "dependsOn": [
+                "^build"
+            ],
+            "inputs": [
+                "src/**/*.ts",
+                "src/**/*.tsx",
+                "tsconfig.json"
+            ],
+            "outputs": []
+        }
+    }
+}

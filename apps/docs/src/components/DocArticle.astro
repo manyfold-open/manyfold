@@ -1,0 +1,236 @@
+---
+import { render } from 'astro:content'
+import type { CollectionEntry } from 'astro:content'
+import {
+    entryHref,
+    entrySlug,
+    getUi,
+    groupDocs,
+    localePath,
+    type Locale
+} from '@/lib/i18n'
+
+interface Props {
+    entry: CollectionEntry<'docs'>
+    entries: CollectionEntry<'docs'>[]
+    locale: Locale
+}
+
+const { entry, entries, locale } = Astro.props
+const { Content, headings } = await render(entry)
+const copy = getUi(locale)
+const { grouped, remaining } = groupDocs(entries, locale)
+
+const activeSlug = entrySlug(entry)
+const docsHome = localePath(locale, '/docs/getting-started/')
+const flatIndex = entries.findIndex((item) => entrySlug(item) === activeSlug)
+const prev = flatIndex > 0 ? entries[flatIndex - 1] : null
+const next =
+    flatIndex >= 0 && flatIndex < entries.length - 1
+        ? entries[flatIndex + 1]
+        : null
+
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3)
+
+const navGroups = [
+    ...grouped.map((group) => ({ title: group.title, entries: group.entries })),
+    ...(remaining.length > 0
+        ? [{ title: copy.more, entries: remaining }]
+        : [])
+]
+---
+
+<section
+    class="docs-container grid gap-6 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]"
+>
+    <aside class="border-divider hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-5">
+        <nav class="text-ui pb-4" aria-label={copy.docs}>
+            {
+                navGroups.map((group) => (
+                    <div>
+                        <p class="docs-sidebar-group">{group.title}</p>
+                        <ul class="space-y-0.5">
+                            {group.entries.map((item) => (
+                                <li>
+                                    <a
+                                        href={entryHref(item, locale)}
+                                        aria-current={
+                                            entrySlug(item) === activeSlug
+                                                ? 'page'
+                                                : undefined
+                                        }
+                                        class:list={[
+                                            'docs-sidebar-link',
+                                            entrySlug(item) === activeSlug
+                                                ? 'bg-info-bg font-medium text-info-strong'
+                                                : 'text-muted hover:bg-soft hover:text-fg'
+                                        ]}
+                                    >
+                                        {item.data.title}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                ))
+            }
+        </nav>
+    </aside>
+
+    <article class="min-w-0">
+        {
+            activeSlug !== 'getting-started' && (
+                <nav
+                    class="text-ui text-subtle mb-3 flex items-center gap-1.5"
+                    aria-label="Breadcrumb"
+                >
+                    <a
+                        href={docsHome}
+                        class="text-muted hover:text-fg no-underline hover:no-underline"
+                    >
+                        {copy.docs}
+                    </a>
+                    <span aria-hidden="true" class="opacity-50">/</span>
+                    <span class="text-fg">{entry.data.title}</span>
+                </nav>
+            )
+        }
+
+        <div class="prose-doc" data-copy-scope>
+            <Content />
+        </div>
+
+        <div class="border-divider mt-8 flex flex-wrap items-center gap-3 border-t pt-4" data-helpful>
+                <span class="text-ui text-muted">{copy.helpfulQuestion}</span>
+                <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-yes>
+                    <svg
+                        class="shrink-0"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
+                    </svg>
+                    {copy.helpfulYes}
+                </button>
+                <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-no>
+                    <svg
+                        class="shrink-0"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
+                    </svg>
+                    {copy.helpfulNo}
+                </button>
+            <span class="text-ui text-success hidden" data-helpful-thanks>
+                {copy.helpfulThanks}
+            </span>
+        </div>
+
+        {
+            (prev || next) && (
+                <nav class="mt-6 flex gap-3" aria-label="Pagination">
+                    {prev ? (
+                        <a href={entryHref(prev, locale)} class="docs-pager-link">
+                            <span class="text-caption text-subtle">← {copy.previous}</span>
+                            <span class="text-ui text-link mt-1 block font-medium">
+                                {prev.data.title}
+                            </span>
+                        </a>
+                    ) : (
+                        <span class="flex-1" />
+                    )}
+                    {next ? (
+                        <a href={entryHref(next, locale)} class="docs-pager-link text-right">
+                            <span class="text-caption text-subtle">{copy.next} →</span>
+                            <span class="text-ui text-link mt-1 block font-medium">
+                                {next.data.title}
+                            </span>
+                        </a>
+                    ) : (
+                        <span class="flex-1" />
+                    )}
+                </nav>
+            )
+        }
+    </article>
+
+    {
+        toc.length > 0 && (
+            <aside class="hidden xl:sticky xl:top-24 xl:block xl:self-start xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
+                <p class="text-caption text-subtle mb-2 uppercase tracking-[0.1em]">
+                    {copy.onThisPage}
+                </p>
+                <nav id="docs-toc" aria-label={copy.onThisPage}>
+                    {toc.map((heading) => (
+                        <a
+                            href={`#${heading.slug}`}
+                            data-depth={heading.depth}
+                            class="docs-toc-link"
+                        >
+                            {heading.text}
+                        </a>
+                    ))}
+                </nav>
+            </aside>
+        )
+    }
+</section>
+
+<script>
+    // Helpful feedback
+    const helpful = document.querySelector<HTMLElement>('[data-helpful]')
+    if (helpful) {
+        const thanks = helpful.querySelector<HTMLElement>('[data-helpful-thanks]')
+        helpful
+            .querySelectorAll('[data-helpful-yes],[data-helpful-no]')
+            .forEach((b) =>
+                b.addEventListener('click', () => {
+                    helpful
+                        .querySelectorAll('button')
+                        .forEach((x) => x.setAttribute('hidden', ''))
+                    thanks?.classList.remove('hidden')
+                })
+            )
+    }
+
+    // TOC scroll-spy
+    const tocLinks = Array.from(
+        document.querySelectorAll<HTMLAnchorElement>('#docs-toc a')
+    )
+    if (tocLinks.length) {
+        const bySlug = new Map(
+            tocLinks.map((a) => [decodeURIComponent(a.hash.slice(1)), a])
+        )
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((e) => {
+                    if (!e.isIntersecting) return
+                    const link = bySlug.get(e.target.id)
+                    if (!link) return
+                    tocLinks.forEach((a) => a.classList.remove('is-active'))
+                    link.classList.add('is-active')
+                })
+            },
+            { rootMargin: '0px 0px -75% 0px', threshold: 0 }
+        )
+        bySlug.forEach((_, slug) => {
+            const el = document.getElementById(slug)
+            if (el) observer.observe(el)
+        })
+    }
+</script>

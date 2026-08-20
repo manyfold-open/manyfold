@@ -1,0 +1,197 @@
+# Zero-secret CI (editions §7): every job runs on fork PRs with no
+# credentials. The pg lane uses a workflow-local postgres service.
+name: ci
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+concurrency:
+    group: ci-${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    static-checks:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm check
+            - run: pnpm lint
+            - run: pnpm knip
+            - run: node scripts/check-migration-ownership.mjs
+            - run: node --test scripts/check-migration-ownership.test.mjs
+
+    api-tests:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                shard: [1, 2, 3, 4]
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec turbo run build --filter='@manyfold/api^...'
+            - name: Run api tests (shard ${{ matrix.shard }}/4)
+              working-directory: apps/api
+              run: |
+                  files=$(ls test/*.test.ts | awk "NR % 4 == ${{ matrix.shard }} - 1")
+                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test $files
+
+    pg-tests:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: manyfold
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd "pg_isready -U postgres"
+                    --health-interval 5s --health-timeout 5s --health-retries 10
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - name: Build workspace dependencies
+              run: pnpm exec turbo run build --filter='@manyfold/api^...' --concurrency=5
+            - name: Migrate (open-source entrypoint)
+              working-directory: apps/api
+              env:
+                  DATABASE_URL: postgres://postgres:postgres@localhost:5432/manyfold
+              run: pnpm exec tsx src/db/migrate.ts
+            - name: Run pg suites
+              working-directory: apps/api
+              env:
+                  DATABASE_URL: postgres://postgres:postgres@localhost:5432/manyfold
+                  RUN_PG_E2E: '1'
+                  # The chat-retention tests are destructive, so they build and
+                  # drop their own throwaway database instead of touching the
+                  # shared one; without these they fail outright.
+                  PG_TEST_SCRATCH: '1'
+                  PG_TEST_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
+              # --test-concurrency=1: the suite shares one database and is not
+              # parallel-safe as a whole. --test-force-exit: a few files leak a
+              # postgres-js handle and would otherwise hang the runner into the
+              # job timeout (config/force-exit-baseline.txt tracks them in the
+              # canonical repo).
+              run: |
+                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test --test-concurrency=1 --test-force-exit test/*.pg.test.ts
+
+    smoke-boot:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        services:
+            postgres:
+                image: postgres:16
+                env:
+                    POSTGRES_PASSWORD: postgres
+                    POSTGRES_DB: manyfold
+                ports: ['5432:5432']
+                options: >-
+                    --health-cmd "pg_isready -U postgres"
+                    --health-interval 5s --health-timeout 5s --health-retries 10
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - name: Build the API and its dependencies
+              run: pnpm exec turbo run build --filter=@manyfold/api --concurrency=5
+            - name: Migrate the scratch database
+              # migrate.js resolves ./drizzle relative to the CWD.
+              working-directory: apps/api
+              env:
+                  DATABASE_URL: postgres://postgres:postgres@localhost:5432/manyfold
+              run: node dist/db/migrate.js
+            - name: Boot the API against a scratch database
+              env:
+                  DATABASE_URL: postgres://postgres:postgres@localhost:5432/manyfold
+              run: node scripts/smoke-boot-api.mjs
+
+    package-tests:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v4
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec turbo run test --filter='!@manyfold/api'
+
+    secret-scan:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+            # The gitleaks CLI directly (the marketplace action demands a paid
+            # license key on organization repos, which would break the
+            # zero-secret contract). Image pinned by digest.
+            - name: Scan with gitleaks
+              run: |
+                  docker run --rm -v "$PWD:/repo" \
+                      ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+                      detect --source /repo --config /repo/.gitleaks.toml --no-banner --redact
+
+    # The quickstart is `docker compose up --build`; prove every image the
+    # compose file references builds from a bare clone of this tree.
+    docker-build:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        strategy:
+            fail-fast: false
+            matrix:
+                app: [api, web, admin]
+        steps:
+            - uses: actions/checkout@v4
+            - run: docker build -f apps/${{ matrix.app }}/Dockerfile .
+
+    ci-ok:
+        needs: [static-checks, api-tests, pg-tests, smoke-boot, package-tests, secret-scan, docker-build]
+        if: always()
+        runs-on: ubuntu-24.04
+        steps:
+            - name: Verify all jobs passed
+              run: |
+                  results='${{ toJSON(needs) }}'
+                  echo "$results"
+                  if echo "$results" | grep -Eq '"result": "(failure|cancelled)"'; then
+                      echo 'a required job failed or was cancelled' >&2
+                      exit 1
+                  fi

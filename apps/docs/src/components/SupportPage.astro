@@ -1,0 +1,30 @@
+---
+import SupportChat from '@/components/SupportChat.astro'
+import { getSupportUi, getUi, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale: Locale
+}
+
+const { locale } = Astro.props
+const copy = getSupportUi(locale)
+const ui = getUi(locale)
+---
+
+<section class="docs-container docs-page-section">
+    <header class="docs-page-header">
+        <p class="docs-kicker">{ui.brandShort}</p>
+        <h1 class="mt-3 text-h1">{copy.supportTitle}</h1>
+        <p class="docs-copy mt-2">{copy.supportLead}</p>
+    </header>
+
+    <div class="docs-support-page mt-6">
+        <SupportChat locale={locale} variant="page" />
+    </div>
+</section>
+
+<script>
+    import { mountSupportChat } from '@/lib/support/chat'
+
+    mountSupportChat()
+</script>

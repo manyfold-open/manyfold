@@ -1,0 +1,10 @@
+apiVersion: v2
+name: manyfold-k8s-gateway
+description: In-cluster control-plane exec proxy for Manyfold's Kubernetes runtime — the API talks to this gateway instead of your apiserver.
+type: application
+version: 0.1.0
+appVersion: 'latest'
+keywords:
+    - manyfold
+    - agents
+home: https://github.com/manyfold-open/manyfold

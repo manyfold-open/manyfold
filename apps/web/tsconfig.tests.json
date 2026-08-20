@@ -1,0 +1,18 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Some tests import sibling workspace sources, so the test program's
+        // root has to cover the whole monorepo.
+        "rootDir": "../..",
+        "noEmit": true,
+        "incremental": false,
+        "declaration": false,
+        "sourceMap": false
+    },
+    "include": [
+        // Ambient module declarations no import can reach.
+        "src/vite-env.d.ts",
+        "test/**/*"
+    ],
+    "exclude": ["dist", "node_modules"]
+}

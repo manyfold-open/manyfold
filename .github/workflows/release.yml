@@ -1,0 +1,156 @@
+# Editions §7.1/§9 M3: one edition tag (v*) produces every installable
+# artifact — GHCR images for the three deployable apps plus the mf CLI
+# binaries attached to a GitHub Release. Zero repository secrets: GHCR
+# pushes use the workflow's GITHUB_TOKEN (packages: write).
+#
+# Images are linux/amd64 for now: arm64 needs the free-for-public-repos arm
+# runners (native-module compiles under QEMU blow the timeout); add an
+# ubuntu-24.04-arm leg + a manifest merge once the repo is public. The CLI
+# matrix cross-compiles every target from ubuntu via `bun build --compile
+# --target`, so it has no such constraint.
+name: release
+
+on:
+    push:
+        tags: ['v*']
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'existing tag (e.g. v0.1.0)'
+                required: true
+
+permissions:
+    contents: write
+    packages: write
+
+concurrency:
+    group: release-${{ github.event.inputs.tag || github.ref_name }}
+    cancel-in-progress: false
+
+jobs:
+    docker-images:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 45
+        strategy:
+            fail-fast: false
+            matrix:
+                app: [api, web, admin]
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.inputs.tag || github.ref }}
+            - name: Build and push ghcr.io image
+              run: |
+                  TAG='${{ github.event.inputs.tag || github.ref_name }}'
+                  case "$TAG" in
+                      v[0-9]*) ;;
+                      *) echo "::error::'$TAG' is not a version tag (vX.Y.Z)"; exit 1 ;;
+                  esac
+                  VERSION="${TAG#v}"
+                  OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+                  IMAGE="ghcr.io/$OWNER/manyfold-${{ matrix.app }}"
+                  echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io \
+                      -u '${{ github.actor }}' --password-stdin
+                  docker build -f 'apps/${{ matrix.app }}/Dockerfile' \
+                      -t "$IMAGE:$VERSION" .
+                  docker push "$IMAGE:$VERSION"
+                  # Tags with a pre-release suffix (v1.2.3-rc.1) never move :latest.
+                  case "$VERSION" in
+                      *-*) echo "pre-release: not tagging $IMAGE:latest" ;;
+                      *)
+                          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+                          docker push "$IMAGE:latest"
+                          ;;
+                  esac
+
+    cli-binaries:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                target:
+                    - bun-linux-x64
+                    - bun-linux-arm64
+                    - bun-darwin-x64
+                    - bun-darwin-arm64
+                    - bun-windows-x64
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.inputs.tag || github.ref }}
+            - uses: pnpm/action-setup@v4
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: latest
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm --filter '@manyfold/cli...' build
+            - run: node apps/cli/scripts/build-binary.mjs ${{ matrix.target }}
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: cli-${{ matrix.target }}
+                  # Only the mf-* assets: the nca-* legacy alias serves the
+                  # hosted edition's pre-rename installed base.
+                  path: |
+                      apps/cli/dist-bin/mf-*
+                  if-no-files-found: error
+
+    release:
+        needs: [docker-images, cli-binaries]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        env:
+            GH_TOKEN: ${{ github.token }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.inputs.tag || github.ref }}
+            - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+              with:
+                  path: dist-bin
+                  merge-multiple: true
+            - name: Create the GitHub Release
+              run: |
+                  TAG='${{ github.event.inputs.tag || github.ref_name }}'
+                  VERSION="${TAG#v}"
+                  OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')
+                  CLI_VERSION=$(node -p "require('./apps/cli/package.json').version")
+                  {
+                      echo '## Container images'
+                      echo
+                      echo '```'
+                      for app in api web admin; do
+                          echo "docker pull ghcr.io/$OWNER/manyfold-$app:$VERSION"
+                      done
+                      echo '```'
+                      echo
+                      echo 'The api image is configured entirely by environment'
+                      echo '(see `.env.selfhost.example`). The web and admin images'
+                      echo 'serve bundles that call the API at same-origin `/api`:'
+                      echo 'front them with a reverse proxy that routes `/api/*` to'
+                      echo 'the api container, or build from source with'
+                      echo '`VITE_API_URL` baked for a split-origin layout'
+                      echo '(`docker-compose.selfhost.yml` does the latter).'
+                      echo
+                      echo "## CLI binaries (mf $CLI_VERSION)"
+                      echo
+                      echo 'Download the asset for your platform below, unpack, and'
+                      echo 'put `mf` on your PATH. Each asset ships a `.sha256`.'
+                      echo
+                  } > notes.md
+                  PRERELEASE=''
+                  case "$VERSION" in
+                      *-*) PRERELEASE='--prerelease' ;;
+                  esac
+                  gh release create "$TAG" \
+                      --title "Manyfold $TAG" \
+                      --notes-file notes.md \
+                      --generate-notes \
+                      $PRERELEASE \
+                      dist-bin/*

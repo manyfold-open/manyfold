@@ -1,0 +1,10 @@
+{
+    "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+    "changelog": ["@changesets/changelog-github", { "repo": "manyfold-open/manyfold" }],
+    "commit": false,
+    "access": "restricted",
+    "baseBranch": "main",
+    "updateInternalDependencies": "patch",
+    "privatePackages": { "version": true, "tag": true },
+    "ignore": ["@manyfold/db", "@manyfold/docs", "@manyfold/external-providers", "@manyfold/i18n", "@manyfold/k8s-exec-core", "@manyfold/sdk", "@manyfold/shared", "@manyfold/sprites"]
+}

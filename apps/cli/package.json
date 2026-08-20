@@ -1,0 +1,54 @@
+{
+    "name": "@manyfold/cli",
+    "version": "0.23.1",
+    "private": true,
+    "description": "Manyfold CLI (mf) — distributed as standalone binaries",
+    "license": "Apache-2.0",
+    "author": "Manyfold",
+    "homepage": "https://github.com/protagolabs/manyfold/tree/main/apps/cli",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/protagolabs/manyfold.git",
+        "directory": "apps/cli"
+    },
+    "bugs": {
+        "url": "https://github.com/protagolabs/manyfold/issues"
+    },
+    "type": "module",
+    "bin": {
+        "mf": "./dist/index.js"
+    },
+    "main": "./dist/index.js",
+    "engines": {
+        "node": ">=20.10"
+    },
+    "scripts": {
+        "build": "tsup",
+        "build:skills": "node --import tsx scripts/build-skills.ts",
+        "build:public-reference": "node --import tsx --import ./test/md-text-loader.mjs scripts/generate-public-reference.ts",
+        "dev": "tsup --watch",
+        "start": "node dist/index.js",
+        "check": "tsc --noEmit && tsc --project tsconfig.tests.json",
+        "test": "node ../../scripts/test-sealed-env.mjs -- node --import tsx --import ./test/md-text-loader.mjs --test test/*.test.ts"
+    },
+    "dependencies": {
+        "commander": "^12.1.0",
+        "fflate": "^0.8.3",
+        "kleur": "^4.1.5",
+        "ws": "^8.18.0"
+    },
+    "optionalDependencies": {
+        "node-pty": "^1.1.0"
+    },
+    "devDependencies": {
+        "@manyfold/a2a": "workspace:*",
+        "@manyfold/sdk": "workspace:*",
+        "@manyfold/shared": "workspace:*",
+        "@types/node": "^22.10.2",
+        "@types/ws": "^8.5.13",
+        "tsup": "^8.3.5",
+        "tsx": "^4.21.0",
+        "typescript": "^5.6.3",
+        "undici": "^6.21.0"
+    }
+}

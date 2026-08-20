@@ -1,0 +1,22 @@
+{
+    "name": "@manyfold/k8s-gateway",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "build": "tsc",
+        "start": "node dist/main.js",
+        "dev": "tsx watch src/main.ts",
+        "check": "tsc --noEmit && tsc --project tsconfig.tests.json",
+        "test": "node --import tsx --test test/*.test.ts"
+    },
+    "dependencies": {
+        "@kubernetes/client-node": "^1.4.0",
+        "@manyfold/k8s-exec-core": "workspace:*",
+        "fastify": "^5.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.2",
+        "tsx": "^4.19.2",
+        "typescript": "^5.6.3"
+    }
+}

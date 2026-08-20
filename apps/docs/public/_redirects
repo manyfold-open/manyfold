@@ -1,0 +1,42 @@
+# The docs site has no index page of its own, so /, /docs and their zh twins
+# are entry points that have to land on getting-started. They belong here and
+# not in astro.config.mjs: a static build turns `redirects` into meta-refresh
+# stubs, which the browser paints for a frame before forwarding.
+/ /docs/getting-started/ 301
+/docs /docs/getting-started/ 301
+/docs/ /docs/getting-started/ 301
+/zh /zh/docs/getting-started/ 301
+/zh/ /zh/docs/getting-started/ 301
+/zh/docs /zh/docs/getting-started/ 301
+/zh/docs/ /zh/docs/getting-started/ 301
+
+# Internal release process pages were accidentally published once. Keep these
+# redirects so stale static paths cannot expose the old content again.
+/docs/release-process /docs 302
+/docs/release-process/ /docs 302
+/zh/docs/release-process /zh/docs 302
+/zh/docs/release-process/ /zh/docs 302
+/:locale/docs/release-process /:locale/docs 302
+/:locale/docs/release-process/ /:locale/docs 302
+
+# Docs content exists in en/zh only (#534). The other app UI languages used
+# to build as English-fallback pages with self canonicals; permanently
+# redirect those URLs to the English path so the duplicates converge.
+/es / 301
+/es/* /:splat 301
+/fr / 301
+/fr/* /:splat 301
+/de / 301
+/de/* /:splat 301
+/ja / 301
+/ja/* /:splat 301
+/ko / 301
+/ko/* /:splat 301
+/pt / 301
+/pt/* /:splat 301
+/ru / 301
+/ru/* /:splat 301
+/ar / 301
+/ar/* /:splat 301
+/hi / 301
+/hi/* /:splat 301
