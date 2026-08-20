@@ -4,6 +4,7 @@ import tseslint from 'typescript-eslint'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 import prettier from 'eslint-config-prettier'
+import { CLOUD_TABLE_DB_EXPORTS } from './scripts/editions-cloud-tables.mjs'
 
 export default tseslint.config(
     {
@@ -119,32 +120,10 @@ export default tseslint.config(
                     paths: [
                         {
                             name: '@manyfold/db',
-                            importNames: [
-                                'payments',
-                                'paymentAdjustments',
-                                'planSubscriptions',
-                                'subscriptionInvoices',
-                                'stripeEvents',
-                                'challengeCampaigns',
-                                'challengeRegistrations',
-                                'challengeSubmissions',
-                                'waitlistSignups',
-                                'waitlistInvites',
-                                'acquisitionCampaigns',
-                                'acquisitionChannels',
-                                'acquisitionConversions',
-                                'acquisitionLinkDailyStats',
-                                'acquisitionLinks',
-                                'userAcquisitionAttributions',
-                                'experiments',
-                                'experimentOverrides',
-                                'managedChannelBreakers',
-                                'managedModelAccounts',
-                                'managedModelCatalog',
-                                'managedModelSignupCreditGrants',
-                                'containerSkus',
-                                'containerSubscriptions'
-                            ],
+                            // Derived from the shared cloud-table contract
+                            // so this deny-list and the migration-ownership
+                            // checker can never drift (#886).
+                            importNames: CLOUD_TABLE_DB_EXPORTS,
                             message:
                                 'Commercial tables are cloud-owned: after the journal split an OSS database does not have them, so core code must never query them (editions boundary; see design §4.1).'
                         }

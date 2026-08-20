@@ -7,39 +7,15 @@
 // never reference cloud tables. The frozen legacy chain is exempt (history).
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { CLOUD_TABLE_CONTRACT } from './editions-cloud-tables.mjs'
 
-// §4.1 ownership matrix — pg table names. Additions here are a contract
-// change: a table's journal decides which edition creates it.
-export const CLOUD_TABLES = new Set([
-    'payments',
-    'payment_adjustments',
-    'plan_subscriptions',
-    'subscription_invoices',
-    'stripe_events',
-    'challenge_campaigns',
-    'challenge_registrations',
-    'challenge_submissions',
-    'waitlist_signups',
-    'waitlist_invites',
-    'acquisition_campaigns',
-    'acquisition_channels',
-    'acquisition_conversions',
-    'acquisition_link_daily_stats',
-    'acquisition_links',
-    'user_acquisition_attributions',
-    'experiments',
-    'experiment_overrides',
-    'managed_channel_breakers',
-    'managed_model_accounts',
-    'managed_model_catalog',
-    'managed_model_signup_credit_grants',
-    'container_skus',
-    'container_subscriptions',
-    // §4.2 expand tables (2026-08-18): the new homes for oauth-state touch
-    // snapshots and plan pricing; the matching core-column contracts follow.
-    'acquisition_oauth_touches',
-    'plan_billing'
-])
+// §4.1 ownership matrix — pg table names, derived from the shared contract so
+// this checker and the ESLint import boundary can never drift (#886).
+// Additions to the contract are a contract change: a table's journal decides
+// which edition creates it.
+export const CLOUD_TABLES = new Set(
+    CLOUD_TABLE_CONTRACT.map((entry) => entry.table)
+)
 
 // Core tables the cloud journal may write DATA into (never DDL): shared
 // config keyed by string, where cloud seeds its own keys.
