@@ -20,9 +20,6 @@
                 "src/**",
                 "test/**"
             ],
-            "ignoreDependencies": [
-                "@manyfold/sdk"
-            ],
             "ignore": [
                 "src/common/raw-body-paths.ts"
             ]

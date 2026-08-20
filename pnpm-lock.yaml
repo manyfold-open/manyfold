@@ -327,9 +327,6 @@ importers:
         specifier: ^2.8.3
         version: 2.9.0
     devDependencies:
-      '@manyfold/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
       '@nestjs/cli':
         specifier: ^11.0.0
         version: 11.0.24(@types/node@22.20.1)(esbuild@0.19.12)(prettier@3.9.6)

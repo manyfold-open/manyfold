@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { sep } from 'node:path'
-import { overlayCandidate } from '../vite-overlay'
+import { overlayCandidate, packageSourceCandidates } from '../vite-overlay'
 
 // The mapping rule the whole editions web overlay rides on: base-tree files
 // map to the same relative path inside the overlay dir, everything else stays
@@ -49,4 +49,18 @@ test('an overlay-only module maps from its would-be base path', () => {
         ),
         [overlay, 'lib', 'challengeStage'].join(sep)
     )
+})
+
+// The bare-id branch resolves @manyfold/<name> composition packages to
+// source. Two candidate roots, probed in order: packages/ beside apps/
+// (this repository), then one level higher for the superproject layout
+// where the base app lives inside the oss/ submodule (editions Stage 2).
+test('package source candidates cover both repository layouts in order', () => {
+    const ossBase = ['', 'repo', 'oss', 'apps', 'web', 'src'].join(sep)
+    assert.deepEqual(packageSourceCandidates(ossBase, 'shared-cloud'), [
+        ['', 'repo', 'oss', 'packages', 'shared-cloud', 'src', 'index.ts'].join(
+            sep
+        ),
+        ['', 'repo', 'packages', 'shared-cloud', 'src', 'index.ts'].join(sep)
+    ])
 })

@@ -84,11 +84,13 @@ const buildHarness = async (): Promise<Harness> => {
         migrationsFolder: path.resolve(process.cwd(), 'drizzle')
     })
     // §4.2 contract journal: this scratch database runs the current code,
-    // which is switch-side by definition. The journal rides the private
-    // tree; a tree without it has nothing to apply (its baseline never had
-    // the switched columns).
-    const contractFolder = path.resolve(process.cwd(), 'drizzle-contract')
-    if (existsSync(contractFolder))
+    // which is switch-side by definition. The journal rides the private tree
+    // (apps/api-cloud); a tree without it has nothing to apply (its baseline
+    // never had the switched columns).
+    const contractFolder = ['drizzle-contract', '../api-cloud/drizzle-contract']
+        .map((candidate) => path.resolve(process.cwd(), candidate))
+        .find((candidate) => existsSync(candidate))
+    if (contractFolder)
         await migrate(drizzle(migrationClient), {
             migrationsFolder: contractFolder,
             migrationsTable: '__drizzle_migrations_contract'

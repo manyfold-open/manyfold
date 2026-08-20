@@ -30,6 +30,20 @@ const probe = (candidate: string): string | null => {
     return null
 }
 
+// Where a composition-layer workspace package's source may live relative to
+// the base app's src/: packages/ beside apps/ (this repository's layout),
+// then one level higher for the superproject layout, where the base app sits
+// inside the oss/ submodule while the composition packages stay at the
+// superproject root (editions Stage 2). Probed in order; the first existing
+// index wins.
+export const packageSourceCandidates = (
+    baseSrc: string,
+    name: string
+): string[] =>
+    ['../../..', '../../../..'].map((up) =>
+        join(baseSrc, up, 'packages', name, 'src', 'index.ts')
+    )
+
 export const overlayResolver = (
     baseSrc: string,
     overlaySrc: string | undefined
@@ -44,17 +58,12 @@ export const overlayResolver = (
         // exists next to the core ones and is not already aliased.
         const bare = /^@manyfold\/([a-z-]+)$/.exec(source)
         if (bare) {
-            const candidate = join(
+            for (const candidate of packageSourceCandidates(
                 baseSrc,
-                '..',
-                '..',
-                '..',
-                'packages',
-                bare[1],
-                'src',
-                'index.ts'
-            )
-            if (existsSync(candidate)) return candidate
+                bare[1]
+            )) {
+                if (existsSync(candidate)) return candidate
+            }
         }
         const resolution = await this.resolve(source, importer, {
             ...options,

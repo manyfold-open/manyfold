@@ -125,7 +125,7 @@ test('lint rejects a cloud-table import in core code but allows commercial modul
     assert.equal(core.length, 2)
     assert.match(core[0].message, /editions boundary/)
     const commercial = await lintAt(
-        'apps/api/src/modules/billing/x886-probe.ts'
+        'apps/api-cloud/src/modules/billing/x886-probe.ts'
     )
     assert.deepEqual(commercial, [])
 })

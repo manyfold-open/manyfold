@@ -73,7 +73,7 @@ export default tseslint.config(
         }
     },
     {
-        files: ['apps/api/**/*.ts'],
+        files: ['apps/api/**/*.ts', 'apps/api-cloud/**/*.ts'],
         rules: {
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/consistent-type-imports': 'off'
@@ -81,21 +81,10 @@ export default tseslint.config(
     },
     {
         // Editions boundary: core code must reach commercial capability only
-        // through the ports in @/common/ports/*. Exempt: the commercial
-        // modules themselves and cloud-ports (the commercial binding of those
-        // ports, wired only by the cloud composition root in apps/api-cloud).
+        // through the ports in @/common/ports/*. The commercial modules and
+        // cloud-ports (the commercial binding of those ports) live in
+        // apps/api-cloud/src/modules, outside this rule's scope.
         files: ['apps/api/src/**/*.ts'],
-        ignores: [
-            'apps/api/src/modules/cloud-ports/**',
-            'apps/api/src/modules/billing/**',
-            'apps/api/src/modules/challenge/**',
-            'apps/api/src/modules/waitlist/**',
-            'apps/api/src/modules/acquisition/**',
-            'apps/api/src/modules/experiments/**',
-            'apps/api/src/modules/container-skus/**',
-            'apps/api/src/modules/container-subscriptions/**',
-            'apps/api/src/modules/managed-models/**'
-        ],
         rules: {
             'no-restricted-imports': [
                 'error',

@@ -83,7 +83,7 @@ const main = () => {
         existsSync(dir) ? checkJournal(dir, kind) : []
     const problems = [
         ...checkJournal('apps/api/drizzle', 'core'),
-        ...optional('apps/api/drizzle-contract', 'core'),
+        ...optional('apps/api-cloud/drizzle-contract', 'core'),
         ...optional('apps/api-cloud/drizzle-cloud', 'cloud')
     ]
     if (problems.length > 0) {
