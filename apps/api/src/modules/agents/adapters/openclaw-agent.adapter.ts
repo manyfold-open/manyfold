@@ -84,8 +84,34 @@ export class OpenclawAgentAdapter implements AgentAdapter {
                 exec,
                 normalizedWorkspace
             )
-        const cmd = ['openclaw', 'agents', 'add', internalId]
-        if (normalizedWorkspace) cmd.push('--workspace', normalizedWorkspace)
+        // Seen on a daemon runtime [2026-08-20]: openclaw 2026.7.x `agents add`
+        // prompts for the workspace when the flag is absent (exit 13 on a
+        // non-TTY exec) and rejects a directory that does not exist. The add
+        // therefore always carries --workspace; when the caller picked none, a
+        // managed default in the framework's own workspace-<id> shape is
+        // created first. A caller-chosen path is only asserted usable, never
+        // created — a typo must fail loudly, not manufacture a directory.
+        const agentWorkspace =
+            normalizedWorkspace ??
+            openclawDefaultWorkspace(runtime.mountPath, internalId)
+        if (!normalizedWorkspace) {
+            const mkdir = await exec.run({
+                cmd: ['mkdir', '-p', agentWorkspace],
+                timeoutMs: EXEC_TIMEOUT_MS
+            })
+            if (mkdir.exitCode !== 0)
+                throw new Error(
+                    `openclaw agents add: creating default workspace ${agentWorkspace} failed (exit ${mkdir.exitCode}): ${sanitizeMessage(new Error(mkdir.stderr || mkdir.stdout))}`
+                )
+        }
+        const cmd = [
+            'openclaw',
+            'agents',
+            'add',
+            internalId,
+            '--workspace',
+            agentWorkspace
+        ]
         if (model) cmd.push('--model', model)
         cmd.push('--json')
         const add = await exec.run({ cmd, timeoutMs: EXEC_TIMEOUT_MS })

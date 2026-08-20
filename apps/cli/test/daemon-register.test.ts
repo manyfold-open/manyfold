@@ -2,8 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
     buildRegisteredDaemonConfig,
+    resolveDaemonRegisterApiUrl,
     resolveDaemonRegisterToken
 } from '../src/commands/daemon/register'
+import { DEFAULT_API_URL } from '../src/channel'
 
 test('resolveDaemonRegisterToken accepts a register command token', () => {
     assert.equal(
@@ -45,6 +47,30 @@ test('resolveDaemonRegisterToken rejects non-daemon token values', () => {
         () => resolveDaemonRegisterToken({}, { token: 'user_session_token' }),
         /must start with ldt_/
     )
+})
+
+test('resolveDaemonRegisterApiUrl prefers the profile-stored apiUrl over the channel default', () => {
+    assert.equal(
+        resolveDaemonRegisterApiUrl(undefined, {
+            apiUrl: 'http://localhost:12222/api'
+        }),
+        'http://localhost:12222/api',
+        'login already recorded which API this profile talks to; registering against the channel default instead ships the ldt_ token to the wrong server, which answers "daemon token not found"'
+    )
+})
+
+test('resolveDaemonRegisterApiUrl lets an explicit root --api-url beat the profile', () => {
+    assert.equal(
+        resolveDaemonRegisterApiUrl('https://override.example.test/api', {
+            apiUrl: 'http://localhost:12222/api'
+        }),
+        'https://override.example.test/api',
+        'an operator pointing register somewhere on purpose must always win over stored state'
+    )
+})
+
+test('resolveDaemonRegisterApiUrl falls back to the channel default on a fresh profile', () => {
+    assert.equal(resolveDaemonRegisterApiUrl(undefined, {}), DEFAULT_API_URL)
 })
 
 test('new daemon registrations record profile, channel and the declared roots', () => {

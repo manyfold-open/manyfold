@@ -14,7 +14,7 @@ import {
     machineWorkspacesRoot
 } from '@manyfold/shared'
 import { CLI_CHANNEL, DEFAULT_API_URL } from '@/channel'
-import { resolveConfigDir, resolveProfile } from '@/config'
+import { loadConfig, resolveConfigDir, resolveProfile } from '@/config'
 import {
     loadOrCreateDaemonUuid,
     saveDaemonConfig,
@@ -73,6 +73,16 @@ export const resolveDaemonRegisterToken = (
         )
     return token
 }
+
+// Seen on a self-hosted daemon enrolment [2026-08-20]: `mf login` had stored
+// the local API in the profile, but register resolved flag-or-default only,
+// sent the ldt_ token to the channel-default API and surfaced its misleading
+// "daemon token not found". Same chain as buildClient: explicit root
+// --api-url > profile-stored apiUrl > channel default.
+export const resolveDaemonRegisterApiUrl = (
+    rootApiUrl: string | undefined,
+    stored: { apiUrl?: string }
+): string => rootApiUrl ?? stored.apiUrl ?? DEFAULT_API_URL
 
 export const buildRegisteredDaemonConfig = (input: {
     apiUrl: string
@@ -183,7 +193,10 @@ export const registerDaemonRegister = (program: Command): void => {
             const parent = program.parent
             const rootOptions = parent?.opts() as RootOptions | undefined
             const token = resolveDaemonRegisterToken(options, rootOptions)
-            const apiUrl = rootOptions?.apiUrl ?? DEFAULT_API_URL
+            const apiUrl = resolveDaemonRegisterApiUrl(
+                rootOptions?.apiUrl,
+                await loadConfig()
+            )
 
             const { daemonId, detectedFrameworks } = await registerDaemonHost({
                 apiUrl,
