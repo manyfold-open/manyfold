@@ -32,6 +32,7 @@ const makeService = (opts: {
     cloudComputer?: unknown
     provisioner?: false
     toggleEnabled?: boolean
+    runtime?: Record<string, unknown>
 }): Harness => {
     const provisionCalls: Array<Record<string, unknown>> = []
     const attachCalls: Array<Record<string, unknown>> = []
@@ -56,7 +57,7 @@ const makeService = (opts: {
         {} as never, // agentsService
         {} as never, // accounts
         {} as never, // crypto
-        { findById: async () => null } as never, // runtimes
+        { findById: async () => opts.runtime ?? null } as never, // runtimes
         {} as never, // spritesProvisioner
         {} as never, // externalProvisioner
         {} as never, // k8sOrchestrator
@@ -190,5 +191,62 @@ test('the cloud_computer master toggle blocks self-serve provisioning', async ()
                 'CLOUD_COMPUTER_DISABLED',
         'the master switch must gate NEW provisioning exactly like reserveRuntime gates purchased containers — self-serve must not become a toggle bypass'
     )
+    assert.equal(h.provisionCalls.length, 0)
+})
+
+// ---- Phase-4 (§4.1): the attach-denial seam carries the runtime identity ----
+
+const ownedRuntime = {
+    id: 'art_owned',
+    userId: 'usr_1',
+    kind: 'k8s',
+    framework: 'openclaw',
+    status: 'ready',
+    skuId: 'sku_x'
+}
+
+const attachCtx = {
+    userId: 'usr_1',
+    dto: { ...dto, runtimeId: 'art_owned' },
+    isAdmin: false
+} as never
+
+test('attach passes the runtime identity to the port and an async denial still denies', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const h = makeService({
+        runtime: ownedRuntime,
+        cloudComputer: {
+            ...openCloudComputerPort,
+            agentAttachDenial: async (args: Record<string, unknown>) => {
+                seen.push(args)
+                return { code: 'RUNTIME_READ_ONLY', message: 'read only' }
+            }
+        }
+    })
+    await assert.rejects(
+        h.service.create(attachCtx),
+        (err: unknown) =>
+            err instanceof ConflictException &&
+            (err.getResponse() as { code?: string }).code ===
+                'RUNTIME_READ_ONLY',
+        'a promise-returning adapter must deny with ITS code — losing the await would throw a code-less bogus denial for every async adapter'
+    )
+    assert.deepEqual(
+        seen,
+        [{ runtimeSkuId: 'sku_x', runtimeId: 'art_owned', isAdmin: false }],
+        'the adapter needs the runtime id to resolve the purchase from its own subscription rows once the skuId column contracts away (design §9 Phase-4)'
+    )
+})
+
+test('an async null denial attaches — the promise itself must not be truthy-checked', async () => {
+    const h = makeService({
+        runtime: ownedRuntime,
+        cloudComputer: {
+            ...openCloudComputerPort,
+            agentAttachDenial: async () => null
+        }
+    })
+    await h.service.create(attachCtx)
+    assert.equal(h.attachCalls.length, 1)
     assert.equal(h.provisionCalls.length, 0)
 })
