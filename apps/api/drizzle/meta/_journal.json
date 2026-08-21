@@ -15,6 +15,13 @@
       "when": 1787178791069,
       "tag": "0001_automation_run_result_preview",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787341191325,
+      "tag": "0002_phase4_column_drops.contract",
+      "breakpoints": true
     }
   ]
 }
