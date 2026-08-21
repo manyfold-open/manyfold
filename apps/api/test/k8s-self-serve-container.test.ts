@@ -40,8 +40,7 @@ const makeService = (opts: {
         id: 'art_fresh',
         kind: 'k8s',
         framework: 'openclaw',
-        status: 'ready',
-        skuId: null
+        status: 'ready'
     }
     const provisioner =
         opts.provisioner === false
@@ -152,7 +151,7 @@ test('self-serve create provisions a container and attaches the agent to it', as
             memoryMb: 2048,
             diskGb: 10
         },
-        'a self-serve container carries no SKU and no region — skuId null is what the attach-denial port already treats as freely attachable on the open default'
+        'a self-serve container carries no SKU and no region — the open default attach-denial port treats every runtime as freely attachable'
     )
     assert.equal(
         input.clusterId,
@@ -201,8 +200,7 @@ const ownedRuntime = {
     userId: 'usr_1',
     kind: 'k8s',
     framework: 'openclaw',
-    status: 'ready',
-    skuId: 'sku_x'
+    status: 'ready'
 }
 
 const attachCtx = {
@@ -233,8 +231,8 @@ test('attach passes the runtime identity to the port and an async denial still d
     )
     assert.deepEqual(
         seen,
-        [{ runtimeSkuId: 'sku_x', runtimeId: 'art_owned', isAdmin: false }],
-        'the adapter needs the runtime id to resolve the purchase from its own subscription rows once the skuId column contracts away (design §9 Phase-4)'
+        [{ runtimeId: 'art_owned', isAdmin: false }],
+        'the adapter resolves the purchase from its own subscription rows by runtime id (design §9 Phase-4)'
     )
 })
 

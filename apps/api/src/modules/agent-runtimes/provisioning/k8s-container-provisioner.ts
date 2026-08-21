@@ -190,7 +190,6 @@ export class K8sContainerProvisioner {
                 namespace,
                 ingressHost: host,
                 mountPath: plan.pvcMountPath,
-                skuId: sku.id,
                 cpuMillicores: sku.cpuMillicores,
                 memoryMb: sku.memoryMb,
                 diskGb: sku.diskGb,
