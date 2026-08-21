@@ -10,6 +10,11 @@
  * characters keeps every break on a 1400px screen and reads as a narrow
  * ragged column with sentences split down the middle.
  */
+import {
+    BRAND_NAME,
+    DEFAULT_WEB_BASE_URL,
+    SUPPORT_EMAIL
+} from '@/common/brand'
 
 export interface EmailLink {
     label: string
@@ -44,10 +49,9 @@ export interface RenderedEmail {
     text: string
 }
 
-export const DEFAULT_SIGNOFF = '— The Manyfold team'
-export const BRAND_NAME = 'Manyfold'
-export const BRAND_URL = 'https://manyfold.ai'
-export const SUPPORT_EMAIL = 'hi@manyfold.ai'
+export const DEFAULT_SIGNOFF = `— The ${BRAND_NAME} team`
+export { BRAND_NAME, SUPPORT_EMAIL }
+export const BRAND_URL = DEFAULT_WEB_BASE_URL
 
 /* Web fonts are unreliable in mail clients (Outlook and Gmail both drop
    @font-face), so the product's Geist is not an option — a system stack is

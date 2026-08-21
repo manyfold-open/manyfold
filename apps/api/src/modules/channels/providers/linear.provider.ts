@@ -1,3 +1,4 @@
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import type {
     ChannelProgressMode,
     ChannelTestResult,
@@ -167,7 +168,7 @@ export class LinearChannelProvider implements ChannelProvider {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 

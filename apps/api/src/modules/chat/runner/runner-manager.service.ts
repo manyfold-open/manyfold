@@ -1,3 +1,4 @@
+import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import {
     RUNNER_PROFILE,
     isCliVersionTooOld,
@@ -810,7 +811,7 @@ export class RunnerManagerService {
 
     private apiUrl(): string {
         const base = process.env.PUBLIC_API_BASE_URL?.replace(/\/+$/, '')
-        return base ? `${base}/api` : 'https://api.manyfold.ai/api'
+        return base ? `${base}/api` : DEFAULT_API_BASE_URL
     }
 }
 

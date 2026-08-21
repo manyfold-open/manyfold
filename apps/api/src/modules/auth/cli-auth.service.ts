@@ -1,3 +1,4 @@
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import {
     CliLoginApproveResponse,
     CliLoginExchangeResponse,
@@ -527,7 +528,7 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         )
     }
 
