@@ -173,12 +173,31 @@ const interpolate = (
     )
 }
 
+// White-label brand substitution (design §3.5, Phase-4): the eleven
+// catalogs are written against the default brand name; a deployment that
+// renames the product sets its name once instead of forking ~950 strings.
+// The swap runs on the resolved TEMPLATE, before interpolation, so params
+// (user content — an agent literally named "Manyfold helper") are never
+// rewritten. The identity default keeps the hot path allocation-free.
+const DEFAULT_BRAND_NAME = 'Manyfold'
+let brandName = DEFAULT_BRAND_NAME
+
+export const setBrandName = (name: string | null | undefined): void => {
+    const trimmed = name?.trim()
+    brandName = trimmed && trimmed.length > 0 ? trimmed : DEFAULT_BRAND_NAME
+}
+
+const applyBrand = (template: string): string =>
+    brandName === DEFAULT_BRAND_NAME
+        ? template
+        : template.replaceAll(DEFAULT_BRAND_NAME, brandName)
+
 export const t = (
     key: string,
     params?: Record<string, string | number>
 ): string => {
     const raw = resolveTranslation(currentLanguage, key)
-    return interpolate(raw, params)
+    return interpolate(applyBrand(raw), params)
 }
 
 // App-registered translation extras (editions §3.3): flat dotted-key maps a
@@ -212,7 +231,7 @@ export const tForLanguage = (
     language: Language,
     key: string,
     params?: Record<string, string | number>
-): string => interpolate(resolveTranslation(language, key), params)
+): string => interpolate(applyBrand(resolveTranslation(language, key)), params)
 
 export type {
     Language,

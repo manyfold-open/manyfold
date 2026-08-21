@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
     readonly VITE_API_URL?: string
+    readonly VITE_BRAND_NAME?: string
     readonly VITE_AXIOM_TOKEN?: string
     readonly VITE_AXIOM_DATASET?: string
     readonly VITE_MF_ENV?: string
