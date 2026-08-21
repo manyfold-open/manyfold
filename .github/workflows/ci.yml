@@ -26,6 +26,10 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - run: pnpm check
             - run: pnpm lint
+            # Docs-site CLI reference + changelog must track the CLI version;
+            # spans apps/cli and apps/docs, so no single affected package
+            # covers it.
+            - run: pnpm cli-content:check
             - run: pnpm knip
             - run: node scripts/check-migration-ownership.mjs
             - run: node --test scripts/check-migration-ownership.test.mjs
