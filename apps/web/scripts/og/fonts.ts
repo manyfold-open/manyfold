@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { repoRoot } from './paths'
+import { repoRoot, installedFile } from './paths'
 
 // Every face the poster can reach is pinned by content hash and inlined into
 // the generated CSS as a data: URL. Two reasons it is not a file:// url like
@@ -91,7 +91,7 @@ export const sha256 = (bytes: Buffer): string =>
 export const packageFontPath = (pin: FontPin): string => {
     if (pin.source.kind !== 'package')
         throw new Error(`${pin.family} ${pin.weight} is not a package font`)
-    return path.join(repoRoot, 'node_modules', pin.source.file)
+    return installedFile(pin.source.file)
 }
 
 export const FONT_CACHE_ENV = 'MF_OG_FONT_CACHE'
