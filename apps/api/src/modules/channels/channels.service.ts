@@ -1,3 +1,4 @@
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import { createObjectId } from '@manyfold/shared'
 import type {
     ChannelConfig,
@@ -79,7 +80,7 @@ export class ChannelsService {
             config.get<string>('MF_WEB_URL') ??
             config.get<string>('NCA_WEB_URL') ??
             config.get<string>('WEB_BASE_URL') ??
-            'https://manyfold.ai'
+            DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 

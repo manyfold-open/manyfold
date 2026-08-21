@@ -1,3 +1,4 @@
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import {
     AgentPermissionsResponse,
     DenyPermissionResponse,
@@ -532,7 +533,7 @@ export class AgentPermissionsService {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         return raw.replace(/\/+$/, '')
     }
 }

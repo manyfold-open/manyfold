@@ -1,4 +1,5 @@
 import type { MfCliChannel } from '@manyfold/shared'
+import { CLI_CDN_BASE } from './brand'
 
 const DEFAULT_MF_DEPLOY_ENV = 'local'
 
@@ -9,8 +10,8 @@ export const resolveMfDeployEnv = (
     return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_MF_DEPLOY_ENV
 }
 
-const STABLE_CLI_CDN_BASE = 'https://cdn1.manyfold.ai/cli'
-const STAGING_CLI_CDN_BASE = 'https://cdn1.manyfold.ai/cli/staging'
+const STABLE_CLI_CDN_BASE = CLI_CDN_BASE
+const STAGING_CLI_CDN_BASE = `${CLI_CDN_BASE}/staging`
 
 export const cliChannelForDeployEnv = (deployEnv: string): MfCliChannel =>
     deployEnv === 'staging' ? 'staging' : 'stable'

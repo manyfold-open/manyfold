@@ -1,3 +1,4 @@
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import {
     AuthForgotPasswordBody,
     AuthLoginBody,
@@ -443,7 +444,7 @@ export class NativeAuthController {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         )
     }
 

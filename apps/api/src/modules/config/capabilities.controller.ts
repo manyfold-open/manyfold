@@ -3,6 +3,7 @@ import { Controller, Get, Header } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { CapabilitiesRegistry } from '@/common/capabilities/capabilities.registry'
 import { configString } from '@/common/config-alias'
+import { BRAND_NAME, DEFAULT_WEB_BASE_URL } from '@/common/brand'
 
 // Deliberately unauthenticated (same posture as GET /auth/config): the web
 // and admin apps read this before sign-in to decide which surfaces exist on
@@ -25,10 +26,10 @@ export class CapabilitiesController {
             edition: this.registry.has('billing') ? 'cloud' : 'self-hosted',
             features: await this.registry.snapshot(),
             branding: {
-                name: 'Manyfold',
+                name: BRAND_NAME,
                 webBaseUrl:
                     configString(this.config, ['MF_WEB_URL', 'NCA_WEB_URL']) ??
-                    'https://manyfold.ai'
+                    DEFAULT_WEB_BASE_URL
             }
         }
     }

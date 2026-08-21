@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import type { FastifyReply } from 'fastify'
 import { configString } from '@/common/config-alias'
 import { ConnectionsService } from '@/modules/connections/connections.service'
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 
 // Public (no guard): GitHub redirects the user's browser here after install.
 // userId is recovered from the signed `state`, not a session.
@@ -49,7 +50,7 @@ export class GithubCallbackController {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 }

@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import type { FastifyReply } from 'fastify'
 import { configString } from '@/common/config-alias'
 import { ChannelsService } from './channels.service'
+import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 
 // Public (no guard): GitHub redirects the user's browser here after creating
 // the app from our manifest. The channel and owner are recovered from the
@@ -54,7 +55,7 @@ export class GithubManifestCallbackController {
                 'MF_WEB_URL',
                 'NCA_WEB_URL',
                 'WEB_BASE_URL'
-            ]) ?? 'https://manyfold.ai'
+            ]) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 }

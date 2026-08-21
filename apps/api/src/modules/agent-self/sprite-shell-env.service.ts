@@ -1,3 +1,4 @@
+import { CLI_CDN_BASE } from '@/common/brand'
 import {
     MANAGED_PATH_BLOCK_END,
     MANAGED_PATH_BLOCK_START,
@@ -247,9 +248,8 @@ export const buildShellEnvScript = (input: {
     ].join('\n')
 }
 
-export const STAGING_CLI_INSTALL_URL =
-    'https://cdn1.manyfold.ai/cli/staging/install.sh'
-export const STABLE_CLI_INSTALL_URL = 'https://cdn1.manyfold.ai/cli/install.sh'
+export const STAGING_CLI_INSTALL_URL = `${CLI_CDN_BASE}/staging/install.sh`
+export const STABLE_CLI_INSTALL_URL = `${CLI_CDN_BASE}/install.sh`
 export type MfCliInstallChannel = 'stable' | 'staging'
 
 export const cliInstallChannelForDeployEnv = (
