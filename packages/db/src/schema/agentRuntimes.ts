@@ -91,12 +91,6 @@ export const agentRuntimes = pgTable(
         // start/stop write); lastSeenAt stays daemon-owned (daemon-runtime-sync)
         // — two timestamps, two owners.
         serviceStatusAt: timestamp('service_status_at', { withTimezone: true }),
-        // skuId NULL = legacy grandfathered runtime (pre-container-purchase model). UI treats these as read-only.
-        // Opaque cloud-owned id, deliberately WITHOUT an FK to container_skus:
-        // that table lives in the cloud journal and core → cloud constraints
-        // are forbidden (editions §4.1; the historical FK — onDelete set null —
-        // was dropped in 0175, so sku deletion no longer nulls this column).
-        skuId: text('sku_id'),
         cpuMillicores: integer('cpu_millicores'),
         memoryMb: integer('memory_mb'),
         diskGb: integer('disk_gb'),

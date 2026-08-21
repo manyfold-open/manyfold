@@ -639,7 +639,6 @@ export class AgentOrchestratorService {
                     status: existing.status
                 })
             const attachDenial = await this.cloudComputer?.agentAttachDenial({
-                runtimeSkuId: existing.skuId,
                 runtimeId: existing.id,
                 isAdmin
             })
