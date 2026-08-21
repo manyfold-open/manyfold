@@ -12,10 +12,13 @@ default:
 install:
     pnpm install
 
+# Seed .env from whichever template this tree carries: the cloud templates
+# (full private variable set) in the superproject, the public api template
+# in the open-source tree. Web/admin have cloud templates only.
 env:
-    [ -f apps/api/.env ] || cp apps/api/.env.example apps/api/.env
-    [ -f apps/admin/.env ] || cp apps/admin/.env.example apps/admin/.env
-    [ -f apps/web/.env ] || cp apps/web/.env.example apps/web/.env
+    [ -f apps/api/.env ] || cp "$([ -f apps/api-cloud/.env.example ] && echo apps/api-cloud/.env.example || echo apps/api/.env.example)" apps/api/.env
+    [ -f apps/admin/.env ] || ! [ -f apps/admin-cloud/.env.example ] || cp apps/admin-cloud/.env.example apps/admin/.env
+    [ -f apps/web/.env ] || ! [ -f apps/web-cloud/.env.example ] || cp apps/web-cloud/.env.example apps/web/.env
 
 db-up:
     docker compose up -d postgres
