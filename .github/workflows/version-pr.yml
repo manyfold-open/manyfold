@@ -1,0 +1,42 @@
+# Versions the tracked packages (CLI and friends) from pending changesets:
+# every push to main refreshes a "Version Packages" PR; merging it bumps
+# package.json + CHANGELOG.md, and the maintainers cut the release tag from
+# the result. Zero repository secrets — GITHUB_TOKEN is enough in-repo.
+name: version-pr
+
+on:
+    push:
+        branches: [main]
+    workflow_dispatch: {}
+
+permissions:
+    contents: write
+    pull-requests: write
+
+concurrency:
+    group: version-pr
+    cancel-in-progress: false
+
+jobs:
+    version:
+        if: github.repository == 'manyfold-open/manyfold'
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+              with:
+                  version: pnpm changeset version
+                  title: 'chore(release): version tracked packages'
+                  commit: 'chore(release): version tracked packages'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
