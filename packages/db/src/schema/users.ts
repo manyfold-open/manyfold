@@ -48,7 +48,6 @@ export const users = pgTable('users', {
         .$type<Partial<Record<string, 'sprites' | 'k8s'>>>()
         .notNull()
         .default({}),
-    stripeCustomerId: text('stripe_customer_id').unique(),
     createdAt: timestamp('created_at', { withTimezone: true })
         .notNull()
         .defaultNow(),
