@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { healMarkdownSpan } from '../src/components/chat/utils/streamingMarkdown'
@@ -29,10 +29,16 @@ test('remend is pinned to an exact version, not a range', () => {
 })
 
 // remend does not export ./package.json, so read the resolved install
-// directly; the workspace hoists it to the repo root node_modules.
+// directly; the workspace hoists it to the repo root node_modules — which is
+// this repository's root in a plain checkout and one level higher when the
+// repo is mounted as the oss/ submodule of the cloud superproject.
 test('the installed remend is the version the probe list was written for', () => {
+    const candidates = [
+        `${here}../../../node_modules/remend/package.json`,
+        `${here}../../../../node_modules/remend/package.json`
+    ]
     const installed = JSON.parse(
-        readFileSync(`${here}../../../node_modules/remend/package.json`, 'utf8')
+        readFileSync(candidates.find(existsSync) ?? candidates[0], 'utf8')
     ) as { version: string }
     assert.equal(installed.version, PINNED)
 })

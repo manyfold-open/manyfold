@@ -1,7 +1,18 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 
 export const ogDir = import.meta.dirname
 export const repoRoot = path.resolve(ogDir, '../../../..')
+
+// Resolves a file inside an installed package without assuming where the
+// package manager hoisted it: node_modules sits at this repository's root in
+// a plain checkout, and one level higher when the repo is mounted as the
+// oss/ submodule of the cloud superproject (editions Stage 2).
+export const installedFile = (rel: string): string =>
+    [repoRoot, path.resolve(repoRoot, '..')]
+        .map((root) => path.join(root, 'node_modules', rel))
+        .find((candidate) => existsSync(candidate)) ??
+    path.join(repoRoot, 'node_modules', rel)
 
 export const POSTER_CSS = path.join(ogDir, 'poster.css')
 export const POSTER_TEMPLATE = path.join(ogDir, 'poster.template.html')
@@ -31,13 +42,13 @@ export const generatorSource = (rel: (typeof GENERATOR_RELS)[number]): string =>
 // the exact face bytes, rather than their package labels, are pinned in
 // fonts.ts.
 export const GENERATOR_PACKAGE_RELS = {
-    playwright: 'node_modules/playwright/package.json',
-    tsx: 'node_modules/tsx/package.json'
+    playwright: 'playwright/package.json',
+    tsx: 'tsx/package.json'
 } as const
 
 export const generatorPackage = (
     name: keyof typeof GENERATOR_PACKAGE_RELS
-): string => path.join(repoRoot, GENERATOR_PACKAGE_RELS[name])
+): string => installedFile(GENERATOR_PACKAGE_RELS[name])
 
 export const WEB_HEAD = path.join(repoRoot, 'apps/web/src/seo/head.ts')
 export const LANDING_PAGE = path.join(
