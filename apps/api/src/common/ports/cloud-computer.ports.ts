@@ -32,10 +32,15 @@ export interface SelfServeContainerSpec {
 // allowed — which is also the self-hosted behavior once the OSS root binds
 // explicit defaults.
 export interface CloudComputerPort {
+    // The return may be a promise so an adapter can resolve the purchase from
+    // its own storage. runtimeSkuId is the legacy denormalized brand on the
+    // runtime row; it leaves with the core column's Phase-4 contract, after
+    // which runtimeId is the only key (design §4.1 / §9 Phase-4).
     agentAttachDenial(args: {
         runtimeSkuId: string | null
+        runtimeId: string
         isAdmin: boolean
-    }): AgentAttachDenial | null
+    }): AgentAttachDenial | null | Promise<AgentAttachDenial | null>
     onRuntimeTeardown(runtimeId: string): Promise<void>
     activeContainerSubscriptionCount(userId: string): Promise<number>
     // Envelope for a k8s container created without a purchased SKU, or null
