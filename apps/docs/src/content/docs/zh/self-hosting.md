@@ -106,6 +106,23 @@ TLS 在你的反向代理终结,再转发到三个端口;API 需要 WebSocket �
 SMTP host、端口和 TLS 模式,所有发信功能(注册验证、邀请)都用它。没配
 provider 时,需要邮件的功能会明确提示,而不是静默失败。
 
+## 删除账号
+
+删除是管理员专属操作:管理后台 → Users → 用户详情 → Danger zone。发起删除
+即刻停用账号——所有会话吊销、全部登录方式封禁、automation 暂停、keep-alive
+关闭——并给用户发一封写明最终删除日期的邮件。
+
+硬删除在宽限期(默认 30 天,`MF_DELETION_GRACE_DAYS`)之后执行。宽限期内管
+理员可以恢复账号:登录封禁解除,但 automation 保持暂停直到手动重开。「立即
+执行」在二次确认后跳过剩余等待。
+
+到期后,后台 sweep 先拆除该用户的运行时(sandbox VM 删除、Kubernetes
+namespace 移除;daemon 机器是用户自己的——文件不动,只吊销 token)与
+channel 平台侧注册,再删除用户行,所有用户名下的表随 `ON DELETE CASCADE`
+一并清除。自托管跑的正是这条路径:纯 cascade 加登录闸口,没有任何计费钩
+子。`user_deletions` 审计行(只存裸 user id,无 PII)在删除后幸存,作为持
+久记录;sweep 失败会把错误记录在该行上并自动重试。
+
 ## 执行环境
 
 Agent 跑在你接入的计算机上,三条路:
