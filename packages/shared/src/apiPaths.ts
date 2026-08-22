@@ -335,6 +335,9 @@ export const apiPaths = {
     ME_EMAIL_CHANGE_VERIFY: '/me/email/change/verify',
     ME_PROFILE: '/me/profile',
     ME_AVATAR: '/me/avatar',
+    ME_DELETION: '/me/deletion',
+    ME_DELETION_CONFIRM: '/me/deletion/confirm',
+    ME_DELETION_RESTORE: '/me/deletion/restore',
     ME_IDENTITY_BY_PROVIDER_SUBJECT: (provider: string, subject: string) =>
         `/me/identities/${encodeURIComponent(provider)}/${encodeURIComponent(subject)}`,
     AGENT_GRANTS: (agentId: string) => `/agents/${agentId}/grants`,

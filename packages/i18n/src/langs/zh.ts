@@ -3279,7 +3279,46 @@ const zh: Translations = {
             passwordDescriptionChange: '修改 {{email}} 的登录密码。',
             passwordDescriptionSet:
                 '为 {{email}} 添加密码登录。验证码会发送到该邮箱进行确认。',
-            savingPassword: '保存中…'
+            savingPassword: '保存中…',
+            dangerTitle: '危险操作',
+            deleteAccountTitle: '删除账号',
+            deleteAccountDescription: '宽限期结束后，删除账号将无法撤销：',
+            deleteConsequenceAgents:
+                '所有 agent、sandbox 及其工作区都会被永久删除。',
+            deleteConsequenceBilling: '订阅立即取消，不予退款。',
+            deleteConsequenceGrace:
+                '你在邮件中确认后账号立即停用；宽限期内仍可通过邮件里的链接恢复。',
+            deleteAccountButton: '删除账号…',
+            deleteConfirmTitle: '删除你的账号？',
+            deleteConfirmDescription:
+                '我们会向 {{email}} 发送确认链接。在你打开它之前不会发生任何事情——链接 24 小时后失效。',
+            deleteAwaitingTitle: '请查收邮件',
+            deleteAwaitingBody:
+                '确认链接已发送到 {{email}}。只有你确认后账号才会进入删除流程；链接于 {{expires}} 失效。',
+            deleteResend: '重发邮件',
+            deleteResent: '新的确认邮件已发出。'
+        },
+        accountDeletion: {
+            confirmTitle: '确认删除账号',
+            confirmBody:
+                '确认后账号立即停用：所有会话被登出，订阅立即取消且不退款。宽限期结束后，账号及全部数据将被永久删除。',
+            confirmRestoreHint:
+                '宽限期内如果你改变主意，我们接下来发送的邮件中包含恢复链接。',
+            confirmButton: '删除我的账号',
+            confirmBusy: '确认中…',
+            confirmedTitle: '删除已排期',
+            confirmedBody:
+                '你的账号已停用，将于 {{date}} 被永久删除。恢复链接已发送到你的邮箱，在该日期前均可使用。',
+            restoreTitle: '恢复你的账号',
+            restoreBody:
+                '你的账号已进入删除流程。恢复将取消删除并重新激活账号——已暂停的 automation 和已取消的订阅不会自动恢复，需要你手动重新开启。',
+            restoreButton: '恢复我的账号',
+            restoreBusy: '恢复中…',
+            restoredTitle: '账号已恢复',
+            restoredBody: '欢迎回来，现在可以重新登录了。',
+            goToSignIn: '前往登录',
+            missingToken: '链接不完整。请打开邮件中的完整链接。',
+            linkInvalid: '链接无效或已过期。'
         },
         usage: {
             title: '用量',
@@ -4881,9 +4920,11 @@ const zh: Translations = {
                     lastError: '最近错误'
                 },
                 status: {
+                    awaiting_confirmation: '待确认',
                     pending: '待删除',
                     restored: '已恢复',
-                    executed: '已删除'
+                    executed: '已删除',
+                    expired: '请求已过期'
                 },
                 actions: {
                     request: '发起删除',

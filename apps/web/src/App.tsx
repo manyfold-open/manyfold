@@ -22,6 +22,12 @@ const CliLogin = lazyChunk(() => import('@/pages/CliLogin'))
 const ConnectA2a = lazyChunk(() => import('@/pages/ConnectA2a'))
 const GrantPermission = lazyChunk(() => import('@/pages/GrantPermission'))
 const Invite = lazyChunk(() => import('@/pages/Invite'))
+const AccountDeletionConfirm = lazyChunk(
+    () => import('@/pages/AccountDeletionConfirm')
+)
+const AccountDeletionRestore = lazyChunk(
+    () => import('@/pages/AccountDeletionRestore')
+)
 const SharedSkill = lazyChunk(() => import('@/pages/SharedSkill'))
 const SharedChatSession = lazyChunk(() => import('@/pages/SharedChatSession'))
 const Home = lazyChunk(() => import('@/pages/Home'))
@@ -164,6 +170,18 @@ const App: FC = (): ReactNode => {
                 <Route path='/cli-login' element={<CliLogin />} />
                 <Route path='/connect/a2a' element={<ConnectA2a />} />
                 <Route path='/grant-permission' element={<GrantPermission />} />
+                {/* Both deletion pages handle auth themselves: confirm
+                    round-trips through login with the token preserved, and
+                    restore MUST work signed-out (post-T0 there is no
+                    session — the emailed token is the credential). */}
+                <Route
+                    path='/account/deletion/confirm'
+                    element={<AccountDeletionConfirm />}
+                />
+                <Route
+                    path='/account/deletion/restore'
+                    element={<AccountDeletionRestore />}
+                />
                 <Route path='/invite/:token' element={<Invite />} />
                 <Route
                     path='/skills/shared/:shareId'

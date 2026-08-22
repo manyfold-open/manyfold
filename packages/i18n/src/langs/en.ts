@@ -3431,7 +3431,49 @@ const en = {
             passwordDescriptionChange: 'Updates the password for {{email}}.',
             passwordDescriptionSet:
                 "Adds password sign-in for {{email}}. We'll send a code there to confirm.",
-            savingPassword: 'Saving…'
+            savingPassword: 'Saving…',
+            dangerTitle: 'Danger zone',
+            deleteAccountTitle: 'Delete account',
+            deleteAccountDescription:
+                'Deleting your account cannot be undone once the grace period ends:',
+            deleteConsequenceAgents:
+                'All agents, sandboxes and their workspaces are permanently deleted.',
+            deleteConsequenceBilling:
+                'Subscriptions are canceled immediately, without a refund.',
+            deleteConsequenceGrace:
+                'The account deactivates as soon as you confirm by email; during the grace period an emailed link can still restore it.',
+            deleteAccountButton: 'Delete account…',
+            deleteConfirmTitle: 'Delete your account?',
+            deleteConfirmDescription:
+                'We will email a confirmation link to {{email}}. Nothing happens until you open it — the link expires after 24 hours.',
+            deleteAwaitingTitle: 'Check your email',
+            deleteAwaitingBody:
+                'A confirmation link is on its way to {{email}}. Your account is only scheduled for deletion after you confirm; the link expires on {{expires}}.',
+            deleteResend: 'Resend email',
+            deleteResent: 'A new confirmation email is on its way.'
+        },
+        accountDeletion: {
+            confirmTitle: 'Confirm account deletion',
+            confirmBody:
+                'This deactivates your account immediately: every session is signed out and subscriptions are canceled without a refund. After the grace period, the account and all of its data are permanently deleted.',
+            confirmRestoreHint:
+                'If you change your mind during the grace period, the email we send next contains a restore link.',
+            confirmButton: 'Delete my account',
+            confirmBusy: 'Confirming…',
+            confirmedTitle: 'Deletion scheduled',
+            confirmedBody:
+                'Your account is deactivated and will be permanently deleted on {{date}}. We emailed you a restore link that works until that date.',
+            restoreTitle: 'Restore your account',
+            restoreBody:
+                'Your account is scheduled for deletion. Restoring cancels that and reactivates it — paused automations and canceled subscriptions stay off until you re-enable them.',
+            restoreButton: 'Restore my account',
+            restoreBusy: 'Restoring…',
+            restoredTitle: 'Account restored',
+            restoredBody: 'Welcome back. You can sign in again now.',
+            goToSignIn: 'Go to sign in',
+            missingToken:
+                'This link is incomplete. Open the exact link from the email.',
+            linkInvalid: 'This link is invalid or has expired.'
         },
         usage: {
             title: 'Usage',
@@ -5114,9 +5156,11 @@ const en = {
                     lastError: 'Last error'
                 },
                 status: {
+                    awaiting_confirmation: 'Awaiting confirmation',
                     pending: 'Pending deletion',
                     restored: 'Restored',
-                    executed: 'Executed'
+                    executed: 'Executed',
+                    expired: 'Request expired'
                 },
                 actions: {
                     request: 'Request deletion',

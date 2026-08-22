@@ -1,7 +1,8 @@
 import type {
     AccountProfileSummary,
     AuthIdentityProvider,
-    AuthIdentitySummary
+    AuthIdentitySummary,
+    MeDeletionAwaitingView
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import {
@@ -36,6 +37,7 @@ import { useApiClient } from '@/lib/apiClient'
 import { Spinner } from '@/components/Loading'
 import { useAppAuth } from '@/lib/auth'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { formatDateTime } from '@/lib/dateFormat'
 import { useNetmindConfigured } from '@/lib/netmindAuth/config'
 import { patchCachedCurrentUser, useCurrentUser } from '@/lib/useCurrentUser'
 import { ProviderLogo } from '@/lib/brandMarks'
@@ -158,6 +160,11 @@ const Account: FC = (): ReactNode => {
     const [nameEditing, setNameEditing] = useState(false)
     const [nameDraft, setNameDraft] = useState('')
     const [nameBusy, setNameBusy] = useState(false)
+    const [deletion, setDeletion] = useState<MeDeletionAwaitingView | null>(
+        null
+    )
+    const [deletionBusy, setDeletionBusy] = useState(false)
+    const [deletionError, setDeletionError] = useState<string | null>(null)
     const avatarFileRef = useRef<HTMLInputElement | null>(null)
     // Mirrors avatarUrl so the unmount cleanup can revoke the live object URL
     // (the replace-pattern frees prior ones during the mount's lifetime, but
@@ -503,6 +510,54 @@ const Account: FC = (): ReactNode => {
         items.filter((item) => item.provider !== 'email').length +
         (hasPassword ? 1 : 0)
     const lastMethod = usableMethods <= 1
+
+    // Self-serve account deletion (ADR-0023 §9.1). Nothing here is
+    // destructive by itself — T0 only happens when the emailed link is
+    // confirmed — but the typed-email gate keeps the request deliberate.
+    // Re-requesting while one is awaited supersedes it, so "resend" is just
+    // the same call again.
+    useEffect(() => {
+        let cancelled = false
+        client.meDeletion
+            .status()
+            .then((status) => {
+                if (!cancelled) setDeletion(status)
+            })
+            .catch(() => undefined)
+        return () => {
+            cancelled = true
+        }
+    }, [client])
+
+    const sendDeletionRequest = useCallback(
+        async (resend: boolean): Promise<void> => {
+            setDeletionBusy(true)
+            setDeletionError(null)
+            try {
+                setDeletion(await client.meDeletion.request())
+                if (resend) setBanner(t('web.account.deleteResent'))
+            } catch (err) {
+                setDeletionError(apiErrorMessage(err))
+            } finally {
+                setDeletionBusy(false)
+            }
+        },
+        [client, t]
+    )
+
+    const requestDeletion = useCallback(async (): Promise<void> => {
+        const ok = await confirm({
+            title: t('web.account.deleteConfirmTitle'),
+            description: t('web.account.deleteConfirmDescription', {
+                email: accountEmail
+            }),
+            confirmLabel: t('web.account.deleteAccountTitle'),
+            tone: 'danger',
+            requireMatch: accountEmail
+        })
+        if (!ok) return
+        await sendDeletionRequest(false)
+    }, [accountEmail, confirm, sendDeletionRequest, t])
 
     // Fixed directory order: NetMind first (the parent platform), then Google,
     // then email; other identities (SSO) append when present.
@@ -965,6 +1020,57 @@ const Account: FC = (): ReactNode => {
                     </div>
                 </section>
             ) : null}
+
+            <section>
+                <div className='settings-card-label mb-3'>
+                    {t('web.account.dangerTitle')}
+                </div>
+                {deletion ? (
+                    <div className='border-divider rounded-md border px-4 py-3'>
+                        <p className='text-ui text-fg font-medium'>
+                            {t('web.account.deleteAwaitingTitle')}
+                        </p>
+                        <p className='text-ui text-muted mt-1'>
+                            {t('web.account.deleteAwaitingBody', {
+                                email: accountEmail,
+                                expires: formatDateTime(deletion.expiresAt)
+                            })}
+                        </p>
+                        <button
+                            type='button'
+                            className='workbench-button-secondary mt-3 h-8 px-3'
+                            disabled={deletionBusy}
+                            onClick={() => void sendDeletionRequest(true)}
+                        >
+                            {t('web.account.deleteResend')}
+                        </button>
+                    </div>
+                ) : (
+                    <>
+                        <p className='text-ui text-muted mb-2'>
+                            {t('web.account.deleteAccountDescription')}
+                        </p>
+                        <ul className='text-ui text-muted mb-3 list-disc space-y-1 pl-5'>
+                            <li>{t('web.account.deleteConsequenceAgents')}</li>
+                            <li>{t('web.account.deleteConsequenceBilling')}</li>
+                            <li>{t('web.account.deleteConsequenceGrace')}</li>
+                        </ul>
+                        <button
+                            type='button'
+                            className='workbench-button-danger h-8 px-3'
+                            disabled={deletionBusy}
+                            onClick={() => void requestDeletion()}
+                        >
+                            {t('web.account.deleteAccountButton')}
+                        </button>
+                    </>
+                )}
+                {deletionError && (
+                    <p className='text-error text-ui mt-2' role='alert'>
+                        {deletionError}
+                    </p>
+                )}
+            </section>
 
             {netmindOpen && (
                 <NetmindSignInDialog

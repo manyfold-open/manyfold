@@ -30,6 +30,14 @@ const TITLE_ROUTES: TitleRoute[] = [
     { path: '/connect/a2a', labelKey: 'web.pageTitle.connectAgent' },
     { path: '/grant-permission', labelKey: 'web.pageTitle.grantPermission' },
     { path: '/invite/:token', labelKey: 'web.pageTitle.invite' },
+    {
+        path: '/account/deletion/confirm',
+        labelKey: 'web.accountDeletion.confirmTitle'
+    },
+    {
+        path: '/account/deletion/restore',
+        labelKey: 'web.accountDeletion.restoreTitle'
+    },
 
     { path: '/workspace', labelKey: 'web.pageTitle.workspace' },
     { path: '/agents/new', labelKey: 'web.shell.newAgent' },

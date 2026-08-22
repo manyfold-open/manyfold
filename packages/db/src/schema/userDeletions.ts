@@ -8,8 +8,21 @@ import { jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 export const userDeletions = pgTable('user_deletions', {
     id: text('id').primaryKey(),
     userId: text('user_id').notNull(),
+    // awaiting_confirmation is the self-serve pre-state (v2, ADR-0023 §9.1):
+    // the user asked but has not clicked the emailed confirmation link, so NO
+    // T0 side effects have run. It either promotes to pending (confirm) or
+    // the sweep marks it expired after the 24h window — expired rows are kept,
+    // not deleted, because this table's whole point is that deletion records
+    // survive (there is nothing to undo: an awaiting row never deactivated
+    // anything). The enum lives only in TS; the column is bare text.
     status: text('status', {
-        enum: ['pending', 'restored', 'executed']
+        enum: [
+            'awaiting_confirmation',
+            'pending',
+            'restored',
+            'executed',
+            'expired'
+        ]
     })
         .notNull()
         .default('pending'),
