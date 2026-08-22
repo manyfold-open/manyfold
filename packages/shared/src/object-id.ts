@@ -46,6 +46,7 @@ export const objectIdPrefixes = Object.freeze({
     skillRepo: 'skr',
     spritesAccount: 'spa',
     userConnection: 'ucn',
+    userExport: 'uxp',
     userExternalAgentProvider: 'uep',
     userMcpServer: 'ums',
     userModelProvider: 'ump',
