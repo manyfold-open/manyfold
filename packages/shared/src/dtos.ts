@@ -268,7 +268,12 @@ export interface UpdateUserRuntimeAccessBody {
 // service returns, with timestamps as the ISO strings JSON delivers.
 export interface UserDeletionStatusView {
     id: string
-    status: 'pending' | 'restored' | 'executed'
+    status:
+        | 'awaiting_confirmation'
+        | 'pending'
+        | 'restored'
+        | 'executed'
+        | 'expired'
     requestedAt: string
     scheduledAt: string
     executedAt: string | null
@@ -279,6 +284,25 @@ export interface UserDeletionStatusView {
 
 export interface RequestUserDeletionBody {
     reason?: string
+}
+
+// Self-serve deletion (ADR-0023 §9.1). GET /me/deletion answers only while a
+// confirmation is awaited — after T0 the user has no session, and terminal
+// states read as "no active deletion" to the settings UI.
+export interface MeDeletionAwaitingView {
+    id: string
+    status: 'awaiting_confirmation'
+    requestedAt: string
+    // When the emailed confirmation link stops working (request time + 24h).
+    expiresAt: string
+}
+
+export interface ConfirmMeDeletionBody {
+    token: string
+}
+
+export interface RestoreMeDeletionBody {
+    token: string
 }
 
 export interface SandboxUsageAgentRow {

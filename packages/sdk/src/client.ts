@@ -257,6 +257,7 @@ import type {
     ChangeAccountEmailVerifyBody,
     UpdateAccountProfileBody,
     AccountProfileSummary,
+    MeDeletionAwaitingView,
     NetmindLoginBody,
     AuthRegisterResponse,
     AuthOkResponse,
@@ -709,6 +710,16 @@ export interface ProfileClient {
     fetchAvatar: () => Promise<Blob | null>
 }
 
+// Self-serve account deletion (ADR-0023 §9.1). status/request/confirm ride
+// the session; restore deliberately does not — post-T0 there is no session,
+// the signed token from the T0 email is the whole credential.
+export interface MeDeletionClient {
+    status: () => Promise<MeDeletionAwaitingView | null>
+    request: () => Promise<MeDeletionAwaitingView>
+    confirm: (token: string) => Promise<UserDeletionStatusView>
+    restore: (token: string) => Promise<UserDeletionStatusView>
+}
+
 export interface SkillsInstalledOptions {
     includeRuntime?: boolean
 }
@@ -948,6 +959,7 @@ export interface NcaClient {
     apiTokens: ApiTokensClient
     identities: IdentitiesClient
     profile: ProfileClient
+    meDeletion: MeDeletionClient
     grants: GrantsClient
     a2a: A2aClient
     connectA2a: ConnectA2aClient
@@ -2610,6 +2622,24 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 if (!res.ok) throw await buildApiError(res)
                 return res.blob()
             }
+        },
+        meDeletion: {
+            status: () =>
+                request<MeDeletionAwaitingView | null>(apiPaths.ME_DELETION),
+            request: () =>
+                request<MeDeletionAwaitingView>(apiPaths.ME_DELETION, {
+                    method: 'POST'
+                }),
+            confirm: (token) =>
+                request<UserDeletionStatusView>(apiPaths.ME_DELETION_CONFIRM, {
+                    method: 'POST',
+                    body: JSON.stringify({ token })
+                }),
+            restore: (token) =>
+                request<UserDeletionStatusView>(apiPaths.ME_DELETION_RESTORE, {
+                    method: 'POST',
+                    body: JSON.stringify({ token })
+                })
         },
         connections: {
             list: () =>

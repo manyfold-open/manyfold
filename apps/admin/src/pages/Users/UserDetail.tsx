@@ -60,9 +60,11 @@ const toAccessDraft = (user: SdkUserSummary): AccessDraft => ({
 })
 
 const deletionTone: Record<UserDeletionStatusView['status'], BadgeTone> = {
+    awaiting_confirmation: 'neutral',
     pending: 'warning',
     restored: 'success',
-    executed: 'error'
+    executed: 'error',
+    expired: 'neutral'
 }
 
 

@@ -8,6 +8,7 @@ import postgres from 'postgres'
 import { eq } from 'drizzle-orm'
 import { createDb, userDeletions, users } from '@manyfold/db'
 import { noopUserLifecyclePort } from '../src/common/ports/user-lifecycle.ports'
+import { DeletionTokenService } from '../src/modules/user-deletion/deletion-token.service'
 import { UserDeletionService } from '../src/modules/user-deletion/user-deletion.service'
 import { SessionService } from '../src/modules/auth/session.service'
 import { runJournal } from '../src/db/migration-runner'
@@ -25,6 +26,9 @@ import { runJournal } from '../src/db/migration-runner'
 //     side-effects.
 // (4) V-2 gates: a deactivated account can neither mint nor use sessions.
 // (5) V-5 parity: everything here runs on the no-op OSS port.
+// (6) v2 self-serve (§9.1): awaiting_confirmation applies NO side effects
+//     until the emailed token confirms; tokens are single-use through the
+//     row's own state transitions; restore works session-less post-T0.
 // Env-gated like the other *.pg.test.ts.
 const RUN = process.env.RUN_PG_E2E === '1'
 
@@ -62,18 +66,46 @@ const applyCore = (client: ReturnType<typeof postgres>) =>
         concurrentIndexes: []
     })
 
+interface SentMail {
+    to: string
+    subject: string
+    text?: string
+    html?: string
+}
+
 const noEmail = { send: async () => undefined } as never
 const noModuleRef = {
     get: () => {
         throw new Error('no runtimes/channels seeded in this test')
     }
 } as never
+const noConfig = { get: () => undefined } as never
+
+const tokenService = (): DeletionTokenService =>
+    new DeletionTokenService(noConfig)
 
 const makeService = (
     db: ReturnType<typeof createDb>,
-    lifecycle = noopUserLifecyclePort
+    lifecycle = noopUserLifecyclePort,
+    email: { send: (mail: SentMail) => Promise<void> } = noEmail
 ): UserDeletionService =>
-    new UserDeletionService(db as never, noEmail, noModuleRef, lifecycle)
+    new UserDeletionService(
+        db as never,
+        email as never,
+        tokenService(),
+        noConfig,
+        noModuleRef,
+        lifecycle
+    )
+
+// The link tokens ride inside the emails; pulling them back out of the
+// rendered mail is the honest proof the EMAILED link works, not just some
+// internally minted one.
+const tokenFromMail = (mail: SentMail | undefined): string => {
+    const match = (mail?.text ?? '').match(/token=([^\s&"']+)/)
+    if (!match) throw new Error(`no token in mail: ${mail?.subject}`)
+    return decodeURIComponent(match[1])
+}
 
 test(
     'V-1: every users FK cascades — introspection-seeded delete leaves zero rows',
@@ -272,6 +304,157 @@ test(
                         subject: 'g'
                     }),
                     /deletion/
+                )
+            } finally {
+                const raw = (
+                    db as unknown as { $client?: { end?: () => Promise<void> } }
+                ).$client
+                if (raw?.end) await raw.end()
+            }
+        })
+    }
+)
+
+test(
+    'self-serve: awaiting applies no side effects; the EMAILED token confirms into T0; the T0 email restores session-less; both tokens are single-use',
+    { skip: !RUN },
+    async () => {
+        await withScratch('selfsrv', async (client, dbUrl) => {
+            await applyCore(client)
+            const db = createDb(dbUrl, { max: 1 })
+            try {
+                await client`insert into users (id, email, plan_id) values ('user_ss', 'ss@pgtest.local', 'free')`
+                await client`insert into user_sessions (id, user_id, token_hash, provider, subject, expires_at)
+                    values ('uss_ss', 'user_ss', 'h', 'email', 's', now() + interval '1 day')`
+                const sent: SentMail[] = []
+                const service = makeService(db, noopUserLifecyclePort, {
+                    send: async (mail) => {
+                        sent.push(mail)
+                    }
+                })
+
+                const awaiting = await service.selfRequest('user_ss')
+                assert.equal(awaiting.status, 'awaiting_confirmation')
+                // The whole point of the pre-state: nothing happened yet.
+                const [u0] = await client`select deactivated_at from users where id = 'user_ss'`
+                assert.equal(u0.deactivated_at, null)
+                const [s0] = await client`select revoked_at from user_sessions where id = 'uss_ss'`
+                assert.equal(s0.revoked_at, null)
+                assert.equal((await service.meStatus('user_ss'))?.id, awaiting.id)
+
+                const confirmToken = tokenFromMail(sent[0])
+                const confirmed = await service.selfConfirm(
+                    'user_ss',
+                    confirmToken
+                )
+                assert.equal(confirmed.status, 'pending')
+                const [u1] = await client`select deactivated_at from users where id = 'user_ss'`
+                assert.ok(u1.deactivated_at, 'confirm must run the v1 T0')
+                const [s1] = await client`select revoked_at from user_sessions where id = 'uss_ss'`
+                assert.ok(s1.revoked_at)
+                // Post-T0 the settings view has nothing awaiting.
+                assert.equal(await service.meStatus('user_ss'), null)
+                // Replay: the row already left awaiting_confirmation.
+                await assert.rejects(
+                    service.selfConfirm('user_ss', confirmToken),
+                    /invalid or expired/
+                )
+
+                // Session-less grace-period escape hatch (§9.1): the restore
+                // token rides the T0 email and needs no auth at all.
+                const restoreToken = tokenFromMail(
+                    sent.find(
+                        (m) => m.subject === 'Your account is scheduled for deletion'
+                    )
+                )
+                const restored = await service.restoreByToken(restoreToken)
+                assert.equal(restored.status, 'restored')
+                const [u2] = await client`select deactivated_at from users where id = 'user_ss'`
+                assert.equal(u2.deactivated_at, null)
+                await assert.rejects(
+                    service.restoreByToken(restoreToken),
+                    /invalid or expired/
+                )
+
+                // The self flow writes its own audit trail.
+                const actions = (
+                    await client`select action from audit_logs where subject = 'user_ss' order by created_at`
+                ).map((r) => r.action)
+                assert.deepEqual(actions, [
+                    'user.deletion.self_requested',
+                    'user.deletion.self_confirmed',
+                    'user.deletion.self_restored'
+                ])
+            } finally {
+                const raw = (
+                    db as unknown as { $client?: { end?: () => Promise<void> } }
+                ).$client
+                if (raw?.end) await raw.end()
+            }
+        })
+    }
+)
+
+test(
+    'self-serve: tampered/foreign/expired tokens are rejected and the sweep expires (never executes) stale awaiting rows',
+    { skip: !RUN },
+    async () => {
+        await withScratch('selfexp', async (client, dbUrl) => {
+            await applyCore(client)
+            const db = createDb(dbUrl, { max: 1 })
+            try {
+                await client`insert into users (id, email, plan_id) values ('user_x', 'x@pgtest.local', 'free')`
+                await client`insert into users (id, email, plan_id) values ('user_y', 'y@pgtest.local', 'free')`
+                const sent: SentMail[] = []
+                const service = makeService(db, noopUserLifecyclePort, {
+                    send: async (mail) => {
+                        sent.push(mail)
+                    }
+                })
+                const awaiting = await service.selfRequest('user_x')
+                const token = tokenFromMail(sent[0])
+
+                // A flipped signature bit must die in verify, not in the DB.
+                const tampered =
+                    token.slice(0, -1) +
+                    (token.endsWith('0') ? '1' : '0')
+                await assert.rejects(
+                    service.selfConfirm('user_x', tampered),
+                    /invalid or expired/
+                )
+                // Another signed-in account cannot consume my link.
+                await assert.rejects(
+                    service.selfConfirm('user_y', token),
+                    /invalid or expired/
+                )
+                // A token minted already-expired never validates.
+                const stale = tokenService().mint(
+                    'confirm',
+                    awaiting.id,
+                    new Date(Date.now() - 1000)
+                )
+                await assert.rejects(
+                    service.selfConfirm('user_x', stale),
+                    /invalid or expired/
+                )
+
+                // Sweep hygiene: a stale awaiting row is MARKED expired and
+                // is never executed — even with scheduled_at long overdue the
+                // user must survive untouched (no T0 ever ran).
+                await client`update user_deletions
+                    set requested_at = now() - interval '25 hours',
+                        scheduled_at = now() - interval '1 hour'
+                    where id = ${awaiting.id}`
+                assert.equal(await service.meStatus('user_x'), null)
+                await service.sweep()
+                const [row] = await client`select status from user_deletions where id = ${awaiting.id}`
+                assert.equal(row.status, 'expired')
+                const [alive] = await client`select deactivated_at from users where id = 'user_x'`
+                assert.equal(alive.deactivated_at, null)
+                // And the emailed token now lands on a consumed row.
+                await assert.rejects(
+                    service.selfConfirm('user_x', token),
+                    /invalid or expired/
                 )
             } finally {
                 const raw = (
