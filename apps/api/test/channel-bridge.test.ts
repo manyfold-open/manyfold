@@ -1736,6 +1736,8 @@ const makeHarness = (opts: MakeHarnessOptions = {}): Harness => {
             }
             return matching.length
         },
+        // ADR-0023: the harness owner is never deletion-pending.
+        isOwnerDeactivated: async () => false,
         claimInboundEvent: async (id: bigint) => {
             const existing = deliveries.find((d) => d.id === id)
             if (

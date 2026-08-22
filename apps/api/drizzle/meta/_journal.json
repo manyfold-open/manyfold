@@ -22,6 +22,13 @@
       "when": 1787341191325,
       "tag": "0002_phase4_column_drops.contract",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1787385638940,
+      "tag": "0003_user_deletion_core",
+      "breakpoints": true
     }
   ]
 }

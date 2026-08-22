@@ -829,7 +829,8 @@ export class ApiTokenService {
                     agentId: agentRuntimeTokens.agentId,
                     expiresAt: agentRuntimeTokens.expiresAt,
                     revokedAt: agentRuntimeTokens.revokedAt,
-                    email: users.email
+                    email: users.email,
+                    deactivatedAt: users.deactivatedAt
                 })
                 .from(agentRuntimeTokens)
                 .innerJoin(users, eq(agentRuntimeTokens.userId, users.id))
@@ -847,7 +848,8 @@ export class ApiTokenService {
                     tokenKind: apiTokens.tokenKind,
                     expiresAt: apiTokens.expiresAt,
                     revokedAt: apiTokens.revokedAt,
-                    email: users.email
+                    email: users.email,
+                    deactivatedAt: users.deactivatedAt
                 })
                 .from(apiTokens)
                 .innerJoin(users, eq(apiTokens.userId, users.id))
@@ -865,6 +867,9 @@ export class ApiTokenService {
             )
 
         if (runtimeRow) {
+            // ADR-0023: a deletion-pending account's agents stop acting.
+            if (runtimeRow.deactivatedAt)
+                throw new UnauthorizedException('account deactivated')
             if (runtimeRow.revokedAt)
                 throw new UnauthorizedException('api token revoked')
             if (runtimeRow.expiresAt && runtimeRow.expiresAt < new Date())
@@ -886,6 +891,8 @@ export class ApiTokenService {
         }
 
         if (!apiRow) throw new UnauthorizedException('api token not found')
+        if (apiRow.deactivatedAt)
+            throw new UnauthorizedException('account deactivated')
         if (apiRow.revokedAt)
             throw new UnauthorizedException('api token revoked')
         if (apiRow.expiresAt && apiRow.expiresAt < new Date())

@@ -70,6 +70,9 @@ export type SpritesAccountStatus =
     (typeof spritesAccountStatus)[keyof typeof spritesAccountStatus]
 
 export const auditAction = {
+    USER_DELETION_REQUESTED: 'user.deletion.requested',
+    USER_DELETION_RESTORED: 'user.deletion.restored',
+    USER_DELETION_EXECUTED: 'user.deletion.executed',
     AGENT_CREATE_STARTED: 'agent.create.started',
     AGENT_CREATE_SUCCEEDED: 'agent.create.succeeded',
     AGENT_CREATE_FAILED: 'agent.create.failed',
