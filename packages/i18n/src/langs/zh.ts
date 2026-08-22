@@ -4863,6 +4863,39 @@ const zh: Translations = {
                 promoting: '授权中…',
                 demoting: '撤销中…',
                 selfHint: '不能取消自己的管理员角色。'
+            },
+            deletion: {
+                title: '危险操作',
+                description:
+                    '发起删除后账号立即停用，宽限期结束后将被永久删除。待执行的删除仍可恢复。',
+                none: '该账号没有删除请求。',
+                reasonLabel: '原因',
+                reasonPlaceholder: '可选，随请求一并记录的原因',
+                rows: {
+                    status: '状态',
+                    requestedAt: '发起时间',
+                    scheduledAt: '计划执行',
+                    executedAt: '执行时间',
+                    restoredAt: '恢复时间',
+                    reason: '原因',
+                    lastError: '最近错误'
+                },
+                status: {
+                    pending: '待删除',
+                    restored: '已恢复',
+                    executed: '已删除'
+                },
+                actions: {
+                    request: '发起删除',
+                    requestConfirm:
+                        '确认对 {{email}} 发起删除？账号将立即停用，宽限期结束后永久删除。',
+                    restore: '恢复账号',
+                    restoreConfirm: '取消待执行的删除并恢复 {{email}}？',
+                    execute: '立即执行',
+                    executeConfirm: '跳过宽限期，立即删除 {{email}}？',
+                    executeConfirmFinal:
+                        '这将永久删除该账号及其全部数据，且无法撤销。继续？'
+                }
             }
         },
         agentRuntimes: {

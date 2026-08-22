@@ -5096,6 +5096,41 @@ const en = {
                 promoting: 'Promoting…',
                 demoting: 'Revoking…',
                 selfHint: 'You cannot revoke your own admin role.'
+            },
+            deletion: {
+                title: 'Danger zone',
+                description:
+                    'Deletion deactivates the account immediately and permanently deletes it after the grace period. A pending deletion can still be restored.',
+                none: 'No deletion has been requested for this account.',
+                reasonLabel: 'Reason',
+                reasonPlaceholder: 'Optional reason recorded with the request',
+                rows: {
+                    status: 'Status',
+                    requestedAt: 'Requested',
+                    scheduledAt: 'Scheduled for',
+                    executedAt: 'Executed',
+                    restoredAt: 'Restored',
+                    reason: 'Reason',
+                    lastError: 'Last error'
+                },
+                status: {
+                    pending: 'Pending deletion',
+                    restored: 'Restored',
+                    executed: 'Executed'
+                },
+                actions: {
+                    request: 'Request deletion',
+                    requestConfirm:
+                        'Request deletion for {{email}}? The account is deactivated immediately and permanently deleted after the grace period.',
+                    restore: 'Restore',
+                    restoreConfirm:
+                        'Cancel the pending deletion and reactivate {{email}}?',
+                    execute: 'Execute now',
+                    executeConfirm:
+                        'Skip the grace period and delete {{email}} now?',
+                    executeConfirmFinal:
+                        'This permanently deletes the account and all of its data. It cannot be undone. Continue?'
+                }
             }
         },
         agentRuntimes: {

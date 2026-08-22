@@ -264,6 +264,23 @@ export interface UpdateUserRuntimeAccessBody {
     activeHoursBonus?: number
 }
 
+// Wire view of the api's UserDeletionStatus (ADR-0023): the same shape the
+// service returns, with timestamps as the ISO strings JSON delivers.
+export interface UserDeletionStatusView {
+    id: string
+    status: 'pending' | 'restored' | 'executed'
+    requestedAt: string
+    scheduledAt: string
+    executedAt: string | null
+    restoredAt: string | null
+    reason: string | null
+    lastError: { step: string; message: string; at: string } | null
+}
+
+export interface RequestUserDeletionBody {
+    reason?: string
+}
+
 export interface SandboxUsageAgentRow {
     agentId: string
     name: string

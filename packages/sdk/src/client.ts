@@ -237,6 +237,8 @@ import type {
     UpdateSkillRepoBody,
     UpdateUserSkillBody,
     SdkUserSummary,
+    UserDeletionStatusView,
+    RequestUserDeletionBody,
     AuthWhoamiResponse,
     AuthSetupBody,
     AuthRegisterBody,
@@ -1256,6 +1258,15 @@ export interface NcaClient {
                 id: string,
                 body: UpdateUserFrameworkRuntimeOverridesSettingsBody
             ) => Promise<SdkUserSummary>
+            getDeletion: (id: string) => Promise<UserDeletionStatusView | null>
+            requestDeletion: (
+                id: string,
+                body?: RequestUserDeletionBody
+            ) => Promise<UserDeletionStatusView>
+            restoreDeletion: (id: string) => Promise<UserDeletionStatusView>
+            executeDeletion: (
+                id: string
+            ) => Promise<UserDeletionStatusView | null>
         }
         sandboxQuotas: {
             overview: () => Promise<SandboxQuotasOverview>
@@ -3808,6 +3819,28 @@ export const createClient = (options: ClientOptions): NcaClient => {
                             method: 'PATCH',
                             body: JSON.stringify(body)
                         }
+                    ),
+                getDeletion: (id) =>
+                    request<UserDeletionStatusView | null>(
+                        apiPaths.ADMIN_USER_DELETION(id)
+                    ),
+                requestDeletion: (id, body) =>
+                    request<UserDeletionStatusView>(
+                        apiPaths.ADMIN_USER_DELETION(id),
+                        {
+                            method: 'POST',
+                            body: JSON.stringify(body ?? {})
+                        }
+                    ),
+                restoreDeletion: (id) =>
+                    request<UserDeletionStatusView>(
+                        apiPaths.ADMIN_USER_DELETION_RESTORE(id),
+                        { method: 'POST' }
+                    ),
+                executeDeletion: (id) =>
+                    request<UserDeletionStatusView | null>(
+                        apiPaths.ADMIN_USER_DELETION_EXECUTE(id),
+                        { method: 'POST' }
                     )
             },
             sandboxQuotas: {
