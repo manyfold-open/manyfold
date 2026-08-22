@@ -228,6 +228,11 @@ export const apiPaths = {
         `/admin/users/${id}/framework-runtime-overrides`,
     ADMIN_USER_RUNTIME_ACCESS: (id: string) =>
         `/admin/users/${id}/runtime-access`,
+    ADMIN_USER_DELETION: (id: string) => `/admin/users/${id}/deletion`,
+    ADMIN_USER_DELETION_RESTORE: (id: string) =>
+        `/admin/users/${id}/deletion/restore`,
+    ADMIN_USER_DELETION_EXECUTE: (id: string) =>
+        `/admin/users/${id}/deletion/execute`,
     ADMIN_AGENTS: '/admin/agents',
     ADMIN_AGENT_BY_ID: (id: string) => `/admin/agents/${id}`,
     ADMIN_AGENT_STOP: (id: string) => `/admin/agents/${id}/stop`,

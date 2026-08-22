@@ -2,6 +2,7 @@ import type {
     RuntimeAccessSummary,
     SdkUserSummary,
     UsageSummary,
+    UserDeletionStatusView,
     UserRole
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
@@ -19,7 +20,8 @@ import {
     CardBody,
     DetailPage,
     Heading,
-    Input
+    Input,
+    type BadgeTone
 } from '@/ui'
 import {
     formatCost,
@@ -57,6 +59,12 @@ const toAccessDraft = (user: SdkUserSummary): AccessDraft => ({
     activeHoursBonus: user.activeHoursBonus
 })
 
+const deletionTone: Record<UserDeletionStatusView['status'], BadgeTone> = {
+    pending: 'warning',
+    restored: 'success',
+    executed: 'error'
+}
+
 
 const UserDetail: FC = (): ReactNode => {
     const { id } = useParams<{ id: string }>()
@@ -67,6 +75,10 @@ const UserDetail: FC = (): ReactNode => {
     const [planUsage, setPlanUsage] = useState<RuntimeAccessSummary | null>(null)
     const [modelSpend, setModelSpend] = useState<UsageSummary | null>(null)
     const [planUsageError, setPlanUsageError] = useState<string | null>(null)
+    const [deletion, setDeletion] = useState<UserDeletionStatusView | null>(
+        null
+    )
+    const [deletionReason, setDeletionReason] = useState('')
     const [loadingUser, setLoadingUser] = useState(true)
     const [notFound, setNotFound] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -119,10 +131,20 @@ const UserDetail: FC = (): ReactNode => {
         if (spend.status === 'fulfilled') setModelSpend(spend.value)
     }, [client, id])
 
+    const refreshDeletion = useCallback(async (): Promise<void> => {
+        if (!id) return
+        try {
+            setDeletion(await client.admin.users.getDeletion(id))
+        } catch (e) {
+            setError((e as Error).message)
+        }
+    }, [client, id])
+
     useEffect(() => {
         void refreshUser()
         void refreshPlanUsage()
-    }, [refreshPlanUsage, refreshUser])
+        void refreshDeletion()
+    }, [refreshDeletion, refreshPlanUsage, refreshUser])
 
     const setRole = async (role: UserRole): Promise<void> => {
         if (!user) return
@@ -155,6 +177,86 @@ const UserDetail: FC = (): ReactNode => {
             })
             setUser(updated)
             setAccessDraft(toAccessDraft(updated))
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    const requestDeletion = async (): Promise<void> => {
+        if (!user) return
+        if (
+            !window.confirm(
+                t('admin.users.deletion.actions.requestConfirm', {
+                    email: user.email
+                })
+            )
+        )
+            return
+        setBusyId('deletion')
+        setError(null)
+        try {
+            const reason = deletionReason.trim()
+            const status = await client.admin.users.requestDeletion(
+                user.id,
+                reason ? { reason } : undefined
+            )
+            setDeletion(status)
+            setDeletionReason('')
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    const restoreDeletion = async (): Promise<void> => {
+        if (!user) return
+        if (
+            !window.confirm(
+                t('admin.users.deletion.actions.restoreConfirm', {
+                    email: user.email
+                })
+            )
+        )
+            return
+        setBusyId('deletion')
+        setError(null)
+        try {
+            setDeletion(await client.admin.users.restoreDeletion(user.id))
+        } catch (e) {
+            setError((e as Error).message)
+        } finally {
+            setBusyId(null)
+        }
+    }
+
+    const executeDeletion = async (): Promise<void> => {
+        if (!user) return
+        if (
+            !window.confirm(
+                t('admin.users.deletion.actions.executeConfirm', {
+                    email: user.email
+                })
+            )
+        )
+            return
+        // Second confirm on purpose: this skips the grace period, so there
+        // is no restore window left after it.
+        if (
+            !window.confirm(
+                t('admin.users.deletion.actions.executeConfirmFinal')
+            )
+        )
+            return
+        setBusyId('deletion')
+        setError(null)
+        try {
+            setDeletion(await client.admin.users.executeDeletion(user.id))
+            // The account row is gone after a successful execute; reloading
+            // makes the page reflect that instead of showing stale data.
+            await refreshUser()
         } catch (e) {
             setError((e as Error).message)
         } finally {
@@ -203,6 +305,7 @@ const UserDetail: FC = (): ReactNode => {
     const canDemote = !(isSelf && user.role === 'admin')
     const nextRole: UserRole = user.role === 'admin' ? 'user' : 'admin'
     const statefulOver = user.statefulSandboxUsage > user.statefulSandboxLimit
+    const deletionPending = deletion?.status === 'pending'
 
     return (
         <DetailPage>
@@ -451,6 +554,172 @@ const UserDetail: FC = (): ReactNode => {
                     />
 
                     <UserCommerceSection userId={user.id} />
+
+                    <Card
+                        elevation='ambient'
+                        className='border-accent-ruby/30 overflow-hidden'
+                    >
+                        <CardBody className='p-0'>
+                            <div className='border-border border-b px-2 py-1.5'>
+                                <Heading
+                                    level={3}
+                                    className='text-accent-ruby'
+                                >
+                                    {t('admin.users.deletion.title')}
+                                </Heading>
+                            </div>
+                            <p className='text-caption text-body px-2 pt-1.5'>
+                                {t('admin.users.deletion.description')}
+                            </p>
+                            {deletion ? (
+                                <dl className='mt-1.5'>
+                                    <DetailRow
+                                        label={t(
+                                            'admin.users.deletion.rows.status'
+                                        )}
+                                        value={
+                                            <Badge
+                                                tone={
+                                                    deletionTone[
+                                                        deletion.status
+                                                    ]
+                                                }
+                                            >
+                                                {t(
+                                                    `admin.users.deletion.status.${deletion.status}`
+                                                )}
+                                            </Badge>
+                                        }
+                                    />
+                                    <DetailRow
+                                        label={t(
+                                            'admin.users.deletion.rows.requestedAt'
+                                        )}
+                                        value={formatDateTime(
+                                            deletion.requestedAt
+                                        )}
+                                    />
+                                    <DetailRow
+                                        label={t(
+                                            'admin.users.deletion.rows.scheduledAt'
+                                        )}
+                                        value={formatDateTime(
+                                            deletion.scheduledAt
+                                        )}
+                                    />
+                                    {deletion.executedAt && (
+                                        <DetailRow
+                                            label={t(
+                                                'admin.users.deletion.rows.executedAt'
+                                            )}
+                                            value={formatDateTime(
+                                                deletion.executedAt
+                                            )}
+                                        />
+                                    )}
+                                    {deletion.restoredAt && (
+                                        <DetailRow
+                                            label={t(
+                                                'admin.users.deletion.rows.restoredAt'
+                                            )}
+                                            value={formatDateTime(
+                                                deletion.restoredAt
+                                            )}
+                                        />
+                                    )}
+                                    {deletion.reason && (
+                                        <DetailRow
+                                            label={t(
+                                                'admin.users.deletion.rows.reason'
+                                            )}
+                                            value={deletion.reason}
+                                        />
+                                    )}
+                                    {deletion.lastError && (
+                                        <DetailRow
+                                            label={t(
+                                                'admin.users.deletion.rows.lastError'
+                                            )}
+                                            value={
+                                                <span className='text-accent-ruby'>
+                                                    {`${deletion.lastError.step}: ${deletion.lastError.message}`}
+                                                </span>
+                                            }
+                                        />
+                                    )}
+                                </dl>
+                            ) : (
+                                <p className='text-caption text-body px-2 py-1.5'>
+                                    {t('admin.users.deletion.none')}
+                                </p>
+                            )}
+                            <div className='border-border flex flex-wrap items-center gap-2 border-t px-2 py-1.5'>
+                                {deletionPending ? (
+                                    <>
+                                        <Button
+                                            variant='neutral'
+                                            size='sm'
+                                            disabled={busyId === 'deletion'}
+                                            onClick={() =>
+                                                void restoreDeletion()
+                                            }
+                                        >
+                                            {t(
+                                                'admin.users.deletion.actions.restore'
+                                            )}
+                                        </Button>
+                                        <Button
+                                            variant='neutral'
+                                            size='sm'
+                                            disabled={busyId === 'deletion'}
+                                            className='!text-accent-ruby !border-accent-ruby/30 hover:!bg-accent-ruby/5'
+                                            onClick={() =>
+                                                void executeDeletion()
+                                            }
+                                        >
+                                            {t(
+                                                'admin.users.deletion.actions.execute'
+                                            )}
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className='min-w-64 flex-1'>
+                                            <Input
+                                                id='deletionReason'
+                                                placeholder={t(
+                                                    'admin.users.deletion.reasonPlaceholder'
+                                                )}
+                                                aria-label={t(
+                                                    'admin.users.deletion.reasonLabel'
+                                                )}
+                                                value={deletionReason}
+                                                className='h-8 px-2'
+                                                onChange={(e) =>
+                                                    setDeletionReason(
+                                                        e.target.value
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                        <Button
+                                            variant='neutral'
+                                            size='sm'
+                                            disabled={busyId === 'deletion'}
+                                            className='!text-accent-ruby !border-accent-ruby/30 hover:!bg-accent-ruby/5'
+                                            onClick={() =>
+                                                void requestDeletion()
+                                            }
+                                        >
+                                            {t(
+                                                'admin.users.deletion.actions.request'
+                                            )}
+                                        </Button>
+                                    </>
+                                )}
+                            </div>
+                        </CardBody>
+                    </Card>
                 </div>
 
                 <aside className='space-y-2'>

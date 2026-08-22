@@ -222,6 +222,8 @@ export type {
     RuntimeAccessSummary,
     UsagePeriodSummary,
     UpdateUserRuntimeAccessBody,
+    UserDeletionStatusView,
+    RequestUserDeletionBody,
     SandboxUsageAgentRow,
     SandboxUsageHomeRow,
     SandboxUsageHost,

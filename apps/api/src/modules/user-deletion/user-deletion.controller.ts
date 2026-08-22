@@ -1,6 +1,7 @@
 import {
     Body,
     Controller,
+    Get,
     HttpCode,
     Param,
     Post,
@@ -20,6 +21,13 @@ import {
 @UseGuards(AuthGuard, AdminGuard)
 export class UserDeletionController {
     constructor(private readonly deletions: UserDeletionService) {}
+
+    @Get()
+    async status(
+        @Param('id') userId: string
+    ): Promise<UserDeletionStatus | null> {
+        return this.deletions.status(userId)
+    }
 
     @Post()
     @HttpCode(201)
