@@ -117,6 +117,29 @@ takes the SMTP host, port, and TLS mode, and everything that sends mail
 (sign-up verification, invites) uses it. Without a provider configured the
 features that need mail say so instead of failing silently.
 
+## Account deletion
+
+Deletion is admin-only: Admin → Users → user detail → Danger zone.
+Requesting a deletion deactivates the account immediately — every session is
+revoked, sign-in is blocked on all providers, automations are paused,
+keep-alive stops — and the user gets an email with the final deletion date.
+
+The hard delete runs after a grace window (default 30 days,
+`MF_DELETION_GRACE_DAYS`). During the grace period an admin can restore the
+account: the sign-in block is lifted, but automations stay paused until
+re-enabled. "Execute now" skips the remaining wait behind a second
+confirmation.
+
+When the deadline passes, a background sweep first tears down the user's
+runtimes (sandbox VMs are deleted, Kubernetes namespaces removed; daemon
+machines are the user's own — their files are untouched, only the tokens
+die) and channel registrations, then deletes the user row, which removes
+every user-owned table via `ON DELETE CASCADE`. Self-hosted installs run
+exactly that: pure cascade plus the sign-in gates, with no billing hooks.
+The `user_deletions` audit row (bare user id, no PII) survives the delete
+as the durable record; a failed sweep records its error there and retries
+automatically.
+
 ## Execution environments
 
 Agents run on computers you attach, three ways:
