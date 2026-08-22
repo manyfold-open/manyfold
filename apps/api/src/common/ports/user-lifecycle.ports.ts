@@ -16,10 +16,21 @@ export interface UserLifecyclePort {
     // Runs before the core DELETE and MUST succeed for the delete to
     // proceed — failing open would leak rows that no FK ties to the user.
     beforeUserHardDelete(userId: string): Promise<void>
+    // V2-B data export (ADR-0023 §9.2): edition-held user data for the
+    // takeout bundle. Each entry becomes a `<key>.json` file; the cloud
+    // edition contributes a billing summary fetched from the Stripe API
+    // (never local financial rows — Stripe is the system of record).
+    // Optional so the contract stays additive: an adapter compiled against
+    // the three-hook interface keeps working until its edition ships the
+    // collector. Whatever it returns still passes the export pipeline's
+    // credential redaction — the secret-free guarantee does not trust
+    // adapters.
+    collectUserExport?(userId: string): Promise<Record<string, unknown>>
 }
 
 export const noopUserLifecyclePort: UserLifecyclePort = {
     onUserDeactivated: async () => undefined,
     onUserReactivated: async () => undefined,
-    beforeUserHardDelete: async () => undefined
+    beforeUserHardDelete: async () => undefined,
+    collectUserExport: async () => ({})
 }

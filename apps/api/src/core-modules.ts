@@ -10,6 +10,7 @@ import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.mod
 import { AdminSandboxQuotasModule } from '@/modules/admin-sandbox-quotas/admin-sandbox-quotas.module'
 import { UsersModule } from '@/modules/users/users.module'
 import { UserDeletionModule } from '@/modules/user-deletion/user-deletion.module'
+import { UserExportModule } from '@/modules/user-export/user-export.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
 import { SandboxesModule } from '@/modules/sandboxes/sandboxes.module'
@@ -65,6 +66,7 @@ export const CORE_MODULES = [
     AdminSandboxQuotasModule,
     UsersModule,
     UserDeletionModule,
+    UserExportModule,
     SpritesAccountsModule,
     ClustersModule,
     AgentsModule,
