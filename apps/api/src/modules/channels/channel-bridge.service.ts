@@ -428,6 +428,14 @@ export class ChannelBridgeService {
         event: NormalizedInboundEvent,
         intake?: ChannelInboundIntake
     ): Promise<void> {
+        if (await this.repo.isOwnerDeactivated(channel.userId)) {
+            this.telemetry.event('channel.inbound.ignored', {
+                channelId: channel.id,
+                providerEventId: event.providerEventId,
+                reason: 'owner_deactivated'
+            })
+            return
+        }
         const inbound =
             intake ?? (await this.recordInboundEvent(channel.id, event))
         const deliveryId = inbound.delivery.id
@@ -917,6 +925,14 @@ export class ChannelBridgeService {
         channel: ChannelRow,
         action: NormalizedInboundAction
     ): Promise<void> {
+        if (await this.repo.isOwnerDeactivated(channel.userId)) {
+            this.telemetry.event('channel.inbound.ignored', {
+                channelId: channel.id,
+                providerEventId: action.providerEventId,
+                reason: 'owner_deactivated'
+            })
+            return
+        }
         const ctx = this.buildContext(channel)
         const provider = this.providers.get(channel.provider)
         const syntheticEvent: NormalizedInboundEvent = {

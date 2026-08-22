@@ -3,6 +3,7 @@ const OBJECT_ID_RE = /^([a-z][a-z0-9]{1,4})_([a-z2-7]{26})$/
 
 export const objectIdPrefixes = Object.freeze({
     user: 'usr',
+    userDeletion: 'udl',
     agent: 'agt',
     agentBackup: 'abk',
     agentBackupRestore: 'abr',

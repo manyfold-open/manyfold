@@ -20,6 +20,10 @@ import {
     calendarUsagePeriodPort
 } from '@/common/ports/usage-period.ports'
 import {
+    USER_LIFECYCLE_PORT,
+    noopUserLifecyclePort
+} from '@/common/ports/user-lifecycle.ports'
+import {
     MANAGED_CHANNEL_GUARD_PORT,
     MANAGED_MODELS_PORT,
     MANAGED_PRICING_PORT,
@@ -47,6 +51,7 @@ import {
         },
         { provide: CLOUD_COMPUTER_PORT, useValue: openCloudComputerPort },
         { provide: USAGE_PERIOD_PORT, useValue: calendarUsagePeriodPort },
+        { provide: USER_LIFECYCLE_PORT, useValue: noopUserLifecyclePort },
         { provide: MANAGED_MODELS_PORT, useValue: noManagedModelsPort },
         { provide: MANAGED_PRICING_PORT, useValue: noManagedPricingPort },
         {
@@ -60,6 +65,7 @@ import {
         BILLING_LIFECYCLE_PORT,
         CLOUD_COMPUTER_PORT,
         USAGE_PERIOD_PORT,
+        USER_LIFECYCLE_PORT,
         MANAGED_MODELS_PORT,
         MANAGED_PRICING_PORT,
         MANAGED_CHANNEL_GUARD_PORT

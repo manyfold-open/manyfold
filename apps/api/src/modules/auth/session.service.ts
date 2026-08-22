@@ -1,6 +1,6 @@
 import { createObjectId } from '@manyfold/shared'
 import { createHash, randomBytes } from 'node:crypto'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
 import { and, eq, isNotNull, isNull, lt, ne, or } from 'drizzle-orm'
 import { userSessions, users, type Database } from '@manyfold/db'
@@ -36,6 +36,18 @@ export class SessionService {
         ip?: string | null
         ttlDays?: number
     }): Promise<{ token: string; expiresAt: Date }> {
+        // ADR-0023: one chokepoint blocks sign-in on every provider — a
+        // deletion-pending account mints no new sessions until restored.
+        const [owner] = await this.db
+            .select({ deactivatedAt: users.deactivatedAt })
+            .from(users)
+            .where(eq(users.id, args.userId))
+            .limit(1)
+        if (owner?.deactivatedAt)
+            throw new ForbiddenException({
+                code: 'ACCOUNT_DEACTIVATED',
+                message: 'this account is scheduled for deletion'
+            })
         const plaintext = `${SESSION_TOKEN_PREFIX}${randomBytes(
             SESSION_TOKEN_BYTES
         ).toString('base64url')}`
@@ -70,13 +82,16 @@ export class SessionService {
                 expiresAt: userSessions.expiresAt,
                 revokedAt: userSessions.revokedAt,
                 createdAt: userSessions.createdAt,
-                email: users.email
+                email: users.email,
+                deactivatedAt: users.deactivatedAt
             })
             .from(userSessions)
             .innerJoin(users, eq(userSessions.userId, users.id))
             .where(eq(userSessions.tokenHash, hash))
             .limit(1)
         if (!row || row.revokedAt) return null
+        // ADR-0023: deletion-pending accounts hold no live sessions.
+        if (row.deactivatedAt) return null
         const now = new Date()
         if (row.expiresAt <= now) return null
         // Sliding renewal: every authenticated request pushes the TTL window

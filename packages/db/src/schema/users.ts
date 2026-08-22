@@ -48,6 +48,11 @@ export const users = pgTable('users', {
         .$type<Partial<Record<string, 'sprites' | 'k8s'>>>()
         .notNull()
         .default({}),
+    // Deletion-pending flag (ADR-0023): non-NULL rejects sessions, logins,
+    // API/runtime tokens, channel dispatch and automation scheduling in one
+    // shared gate. The user_deletions row is the state machine; this column
+    // exists so the hot paths never join it.
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true })
         .notNull()
         .defaultNow(),

@@ -23,6 +23,7 @@ import {
     channelProviderStates,
     channelSessions,
     chatSessions,
+    users,
     type ChannelDeliveryRow,
     type ChannelProviderStateRow,
     type ChannelRow,
@@ -68,6 +69,16 @@ export interface ArchiveResult {
 @Injectable()
 export class ChannelsRepository {
     constructor(@Inject(DRIZZLE) private readonly db: Database) {}
+
+    // ADR-0023: deletion-pending owners receive no channel traffic.
+    async isOwnerDeactivated(userId: string): Promise<boolean> {
+        const [row] = await this.db
+            .select({ deactivatedAt: users.deactivatedAt })
+            .from(users)
+            .where(eq(users.id, userId))
+            .limit(1)
+        return row?.deactivatedAt != null
+    }
 
     async listByUser(userId: string): Promise<ChannelRow[]> {
         return this.db

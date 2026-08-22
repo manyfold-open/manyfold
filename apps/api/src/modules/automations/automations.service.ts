@@ -44,6 +44,7 @@ import {
     channels,
     channelSessions,
     chatStreamEvents,
+    users,
     type Agent,
     type AutomationOrigin,
     type AutomationRow,
@@ -315,11 +316,15 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 .select({ automation: automations, agent: agents })
                 .from(automations)
                 .innerJoin(agents, eq(automations.agentId, agents.id))
+                .innerJoin(users, eq(automations.userId, users.id))
                 .where(
                     and(
                         eq(automations.status, 'active'),
                         lte(automations.nextRunAt, now),
-                        isNull(automations.deletedAt)
+                        isNull(automations.deletedAt),
+                        // ADR-0023: deletion-pending owners schedule nothing
+                        // (T0 pauses rows; the join covers races).
+                        isNull(users.deactivatedAt)
                     )
                 )
                 .orderBy(automations.nextRunAt)
