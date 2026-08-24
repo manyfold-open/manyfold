@@ -1,60 +1,49 @@
-import { cliChannelOfVersion } from '@manyfold/shared'
+import { cliChannelOfVersion, isDevCliVersion } from '@manyfold/shared'
 
 declare const __MF_CLI_CHANNEL__: string
-// Baked by the release workflows that actually operate a dev/staging channel;
-// a bare build carries no dev endpoints and therefore has no dev channel.
-declare const __MF_CLI_STAGING_API_URL__: string
-declare const __MF_CLI_STAGING_CDN_BASE__: string
 
 export type CliChannel = 'stable' | 'dev'
 
-const devBaked = (): { apiUrl: string; cdnBase: string } => ({
-    apiUrl:
-        typeof __MF_CLI_STAGING_API_URL__ !== 'undefined'
-            ? __MF_CLI_STAGING_API_URL__
-            : '',
-    cdnBase:
-        typeof __MF_CLI_STAGING_CDN_BASE__ !== 'undefined'
-            ? __MF_CLI_STAGING_CDN_BASE__
-            : ''
-})
-
-export const channelDefaults = (
-    channel: CliChannel
-): { apiUrl: string; cdnBase: string } =>
-    channel === 'dev'
-        ? devBaked()
-        : {
-              apiUrl: 'https://api.manyfold.ai/api',
-              cdnBase: 'https://cdn1.manyfold.ai/cli'
-          }
-
-// The dev channel only exists in builds whose workflow baked its endpoints.
-export const hasDevChannel = (): boolean => {
-    const { apiUrl, cdnBase } = devBaked()
-    return Boolean(apiUrl && cdnBase)
-}
-
-export const requireChannelCdn = (channel: CliChannel): string => {
-    const { cdnBase } = channelDefaults(channel)
-    if (!cdnBase)
-        throw new Error(
-            'this build was not produced with a dev channel; only stable is available'
-        )
-    return cdnBase
-}
-
+// Build identity: which channel this binary was produced for. It feeds the
+// default profile (config.ts), the daemon registration record and
+// `mf version`. It is NOT the update channel — that is the saved preference in
+// channel-pref.ts, which survives a cross-channel swap.
 export const CLI_CHANNEL: CliChannel =
     typeof __MF_CLI_CHANNEL__ !== 'undefined' &&
     (__MF_CLI_CHANNEL__ === 'dev' || __MF_CLI_CHANNEL__ === 'staging')
         ? 'dev'
         : 'stable'
 
-export const DEFAULT_API_URL = channelDefaults(CLI_CHANNEL).apiUrl
-export const CDN_BASE = channelDefaults(CLI_CHANNEL).cdnBase
+// The dev channel is an update POLICY, not a deployment. Both channels talk to
+// the production API: this repository is edition-neutral and cannot bake a
+// deployment-private endpoint. Point a profile at a pre-production API
+// explicitly instead (`mf --profile <name> login --api-url …`).
+export const DEFAULT_API_URL = 'https://api.manyfold.ai/api'
 
-// `mf update --channel` speaks openclaw's dev/stable vocabulary; `staging` is
-// accepted as the pre-rename alias for the dev channel.
+const CLI_RELEASE_REPO = 'manyfold-open/manyfold'
+const DOWNLOAD_BASE = `https://github.com/${CLI_RELEASE_REPO}/releases/download`
+
+// A fixed prerelease that is never GitHub's "latest", holding one manifest per
+// channel. Clobbered in place, so these two URLs are stable forever; the
+// manifests inside carry absolute artifact URLs, which is what lets the
+// artifact storage move later without reissuing a single binary.
+const CHANNEL_MANIFEST_TAG = 'cli-channels'
+const DEV_RELEASE_TAG = 'cli-dev'
+
+export const channelManifestUrl = (channel: CliChannel): string =>
+    `${DOWNLOAD_BASE}/${CHANNEL_MANIFEST_TAG}/${channel}.json`
+
+// Every release also ships its own manifest so an arbitrary past build stays
+// resolvable (`mf update --to`, and the API's daemon.update targetVersion)
+// without the binary re-deriving the asset naming convention.
+export const versionManifestUrl = (version: string): string =>
+    isDevCliVersion(version)
+        ? `${DOWNLOAD_BASE}/${DEV_RELEASE_TAG}/manifest-${version}.json`
+        : `${DOWNLOAD_BASE}/cli-v${version.replace(/^v/, '')}/manifest.json`
+
+export const CLI_INSTALL_URL = 'https://manyfold.ai/cli/install.sh'
+
+// `staging` is the pre-rename alias for the dev channel.
 export const normalizeUpdateChannelFlag = (value: string): CliChannel => {
     const normalized = value.trim().toLowerCase()
     if (normalized === 'dev' || normalized === 'staging') return 'dev'
@@ -62,9 +51,21 @@ export const normalizeUpdateChannelFlag = (value: string): CliChannel => {
     throw new Error(`unknown channel '${value}' (expected dev or stable)`)
 }
 
-// A pinned `--to <version>` uniquely determines its CDN (dev builds only exist
-// under cli/staging), so its inferred channel beats the saved preference;
-// the caller rejects a `--channel` that disagrees with an explicit `--to`.
+// The API's daemon.update payload carries a channel string. An API deployed
+// before the rename still sends 'staging', so a rolling deploy must not brick
+// the RPC.
+export const normalizeWireChannel = (value: unknown): CliChannel | undefined => {
+    if (typeof value !== 'string') return undefined
+    try {
+        return normalizeUpdateChannelFlag(value)
+    } catch {
+        return undefined
+    }
+}
+
+// A pinned `--to <version>` uniquely determines its manifest, so its inferred
+// channel beats the saved preference; the caller rejects a `--channel` that
+// disagrees with an explicit `--to`.
 export const resolveEffectiveUpdateChannel = (input: {
     flagChannel?: CliChannel | null
     savedPref?: CliChannel | null

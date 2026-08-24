@@ -3,28 +3,32 @@ import { dirname, join } from 'node:path'
 import { createHash, randomBytes } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
 import { createInterface } from 'node:readline/promises'
-import { cliChannelOfVersion } from '@manyfold/shared'
+import { cliChannelOfVersion, compareCliSemver } from '@manyfold/shared'
 import type { Command } from 'commander'
 import kleur from 'kleur'
 import {
-    CDN_BASE,
+    channelManifestUrl,
     CLI_CHANNEL,
+    CLI_INSTALL_URL,
     type CliChannel,
     normalizeUpdateChannelFlag,
-    requireChannelCdn,
-    resolveEffectiveUpdateChannel
+    resolveEffectiveUpdateChannel,
+    versionManifestUrl
 } from '@/channel'
 import { loadUpdateChannelPref, saveUpdateChannelPref } from '@/channel-pref'
 import { daemonPaths } from '@/daemon/config'
+import {
+    fetchReleaseManifest,
+    manifestArtifact,
+    type ReleaseManifest
+} from '@/release-manifest'
 import {
     extractUpdateBinary,
     replaceExecutable,
     resolveUpdateTarget
 } from '@/self-update'
 import { isBunStandalone } from '@/standalone'
-import { MF_CLI_VERSION } from '@/version'
-
-const CDN = CDN_BASE
+import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 
 interface UpdateOptions {
     force?: boolean
@@ -34,16 +38,11 @@ interface UpdateOptions {
     channel?: string
 }
 
-const fetchText = async (url: string): Promise<string> => {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(`GET ${url} → ${res.status}`)
-    return (await res.text()).trim()
-}
-
 const downloadAndHash = async (
-    url: string
+    url: string,
+    fetchImpl: typeof fetch = fetch
 ): Promise<{ data: Buffer; hash: string }> => {
-    const res = await fetch(url)
+    const res = await fetchImpl(url)
     if (!res.ok) throw new Error(`GET ${url} → ${res.status}`)
     const data = Buffer.from(await res.arrayBuffer())
     const hash = createHash('sha256').update(data).digest('hex')
@@ -60,33 +59,32 @@ const promptYesNo = async (q: string): Promise<boolean> => {
     }
 }
 
-const cmpSemver = (a: string, b: string): number => {
-    const parse = (v: string): number[] =>
-        v.split('.').map((p) => Number.parseInt(p, 10) || 0)
-    const ap = parse(a)
-    const bp = parse(b)
-    for (let i = 0; i < 3; i++) {
-        const diff = (ap[i] ?? 0) - (bp[i] ?? 0)
-        if (diff !== 0) return diff
-    }
-    return 0
-}
-
 export type UpdateStatus = 'up-to-date' | 'update' | 'ahead'
 
-// Dev builds share the same x.y.z base (cmpSemver cannot order
-// `x.y.z-dev.<stamp>.<sha7>` prereleases), so any difference from the
-// channel's latest counts as an update.
-export const resolveUpdateStatus = (
-    channel: CliChannel,
-    current: string,
-    target: string
-): UpdateStatus => {
-    if (channel === 'dev')
-        return current === target ? 'up-to-date' : 'update'
-    const cmp = cmpSemver(current, target)
-    if (cmp === 0) return 'up-to-date'
-    return cmp < 0 ? 'update' : 'ahead'
+// The dev channel is ordered by COMMIT, not semver: consecutive dev builds
+// share a base version, so compareCliSemver reports them equal forever. A
+// cross-channel move is unconditionally an update for the same reason —
+// `0.24.0-dev.…` and `0.24.0` both parse to 0.24.0.
+export const resolveUpdateStatus = (input: {
+    channel: CliChannel
+    currentVersion: string
+    currentCommit?: string | null
+    targetVersion: string
+    targetCommit?: string | null
+}): UpdateStatus => {
+    if (cliChannelOfVersion(input.currentVersion) !== input.channel)
+        return 'update'
+    if (input.channel === 'dev') {
+        const sameCommit =
+            Boolean(input.currentCommit) &&
+            input.currentCommit === input.targetCommit
+        return sameCommit || input.currentVersion === input.targetVersion
+            ? 'up-to-date'
+            : 'update'
+    }
+    const cmp = compareCliSemver(input.currentVersion, input.targetVersion)
+    if (cmp === null) return 'update'
+    return cmp === 0 ? 'up-to-date' : cmp < 0 ? 'update' : 'ahead'
 }
 
 const runningDaemonPid = async (): Promise<number | null> => {
@@ -109,53 +107,74 @@ const runningDaemonPid = async (): Promise<number | null> => {
 export interface SelfUpdateResult {
     from: string
     to: string
+    commit: string | null
     execPath: string
     changed: boolean
 }
 
 // Core of `mf update`, reused by the daemon's `daemon.update` RPC so a remote
-// upgrade runs the exact same download → sha256 verify → in-process extract →
-// recoverable replacement of process.execPath. Throws on any failure; the
-// caller decides how to surface it (and whether to restart).
+// upgrade runs the exact same manifest → download → sha256 verify → in-process
+// extract → recoverable replacement of process.execPath. Throws on any
+// failure; the caller decides how to surface it (and whether to restart).
 export const performSelfUpdate = async (opts: {
     targetVersion?: string
     channel?: CliChannel
     force?: boolean
     onProgress?: (msg: string) => void
+    // `mf update` already fetched a manifest to render --check and the
+    // confirmation prompt; passing it back avoids a second fetch and the
+    // window where the channel head moves between prompt and install.
+    manifest?: ReleaseManifest
+    fetchImpl?: typeof fetch
+    // Test seams, same idiom as resolveUpdateTarget/replaceExecutable: both
+    // default to the real process so production behaviour is unchanged.
+    standalone?: boolean
+    execPath?: string
 }): Promise<SelfUpdateResult> => {
-    if (!isBunStandalone())
+    if (!(opts.standalone ?? isBunStandalone()))
         throw new Error('self-update only works on installed mf binaries')
     const target = resolveUpdateTarget()
     const current = MF_CLI_VERSION
-    // A caller-supplied channel (the API's daemon.update) downloads from that
-    // channel's CDN instead of this binary's baked one — used to install a
-    // staging build on a stable daemon (or vice versa). Both resolve to
-    // build-time-baked CDN paths, never an arbitrary URL.
-    const cdn = opts.channel ? requireChannelCdn(opts.channel) : CDN
-    const targetVersion =
-        opts.targetVersion ?? (await fetchText(`${cdn}/latest/version.txt`))
-    const execPath = process.execPath
+    const fetchImpl = opts.fetchImpl ?? fetch
+    // A caller-supplied channel (the API's daemon.update) resolves that
+    // channel's manifest instead of this binary's baked one — used to install a
+    // dev build on a stable daemon (or vice versa). Every URL comes from a
+    // manifest, never from caller-supplied input.
+    const manifest =
+        opts.manifest ??
+        (await fetchReleaseManifest(
+            opts.targetVersion
+                ? versionManifestUrl(opts.targetVersion)
+                : channelManifestUrl(opts.channel ?? CLI_CHANNEL),
+            { fetchImpl }
+        ))
+    const artifact = manifestArtifact(manifest, target)
+    const targetVersion = manifest.version
+    const execPath = opts.execPath ?? process.execPath
     if (current === targetVersion && !opts.force)
-        return { from: current, to: targetVersion, execPath, changed: false }
+        return {
+            from: current,
+            to: targetVersion,
+            commit: manifest.commit,
+            execPath,
+            changed: false
+        }
 
     const execDir = dirname(execPath)
     const tmpDir = join(execDir, `.mf-update-${randomBytes(6).toString('hex')}`)
-    const assetName = `mf-${targetVersion}-${target.os}-${target.arch}.${target.archiveFormat}`
-    const assetUrl = `${cdn}/v${targetVersion}/${assetName}`
-    const sumUrl = `${assetUrl}.sha256`
 
     try {
         await mkdir(tmpDir, { recursive: true })
 
-        opts.onProgress?.(`downloading ${assetUrl}`)
-        const { data: archive, hash: computedHash } =
-            await downloadAndHash(assetUrl)
+        opts.onProgress?.(`downloading ${artifact.url}`)
+        const { data: archive, hash: computedHash } = await downloadAndHash(
+            artifact.url,
+            fetchImpl
+        )
 
-        const sumText = await fetchText(sumUrl)
-        const expectedHash = sumText.split(/\s+/)[0] ?? ''
-        if (expectedHash.toLowerCase() !== computedHash.toLowerCase())
+        if (artifact.sha256.toLowerCase() !== computedHash.toLowerCase())
             throw new Error(
-                `sha256 mismatch (expected ${expectedHash}, got ${computedHash})`
+                `sha256 mismatch (expected ${artifact.sha256}, got ${computedHash})`
             )
         opts.onProgress?.(`sha256 ok ${computedHash.slice(0, 12)}…`)
 
@@ -169,7 +188,7 @@ export const performSelfUpdate = async (opts: {
             const e = err as NodeJS.ErrnoException
             if (e.code === 'EACCES' || e.code === 'EPERM')
                 throw new Error(
-                    `permission denied writing ${execPath}; re-run with sudo, or set MF_INSTALL_DIR and re-install via the install script`
+                    `permission denied writing ${execPath}; re-run with sudo, or set MF_INSTALL_DIR and re-install via ${CLI_INSTALL_URL}`
                 )
             throw err
         }
@@ -177,7 +196,13 @@ export const performSelfUpdate = async (opts: {
         await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     }
 
-    return { from: current, to: targetVersion, execPath, changed: true }
+    return {
+        from: current,
+        to: targetVersion,
+        commit: manifest.commit,
+        execPath,
+        changed: true
+    }
 }
 
 export const registerUpdate = (program: Command): void => {
@@ -246,28 +271,31 @@ export const registerUpdate = (program: Command): void => {
             }
 
             const current = MF_CLI_VERSION
-            let targetVersion: string
+            let manifest: ReleaseManifest
             try {
-                targetVersion =
-                    opts.to ??
-                    (await fetchText(
-                        `${requireChannelCdn(channel)}/latest/version.txt`
-                    ))
+                manifest = await fetchReleaseManifest(
+                    opts.to
+                        ? versionManifestUrl(opts.to)
+                        : channelManifestUrl(channel)
+                )
             } catch (err) {
                 console.error(
-                    kleur.red('failed to resolve target version:'),
+                    kleur.red('failed to resolve the target release:'),
                     (err as Error).message
                 )
                 process.exit(1)
                 return
             }
+            const targetVersion = manifest.version
 
             if (opts.check) {
-                const status = resolveUpdateStatus(
+                const status = resolveUpdateStatus({
                     channel,
-                    current,
-                    targetVersion
-                )
+                    currentVersion: current,
+                    currentCommit: MF_CLI_COMMIT || null,
+                    targetVersion,
+                    targetCommit: manifest.commit
+                })
                 const suffix =
                     channel === CLI_CHANNEL ? '' : kleur.dim(` [${channel}]`)
                 if (status === 'up-to-date') {
@@ -286,7 +314,16 @@ export const registerUpdate = (program: Command): void => {
                 return
             }
 
-            if (current === targetVersion && !opts.force) {
+            if (
+                resolveUpdateStatus({
+                    channel,
+                    currentVersion: current,
+                    currentCommit: MF_CLI_COMMIT || null,
+                    targetVersion,
+                    targetCommit: manifest.commit
+                }) === 'up-to-date' &&
+                !opts.force
+            ) {
                 console.log(
                     `${kleur.green('✓')} already on ${kleur.cyan(current)} ${kleur.dim('(use --force to reinstall)')}`
                 )
@@ -321,7 +358,7 @@ export const registerUpdate = (program: Command): void => {
             let result: SelfUpdateResult
             try {
                 result = await performSelfUpdate({
-                    targetVersion,
+                    manifest,
                     channel,
                     force: opts.force,
                     onProgress: (msg) => console.log(kleur.dim(msg))
@@ -353,10 +390,13 @@ export const registerUpdate = (program: Command): void => {
             }
 
             if (channel !== CLI_CHANNEL) {
-                const nextDefault = channel === 'dev' ? 'staging' : 'default'
+                const apiNote =
+                    channel === 'dev'
+                        ? ' The dev channel is an update policy only: it still defaults to the production API, so target a pre-production API with an explicit `--api-url` at login.'
+                        : ''
                 console.log(
                     kleur.yellow(
-                        `note: the ${channel} binary defaults to profile '${nextDefault}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).`
+                        `note: the ${channel} binary defaults to profile '${channel === 'stable' ? 'default' : channel}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).${apiNote}`
                     )
                 )
             }

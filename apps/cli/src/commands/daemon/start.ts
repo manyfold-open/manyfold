@@ -9,7 +9,9 @@ import {
     DAEMON_CLIENT_FEATURES,
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
 } from '@manyfold/shared'
-import { CDN_BASE, CLI_CHANNEL } from '@/channel'
+import { channelManifestUrl, CLI_CHANNEL } from '@/channel'
+import { loadUpdateChannelPref } from '@/channel-pref'
+import { fetchReleaseManifest } from '@/release-manifest'
 import { resolveProfile } from '@/config'
 import {
     DaemonAutoUpdater,
@@ -53,7 +55,7 @@ import {
 } from '@/daemon/init-unit'
 import { detectStartupMethod } from '@/daemon/startup-method'
 import { boundErrSink, createDaemonLog } from '@/daemon/log-file'
-import { MF_CLI_VERSION } from '@/version'
+import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 const DETECT_REFRESH_MS = DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
@@ -259,16 +261,27 @@ const runForeground = async (): Promise<void> => {
 
     let autoUpdater: DaemonAutoUpdater | null = null
     if (autoUpdate.enabled) {
+        // Follow the SAVED update channel, not the baked one: a machine where
+        // someone ran `mf update --channel dev` previously kept auto-updating
+        // along stable, silently undoing their choice on the next tick.
+        const updateChannel = (await loadUpdateChannelPref()) ?? CLI_CHANNEL
+        await log(
+            `auto-update channel: ${updateChannel}${
+                updateChannel === CLI_CHANNEL ? '' : ' (saved preference)'
+            }`
+        )
         autoUpdater = new DaemonAutoUpdater({
-            channel: CLI_CHANNEL,
+            channel: updateChannel,
             currentVersion: MF_CLI_VERSION,
-            fetchLatestVersion: async () => {
-                const res = await fetch(`${CDN_BASE}/latest/version.txt`)
-                if (!res.ok)
-                    throw new Error(
-                        `GET ${CDN_BASE}/latest/version.txt → ${res.status}`
-                    )
-                return (await res.text()).trim()
+            currentCommit: MF_CLI_COMMIT || null,
+            fetchLatest: async () => {
+                const manifest = await fetchReleaseManifest(
+                    channelManifestUrl(updateChannel)
+                )
+                return {
+                    version: manifest.version,
+                    commit: manifest.commit
+                }
             },
             applyIfIdle: (targetVersion) =>
                 requestDaemonUpdateIfIdle({ targetVersion }),

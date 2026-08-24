@@ -20,10 +20,14 @@ export const setProfileFlag = (value: string | undefined): void => {
     flagProfile = value
 }
 
-// The dev channel's profile is still named `staging`: renaming it would orphan
-// the credentials and daemon registration already on disk under that name.
+// The dev channel gets its own profile, named after the channel. It used to be
+// `staging`, back when a dev binary also defaulted to a pre-production API;
+// reusing that profile now would be wrong, because its stored apiUrl would keep
+// a "dev" binary silently pointed at pre-production while the channel default
+// is production. The old profile stays on disk and reachable with
+// `--profile staging`.
 const channelDefaultProfile = (): string =>
-    CLI_CHANNEL === 'dev' ? 'staging' : 'default'
+    CLI_CHANNEL === 'dev' ? 'dev' : 'default'
 
 export type ProfileSource = 'flag' | 'env' | 'channel-default'
 
