@@ -70,7 +70,7 @@ interface Harness {
 
 const makeUpdater = (opts: {
     latest: string | (() => Promise<string>)
-    channel?: 'stable' | 'staging'
+    channel?: 'stable' | 'dev'
     current?: string
     outcome?: (target: string) => Promise<IdleUpdateOutcome>
     checkIntervalMs?: number
@@ -125,14 +125,14 @@ test('stable never downgrades a binary that is ahead of the channel', async () =
     assert.equal(h.applied.length, 0)
 })
 
-test('staging follows the channel head exactly, including rollbacks', async () => {
+test('dev follows the channel head exactly, including rollbacks', async () => {
     const h = makeUpdater({
-        channel: 'staging',
-        current: '1.0.0-staging.2.def',
-        latest: '1.0.0-staging.1.abc'
+        channel: 'dev',
+        current: '1.0.0-dev.2.def',
+        latest: '1.0.0-dev.1.abc'
     })
     assert.equal(await h.updater.tick(), 'restarting')
-    assert.deepEqual(h.applied, ['1.0.0-staging.1.abc'])
+    assert.deepEqual(h.applied, ['1.0.0-dev.1.abc'])
 })
 
 test('a busy daemon is left alone and retried sooner than the normal interval', async () => {

@@ -20,8 +20,10 @@ export const setProfileFlag = (value: string | undefined): void => {
     flagProfile = value
 }
 
+// The dev channel's profile is still named `staging`: renaming it would orphan
+// the credentials and daemon registration already on disk under that name.
 const channelDefaultProfile = (): string =>
-    CLI_CHANNEL === 'staging' ? 'staging' : 'default'
+    CLI_CHANNEL === 'dev' ? 'staging' : 'default'
 
 export type ProfileSource = 'flag' | 'env' | 'channel-default'
 

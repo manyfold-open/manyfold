@@ -1,4 +1,8 @@
-import { isCliUpdateAvailable } from '@manyfold/shared'
+import {
+    DAEMON_FEATURE_DAEMON_UPDATE,
+    DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
+    isCliUpdateAvailable
+} from '@manyfold/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { BadRequestException, ConflictException } from '@nestjs/common'
@@ -31,6 +35,8 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
 
 const auditDb = { insert: () => ({ values: async () => undefined }) }
 
+const DEV_TARGET = '1.3.0-dev.202608240920.a72f4de'
+
 const makeService = (opts: {
     rpc?: (args: unknown) => Promise<Record<string, unknown> | undefined>
     latest?: string | null
@@ -60,7 +66,7 @@ const makeService = (opts: {
         { get: () => 'local' } as never
     )
 
-test('isCliUpdateAvailable: stable compares by semver, staging by exact build', () => {
+test('isCliUpdateAvailable: stable compares by semver, dev by exact build', () => {
     assert.equal(isCliUpdateAvailable('stable', '0.0.1', '0.1.0'), true)
     assert.equal(isCliUpdateAvailable('stable', '0.1.0', '0.1.0'), false)
     assert.equal(isCliUpdateAvailable('stable', '0.2.0', '0.1.0'), false)
@@ -68,7 +74,7 @@ test('isCliUpdateAvailable: stable compares by semver, staging by exact build', 
     assert.equal(isCliUpdateAvailable('stable', null, '0.1.0'), true)
     assert.equal(
         isCliUpdateAvailable(
-            'staging',
+            'dev',
             '0.1.0-staging.1.abc',
             '0.1.0-staging.2.def'
         ),
@@ -76,7 +82,7 @@ test('isCliUpdateAvailable: stable compares by semver, staging by exact build', 
     )
     assert.equal(
         isCliUpdateAvailable(
-            'staging',
+            'dev',
             '0.1.0-staging.2.def',
             '0.1.0-staging.2.def'
         ),
@@ -146,6 +152,37 @@ test('upgrade dispatches daemon.update and returns versions for an eligible daem
     assert.equal(res.fromVersion, '0.0.1')
     assert.equal(res.toVersion, '1.2.0')
     assert.equal(res.restarting, true)
+})
+
+// A cross-channel upgrade names the channel on the wire. Daemons built before
+// the dev rename only accept `staging`/`stable` and would silently drop `dev`,
+// then fetch the pinned version from their own CDN and 404 — so the wire value
+// stays `staging` while the API speaks `dev` internally.
+test('upgrade sends the pre-rename staging wire value for a dev target', async () => {
+    const calls: Array<{ method: string; payload: unknown }> = []
+    const service = makeService({
+        rpc: async (args) => {
+            const a = args as { method: string; payload: unknown }
+            calls.push({ method: a.method, payload: a.payload })
+            return { toVersion: DEV_TARGET, restarting: true }
+        }
+    })
+
+    await service.upgrade({
+        host: host({
+            clientFeatures: [
+                DAEMON_FEATURE_DAEMON_UPDATE,
+                DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL
+            ]
+        }),
+        actorId: 'u1',
+        targetVersion: DEV_TARGET
+    })
+
+    assert.deepEqual(calls[0].payload, {
+        targetVersion: DEV_TARGET,
+        channel: 'staging'
+    })
 })
 
 test('upgrade passes a drain deferral through so the admin sees it is not restarting yet', async () => {

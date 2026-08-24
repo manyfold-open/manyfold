@@ -4647,7 +4647,7 @@ const en = {
             ready: 'Ready',
             issues: 'Issues',
             stable: 'Stable',
-            staging: 'Staging',
+            staging: 'Dev',
             hostActions: 'Host actions',
             stop: 'Stop',
             stopDescription:

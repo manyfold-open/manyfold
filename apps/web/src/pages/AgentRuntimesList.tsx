@@ -2,7 +2,7 @@ import {
     DAEMON_DETECTABLE_FRAMEWORKS,
     frameworkCapability,
     frameworkUpgradeAvailable,
-    isStagingCliVersion,
+    isDevCliVersion,
     isVersionedFramework,
     runtimeKindLabel,
     versionedFrameworks
@@ -802,7 +802,7 @@ const CliVersionValue: FC<{
     latest: string | null
     updateAvailable: boolean
     stable: string[]
-    staging: string[]
+    dev: string[]
     targetName: string
     restarts: boolean
     busy: boolean
@@ -812,7 +812,7 @@ const CliVersionValue: FC<{
     latest,
     updateAvailable,
     stable,
-    staging,
+    dev,
     targetName,
     restarts,
     busy,
@@ -924,7 +924,7 @@ const CliVersionValue: FC<{
                                     label: v,
                                     group: t('web.agentRuntimesList.stable')
                                 })),
-                                ...staging.map((v) => ({
+                                ...dev.map((v) => ({
                                     value: v,
                                     label: v,
                                     group: t('web.agentRuntimesList.staging')
@@ -1249,15 +1249,15 @@ const HostDetailPanel: FC<{
         if (h.canRemoteUpgrade && onUpgradeCli) {
             // A daemon normally upgrades only within its own channel; in
             // local/staging a capable daemon can cross channels, so offer both.
-            const onStaging = isStagingCliVersion(h.cliVersion)
+            const onDev = isDevCliVersion(h.cliVersion)
             const cross = h.canCrossChannelUpgrade
             return (
                 <CliVersionValue
                     current={h.cliVersion}
                     latest={h.latestCliVersion}
                     updateAvailable={h.updateAvailable}
-                    stable={cross || !onStaging ? cliCatalog.stable : []}
-                    staging={cross || onStaging ? cliCatalog.staging : []}
+                    stable={cross || !onDev ? cliCatalog.stable : []}
+                    dev={cross || onDev ? cliCatalog.dev : []}
                     targetName={vm.label}
                     restarts
                     busy={Boolean(upgradingCli)}
@@ -1311,7 +1311,7 @@ const HostDetailPanel: FC<{
                     latest={sb.latestCliVersion}
                     updateAvailable={sb.cliUpdateAvailable}
                     stable={cliCatalog.stable}
-                    staging={cliCatalog.staging}
+                    dev={cliCatalog.dev}
                     targetName={sb.name}
                     restarts={false}
                     busy={Boolean(upgradingSandboxCli)}
@@ -2130,7 +2130,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
     >({})
     const [cliCatalog, setCliCatalog] = useState<CliVersionCatalog>({
         stable: [],
-        staging: []
+        dev: []
     })
     const [upgradingCliHostId, setUpgradingCliHostId] = useState<string | null>(
         null
@@ -2195,7 +2195,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
         client.cliVersions
             .list()
             .then(setCliCatalog)
-            .catch(() => setCliCatalog({ stable: [], staging: [] }))
+            .catch(() => setCliCatalog({ stable: [], dev: [] }))
     }, [client])
 
     useEffect(refresh, [refresh])

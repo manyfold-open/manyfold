@@ -302,7 +302,7 @@ export class SandboxesService {
             throw new BadRequestException('sandbox account unavailable')
         // No target = the deploy channel's latest. A pinned target must be a
         // version we actually list, and its channel comes from the version
-        // string (so a staging build installs from the staging CDN).
+        // string (so a dev build installs from the dev CDN).
         let channel: MfCliChannel
         if (targetVersion) {
             if (!(await this.cliCatalog.isInstallableVersion(targetVersion)))

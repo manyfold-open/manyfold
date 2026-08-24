@@ -4428,7 +4428,7 @@ const zh: Translations = {
             ready: '就绪',
             issues: '问题',
             stable: '稳定版',
-            staging: '预览版',
+            staging: '开发版',
             hostActions: '主机操作',
             agent: 'Agent',
             agents: 'Agents',

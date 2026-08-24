@@ -8,7 +8,6 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import {
     CDN_BASE,
-    channelFlagLabel,
     CLI_CHANNEL,
     type CliChannel,
     normalizeUpdateChannelFlag,
@@ -75,15 +74,15 @@ const cmpSemver = (a: string, b: string): number => {
 
 export type UpdateStatus = 'up-to-date' | 'update' | 'ahead'
 
-// Staging builds share the same x.y.z base (cmpSemver cannot order
-// `x.y.z-staging.<stamp>.<sha>` prereleases), so any difference from the
+// Dev builds share the same x.y.z base (cmpSemver cannot order
+// `x.y.z-dev.<stamp>.<sha7>` prereleases), so any difference from the
 // channel's latest counts as an update.
 export const resolveUpdateStatus = (
     channel: CliChannel,
     current: string,
     target: string
 ): UpdateStatus => {
-    if (channel === 'staging')
+    if (channel === 'dev')
         return current === target ? 'up-to-date' : 'update'
     const cmp = cmpSemver(current, target)
     if (cmp === 0) return 'up-to-date'
@@ -226,9 +225,7 @@ export const registerUpdate = (program: Command): void => {
                     cliChannelOfVersion(opts.to) !== flagChannel
                 )
                     throw new Error(
-                        `--to ${opts.to} is a ${channelFlagLabel(
-                            cliChannelOfVersion(opts.to)
-                        )} build but --channel is ${channelFlagLabel(flagChannel)}`
+                        `--to ${opts.to} is a ${cliChannelOfVersion(opts.to)} build but --channel is ${flagChannel}`
                     )
                 channel = resolveEffectiveUpdateChannel({
                     flagChannel,
@@ -239,9 +236,7 @@ export const registerUpdate = (program: Command): void => {
                 if (flagChannel && !opts.check) {
                     await saveUpdateChannelPref(flagChannel)
                     console.log(
-                        kleur.dim(
-                            `pinned update channel to ${channelFlagLabel(flagChannel)}`
-                        )
+                        kleur.dim(`pinned update channel to ${flagChannel}`)
                     )
                 }
             } catch (err) {
@@ -274,9 +269,7 @@ export const registerUpdate = (program: Command): void => {
                     targetVersion
                 )
                 const suffix =
-                    channel === CLI_CHANNEL
-                        ? ''
-                        : kleur.dim(` [${channelFlagLabel(channel)}]`)
+                    channel === CLI_CHANNEL ? '' : kleur.dim(` [${channel}]`)
                 if (status === 'up-to-date') {
                     console.log(
                         `${kleur.green('✓')} up to date (${kleur.cyan(current)})${suffix}`
@@ -313,9 +306,7 @@ export const registerUpdate = (program: Command): void => {
                 const channelNote =
                     channel === CLI_CHANNEL
                         ? ''
-                        : kleur.dim(
-                              ` on the ${channelFlagLabel(channel)} channel`
-                          )
+                        : kleur.dim(` on the ${channel} channel`)
                 const verb =
                     current === targetVersion
                         ? `Reinstall ${kleur.cyan(current)}${channelNote}?`
@@ -362,10 +353,10 @@ export const registerUpdate = (program: Command): void => {
             }
 
             if (channel !== CLI_CHANNEL) {
-                const nextDefault = channel === 'staging' ? 'staging' : 'default'
+                const nextDefault = channel === 'dev' ? 'staging' : 'default'
                 console.log(
                     kleur.yellow(
-                        `note: the ${channelFlagLabel(channel)} binary defaults to profile '${nextDefault}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).`
+                        `note: the ${channel} binary defaults to profile '${nextDefault}' — a fresh profile needs \`mf login\` once; your current profile keeps its own credentials and daemon (select it with --profile or MF_PROFILE, see \`mf profile list\`).`
                     )
                 )
             }

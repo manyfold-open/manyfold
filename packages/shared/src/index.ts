@@ -825,7 +825,7 @@ export {
     compareCliSemver,
     isCliVersionTooOld,
     isCliUpdateAvailable,
-    isStagingCliVersion,
+    isDevCliVersion,
     cliChannelOfVersion
 } from './cliVersion'
 export type { MfCliChannel } from './cliVersion'

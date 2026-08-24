@@ -248,13 +248,13 @@ export const buildShellEnvScript = (input: {
     ].join('\n')
 }
 
-export const STAGING_CLI_INSTALL_URL = `${CLI_CDN_BASE}/staging/install.sh`
+export const DEV_CLI_INSTALL_URL = `${CLI_CDN_BASE}/staging/install.sh`
 export const STABLE_CLI_INSTALL_URL = `${CLI_CDN_BASE}/install.sh`
-export type MfCliInstallChannel = 'stable' | 'staging'
+export type MfCliInstallChannel = 'stable' | 'dev'
 
 export const cliInstallChannelForDeployEnv = (
     deployEnv: string
-): MfCliInstallChannel => (deployEnv === 'staging' ? 'staging' : 'stable')
+): MfCliInstallChannel => (deployEnv === 'staging' ? 'dev' : 'stable')
 
 // Installs over ~/.local/bin/mf — the same path the nca→mf bridge symlink
 // occupies — so sprites resolve the selected binary ahead of whatever the base
@@ -266,9 +266,8 @@ export const buildCliInstallScript = (
     version?: string
 ): string => {
     const url =
-        channel === 'staging' ? STAGING_CLI_INSTALL_URL : STABLE_CLI_INSTALL_URL
-    const marker =
-        channel === 'staging' ? 'MF_STAGING_CLI_OK' : 'MF_STABLE_CLI_OK'
+        channel === 'dev' ? DEV_CLI_INSTALL_URL : STABLE_CLI_INSTALL_URL
+    const marker = channel === 'dev' ? 'MF_DEV_CLI_OK' : 'MF_STABLE_CLI_OK'
     // install.sh honours VERSION=x.y.z to pin a specific build; left unset it
     // resolves the channel's latest. Callers validate `version` against the
     // catalog before it reaches this shell.
@@ -315,13 +314,13 @@ export class SpriteShellEnvService {
         }
     }
 
-    async installStagingCli(input: {
+    async installDevCli(input: {
         client: SpritesClient
         spriteName: string
         logger?: SpritesLogger
         timeoutMs?: number
     }): Promise<void> {
-        await this.installCli({ ...input, channel: 'staging' })
+        await this.installCli({ ...input, channel: 'dev' })
     }
 
     async installCli(input: {
@@ -332,9 +331,7 @@ export class SpriteShellEnvService {
         timeoutMs?: number
     }): Promise<void> {
         const marker =
-            input.channel === 'staging'
-                ? 'MF_STAGING_CLI_OK'
-                : 'MF_STABLE_CLI_OK'
+            input.channel === 'dev' ? 'MF_DEV_CLI_OK' : 'MF_STABLE_CLI_OK'
         const result = await execSprite(
             input.client,
             input.spriteName,

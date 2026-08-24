@@ -11,20 +11,20 @@ export const resolveMfDeployEnv = (
 }
 
 const STABLE_CLI_CDN_BASE = CLI_CDN_BASE
-const STAGING_CLI_CDN_BASE = `${CLI_CDN_BASE}/staging`
+const DEV_CLI_CDN_BASE = `${CLI_CDN_BASE}/staging`
 
 export const cliChannelForDeployEnv = (deployEnv: string): MfCliChannel =>
-    deployEnv === 'staging' ? 'staging' : 'stable'
+    deployEnv === 'staging' ? 'dev' : 'stable'
 
 export const cliCdnBaseForDeployEnv = (deployEnv: string): string =>
-    cliChannelForDeployEnv(deployEnv) === 'staging'
-        ? STAGING_CLI_CDN_BASE
+    cliChannelForDeployEnv(deployEnv) === 'dev'
+        ? DEV_CLI_CDN_BASE
         : STABLE_CLI_CDN_BASE
 
 export const cliCdnBaseForChannel = (channel: MfCliChannel): string =>
-    channel === 'staging' ? STAGING_CLI_CDN_BASE : STABLE_CLI_CDN_BASE
+    channel === 'dev' ? DEV_CLI_CDN_BASE : STABLE_CLI_CDN_BASE
 
-// Non-prod envs may surface staging CLI builds and allow cross-channel daemon
+// Non-prod envs may surface dev CLI builds and allow cross-channel daemon
 // upgrades; prod stays strictly on its own channel.
-export const cliStagingAllowedForDeployEnv = (deployEnv: string): boolean =>
+export const cliDevAllowedForDeployEnv = (deployEnv: string): boolean =>
     deployEnv === 'local' || deployEnv === 'staging'

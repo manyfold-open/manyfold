@@ -151,15 +151,15 @@ test('buildShellEnvBlock omits MF_API_TOKEN when no token is provided', () => {
     assert.match(block, /MF_API_URL/)
 })
 
-test('buildCliInstallScript installs the staging channel over ~/.local/bin/mf', () => {
-    const script = buildCliInstallScript('staging')
+test('buildCliInstallScript installs the dev channel over ~/.local/bin/mf', () => {
+    const script = buildCliInstallScript('dev')
     assert.match(
         script,
         /https:\/\/cdn1\.manyfold\.ai\/cli\/staging\/install\.sh/
     )
     assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
     assert.match(script, /"\$HOME\/\.local\/bin\/mf" --version/)
-    assert.match(script, /MF_STAGING_CLI_OK/)
+    assert.match(script, /MF_DEV_CLI_OK/)
 })
 
 test('buildCliInstallScript installs the default channel over ~/.local/bin/mf', () => {
@@ -175,11 +175,11 @@ test('buildCliInstallScript picks exact channel URLs', () => {
         buildCliInstallScript('stable'),
         /cli\/staging\/install\.sh/
     )
-    assert.match(buildCliInstallScript('staging'), /cli\/staging\/install\.sh/)
+    assert.match(buildCliInstallScript('dev'), /cli\/staging\/install\.sh/)
 })
 
-test('cliInstallChannelForDeployEnv maps only staging to staging CLI', () => {
-    assert.equal(cliInstallChannelForDeployEnv('staging'), 'staging')
+test('cliInstallChannelForDeployEnv maps only the staging deploy env to dev', () => {
+    assert.equal(cliInstallChannelForDeployEnv('staging'), 'dev')
     assert.equal(cliInstallChannelForDeployEnv('local'), 'stable')
     assert.equal(cliInstallChannelForDeployEnv('production'), 'stable')
 })
@@ -220,7 +220,7 @@ test('provision and CLI upgrade both carry the residue purge', () => {
         apiBaseUrl: 'https://api.manyfold.ai/api'
     })
     assert.ok(provision.includes(buildLegacyShellResiduePurgeScript()))
-    for (const channel of ['stable', 'staging'] as const)
+    for (const channel of ['stable', 'dev'] as const)
         assert.ok(
             buildCliInstallScript(channel).includes(
                 buildLegacyShellResiduePurgeScript()
@@ -238,7 +238,7 @@ test('every generated shell-env script is valid POSIX sh and bash', () => {
         }),
         buildShellEnvScript({ agentId: 'agt_abc' }),
         buildCliInstallScript('stable'),
-        buildCliInstallScript('staging', '1.2.3'),
+        buildCliInstallScript('dev', '1.2.3'),
         buildLegacyShellResiduePurgeScript()
     ]
     for (const script of scripts)
