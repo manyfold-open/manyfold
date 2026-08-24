@@ -2,6 +2,13 @@
 # every push to main refreshes a "Version Packages" PR; merging it bumps
 # package.json + CHANGELOG.md, and the maintainers cut the release tag from
 # the result. Zero repository secrets — GITHUB_TOKEN is enough in-repo.
+#
+# The manyfold-open ORG forbids GitHub Actions from creating pull requests, so
+# the changesets action does all of its work, pushes changeset-release/main,
+# and then fails on the final API call. That is not recoverable in-repo: a PAT
+# would break the secret-free contract, and the policy is org-wide. So the
+# failure is caught and turned into a ready-to-paste command instead of a red
+# run every release — a build that is always red teaches people to ignore it.
 name: version-pr
 
 on:
@@ -33,10 +40,48 @@ jobs:
                   node-version: '22'
                   cache: 'pnpm'
             - run: pnpm install --frozen-lockfile
-            - uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+            - id: changesets
+              continue-on-error: true
+              uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
               with:
                   version: pnpm changeset version
                   title: 'chore(release): version tracked packages'
                   commit: 'chore(release): version tracked packages'
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            # The branch is pushed and correct whether or not the PR could be
+            # opened, so recover by looking for the PR rather than by trusting
+            # the step's exit code.
+            - name: Open the version PR by hand when Actions may not
+              if: steps.changesets.outcome == 'failure'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  BRANCH=changeset-release/main
+                  if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+                      echo '::error::changesets failed before pushing the version branch — this is a real failure, not the org PR policy'
+                      exit 1
+                  fi
+                  PR=$(gh pr list --head "$BRANCH" --base main --state open \
+                      --json url --jq '.[0].url // empty')
+                  if [ -n "$PR" ]; then
+                      echo "version PR already open: $PR"
+                      exit 0
+                  fi
+                  {
+                      echo '### Version PR needs to be opened by hand'
+                      echo
+                      echo 'The version bump succeeded and `'"$BRANCH"'` is pushed.'
+                      echo 'This org does not allow GitHub Actions to create pull'
+                      echo 'requests, so run:'
+                      echo
+                      echo '```sh'
+                      echo "gh pr create --base main --head $BRANCH \\"
+                      echo "    --title 'chore(release): version tracked packages'"
+                      echo '```'
+                      echo
+                      echo 'The title is load-bearing: sync-release-to-develop'
+                      echo 'matches on it to open the back-merge.'
+                  } >>"$GITHUB_STEP_SUMMARY"
+                  echo '::warning::version branch pushed; open the PR by hand (see the run summary)'

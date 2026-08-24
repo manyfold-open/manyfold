@@ -62,9 +62,30 @@ jobs:
                       exit 0
                   fi
 
-                  gh pr create \
+                  # This org forbids GitHub Actions from creating pull
+                  # requests, and a PAT would break the secret-free contract,
+                  # so a failure here is expected rather than exceptional:
+                  # surface the exact command instead of going red every
+                  # release, because a permanently-red job stops being read.
+                  if ! gh pr create \
                       --repo "$GITHUB_REPOSITORY" \
                       --base develop \
                       --head main \
                       --title 'chore(release): sync main back to develop' \
                       --body 'Brings release-only version and changelog updates, plus consumed changeset deletions, back to develop. Merge this after the release workflows succeed. Use a merge commit, not squash, so the next develop to main promotion preserves the release ancestry.'
+                  then
+                      {
+                          echo '### Back-merge PR needs to be opened by hand'
+                          echo
+                          echo 'This org does not allow GitHub Actions to create'
+                          echo 'pull requests. Run:'
+                          echo
+                          echo '```sh'
+                          echo "gh pr create --base develop --head main \\"
+                          echo "    --title 'chore(release): sync main back to develop'"
+                          echo '```'
+                          echo
+                          echo 'Merge it with a merge commit, not squash.'
+                      } >>"$GITHUB_STEP_SUMMARY"
+                      echo '::warning::open the main to develop back-merge by hand (see the run summary)'
+                  fi
