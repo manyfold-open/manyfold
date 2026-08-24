@@ -31,6 +31,7 @@ import { MatrixChannelProvider } from './providers/matrix.provider'
 import { WeixinChannelProvider } from './providers/weixin.provider'
 import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
+import { LineChannelProvider } from './providers/line.provider'
 
 @Module({
     imports: [
@@ -69,7 +70,8 @@ import { GithubChannelProvider } from './providers/github.provider'
         MatrixChannelProvider,
         WeixinChannelProvider,
         LinearChannelProvider,
-        GithubChannelProvider
+        GithubChannelProvider,
+        LineChannelProvider
     ],
     exports: [
         ChannelsService,

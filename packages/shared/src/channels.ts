@@ -8,6 +8,7 @@ export type ChannelProviderName =
     | 'weixin'
     | 'linear'
     | 'github'
+    | 'line'
 
 export type ChannelStatus = 'draft' | 'active' | 'paused' | 'error'
 
@@ -357,6 +358,36 @@ export interface GithubChannelConfig {
     resetOnIdleMins?: number | null
 }
 
+export interface LineChannelConfig {
+    // Bot identity captured by register() from GET /v2/bot/info. botUserId is
+    // what mention.mentionees[].isSelf already resolves for us, so it is only
+    // ever shown to the operator; basicId is the @-handle users search for.
+    botUserId?: string | null
+    basicId?: string | null
+    botDisplayName?: string | null
+    // LINE user ids (U…) allowed to drive this agent. External actors, never
+    // Manyfold identities. Empty = anyone who can reach the bot.
+    allowedUserIds: string[]
+    // LINE user ids allowed to run agent-wide commands (e.g. /model). Empty =
+    // those commands are disabled from LINE (fail-closed).
+    operatorUserIds: string[]
+    // Group (C…) and multi-person room (R…) ids this channel reacts to.
+    // Empty = every group the bot was invited to.
+    allowedChatIds: string[]
+    mentionOnly: boolean
+    shareSessionInChannel: boolean
+    // LINE has no message-edit API, so 'preview' is meaningless and every
+    // value normalizes to 'final'.
+    progressMode: ChannelProgressMode
+    // Prepend the [Channel message context] metadata block to each
+    // channel-driven turn. On by default; set false to disable.
+    contextProjection?: boolean
+    // Agent-managed reply: forward structured source context and let the
+    // agent deliver via its own channel tools (narranexus only). Off by default.
+    agentManagedReply?: boolean
+    resetOnIdleMins?: number | null
+}
+
 export type ChannelConfig =
     | LarkChannelConfig
     | FakeChannelConfig
@@ -367,6 +398,7 @@ export type ChannelConfig =
     | WeixinChannelConfig
     | LinearChannelConfig
     | GithubChannelConfig
+    | LineChannelConfig
 
 export interface LarkChannelCredentials {
     appSecret: string
@@ -423,6 +455,13 @@ export interface GithubChannelCredentials {
     webhookSecret: string
 }
 
+export interface LineChannelCredentials {
+    // Channel secret from the LINE Developers console; signs every webhook.
+    channelSecret: string
+    // Long-lived channel access token; the bearer for every Messaging API call.
+    channelAccessToken: string
+}
+
 export type ChannelCredentials =
     | LarkChannelCredentials
     | FakeChannelCredentials
@@ -433,6 +472,7 @@ export type ChannelCredentials =
     | WeixinChannelCredentials
     | LinearChannelCredentials
     | GithubChannelCredentials
+    | LineChannelCredentials
 
 export interface ChannelAgentSummary {
     id: string
@@ -625,6 +665,23 @@ export const describeChannelScope = (
             return { kind: 'channel-user', channelId, threadId: null, userId }
         return { kind: 'channel', channelId, threadId: null, userId: null }
     }
+    if (provider === 'line' && segments[0] === 'line') {
+        const chatId = segments[1]
+        if (!chatId) return UNKNOWN_SCOPE
+        const userId = segments[2] ?? null
+        // LINE ids are prefixed by source kind: U = user (so the chat is a
+        // 1:1), C = group, R = multi-person room.
+        const isDm = chatId.startsWith('U')
+        if (isDm) return { kind: 'dm', channelId: chatId, threadId: null, userId }
+        if (userId)
+            return {
+                kind: 'channel-user',
+                channelId: chatId,
+                threadId: null,
+                userId
+            }
+        return { kind: 'channel', channelId: chatId, threadId: null, userId: null }
+    }
     // linear:{organizationId}:{agentSessionId} needs no branch: an agent
     // session is one conversation and its id is neither a channel nor a thread
     // id, so the generic fallback is already the honest descriptor. The same
@@ -664,6 +721,7 @@ export const AGENT_SEND_PROVIDERS: readonly ChannelProviderName[] = [
     'telegram',
     'weixin',
     'matrix',
+    'line',
     'fake'
 ]
 

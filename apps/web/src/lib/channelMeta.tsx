@@ -15,7 +15,8 @@ const channelDocsPaths: Partial<Record<ChannelProviderName, string>> = {
     matrix: '/docs/channels/matrix',
     weixin: '/docs/channels/weixin',
     linear: '/docs/channels/linear',
-    github: '/docs/channels/github'
+    github: '/docs/channels/github',
+    line: '/docs/channels/line'
 }
 
 const LarkIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
@@ -135,6 +136,17 @@ const GithubIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     </svg>
 )
 
+const LineIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
+    <svg
+        viewBox='0 0 24 24'
+        className={className}
+        aria-hidden='true'
+        fill='#06C755'
+    >
+        <path d='M12 2C6.201 2 1.5 5.858 1.5 10.617c0 4.265 3.728 7.837 8.765 8.513.341.073.806.225.923.516.106.264.069.677.034.945l-.15.897c-.045.265-.211 1.037.908.565 1.12-.471 6.036-3.554 8.234-6.084 1.518-1.665 2.286-3.353 2.286-5.352C22.5 5.858 17.799 2 12 2zM7.755 13.573H5.67a.552.552 0 01-.551-.551V8.85a.552.552 0 011.103 0v3.62h1.533a.552.552 0 010 1.103zm2.16-.551a.552.552 0 01-1.103 0V8.85a.552.552 0 011.103 0v4.172zm5.02 0a.551.551 0 01-.993.331l-2.137-2.909v2.578a.552.552 0 01-1.103 0V8.85a.551.551 0 01.993-.331l2.137 2.909V8.85a.552.552 0 011.103 0v4.172zm3.362-2.638a.552.552 0 010 1.103h-1.533v.983h1.533a.552.552 0 010 1.103h-2.085a.552.552 0 01-.551-.551V8.85c0-.304.247-.551.551-.551h2.085a.552.552 0 010 1.103h-1.533v.982h1.533z' />
+    </svg>
+)
+
 const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     lark: { label: 'Lark', Icon: LarkIcon },
     telegram: { label: 'Telegram', Icon: TelegramIcon },
@@ -144,6 +156,7 @@ const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     weixin: { label: 'WeChat', Icon: WeixinIcon },
     linear: { label: 'Linear', Icon: LinearIcon },
     github: { label: 'GitHub', Icon: GithubIcon },
+    line: { label: 'LINE', Icon: LineIcon },
     fake: { label: 'Fake (test)', Icon: FakeIcon }
 }
 

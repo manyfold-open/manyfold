@@ -38,7 +38,8 @@ export const channels = pgTable(
                 'matrix',
                 'weixin',
                 'linear',
-                'github'
+                'github',
+                'line'
             ]
         }).notNull(),
         label: text('label').notNull(),
