@@ -167,7 +167,7 @@ Use /switch <number|name>, /current, /new, /help.
 - **CLI：** `mf channels sessions list|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
 - **REST：** `GET /channels/:id/scopes`、`GET /channels/:id/sessions`、`POST /channels/:id/sessions`、`PATCH /channels/:id/sessions/:sessionId`、`DELETE /channels/:id/sessions/:sessionId`。
 
-## 相关链接
+## 另请参阅
 
 - [连接渠道](/zh/docs/channels/)
 - [Telegram](/zh/docs/channels/telegram/)

@@ -3,6 +3,7 @@ import mdx from '@astrojs/mdx'
 import sitemap from '@astrojs/sitemap'
 import tailwindcss from '@tailwindcss/vite'
 import { rehypeHeadingIds } from '@astrojs/markdown-remark'
+import { isTrailerHeading } from './src/lib/trailers.ts'
 
 // Heading anchors: hover a heading and a link to its own id appears, so a reader
 // can cite one section instead of the whole page. Both reference sites ship it
@@ -35,6 +36,20 @@ const rehypeChangelogHeadline = () => (tree, file) => {
     if (index >= 0) tree.children.splice(index, 1)
 }
 
+// A heading's visible text, for the trailer check below. Reads the children it
+// has now, which is before this plugin prepends the anchor, and flattens the
+// <code> a command heading is wrapped in.
+const headingText = (node) =>
+    (node.children ?? [])
+        .map((child) =>
+            child.type === 'text'
+                ? child.value
+                : child.type === 'element'
+                  ? headingText(child)
+                  : ''
+        )
+        .join('')
+
 const rehypeHeadingAnchors = () => (tree, file) => {
     const path = String(file?.path ?? '')
     // The changelog anchors its version chip instead. #v0.23.1 is what the feed
@@ -50,7 +65,12 @@ const rehypeHeadingAnchors = () => (tree, file) => {
             if (
                 child.type === 'element' &&
                 ANCHORED.has(child.tagName) &&
-                child.properties?.id
+                child.properties?.id &&
+                // A navigational trailer gets no anchor: its body is only links
+                // out of the page, so there is nothing in it to cite, and
+                // nothing anywhere in the build linked one. See src/lib/trailers.ts.
+                // The id stays, because the right rail still links it.
+                !isTrailerHeading(headingText(child))
             ) {
                 child.children.unshift({
                     type: 'element',

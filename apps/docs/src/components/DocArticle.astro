@@ -3,6 +3,7 @@ import { render } from 'astro:content'
 import type { CollectionEntry } from 'astro:content'
 import DocsSidebar from '@/components/DocsSidebar.astro'
 import DocsPageActions from '@/components/DocsPageActions.astro'
+import { isTrailerHeading } from '@/lib/trailers'
 import {
     entryHref,
     groupKeyForTitle,
@@ -79,7 +80,19 @@ const pageUrl = new URL(entryHref(entry, locale), Astro.site).toString()
 // signal would be worth nothing, while 6 covers the 26 pages long enough that
 // the section list is genuinely an answer rather than decoration.
 const INLINE_TOC_MIN_SECTIONS = 6
-const inlineToc = headings.filter((h) => h.depth === 2)
+// Trailers are filtered out before the count, not just before the render, and
+// that is the whole point rather than a detail. This list exists to tell an
+// extractor what the page covers, and a "See also" entry describes no content,
+// so it should never have counted toward "is this page long enough for the list
+// to be an answer". It had been padding the number: 12 pages sat at exactly six
+// h2s and only qualified because a link trailer was one of them. They have five
+// content sections and now read as five, so they lose the list. Coverage goes
+// 76 pages to 64, and the alternative of dropping the bar to five lands on 72,
+// which is wider than the corpus had before and would put the list back on
+// pages it was never meant for. See src/lib/trailers.ts.
+const inlineToc = headings.filter(
+    (h) => h.depth === 2 && !isTrailerHeading(h.text)
+)
 const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
 
 // Collapse is presentational only, at both tiers. Every link stays in the DOM

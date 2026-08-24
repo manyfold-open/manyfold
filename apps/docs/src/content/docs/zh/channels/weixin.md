@@ -88,7 +88,7 @@ mf channels send <channelId> --user-id 'wxid_xxx@im.wechat' --text '你的构建
 - **Agent 主动发送失败**：接收方必须此前给 bot 发过至少一条消息，才存在回复凭证。
 - **群消息被忽略**：个人微信 bot 只支持私聊，网关不投递群事件。
 
-## 参见
+## 另请参阅
 
 - [连接渠道](/zh/docs/channels/)
 - [会话切换](/zh/docs/channels/session-switching/)

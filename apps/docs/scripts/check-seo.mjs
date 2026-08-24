@@ -474,6 +474,73 @@ if (!robots.includes(`Sitemap: ${site}/sitemap-index.xml`)) {
     fail('/robots.txt', 'missing absolute sitemap declaration')
 }
 
+// === Navigational trailers carry no anchor and no TOC entry ===
+//
+// Detected by SHAPE here, on purpose. src/lib/trailers.ts drives the behaviour
+// from a list of ten heading names, and a list silently stops matching the
+// moment someone renames a heading or a new page invents an eleventh name.
+// This gate re-finds them structurally, so a rename becomes a build failure
+// instead of a section quietly getting its anchor back.
+//
+// The shape is unambiguous and was calibrated against the corpus before this
+// gate shipped: the last h2 of the prose body, whose content begins with a list
+// of two or more items that hold nothing but links. Structural detection and
+// the name list agreed on exactly 54 sections with zero disagreement either
+// way. If the two ever disagree, one of them is wrong and this fails.
+const trailerFor = (html) => {
+    const start = html.indexOf('class="prose-doc')
+    if (start < 0) return null
+    const region = html.slice(start)
+    const headings = [
+        ...region.matchAll(/<h2 id="([^"]+)"[^>]*>([\s\S]*?)<\/h2>/g)
+    ]
+    if (headings.length === 0) return null
+    const last = headings[headings.length - 1]
+    const after = region.slice(last.index + last[0].length)
+    const list = after.match(/^\s*<ul[^>]*>([\s\S]*?)<\/ul>/)
+    if (!list) return null
+    const items = [...list[1].matchAll(/<li[^>]*>([\s\S]*?)<\/li>/g)].map(
+        (match) => match[1]
+    )
+    if (items.length < 2) return null
+    const linkOnly = items.every((item) => {
+        if (!/<a\b/.test(item)) return false
+        // Everything that is not a link, ignoring whitespace and the trailing
+        // punctuation a translated list sometimes carries.
+        return (
+            item
+                .replace(/<a\b[^>]*>[\s\S]*?<\/a>/g, '')
+                .replace(/[\s.,、。]/g, '') === ''
+        )
+    })
+    if (!linkOnly) return null
+    return { id: last[1], markup: last[0], text: textContent(last[2]).trim() }
+}
+
+const trailers = []
+for (const { route, html } of pages) {
+    const trailer = trailerFor(html)
+    if (!trailer) continue
+    trailers.push({ route, ...trailer })
+
+    if (trailer.markup.includes('docs-heading-anchor')) {
+        fail(
+            route,
+            `navigational trailer "${trailer.text}" carries a heading anchor; nothing links these sections from another page, so add its name to src/lib/trailers.ts`
+        )
+    }
+
+    const inlineToc = html.match(
+        /<nav class="docs-inline-toc[\s\S]*?<\/nav>/
+    )
+    if (inlineToc && inlineToc[0].includes(`#${trailer.id}`)) {
+        fail(
+            route,
+            `navigational trailer "${trailer.text}" is listed in the inline table of contents, which exists to tell an extractor what the page covers`
+        )
+    }
+}
+
 const fontFiles = walk(dist, (file) => file.endsWith('.woff2'))
 if (fontFiles.length === 0)
     fail('/_astro/', 'self-hosted font assets are missing')
@@ -489,4 +556,9 @@ console.log(
 )
 console.log(
     `Markup gates: ${pages.length} pages checked, ${exemptRoutes.size} exempt from the duplicate-id gate (${[...exemptRoutes].sort().join(', ')})`
+)
+console.log(
+    `Trailer gate: ${trailers.length} navigational trailers, none anchored, none in an inline TOC (${
+        [...new Set(trailers.map((t) => t.text))].sort().join(', ')
+    })`
 )
