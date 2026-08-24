@@ -5,14 +5,14 @@ Manyfold CLI. Manage agents and runtimes from the terminal.
 ## Install
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup
+curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup
 ```
 
 To install without running the guided machine setup, omit `-s -- setup`.
 The installer skips the archive download when the target path already contains
 the selected version.
 
-Or download manually from `https://cdn1.manyfold.ai/cli/v<version>/`:
+Or download manually from `https://github.com/manyfold-open/manyfold/releases/tag/cli-v<version>`:
 
 | platform            | asset                          |
 | ------------------- | ------------------------------ |
@@ -22,7 +22,8 @@ Or download manually from `https://cdn1.manyfold.ai/cli/v<version>/`:
 | macos-arm64 (Apple) | `mf-<ver>-darwin-arm64.tar.gz` |
 | windows-x64         | `mf-<ver>-windows-x64.zip`     |
 
-Latest version is at `https://cdn1.manyfold.ai/cli/latest/version.txt`.
+Which version each channel points at is published as a manifest:
+`https://github.com/manyfold-open/manyfold/releases/download/cli-channels/stable.json` (and `dev.json`).
 
 Every installed standalone binary supports `mf update` on macOS, Linux, and
 Windows. Archive extraction is built in, so the update does not require a
@@ -57,16 +58,20 @@ printf '%s' "$MF_TOKEN" | mf --api-url ... --token - whoami
 
 ## Dev channel
 
-The `dev` channel carries pre-release builds. It only exists in binaries whose
-release workflow baked the dev-channel endpoints in at build time
-(`MF_CLI_STAGING_API_URL` / `MF_CLI_STAGING_CDN_BASE` — the endpoints are a
-property of whoever operates the deployment, not of this repository); a build
-made without them reports that no dev channel is available. Dev versions are
-shaped like `0.11.1-staging.<stamp>.<sha>`.
+The `dev` channel carries pre-release builds — every `develop` commit whose CI
+passed. Dev versions are shaped like `0.24.0-dev.<stamp>.<sha7>`, and because
+consecutive dev builds share the same `x.y.z`, the channel is ordered by the
+source **commit** rather than by semver: `mf update` sees a new build when the
+commit moves. `mf version --verbose` shows the commit you are on.
 
-A dev binary defaults to its baked pre-release API URL. By default
-`mf update` follows its own channel's `latest/version.txt`, but you can switch
-channels explicitly — the choice is remembered for later updates:
+The dev channel is an update policy, not an environment. Both channels default
+to the production API; a dev binary simply installs newer code sooner. To work
+against a pre-production API, pin it on a profile at login
+(`mf --profile <name> login --api-url …`) — a dev binary uses its own `dev`
+profile by default, so it will not disturb your stable profile's credentials.
+
+`mf update` follows the remembered channel, and you can switch explicitly —
+the choice is remembered for later updates:
 
 ```sh
 mf update --channel dev     # switch to the dev channel and remember it
@@ -74,9 +79,9 @@ mf update --channel stable  # switch back to the production channel
 mf update --check           # preview against the remembered channel
 ```
 
-`dev` and `stable` are the channel names; `dev` is the pre-release channel
-(`--channel staging` still works as an alias; the `MF_CHANNEL` env var is read
-by `install.sh` only, not by the installed binary). The preference is stored in
+`dev` and `stable` are the channel names (`--channel staging` still works as
+the pre-rename alias for `dev`; the `MF_CHANNEL` env var is read by
+`install.sh` only, not by the installed binary). The preference is stored in
 `~/.manyfold/update-channel.json` at the machine level — the update channel is
 a property of the binary, not of any profile — so it survives the
 cross-channel binary swap; delete it to fall back to the binary's built-in
@@ -129,16 +134,37 @@ the frameworks themselves keep machine-global.
 
 ## Docs
 
-https://github.com/protagolabs/manyfold
+https://github.com/manyfold-open/manyfold
 
 ## Releasing
 
-The CLI is distributed as standalone binaries on `cdn1.manyfold.ai` (Cloudflare R2). Versioning is managed with [Changesets](https://github.com/changesets/changesets).
+The CLI is distributed as standalone binaries attached to GitHub releases of
+this repository. Versioning is managed with [Changesets](https://github.com/changesets/changesets).
+
+Two channels, two triggers:
+
+- **dev** — every `develop` commit whose `ci` run passed. `release-cli-dev`
+  builds the five targets, attaches them to the rolling `cli-dev` prerelease
+  and then rewrites `dev.json`.
+- **stable** — a `cli-v<version>` tag. `release-cli` builds the five targets,
+  creates the `cli-v<version>` release and then promotes its manifest to
+  `stable.json`.
+
+Both write the channel pointer **last**, so a reader never sees a manifest
+naming an artifact that has not finished uploading.
 
 1. In any PR that changes user-facing behavior, run `pnpm changeset` and commit the resulting `.changeset/*.md`.
-2. Merge to `main`. The `changeset-version-pr` workflow opens (or updates) a "Version Packages" PR that bumps `apps/cli/package.json` and writes `apps/cli/CHANGELOG.md`.
-3. Merge that Version PR.
-4. Run `just cli-release` locally — tags `cli-v$VERSION` and pushes. The `release-cli` workflow then builds 5-platform binaries and uploads them to `https://cdn1.manyfold.ai/cli/v$VERSION/` plus refreshes `cli/latest/version.txt` and `cli/install.sh`.
+2. Promote `develop` to `main`. The `version-pr` workflow opens (or updates) a "Version Packages" PR that bumps `apps/cli/package.json` and writes `apps/cli/CHANGELOG.md`.
+3. Merge that Version PR, then merge the `main` → `develop` back-merge PR.
+4. Run `just cli-release` on `main` — tags `cli-v$VERSION` and pushes.
+
+The channel manifests live on a fixed `cli-channels` prerelease so their URLs
+never move:
+
+```text
+https://github.com/manyfold-open/manyfold/releases/download/cli-channels/stable.json
+https://github.com/manyfold-open/manyfold/releases/download/cli-channels/dev.json
+```
 
 See `.changeset/README.md` for bump-level rules (patch/minor/major).
 

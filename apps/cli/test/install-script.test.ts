@@ -14,11 +14,11 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-// The open-source installer resolves GitHub Releases: one API call for the
-// release JSON, then the platform asset and its .sha256. The fake curl below
-// serves the JSON when invoked without -o and writes empty files otherwise,
-// so these tests pin the call shape (1 API read; downloads only when the
-// installed version is outdated) without touching the network.
+// The installer resolves a release manifest, then downloads the one artifact
+// the manifest names — two calls, not three: the checksum travels inside the
+// manifest instead of a detached sibling. The fake curl below serves the
+// manifest when invoked without -o and writes empty files otherwise, so these
+// tests pin the call shape without touching the network.
 
 interface InstallerHarness {
     env: NodeJS.ProcessEnv
@@ -35,15 +35,41 @@ const platformTarget = (): string => {
     return `${os}-${arch}`
 }
 
-const releaseJson = (): string => {
-    const asset = `https://release.invalid/download/v9.9.9/mf-9.9.9-${platformTarget()}.tar.gz`
-    return JSON.stringify({
-        tag_name: 'v9.9.9',
-        assets: [
-            { browser_download_url: asset },
-            { browser_download_url: `${asset}.sha256` }
-        ]
-    })
+// Byte-for-byte the shape build-manifest.mjs emits (2-space JSON.stringify,
+// fixed key order). The installer parses it with awk, so a layout change here
+// or there breaks the pair — release-manifest.test.ts asserts the generator
+// side of the same contract.
+const MANIFEST_SHA =
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+
+const manifestJson = (
+    opts: { version?: string; channel?: string; target?: string } = {}
+): string => {
+    const version = opts.version ?? '9.9.9'
+    const target = opts.target ?? platformTarget()
+    return JSON.stringify(
+        {
+            schema: 1,
+            channel: opts.channel ?? 'stable',
+            version,
+            commit: '923abd1a4f2c8e0b6d5f1a90c3e77b2d4f8a0e11',
+            commitShort: '923abd1',
+            buildTime: '2026-08-24T08:22:41Z',
+            publishedAt: '2026-08-24T08:30:12Z',
+            tag: `cli-v${version}`,
+            artifacts: {
+                [target]: {
+                    url: `https://release.invalid/download/cli-v${version}/mf-${version}-${target}.tar.gz`,
+                    sha256: MANIFEST_SHA,
+                    size: 123,
+                    format: 'tar.gz',
+                    binary: 'mf'
+                }
+            }
+        },
+        null,
+        2
+    )
 }
 
 const executable = async (path: string, source: string): Promise<void> => {
@@ -75,11 +101,18 @@ done
 if [ -n "$out" ]; then
     : >"$out"
 else
-    printf '%s\n' "$MF_TEST_RELEASE_JSON"
+    printf '%s\n' "$MF_TEST_MANIFEST_JSON"
 fi
 `
     )
-    await executable(join(binDir, 'shasum'), '#!/bin/sh\nexit 0\n')
+    await executable(
+        join(binDir, 'shasum'),
+        `#!/bin/sh
+# The installer compares this against the manifest's sha256, so a bare exit 0
+# would no longer prove anything.
+printf '%s  archive\n' "\${MF_TEST_SHA256:-$MF_TEST_MANIFEST_SHA}"
+`
+    )
     await executable(
         join(binDir, 'tar'),
         `#!/bin/sh
@@ -122,7 +155,8 @@ fi
             MF_TEST_CURL_LOG: curlLog,
             MF_TEST_FAKE_MF: fakeMf,
             MF_TEST_INSTALLED_VERSION: '9.9.9',
-            MF_TEST_RELEASE_JSON: releaseJson()
+            MF_TEST_MANIFEST_JSON: manifestJson(),
+            MF_TEST_MANIFEST_SHA: MANIFEST_SHA
         },
         installDir,
         installScript,
@@ -186,7 +220,10 @@ test('installer skips archive downloads for an already-installed target version'
             .trimEnd()
             .split('\n')
         assert.equal(curlCalls.length, 1)
-        assert.match(curlCalls[0], /\/releases\/latest(?:$| )/)
+        assert.match(
+            curlCalls[0],
+            /\/releases\/download\/cli-channels\/stable\.json(?:$| )/
+        )
         assert.doesNotMatch(curlCalls[0], /(?:^| )-o(?: |$)/)
     } finally {
         await rm(harness.root, { recursive: true, force: true })
@@ -212,18 +249,209 @@ test('installer downloads when the target version is outdated', async () => {
         )
             .trimEnd()
             .split('\n')
-        assert.equal(curlCalls.length, 3)
+        // Two, not three: the checksum rides inside the manifest, so there is
+        // no separate .sha256 request that could be answered from a different
+        // cache generation than the archive.
+        assert.equal(curlCalls.length, 2)
         assert.match(
             curlCalls[0],
-            /\/releases\/tags\/v9\.9\.9(?:$| )/,
-            'VERSION pins the tagged release'
+            /\/releases\/download\/cli-v9\.9\.9\/manifest\.json(?:$| )/,
+            'VERSION pins that release\'s own manifest'
         )
         assert.doesNotMatch(curlCalls[0], /(?:^| )-o(?: |$)/)
-        assert.ok(
-            curlCalls
-                .slice(1)
-                .every((call) => /(?:^| )-o(?: |$)/.test(call)),
-            'outdated install should download the archive and checksum'
+        assert.match(curlCalls[1], /(?:^| )-o(?: |$)/)
+        assert.match(curlCalls[1], /mf-9\.9\.9-.*\.tar\.gz/)
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+test('installer resolves the dev channel pointer', async () => {
+    const harness = await createHarness()
+    try {
+        const env: NodeJS.ProcessEnv = {
+            ...harness.env,
+            MF_CHANNEL: 'dev'
+        }
+        delete env.VERSION
+        env.MF_TEST_MANIFEST_JSON = manifestJson({ channel: 'dev' })
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env,
+            input: harness.installScript
+        })
+        assert.equal(result.status, 0, result.stderr)
+        assert.match(result.stdout, /channel=dev/)
+        const calls = (await readFile(harness.env.MF_TEST_CURL_LOG!, 'utf8'))
+            .trimEnd()
+            .split('\n')
+        assert.match(
+            calls[0],
+            /\/releases\/download\/cli-channels\/dev\.json(?:$| )/
+        )
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+// Binaries installed before the rename were versioned `-staging.`, and the
+// hosted installer took MF_CHANNEL=staging; both must keep working.
+test('installer accepts staging as the pre-rename alias for dev', async () => {
+    const harness = await createHarness()
+    try {
+        const env: NodeJS.ProcessEnv = {
+            ...harness.env,
+            MF_CHANNEL: 'staging'
+        }
+        delete env.VERSION
+        env.MF_TEST_MANIFEST_JSON = manifestJson({ channel: 'dev' })
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env,
+            input: harness.installScript
+        })
+        assert.equal(result.status, 0, result.stderr)
+        assert.match(result.stdout, /channel=dev/)
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+test('installer pins a dev version inside the rolling dev release', async () => {
+    const harness = await createHarness()
+    try {
+        const version = '9.9.9-dev.202608240920.a72f4de'
+        const env: NodeJS.ProcessEnv = { ...harness.env, VERSION: version }
+        env.MF_TEST_MANIFEST_JSON = manifestJson({ version, channel: 'dev' })
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env,
+            input: harness.installScript
+        })
+        assert.equal(result.status, 0, result.stderr)
+        const calls = (await readFile(harness.env.MF_TEST_CURL_LOG!, 'utf8'))
+            .trimEnd()
+            .split('\n')
+        assert.match(
+            calls[0],
+            new RegExp(`/releases/download/cli-dev/manifest-${version}\\.json(?:$| )`)
+        )
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+test('installer rejects an unknown channel', async () => {
+    const harness = await createHarness()
+    try {
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env: { ...harness.env, MF_CHANNEL: 'beta' },
+            input: harness.installScript
+        })
+        assert.notEqual(result.status, 0)
+        assert.match(result.stderr, /unknown channel 'beta'/)
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+test('installer aborts on a sha256 mismatch and leaves any existing binary alone', async () => {
+    const harness = await createHarness()
+    try {
+        await mkdir(harness.installDir)
+        const installedMf = join(harness.installDir, 'mf')
+        await executable(installedMf, "#!/bin/sh\nprintf '9.9.8\\n'\n")
+
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env: { ...harness.env, MF_TEST_SHA256: 'f'.repeat(64) },
+            input: harness.installScript
+        })
+        assert.notEqual(result.status, 0)
+        assert.match(result.stderr, /sha256 mismatch/)
+        // The pre-existing binary must survive a failed install.
+        assert.match(
+            await readFile(installedMf, 'utf8'),
+            /printf '9\.9\.8/
+        )
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+test('installer errors when the channel has no build for this platform', async () => {
+    const harness = await createHarness()
+    try {
+        const env = { ...harness.env }
+        delete env.VERSION
+        env.MF_TEST_MANIFEST_JSON = manifestJson({ target: 'solaris-sparc' })
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env,
+            input: harness.installScript
+        })
+        assert.notEqual(result.status, 0)
+        assert.match(
+            result.stderr,
+            new RegExp(`no ${platformTarget()} build for 9\\.9\\.9`)
+        )
+    } finally {
+        await rm(harness.root, { recursive: true, force: true })
+    }
+})
+
+// The awk extractors depend on build-manifest.mjs's exact 2-space layout. Feed
+// them the REAL generator output so a formatting change on either side fails
+// here instead of in production.
+test('installer awk extractors read real build-manifest.mjs output', async () => {
+    const harness = await createHarness()
+    try {
+        const assetDir = join(harness.root, 'dist-bin')
+        await mkdir(assetDir)
+        for (const target of [
+            'darwin-arm64',
+            'darwin-x64',
+            'linux-arm64',
+            'linux-x64'
+        ])
+            await writeFile(join(assetDir, `mf-9.9.9-${target}.tar.gz`), target)
+        await writeFile(join(assetDir, 'mf-9.9.9-windows-x64.zip'), 'win')
+        const manifestPath = join(harness.root, 'manifest.json')
+        const generated = spawnSync(
+            process.execPath,
+            [
+                new URL('../scripts/build-manifest.mjs', import.meta.url)
+                    .pathname,
+                '--channel', 'stable',
+                '--version', '9.9.9',
+                '--commit', '923abd1a4f2c8e0b6d5f1a90c3e77b2d4f8a0e11',
+                '--tag', 'cli-v9.9.9',
+                '--dir', assetDir,
+                '--base', 'https://release.invalid/download/cli-v9.9.9',
+                '--out', manifestPath
+            ],
+            { encoding: 'utf8' }
+        )
+        assert.equal(generated.status, 0, generated.stderr)
+        const manifest = await readFile(manifestPath, 'utf8')
+        const expectedSha = JSON.parse(manifest).artifacts[platformTarget()]
+            .sha256
+
+        const env = { ...harness.env }
+        delete env.VERSION
+        env.MF_TEST_MANIFEST_JSON = manifest
+        env.MF_TEST_SHA256 = expectedSha
+        const result = spawnSync('sh', ['-s'], {
+            encoding: 'utf8',
+            env,
+            input: harness.installScript
+        })
+        assert.equal(result.status, 0, result.stderr)
+        assert.match(result.stdout, /cli=9\.9\.9/)
+        assert.match(
+            result.stdout,
+            new RegExp(`url=https://release\\.invalid/download/cli-v9\\.9\\.9/mf-9\\.9\\.9-${platformTarget()}\\.tar\\.gz`)
         )
     } finally {
         await rm(harness.root, { recursive: true, force: true })
@@ -288,4 +516,20 @@ test('installer environment examples assign variables to sh', async () => {
     for (const source of sources) {
         assert.doesNotMatch(await readFile(source, 'utf8'), invalidAssignment)
     }
+})
+
+// manyfold.ai/cli/install.sh is served straight out of the web app's public
+// dir, and neither Dockerfile has apps/cli in scope — so this cannot be a
+// build-time copy or a symlink. A committed duplicate plus this test is the
+// same pattern readme-drift and help-drift already use.
+test('the web-served installer is byte-identical to the canonical one', async () => {
+    assert.equal(
+        await readFile(installerUrl, 'utf8'),
+        await readFile(
+            new URL('../../web/public/cli/install.sh', import.meta.url),
+            'utf8'
+        ),
+        'apps/web/public/cli/install.sh is stale — run:\n' +
+            '  cp apps/cli/install.sh apps/web/public/cli/install.sh'
+    )
 })

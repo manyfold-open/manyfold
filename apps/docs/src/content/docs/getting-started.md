@@ -30,7 +30,7 @@ You can start with a coding agent such as Claude Code, Codex, or Gemini CLI, the
 For terminal access, install the CLI after signing in:
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh
+curl -fsSL https://manyfold.ai/cli/install.sh | sh
 mf login
 mf whoami
 ```

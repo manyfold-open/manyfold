@@ -11,7 +11,7 @@ order: 2
 ## macOS 和 Linux
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup
+curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup
 ```
 
 这条命令会安装 `mf`、完成登录、注册当前机器并启动 daemon。如果只想安装 CLI，不运行设置流程，请省略 `-s -- setup`。
@@ -27,7 +27,7 @@ export PATH="$HOME/.local/bin:$PATH"
 你也可以指定安装目录：
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
 ```
 
 如果安装到 `/usr/local/bin` 这类系统目录，可能需要 `sudo`。
@@ -38,16 +38,16 @@ curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/b
 
 ## 手动下载
 
-从这里下载 tarball 或 zip：
+每个版本的文件都挂在对应的 GitHub release 上：
 
 ```text
-https://cdn1.manyfold.ai/cli/v<version>/
+https://github.com/manyfold-open/manyfold/releases/tag/cli-v<version>
 ```
 
-最新版本号发布在：
+各通道当前指向哪个版本，发布在 manifest 里：
 
 ```text
-https://cdn1.manyfold.ai/cli/latest/version.txt
+https://github.com/manyfold-open/manyfold/releases/download/cli-channels/stable.json
 ```
 
 | 平台                | 文件                           |
@@ -58,7 +58,7 @@ https://cdn1.manyfold.ai/cli/latest/version.txt
 | macos-arm64 (Apple) | `mf-<ver>-darwin-arm64.tar.gz` |
 | windows-x64         | `mf-<ver>-windows-x64.zip`     |
 
-每个压缩包旁边都有对应的 `.sha256` 文件用于校验。
+每个压缩包旁边都有对应的 `.sha256` 文件用于校验，上面那份 manifest 也记录了每个文件相同的校验和。
 
 ## 登录
 
