@@ -3,10 +3,7 @@ title: Read conversations by API
 description: List and replay the conversations you created with the OpenAI-compatible v1 API.
 order: 6
 ---
-
-# Read conversations by API
-
-When you talk to an agent with [the Chat Completions API](../api-chat/), each turn returns a
+When you talk to an agent with [the Chat Completions API](/docs/api-chat/), each turn returns a
 `session_id` (as the `x-session-id` header and `metadata.session_id`). The read API lets you list
 those conversations again and replay their messages — useful for dashboards, audits, or resuming a
 thread in your own UI.
@@ -134,3 +131,8 @@ Errors use the same OpenAI-style shape as the Chat Completions API:
     }
 }
 ```
+
+## See also
+
+- [API Reference](/api-reference/)
+- [Chat with agents by API](/docs/api-chat/)

@@ -3,9 +3,6 @@ title: Matrix
 description: Connect a Matrix bot account to a Manyfold agent.
 order: 14
 ---
-
-# Matrix
-
 Connect Matrix when you want an agent in direct messages, rooms, or Matrix threads on a public or self-managed homeserver. Manyfold uses the bot account's Client-Server API access token and a long-running `/sync` connection; no public webhook is required.
 
 ## What the channel supports
@@ -60,7 +57,7 @@ Matrix IDs must be entered in their full form, such as `!room:example.org` and `
 - With **Auto-thread group replies** on, an accepted unthreaded room message becomes the root of a Matrix thread and the agent replies in that thread.
 - With thread isolation on, a non-threaded Matrix reply is scoped to the event it directly references; outbound replies preserve the native reply relation.
 - Without thread isolation, group sessions are per user unless **Share session in channel** is enabled.
-- Typed commands such as `/new`, `/list`, `/stop`, and `/history` bypass the mention gate. See [Session switching](../session-switching/).
+- Typed commands such as `/new`, `/list`, `/stop`, and `/history` bypass the mention gate. See [Session switching](/docs/channels/session-switching/).
 
 ## Message behavior
 
@@ -131,11 +128,11 @@ Run **Test**. A healthy result confirms `whoami` and that the channel status is 
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Lark and Feishu](../lark/)
-- [Discord](../discord/)
-- [Send from an agent](../agent-send/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Slack](/docs/channels/slack/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Discord](/docs/channels/discord/)
+- [Send from an agent](/docs/channels/agent-send/)
 - [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/)

@@ -3,14 +3,11 @@ title: Call agents over A2A
 description: Let an external client or SDK call a Manyfold agent through the A2A protocol.
 order: 6
 ---
-
-# Call agents over A2A
-
 Manyfold can publish an agent as an [A2A](https://a2a-protocol.org/) server, so any A2A client — an official SDK, another agent platform, or plain `curl` — can send it work and read the result.
 
-Use this when the caller speaks A2A. If you just want an HTTP chat endpoint, use the [OpenAI-compatible Chat API](../api-chat/) instead.
+Use this when the caller speaks A2A. If you just want an HTTP chat endpoint, use the [OpenAI-compatible Chat API](/docs/api-chat/) instead.
 
-## 1. Expose the agent
+## Step 1: Expose the agent
 
 Open the agent, go to the **A2A** tab, and turn on the exposure switch. Until it is on, every A2A request returns `404` — an unexposed agent is indistinguishable from one that does not exist.
 
@@ -30,7 +27,7 @@ GET  /api/a2a/agents/{agentId}/agent-card.json
 POST /api/a2a/agents/{agentId}/rpc
 ```
 
-## 2. Create a token for your client
+## Step 2: Create a token for your client
 
 Still on the **A2A** tab: **Add caller → External client**. Give it a name (for example `zapier-integration`), optionally an expiry in days, and copy the token — it is shown only once.
 
@@ -64,7 +61,7 @@ Use `mf a2a callers list` to inspect peer and External client grants, and
 exposure requires `a2a:read`; enabling, disabling, adding, and revoking
 requires `a2a:edit`.
 
-## 3. Connect an app without copy and paste
+## Step 3: Connect an app without copy and paste
 
 An app can use the device-code Connect flow to let a signed-in user choose one or more agents. The app never needs the user's Manyfold session or personal API token.
 
@@ -134,7 +131,7 @@ The full endpoint contract is:
 
 The Connect device code is not a Manyfold API bearer and cannot be exchanged through the CLI login flow. Users revoke the resulting tokens from each agent's A2A callers list; there is no app-wide disconnect endpoint yet.
 
-## 4. Fetch the Agent Card
+## Step 4: Fetch the Agent Card
 
 The card is public — no token needed — and reports the protocol version, transport, and skills:
 
@@ -154,7 +151,7 @@ resolver = A2ACardResolver(
 card = await resolver.get_agent_card()
 ```
 
-## 5. Send a message
+## Step 5: Send a message
 
 `message/send` runs one turn and returns the finished task:
 

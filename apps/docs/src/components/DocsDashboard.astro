@@ -1,0 +1,358 @@
+---
+import { getCollection } from 'astro:content'
+import {
+    entryHref,
+    filterDocsByLocale,
+    getUi,
+    groupKeyForTitle,
+    subgroupAnchorForTitle,
+    localePath,
+    type DocsNavNode,
+    type Locale
+} from '@/lib/i18n'
+import { dashboardCopyFor } from '@/lib/dashboard-copy'
+import { docsNavGroups } from '@/lib/docs-nav'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+
+interface Props {
+    locale: Locale
+}
+
+const { locale } = Astro.props
+const copy = dashboardCopyFor(locale)
+const ui = getUi(locale)
+const entries = filterDocsByLocale(await getCollection('docs'), locale)
+const { grouped, remaining } = docsNavGroups(entries, locale)
+
+// The page index reads the sidebar's own tree rather than a second hand-written
+// list, so it cannot drift from the nav. A group node is one of three things: a
+// page, a nested tier of pages, or a build artifact that is not a page at all.
+// The index below flattens the first two. Nothing reads the third any more: the
+// machine-readable block was the only consumer and it is gone.
+type IndexRow =
+    | { kind: 'label'; title: string; anchor?: string }
+    | { kind: 'link'; title: string; href: string; sub: boolean }
+
+const indexRows = (nodes: DocsNavNode[]): IndexRow[] =>
+    nodes.flatMap((node): IndexRow[] => {
+        if (node.kind === 'entry') {
+            return [
+                {
+                    kind: 'link',
+                    title: node.entry.data.title,
+                    href: entryHref(node.entry, locale),
+                    sub: false
+                }
+            ]
+        }
+        if (node.kind === 'page') {
+            // The Overview row is this page. The rail carries it because a
+            // reader needs a way back; an index of the tree listing itself is
+            // just a link to where you already are.
+            if (node.href === localePath(locale, '/docs/')) return []
+            return [
+                {
+                    kind: 'link',
+                    title: node.title,
+                    href: node.href,
+                    sub: node.nested
+                }
+            ]
+        }
+        if (node.kind === 'subgroup') {
+            return [
+                {
+                    kind: 'label',
+                    title: node.title,
+                    // Where a page's breadcrumb sends a reader who clicks the
+                    // tier between the section and the page.
+                    anchor: subgroupAnchorForTitle(node.title, locale)
+                },
+                ...node.entries.map((entry): IndexRow => ({
+                    kind: 'link',
+                    title: entry.data.title,
+                    href: entryHref(entry, locale),
+                    sub: true
+                }))
+            ]
+        }
+        return []
+    })
+
+// Same fallback the sidebar and llms.txt use: a page in no group is still a
+// page, and "Everything, by group" has to mean everything.
+const indexGroups = [
+    ...grouped.map((group) => ({
+        title: group.title,
+        // Where a page's breadcrumb sends a reader who clicks its group.
+        anchor: groupKeyForTitle(group.title, locale),
+        description: group.description,
+        rows: indexRows(group.nodes)
+    })),
+    ...(remaining.length > 0
+        ? [
+              {
+                  title: ui.more,
+                  anchor: undefined,
+                  description: '',
+                  rows: remaining.map((entry): IndexRow => ({
+                      kind: 'link',
+                      title: entry.data.title,
+                      href: entryHref(entry, locale),
+                      sub: false
+                  }))
+              }
+          ]
+        : [])
+].filter((group) => group.rows.length > 0)
+
+
+// A concrete twin rather than a placeholder: the convention is only checkable
+// if the reader can click one.
+---
+
+<!--
+    Two columns, matching the article layout. The dashboard was the one docs
+    URL with no sidebar: replicate.com/docs carries its whole tree there, and
+    a landing page that cannot show what the documentation contains is doing
+    half its job. No third column, because there is no on-this-page rail here.
+-->
+<section
+    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+>
+    <DocsSidebar entries={entries} locale={locale} />
+
+    <!--
+        min-w-0 only, matching DocArticle's <article>. .docs-page-section adds
+        py-7/md:py-9 on top of the grid's own py-6/md:py-8, which the sidebar
+        column does not get, so the content started 36px below the first
+        sidebar row. Measured, not guessed: aside top 97, first group row 97,
+        kicker 133.
+    -->
+    <div class="min-w-0">
+        <header class="docs-page-header">
+            <p class="docs-kicker">{ui.brandShort}</p>
+            <h1 class="mt-3 text-h1" id="page-title">
+                {copy.heading}
+            </h1>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.deck}</p>
+            <div class="mt-5 flex flex-wrap gap-2">
+                <a
+                    href={localePath(locale, '/docs/getting-started/')}
+                    class="docs-button-primary"
+                >
+                    {copy.ctaPrimary}
+                </a>
+                <a
+                    href={localePath(locale, '/docs/create-agent/')}
+                    class="docs-button-secondary"
+                >
+                    {copy.ctaSecondary}
+                </a>
+            </div>
+        </header>
+
+        <!-- 1. The runtime decision, above everything else -->
+        <div class="mt-12">
+            <h2 id="runtimes" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#runtimes" aria-label={ui.headingLink}></a>
+                {copy.runtimeHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.runtimeIntro}</p>
+            <div class="mt-4 grid gap-3 md:grid-cols-3">
+                {
+                    copy.runtimes.map((card, index) => (
+                        <article
+                            class:list={[
+                                'docs-panel p-4 md:p-5',
+                                index === 0 && 'dash-default'
+                            ]}
+                        >
+                            <span
+                                class:list={[
+                                    'docs-pill',
+                                    index === 0 && 'dash-badge'
+                                ]}
+                            >
+                                {card.badge}
+                            </span>
+                            <h3 class="text-h3 mt-3">{card.title}</h3>
+                            <p class="text-ui text-muted mt-1.5">{card.body}</p>
+                            <p class="text-ui text-fg mt-3 font-medium">
+                                {card.pick}
+                            </p>
+                        </article>
+                    ))
+                }
+            </div>
+            <p class="mt-3">
+                <a
+                    href={localePath(locale, '/docs/create-agent/')}
+                    class="dash-more text-ui font-medium"
+                >
+                    {copy.runtimeMore} <span aria-hidden="true">&#8594;</span>
+                </a>
+            </p>
+        </div>
+
+        <!-- 2. The first run, in order -->
+        <div class="mt-12">
+            <h2 id="steps" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#steps" aria-label={ui.headingLink}></a>
+                {copy.stepsHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.stepsIntro}</p>
+            <ol class="docs-steps mt-4 max-w-2xl">
+                {
+                    copy.steps.map((step) => (
+                        <li>
+                            <a
+                                href={localePath(locale, step.href)}
+                                class="dash-more text-ui font-medium"
+                            >
+                                {step.title}
+                            </a>
+                            <p class="text-ui text-muted mt-0.5">{step.body}</p>
+                        </li>
+                    ))
+                }
+            </ol>
+        </div>
+
+        <!-- 3. The full tree -->
+        <div class="mt-12">
+            <h2 id="everything" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#everything" aria-label={ui.headingLink}></a>
+                {copy.indexHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.indexIntro}</p>
+            {/* Flowed columns, not a grid. Four sections whose depths are 3,
+                14, 14 and 9 rows: in a grid the short block is stretched to
+                its row's height, which put a screen of empty space under
+                Start. Multi-column lets each block end where it ends and the
+                next one start there. */}
+            <div class="mt-5 gap-x-10 lg:columns-2">
+                {
+                    indexGroups.map((group) => (
+                        <div class="min-w-0 break-inside-avoid pb-8">
+                            <p class="docs-kicker" id={group.anchor}>
+                                {group.title}
+                            </p>
+                            {group.description && (
+                                <p class="text-ui text-muted mt-1.5">
+                                    {group.description}
+                                </p>
+                            )}
+                            <ul class="dash-index mt-2.5">
+                                {group.rows.map((row) =>
+                                    row.kind === 'label' ? (
+                                        <li
+                                            class="dash-index-label"
+                                            id={row.anchor}
+                                        >
+                                            {row.title}
+                                        </li>
+                                    ) : (
+                                        <li>
+                                            <a
+                                                href={row.href}
+                                                class:list={[
+                                                    'dash-index-link',
+                                                    row.sub && 'dash-index-sub'
+                                                ]}
+                                            >
+                                                {row.title}
+                                            </a>
+                                        </li>
+                                    )
+                                )}
+                            </ul>
+                        </div>
+                    ))
+                }
+            </div>
+        </div>
+
+        {/* The machine-readable block was removed from this page on request:
+            /llms.txt, /llms-full.txt, /changelog/feed.xml and the .md twins
+            are no longer advertised here.
+
+            Discoverability was checked before removing it rather than after.
+            /llms.txt keeps 99 other links, one per page, from the sr-only
+            Documentation Index blockquote, and /llms-full.txt is listed inside
+            /llms.txt itself, which is the convention an agent follows. The feed
+            was the one real loss: this block was its only link anywhere, and the
+            changelog page carried no reference to its own feed, so BaseLayout
+            declares it for autodiscovery now, which is invisible and is how a
+            feed is meant to be found.
+
+            The copy stays in dashboard-copy.ts on purpose. This work lives as
+            regenerated patches rather than commits, so deleting the authored zh
+            strings would lose them outright. machineNoteFor is now an unused
+            export and the nav data's file variant now has no consumer; both are
+            in the handoff rather than cleaned up here. */}
+</div>
+</section>
+
+<style>
+    /* Scoped rather than global.css: this is one page's worth of rules and
+       nothing else on the site renders a runtime option grid. Every value is
+       a design token; no new colour, radius, shadow or type step. */
+
+    /* The default choice is one elevation step above its two siblings, which
+       is the whole "recommended" signal. No badge colour on the card itself,
+       no border, same fill. */
+    .dash-default {
+        box-shadow: var(--shadow-elevated);
+    }
+
+    /* The one tinted pill on the page, on the LED/info hue the rest of the
+       docs already uses for an active state. */
+    .dash-badge {
+        background: var(--color-info-bg);
+        color: var(--color-info-strong);
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .dash-more {
+        color: var(--color-link);
+        text-decoration: none;
+    }
+
+    .dash-more:hover {
+        color: var(--color-link-hover);
+        text-decoration: underline;
+    }
+
+    .dash-index {
+        list-style: none;
+        padding-left: 0;
+        margin: 0;
+    }
+
+    .dash-index-link {
+        display: block;
+        padding: 0.1875rem 0;
+        font-size: var(--text-ui);
+        line-height: var(--text-ui--line-height);
+        color: var(--color-muted);
+        text-decoration: none;
+    }
+
+    .dash-index-link:hover {
+        color: var(--color-fg);
+    }
+
+    /* Nested tier, matching the sidebar's one level of indent. */
+    .dash-index-sub {
+        padding-left: 0.75rem;
+        box-shadow: inset 1px 0 0 0 var(--color-divider);
+    }
+
+    .dash-index-label {
+        margin-top: 0.5rem;
+        font-size: var(--text-caption);
+        line-height: var(--text-caption--line-height);
+        color: var(--color-subtle);
+    }
+</style>

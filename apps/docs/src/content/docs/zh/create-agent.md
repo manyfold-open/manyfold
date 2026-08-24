@@ -3,15 +3,12 @@ title: 创建第一个 Agent
 description: 为新 Agent 选择框架、运行模式、模型提供方和工作区。
 order: 3
 ---
-
-# 创建第一个 Agent
-
 一个 Agent 由托管工作区和 AI 运行环境组成。它会把聊天、文件、终端、模型设置和渠道连接放在同一个位置管理。
 
 ## 开始前
 
-- 登录 Manyfold。
-- 在 [模型提供方](../model-providers/) 中添加模型提供方，或确认你的工作区已有托管模型额度。
+- 登录 Manyfold。如果你是第一次使用 Manyfold，请先阅读[快速开始](/zh/docs/getting-started/)。
+- 在 [模型提供方](/zh/docs/model-providers/) 中添加模型提供方，或确认你的工作区已有托管模型额度。
 - 想清楚这个 Agent 要处理哪类工作。
 
 ## 选择框架
@@ -65,8 +62,10 @@ Review the authentication flow and propose the smallest safe fix for the failing
 - 聊天线程会成为 Agent 的工作会话。
 - 文件和终端访问会附着在同一个工作区。
 - 你可以关闭浏览器，之后再回来继续。
-- Agent 在网页工作区表现稳定后，可以把它接入团队渠道。
+- Agent 在网页工作区表现稳定后，可以把它[接入团队渠道](/zh/docs/channels/)。
 
 ## 删除或替换 Agent
 
-打开 **Settings -> Agents**，选择 Agent，并使用对应的运行环境或 Agent 控制项。删除 Agent 会停止它的新工作；对于不能丢失的文件，请保留自己的备份。
+打开 **Settings -> Agents**，选择 Agent，并使用对应的运行环境或 Agent 控制项。
+
+> **警告：** 删除 Agent 会停止它的新工作；对于不能丢失的文件，请保留自己的备份。

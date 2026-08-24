@@ -1,8 +1,13 @@
 ---
-import { codeToHtml } from 'shiki'
+import { getCollection } from 'astro:content'
 import BaseLayout from '@/layouts/BaseLayout.astro'
-import { apiReferenceFor } from '@/lib/api-reference'
-import { localePath, type Locale } from '@/lib/i18n'
+import { codeToHtml } from 'shiki'
+import {
+    apiReferenceFor,
+    endpointPath,
+    methodClass
+} from '@/lib/api-reference'
+import { getUi, localePath, type Locale } from '@/lib/i18n'
 
 interface Props {
     locale?: Locale
@@ -10,10 +15,14 @@ interface Props {
 
 const { locale = 'en' } = Astro.props
 const reference = apiReferenceFor(locale)
-const methodClass = (method: string) =>
-    method === 'POST'
-        ? 'bg-info-bg text-info-strong'
-        : 'bg-success-bg text-success-strong'
+const ui = getUi(locale)
+// The same three sections the deleted rail listed, in the same order.
+const sections = [
+    { id: 'quick-start', label: reference.quickStartTitle },
+    { id: 'endpoints', label: reference.endpointsTitle },
+    { id: 'errors', label: reference.errorsTitle }
+]
+
 const badge =
     'shrink-0 rounded-xs px-2 py-0.5 font-mono text-caption font-medium'
 
@@ -41,230 +50,207 @@ const hl = {
     messagesRequest: await highlight(ex.messagesRequest, 'bash'),
     errorResponse: await highlight(ex.errorResponse, 'json')
 }
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
+import { filterDocsByLocale } from '@/lib/i18n'
+
+const docsEntries = filterDocsByLocale(await getCollection('docs'), locale)
+
+// The generated card, one route over. English only: Geist ships no CJK, so a
+// Chinese card renders every Chinese character as a tofu box, verified by
+// rendering one. The Chinese pages keep the shared static art.
+const ogImage =
+    locale === 'en'
+        ? new URL('/api-reference.png', Astro.site).toString()
+        : undefined
+
+// This surface has a markdown twin now, so the Copy page control has a
+// real endpoint to fetch rather than serialising the rendered page.
+const mdHref = localePath(locale, '/api-reference.md')
+const pageUrl = new URL(localePath(locale, '/api-reference'), Astro.site).toString()
 ---
 
 <BaseLayout
     title={reference.title}
     description={reference.description}
     locale={locale}
+    ogImage={ogImage}
 >
-    <section class="docs-container docs-page-section" data-copy-scope>
-        <header class="docs-page-header">
-            <p class="docs-kicker">{reference.eyebrow}</p>
-            <h1 class="mt-3 text-h1">{reference.title}</h1>
-            <p class="docs-copy mt-2 max-w-2xl">{reference.description}</p>
-            <div class="mt-5 flex flex-wrap gap-2">
-                <a href="#endpoints" class="docs-button-primary">
-                    {reference.endpointsTitle}
-                </a>
-                <a
-                    href={localePath(locale, '/docs/api-chat/')}
-                    class="docs-button-secondary"
-                >
-                    {reference.guideLinkLabel}
-                </a>
-            </div>
-        </header>
+    <!--
+    Two columns, the same shape as the docs pages and the dashboard. Neither of
+    these surfaces had a sidebar, so from either one there was no way back into
+    the documentation tree except the top menu.
+-->
+<section
+    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+>
+    {/* One sidebar, the documentation tree, with the reference and its
+        endpoints as rows in the API group. This surface used to swap in a rail
+        of its own, so walking into the reference replaced the whole tree and
+        walking out replaced it back. */}
+    <DocsSidebar entries={docsEntries} locale={locale} />
 
-        <!-- Quick start -->
-        <div class="mt-10 grid gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+    <div class="min-w-0" data-copy-scope>
+            <header class="docs-page-header flex items-start justify-between gap-6">
             <div class="min-w-0">
-                <h2 class="text-h2">{reference.quickStartTitle}</h2>
-                <p class="mt-2 max-w-2xl text-ui text-muted">
-                    {reference.quickStartLead}
-                </p>
+                <p class="docs-kicker">{reference.eyebrow}</p>
+                <h1 class="mt-3 text-h1" id="page-title">
+                    {reference.title}
+                </h1>
+                <p class="docs-copy mt-2 max-w-2xl">{reference.description}</p>
+                <div class="mt-5 flex flex-wrap gap-2">
+                    <a href="#endpoints" class="docs-button-primary">
+                        {reference.endpointsTitle}
+                    </a>
+                    <a
+                        href={localePath(locale, '/docs/api-chat/')}
+                        class="docs-button-secondary"
+                    >
+                        {reference.guideLinkLabel}
+                    </a>
+                </div>
+            </div>
+            <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+            </header>
 
-                <dl class="mt-4 grid gap-2.5 sm:grid-cols-2">
-                    <div class="docs-cell sm:col-span-2">
-                        <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
-                            {reference.baseUrlLabel}
-                        </dt>
-                        <dd class="mt-1 break-all font-mono text-ui text-fg">
-                            https://api.manyfold.ai/api/v1
-                        </dd>
-                    </div>
-                    <div class="docs-cell">
-                        <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
-                            {reference.authLabel}
-                        </dt>
-                        <dd class="mt-1 break-all font-mono text-ui text-fg">
-                            Authorization: Bearer
-                        </dd>
-                    </div>
-                    <div class="docs-cell">
-                        <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
-                            {reference.scopeLabel}
-                        </dt>
-                        <dd class="mt-1 break-all font-mono text-ui text-fg">
-                            chat.completions
-                        </dd>
-                    </div>
-                </dl>
-
-                <ol class="docs-steps mt-5">
+            {/* The three sections used to be rows in this surface's own
+                sidebar, which the documentation tree replaced. They come back
+                in the content flow rather than as a third column: it is the
+                same inline table of contents the guides use, it needs no
+                layout change, and unlike the rail it is in the page body where
+                an extractor reads it. */}
+            <nav class="docs-inline-toc mt-8" aria-label={ui.tableOfContents}>
+                <p class="docs-inline-toc-title">{ui.tableOfContents}</p>
+                <ul>
                     {
-                        reference.quickStartSteps.map((step) => (
-                            <li class="text-ui text-fg">{step}</li>
+                        sections.map((section) => (
+                            <li>
+                                <a href={`#${section.id}`}>{section.label}</a>
+                            </li>
                         ))
                     }
-                </ol>
+                </ul>
+            </nav>
+
+            <!-- Quick start -->
+            <div class="mt-10 grid gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+                <div class="min-w-0">
+                    <h2 id="quick-start" class="scroll-mt-24 text-h2">
+                        <a class="docs-heading-anchor" href="#quick-start" aria-label={ui.headingLink}></a>
+                        {reference.quickStartTitle}
+                    </h2>
+                    <p class="mt-2 max-w-2xl text-ui text-muted">
+                        {reference.quickStartLead}
+                    </p>
+
+                    <dl class="mt-4 grid gap-2.5 sm:grid-cols-2">
+                        <div class="docs-cell sm:col-span-2">
+                            <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
+                                {reference.baseUrlLabel}
+                            </dt>
+                            <dd class="mt-1 break-all font-mono text-ui text-fg">
+                                https://api.manyfold.ai/api/v1
+                            </dd>
+                        </div>
+                        <div class="docs-cell">
+                            <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
+                                {reference.authLabel}
+                            </dt>
+                            <dd class="mt-1 break-all font-mono text-ui text-fg">
+                                Authorization: Bearer
+                            </dd>
+                        </div>
+                        <div class="docs-cell">
+                            <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
+                                {reference.scopeLabel}
+                            </dt>
+                            <dd class="mt-1 break-all font-mono text-ui text-fg">
+                                chat.completions
+                            </dd>
+                        </div>
+                    </dl>
+
+                    <ol class="docs-steps mt-5">
+                        {
+                            reference.quickStartSteps.map((step) => (
+                                <li class="text-ui text-fg">{step}</li>
+                            ))
+                        }
+                    </ol>
+                </div>
+
+                <aside class="docs-block self-start">
+                    <h2 class="text-h3">{reference.tokensTitle}</h2>
+                    <p class="mt-2 text-ui text-muted">{reference.tokensLead}</p>
+                </aside>
             </div>
 
-            <aside class="docs-block self-start">
-                <h2 class="text-h3">{reference.tokensTitle}</h2>
-                <p class="mt-2 text-ui text-muted">{reference.tokensLead}</p>
-            </aside>
-        </div>
+            <!-- Endpoints overview -->
+            <div class="mt-12">
+                <h2 id="endpoints" class="scroll-mt-24 text-h2">
+                    <a class="docs-heading-anchor" href="#endpoints" aria-label={ui.headingLink}></a>
+                    {reference.endpointsTitle}
+                </h2>
+                <p class="mt-2 max-w-2xl text-ui text-muted">{reference.endpointsLead}</p>
+            </div>
 
-        <!-- Endpoints overview -->
-        <div id="endpoints" class="mt-12 scroll-mt-24">
-            <h2 class="text-h2">{reference.endpointsTitle}</h2>
-            <p class="mt-2 max-w-2xl text-ui text-muted">{reference.endpointsLead}</p>
-            <div class="mt-4 space-y-2">
+            <!-- Endpoint detail -->
+            {/* Summary cards, not the full endpoint bodies. Each endpoint has
+                its own page now, so repeating parameters and examples here
+                would give two URLs the same content. The card keeps the id the
+                single-page version published, so a link to
+                /api-reference#chat-completions still lands on the right row
+                and one click reaches the detail. Anchors cannot be redirected
+                server side, which is why the id has to survive here. */}
+            <div class="mt-6 space-y-3">
                 {
                     reference.endpoints.map((endpoint) => (
-                        <a href={`#${endpoint.id}`} class="docs-row">
-                            <span class:list={[badge, methodClass(endpoint.method)]}>
-                                {endpoint.method}
-                            </span>
-                            <span class="min-w-0">
+                        <a
+                            id={endpoint.id}
+                            href={endpointPath(locale, endpoint.id)}
+                            class="docs-block scroll-mt-24 block no-underline hover:no-underline"
+                        >
+                            <div class="flex flex-wrap items-center gap-2">
+                                <span class:list={[badge, methodClass(endpoint.method)]}>
+                                    {endpoint.method}
+                                </span>
                                 <code class="font-mono text-ui text-fg">
                                     {endpoint.path}
                                 </code>
-                                <span class="text-ui text-muted mt-0.5 block">
-                                    {endpoint.description}
-                                </span>
-                            </span>
+                            </div>
+                            <p class="text-fg mt-2 font-medium">{endpoint.title}</p>
+                            <p class="mt-1 max-w-2xl text-ui text-muted">
+                                {endpoint.description}
+                            </p>
                         </a>
                     ))
                 }
             </div>
-        </div>
 
-        <!-- Endpoint detail -->
-        <div class="mt-6 space-y-4">
-            {
-                reference.endpoints.map((endpoint) => (
-                    <section id={endpoint.id} class="docs-block scroll-mt-24">
-                        <div class="flex flex-wrap items-center gap-2">
-                            <span class:list={[badge, methodClass(endpoint.method)]}>
-                                {endpoint.method}
-                            </span>
-                            <code class="font-mono text-ui text-fg">
-                                {endpoint.path}
-                            </code>
-                        </div>
-                        <h3 class="mt-3 text-h3">{endpoint.title}</h3>
-                        <p class="mt-1 max-w-2xl text-ui text-muted">
-                            {endpoint.description}
-                        </p>
+                {/* The request and response examples moved to the endpoint
+                    pages they belong to. Keeping them here as well would have
+                    put the same curl command on two URLs, which is the thing
+                    splitting the reference was meant to stop. The error shape
+                    below stays, because it is shared by every endpoint. */}
 
-                        <h4 class="text-subtle mt-5 text-caption font-medium uppercase tracking-[0.06em]">
-                            {reference.paramsTitle}
-                        </h4>
-                        <div class="mt-2 overflow-x-auto">
-                            <table class="w-full border-collapse text-ui">
-                                <thead>
-                                    <tr class="border-divider border-b text-left">
-                                        <th class="py-2 pr-3 font-medium">
-                                            {reference.requestTitle}
-                                        </th>
-                                        <th class="py-2 pr-3 font-medium">
-                                            {reference.requiredLabel}
-                                        </th>
-                                        <th class="py-2 font-medium">
-                                            {reference.descriptionLabel}
-                                        </th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {endpoint.params.map((param) => (
-                                        <tr class="border-divider border-b align-top last:border-b-0">
-                                            <td class="py-2 pr-3 font-mono text-fg">
-                                                {param.name}
-                                            </td>
-                                            <td class="py-2 pr-3 text-muted">
-                                                {param.required
-                                                    ? reference.requiredLabel
-                                                    : reference.optionalLabel}
-                                            </td>
-                                            <td class="py-2 text-muted">
-                                                {param.description}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-
-                        <h4 class="text-subtle mt-5 text-caption font-medium uppercase tracking-[0.06em]">
-                            {reference.responseTitle}
-                        </h4>
-                        <ul class="mt-2 space-y-1.5 text-ui text-muted">
-                            {endpoint.response.map((item) => (
-                                <li class="flex gap-2">
-                                    <span
-                                        class="bg-link mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                                        aria-hidden="true"
-                                    />
-                                    <span>{item}</span>
-                                </li>
-                            ))}
-                        </ul>
-
-                        <div class="docs-meta border-divider mt-5 border-t pt-3">
-                            <div>
-                                <b>{reference.authTitle}:</b> {endpoint.auth}
-                            </div>
-                            <div>
-                                <b>{reference.quotaTitle}:</b> {endpoint.quota}
-                            </div>
-                        </div>
-                    </section>
-                ))
-            }
-        </div>
-
-        <!-- Examples -->
-        <div class="mt-12">
-            <h2 class="text-h2">{reference.examplesTitle}</h2>
-            <div class="mt-4 grid gap-x-8 gap-y-5 lg:grid-cols-2">
-                <article class="min-w-0">
-                    <h3 class="text-h3">{reference.chatExampleTitle}</h3>
-                    <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="bash"><code set:html={hl.chatRequest} /></pre>
-                </article>
-                <article class="min-w-0">
-                    <h3 class="text-h3">{reference.responseTitle}</h3>
-                    <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="json"><code set:html={hl.chatResponse} /></pre>
-                </article>
-                <article class="min-w-0">
-                    <h3 class="text-h3">{reference.streamingTitle}</h3>
-                    <p class="mt-2 text-ui text-muted">{reference.streamingLead}</p>
-                    <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="bash"><code set:html={hl.streamRequest} /></pre>
-                </article>
-                <article class="min-w-0">
-                    <h3 class="text-h3">{reference.conversationsExampleTitle}</h3>
-                    <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="bash"><code set:html={hl.conversationsRequest} /></pre>
-                    <h3 class="mt-5 text-h3">{reference.messagesExampleTitle}</h3>
-                    <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="bash"><code set:html={hl.messagesRequest} /></pre>
-                </article>
+                <div class="mt-12 max-w-2xl">
+                    <h2 id="errors" class="scroll-mt-24 text-h2">
+                        <a class="docs-heading-anchor" href="#errors" aria-label={ui.headingLink}></a>
+                        {reference.errorsTitle}
+                    </h2>
+                    <p class="mt-2 text-ui text-muted">{reference.errorsLead}</p>
+                    <pre class="docs-pre" data-language="json"><code set:html={hl.errorResponse} /></pre>
+                    <p class="mt-4 text-ui text-muted">
+                        <a href={localePath(locale, '/docs/api-chat/')}>
+                            {reference.guideLinkLabel}
+                        </a>
+                        {' · '}
+                        <a href={localePath(locale, '/docs/api-conversations/')}>
+                            {reference.conversationsGuideLinkLabel}
+                        </a>
+                    </p>
+                </div>
             </div>
-        </div>
-
-        <!-- Errors -->
-        <div class="mt-12 max-w-2xl">
-            <h2 class="text-h2">{reference.errorsTitle}</h2>
-            <p class="mt-2 text-ui text-muted">{reference.errorsLead}</p>
-            <pre class="overflow-x-auto bg-surface-subtle px-4 py-3.5 font-mono text-ui leading-[1.7]" data-language="json"><code set:html={hl.errorResponse} /></pre>
-            <p class="mt-4 text-ui text-muted">
-                <a href={localePath(locale, '/docs/api-chat/')}>
-                    {reference.guideLinkLabel}
-                </a>
-                {' · '}
-                <a href={localePath(locale, '/docs/api-conversations/')}>
-                    {reference.conversationsGuideLinkLabel}
-                </a>
-            </p>
-        </div>
-    </section>
+    </div>
+</section>
 </BaseLayout>

@@ -1,0 +1,22 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import DocsDashboard from '@/components/DocsDashboard.astro'
+import { dashboardCopyFor } from '@/lib/dashboard-copy'
+import { nonDefaultLocales, type Locale } from '@/lib/i18n'
+
+// Localized twin of src/pages/docs/index.astro, paired the same way the
+// [locale] guide, changelog and api-reference routes are.
+export function getStaticPaths() {
+    return nonDefaultLocales.map((locale) => ({
+        params: { locale },
+        props: { locale }
+    }))
+}
+
+const { locale } = Astro.props as { locale: Locale }
+const copy = dashboardCopyFor(locale)
+---
+
+<BaseLayout title={copy.title} description={copy.description} locale={locale}>
+    <DocsDashboard locale={locale} />
+</BaseLayout>

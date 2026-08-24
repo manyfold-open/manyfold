@@ -3,9 +3,6 @@ title: Linear
 description: 把 Manyfold Agent 安装成 Linear 工作区成员。
 order: 16
 ---
-
-# Linear
-
 当你希望 Agent 直接在需求跟踪的地方接活时，可以连接 Linear。Agent 会成为工作区成员，可以被 @mention，也可以把 issue 委派（delegate）给它；工作进展直接展示在 Linear 的 agent session 上，而不是堆在评论里。
 
 Linear 的 agent API 处于 developer preview 阶段，Linear 侧的细节仍可能变化。
@@ -34,7 +31,7 @@ Linear 的 agent API 处于 developer preview 阶段，Linear 侧的细节仍可
 3. 如果希望由 Manyfold 自己铸取 access token，打开 **client credentials**；否则自行铸一个 app token，留到下面第 3 步用。
 4. 复制 **client ID**、**client secret** 和 **webhook signing secret**。
 
-## 在 Manyfold 中接入
+## 连接到 Manyfold
 
 1. 进入 **Settings → Channels → New channel**，选择 **Linear**。
 2. 选好 Agent，填入 client ID、client secret 和 webhook signing secret。如果要用自己铸的 token，就把它填进 **Access token**（不填 client 对）——signing secret 仍然必填。
@@ -74,3 +71,9 @@ Linear 的 agent API 处于 developer preview 阶段，Linear 侧的细节仍可
 - Agent activity 只有文本，因此不支持双向文件。
 - 进展不是逐 token 流式的：Linear 没有消息编辑 API。
 - 从 Linear 侧禁用 `/model` 这类 agent 级命令。
+
+## 另请参阅
+
+- [连接渠道](/zh/docs/channels/)
+- [GitHub](/zh/docs/channels/github/)
+- [创建第一个 Agent](/zh/docs/create-agent/)

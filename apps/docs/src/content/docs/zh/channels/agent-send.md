@@ -3,9 +3,6 @@ title: 从 Agent 主动发送
 description: 让 Agent 通过已绑定渠道主动发送消息和显式 workspace 文件。
 order: 18
 ---
-
-# 从 Agent 主动发送
-
 Agent 可以用 `mf channels send` 主动发起私聊、向群聊发消息，或原生回复某条 provider 消息，无需等待新的 inbound turn。对方的回复仍通过普通 Channel 流程进入 Agent；开启 **Send message context** 时，回复会带有 `[Channel message context]`，因此 Agent 可以关联 sender、chat、message、reply 和 thread ID。
 
 ## Provider 支持
@@ -81,9 +78,9 @@ mf channels send <channelId> --chat-id <provider_chat_id> --text "本周数据" 
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [Lark 和飞书](../lark/)
-- [Telegram](../telegram/)
-- [WeChat](../weixin/)
-- [Matrix](../matrix/)
-- [切换会话](../session-switching/)
+- [连接渠道](/zh/docs/channels/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [WeChat](/zh/docs/channels/weixin/)
+- [Matrix](/zh/docs/channels/matrix/)
+- [切换会话](/zh/docs/channels/session-switching/)

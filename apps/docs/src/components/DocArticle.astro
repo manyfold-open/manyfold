@@ -1,11 +1,15 @@
 ---
 import { render } from 'astro:content'
 import type { CollectionEntry } from 'astro:content'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
 import {
     entryHref,
+    groupKeyForTitle,
+    groupTitleFor,
+    subgroupFor,
     entrySlug,
     getUi,
-    groupDocs,
     localePath,
     type Locale
 } from '@/lib/i18n'
@@ -19,10 +23,9 @@ interface Props {
 const { entry, entries, locale } = Astro.props
 const { Content, headings } = await render(entry)
 const copy = getUi(locale)
-const { grouped, remaining } = groupDocs(entries, locale)
-
 const activeSlug = entrySlug(entry)
-const docsHome = localePath(locale, '/docs/getting-started/')
+// The docs home is the dashboard at /docs/ now, not the first article.
+const docsHome = localePath(locale, '/docs/')
 const flatIndex = entries.findIndex((item) => entrySlug(item) === activeSlug)
 const prev = flatIndex > 0 ? entries[flatIndex - 1] : null
 const next =
@@ -32,58 +35,85 @@ const next =
 
 const toc = headings.filter((h) => h.depth === 2 || h.depth === 3)
 
-const navGroups = [
-    ...grouped.map((group) => ({ title: group.title, entries: group.entries })),
-    ...(remaining.length > 0
-        ? [{ title: copy.more, entries: remaining }]
-        : [])
-]
+// Wave 2a header block. See docs-ui-redesign-benchmark.md sections 3.3, 3.4
+// and 4/2a. Three things the page did not have before:
+//
+//   deck     the description field, rendered as visible muted text under the
+//            H1. It was in <meta> only, so the answer-first sentence existed
+//            for the SERP snippet and not for the reader or for an extractor
+//            reading the page body. One string, three jobs, and it cannot
+//            drift because all three read the same frontmatter field.
+//   actions  Copy page, plus the .md twin and the two LLM hand-offs
+//
+// The H1 moves here too, from the markdown body, so the frontmatter title is
+// the single source for the title, the breadcrumb, the sidebar and <meta>.
+//
+// The group used to render again as an eyebrow above the H1. The breadcrumb
+// above says the same word one line higher, so the eyebrow was removed rather
+// than kept as a second copy. The generated OG card still carries it: a card
+// has no breadcrumb, so there it is the only signal of which part of the docs
+// a shared link came from, and it reads the group from groupTitleFor() itself
+// rather than from here.
+const group = groupTitleFor(entry, locale)
+// Still resolved here even though the visible crumb no longer links it: the
+// BreadcrumbList needs the same anchor, and computing it once means the trail
+// a reader reads and the trail a crawler parses cannot name different groups.
+const groupAnchor = group && groupKeyForTitle(group, locale)
+const subgroup = subgroupFor(entry, locale)
+const mdHref = `${entryHref(entry, locale).replace(/\/$/, '')}.md`
+const pageUrl = new URL(entryHref(entry, locale), Astro.site).toString()
+
+// Inline table of contents, in the content flow. See
+// docs-ui-redesign-benchmark.md 3.2, which ranks this second overall.
+//
+// The right rail is chrome: a text extractor either strips it or appends it
+// after the body, so the section list arrives late or not at all. An inline
+// <nav> is part of the first screen of extracted text, which for a page like
+// channels/slack means the setup sequence itself is one of the first things
+// an answer engine reads. The rail stays; this is an addition, not a move.
+//
+// The benchmark's trigger was "every page whose H2s are `Step N:` shaped".
+// No page in this repo uses that shape, so the trigger here is section count
+// instead. 6 was chosen from the real distribution: 32 of 33 pages have 4 or
+// more H2s, so a lower bar would put a TOC on essentially every page and the
+// signal would be worth nothing, while 6 covers the 26 pages long enough that
+// the section list is genuinely an answer rather than decoration.
+const INLINE_TOC_MIN_SECTIONS = 6
+const inlineToc = headings.filter((h) => h.depth === 2)
+const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
+
+// Collapse is presentational only, at both tiers. Every link stays in the DOM
+// at every open/closed state, because the sidebar is also the internal-linking
+// surface a crawler reads: hiding links to tidy the visual would undo the
+// reason the tree was regrouped in the first place. <details> hides visually
+// without removing nodes; nothing here renders client-side.
 ---
 
 <section
-    class="docs-container grid gap-6 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]"
+    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]"
 >
-    <aside class="border-divider hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-5">
-        <nav class="text-ui pb-4" aria-label={copy.docs}>
-            {
-                navGroups.map((group) => (
-                    <div>
-                        <p class="docs-sidebar-group">{group.title}</p>
-                        <ul class="space-y-0.5">
-                            {group.entries.map((item) => (
-                                <li>
-                                    <a
-                                        href={entryHref(item, locale)}
-                                        aria-current={
-                                            entrySlug(item) === activeSlug
-                                                ? 'page'
-                                                : undefined
-                                        }
-                                        class:list={[
-                                            'docs-sidebar-link',
-                                            entrySlug(item) === activeSlug
-                                                ? 'bg-info-bg font-medium text-info-strong'
-                                                : 'text-muted hover:bg-soft hover:text-fg'
-                                        ]}
-                                    >
-                                        {item.data.title}
-                                    </a>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))
-            }
-        </nav>
-    </aside>
+    <DocsSidebar entries={entries} locale={locale} activeSlug={activeSlug} />
 
     <article class="min-w-0">
-        {
-            activeSlug !== 'getting-started' && (
-                <nav
-                    class="text-ui text-subtle mb-3 flex items-center gap-1.5"
-                    aria-label="Breadcrumb"
-                >
+        {/* Every page gets a breadcrumb now. getting-started used to be the docs
+            home, so its crumb would have pointed at the page you were already on.
+            The home is the dashboard at /docs/, so the crumb is meaningful here too. */}
+        <nav
+                class="text-ui text-subtle mb-3 flex items-center gap-1.5"
+                aria-label="Breadcrumb"
+            >
+                {/* The root crumb is hidden below lg, where the drawer trigger
+                    one line above says the same word. Two stacked rows opening
+                    with "Documentation" is the duplication that got the eyebrow
+                    removed, and this is a phone screen. The trail still reads
+                    as a hierarchy without it, and the BreadcrumbList is built
+                    separately, so a crawler still gets all four levels with the
+                    root intact at every width.
+
+                    lg:contents rather than lg:inline: the crumb and its
+                    separator have to go back to being flex items of the nav,
+                    not children of a wrapper. */}
+                <span class="hidden lg:contents">
                     <a
                         href={docsHome}
                         class="text-muted hover:text-fg no-underline hover:no-underline"
@@ -91,10 +121,100 @@ const navGroups = [
                         {copy.docs}
                     </a>
                     <span aria-hidden="true" class="opacity-50">/</span>
-                    <span class="text-fg">{entry.data.title}</span>
+                </span>
+                {/* The two middle crumbs are not pages. They are sidebar
+                    groupings, and the anchors they used to link pointed at a
+                    kicker and at a bare <li> label in the middle of the
+                    dashboard's multi-column index: a scroll position dressed
+                    up as a level in the hierarchy. They render as text here.
+
+                    The BreadcrumbList still carries an `item` URL for both,
+                    because an intermediate item with no `item` is what Google
+                    drops a trail over. That constraint is on the structured
+                    data, not on the visible trail, and the two are built
+                    separately, so only this one loses its links. The gate in
+                    check-seo.mjs reads the JSON-LD `item` URLs now for exactly
+                    that reason: nothing in the markup points at those anchors
+                    any more, so nothing else would notice a renamed group. */}
+                {group && groupAnchor && (
+                    <>
+                        <span class="text-muted">{group}</span>
+                        <span aria-hidden="true" class="opacity-50">
+                            /
+                        </span>
+                    </>
+                )}
+                {subgroup && (
+                    <>
+                        <span class="text-muted">{subgroup.title}</span>
+                        <span aria-hidden="true" class="opacity-50">
+                            /
+                        </span>
+                    </>
+                )}
+                <span class="text-fg">{entry.data.title}</span>
+            </nav>
+
+        <header class="docs-page-head">
+            <div class="min-w-0">
+                <h1 class="docs-page-title" id="page-title">
+                    {entry.data.title}
+                </h1>
+                {
+                    entry.data.description && (
+                        <p class="docs-deck">{entry.data.description}</p>
+                    )
+                }
+            </div>
+            <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+        </header>
+
+        {
+            showInlineToc && (
+                /* Collapsible, and closed at rest. On a phone this list ran
+                   239px and pushed the first sentence of the page to y=580 of
+                   an 812 viewport, so the whole first screen was chrome. It
+                   opens at md and up, where there is room, which is where it
+                   has always been open.
+
+                   <details> hides visually without removing nodes, so every
+                   link stays in the DOM and in the HTML at every state. That
+                   is the same reason the sidebar collapses this way, and it is
+                   what keeps the AEO argument for having this list inline
+                   intact: a text extractor still reads the section list near
+                   the top of the body whether or not it is open. The <nav>
+                   stays outside so the landmark does not depend on the state. */
+                <nav class="docs-inline-toc" aria-label={copy.tableOfContents}>
+                    <details data-inline-toc>
+                        <summary class="docs-inline-toc-title">
+                            {copy.tableOfContents}
+                        </summary>
+                        <ul>
+                            {inlineToc.map((heading) => (
+                                <li>
+                                    <a href={`#${heading.slug}`}>
+                                        {heading.text}
+                                    </a>
+                                </li>
+                            ))}
+                        </ul>
+                    </details>
                 </nav>
             )
         }
+
+        {/* Authored closed, so the phone case is the no-JS case and there is
+            nothing to flash. Whether there is room to keep it open is a
+            viewport question and the server cannot answer it, so this is the
+            one thing here that runs on the client. It is inline and sits
+            directly after the element so it resolves during parsing, before
+            the region paints. */}
+        <script is:inline>
+            if (window.matchMedia('(min-width: 48rem)').matches) {
+                const toc = document.querySelector('[data-inline-toc]')
+                if (toc) toc.open = true
+            }
+        </script>
 
         <div class="prose-doc" data-copy-scope>
             <Content />
@@ -172,7 +292,37 @@ const navGroups = [
     {
         toc.length > 0 && (
             <aside class="hidden xl:sticky xl:top-24 xl:block xl:self-start xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
-                <p class="text-caption text-subtle mb-2 uppercase tracking-[0.1em]">
+                {/* Sentence case at text-ui, which is fal's treatment: theirs
+                    reads "On this page" at the same size as the links beside
+                    it. This was text-caption uppercased with 1.1px tracking,
+                    which made the label of the rail smaller and louder than
+                    anything in it.
+
+                    The uppercasing stays in CSS rather than the string on the
+                    surfaces that still shout, for the reason the inline TOC
+                    label documents: an extractor reads the text node, so
+                    "ON THIS PAGE" in the markup would be read as shouting.
+                    Here there is no uppercasing left at all.
+
+                    The glyph is fal's too. Three unequal rules read as "list of
+                    sections" without a word, and it distinguishes this rail
+                    from the tree on the other side of the page. */}
+                <p
+                    class="text-ui text-subtle mb-2 flex items-center gap-1.5"
+                >
+                    <svg
+                        width="13"
+                        height="13"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        aria-hidden="true"
+                        class="shrink-0"
+                    >
+                        <path d="M4 6h16M4 12h11M4 18h7" />
+                    </svg>
                     {copy.onThisPage}
                 </p>
                 <nav id="docs-toc" aria-label={copy.onThisPage}>

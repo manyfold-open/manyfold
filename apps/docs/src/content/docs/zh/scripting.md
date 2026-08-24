@@ -3,9 +3,6 @@ title: 用 mf 编写脚本
 description: 在脚本和 CI 中使用 JSON、稳定 exit code、profile 和安全 credential。
 order: 4
 ---
-
-# 用 mf 编写脚本
-
 CLI 会把 machine-readable payload 和人类诊断信息分开，让脚本能够可靠处理成功和失败。
 
 ## 显式选择 context
@@ -97,9 +94,7 @@ printf '%s' "$MF_CI_TOKEN" |
   mf --api-url https://api.manyfold.ai/api --token - whoami --json
 ```
 
-避免直接写 `--token <value>`，因为参数可能出现在 shell history 和 process list。
-不要记录 `MF_TOKEN`、`MF_API_TOKEN`、credential reveal，或
-`~/.manyfold/profiles/<name>/` 下的文件。
+> **警告：** 避免直接写 `--token <value>`，因为参数可能出现在 shell history 和 process list。不要记录 `MF_TOKEN`、`MF_API_TOKEN`、credential reveal，或 `~/.manyfold/profiles/<name>/` 下的文件。
 
 ## Timeout 和版本漂移
 
@@ -115,6 +110,6 @@ mf automations create --help
 
 ## 另请参阅
 
-- [Profile 和环境](../profiles/)
-- [CLI 命令参考](../cli-reference/)
-- [Manyfold CLI](../cli/)
+- [Profile 和环境](/zh/docs/profiles/)
+- [CLI 命令参考](/zh/docs/cli/reference/)
+- [Manyfold CLI](/zh/docs/cli/)

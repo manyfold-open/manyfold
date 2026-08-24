@@ -3,9 +3,6 @@ title: GitHub
 description: 在 GitHub issue 和 PR 里 @mention Manyfold Agent。
 order: 17
 ---
-
-# GitHub
-
 当你希望 Agent 直接在提 issue 的地方回答问题时，可以连接 GitHub。每个 channel 对应一个专属 GitHub App，作为 Agent 的身份：在 issue 或 PR 评论里 @mention 它就能开始一轮对话，进展会以一条实时编辑的评论展示。
 
 ## 能力概览
@@ -26,7 +23,7 @@ order: 17
 - 一个已存在的 Manyfold Agent。
 - 在个人账号或组织下创建 GitHub App、并把它安装到目标仓库的权限。
 
-## 接入步骤
+## 连接到 Manyfold
 
 1. 打开 **Settings → Channels → New channel**，选择 **GitHub**，挑选 Agent（可选填仓库过滤），保存 —— 此时不需要任何凭据。
 2. 在 channel 页面填组织 login（个人账号留空），点 **Create GitHub App**。GitHub 会展示一个预填好的建 App 页面，确认即可；凭据由 GitHub 自动回传，channel 随之激活。
@@ -40,7 +37,7 @@ order: 17
 
 Issue 的标题、正文和近期评论会作为上下文一并带上，即使只在讨论末尾被 mention，Agent 也能看到全貌。
 
-要让 Agent clone、push 或开 PR，请给同一个 Agent 关联 [GitHub Connection](../../workspace/) —— channel 的 App 有意不带仓库内容权限。
+要让 Agent clone、push 或开 PR，请给同一个 Agent 关联 [GitHub Connection](/zh/docs/workspace/) —— channel 的 App 有意不带仓库内容权限。
 
 ## 设置
 
@@ -69,3 +66,9 @@ Issue 的标题、正文和近期评论会作为上下文一并带上，即使�
 - 评论只有文本，双向都不传文件。
 - 尚不处理 PR diff 上的 review 评论；PR 会话页可用。
 - channel 的 App 无代码权限：仓库写操作始终来自 GitHub Connection。
+
+## 另请参阅
+
+- [连接渠道](/zh/docs/channels/)
+- [Linear](/zh/docs/channels/linear/)
+- [创建第一个 Agent](/zh/docs/create-agent/)
