@@ -3,9 +3,6 @@ title: 模型提供方
 description: 连接 Anthropic、OpenAI、Google Gemini、OpenRouter 或托管模型额度。
 order: 4
 ---
-
-# 模型提供方
-
 模型提供方让 Agent 可以访问所需模型。你可以保存一次提供方凭证，并在创建 Agent 时复用。
 
 ## 支持的提供方
@@ -29,7 +26,7 @@ order: 4
 6. 测试连接。
 7. 保存提供方。
 
-创建 Agent 时，从创建流程中选择已保存的提供方。
+[创建 Agent](/zh/docs/create-agent/) 时，从创建流程中选择已保存的提供方。
 
 ## 提供方标签
 
@@ -60,3 +57,9 @@ order: 4
 - **创建 Agent 时要求提供方**：为所选框架添加兼容的提供方。
 - **模型列表为空**：检查账户账单、模型权限和自定义 Base URL。
 - **费用不符合预期**：查看 **Settings -> Usage**，确认 Agent 使用的是预期的提供方和模型。
+
+## 另请参阅
+
+- [创建第一个 Agent](/zh/docs/create-agent/)
+- [使用工作区](/zh/docs/workspace/)
+- [常见问题](/zh/docs/faq/)

@@ -3,9 +3,6 @@ title: Telegram
 description: Connect a Telegram bot to a Manyfold agent.
 order: 10
 ---
-
-# Telegram
-
 Connect Telegram when you want an agent available in direct messages, groups, supergroups, or forum topics. Manyfold manages the bot webhook and command menu for you.
 
 ## What the channel supports
@@ -67,11 +64,11 @@ Updating the token or running channel registration again refreshes the webhook a
 - Replies longer than 4,000 characters are split into messages. Code fences stay balanced across chunks, and Markdown tables are wrapped as text so Telegram does not collapse their layout.
 - Preview mode sends `thinking…`, edits that message while the agent works, and falls back to a fresh message if the final edit fails.
 
-See [Session switching](../session-switching/) for `/new`, `/list`, `/switch`, `/stop`, `/model`, `/usage`, and the other channel commands.
+See [Session switching](/docs/channels/session-switching/) for `/new`, `/list`, `/switch`, `/stop`, `/model`, `/usage`, and the other channel commands.
 
 ## Send proactively from the Agent
 
-An Agent can use `mf channels send` to start a Telegram DM, post into a group or topic chat ID, reply to a known Telegram message, and explicitly upload up to four workspace files. This does not change inbound media support or the normal-reply file-link behavior above. See [Send from an agent](../agent-send/) for target IDs, examples, delivery results, retries, and limits.
+An Agent can use `mf channels send` to start a Telegram DM, post into a group or topic chat ID, reply to a known Telegram message, and explicitly upload up to four workspace files. This does not change inbound media support or the normal-reply file-link behavior above. See [Send from an agent](/docs/channels/agent-send/) for target IDs, examples, delivery results, retries, and limits.
 
 ## Settings
 
@@ -109,12 +106,12 @@ Then test both paths you intend to use:
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Slack](../slack/)
-- [Lark and Feishu](../lark/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
-- [Send from an agent](../agent-send/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Slack](/docs/channels/slack/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Discord](/docs/channels/discord/)
+- [Matrix](/docs/channels/matrix/)
+- [Send from an agent](/docs/channels/agent-send/)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Telegram bot privacy mode](https://core.telegram.org/bots/features#privacy-mode)

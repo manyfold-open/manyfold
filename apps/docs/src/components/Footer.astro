@@ -16,7 +16,11 @@ const support = getSupportUi(locale)
 const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
 
 const links = [
-    { href: localePath(locale, '/docs/getting-started/'), label: copy.docs },
+    // The dashboard, not the first article. This was pointing at
+    // getting-started from before /docs/ existed, and now that the top menu
+    // carries no desktop links it is the only route back into the docs from a
+    // page without a sidebar.
+    { href: localePath(locale, '/docs/'), label: copy.docs },
     { href: localePath(locale, '/changelog'), label: copy.changelog },
     { href: localePath(locale, '/status'), label: copy.status },
     { href: localePath(locale, '/support'), label: support.supportNavLabel },

@@ -8,6 +8,7 @@ import {
     alternateLocalePath,
     getUi,
     localeOption,
+    localePath,
     locales,
     type Locale
 } from '@/lib/i18n'
@@ -20,6 +21,13 @@ interface Props {
     availableLocales?: Locale[]
     breadcrumbs?: { name: string; href?: string }[]
     hideSupportBubble?: boolean
+    // Keep a page out of the index without keeping crawlers out of the
+    // links on it. 404.astro is the only current caller: a soft-404 that
+    // gets indexed competes with the real pages for the same queries.
+    noindex?: boolean
+    // Per-page social card, overriding the shared static one below. Docs pages
+    // pass their generated card; everything else keeps the shared art.
+    ogImage?: string
 }
 
 const {
@@ -29,22 +37,30 @@ const {
     type = 'website',
     availableLocales = locales,
     breadcrumbs = [],
-    hideSupportBubble = false
+    hideSupportBubble = false,
+    noindex = false,
+    ogImage: ogImageOverride
 } = Astro.props
 const fullTitle = title === 'Manyfold' ? title : `${title} — Manyfold`
 const option = localeOption(locale)
 const desc = description ?? getUi(locale).defaultDescription
 const canonical = new URL(Astro.url.pathname, Astro.site).toString()
+const llmsIndexUrl = new URL(
+    localePath(locale, '/llms.txt'),
+    Astro.site
+).toString()
 // Per-locale because the headline is baked into the art. Source and exporter
 // live in apps/web/scripts/og, which also writes the PNGs into this app's
 // public/social; `pnpm social-card:check` fails if these names, that app's
 // copies and the exporter's POSTER_VERSION ever disagree.
-const ogImage = new URL(
-    locale === 'zh'
-        ? '/social/manyfold-og-zh-v3.png'
-        : '/social/manyfold-og-v3.png',
-    Astro.site
-).toString()
+const ogImage =
+    ogImageOverride ??
+    new URL(
+        locale === 'zh'
+            ? '/social/manyfold-og-zh-v3.png'
+            : '/social/manyfold-og-v3.png',
+        Astro.site
+    ).toString()
 const alternateLinks = availableLocales.map((alternateLocale) => ({
     href: new URL(
         alternateLocalePath(Astro.url.pathname, alternateLocale),
@@ -111,12 +127,26 @@ const breadcrumbJsonLd =
         <meta name="generator" content={Astro.generator} />
         <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
         <link rel="canonical" href={canonical} />
+        {noindex && <meta name="robots" content="noindex, follow" />}
         {
             alternateLinks.map((link) => (
                 <link rel="alternate" hreflang={link.hreflang} href={link.href} />
             ))
         }
         <link rel="alternate" hreflang="x-default" href={xDefault} />
+        {/* Feed autodiscovery, site-wide. There is one feed and it is English
+            only, so it needs no locale handling. Site-wide rather than on the
+            changelog page because the changelog carried no reference to its own
+            feed at all: the feed's only link anywhere was the dashboard's
+            machine-readable block, and removing that block would have left it
+            reachable only by guessing the URL. This is the mechanism a reader
+            or a crawler is supposed to find it by, and it renders nothing. */}
+        <link
+            rel="alternate"
+            type="application/rss+xml"
+            title="Manyfold changelog"
+            href={new URL('/changelog/feed.xml', Astro.site).toString()}
+        />
         <title>{fullTitle}</title>
         <meta name="description" content={desc} />
         <meta property="og:site_name" content="Manyfold" />
@@ -153,6 +183,23 @@ const breadcrumbJsonLd =
         }
     </head>
     <body class="bg-app text-fg flex min-h-screen flex-col">
+        <!--
+            Agent-facing documentation index pointer, the first element in <body>.
+            See docs-artifacts/edits-baselayout-agent-index.md. aria-hidden as well
+            as sr-only, following fal: a screen reader user does not need a machine
+            index announced ahead of the content on every single page. This is what
+            an agent gets when it fetches the page URL instead of the .md twin.
+        -->
+        <blockquote class="sr-only" data-agent-docs-index="true" aria-hidden="true">
+            <h2>Documentation Index</h2>
+            <p>
+                Fetch the complete documentation index at:{' '}
+                <a href={localePath(locale, '/llms.txt')} tabindex="-1">
+                    {llmsIndexUrl}
+                </a>
+            </p>
+            <p>Use this file to discover all available pages before exploring further.</p>
+        </blockquote>
         <Header locale={locale} availableLocales={availableLocales} />
         <main class="docs-main flex-1">
             <slot />
@@ -160,6 +207,92 @@ const breadcrumbJsonLd =
         <Footer locale={locale} />
         <SearchModal locale={locale} />
         {!hideSupportBubble && <SupportBubble locale={locale} />}
+        <script>
+            // Page actions: Copy page and the dropdown. Copy fetches the .md
+            // twin rather than serialising the DOM, so what lands on the
+            // clipboard is the authored Markdown a model should read, not a
+            // reconstruction of the rendered page. Falls back to the visible
+            // article text only if the twin cannot be fetched.
+            document
+                .querySelectorAll<HTMLElement>('[data-page-actions]')
+                .forEach((root) => {
+                    const main = root.querySelector<HTMLButtonElement>('[data-copy-page]')
+                    const toggle = root.querySelector<HTMLButtonElement>('[data-pa-toggle]')
+                    const menu = root.querySelector<HTMLElement>('[data-pa-menu]')
+                    const label = root.querySelector<HTMLElement>('[data-copy-label]')
+                    const mdHref = root.dataset.md
+                    const doneText = root.dataset.copied ?? 'Copied'
+
+                    const closeMenu = () => {
+                        menu?.setAttribute('hidden', '')
+                        toggle?.setAttribute('aria-expanded', 'false')
+                    }
+
+                    toggle?.addEventListener('click', (event) => {
+                        event.stopPropagation()
+                        const open = menu?.hasAttribute('hidden')
+                        if (open) {
+                            menu?.removeAttribute('hidden')
+                            toggle.setAttribute('aria-expanded', 'true')
+                        } else {
+                            closeMenu()
+                        }
+                    })
+                    document.addEventListener('click', closeMenu)
+                    document.addEventListener('keydown', (event) => {
+                        if (event.key === 'Escape') closeMenu()
+                    })
+
+                    main?.addEventListener('click', async () => {
+                        let text = ''
+                        try {
+                            if (mdHref) {
+                                const res = await fetch(mdHref)
+                                if (res.ok) text = await res.text()
+                            }
+                        } catch {
+                            text = ''
+                        }
+                        if (!text) {
+                            text =
+                                document.querySelector<HTMLElement>('[data-copy-scope]')
+                                    ?.innerText ?? ''
+                        }
+                        try {
+                            await navigator.clipboard?.writeText(text)
+                        } catch {
+                            return
+                        }
+                        if (!label) return
+                        const original = label.textContent
+                        label.textContent = doneText
+                        window.setTimeout(() => {
+                            label.textContent = original
+                        }, 1600)
+                    })
+                })
+        </script>
+        <script>
+            // A heading anchor is a working link without this: clicking it sets
+            // the hash. The script adds what fal's does on top, copying the
+            // absolute URL, because the reason someone clicks a heading anchor
+            // is to paste it somewhere. Replicate only moves the hash, which
+            // leaves the reader to go and copy the address bar themselves.
+            document.addEventListener('click', (event) => {
+                const target = event.target as HTMLElement | null
+                const anchor = target?.closest<HTMLAnchorElement>(
+                    '.docs-heading-anchor'
+                )
+                if (!anchor) return
+                const url = new URL(
+                    anchor.getAttribute('href') ?? '',
+                    window.location.href
+                ).toString()
+                navigator.clipboard?.writeText(url)
+                anchor.classList.add('is-done')
+                window.setTimeout(() => anchor.classList.remove('is-done'), 1300)
+            })
+        </script>
         <script>
             const ICON_COPY =
                 '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'

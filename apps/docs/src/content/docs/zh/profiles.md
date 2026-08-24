@@ -3,13 +3,10 @@ title: Profile 和环境
 description: 隔离不同 Manyfold 环境的 credential 和 local daemon。
 order: 3
 ---
-
-# Profile 和环境
-
 Profile 是一个 Manyfold 环境在本机的 control-plane state，包含该环境的 API URL、
 credential、pending login、daemon registration、日志、进程状态和 control socket。
 
-同一台机器需要连接 production、staging、自托管部署或多个账号时，请使用不同
+同一台机器需要连接 production、staging、[自托管部署](/zh/docs/self-hosting/)或多个账号时，请使用不同
 profile。
 
 ## 选择 profile
@@ -71,8 +68,7 @@ Agent ID 全局唯一，因此不同 profile 可以安全共享默认 data plane
 需要单独的存储，可在 `mf daemon register` 时声明 `--workspace-root` 和
 `--skills-dir`。
 
-不要打印或复制 profile 的 `config.json` 或 daemon 文件，其中包含 credential
-等敏感状态。
+> **警告：** 不要打印或复制 profile 的 `config.json` 或 daemon 文件，其中包含 credential 等敏感状态。
 
 ## 查看或删除 profile
 
@@ -109,6 +105,6 @@ CLI 0.22 移除了旧的 flat config 和 daemon fallback。升级后：
 
 ## 另请参阅
 
-- [安装 CLI](../install/)
-- [注册 Self-owned computer](../local-daemons/)
-- [CLI 命令参考](../cli-reference/)
+- [安装 CLI](/zh/docs/install/)
+- [注册 Self-owned computer](/zh/docs/local-daemons/)
+- [CLI 命令参考](/zh/docs/cli/reference/)

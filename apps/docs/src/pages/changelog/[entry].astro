@@ -1,0 +1,20 @@
+---
+import ChangelogEntryPage from '@/components/ChangelogEntryPage.astro'
+import { getCollection } from 'astro:content'
+import type { CollectionEntry } from 'astro:content'
+import { changelogSlug } from '@/lib/changelog'
+import type { Locale } from '@/lib/i18n'
+
+export async function getStaticPaths() {
+    const entries = await getCollection('changelog')
+    return entries.map((entry) => ({
+        params: { entry: changelogSlug(entry) },
+        props: { entry }
+    }))
+}
+
+const locale: Locale = 'en'
+const { entry } = Astro.props as { entry: CollectionEntry<'changelog'> }
+---
+
+<ChangelogEntryPage locale={locale} entry={entry} />

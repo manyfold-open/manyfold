@@ -3,9 +3,6 @@ title: Discord
 description: 将 Discord bot 连接到 Manyfold Agent。
 order: 13
 ---
-
-# Discord
-
 当你希望在 Discord 私聊、server channel 或 thread 中使用 Agent 时，可以连接 Discord。Manyfold 会维护 Discord Gateway 连接、注册原生 application command，并能为 mention-gated 对话补充周围 channel 上下文。
 
 ## 渠道能力
@@ -84,7 +81,7 @@ Discord 不使用 Manyfold inbound URL。注册会读取 bot/application 身份�
 
 Manyfold 会注册 `/new`、`/list`、`/switch`、`/current`、`/rename`、`/delete`、`/stop`、`/model`、`/usage`、`/history` 和 `/help`。可用时，原生命令回复会使用 deferred Discord interaction。
 
-Session command 不需要 @mention。行为和权限见[切换 Session](../session-switching/)。
+Session command 不需要 @mention。行为和权限见[切换 Session](/zh/docs/channels/session-switching/)。
 
 ## 设置
 
@@ -126,11 +123,11 @@ Session command 不需要 @mention。行为和权限见[切换 Session](../sessi
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [切换 Session](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Lark 和飞书](../lark/)
-- [Matrix](../matrix/)
+- [连接渠道](/zh/docs/channels/)
+- [切换 Session](/zh/docs/channels/session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Slack](/zh/docs/channels/slack/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Matrix](/zh/docs/channels/matrix/)
 - [Discord Developer Portal](https://discord.com/developers/applications)
 - [Discord Gateway intents](https://discord.com/developers/docs/events/gateway#gateway-intents)

@@ -83,7 +83,24 @@ const routes = new Map(pages.map((page) => [page.route, page]))
 const redirectRoutes = new Set(
     pages.filter((page) => page.redirect).map((page) => page.route)
 )
-const indexablePages = pages.filter((page) => !page.redirect)
+// A 404 page has no canonical and belongs in no sitemap, by design, and
+// @astrojs/sitemap deliberately omits it. Without this exclusion, adding
+// src/pages/404.astro fails the canonical, hreflang and sitemap gates at once.
+const NON_INDEXABLE_ROUTES = new Set(['/404.html'])
+
+const indexablePages = pages.filter(
+    (page) => !page.redirect && !NON_INDEXABLE_ROUTES.has(page.route)
+)
+
+// Excluded from the indexable gates, but still asserted to exist and to be
+// marked noindex, so it cannot silently disappear and bring back the soft-404
+// that returns HTTP 200 for every unknown URL.
+const notFound = routes.get('/404.html')
+if (!notFound) {
+    fail('/404.html', 'missing 404 page, unknown URLs will soft-404 with HTTP 200')
+} else if (!meta(notFound.html, 'name', 'robots')) {
+    fail('/404.html', 'missing meta robots noindex')
+}
 const canonicalPages = new Map(
     indexablePages
         .filter((page) => page.canonical)
@@ -210,9 +227,12 @@ for (const page of indexablePages) {
         if (!Array.isArray(items) || items.length < 2) {
             fail(route, 'BreadcrumbList must contain at least two items')
         } else {
+            // The docs home is the dashboard at /docs/, not the first article.
+            // This gate held the old assumption, so it is what caught the
+            // change: 66 pages failed the moment the breadcrumb was repointed.
             const expectedHome = route.startsWith('/zh/')
-                ? `${site}/zh/docs/getting-started/`
-                : `${site}/docs/getting-started/`
+                ? `${site}/zh/docs/`
+                : `${site}/docs/`
             if (items[0]?.item !== expectedHome) {
                 fail(route, `breadcrumb home must be ${expectedHome}`)
             }
@@ -275,6 +295,161 @@ for (const page of indexablePages) {
     }
 }
 
+// Markup invariants no other gate can see. Every one of these shipped once:
+// a <pre> with no data-language renders with no language label and, outside a
+// markdown body, no padding and no horizontal scroll; a .docs-code wrapper in
+// the source makes the copy script skip that block, so it has no copy button
+// at all; a duplicate id makes its anchor ambiguous; and an in-page link to an
+// id this document does not carry is a click that does nothing.
+// One family of duplicate id is left, and it comes from generated content
+// rather than from a component: the changelog renders 37 entries that each
+// carry their own 'Highlights' heading. Nothing links to a changelog entry's
+// sections, so it sends no reader to the wrong place, and the fix belongs where
+// that markdown is generated. That route stays exempt and the count is printed
+// on success rather than dropped quietly. Every hand-authored page is covered.
+//
+// The CLI reference used to be the second family. It emitted an explicit
+// <a id> immediately above every command heading that rehype-slug already
+// slugged to the same id, 140 per locale. Splitting the page per command
+// dropped those anchors, and every #fragment still resolves because the id was
+// always coming from the heading text. The exemption went with them.
+const DUPLICATE_ID_EXEMPT = /^\/(zh\/)?(changelog)\/$/
+const exemptRoutes = new Set()
+const idsByRoute = new Map()
+
+for (const page of pages) {
+    const { html, route } = page
+
+    for (const tag of tags(html, 'pre')) {
+        if (!attribute(tag, 'data-language')) {
+            fail(route, 'a <pre> carries no data-language, so it renders bare')
+        }
+    }
+
+    if (/class=(['"])[^'"]*\bdocs-code\b/.test(html)) {
+        fail(
+            route,
+            'a .docs-code wrapper in the source suppresses the copy bar'
+        )
+    }
+
+    // The sidebar tree renders once per page. A half-finished refactor left
+    // both branches of a ternary in DocsSidebar.astro standing, so every page
+    // shipped the whole 36-link tree twice with a stray ') : (' between them,
+    // and nothing caught it: the markup is valid, the types check, the build
+    // passes. Repeated group headings are the cheapest signature of that.
+    const groups = [
+        ...html.matchAll(
+            /<summary class="docs-sidebar-group docs-sidebar-summary">\s*<span>(.*?)<\/span>/g
+        )
+    ].map((match) => textContent(match[1]))
+    const seenGroups = new Set()
+    for (const group of groups) {
+        if (seenGroups.has(group)) {
+            fail(route, `sidebar group "${group}" renders twice`)
+        }
+        seenGroups.add(group)
+    }
+
+    const exempt = DUPLICATE_ID_EXEMPT.test(route)
+    if (exempt) exemptRoutes.add(route)
+    const ids = new Set()
+    for (const match of html.matchAll(/\sid=(['"])(.*?)\1/g)) {
+        const id = decode(match[2])
+        if (ids.has(id) && !exempt) fail(route, `duplicate id "${id}"`)
+        ids.add(id)
+    }
+
+    idsByRoute.set(route, ids)
+
+    const fragments = new Set(
+        tags(html, 'a')
+            .map((tag) => attribute(tag, 'href'))
+            .filter((href) => href && href.startsWith('#') && href.length > 1)
+            // The markdown renderer percent-encodes a non-ASCII fragment while
+            // the id attribute stays raw UTF-8, so '#%E5%8F%91...' and
+            // id="发送文件" are the same target. Comparing them undecoded
+            // reports every Chinese in-page link as dead.
+            .map((href) => {
+                const raw = decode(href.slice(1))
+                try {
+                    return decodeURIComponent(raw)
+                } catch {
+                    return raw
+                }
+            })
+    )
+    for (const fragment of fragments) {
+        if (!ids.has(fragment)) {
+            fail(
+                route,
+                `in-page link to #${fragment}, which this page has no id for`
+            )
+        }
+    }
+}
+
+// Same check across pages. Every doc page's breadcrumb now points at its group's
+// heading on the dashboard, so a renamed group would leave 33 trails pointing at
+// an anchor that no longer exists, in the markup a crawler reads for the site's
+// shape. Nothing else would notice.
+for (const page of pages) {
+    const { html, route } = page
+    const links = tags(html, 'a')
+        .map((tag) => attribute(tag, 'href'))
+        .filter((href) => href && href.startsWith('/') && href.includes('#'))
+
+    // The breadcrumb's two middle crumbs render as plain text, because a
+    // sidebar grouping is not a page. Their `item` URLs stay in the JSON-LD,
+    // where Google needs them, which means the dashboard anchors they point at
+    // are now referenced by nothing in the markup. Read them out of the
+    // structured data so a renamed group still fails here instead of quietly
+    // breaking the trail a crawler parses.
+    const breadcrumbItems = [
+        ...html.matchAll(
+            /<script\b[^>]*type=['"]application\/ld\+json['"][^>]*>([\s\S]*?)<\/script>/gi
+        )
+    ]
+        .flatMap((match) => {
+            try {
+                return [JSON.parse(match[1])]
+            } catch {
+                // The per-page pass above already failed this route for it.
+                return []
+            }
+        })
+        .filter((item) => item['@type'] === 'BreadcrumbList')
+        .flatMap((list) =>
+            Array.isArray(list.itemListElement) ? list.itemListElement : []
+        )
+        .map((item) => item?.item)
+        .filter((url) => typeof url === 'string' && url.startsWith(`${site}/`))
+        .map((url) => url.slice(site.length))
+        .filter((href) => href.includes('#'))
+
+    for (const href of new Set([...links, ...breadcrumbItems])) {
+        const [path, fragment] = decode(href).split('#')
+        if (!fragment) continue
+        const target = normalizeRoute(path)
+        const ids = idsByRoute.get(target)
+        // A path this build does not emit is a separate problem, and the
+        // canonical gates above already speak for it.
+        if (!ids) continue
+        let decoded = fragment
+        try {
+            decoded = decodeURIComponent(fragment)
+        } catch {
+            decoded = fragment
+        }
+        if (!ids.has(decoded)) {
+            fail(
+                route,
+                `links to ${target}#${decoded}, which that page has no id for`
+            )
+        }
+    }
+}
+
 const sitemapFiles = walk(dist, (file) =>
     /sitemap-\d+\.xml$/.test(path.basename(file))
 )
@@ -311,4 +486,7 @@ if (failures.length > 0) {
 
 console.log(
     `SEO check passed: ${indexablePages.length} canonical pages, ${sitemapUrls.size} sitemap URLs, ${fontFiles.length} local font assets`
+)
+console.log(
+    `Markup gates: ${pages.length} pages checked, ${exemptRoutes.size} exempt from the duplicate-id gate (${[...exemptRoutes].sort().join(', ')})`
 )

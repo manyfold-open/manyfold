@@ -1,6 +1,11 @@
 ---
 import { getCollection, render } from 'astro:content'
-import { getUi, type Locale } from '@/lib/i18n'
+import { getUi, localePath, type Locale } from '@/lib/i18n'
+import {
+    changelogHref,
+    changelogTitle,
+    sortChangelog
+} from '@/lib/changelog'
 
 interface Props {
     locale?: Locale
@@ -9,71 +14,110 @@ interface Props {
 const { locale = 'en' } = Astro.props
 const copy = getUi(locale)
 
-const versionParts = (version: string) =>
-    version.split('.').map((part) => Number.parseInt(part, 10) || 0)
-const compareVersions = (a: string, b: string) => {
-    const aParts = versionParts(a)
-    const bParts = versionParts(b)
-    for (let i = 0; i < Math.max(aParts.length, bParts.length); i += 1) {
-        const diff = (bParts[i] ?? 0) - (aParts[i] ?? 0)
-        if (diff !== 0) return diff
-    }
-    return 0
-}
-const entries = (await getCollection('changelog')).sort(
-    (a, b) =>
-        b.data.date.localeCompare(a.data.date) ||
-        compareVersions(a.data.version, b.data.version)
-)
+const entries = sortChangelog(await getCollection('changelog'))
 const rendered = await Promise.all(
-    entries.map(async (e) => ({ data: e.data, ...(await render(e)) }))
+    entries.map(async (e) => ({
+        data: e.data,
+        // The headline the body no longer prints for itself, and where the
+        // entry's own page lives. English only: the entries have no
+        // translations, so the Chinese index links to the same pages.
+        title: changelogTitle(e),
+        href: changelogHref(e),
+        ...(await render(e))
+    }))
 )
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
+import { filterDocsByLocale } from '@/lib/i18n'
+
+const docsEntries = filterDocsByLocale(await getCollection('docs'), locale)
+
+// This surface has a markdown twin now, so the Copy page control has a
+// real endpoint to fetch rather than serialising the rendered page.
+const mdHref = localePath(locale, '/changelog.md')
+const pageUrl = new URL(localePath(locale, '/changelog'), Astro.site).toString()
 ---
 
-<section class="docs-container docs-page-section">
-    <header class="docs-page-header">
-        <p class="docs-kicker">{copy.brandShort}</p>
-        <h1 class="mt-3 text-h1">{copy.changelogTitle}</h1>
-        <p class="docs-copy mt-2">{copy.changelogLead}</p>
-    </header>
+<!--
+    Two columns, the same shape as the docs pages and the dashboard. Neither of
+    these surfaces had a sidebar, so from either one there was no way back into
+    the documentation tree except the top menu.
+-->
+<section
+    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+>
+    <DocsSidebar entries={docsEntries} locale={locale} />
 
-    <div class="mt-6 max-w-xl">
-        <input
-            id="changelog-filter"
-            type="search"
-            class="docs-search-trigger h-10 w-full cursor-text justify-start text-body"
-            placeholder={copy.changelogFilter}
-            autocomplete="off"
-        />
-    </div>
+    <div class="min-w-0">
+        <header class="docs-page-header flex items-start justify-between gap-6">
+            <div class="min-w-0">
+                <p class="docs-kicker">{copy.brandShort}</p>
+                <h1 class="mt-3 text-h1" id="page-title">
+                    {copy.changelogTitle}
+                </h1>
+                <p class="docs-copy mt-2">{copy.changelogLead}</p>
+            </div>
+            <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+        </header>
 
-    <div id="changelog-list" class="docs-timeline mt-7">
-        {
-            rendered.map(({ data, Content }) => (
-                <article
-                    id={`v${data.version}`}
-                    class="docs-timeline-entry mb-8"
-                    data-changelog-entry
-                >
-                    <div class="flex flex-wrap items-center gap-2.5">
-                        <span class="bg-info-bg text-info-strong rounded-xs px-2 py-0.5 font-mono text-caption font-medium">
-                            v{data.version}
-                        </span>
-                        <time class="text-ui text-subtle" datetime={data.date}>
-                            {data.date}
-                        </time>
-                    </div>
-                    <div class="prose-doc mt-3">
-                        <Content />
-                    </div>
-                </article>
-            ))
-        }
-    </div>
+        <div class="mt-6 max-w-xl">
+            <input
+                id="changelog-filter"
+                type="search"
+                class="docs-search-trigger h-10 w-full cursor-text justify-start text-body"
+                placeholder={copy.changelogFilter}
+                autocomplete="off"
+            />
+        </div>
 
-    <p id="changelog-none" class="text-ui text-muted mt-6 hidden">
-        {copy.changelogNoMatch}
-    </p>
+        <div id="changelog-list" class="docs-timeline mt-7">
+            {
+                rendered.map(({ data, title, href, Content }) => (
+                    <article
+                        id={`v${data.version}`}
+                        class="docs-timeline-entry mb-10 lg:grid lg:grid-cols-[136px_minmax(0,1fr)] lg:gap-6"
+                        data-changelog-entry
+                    >
+                        {/* The version follows the entry down. fal's changelog
+                            sticks its date column the same way, and it earns
+                            that on entries this long: three screens into the
+                            0.23.0 notes there was nothing on screen saying
+                            which release you were reading. */}
+                        <div class="docs-anchor-host flex flex-wrap items-center gap-2.5 lg:sticky lg:top-24 lg:flex-col lg:items-start lg:gap-1.5 lg:self-start">
+                            <span class="bg-info-bg text-info-strong rounded-xs px-2 py-0.5 font-mono text-caption font-medium">
+                                v{data.version}
+                            </span>
+                            <time class="text-ui text-subtle" datetime={data.date}>
+                                {data.date}
+                            </time>
+                            <a
+                                class="docs-heading-anchor is-inline"
+                                href={`#v${data.version}`}
+                                aria-label={copy.headingLink}
+                            />
+                        </div>
+                        <div class="min-w-0">
+                            <h2 class="text-h2 mt-2.5 lg:mt-0">
+                                <a
+                                    href={href}
+                                    class="text-fg no-underline hover:underline"
+                                >
+                                    {title}
+                                </a>
+                            </h2>
+                            <div class="prose-doc mt-1">
+                                <Content />
+                            </div>
+                        </div>
+                    </article>
+                ))
+            }
+        </div>
+
+        <p id="changelog-none" class="text-ui text-muted mt-6 hidden">
+            {copy.changelogNoMatch}
+        </p>
+</div>
 </section>
 
 <script>

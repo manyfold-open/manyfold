@@ -3,9 +3,6 @@ title: WeChat
 description: Connect a personal WeChat bot to a Manyfold agent through the Tencent iLink gateway.
 order: 15
 ---
-
-# WeChat
-
 Connect WeChat when you want an agent to answer direct messages in personal WeChat. Manyfold connects through Tencent's official iLink bot gateway: you authorize a bot by scanning a QR code with WeChat, and Manyfold long-polls the gateway with the resulting bot token. No public webhook is required.
 
 WeChat support is **direct-message only**. The iLink identity you authorize is a bot account (`…@im.bot`); it cannot be added to ordinary WeChat group chats, and the gateway does not deliver group events. There is no group, mention, or thread behavior to configure.
@@ -93,8 +90,8 @@ Run **Test**. A healthy result confirms the gateway is reachable, the token is a
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Telegram](../telegram/)
-- [Matrix](../matrix/)
-- [Send from an agent](../agent-send/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Matrix](/docs/channels/matrix/)
+- [Send from an agent](/docs/channels/agent-send/)

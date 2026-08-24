@@ -3,9 +3,6 @@ title: 自托管
 description: 在自己的基础设施上运行完整的 Manyfold 栈——安装、升级、备份与运维契约。
 order: 1
 ---
-
-# 自托管 Manyfold
-
 开源版用一份 Docker Compose 文件跑起完整的栈——API、Web 工作台、管理后台。
 执行环境由你自带:在自己的机器上跑 `mf daemon`、接入 Kubernetes 集群,或在
 管理后台粘贴 sprites.dev 账号 token。
@@ -26,9 +23,7 @@ docker compose -f docker-compose.selfhost.yml up -d --build
 选择登录方式;工作台在 `http://localhost:3002`。新账号落在预置的无限额
 `self_hosted` 档位上。
 
-`MF_API_CRYPTO_KEY` 是长期加密主密钥,静态加密所有存储的凭据(provider
-key、token、登录 provider 密钥)。丢了它这些行就再也解不开——请和数据库备
-份放在一起保管。
+> **警告：** `MF_API_CRYPTO_KEY` 是长期加密主密钥,静态加密所有存储的凭据(provider key、token、登录 provider 密钥)。丢了它这些行就再也解不开,请和数据库备份放在一起保管。
 
 ## 跑了什么
 
@@ -127,9 +122,9 @@ channel 平台侧注册,再删除用户行,所有用户名下的表随 `ON DELET
 
 Agent 跑在你接入的计算机上,三条路:
 
-- **`mf daemon`(默认)**——安装 [CLI](../install/),然后在任意自有机器上
+- **`mf daemon`(默认)**——安装 [CLI](/zh/docs/install/),然后在任意自有机器上
   `mf login --api-url https://<your-api>/api` + `mf setup`。见
-  [本地 daemon](../local-daemons/)。
+  [本地 daemon](/zh/docs/local-daemons/)。
 - **Kubernetes**——在 API env 里加 kubeconfig,运行需要 gateway/cronjob 能力
   的框架;集群内 exec gateway 用
   `apps/k8s-gateway/helm/manyfold-k8s-gateway` 的 Helm chart 部署(其

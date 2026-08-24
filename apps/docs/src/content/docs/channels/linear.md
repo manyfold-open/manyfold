@@ -3,9 +3,6 @@ title: Linear
 description: Install a Manyfold agent as a Linear workspace member.
 order: 16
 ---
-
-# Linear
-
 Connect Linear when you want an agent to pick up work where it is already tracked. The agent becomes a workspace member you can @mention or delegate an issue to, and it reports progress on the Linear agent session itself rather than in a comment thread.
 
 Linear's agent APIs are a developer preview, so details on Linear's side may still change.
@@ -34,7 +31,7 @@ Linear's agent APIs are a developer preview, so details on Linear's side may sti
 3. Turn on **client credentials** if you want Manyfold to mint its own access token. Otherwise mint an app token yourself and keep it for step 3 below.
 4. Copy the **client ID**, **client secret**, and **webhook signing secret**.
 
-## Connect it in Manyfold
+## Connect it to Manyfold
 
 1. Go to **Settings → Channels → New channel** and choose **Linear**.
 2. Pick the agent, then paste the client ID, client secret, and webhook signing secret. To use a token you minted yourself, paste it into **Access token** instead of the client pair — the signing secret is still required.
@@ -74,3 +71,9 @@ Send a stop request from the session menu to interrupt a run; the agent stops an
 - Agent activities are text only, so files are not exchanged in either direction.
 - Progress is not streamed token by token; Linear has no message-edit API.
 - Agent-wide commands such as `/model` are disabled from Linear.
+
+## See also
+
+- [Connect channels](/docs/channels/)
+- [GitHub](/docs/channels/github/)
+- [Create your first agent](/docs/create-agent/)

@@ -3,9 +3,6 @@ title: 使用工作区
 description: 使用聊天、文件、终端会话、用量、skills 和可恢复会话。
 order: 5
 ---
-
-# 使用工作区
-
 工作区是你与 Agent 对话并检查其工作的位置。每个 Agent 都有自己的聊天会话、文件、终端访问、skills 和设置。
 
 ## 聊天
@@ -52,5 +49,12 @@ Skills 是可复用的说明和工作流，可以安装到支持的 Agent 上。
 - 从小任务开始，等 Agent 理解上下文后再扩大范围。
 - 发布前审查代码和文件。
 - 把凭证放在提供方设置或渠道设置中，不要写进 prompt。
-- Agent 在网页工作区表现稳定后，再接入团队渠道。
+- Agent 在网页工作区表现稳定后，再[接入团队渠道](/zh/docs/channels/)。
 - 不再需要的 Agent 或运行环境应及时删除。
+
+## 另请参阅
+
+- [创建第一个 Agent](/zh/docs/create-agent/)
+- [连接渠道](/zh/docs/channels/)
+- [用 CLI 管理 Skill](/zh/docs/cli/skills/)
+- [用 CLI 查询用量](/zh/docs/cli/usage/)

@@ -1,0 +1,292 @@
+---
+// One endpoint, one page. Modelled on fal's deepest reference pages
+// (/docs/api-reference/platform-apis/meta): breadcrumb, the endpoint's human
+// name as the H1, a one-sentence deck, the signature, then the request and the
+// response. Those pages carry a single H1 and no on-this-page rail, because
+// the page is itself one unit and the rail's job is done by the sidebar.
+//
+// There is no rail here either, for that reason. There is an inline table of
+// contents, which is a different thing and was added after measuring: the
+// sidebar navigates between endpoints, not within one, so nothing here pointed
+// at a section. The deciding number was the comparison with this surface's own
+// landing page, which carries the same inline list at 408 words and three
+// sections, while chat-completions had none at 425 words and four, with three
+// code blocks between the top of the page and the response.
+import { codeToHtml } from 'shiki'
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
+import { getCollection } from 'astro:content'
+import {
+    apiReferenceFor,
+    endpointExamples,
+    endpointPath,
+    methodClass,
+    methodLabel,
+    type ApiEndpoint
+} from '@/lib/api-reference'
+import { filterDocsByLocale, getUi, localePath, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale: Locale
+    endpoint: ApiEndpoint
+}
+
+const { locale, endpoint } = Astro.props
+const reference = apiReferenceFor(locale)
+const ui = getUi(locale)
+const docsEntries = filterDocsByLocale(await getCollection('docs'), locale)
+
+
+const highlight = async (code: string, lang: string): Promise<string> => {
+    const html = await codeToHtml(code, {
+        lang,
+        themes: { light: 'github-light', dark: 'github-dark-dimmed' },
+        defaultColor: false
+    })
+    return html
+        .replace(/^[\s\S]*?<code[^>]*>/, '')
+        .replace(/<\/code>[\s\S]*$/, '')
+}
+
+const mapping = endpointExamples[endpoint.id]
+const requestHtml = mapping
+    ? await highlight(reference.examples[mapping.request], 'bash')
+    : null
+const responseHtml = mapping?.response
+    ? await highlight(reference.examples[mapping.response], 'json')
+    : null
+const extraHtml = mapping?.extra
+    ? await highlight(reference.examples[mapping.extra], 'bash')
+    : null
+
+// Read off the same four conditions that render the sections below, in the
+// same order, so the list cannot advertise a section this endpoint does not
+// have. Three of the endpoints have three sections and chat-completions has
+// four; hardcoding the landing page's flat array would have been wrong here.
+const sections = [
+    endpoint.params.length > 0 && {
+        id: 'parameters',
+        label: reference.paramsTitle
+    },
+    requestHtml && { id: 'request', label: reference.requestTitle },
+    extraHtml && { id: 'streaming', label: reference.streamingTitle },
+    (responseHtml || endpoint.response.length > 0) && {
+        id: 'response',
+        label: reference.responseTitle
+    }
+].filter((section): section is { id: string; label: string } =>
+    Boolean(section)
+)
+
+const href = endpointPath(locale, endpoint.id)
+const mdHref = `${href.replace(/\/$/, '')}.md`
+const pageUrl = new URL(href, Astro.site).toString()
+// English only: the card is typeset in Geist, which ships no CJK.
+const ogImage =
+    locale === 'en'
+        ? new URL(`${href.replace(/\/$/, '')}.png`, Astro.site).toString()
+        : undefined
+
+// The full trail, starting at the docs home. check-seo.mjs asserts the first
+// BreadcrumbList item is the docs home on every page, and it is right to: a
+// trail that starts halfway down tells a crawler this page has no parent above
+// the API reference, which is not true.
+const breadcrumbs = [
+    { name: getUi(locale).docs, href: localePath(locale, '/docs/') },
+    { name: reference.title, href: localePath(locale, '/api-reference') },
+    { name: endpoint.title }
+]
+---
+
+<BaseLayout
+    title={endpoint.title}
+    description={endpoint.description}
+    locale={locale}
+    type="article"
+    breadcrumbs={breadcrumbs}
+    ogImage={ogImage}
+>
+    <section
+        class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+    >
+    {/* One sidebar, the documentation tree, with the reference and its
+        endpoints as rows in the API group. This surface used to swap in a rail
+        of its own, so walking into the reference replaced the whole tree and
+        walking out replaced it back. */}
+        <DocsSidebar entries={docsEntries} locale={locale} />
+
+        <div class="min-w-0" data-copy-scope>
+            <nav
+                class="text-ui text-subtle mb-3 flex items-center gap-1.5"
+                aria-label="Breadcrumb"
+            >
+                <a
+                    href={localePath(locale, '/api-reference')}
+                    class="text-muted hover:text-fg no-underline hover:no-underline"
+                >
+                    {reference.endpointsTitle}
+                </a>
+                <span aria-hidden="true" class="opacity-50">/</span>
+                <span class="text-fg">{endpoint.title}</span>
+            </nav>
+
+            <header class="docs-page-head">
+                <div class="min-w-0">
+                    <h1 class="docs-page-title" id="page-title">
+                        {endpoint.title}
+                    </h1>
+                    <p class="docs-deck">{endpoint.description}</p>
+                </div>
+                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+            </header>
+
+            <div class="docs-cell flex flex-wrap items-center gap-2">
+                <span class:list={['docs-method-pill', methodClass(endpoint.method)]}>
+                    {methodLabel(endpoint.method)}
+                </span>
+                <code class="font-mono text-ui text-fg break-all">{endpoint.path}</code>
+            </div>
+
+            <dl class="mt-4 grid gap-2.5 sm:grid-cols-2">
+                <div class="docs-cell">
+                    <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
+                        {reference.authTitle}
+                    </dt>
+                    <dd class="mt-1 text-ui text-fg">{endpoint.auth}</dd>
+                </div>
+                <div class="docs-cell">
+                    <dt class="text-subtle text-caption uppercase tracking-[0.06em]">
+                        {reference.quotaTitle}
+                    </dt>
+                    <dd class="mt-1 text-ui text-fg">{endpoint.quota}</dd>
+                </div>
+            </dl>
+
+            {/* Below the signature rather than directly under the header, which
+                is where the landing page puts its copy. The method, path, auth
+                and quota are this page's identity, not a section of it, so a
+                list of sections above them would push the one thing a reader
+                came for below the fold. Guarded at two, because a list that
+                repeats the only heading on the page is noise. */}
+            {
+                sections.length > 1 && (
+                    <nav
+                        class="docs-inline-toc mt-6"
+                        aria-label={ui.tableOfContents}
+                    >
+                        <p class="docs-inline-toc-title">
+                            {ui.tableOfContents}
+                        </p>
+                        <ul>
+                            {sections.map((section) => (
+                                <li>
+                                    <a href={`#${section.id}`}>{section.label}</a>
+                                </li>
+                            ))}
+                        </ul>
+                    </nav>
+                )
+            }
+
+            {
+                endpoint.params.length > 0 && (
+                    <>
+                        <h2 id="parameters" class="mt-8 scroll-mt-24 text-h2">
+                            <a class="docs-heading-anchor" href="#parameters" aria-label={ui.headingLink}></a>
+                            {reference.paramsTitle}
+                        </h2>
+                        <div class="mt-3 overflow-x-auto">
+                            <table class="w-full border-collapse text-ui">
+                                <thead>
+                                    <tr class="border-divider border-b text-left">
+                                        <th class="py-2 pr-3 font-medium">
+                                            {reference.paramsTitle}
+                                        </th>
+                                        <th class="py-2 pr-3 font-medium">
+                                            {reference.requiredLabel}
+                                        </th>
+                                        <th class="py-2 font-medium">
+                                            {reference.descriptionLabel}
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {endpoint.params.map((param) => (
+                                        <tr class="border-divider border-b align-top last:border-b-0">
+                                            <td class="py-2 pr-3 font-mono text-fg">
+                                                {param.name}
+                                            </td>
+                                            <td class="py-2 pr-3 text-muted">
+                                                {param.required
+                                                    ? reference.requiredLabel
+                                                    : reference.optionalLabel}
+                                            </td>
+                                            <td class="py-2 text-muted">
+                                                {param.description}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </>
+                )
+            }
+
+            {
+                requestHtml && (
+                    <>
+                        <h2 id="request" class="mt-8 scroll-mt-24 text-h2">
+                            <a class="docs-heading-anchor" href="#request" aria-label={ui.headingLink}></a>
+                            {reference.requestTitle}
+                        </h2>
+                        <pre class="docs-pre" data-language="bash"><code set:html={requestHtml} /></pre>
+                    </>
+                )
+            }
+
+            {
+                extraHtml && (
+                    <>
+                        <h2 id="streaming" class="mt-8 scroll-mt-24 text-h2">
+                            <a class="docs-heading-anchor" href="#streaming" aria-label={ui.headingLink}></a>
+                            {reference.streamingTitle}
+                        </h2>
+                        <p class="mt-2 max-w-2xl text-ui text-muted">
+                            {reference.streamingLead}
+                        </p>
+                        <pre class="docs-pre" data-language="bash"><code set:html={extraHtml} /></pre>
+                    </>
+                )
+            }
+
+            {
+                (responseHtml || endpoint.response.length > 0) && (
+                    <>
+                        <h2 id="response" class="mt-8 scroll-mt-24 text-h2">
+                            <a class="docs-heading-anchor" href="#response" aria-label={ui.headingLink}></a>
+                            {reference.responseTitle}
+                        </h2>
+                        {endpoint.response.length > 0 && (
+                            <ul class="mt-3 space-y-1.5">
+                                {endpoint.response.map((line) => (
+                                    <li class="text-ui text-muted">{line}</li>
+                                ))}
+                            </ul>
+                        )}
+                        {responseHtml && (
+                            <pre class="docs-pre" data-language="json"><code set:html={responseHtml} /></pre>
+                        )}
+                    </>
+                )
+            }
+
+            <p class="mt-8 text-ui text-muted">
+                <a href={localePath(locale, '/api-reference#errors')}>
+                    {reference.errorsTitle}
+                </a>
+            </p>
+        </div>
+    </section>
+</BaseLayout>

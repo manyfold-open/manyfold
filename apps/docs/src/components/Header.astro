@@ -4,7 +4,6 @@ import {
     getUi,
     languageOptions,
     localeOption,
-    localePath,
     type Locale
 } from '@/lib/i18n'
 import { appUrl, socialDiscordUrl } from '@/lib/siteLinks'
@@ -28,25 +27,17 @@ const languages = languageOptions
         isCurrent: option.code === locale
     }))
 
-const docsHome = localePath(locale, '/docs/getting-started/')
 // Land readers on the marketing page in the language they are reading (#534).
 const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
-const docsBase = localePath(locale, '/docs')
-const links = [
-    { href: docsHome, label: copy.docs, match: docsBase, hideOnMobile: false },
-    {
-        href: localePath(locale, '/api-reference'),
-        label: copy.apiReference,
-        hideOnMobile: false
-    },
-    {
-        href: localePath(locale, '/changelog'),
-        label: copy.changelog,
-        hideOnMobile: true
-    }
-]
-const isActive = (link: { href: string; match?: string }) =>
-    pathname.startsWith(link.match ?? link.href)
+// The changelog is a footer link now, and Footer.astro has carried one all
+// along, so nothing needed adding there. It was already hidden on phones here,
+// so this only changes the desktop menu.
+// Empty at every width now. Navigation is the sidebar's job, and below the
+// sidebar's breakpoint the sidebar is a drawer rather than nothing, so the one
+// row left here has somewhere to go. That row was the API reference, kept only
+// because `hidden lg:block` left a phone no route to it except search; it is a
+// row of the tree in the drawer's Reference group, which is where the desktop
+// entry point already was.
 ---
 
 <header class="border-divider bg-main sticky top-0 z-30 border-b">
@@ -75,23 +66,6 @@ const isActive = (link: { href: string; match?: string }) =>
             >
             <span class="docs-brand-beta" aria-label="Beta">Beta</span>
         </a>
-
-        <nav class="text-ui flex min-w-0 items-center gap-0.5 font-medium sm:gap-1">
-            {
-                links.map((l) => (
-                    <a
-                        href={l.href}
-                        class:list={[
-                            'docs-nav-link',
-                            l.hideOnMobile ? 'hidden md:inline' : '',
-                            isActive(l) ? 'docs-nav-link-active' : ''
-                        ]}
-                    >
-                        {l.label}
-                    </a>
-                ))
-            }
-        </nav>
 
         <div class="ml-auto flex shrink-0 items-center gap-2">
             <button

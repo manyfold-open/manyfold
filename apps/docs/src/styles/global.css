@@ -23,8 +23,9 @@
 /*   bg-surface— code block / card / popover              */
 /* Values are taken from the product's ramp so the docs   */
 /* canvas and the chat canvas are the same room. bg-rail  */
-/* has no consumer here: unlike the app, a docs sidebar   */
-/* is reading aid, not chrome, so it is never filled.     */
+/* has no consumer in the app shell: a docs sidebar is    */
+/* reading aid, not chrome, so it is never filled. The    */
+/* drawer below lg is the one exception and does use it.  */
 /* ====================================================== */
 
 @theme {
@@ -40,10 +41,12 @@
     /* === Workbench surface ramp ===
        Same-hue cool graphite stepping, values shared with the product
        (apps/web styles.css) so a reader moving between the workspace
-       and the docs never sees the ground change under them. */
+       and the docs never sees the ground change under them. Verified
+       identical: --color-app-bg 222 226 230, --color-main-bg 247 249 251,
+       --color-surface 251 252 254. */
     --color-app: rgb(222 226 230);              /* floor — overscroll only */
     --color-main: rgb(247 249 251);             /* docs canvas === chat canvas */
-    --color-rail: rgb(235 238 241);             /* unconsumed; kept aligned to the product rail */
+    --color-rail: rgb(235 238 241);             /* the mobile drawer; aligned to the product rail */
     --color-soft: rgb(234 237 241);             /* list-row hover */
     --color-soft-hover: rgb(226 230 234);       /* one step down, toward the floor */
     --color-surface: rgb(251 252 254);          /* code blocks, cards, popovers */
@@ -119,20 +122,54 @@
     --text-display--letter-spacing: -0.025em;
     --text-display--font-weight: 500;
 
-    --text-h1: 1.75rem;
+    /* 600, not 500, and the same for h2 and h3 below. The docs had two h1
+       paths: .docs-page-title was Tailwind's generic text-3xl plus
+       font-semibold while text-h1 was 1.75rem at 500, so a dashboard title
+       rendered both smaller and lighter than an article title, and once h2 went
+       to 600 the dashboard's h2 outweighed its own h1. Every heading is 600
+       now, size carries the level and weight only separates heading from body,
+       which is Replicate's system: h1 36/600, h2 24/600, body 16/400.
+
+       The size is 1.875rem because that is text-3xl, the larger of the two
+       treatments, so unifying them shrank no title on any page. Both call
+       sites use this token now; nothing reaches for a generic Tailwind step. */
+    --text-h1: 1.875rem;
     --text-h1--line-height: 1.1;
     --text-h1--letter-spacing: -0.02em;
-    --text-h1--font-weight: 500;
+    --text-h1--font-weight: 600;
 
-    --text-h2: 1.25rem;
-    --text-h2--line-height: 1.25;
+    --text-h2: 1.375rem;
+    --text-h2--line-height: 1.3;
     --text-h2--letter-spacing: -0.015em;
-    --text-h2--font-weight: 500;
+    --text-h2--font-weight: 600;
 
-    --text-h3: 1rem;
+    --text-h3: 1.125rem;
     --text-h3--line-height: 1.4;
     --text-h3--letter-spacing: -0.01em;
-    --text-h3--font-weight: 500;
+    --text-h3--font-weight: 600;
+
+    /* The one level where size stops carrying the distinction, so it is worth
+       saying why the step is small. Measured on replicate.com/docs/reference/mcp,
+       which has h4s: 36/28/24/20 over a 14px body, steps of -8, -4, -4. Ours
+       run 30/22/18 over a 15px body, so the same shape would land h4 at 14px,
+       below our own paragraph. Their h3 sits at 1.71x their body and ours at
+       1.20x, so they have a level of headroom left under h3 and we do not.
+
+       16px is therefore a 1.07x step and the 600 weight does most of the work.
+       That is the ratio the h3 pass rejected as 'bold body text', and the
+       judgement stands: this is the weakest level in the scale. Widening it
+       means retuning --text-body or --text-h3, which the whole site and the web
+       app's DESIGN.md share, so it is a decision rather than a tweak.
+
+       It still beats what it replaces. Both h4s in the corpus are entirely
+       <code>, and code:not(pre code) is 0.85em, so an unstyled h4 rendered its
+       mono at 12.75px/400: smaller and lighter than the body text beside it.
+       At 16px/600 that code lands at 13.6px/600, which reads against body code
+       at 12.75px/400 and under h3 code at 15.3px/600. The order is intact. */
+    --text-h4: 1rem;
+    --text-h4--line-height: 1.45;
+    --text-h4--letter-spacing: -0.005em;
+    --text-h4--font-weight: 600;
 
     --text-body: 0.9375rem;
     --text-body--line-height: 1.5;
@@ -142,8 +179,10 @@
     --text-caption--line-height: 1.33;
     /* One rung for every code surface, inline and block alike — docs has no
        display-mode switch, so it is a single value rather than the webapp's
-       three-column ramp (DESIGN.md §5). 13px against the 15px body is the
-       same ~0.87 optical ratio the webapp runs. */
+       three-column ramp (DESIGN.md §5). Taken from upstream, which introduced
+       it to replace a relative 0.85em. Relative sizing was what let inline
+       code inherit whatever its parent happened to be, which is why an
+       all-code heading used to shrink with no rule saying it should. */
     --text-code: 0.8125rem;
     --text-code--line-height: 1.6;
 
@@ -205,11 +244,18 @@
 
         /* Aligned with the product's dark ramp (apps/web styles.css), same
            reasoning as the light block: one room, one set of values. The
-           canvas is lifted above the floor rather than pressed into it —
-           dark mode reads a fill below the canvas as a hole. */
+           canvas is lifted above the floor rather than pressed into it,
+           because dark mode reads a fill below the canvas as a hole.
+
+           This moved the ground the anchor contrast was measured against.
+           Recomputed on the new canvas: --color-fg 14.50:1 (was 16.48),
+           --color-muted 4.69:1 (was 5.33), --color-subtle 2.39:1 (was 2.72).
+           The anchor and its marker draw from --color-muted and still clear
+           the 3:1 floor a control has to hold, with less headroom than
+           before. Light mode improved instead: muted goes 5.41 to 6.80. */
         --color-app: rgb(7 9 12);                  /* floor — overscroll only */
         --color-main: rgb(20 23 27);               /* docs canvas === chat canvas */
-        --color-rail: rgb(13 16 20);               /* unconsumed; aligned to the product rail */
+        --color-rail: rgb(13 16 20);               /* the mobile drawer */
         --color-soft: rgb(28 32 38);               /* list-row hover — lifts off the canvas */
         --color-soft-hover: rgb(38 43 50);
         --color-surface: rgb(32 36 42);            /* code blocks, cards, popovers */
@@ -300,6 +346,25 @@
     a:hover {
         text-decoration: underline;
         color: var(--color-link-hover);
+    }
+
+    /* Both reference sites balance the H1, and a two-line title that breaks
+       after one word is the common case it fixes.
+
+       On the element rather than on either h1 path, because the two paths
+       disagreeing about this was the last thing left of the split the type
+       scale pass closed: .docs-page-title had it and the twelve `text-h1` call
+       sites did not, so a dashboard or legal-page title could still break badly
+       while an article title could not. Nine call-site edits would have been
+       nine more places to drift.
+
+       Safe as an element rule because every h1 in this app is a page title:
+       audited across the build at 110 .docs-page-title, 37 with the changelog's
+       margin, 12 bare `text-h1`, plus 404's, which is exactly one per page and
+       nothing else. There is no hero or marketing h1 here with a different
+       intent. */
+    h1 {
+        text-wrap: balance;
     }
 
     code,
@@ -423,14 +488,14 @@
     }
 
     /* List-row inside the sidebar / menu (class L, §8.10).
-       Hover = bg-soft, not surface-hover; rows are wide and
-       a strong fill on every hover would feel like the list
-       is flashing. The nav sits directly on the canvas (it
-       has no fill of its own), so the hover steps DOWN from
-       it — on a near-white page a row acknowledges by
-       darkening, never by getting brighter. */
+       Hover = bg-soft (a step toward the canvas), not
+       surface-hover; rows are wide and a strong fill on
+       every hover would feel like the list is flashing. */
+    /* Indented past the group heading. Both reference sidebars indent the rows
+       under a heading; ours had leaf and heading on the same 10px left edge,
+       so nothing in the layout said which rows belonged to which group. */
     .docs-sidebar-link {
-        @apply block rounded-sm px-2.5 py-1.5 no-underline transition-colors hover:no-underline;
+        @apply block rounded-sm py-1.5 pr-2.5 pl-5 no-underline transition-colors hover:no-underline;
     }
 
     /* Prose-scoped panel (article surface) — same anatomy as
@@ -452,21 +517,216 @@
         @apply text-h1 text-fg mt-1 mb-4;
     }
 
+    /* Sized by the tokens, not in this scope. The first attempt set the size
+       here to avoid retuning shared tokens, which left h2 at 22px in prose and
+       20px everywhere else, and h3 at 18px against 16px: the same split that
+       had to be cleaned up for h1. One token per level now, and these rules
+       carry only their margins.
+
+       Measured against Replicate: their body is 16px and their section heading
+       24px, a 1.5x step. Ours was 20px over a 15px body, 1.33x, and h3 was
+       16px over that same 15px body, 1.07x, which is not a level at all, it is
+       bold body text. 22px and 18px put the two steps at 1.47x and 1.2x.
+
+       font-semibold is explicit here because it has to be. Swapping @apply
+       text-h2 for a bare font-size dropped the weight that utility carries,
+       and Tailwind's preflight resets a heading to font-weight: inherit, so
+       these rendered at 400: the same weight as the paragraph under them,
+       larger and nothing else. The tokens moved 500 to 600 in the same pass,
+       for both the size utilities and here. Replicate sets its headings at 600
+       against a 400 body, two steps; ours were one step at 500, and our own h1
+       was already 600, so h1 and h2 disagreed. Geist 600 is already loaded for
+       that h1, so this costs no extra font file.
+
+       Space above a heading is now much larger than space below it, so a
+       heading reads as belonging to what follows rather than floating between
+       two blocks. That relationship is what was missing once paragraph spacing
+       grew below. */
     .prose-doc h2 {
-        @apply text-h2 text-fg mt-8 mb-3;
+        @apply text-h2 text-fg mt-10 mb-3;
     }
 
     .prose-doc h3 {
-        @apply text-h3 text-fg mt-6 mb-2.5;
+        @apply text-h3 text-fg mt-7 mb-2.5;
     }
 
+    /* Margins continue the descent above, 40/28/20 over 12/10/8. An unstyled
+       h4 had margin 0 on both sides, so the two that exist sat flush against
+       the paragraph above them with no space to mark the boundary: the same
+       inverted-rhythm problem as the paragraph gap, at a heading. Replicate's
+       h4 is mt 35.6 mb 8.9, and the 8.9 is what the 8 here matches. */
+    .prose-doc h4 {
+        @apply text-h4 text-fg mt-5 mb-2;
+    }
+
+    /* === Heading anchor and level marker ===
+
+       A link to a heading's own id, so a reader can cite one section instead of
+       the whole page. fal and Replicate both ship this; this site had nothing,
+       so pointing at a section meant reading the address bar.
+
+       The marker and the anchor used to be two elements: '##' as generated
+       content on the heading, always there, and a 14px chain icon in the left
+       gutter, revealed on hover. That put the only always-visible mark on the
+       part you cannot click, so a reader had no way to tell which headings had
+       an anchor without hovering each one in turn, and read the ones they had
+       not hovered as having none. Measured against the page behind it, the
+       marker came to 1.65:1 and the icon 2.72:1 even fully revealed, under the
+       3:1 floor a control has to clear.
+
+       So the <a> carries the marker itself. The mark that is always there is
+       now the one you click, at --color-muted, 5.34:1, brightening on hover.
+       It is still generated content: it must be seen and never read, the same
+       reasoning as the table-of-contents label further down.
+
+       Both hang off :has(> .docs-heading-anchor) so one rule covers markdown
+       headings and the hand-written ones on the dashboard and API pages. */
+    :is(h2, h3, h4):has(> .docs-heading-anchor),
+    .docs-anchor-host {
+        @apply relative;
+    }
+
+    .docs-heading-anchor {
+        @apply text-muted absolute font-mono leading-none no-underline transition-colors;
+        /* The glyph keeps the position the marker always had. top and left
+           carry the padding below, so the box grows around the 10px text and
+           gives a pointer more than 10px to hit without moving the mark. */
+        top: -1.2rem;
+        left: -0.375rem;
+        padding: 0.25rem 0.375rem;
+        font-size: 0.625rem;
+        letter-spacing: 0.08em;
+    }
+
+    h2 > .docs-heading-anchor::before {
+        content: '##';
+    }
+
+    h3 > .docs-heading-anchor::before {
+        content: '###';
+    }
+
+    h4 > .docs-heading-anchor::before {
+        content: '####';
+    }
+
+    :is(h2, h3, h4):hover > .docs-heading-anchor,
+    .docs-anchor-host:hover > .docs-heading-anchor,
+    .docs-heading-anchor:hover,
+    .docs-heading-anchor:focus-visible {
+        @apply text-fg;
+    }
+
+    /* h1 has no anchor at all, which is what Replicate does. Measured on
+       replicate.com/docs/reference/mcp: their h1 carries no id, no anchor
+       element and no ::before marker, while every h2 and h3 carries all three.
+
+       It used to keep the hover-only chain icon here, which left two idioms on
+       one page: a persistent mark on section headings and a hidden one on the
+       title. It was also misaligned, 8px above the first line's optical centre,
+       because top: 0.34em was tuned against the 20px h2 and drifts as the font
+       grows: at the h1's 30px it is 10.2px down a 36px line. Both problems go
+       away with the element. A page title's link is the page URL, which is what
+       the Copy page button already hands over.
+
+       The id stays, unlike Replicate's. Nothing links it now, but it is a
+       stable target for anyone who types one, and it costs a crawler nothing.
+
+       What is left here is the changelog timeline, whose anchor sits on a date
+       row rather than a heading, so it has no level to mark and keeps the icon.
+       The icon is a CSS mask rather than inline SVG so the <a> stays empty and
+       a heading's text is exactly its text for anything extracting it. */
+    .docs-anchor-host > .docs-heading-anchor {
+        @apply block h-3.5 w-3.5 opacity-0 transition-opacity;
+        /* 14px in a 32px gutter leaves 9px on each side. At 16px in the 24px
+           gutter the layout used before, it cleared the sidebar's rule by 2px
+           and read as touching it. */
+        top: 0.34em;
+        left: -1.4375rem;
+        padding: 0;
+        background-color: currentColor;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    .docs-anchor-host:hover > .docs-heading-anchor,
+    .docs-anchor-host > .docs-heading-anchor:focus-visible {
+        @apply opacity-100;
+    }
+
+    /* The changelog timeline already owns the left gutter, the entry dot sits
+       there, so its anchor rides inline after the date instead of colliding. */
+    .docs-heading-anchor.is-inline {
+        @apply static;
+    }
+
+    /* Copied. The icon-drawn anchors swap the mask; the marker-drawn ones hide
+       the glyph and lay the same check over the box it left behind. */
+    .docs-heading-anchor.is-done {
+        @apply text-success opacity-100;
+    }
+
+    .docs-anchor-host > .docs-heading-anchor.is-done {
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    /* The check flows in the glyph's place rather than being laid over it. An
+       absolute overlay resolved against the heading once the anchor went
+       static at the narrow layout, which put the tick in the middle of the
+       heading line instead of on the mark that was clicked. */
+    :is(h2, h3, h4) > .docs-heading-anchor.is-done::before {
+        @apply hidden;
+    }
+
+    :is(h2, h3, h4) > .docs-heading-anchor.is-done::after {
+        @apply inline-block h-3 w-3 bg-current align-middle;
+        content: '';
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    @media (width < 64rem) {
+        /* The gutter the chain icon sits in only exists at the wide layout, so
+           the changelog's host, the one that draws an icon, stays hidden here.
+           A section marker needs no
+           gutter: it goes static and leads the heading text, which reads as the
+           markdown it is, and finally gives a phone a way to copy a section
+           link at all. It used to be display:none at this width, so there was
+           none. */
+        .docs-anchor-host > .docs-heading-anchor {
+            @apply hidden;
+        }
+
+        /* Trailing the heading text, not leading it. Leading it indented every
+           section heading past the body copy beside it, which read as broken
+           alignment rather than as markdown. The heading becomes a baseline
+           flex row so the mark can be ordered after its own text without the
+           anchor moving in the DOM, where it has to stay first for the
+           hand-written headings that share this class. */
+        :is(h2, h3, h4):has(> .docs-heading-anchor) {
+            @apply flex flex-wrap items-baseline gap-1.5;
+        }
+
+        :is(h2, h3, h4) > .docs-heading-anchor {
+            @apply static order-last inline-block;
+            padding: 0;
+        }
+    }
+
+    /* The gap between paragraphs is one line, which is the single change that
+       made these pages read as paragraphs instead of one slab.
+
+       It was 14px against a 25.5px line, a ratio of 0.55: looser inside a
+       paragraph than between them, so the boundaries disappeared. Replicate
+       runs 24px on a 24px line, exactly 1.0. This is 24px, and the leading
+       stays at 1.7 because at 71 characters a line that is the comfortable
+       value; it was never the leading that was wrong, only the relationship
+       between the two. */
     .prose-doc p {
-        @apply text-body text-fg/90 my-3.5 leading-[1.7];
+        @apply text-body text-fg/90 my-6 leading-[1.7];
     }
 
     .prose-doc ul,
     .prose-doc ol {
-        @apply text-body text-fg/90 my-3.5 pl-5 leading-[1.7];
+        @apply text-body text-fg/90 my-6 pl-5 leading-[1.7];
     }
 
     .prose-doc ul {
@@ -488,6 +748,10 @@
     .prose-doc ol > li::before,
     .docs-steps > li::before {
         content: counter(docs-step);
+        /* 500, following upstream. These are chrome, not headings, and with
+           our headings at 600 a 600 chip competes with them. Lowering the
+           chrome is the half of upstream's weight sweep that supports a 600
+           heading rather than contradicting it. */
         @apply bg-info-bg text-info-strong absolute left-0 top-0.5 flex h-6 w-6 items-center justify-center rounded-pill text-caption font-medium;
     }
 
@@ -499,14 +763,19 @@
         @apply font-medium;
     }
 
-    /* Without a rule of its own this fell to the browser default 700, which
-       reads as shouting next to 500 headings. */
+    /* Without a rule of its own this fell to the browser default 700. Upstream
+       added this because 700 shouts next to their 500 headings; it matters more
+       here, not less, because our headings are 600 and a 700 <strong> in a
+       paragraph outweighed every heading on the page. */
     .prose-doc strong {
         @apply font-medium;
     }
 
-    /* See BaseLayout.astro for why: on Windows the CJK fallback has no
-       Medium, so 500 would render Regular and emphasis would vanish. */
+    /* See BaseLayout.astro: Microsoft YaHei ships only 400 and 700, so a CJK
+       run at 500 resolves to Regular and <strong> loses its only signal. 600
+       maps to Bold there. Upstream's mechanism, adopted unchanged: it is a
+       font-availability fact rather than a weight choice, so keeping our
+       headings at 600 does not affect it. */
     html[data-cjk-weights='coarse'] .prose-doc strong {
         font-weight: 600;
     }
@@ -519,9 +788,16 @@
         color: var(--color-info-strong);
     }
 
-    /* Code in a heading steps down with the heading instead of sitting at
-       the body rung, so a heading that is entirely code still reads as a
-       heading. */
+    /* Code in a heading steps down with the heading instead of sitting at the
+       code rung, so a heading that is entirely code still reads as a heading.
+       Upstream's ladder, resolved against our type scale rather than theirs:
+       each level takes the size of the level below it.
+
+       The ladder runs 22, 18, 16, 15 and stays above body code's 13px at every
+       level, so an all-code heading is never the size of an all-code sentence.
+       That matters most at h4, where both of the corpus's h4s are entirely
+       code: 15px/600 against body code's 13px/400 separates them by size and
+       weight both, where h4 itself only manages weight. */
     .prose-doc h1 code:not(pre code) {
         font-size: var(--text-h2);
     }
@@ -531,6 +807,10 @@
     }
 
     .prose-doc h3 code:not(pre code) {
+        font-size: var(--text-h4);
+    }
+
+    .prose-doc h4 code:not(pre code) {
         font-size: var(--text-body);
     }
 
@@ -555,6 +835,18 @@
     .docs-code > pre {
         @apply my-0 rounded-none;
         box-shadow: none;
+    }
+
+    /* Hand-authored code panel, for a page that builds its own <pre> outside a
+       markdown body. The .prose-doc pre rules above never reach those, so
+       without this the panel has no surface, no padding and no horizontal
+       scroll, and .docs-code's overflow-hidden clips the long lines away with
+       no way to reach them. The figure the copy script adds wraps this and
+       overrides the margin, rounding and ring, so the two compose. */
+    .docs-pre {
+        @apply bg-surface-subtle my-4 overflow-x-auto rounded-sm px-4 py-3.5 font-mono leading-[1.7];
+        font-size: var(--text-code);
+        box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
     .docs-codebar {
@@ -700,12 +992,346 @@
     }
 
     /* === Sidebar group heading === */
+    /* A group heading is the parent of the rows under it, so it has to read
+       heavier than them, not lighter. This was text-caption/uppercase in
+       text-subtle: smaller AND paler than its own children, which inverts the
+       hierarchy, and it measured 2.12:1 against the sidebar background in
+       light mode and 2.72:1 in dark, under the 4.5:1 AA floor in both. fal
+       sets its group headings at the same size as the leaf rows, one weight
+       up, in near-black. Same idea here, in this system's tokens. */
     .docs-sidebar-group {
-        @apply text-subtle px-2.5 pt-3 pb-1 text-caption font-medium uppercase tracking-[0.1em];
+        @apply text-fg text-ui px-2.5 pt-4 pb-1 font-semibold;
     }
 
     .docs-sidebar-group:first-child {
         @apply pt-1;
+    }
+
+    /* === The tree as a drawer, below lg ===
+       Above the breakpoint the rail carries its own lg: utilities in the
+       markup and nothing here applies. Below it the same element goes
+       off-canvas, so there is one copy of the tree in the DOM rather than one
+       per layout. Measurements are apps/web's: 19rem, z-100 over a z-90
+       backdrop, 200ms on the transform.
+
+       max-w caps it on a small phone. At 19rem flat, a 320px screen would
+       leave 16px of backdrop, which is not enough of a target to close it. */
+    @media (width < 64rem) {
+        .docs-nav-rail {
+            @apply bg-rail border-divider/80 fixed inset-y-0 left-0 z-[100] w-[19rem] max-w-[85vw] overflow-y-auto border-r px-4 py-5 transition-transform duration-200;
+            /* The offset is written out rather than applied as
+               -translate-x-full. That utility compiles to a literal
+               `translate: -100%`, while translate-x-0 only assigns the custom
+               property behind it, so .is-open set the variable and the drawer
+               stayed off-canvas: every state transition looked right and
+               nothing moved. */
+            translate: -100%;
+        }
+
+        .docs-nav-rail.is-open {
+            translate: none;
+        }
+    }
+
+    /* Same pill as apps/web's mobile menu button, down to the sizing. It sits
+       above the breadcrumb rather than beside a title of its own: the
+       breadcrumb on the next line already names the page, and repeating it is
+       what got the eyebrow removed. */
+    /* Proportions are Replicate's, measured: 14px label, 8px from the icon,
+       34px tall against our 36px pill. Padding is 6px/10px there; here the
+       pill's radius wants a touch more on the right, and h-9 with px-3 lands
+       at the same optical size. */
+    .docs-drawer-trigger {
+        @apply shadow-ring-light bg-surface text-muted hover:bg-surface-hover text-ui rounded-pill inline-flex h-9 shrink-0 items-center justify-self-start gap-2 px-3 font-medium transition-colors;
+        /* justify-self, because this is a grid item in the section's
+           one-column stack. A grid item with auto width stretches its track,
+           and blockification turns the inline-flex into flex, so without this
+           the pill ran the full 343px column. */
+        /* It is a grid item in a one-column stack here, so the section's own
+           gap-8 already sits under it. Left alone that put 44px between the
+           button and the breadcrumb it belongs to. Pulled back to 12px. */
+        margin-bottom: -1.25rem;
+    }
+
+    .docs-drawer-backdrop {
+        @apply fixed inset-0 z-[90] bg-black/20;
+    }
+
+    /* The drawer's own header row: what this panel is, and the way out of it.
+       Only rendered below lg, where the aside is a modal drawer; above it the
+       same element is the page's navigation rail and has nothing to dismiss.
+
+       The rule under it separates the label from the first group heading, which
+       is also text-ui/600 in --color-fg. Without it the two read as one list
+       with the panel's name as its first row. */
+    .docs-drawer-head {
+        @apply border-divider/80 mb-1 flex items-center justify-between gap-3 border-b pb-3;
+    }
+
+    /* apps/web's icon button, unchanged: the same pill as the mobile menu
+       trigger it is the counterpart to, at the same 36px. The X is 16px on a
+       2px stroke, matching the hamburger in the trigger. */
+    .docs-drawer-dismiss {
+        @apply shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors;
+    }
+
+    /* === Collapsible sidebar groups ===
+       The group header keeps .docs-sidebar-group's type treatment and becomes
+       the <summary>; only layout and the affordance are added here. The count
+       tells a reader how much is behind a closed group, which is the whole
+       reason collapsing is tolerable on a tree this size. */
+    /* The first group heading is the sidebar's optical top edge, and it has to
+       line up with the first line of the content column beside it. Both are
+       box-aligned already, but the content's eyebrow is 11px on a 14.6px line
+       while this is 13px on 18.6px, so the smaller type's cap sits ~5px
+       higher inside its own line box. Measured from cap position, not box
+       position. Nudging the rail rather than the eyebrow because .docs-kicker
+       is shared with nine pages that have no sidebar to align to. */
+    .docs-sidebar-details:first-child > .docs-sidebar-group {
+        padding-top: 0;
+        margin-top: -1px;
+    }
+
+    .docs-sidebar-summary {
+        @apply flex cursor-pointer list-none items-center justify-between gap-2;
+    }
+
+    .docs-sidebar-summary::-webkit-details-marker {
+        @apply hidden;
+    }
+
+    .docs-sidebar-summary:hover {
+        @apply text-fg;
+    }
+
+    .docs-sidebar-summary em {
+        @apply text-subtle not-italic tabular-nums tracking-normal;
+    }
+
+    /* === Method pills in the rail ===
+       fal puts a coloured verb on every endpoint row of its API rail, so the
+       shape of the surface reads before any label does. Sized to fal's
+       measurements: 8.8px at weight 700 in a 2px/4px box, which keeps the pill
+       between 25 and 37px and leaves the title room in a 220px column. The
+       colours come from the design system's status spectrum, not from fal. */
+    .docs-method-pill {
+        @apply shrink-0 rounded-sm px-1 py-px text-center font-mono font-bold;
+        font-size: 8.8px;
+        line-height: 1.5;
+        letter-spacing: 0.04em;
+        min-width: 30px;
+    }
+
+    .docs-sidebar-endpoint {
+        @apply flex items-center gap-2;
+    }
+
+    /* === Nested sidebar tier ===
+       One level below a group, used only where the content already has that
+       shape (the eight chat and work channels, the per-task CLI guides). The
+       nested <summary> is styled as a list row rather than a second group
+       heading: same padding and type as a leaf link, sentence case, with the
+       chevron on the right saying "this opens" instead of "this navigates".
+       Closed is presentational, so the child links are still in the DOM. */
+    .docs-sidebar-subsummary {
+        @apply flex cursor-pointer list-none items-center justify-between gap-2;
+    }
+
+    .docs-sidebar-subsummary::-webkit-details-marker {
+        @apply hidden;
+    }
+
+    .docs-sidebar-chevron {
+        @apply text-subtle shrink-0 transition-transform;
+    }
+
+    .docs-sidebar-subdetails[open]
+        > .docs-sidebar-subsummary
+        .docs-sidebar-chevron {
+        transform: rotate(90deg);
+    }
+
+    /* The hairline carries the whole depth cue. No smaller type and no second
+       indent step, so a nested leaf still scans as a peer of the flat ones. */
+    .docs-sidebar-sublist {
+        @apply border-divider ml-6 border-l pl-1.5;
+    }
+
+    /* An endpoint row under the API reference. It carries the same hairline and
+       indent as .docs-sidebar-sublist, applied per row rather than to a wrapping
+       <ul>, because the reference is one page with three children rather than a
+       collapsible section of its own. */
+    .docs-sidebar-nested {
+        @apply border-divider ml-6 border-l;
+    }
+
+    /* === Machine-readable artifacts as sidebar rows ===
+       llms.txt, llms-full.txt and the changelog feed are built and served but
+       nothing in the UI said so, which is the one thing replicate.com/docs
+       does that costs a single nav edit. They are raw files rather than pages,
+       so they open in a new tab exactly like the outbound links in
+       Header.astro and Footer.astro, and the arrow is what tells a reader the
+       row leaves the docs shell before they click it. */
+    .docs-sidebar-file {
+        @apply flex items-center justify-between gap-2;
+    }
+
+    .docs-sidebar-ext {
+        @apply text-subtle text-caption shrink-0;
+    }
+
+    /* === Page header block (docs-ui-redesign-benchmark.md 4/2a) ===
+       Eyebrow, title, deck, actions, then a rule. Built entirely from existing
+       tokens: no new colours, no new radii, no new shadows. The rule is the
+       one piece that is structural rather than decorative, because without it
+       the deck and the first body paragraph read as one run of muted text. */
+    .docs-page-head {
+        @apply border-divider mb-6 flex items-start justify-between gap-6 border-b pb-5;
+    }
+
+    /* text-wrap: balance used to live here. It is on the h1 element in the base
+       layer now, so both h1 paths get it instead of only this one. */
+    .docs-page-title {
+        @apply text-h1 text-fg m-0;
+    }
+
+    /* The answer-first line. Plain muted text on purpose: a bordered or tinted
+       box reads as a callout or an aside to a text extractor, which is the
+       opposite of what this sentence is for. */
+    .docs-deck {
+        @apply text-muted mt-2 mb-0 max-w-[62ch] text-base leading-relaxed;
+        text-wrap: pretty;
+    }
+
+    /* === Copy page split button === */
+    .docs-page-actions {
+        @apply relative flex shrink-0 items-stretch;
+    }
+
+    .docs-pa-main {
+        @apply bg-surface text-fg hover:bg-soft text-ui flex h-9 cursor-pointer items-center gap-2 rounded-l-md px-3 font-medium;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-pa-toggle {
+        @apply bg-surface text-muted hover:bg-soft hover:text-fg flex h-9 w-8 cursor-pointer items-center justify-center rounded-r-md;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+        margin-left: -1px;
+    }
+
+    /* Sized by its widest row rather than to a fixed 18rem. The rows used to
+       carry a second line each, two of which restated the row above them, and
+       that hint text set a width the menu kept after the hints were gone. */
+    .docs-pa-menu {
+        @apply bg-surface absolute right-0 top-10 z-20 w-max overflow-hidden rounded-md p-1;
+        box-shadow:
+            inset 0 0 0 1px var(--color-divider),
+            var(--shadow-elevated);
+    }
+
+    .docs-pa-menu[hidden] {
+        display: none;
+    }
+
+    .docs-pa-menu a {
+        @apply text-fg text-ui hover:bg-soft block whitespace-nowrap rounded-sm px-3 py-1.5 font-medium no-underline hover:no-underline;
+    }
+
+    @media (max-width: 640px) {
+        .docs-page-head {
+            @apply flex-col gap-4;
+        }
+    }
+
+    /* === Inline table of contents (benchmark 3.2) ===
+       Two columns, following Replicate, so a long section list stays compact
+       and does not push the first body paragraph below the fold. Deliberately
+       quiet: this is a wayfinder inside the content, not a callout, and the
+       muted treatment keeps it from competing with the deck above it. */
+    .docs-inline-toc {
+        @apply mb-7;
+    }
+
+    /* Normal case, unlike the eyebrow and the sidebar group headers. This label
+       is inside the content flow, so it ends up in extracted text: uppercasing
+       it in CSS makes innerText read "TABLE OF CONTENTS" to every extractor.
+       Replicate sets it in normal case for the same reason.
+
+       In the guides it is the <summary> of a real <details>, so the chevron is
+       there at every width because the control is real at every width. The
+       default triangle goes, the same way the sidebar's summaries drop theirs.
+       */
+    .docs-inline-toc-title {
+        @apply text-subtle text-ui mb-2 flex list-none items-center gap-1.5 font-medium;
+    }
+
+    /* The pointer, the hover and the chevron are scoped to the interactive
+       form, because this class has two call sites and only one of them is a
+       <summary>. The API landing page and the endpoint pages use a <p>: there
+       is nothing to expand there, and every one of them was rendering an inert
+       label under a pointer cursor with a chevron beside it. Same shape as the
+       drift the type scale pass cleaned up, one call site restyled without the
+       other being checked. */
+    summary.docs-inline-toc-title {
+        @apply cursor-pointer;
+    }
+
+    .docs-inline-toc-title::-webkit-details-marker {
+        @apply hidden;
+    }
+
+    summary.docs-inline-toc-title:hover {
+        @apply text-fg;
+    }
+
+    summary.docs-inline-toc-title::after {
+        @apply block h-3 w-3 shrink-0 bg-current transition-transform;
+        content: '';
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    .docs-inline-toc details[open] > summary.docs-inline-toc-title::after {
+        transform: rotate(90deg);
+    }
+
+    .docs-inline-toc ul {
+        @apply m-0 list-none p-0;
+        columns: 2;
+        column-gap: 2rem;
+    }
+
+    .docs-inline-toc li {
+        @apply m-0;
+        /* Keep an entry from splitting across the column break. */
+        break-inside: avoid;
+    }
+
+    /* Underlined, and at 14px, both measured off Replicate's nav.toc: every
+       link there is underlined at 14px/400. Ours were 13px with the underline
+       explicitly removed, which left a two-column block of muted text that a
+       reader has no reason to read as ten links. This is the only list on the
+       page whose entire job is to be clicked.
+
+       Underline offset and thickness keep it from crowding descenders at this
+       size; the colour stays muted so the block does not compete with the
+       prose under it. */
+    .docs-inline-toc a {
+        @apply text-muted hover:text-fg block py-1 underline;
+        font-size: 0.875rem;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 2px;
+        text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+        text-wrap: pretty;
+    }
+
+    .docs-inline-toc a:hover {
+        text-decoration-color: currentColor;
+    }
+
+    @media (max-width: 640px) {
+        .docs-inline-toc ul {
+            columns: 1;
+        }
     }
 
     /* === Prev / next pager — bordered, not filled === */
@@ -1111,7 +1737,9 @@ html {
     scroll-behavior: smooth;
 }
 
-:where(h1, h2, h3) {
+/* h4 included since the type scale gained one: the split command pages carry
+   two, and a fragment jump to either landed them under the sticky header. */
+:where(h1, h2, h3, h4) {
     scroll-margin-top: 5rem;
 }
 

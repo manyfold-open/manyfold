@@ -1,0 +1,159 @@
+---
+// One release, one page. The reason to split at all is that a release is the
+// unit people cite: a support answer says "fixed in 0.22.4", and before this
+// the only citable URL was /changelog#v0.22.4, which loads 37 releases and
+// scrolls. Replicate publishes a page per entry over ~148 entries and keeps its
+// index too, which is the shape copied here.
+//
+// The index keeps every anchor it published. The feed's <id> is a stable tag:
+// URI rather than the page URL, chosen so exactly this split would not re-notify
+// every subscriber, and that is why nothing in the feed changes.
+import { getCollection, render } from 'astro:content'
+import type { CollectionEntry } from 'astro:content'
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
+import {
+    changelogHref,
+    changelogLead,
+    changelogProduct,
+    changelogTitle,
+    sortChangelog
+} from '@/lib/changelog'
+import { filterDocsByLocale, getUi, localePath, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale: Locale
+    entry: CollectionEntry<'changelog'>
+}
+
+const { locale, entry } = Astro.props
+const copy = getUi(locale)
+const docsEntries = filterDocsByLocale(await getCollection('docs'), locale)
+const { Content } = await render(entry)
+
+const title = changelogTitle(entry)
+const lead = changelogLead(entry)
+const short = `${changelogProduct(entry)} ${entry.data.version}`
+
+// Newest first, so the entry before this one in the list is the newer release.
+const ordered = sortChangelog(await getCollection('changelog'))
+const position = ordered.findIndex((candidate) => candidate.id === entry.id)
+const newer = position > 0 ? ordered[position - 1] : null
+const older =
+    position >= 0 && position < ordered.length - 1 ? ordered[position + 1] : null
+
+const href = changelogHref(entry)
+const mdHref = `${href.replace(/\/$/, '')}.md`
+const pageUrl = new URL(href, Astro.site).toString()
+// English only: the card is typeset in Geist, which ships no CJK. The entries
+// themselves have no translations, so these pages exist for the default locale
+// and the Chinese index links to them.
+const ogImage = new URL(`${href.replace(/\/$/, '')}.png`, Astro.site).toString()
+
+const breadcrumbs = [
+    { name: copy.docs, href: localePath(locale, '/docs/') },
+    { name: copy.changelogTitle, href: localePath(locale, '/changelog') },
+    { name: short }
+]
+---
+
+<BaseLayout
+    title={title}
+    description={lead ?? copy.changelogDescription}
+    locale={locale}
+    type="article"
+    breadcrumbs={breadcrumbs}
+    ogImage={ogImage}
+    availableLocales={['en']}
+>
+    <section
+        class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+    >
+        <DocsSidebar entries={docsEntries} locale={locale} />
+
+        <div class="min-w-0" data-copy-scope>
+            <nav
+                class="text-ui text-subtle mb-3 flex items-center gap-1.5"
+                aria-label="Breadcrumb"
+            >
+                <a
+                    href={localePath(locale, '/changelog')}
+                    class="text-muted hover:text-fg no-underline hover:no-underline"
+                >
+                    {copy.changelogTitle}
+                </a>
+                <span aria-hidden="true" class="opacity-50">/</span>
+                <span class="text-fg">{short}</span>
+            </nav>
+
+            <header class="docs-page-head">
+                <div class="min-w-0">
+                    <div class="flex flex-wrap items-center gap-2.5">
+                        <span
+                            class="bg-info-bg text-info-strong rounded-xs px-2 py-0.5 font-mono text-caption font-semibold"
+                        >
+                            v{entry.data.version}
+                        </span>
+                        <time class="text-ui text-subtle" datetime={entry.data.date}>
+                            {entry.data.date}
+                        </time>
+                    </div>
+                    <h1 class="docs-page-title mt-2.5" id="page-title">
+                        {title}
+                    </h1>
+                </div>
+                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+            </header>
+
+            <div class="prose-doc">
+                <Content />
+            </div>
+
+            <nav class="mt-8 flex gap-3" aria-label="Pagination">
+                {
+                    newer ? (
+                        <a href={changelogHref(newer)} class="docs-pager-link">
+                            <span class="text-caption text-subtle">
+                                ← {copy.newerRelease}
+                            </span>
+                            <span class="text-ui text-link mt-1 block font-medium">
+                                {changelogProduct(newer)} {newer.data.version}
+                            </span>
+                        </a>
+                    ) : (
+                        <span class="flex-1" />
+                    )
+                }
+                {
+                    older ? (
+                        <a
+                            href={changelogHref(older)}
+                            class="docs-pager-link text-right"
+                        >
+                            <span class="text-caption text-subtle">
+                                {copy.olderRelease} →
+                            </span>
+                            <span class="text-ui text-link mt-1 block font-medium">
+                                {changelogProduct(older)} {older.data.version}
+                            </span>
+                        </a>
+                    ) : (
+                        <span class="flex-1" />
+                    )
+                }
+            </nav>
+
+            <p class="mt-6 text-ui text-muted">
+                <a
+                    href={localePath(
+                        locale,
+                        `/changelog#v${entry.data.version}`
+                    )}
+                >
+                    {copy.changelogTitle}
+                </a>
+            </p>
+        </div>
+    </section>
+</BaseLayout>
