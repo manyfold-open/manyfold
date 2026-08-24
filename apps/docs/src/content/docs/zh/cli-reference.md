@@ -8,7 +8,7 @@ order: 12
 
 本页由 mf binary 使用的同一份 Commander tree 生成，记录当前公开 command surface；command 和 option description 保留 binary 中的英文原文以避免漂移。已安装 binary 的自身版本始终是最终依据。
 
-**生成自:** `mf 0.23.3`
+**生成自:** `mf 0.24.0`
 
 运行 `mf <command> --help`，确认当前机器已安装版本的准确语法。
 
@@ -2913,6 +2913,21 @@ Update the mf CLI to the latest version
 | `--force` | reinstall even when already on the target version |
 | `--check` | show available update without installing |
 | `--yes` | skip the confirmation prompt |
+| `-h, --help` | display help for command |
+
+<a id="mf-version"></a>
+## `mf version`
+
+Show the installed version, update channel and build metadata
+
+**用法:** `mf version [options]`
+
+**Option**
+
+| Option | 用途 |
+| --- | --- |
+| `--verbose` | include channel, commit, build time, target and paths |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
 <a id="mf-help"></a>
