@@ -10,6 +10,7 @@ import { MatrixChannelProvider } from './providers/matrix.provider'
 import { WeixinChannelProvider } from './providers/weixin.provider'
 import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
+import { LineChannelProvider } from './providers/line.provider'
 
 @Injectable()
 export class ChannelProviderRegistry {
@@ -24,7 +25,8 @@ export class ChannelProviderRegistry {
         matrix: MatrixChannelProvider,
         weixin: WeixinChannelProvider,
         linear: LinearChannelProvider,
-        github: GithubChannelProvider
+        github: GithubChannelProvider,
+        line: LineChannelProvider
     ) {
         this.providers.set('fake', fake)
         this.providers.set('lark', lark)
@@ -35,6 +37,7 @@ export class ChannelProviderRegistry {
         this.providers.set('weixin', weixin)
         this.providers.set('linear', linear)
         this.providers.set('github', github)
+        this.providers.set('line', line)
     }
 
     get(name: ChannelProviderName): ChannelProvider {

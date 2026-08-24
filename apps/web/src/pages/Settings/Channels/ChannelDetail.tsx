@@ -11,6 +11,7 @@ import type {
     LarkStreamingMode,
     LarkSubscriptionMode,
     LinearChannelConfig,
+    LineChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -393,6 +394,7 @@ const ChannelDetail: FC = (): ReactNode => {
                                 channel.provider === 'weixin' ||
                                 channel.provider === 'linear' ||
                                 channel.provider === 'github' ||
+                                channel.provider === 'line' ||
                                 channel.provider === 'lark') && (
                                 <ShortcutTooltip
                                     label={
@@ -407,7 +409,10 @@ const ChannelDetail: FC = (): ReactNode => {
                                                   : channel.provider ===
                                                       'github'
                                                     ? t('web.channels.settings.tooltips.registerGithub')
-                                                    : t('web.channels.settings.tooltips.registerMatrix')
+                                                    : channel.provider ===
+                                                        'line'
+                                                      ? t('web.channels.settings.tooltips.registerLine')
+                                                      : t('web.channels.settings.tooltips.registerMatrix')
                                     }
                                     className='w-full'
                                 >
@@ -423,7 +428,8 @@ const ChannelDetail: FC = (): ReactNode => {
                                     >
                                         <ShieldCheckIcon className='h-4 w-4 shrink-0' />
                                         <span className='min-w-0 flex-1 text-left'>
-                                            {channel.provider === 'telegram'
+                                            {channel.provider === 'telegram' ||
+                                            channel.provider === 'line'
                                                 ? t('web.channels.settings.registerTelegram')
                                                 : channel.provider === 'lark'
                                                   ? t('web.channels.settings.refreshBotIdentity')
@@ -496,7 +502,9 @@ const ChannelDetail: FC = (): ReactNode => {
                                   })
                                 : channel.provider === 'github'
                                   ? t('web.channels.settings.webhookHelp.github')
-                                  : t('web.channels.settings.webhookHelp.other')}
+                                  : channel.provider === 'line'
+                                    ? t('web.channels.settings.webhookHelp.line')
+                                    : t('web.channels.settings.webhookHelp.other')}
                     </p>
                 </section>
             ) : (
@@ -703,6 +711,7 @@ const providerLabel = (channel: ChannelDetailType): string => {
     if (channel.provider === 'weixin') return 'WeChat'
     if (channel.provider === 'linear') return 'Linear'
     if (channel.provider === 'github') return 'GitHub'
+    if (channel.provider === 'line') return 'LINE'
     return 'Fake (test)'
 }
 
@@ -982,6 +991,10 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
         channel.provider === 'github'
             ? (channel.config as GithubChannelConfig)
             : null
+    const initialLine =
+        channel.provider === 'line'
+            ? (channel.config as LineChannelConfig)
+            : null
 
     const [label, setLabel] = useState(channel.label)
     const [subscriptionMode, setSubscriptionMode] =
@@ -1024,6 +1037,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialSlack?.mentionOnly ??
             initialDiscord?.mentionOnly ??
             initialMatrix?.mentionOnly ??
+            initialLine?.mentionOnly ??
             true
     )
     const [shareSessionInChannel, setShareSessionInChannel] = useState(
@@ -1032,6 +1046,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialSlack?.shareSessionInChannel ??
             initialDiscord?.shareSessionInChannel ??
             initialMatrix?.shareSessionInChannel ??
+            initialLine?.shareSessionInChannel ??
             false
     )
     const [threadIsolation, setThreadIsolation] = useState(
@@ -1058,6 +1073,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialDiscord?.contextProjection ??
             initialMatrix?.contextProjection ??
             initialGithub?.contextProjection ??
+            initialLine?.contextProjection ??
             true
     )
     const [appSecret, setAppSecret] = useState('')
@@ -1186,6 +1202,17 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
     )
     const [weixinOutboundFiles, setWeixinOutboundFiles] = useState(
         initialWeixin?.outboundFiles !== false
+    )
+    const [lineChannelSecret, setLineChannelSecret] = useState('')
+    const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
+    const [lineAllowedUserIds, setLineAllowedUserIds] = useState(
+        (initialLine?.allowedUserIds ?? []).join(', ')
+    )
+    const [lineOperatorUserIds, setLineOperatorUserIds] = useState(
+        (initialLine?.operatorUserIds ?? []).join(', ')
+    )
+    const [lineAllowedChatIds, setLineAllowedChatIds] = useState(
+        (initialLine?.allowedChatIds ?? []).join(', ')
     )
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -1437,6 +1464,36 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
                         appId: appIdNext,
                         privateKey: privateKeyNext,
                         webhookSecret: webhookSecretNext
+                    }
+            } else if (channel.provider === 'line') {
+                const channelSecretNext = lineChannelSecret.trim()
+                const accessTokenNext = lineChannelAccessToken.trim()
+                const rotating =
+                    channelSecretNext.length > 0 || accessTokenNext.length > 0
+                // An update replaces the whole credentials blob, so a partial
+                // rotation would drop the field left blank.
+                if (rotating && (!channelSecretNext || !accessTokenNext))
+                    throw new Error(
+                        t('web.channels.settings.errors.lineRotation')
+                    )
+                const nextConfig: LineChannelConfig = {
+                    botUserId: initialLine?.botUserId ?? null,
+                    basicId: initialLine?.basicId ?? null,
+                    botDisplayName: initialLine?.botDisplayName ?? null,
+                    allowedUserIds: commaList(lineAllowedUserIds),
+                    operatorUserIds: commaList(lineOperatorUserIds),
+                    allowedChatIds: commaList(lineAllowedChatIds),
+                    mentionOnly,
+                    shareSessionInChannel,
+                    progressMode: 'final',
+                    contextProjection,
+                    resetOnIdleMins: initialLine?.resetOnIdleMins ?? null
+                }
+                body.config = nextConfig
+                if (rotating)
+                    body.credentials = {
+                        channelSecret: channelSecretNext,
+                        channelAccessToken: accessTokenNext
                     }
             } else if (channel.provider === 'fake') {
                 body.config = { note: null }
@@ -2322,6 +2379,95 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
                     />
                     <p className='text-ui text-muted'>
                         {t('web.channels.settings.help.githubEdit')}
+                    </p>
+                </>
+            )}
+
+            {channel.provider === 'line' && (
+                <>
+                    <Field label={t('web.channels.settings.fields.channelSecretKeep')}>
+                        <input
+                            type='password'
+                            className='workbench-input'
+                            value={lineChannelSecret}
+                            onChange={(e) =>
+                                setLineChannelSecret(e.target.value)
+                            }
+                            autoComplete='new-password'
+                        />
+                    </Field>
+                    <Field
+                        label={t(
+                            'web.channels.settings.fields.channelAccessTokenKeep'
+                        )}
+                    >
+                        <input
+                            type='password'
+                            className='workbench-input'
+                            value={lineChannelAccessToken}
+                            onChange={(e) =>
+                                setLineChannelAccessToken(e.target.value)
+                            }
+                            autoComplete='new-password'
+                        />
+                    </Field>
+                    <Field label={t('web.channels.settings.fields.allowedUserIds')}>
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={lineAllowedUserIds}
+                            onChange={(e) =>
+                                setLineAllowedUserIds(e.target.value)
+                            }
+                            placeholder='U4af4980629..., ...'
+                        />
+                    </Field>
+                    <Field label={t('web.channels.settings.fields.operatorUserIds')}>
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={lineOperatorUserIds}
+                            onChange={(e) =>
+                                setLineOperatorUserIds(e.target.value)
+                            }
+                            placeholder='U4af4980629..., ...'
+                        />
+                    </Field>
+                    <Field
+                        label={t(
+                            'web.channels.settings.fields.allowedLineChatIdsOptional'
+                        )}
+                    >
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={lineAllowedChatIds}
+                            onChange={(e) =>
+                                setLineAllowedChatIds(e.target.value)
+                            }
+                            placeholder='Cxxxxxxxx, Rxxxxxxxx'
+                        />
+                    </Field>
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.mentionOnly')}
+                        description={t('web.channels.settings.behaviors.mentionOnlyDescription')}
+                        checked={mentionOnly}
+                        onChange={setMentionOnly}
+                    />
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.shareSession')}
+                        description={t('web.channels.settings.behaviors.shareSessionDescription')}
+                        checked={shareSessionInChannel}
+                        onChange={setShareSessionInChannel}
+                    />
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.sendContext')}
+                        description={t('web.channels.settings.behaviors.sendContextDescription')}
+                        checked={contextProjection}
+                        onChange={setContextProjection}
+                    />
+                    <p className='text-ui text-muted'>
+                        {t('web.channels.settings.help.lineEdit')}
                     </p>
                 </>
             )}

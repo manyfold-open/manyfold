@@ -455,6 +455,8 @@ export type {
     GithubChannelConfig,
     GithubChannelCredentials,
     GithubAppManifestResponse,
+    LineChannelConfig,
+    LineChannelCredentials,
     ChannelCredentials,
     ChannelAgentSummary,
     ChannelSummary,
