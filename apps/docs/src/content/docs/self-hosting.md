@@ -143,7 +143,9 @@ Agents run on computers you attach, three ways:
 
 - **`mf daemon` (default)** — install the [CLI](/docs/install/), then
   `mf login --api-url https://<your-api>/api` and `mf setup` on any machine
-  you own. See [Local daemons](/docs/local-daemons/).
+  you own. [CLI and daemons on a self-hosted deployment](/docs/self-hosting-cli/)
+  walks the whole flow; [Local daemons](/docs/local-daemons/) covers
+  registration in detail.
 - **Kubernetes** — add a kubeconfig in the API env to run gateway/cronjob-class
   frameworks; deploy the in-cluster exec gateway with the Helm chart at
   `apps/k8s-gateway/helm/manyfold-k8s-gateway` (its README covers the

@@ -464,7 +464,7 @@ const defaultDocsGroups: DocsGroup[] = [
             },
             {
                 title: 'Runtimes',
-                ids: ['local-daemons', 'self-hosting']
+                ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
             },
             {
                 title: 'CLI',
@@ -567,7 +567,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                 },
                 {
                     title: 'Runtime',
-                    ids: ['local-daemons', 'self-hosting']
+                    ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
                 },
                 {
                     title: 'CLI',
