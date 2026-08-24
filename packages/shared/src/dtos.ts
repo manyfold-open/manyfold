@@ -2307,7 +2307,13 @@ export interface SandboxStopResponse {
 // populated in non-prod deploy envs (local/staging); prod returns it empty.
 export interface CliVersionCatalog {
     stable: string[]
-    staging: string[]
+    dev: string[]
+    /**
+     * @deprecated Wire compatibility for web bundles predating the dev rename;
+     * the API fills it with the same list as `dev`. Drop one release after the
+     * GitHub-Releases cutover.
+     */
+    staging?: string[]
 }
 
 export interface CliUpgradeBody {

@@ -13,7 +13,7 @@ import { ListObjectsV2Command, S3Client } from '@aws-sdk/client-s3'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     cliCdnBaseForChannel,
-    cliStagingAllowedForDeployEnv,
+    cliDevAllowedForDeployEnv,
     resolveMfDeployEnv
 } from '@/common/deploy-env'
 
@@ -25,9 +25,9 @@ const GITHUB_REPO = 'protagolabs/manyfold'
 
 // Enumerates installable mf CLI versions for the update pickers. Stable versions
 // come from GitHub releases (cli-v* tags) so prod needs no extra credentials.
-// Staging builds are not released on GitHub — only pushed to R2 under
+// Dev builds are not released on GitHub — only pushed to R2 under
 // cli/staging/v*/ — so they are listed via the bucket and only in non-prod
-// deploy envs. Without R2 credentials the staging list degrades to the public
+// deploy envs. Without R2 credentials the dev list degrades to the public
 // latest pointer rather than failing.
 @Injectable()
 export class CliVersionCatalogService {
@@ -44,7 +44,7 @@ export class CliVersionCatalogService {
         if (this.cache && this.cache.expiresAt > Date.now())
             return this.cache.value
         const value = await this.build()
-        const ok = value.stable.length > 0 || value.staging.length > 0
+        const ok = value.stable.length > 0 || value.dev.length > 0
         this.cache = {
             value,
             expiresAt:
@@ -58,13 +58,12 @@ export class CliVersionCatalogService {
     async isInstallableVersion(version: string): Promise<boolean> {
         const catalog = await this.getCachedCatalog()
         return (
-            catalog.stable.includes(version) ||
-            catalog.staging.includes(version)
+            catalog.stable.includes(version) || catalog.dev.includes(version)
         )
     }
 
-    private includeStaging(): boolean {
-        return cliStagingAllowedForDeployEnv(
+    private includeDev(): boolean {
+        return cliDevAllowedForDeployEnv(
             resolveMfDeployEnv(this.config.get<string>('MF_DEPLOY_ENV'))
         )
     }
@@ -80,10 +79,11 @@ export class CliVersionCatalogService {
                 ? versions.filter((v) => !isCliVersionTooOld(v, minVersion))
                 : versions
         const stable = atLeastMin(await this.fetchStable())
-        const staging = this.includeStaging()
-            ? atLeastMin(await this.fetchStaging())
+        const dev = this.includeDev()
+            ? atLeastMin(await this.fetchDev())
             : []
-        return { stable, staging }
+        // `staging` mirrors `dev` for web bundles predating the rename.
+        return { stable, dev, staging: dev }
     }
 
     private async fetchStable(): Promise<string[]> {
@@ -122,12 +122,12 @@ export class CliVersionCatalogService {
         }
     }
 
-    private async fetchStaging(): Promise<string[]> {
+    private async fetchDev(): Promise<string[]> {
         const s3 = this.r2Client()
         // The bucket name is deployment config like the credentials; without
         // either, degrade to the public latest pointer the same way.
         const bucket = this.config.get<string>('R2_PUBLIC_BUCKET')?.trim()
-        if (!s3 || !bucket) return this.latestFallback('staging')
+        if (!s3 || !bucket) return this.latestFallback('dev')
         try {
             const out = await s3.send(
                 new ListObjectsV2Command({
@@ -139,15 +139,13 @@ export class CliVersionCatalogService {
             const versions = (out.CommonPrefixes ?? [])
                 .map((p) => /^cli\/staging\/v(.+)\/$/.exec(p.Prefix ?? '')?.[1])
                 .filter((v): v is string => typeof v === 'string')
-                // x.y.z-staging.<stamp>.<sha>: lexical desc ≈ newest stamp first
+                // x.y.z-<marker>.<stamp>.<sha>: lexical desc ≈ newest stamp first
                 .sort((a, b) => b.localeCompare(a))
                 .slice(0, MAX_VERSIONS)
             return versions
         } catch (err) {
-            this.log.warn(
-                `cli staging list (R2) failed: ${(err as Error).message}`
-            )
-            return this.latestFallback('staging')
+            this.log.warn(`cli dev list (R2) failed: ${(err as Error).message}`)
+            return this.latestFallback('dev')
         }
     }
 

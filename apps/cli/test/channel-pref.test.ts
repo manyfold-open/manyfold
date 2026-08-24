@@ -24,8 +24,8 @@ const withTmpConfigDir = async (fn: () => Promise<void>): Promise<void> => {
 
 test('saveUpdateChannelPref round-trips through loadUpdateChannelPref', async () => {
     await withTmpConfigDir(async () => {
-        await saveUpdateChannelPref('staging')
-        assert.equal(await loadUpdateChannelPref(), 'staging')
+        await saveUpdateChannelPref('dev')
+        assert.equal(await loadUpdateChannelPref(), 'dev')
         await saveUpdateChannelPref('stable')
         assert.equal(await loadUpdateChannelPref(), 'stable')
     })

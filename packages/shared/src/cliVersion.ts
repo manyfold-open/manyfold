@@ -1,13 +1,13 @@
 // Core-only version handling for the mf CLI: everything from the first `-` or
-// `+` onwards is discarded, so `0.22.5-staging.<stamp>.<sha>` reads as `0.22.5`.
+// `+` onwards is discarded, so `0.22.5-dev.<stamp>.<sha>` reads as `0.22.5`.
 //
-// That is load-bearing, not an oversight. Staging CLI builds carry a prerelease
-// suffix (see isStagingCliVersion below) and are compared against a bare-semver
+// That is load-bearing, not an oversight. Dev CLI builds carry a prerelease
+// suffix (see isDevCliVersion below) and are compared against a bare-semver
 // floor by isCliVersionTooOld, which gates the sprite runner
 // (runner-manager.service.ts) and the daemon upgrade banner
-// (daemon-host.service.ts). Under semver precedence every staging build sits
+// (daemon-host.service.ts). Under semver precedence every dev build sits
 // BELOW its own release, so making this family prerelease-aware would put the
-// entire staging daemon fleet under every minimum version at once.
+// entire dev daemon fleet under every minimum version at once.
 //
 // Framework versions need the opposite semantics and get their own family in
 // ./semver — see the note at the top of that file.
@@ -56,7 +56,7 @@ export const isCliVersionTooOld = (
     return cmp < 0
 }
 
-export type MfCliChannel = 'stable' | 'staging'
+export type MfCliChannel = 'stable' | 'dev'
 
 export const isCliUpdateAvailable = (
     channel: MfCliChannel,
@@ -65,17 +65,24 @@ export const isCliUpdateAvailable = (
 ): boolean => {
     if (!latest) return false
     if (!current) return true
-    if (channel === 'staging') return current !== latest
+    if (channel === 'dev') return current !== latest
     return compareCliSemver(current, latest) === -1
 }
 
-// Staging CLI builds are versioned `x.y.z-staging.<stamp>.<sha>` (see the
-// release-cli-staging workflow); stable builds are bare semver. The prerelease
+// Dev CLI builds are versioned `x.y.z-dev.<stamp>.<sha7>` (see the
+// release-cli-dev workflow); stable builds are bare semver. The prerelease
 // marker is the channel discriminator for a given version string.
-export const isStagingCliVersion = (
+//
+// Builds published before the GitHub-Releases cutover used `-staging.` for the
+// same channel and are still installed in the field — they heartbeat their
+// version to the API — so both markers read as dev indefinitely. This is a
+// compatibility surface, not a naming preference.
+const DEV_MARKER_RE = /-(?:dev|staging)\./
+
+export const isDevCliVersion = (
     version: string | null | undefined
-): boolean => typeof version === 'string' && version.includes('-staging.')
+): boolean => typeof version === 'string' && DEV_MARKER_RE.test(version)
 
 export const cliChannelOfVersion = (
     version: string | null | undefined
-): MfCliChannel => (isStagingCliVersion(version) ? 'staging' : 'stable')
+): MfCliChannel => (isDevCliVersion(version) ? 'dev' : 'stable')

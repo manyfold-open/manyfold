@@ -933,10 +933,14 @@ const handlers: Partial<
             payload.targetVersion.length > 0
                 ? payload.targetVersion
                 : undefined
+        // An API deployed before the dev rename still sends 'staging' on the
+        // wire; a rolling deploy must not brick the RPC.
         const channel =
-            payload.channel === 'staging' || payload.channel === 'stable'
-                ? payload.channel
-                : undefined
+            payload.channel === 'dev' || payload.channel === 'staging'
+                ? ('dev' as const)
+                : payload.channel === 'stable'
+                  ? ('stable' as const)
+                  : undefined
         let outcome
         try {
             outcome = await updateCoordinator.request({

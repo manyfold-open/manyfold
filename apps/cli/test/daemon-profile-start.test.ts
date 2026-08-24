@@ -39,12 +39,12 @@ const withPaths = async (
 test('a channel mismatch warns instead of refusing to start', () => {
     const crossChannel = baseConfig({
         profile: 'staging',
-        channel: 'staging',
+        channel: 'dev',
         apiUrl: 'https://api.dev.example/api'
     })
     const warning = daemonChannelWarning(crossChannel)
     assert.ok(warning)
-    assert.match(warning, /staging-channel binary/)
+    assert.match(warning, /dev-channel binary/)
     assert.match(warning, /still serves https:\/\/api\.dev\.example\/api/)
     assert.doesNotMatch(warning, /re-register/)
 

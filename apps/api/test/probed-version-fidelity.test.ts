@@ -32,19 +32,19 @@ test('the sandbox probe keeps the full staging mf CLI build string', () => {
 })
 
 // The symptom, end to end: what the probe stores is what the update check reads.
-test('a sandbox on the exact latest staging CLI is not told to update', () => {
+test('a sandbox on the exact latest dev CLI is not told to update', () => {
     const { cliVersion } = parseSpriteFrameworkProbe(
         probeOutput({ mf: STAGING_CLI })
     )
 
     assert.equal(
-        isCliUpdateAvailable('staging', cliVersion, STAGING_CLI),
+        isCliUpdateAvailable('dev', cliVersion, STAGING_CLI),
         false
     )
-    // ...and a genuinely newer staging build still is
+    // ...and a genuinely newer dev build still is
     assert.equal(
         isCliUpdateAvailable(
-            'staging',
+            'dev',
             cliVersion,
             '0.22.5-staging.202608121200.abcdef0'
         ),

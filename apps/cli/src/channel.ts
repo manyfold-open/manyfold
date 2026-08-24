@@ -6,9 +6,9 @@ declare const __MF_CLI_CHANNEL__: string
 declare const __MF_CLI_STAGING_API_URL__: string
 declare const __MF_CLI_STAGING_CDN_BASE__: string
 
-export type CliChannel = 'stable' | 'staging'
+export type CliChannel = 'stable' | 'dev'
 
-const stagingBaked = (): { apiUrl: string; cdnBase: string } => ({
+const devBaked = (): { apiUrl: string; cdnBase: string } => ({
     apiUrl:
         typeof __MF_CLI_STAGING_API_URL__ !== 'undefined'
             ? __MF_CLI_STAGING_API_URL__
@@ -22,8 +22,8 @@ const stagingBaked = (): { apiUrl: string; cdnBase: string } => ({
 export const channelDefaults = (
     channel: CliChannel
 ): { apiUrl: string; cdnBase: string } =>
-    channel === 'staging'
-        ? stagingBaked()
+    channel === 'dev'
+        ? devBaked()
         : {
               apiUrl: 'https://api.manyfold.ai/api',
               cdnBase: 'https://cdn1.manyfold.ai/cli'
@@ -31,7 +31,7 @@ export const channelDefaults = (
 
 // The dev channel only exists in builds whose workflow baked its endpoints.
 export const hasDevChannel = (): boolean => {
-    const { apiUrl, cdnBase } = stagingBaked()
+    const { apiUrl, cdnBase } = devBaked()
     return Boolean(apiUrl && cdnBase)
 }
 
@@ -46,27 +46,24 @@ export const requireChannelCdn = (channel: CliChannel): string => {
 
 export const CLI_CHANNEL: CliChannel =
     typeof __MF_CLI_CHANNEL__ !== 'undefined' &&
-    __MF_CLI_CHANNEL__ === 'staging'
-        ? 'staging'
+    (__MF_CLI_CHANNEL__ === 'dev' || __MF_CLI_CHANNEL__ === 'staging')
+        ? 'dev'
         : 'stable'
 
 export const DEFAULT_API_URL = channelDefaults(CLI_CHANNEL).apiUrl
 export const CDN_BASE = channelDefaults(CLI_CHANNEL).cdnBase
 
-// `mf update --channel` speaks openclaw's dev/stable vocabulary; `dev` (and the
-// internal `staging` alias) both resolve to the staging channel.
+// `mf update --channel` speaks openclaw's dev/stable vocabulary; `staging` is
+// accepted as the pre-rename alias for the dev channel.
 export const normalizeUpdateChannelFlag = (value: string): CliChannel => {
     const normalized = value.trim().toLowerCase()
-    if (normalized === 'dev' || normalized === 'staging') return 'staging'
+    if (normalized === 'dev' || normalized === 'staging') return 'dev'
     if (normalized === 'stable') return 'stable'
     throw new Error(`unknown channel '${value}' (expected dev or stable)`)
 }
 
-export const channelFlagLabel = (channel: CliChannel): 'dev' | 'stable' =>
-    channel === 'staging' ? 'dev' : 'stable'
-
-// A pinned `--to <version>` uniquely determines its CDN (staging builds only
-// exist under cli/staging), so its inferred channel beats the saved preference;
+// A pinned `--to <version>` uniquely determines its CDN (dev builds only exist
+// under cli/staging), so its inferred channel beats the saved preference;
 // the caller rejects a `--channel` that disagrees with an explicit `--to`.
 export const resolveEffectiveUpdateChannel = (input: {
     flagChannel?: CliChannel | null

@@ -2,7 +2,6 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
     channelDefaults,
-    channelFlagLabel,
     CLI_CHANNEL,
     hasDevChannel,
     normalizeUpdateChannelFlag,
@@ -31,20 +30,20 @@ test('channelDefaults bakes stable and leaves an uninjected dev channel empty', 
         apiUrl: 'https://api.manyfold.ai/api',
         cdnBase: 'https://cdn1.manyfold.ai/cli'
     })
-    assert.deepEqual(channelDefaults('staging'), { apiUrl: '', cdnBase: '' })
+    assert.deepEqual(channelDefaults('dev'), { apiUrl: '', cdnBase: '' })
     assert.equal(hasDevChannel(), false)
 })
 
 test('channelDefaults serves the workflow-baked dev endpoints when present', (t) => {
     injectDevChannel()
     t.after(clearDevChannel)
-    assert.deepEqual(channelDefaults('staging'), {
+    assert.deepEqual(channelDefaults('dev'), {
         apiUrl: 'https://api.dev.example/api',
         cdnBase: 'https://cdn.dev.example/cli/dev'
     })
     assert.equal(hasDevChannel(), true)
     assert.equal(
-        requireChannelCdn('staging'),
+        requireChannelCdn('dev'),
         'https://cdn.dev.example/cli/dev'
     )
 })
@@ -52,7 +51,7 @@ test('channelDefaults serves the workflow-baked dev endpoints when present', (t)
 test('requireChannelCdn refuses a dev channel this build does not carry', () => {
     clearDevChannel()
     assert.throws(
-        () => requireChannelCdn('staging'),
+        () => requireChannelCdn('dev'),
         /not produced with a dev channel/
     )
     assert.equal(requireChannelCdn('stable'), 'https://cdn1.manyfold.ai/cli')
@@ -71,41 +70,53 @@ test('resolveUpdateStatus orders stable releases by semver', () => {
     assert.equal(resolveUpdateStatus('stable', '0.12.0', '0.11.1'), 'ahead')
 })
 
-test('resolveUpdateStatus treats any staging difference as an update', () => {
-    // Two staging builds of the same base both parse as 0.11.1 under the
+test('resolveUpdateStatus treats any dev difference as an update', () => {
+    // Two dev builds of the same base both parse as 0.11.1 under the
     // stable comparator, which would report "up to date" forever.
     assert.equal(
         resolveUpdateStatus(
-            'staging',
-            '0.11.1-staging.202606120900.aaaaaaa',
-            '0.11.1-staging.202606121400.bbbbbbb'
+            'dev',
+            '0.11.1-dev.202606120900.aaaaaaa',
+            '0.11.1-dev.202606121400.bbbbbbb'
         ),
         'update'
     )
     assert.equal(
         resolveUpdateStatus(
-            'staging',
-            '0.11.1-staging.202606121400.bbbbbbb',
-            '0.11.1-staging.202606121400.bbbbbbb'
+            'dev',
+            '0.11.1-dev.202606121400.bbbbbbb',
+            '0.11.1-dev.202606121400.bbbbbbb'
         ),
         'up-to-date'
     )
-    // The staging channel never reports "ahead" — latest is authoritative.
+    // The dev channel never reports "ahead" — latest is authoritative.
     assert.equal(
         resolveUpdateStatus(
-            'staging',
-            '0.12.0-staging.202607010000.ccccccc',
-            '0.11.1-staging.202606121400.bbbbbbb'
+            'dev',
+            '0.12.0-dev.202607010000.ccccccc',
+            '0.11.1-dev.202606121400.bbbbbbb'
         ),
         'update'
     )
 })
 
-test('normalizeUpdateChannelFlag maps dev/staging aliases to staging', () => {
-    assert.equal(normalizeUpdateChannelFlag('dev'), 'staging')
-    assert.equal(normalizeUpdateChannelFlag('staging'), 'staging')
+// Pre-rename dev builds carry `-staging.` and are still installed in the field.
+test('resolveUpdateStatus still reads pre-rename dev versions as dev', () => {
+    assert.equal(
+        resolveUpdateStatus(
+            'dev',
+            '0.11.1-staging.202606120900.aaaaaaa',
+            '0.11.1-dev.202606121400.bbbbbbb'
+        ),
+        'update'
+    )
+})
+
+test('normalizeUpdateChannelFlag maps dev and the staging alias to dev', () => {
+    assert.equal(normalizeUpdateChannelFlag('dev'), 'dev')
+    assert.equal(normalizeUpdateChannelFlag('staging'), 'dev')
     assert.equal(normalizeUpdateChannelFlag('stable'), 'stable')
-    assert.equal(normalizeUpdateChannelFlag('  DEV '), 'staging')
+    assert.equal(normalizeUpdateChannelFlag('  DEV '), 'dev')
     assert.equal(normalizeUpdateChannelFlag('Stable'), 'stable')
 })
 
@@ -116,38 +127,33 @@ test('normalizeUpdateChannelFlag rejects unknown channels', () => {
     )
 })
 
-test('channelFlagLabel renders the openclaw-facing channel name', () => {
-    assert.equal(channelFlagLabel('staging'), 'dev')
-    assert.equal(channelFlagLabel('stable'), 'stable')
-})
-
 test('resolveEffectiveUpdateChannel: explicit flag wins', () => {
     assert.equal(
         resolveEffectiveUpdateChannel({
             flagChannel: 'stable',
-            savedPref: 'staging',
-            baked: 'staging'
+            savedPref: 'dev',
+            baked: 'dev'
         }),
         'stable'
     )
 })
 
 test('resolveEffectiveUpdateChannel: a pinned --to version dictates its channel', () => {
-    // A staging build only exists under cli/staging, so its version pin must
+    // A dev build only exists under cli/staging, so its version pin must
     // beat a saved stable preference — otherwise the download 404s.
     assert.equal(
         resolveEffectiveUpdateChannel({
             savedPref: 'stable',
-            toVersion: '0.11.1-staging.202606121400.bbbbbbb',
+            toVersion: '0.11.1-dev.202606121400.bbbbbbb',
             baked: 'stable'
         }),
-        'staging'
+        'dev'
     )
     assert.equal(
         resolveEffectiveUpdateChannel({
-            savedPref: 'staging',
+            savedPref: 'dev',
             toVersion: '0.12.0',
-            baked: 'staging'
+            baked: 'dev'
         }),
         'stable'
     )
@@ -156,10 +162,10 @@ test('resolveEffectiveUpdateChannel: a pinned --to version dictates its channel'
 test('resolveEffectiveUpdateChannel: saved preference beats the baked channel', () => {
     assert.equal(
         resolveEffectiveUpdateChannel({
-            savedPref: 'staging',
+            savedPref: 'dev',
             baked: 'stable'
         }),
-        'staging'
+        'dev'
     )
 })
 

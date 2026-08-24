@@ -2,7 +2,6 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import type { DaemonHostSummary } from '@manyfold/shared'
 import { apiPaths } from '@manyfold/shared'
-import { channelFlagLabel } from '@/channel'
 import {
     daemonChannelWarning,
     daemonPaths,
@@ -104,7 +103,7 @@ export const registerDaemonStatus = (program: Command): void => {
                                 ? kleur.green('running')
                                 : kleur.yellow(local.status)
                         } ${kleur.dim(`v${local.version}`)} ${kleur.dim(
-                            `(profile ${local.profile}, ${channelFlagLabel(local.channel)})`
+                            `(profile ${local.profile}, ${local.channel})`
                         )}${local.updatePending ? kleur.yellow('  update pending') : ''}`
                     )
                     console.log(

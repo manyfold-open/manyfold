@@ -38,7 +38,7 @@ import {
     type RuntimeHostRow
 } from '@manyfold/db'
 import {
-    cliStagingAllowedForDeployEnv,
+    cliDevAllowedForDeployEnv,
     resolveMfDeployEnv
 } from '@/common/deploy-env'
 import { DRIZZLE } from '@/db/tokens'
@@ -78,12 +78,12 @@ export class DaemonHostService {
         private readonly config: ConfigService
     ) {}
 
-    // Cross-channel daemon upgrades (e.g. installing a staging build on a
+    // Cross-channel daemon upgrades (e.g. installing a dev build on a
     // stable daemon) are only offered in local/staging and only to daemons new
     // enough to honour the channel override in the daemon.update RPC.
     private crossChannelAllowed(host: RuntimeHostRow): boolean {
         return (
-            cliStagingAllowedForDeployEnv(
+            cliDevAllowedForDeployEnv(
                 resolveMfDeployEnv(this.config.get<string>('MF_DEPLOY_ENV'))
             ) &&
             host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL)
@@ -506,7 +506,12 @@ export class DaemonHostService {
             await this.resolveDaemonTarget(host, args.targetVersion)
         const payload: Record<string, unknown> = {}
         if (targetVersion) payload.targetVersion = targetVersion
-        if (channel) payload.channel = channel
+        // The wire value stays `staging` for the dev channel: daemons built
+        // before the rename only accept `staging`/`stable` and would silently
+        // drop `dev`, then fetch the pinned version from their own CDN and 404.
+        // New daemons normalize both. Flip this once no pre-rename daemon can
+        // reach a cross-channel upgrade.
+        if (channel) payload.channel = channel === 'dev' ? 'staging' : channel
         let ack: Record<string, unknown> | undefined
         try {
             ack = await this.registry.rpc({
