@@ -8,7 +8,7 @@ order: 12
 
 This page is generated from the same Commander tree as the mf binary. It documents the current public command surface; the installed binary remains authoritative for its own version.
 
-**Generated from:** `mf 0.23.3`
+**Generated from:** `mf 0.24.0`
 
 Run `mf <command> --help` to confirm syntax for the version installed on your machine.
 
@@ -2913,6 +2913,21 @@ Update the mf CLI to the latest version
 | `--force` | reinstall even when already on the target version |
 | `--check` | show available update without installing |
 | `--yes` | skip the confirmation prompt |
+| `-h, --help` | display help for command |
+
+<a id="mf-version"></a>
+## `mf version`
+
+Show the installed version, update channel and build metadata
+
+**Usage:** `mf version [options]`
+
+**Options**
+
+| Options | Purpose |
+| --- | --- |
+| `--verbose` | include channel, commit, build time, target and paths |
+| `--json` | output the result as JSON |
 | `-h, --help` | display help for command |
 
 <a id="mf-help"></a>
