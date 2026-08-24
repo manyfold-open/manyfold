@@ -154,9 +154,19 @@ Both write the channel pointer **last**, so a reader never sees a manifest
 naming an artifact that has not finished uploading.
 
 1. In any PR that changes user-facing behavior, run `pnpm changeset` and commit the resulting `.changeset/*.md`.
-2. Promote `develop` to `main`. The `version-pr` workflow opens (or updates) a "Version Packages" PR that bumps `apps/cli/package.json` and writes `apps/cli/CHANGELOG.md`.
-3. Merge that Version PR, then merge the `main` → `develop` back-merge PR.
-4. Run `just cli-release` on `main` — tags `cli-v$VERSION` and pushes.
+2. Promote `develop` to `main`. The `version-pr` workflow bumps `apps/cli/package.json`, writes `apps/cli/CHANGELOG.md` and pushes `changeset-release/main`.
+3. Open the Version PR (see the note below), merge it, then merge the `main` → `develop` back-merge PR.
+4. Resync the docs if the CLI version changed — `cli-content:check` enforces it:
+   `pnpm --filter '@manyfold/cli^...' build && pnpm --filter @manyfold/cli build:public-reference`,
+   plus a new `apps/docs/src/content/changelog/cli-v$VERSION.md`.
+5. Run `just cli-release` on `main` — tags `cli-v$VERSION` and pushes.
+
+> **The two release PRs are opened by hand.** This organisation does not allow
+> GitHub Actions to create pull requests, and a PAT would break the repository's
+> secret-free contract. `version-pr` and `sync-release-to-develop` therefore do
+> all their work, push their branch, and print the exact `gh pr create` command
+> to the run summary instead of failing. The Version PR's title is load-bearing:
+> `sync-release-to-develop` matches on it.
 
 The channel manifests live on a fixed `cli-channels` prerelease so their URLs
 never move:
