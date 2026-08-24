@@ -4,8 +4,6 @@ description: 让 mf CLI 指向你自己的 Manyfold 部署、把机器注册成�
 order: 2
 ---
 
-# 自托管部署的 CLI 与 daemon
-
 `mf` 二进制和所有人用的是同一个，没有单独的自托管版本。区别只在于它指向哪里：
 默认情况下它连的是托管 API `api.manyfold.ai`，所以自托管部署必须显式地说明一次。
 

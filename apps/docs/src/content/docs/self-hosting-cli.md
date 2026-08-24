@@ -4,8 +4,6 @@ description: Install the mf CLI against your own Manyfold deployment, register a
 order: 2
 ---
 
-# CLI and daemons on a self-hosted deployment
-
 The `mf` binary is the same one everyone runs — there is no separate
 self-hosted build. What differs is where it points: out of the box it talks to
 the hosted API at `api.manyfold.ai`, so a self-hosted deployment has to say so

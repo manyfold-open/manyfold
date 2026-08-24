@@ -53,11 +53,14 @@ const linksWithRel = (html, rel) =>
 
 const decode = (value) =>
     value
-        .replace(/&amp;/g, '&')
         .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
+        // Numeric entities too, and &amp; last: a `&` is escaped as &amp; in a
+        // text node but as &#38; inside an attribute value, so a title
+        // containing one compares unequal unless both spellings decode.
+        .replace(/&#(\d+);/g, (_, code) => String.fromCodePoint(Number(code)))
+        .replace(/&amp;/g, '&')
 
 const textContent = (value) =>
     decode(

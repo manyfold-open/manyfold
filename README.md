@@ -62,7 +62,7 @@ you need them in:
 | [Register a self-owned computer](https://docs.manyfold.ai/docs/local-daemons/)                      | Attach a machine as a runtime     |
 | [Create your first agent](https://docs.manyfold.ai/docs/getting-started/)                           | Models, workspace, chat           |
 | [Install the CLI](https://docs.manyfold.ai/docs/install/)                                           | `mf` on macOS, Linux, Windows     |
-| [CLI reference](https://docs.manyfold.ai/docs/cli-reference/)                                       | Every command and flag            |
+| [CLI reference](https://docs.manyfold.ai/docs/cli/reference/)                                       | Every command and flag            |
 | [Chat API](https://docs.manyfold.ai/docs/api-chat/) · [A2A](https://docs.manyfold.ai/docs/api-a2a/) | Call agents from your own code    |
 
 ## Development
