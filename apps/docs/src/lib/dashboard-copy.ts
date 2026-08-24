@@ -41,14 +41,6 @@ export type DashboardCopy = {
     steps: readonly Step[]
     indexHeading: string
     indexIntro: string
-    machineHeading: string
-    machineIntro: string
-    // Keyed by the file node's href with any locale prefix stripped, so the
-    // notes attach to the same Reference entries the sidebar renders instead
-    // of restating that list.
-    machineNotes: Readonly<Record<string, string>>
-    markdownTwinLabel: string
-    markdownTwinNote: string
 }
 
 const en: DashboardCopy = {
@@ -115,17 +107,7 @@ const en: DashboardCopy = {
     ],
     indexHeading: 'Everything, by group',
     indexIntro:
-        'The full tree, so a reader who already knows what they want does not have to guess a path.',
-    machineHeading: 'For agents and scripts',
-    machineIntro:
-        'The whole corpus, in formats a model can read without scraping HTML.',
-    machineNotes: {
-        '/llms.txt': 'Grouped index of every page, one line each',
-        '/llms-full.txt': 'Every page inlined as one document',
-        '/changelog/feed.xml': 'Every release note as an RSS feed'
-    },
-    markdownTwinLabel: '<page>.md',
-    markdownTwinNote: 'Markdown twin of any page, same URL plus .md'
+        'The full tree, so a reader who already knows what they want does not have to guess a path.'
 }
 
 const zh: DashboardCopy = {
@@ -137,7 +119,8 @@ const zh: DashboardCopy = {
     ctaPrimary: '5 分钟快速上手',
     ctaSecondary: '我该选哪个 runtime？',
     runtimeHeading: '第一个决策：你的 agent 跑在哪里？',
-    runtimeIntro: '几乎所有下游的配置问题都取决于这一个决定，所以它排在最前面。',
+    runtimeIntro:
+        '几乎所有下游的配置问题都取决于这一个决定，所以它排在最前面。',
     runtimeMore: '完整对比与选择方法',
     runtimes: [
         {
@@ -189,25 +172,8 @@ const zh: DashboardCopy = {
         }
     ],
     indexHeading: '全部内容，按分组',
-    indexIntro: '完整的路由树，让已经知道目标的读者不必猜路径。',
-    machineHeading: '面向 agent 和脚本',
-    machineIntro: '整个文档语料库，提供无需抓取 HTML 就能读取的格式，方便模型直接使用。',
-    machineNotes: {
-        '/llms.txt': '按分组列出所有页面的索引，每页一行',
-        '/llms-full.txt': '把所有页面合并成一份完整文档',
-        '/changelog/feed.xml': '以 RSS 输出全部发布记录'
-    },
-    markdownTwinLabel: '<page>.md',
-    markdownTwinNote: '任何页面的 Markdown 版本，同一个 URL 加上 .md'
+    indexIntro: '完整的路由树，让已经知道目标的读者不必猜路径。'
 }
 
 export const dashboardCopyFor = (locale: Locale): DashboardCopy =>
     locale === 'zh' ? zh : en
-
-// The Reference file nodes carry a locale prefix in their href (/zh/llms.txt),
-// while the notes above are keyed by the unprefixed route. One place to strip
-// it, so a new locale does not need a second copy of every note.
-export const machineNoteFor = (
-    copy: DashboardCopy,
-    href: string
-): string | undefined => copy.machineNotes[href.replace(/^\/zh(?=\/)/, '')]

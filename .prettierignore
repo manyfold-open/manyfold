@@ -6,6 +6,8 @@ build
 .vite
 pnpm-lock.yaml
 drizzle
-apps/docs/src/content/docs/cli-reference.md
-apps/docs/src/content/docs/zh/cli-reference.md
+apps/docs/src/content/docs/cli/reference.md
+apps/docs/src/content/docs/cli/reference/
+apps/docs/src/content/docs/zh/cli/reference.md
+apps/docs/src/content/docs/zh/cli/reference/
 apps/web/scripts/og/poster.lock.json
