@@ -640,7 +640,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'mb-1'
     ],
     'components/DaemonShared.tsx': [
-        'curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup'
+        'curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup'
     ],
     'components/Loading.tsx': ['h-[18px] rounded-xs'],
     'components/NetmindSignIn.tsx': ['GitHub', 'Google', 'Microsoft'],

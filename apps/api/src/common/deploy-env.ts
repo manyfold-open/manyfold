@@ -1,5 +1,5 @@
 import type { MfCliChannel } from '@manyfold/shared'
-import { CLI_CDN_BASE } from './brand'
+import { CLI_CHANNEL_MANIFEST_TAG, CLI_RELEASE_DOWNLOAD_BASE } from './brand'
 
 const DEFAULT_MF_DEPLOY_ENV = 'local'
 
@@ -10,19 +10,17 @@ export const resolveMfDeployEnv = (
     return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_MF_DEPLOY_ENV
 }
 
-const STABLE_CLI_CDN_BASE = CLI_CDN_BASE
-const DEV_CLI_CDN_BASE = `${CLI_CDN_BASE}/staging`
-
 export const cliChannelForDeployEnv = (deployEnv: string): MfCliChannel =>
     deployEnv === 'staging' ? 'dev' : 'stable'
 
-export const cliCdnBaseForDeployEnv = (deployEnv: string): string =>
-    cliChannelForDeployEnv(deployEnv) === 'dev'
-        ? DEV_CLI_CDN_BASE
-        : STABLE_CLI_CDN_BASE
+// One manifest per channel, at a URL that never moves. The manifest carries the
+// version and the absolute artifact URLs, so nothing here composes a download
+// path — see apps/cli/src/release-manifest.ts for the reader.
+export const cliChannelManifestUrl = (channel: MfCliChannel): string =>
+    `${CLI_RELEASE_DOWNLOAD_BASE}/${CLI_CHANNEL_MANIFEST_TAG}/${channel}.json`
 
-export const cliCdnBaseForChannel = (channel: MfCliChannel): string =>
-    channel === 'dev' ? DEV_CLI_CDN_BASE : STABLE_CLI_CDN_BASE
+export const cliChannelManifestUrlForDeployEnv = (deployEnv: string): string =>
+    cliChannelManifestUrl(cliChannelForDeployEnv(deployEnv))
 
 // Non-prod envs may surface dev CLI builds and allow cross-channel daemon
 // upgrades; prod stays strictly on its own channel.

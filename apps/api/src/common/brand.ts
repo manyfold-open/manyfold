@@ -8,4 +8,10 @@ export const BRAND_NAME = 'Manyfold'
 export const DEFAULT_WEB_BASE_URL = 'https://manyfold.ai'
 export const DEFAULT_API_BASE_URL = 'https://api.manyfold.ai/api'
 export const SUPPORT_EMAIL = 'hi@manyfold.ai'
-export const CLI_CDN_BASE = 'https://cdn1.manyfold.ai/cli'
+// The public CLI entry points. Kept as literals rather than derived from
+// DEFAULT_WEB_BASE_URL: a white-label deployment retargets its own web URL but
+// still installs the upstream mf binary from upstream's releases.
+export const CLI_INSTALL_URL = 'https://manyfold.ai/cli/install.sh'
+export const CLI_RELEASE_REPO = 'manyfold-open/manyfold'
+export const CLI_RELEASE_DOWNLOAD_BASE = `https://github.com/${CLI_RELEASE_REPO}/releases/download`
+export const CLI_CHANNEL_MANIFEST_TAG = 'cli-channels'

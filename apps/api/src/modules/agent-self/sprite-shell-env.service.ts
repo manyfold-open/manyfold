@@ -1,4 +1,4 @@
-import { CLI_CDN_BASE } from '@/common/brand'
+import { CLI_INSTALL_URL } from '@/common/brand'
 import {
     MANAGED_PATH_BLOCK_END,
     MANAGED_PATH_BLOCK_START,
@@ -248,8 +248,6 @@ export const buildShellEnvScript = (input: {
     ].join('\n')
 }
 
-export const DEV_CLI_INSTALL_URL = `${CLI_CDN_BASE}/staging/install.sh`
-export const STABLE_CLI_INSTALL_URL = `${CLI_CDN_BASE}/install.sh`
 export type MfCliInstallChannel = 'stable' | 'dev'
 
 export const cliInstallChannelForDeployEnv = (
@@ -265,16 +263,16 @@ export const buildCliInstallScript = (
     channel: MfCliInstallChannel,
     version?: string
 ): string => {
-    const url =
-        channel === 'dev' ? DEV_CLI_INSTALL_URL : STABLE_CLI_INSTALL_URL
     const marker = channel === 'dev' ? 'MF_DEV_CLI_OK' : 'MF_STABLE_CLI_OK'
-    // install.sh honours VERSION=x.y.z to pin a specific build; left unset it
-    // resolves the channel's latest. Callers validate `version` against the
-    // catalog before it reaches this shell.
+    // One installer, channel selected by env: install.sh resolves the channel
+    // manifest itself. VERSION=x.y.z pins a specific build; left unset it takes
+    // the channel head. Callers validate `version` against the catalog before it
+    // reaches this shell.
     const versionEnv = version ? `VERSION="${version}" ` : ''
+    const channelEnv = channel === 'dev' ? 'MF_CHANNEL=dev ' : ''
     return [
         'set -eu',
-        `curl -fsSL ${url} | ${versionEnv}MF_INSTALL_DIR="$HOME/.local/bin" sh`,
+        `curl -fsSL ${CLI_INSTALL_URL} | ${versionEnv}${channelEnv}MF_INSTALL_DIR="$HOME/.local/bin" sh`,
         '"$HOME/.local/bin/mf" --version',
         buildManagedShellReconcileScript(),
         `echo ${marker}`

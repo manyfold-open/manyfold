@@ -2,8 +2,8 @@ import type { MfCliChannel } from '@manyfold/shared'
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
-    cliCdnBaseForDeployEnv,
     cliChannelForDeployEnv,
+    cliChannelManifestUrlForDeployEnv,
     resolveMfDeployEnv
 } from '@/common/deploy-env'
 
@@ -13,6 +13,9 @@ const FETCH_TIMEOUT_MS = 5_000
 
 export interface LatestCliVersion {
     version: string | null
+    // Which build the version string denotes. Consecutive dev builds share a
+    // version, so the commit is what distinguishes them.
+    commit: string | null
     channel: MfCliChannel
 }
 
@@ -41,22 +44,33 @@ export class DaemonCliVersionService {
             this.config.get<string>('MF_DEPLOY_ENV')
         )
         const channel = cliChannelForDeployEnv(deployEnv)
-        const url = `${cliCdnBaseForDeployEnv(deployEnv)}/latest/version.txt`
+        const url = cliChannelManifestUrlForDeployEnv(deployEnv)
         const controller = new AbortController()
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
         try {
             const res = await fetch(url, { signal: controller.signal })
             if (!res.ok) {
-                this.log.warn(`cli latest version GET ${url} -> ${res.status}`)
-                return { version: null, channel }
+                this.log.warn(`cli channel manifest GET ${url} -> ${res.status}`)
+                return { version: null, commit: null, channel }
             }
-            const version = (await res.text()).trim()
-            return { version: version.length > 0 ? version : null, channel }
+            const body = (await res.json()) as {
+                version?: unknown
+                commit?: unknown
+            }
+            const version =
+                typeof body.version === 'string' ? body.version.trim() : ''
+            const commit =
+                typeof body.commit === 'string' ? body.commit.trim() : ''
+            return {
+                version: version.length > 0 ? version : null,
+                commit: commit.length > 0 ? commit : null,
+                channel
+            }
         } catch (err) {
             this.log.warn(
-                `cli latest version fetch failed: ${(err as Error).message}`
+                `cli channel manifest fetch failed: ${(err as Error).message}`
             )
-            return { version: null, channel }
+            return { version: null, commit: null, channel }
         } finally {
             clearTimeout(timer)
         }
