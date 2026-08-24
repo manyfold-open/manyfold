@@ -474,6 +474,38 @@ if (!robots.includes(`Sitemap: ${site}/sitemap-index.xml`)) {
     fail('/robots.txt', 'missing absolute sitemap declaration')
 }
 
+// === No page falls into the ungrouped bucket ===
+//
+// docs-nav.ts groups pages by hand, and anything it does not list drops into a
+// "More" / "更多" group at the bottom of the tree. That is the visible symptom
+// of an orphaned page: reachable, but filed nowhere, and away from its
+// siblings.
+//
+// This is not hypothetical. The CLI reference is generated one page per
+// command, so a new command creates a page that nothing in the nav knows
+// about: `mf version` arrived in CLI 0.24.0 and landed here exactly that way.
+// The generator can add a page; only this notices that the nav did not.
+const ungroupedLabels = ['More', '更多']
+const ungrouped = []
+for (const { route, html } of pages) {
+    const nav = html.match(/<aside id="docs-nav"[\s\S]*?<\/aside>/)
+    if (!nav) continue
+    for (const label of ungroupedLabels) {
+        if (
+            new RegExp(`<summary[^>]*>\\s*<span>${label}</span>`).test(nav[0])
+        ) {
+            ungrouped.push(route)
+            break
+        }
+    }
+}
+if (ungrouped.length > 0) {
+    fail(
+        ungrouped[0],
+        `the navigation tree renders an ungrouped "More" bucket on ${ungrouped.length} page(s), so a page exists that docs-nav.ts does not list`
+    )
+}
+
 // === Navigational trailers carry no anchor and no TOC entry ===
 //
 // Detected by SHAPE here, on purpose. src/lib/trailers.ts drives the behaviour
@@ -561,4 +593,7 @@ console.log(
     `Trailer gate: ${trailers.length} navigational trailers, none anchored, none in an inline TOC (${
         [...new Set(trailers.map((t) => t.text))].sort().join(', ')
     })`
+)
+console.log(
+    'Nav gate: every page is filed in a group, no ungrouped bucket rendered'
 )

@@ -536,6 +536,7 @@ const defaultDocsGroups: DocsGroup[] = [
                     'cli/reference/daemon',
                     'cli/reference/profile',
                     'cli/reference/update',
+                    'cli/reference/version',
                     'cli/reference/help'
                 ]
             },
@@ -634,6 +635,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                         'cli/reference/daemon',
                         'cli/reference/profile',
                         'cli/reference/update',
+                        'cli/reference/version',
                         'cli/reference/help'
                     ]
                 },

@@ -5,7 +5,7 @@ order: 12
 ---
 This page is generated from the same Commander tree as the mf binary. It documents the current public command surface; the installed binary remains authoritative for its own version.
 
-**Generated from:** `mf 0.23.3`
+**Generated from:** `mf 0.24.0`
 
 Run `mf <command> --help` to confirm syntax for the version installed on your machine.
 
@@ -31,6 +31,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf daemon`](/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli) |
 | [`mf profile`](/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |
 | [`mf update`](/docs/cli/reference/update/) | Update the mf CLI to the latest version |
+| [`mf version`](/docs/cli/reference/version/) | Show the installed version, update channel and build metadata |
 | [`mf help`](/docs/cli/reference/help/) | display help for a command; --agent prints the agent operations guide |
 
 ## Global options
