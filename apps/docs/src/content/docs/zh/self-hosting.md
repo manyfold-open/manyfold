@@ -128,7 +128,8 @@ channel 平台侧注册,再删除用户行,所有用户名下的表随 `ON DELET
 Agent 跑在你接入的计算机上,三条路:
 
 - **`mf daemon`(默认)**——安装 [CLI](../install/),然后在任意自有机器上
-  `mf login --api-url https://<your-api>/api` + `mf setup`。见
+  `mf login --api-url https://<your-api>/api` + `mf setup`。完整流程见
+  [自托管部署的 CLI 与 daemon](../self-hosting-cli/),注册细节见
   [本地 daemon](../local-daemons/)。
 - **Kubernetes**——在 API env 里加 kubeconfig,运行需要 gateway/cronjob 能力
   的框架;集群内 exec gateway 用

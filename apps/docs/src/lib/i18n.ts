@@ -384,7 +384,7 @@ const defaultDocsGroups: DocsGroup[] = [
         title: 'Self-hosting',
         description:
             'Run the open-source stack on your own infrastructure and operate it.',
-        ids: ['self-hosting']
+        ids: ['self-hosting', 'self-hosting-cli']
     },
     {
         title: 'API',
@@ -444,7 +444,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
         {
             title: '自托管',
             description: '在自己的基础设施上运行并运维开源版。',
-            ids: ['self-hosting']
+            ids: ['self-hosting', 'self-hosting-cli']
         },
         {
             title: 'API',
