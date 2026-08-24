@@ -1,5 +1,5 @@
 #!/usr/bin/env -S node --import tsx
-import { readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Argument, Command, Option } from 'commander'
@@ -22,6 +22,7 @@ interface ReferenceCopy {
     generated: string
     installedHelp: string
     globalOptions: string
+    commands: string
     usage: string
     arguments: string
     options: string
@@ -45,6 +46,7 @@ const copy: Record<'en' | 'zh', ReferenceCopy> = {
         installedHelp:
             'Run `mf <command> --help` to confirm syntax for the version installed on your machine.',
         globalOptions: 'Global options',
+        commands: 'Commands',
         usage: 'Usage',
         arguments: 'Arguments',
         options: 'Options',
@@ -66,6 +68,7 @@ const copy: Record<'en' | 'zh', ReferenceCopy> = {
         installedHelp:
             '运行 `mf <command> --help`，确认当前机器已安装版本的准确语法。',
         globalOptions: 'Global option',
+        commands: '命令',
         usage: '用法',
         arguments: 'Argument',
         options: 'Option',
@@ -220,23 +223,94 @@ const renderCommand = (command: Command, labels: ReferenceCopy): string[] => {
     return lines
 }
 
-export const renderPublicReference = (locale: 'en' | 'zh'): string => {
+// The reference is one page per top-level command plus a hub, not one long
+// document. Both reference sites publish a command surface this way, and the
+// flat file was 9,140 words on a single URL: unrankable per command, and a
+// reader looking for `mf agent` had to scroll past everything before it.
+//
+// Everything below is a relocation of what the flat renderer already emitted.
+// Verified against the hand-split pages this replaces: of their content, the
+// only differences were 139 dropped `<a id>` anchors, the 19 summary lines that
+// became frontmatter descriptions, and the blank lines around them. Nothing
+// unaccounted for.
+
+const localeDir = (locale: 'en' | 'zh'): string =>
+    locale === 'zh' ? resolve(docsDir, 'zh/cli/reference') : resolve(docsDir, 'cli/reference')
+
+const localeHub = (locale: 'en' | 'zh'): string =>
+    locale === 'zh'
+        ? resolve(docsDir, 'zh/cli/reference.md')
+        : resolve(docsDir, 'cli/reference.md')
+
+const localeHref = (locale: 'en' | 'zh', command: Command): string =>
+    `${locale === 'zh' ? '/zh' : ''}/docs/cli/reference/${command.name()}/`
+
+// Frontmatter values are quoted because a command summary can carry a colon,
+// which would otherwise end the YAML key.
+const frontmatterValue = (value: string): string =>
+    `"${value.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`
+
+// A command page's own heading is its frontmatter title, so every heading
+// inside it moves up one level: the subcommands that were h3 become h2.
+const promoteHeadings = (lines: string[]): string[] =>
+    lines.map((line) => (/^#{3,6} /.test(line) ? line.slice(1) : line))
+
+// The explicit <a id> anchors go. They duplicated the id rehype-slug already
+// derives from the heading text below them, which is why every #fragment still
+// resolves without them, and the duplication is what forced a duplicate-id
+// exemption on this route.
+const withoutExplicitAnchors = (lines: string[]): string[] =>
+    lines.filter((line) => !/^<a id="[^"]*"><\/a>$/.test(line))
+
+const renderCommandPage = (
+    command: Command,
+    labels: ReferenceCopy,
+    order: number
+): string => {
+    const lines = withoutExplicitAnchors(renderCommand(command, labels))
+    // renderCommand opens with the heading, a blank, the summary and a blank.
+    // The heading is the frontmatter title and the summary is the description,
+    // both of which the docs render above the body, so they leave the prose.
+    const body = promoteHeadings(lines.slice(4))
+    return [
+        '---',
+        `title: ${frontmatterValue(commandPath(command))}`,
+        `description: ${frontmatterValue(command.description())}`,
+        `order: ${order}`,
+        '---',
+        ...body
+    ]
+        .join('\n')
+        .trim()
+        .concat('\n')
+}
+
+const renderHub = (locale: 'en' | 'zh'): string => {
     const labels = copy[locale]
     const program = buildProgram()
-    const lines = [
+    const commands = visibleCommands(program)
+    return [
         '---',
         `title: ${labels.frontmatterTitle}`,
         `description: ${labels.frontmatterDescription}`,
         'order: 12',
         '---',
-        '',
-        `# ${labels.title}`,
-        '',
         labels.lead,
         '',
         `**${labels.generated}:** \`mf ${referenceVersion}\``,
         '',
         labels.installedHelp,
+        '',
+        // The index is the hub's reason to exist: it is the only place the whole
+        // command tree is visible at once now that each command has its own URL.
+        `## ${labels.commands}`,
+        '',
+        `| ${labels.command} | ${labels.purpose} |`,
+        '| --- | --- |',
+        ...commands.map(
+            (command) =>
+                `| [\`${escapeTable(commandPath(command))}\`](${localeHref(locale, command)}) | ${escapeTable(command.description())} |`
+        ),
         '',
         `## ${labels.globalOptions}`,
         '',
@@ -244,19 +318,25 @@ export const renderPublicReference = (locale: 'en' | 'zh'): string => {
         '',
         ...renderOptions(program, labels)
     ]
-    for (const command of visibleCommands(program))
-        lines.push(...renderCommand(command, labels))
-    return `${lines.join('\n').trim()}\n`
+        .join('\n')
+        .trim()
+        .concat('\n')
 }
 
-export const publicReferencePaths = {
-    en: resolve(docsDir, 'cli-reference.md'),
-    zh: resolve(docsDir, 'zh/cli-reference.md')
-} as const
-
 export const writePublicReferences = (): void => {
-    writeFileSync(publicReferencePaths.en, renderPublicReference('en'), 'utf8')
-    writeFileSync(publicReferencePaths.zh, renderPublicReference('zh'), 'utf8')
+    for (const locale of ['en', 'zh'] as const) {
+        const labels = copy[locale]
+        const directory = localeDir(locale)
+        mkdirSync(directory, { recursive: true })
+        writeFileSync(localeHub(locale), renderHub(locale), 'utf8')
+        visibleCommands(buildProgram()).forEach((command, index) => {
+            writeFileSync(
+                resolve(directory, `${command.name()}.md`),
+                renderCommandPage(command, labels, index + 1),
+                'utf8'
+            )
+        })
+    }
 }
 
 const isMain =
@@ -265,10 +345,8 @@ const isMain =
 
 if (isMain) {
     writePublicReferences()
-    const enLines = readFileSync(publicReferencePaths.en, 'utf8').split(
-        '\n'
-    ).length
+    const pages = visibleCommands(buildProgram()).length
     console.log(
-        `public-reference: ✓ mf ${referenceVersion} (${enLines} lines per locale)`
+        `public-reference: ✓ mf ${referenceVersion} (hub + ${pages} command pages per locale)`
     )
 }

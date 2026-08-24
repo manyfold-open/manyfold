@@ -9,9 +9,9 @@ order: 12
 
 运行 `mf <command> --help`，确认当前机器已安装版本的准确语法。
 
-## Commands
+## 命令
 
-| Command | Purpose |
+| 命令 | 用途 |
 | --- | --- |
 | [`mf auth`](/zh/docs/cli/reference/auth/) | Authenticate and manage capabilities for the current identity |
 | [`mf setup`](/zh/docs/cli/reference/setup/) | One-command onboarding: sign in, register this machine as a daemon, start it |
@@ -34,7 +34,6 @@ order: 12
 | [`mf help`](/zh/docs/cli/reference/help/) | display help for a command; --agent prints the agent operations guide |
 
 ## Global option
-
 
 **用法:** `mf [options] [command]`
 
