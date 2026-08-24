@@ -32,7 +32,7 @@ export const HUMAN_HELP_GROUPS: readonly HumanHelpGroup[] = [
     },
     {
         title: 'Access and local tools',
-        commands: ['auth', 'daemon', 'profile', 'update', 'help']
+        commands: ['auth', 'daemon', 'profile', 'update', 'version', 'help']
     }
 ] as const
 

@@ -1,10 +1,10 @@
 import type { DaemonStartupMethod } from '@manyfold/shared'
-import { channelDefaults, type CliChannel } from '@/channel'
+import { type CliChannel, DEFAULT_API_URL } from '@/channel'
 import { resolveUpdateStatus } from '@/commands/update'
 import type { IdleUpdateOutcome } from './update-drain'
 
-// Background fleet freshness, multica-style: poll the channel CDN and install
-// the latest build — but ONLY when the daemon is fully idle. Unlike an
+// Background fleet freshness, multica-style: poll the channel manifest and
+// install the latest build — but ONLY when the daemon is fully idle. Unlike an
 // admin-requested daemon.update, this path never drains: nobody asked for it,
 // so it must never pause sessions; when busy it just retries sooner.
 export const AUTO_UPDATE_CHECK_INTERVAL_MS = 6 * 3_600_000
@@ -46,8 +46,9 @@ export const resolveAutoUpdateEnabled = (opts: {
             reason: `unrecognized MF_DAEMON_AUTO_UPDATE value "${env}"`
         }
     }
-    return normalizedUrl(opts.apiUrl) ===
-        normalizedUrl(channelDefaults(opts.channel).apiUrl)
+    // Both channels default to the same production API now, so this is a
+    // single comparison; the channel only colours the reason string.
+    return normalizedUrl(opts.apiUrl) === normalizedUrl(DEFAULT_API_URL)
         ? { enabled: true, reason: `official ${opts.channel} channel` }
         : {
               enabled: false,
@@ -66,7 +67,9 @@ export type AutoUpdateTickResult =
 export interface AutoUpdateLoopDeps {
     channel: CliChannel
     currentVersion: string
-    fetchLatestVersion: () => Promise<string>
+    currentCommit?: string | null
+    // The dev channel is ordered by commit, so the check needs both.
+    fetchLatest: () => Promise<{ version: string; commit: string }>
     applyIfIdle: (targetVersion: string) => Promise<IdleUpdateOutcome>
     log: (msg: string) => void
     checkIntervalMs?: number
@@ -90,27 +93,30 @@ export class DaemonAutoUpdater {
         this.timer = null
     }
 
-    // Never throws: a flaky CDN or a failed download must not take the loop
+    // Never throws: a flaky origin or a failed download must not take the loop
     // (let alone the daemon) down — it logs and retries on the next tick.
     async tick(): Promise<AutoUpdateTickResult> {
-        let latest: string
+        let head: { version: string; commit: string }
         try {
-            latest = (await this.deps.fetchLatestVersion()).trim()
+            head = await this.deps.fetchLatest()
         } catch (err) {
             this.deps.log(
                 `auto-update check failed: ${(err as Error).message}`
             )
             return 'check-failed'
         }
+        const latest = head.version.trim()
         if (!latest) {
-            this.deps.log('auto-update check failed: empty version.txt')
+            this.deps.log('auto-update check failed: manifest has no version')
             return 'check-failed'
         }
-        const status = resolveUpdateStatus(
-            this.deps.channel,
-            this.deps.currentVersion,
-            latest
-        )
+        const status = resolveUpdateStatus({
+            channel: this.deps.channel,
+            currentVersion: this.deps.currentVersion,
+            currentCommit: this.deps.currentCommit ?? null,
+            targetVersion: latest,
+            targetCommit: head.commit
+        })
         if (status !== 'update') return 'up-to-date'
         let outcome: IdleUpdateOutcome
         try {
@@ -145,8 +151,8 @@ export class DaemonAutoUpdater {
 
     private schedule(delayMs: number): void {
         if (this.stopped) return
-        // ±10% jitter so a fleet rebooted together does not hit the CDN (or
-        // restart) in lockstep.
+        // ±10% jitter so a fleet rebooted together does not hit the release
+        // origin (or restart) in lockstep.
         const jittered = Math.round(delayMs * (0.9 + Math.random() * 0.2))
         this.timer = setTimeout(() => {
             void this.tick().then((result) => {

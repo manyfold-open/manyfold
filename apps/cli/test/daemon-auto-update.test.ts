@@ -68,6 +68,13 @@ interface Harness {
     logs: string[]
 }
 
+const commitOf = (version: string): string => {
+    // Dev versions end in .<sha7>; the harness derives the manifest commit from
+    // the version so a caller only has to vary one thing.
+    const parts = version.split('.')
+    return parts.length > 3 ? parts[parts.length - 1] : ''
+}
+
 const makeUpdater = (opts: {
     latest: string | (() => Promise<string>)
     channel?: 'stable' | 'dev'
@@ -82,10 +89,14 @@ const makeUpdater = (opts: {
     const deps: AutoUpdateLoopDeps = {
         channel: opts.channel ?? 'stable',
         currentVersion: opts.current ?? '1.0.0',
-        fetchLatestVersion:
-            typeof opts.latest === 'function'
-                ? opts.latest
-                : async () => opts.latest as string,
+        currentCommit: commitOf(opts.current ?? '1.0.0') || null,
+        fetchLatest: async () => {
+            const version =
+                typeof opts.latest === 'function'
+                    ? await opts.latest()
+                    : opts.latest
+            return { version, commit: commitOf(version) }
+        },
         applyIfIdle: async (target) => {
             applied.push(target)
             if (opts.outcome) return opts.outcome(target)
@@ -94,6 +105,7 @@ const makeUpdater = (opts: {
                 result: {
                     from: opts.current ?? '1.0.0',
                     to: target,
+                    commit: commitOf(target) || null,
                     execPath: '/tmp/mf',
                     changed: true
                 }
