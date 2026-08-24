@@ -5,14 +5,14 @@
     "description": "Manyfold CLI (mf) — distributed as standalone binaries",
     "license": "Apache-2.0",
     "author": "Manyfold",
-    "homepage": "https://github.com/protagolabs/manyfold/tree/main/apps/cli",
+    "homepage": "https://github.com/manyfold-open/manyfold/tree/main/apps/cli",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/protagolabs/manyfold.git",
+        "url": "git+https://github.com/manyfold-open/manyfold.git",
         "directory": "apps/cli"
     },
     "bugs": {
-        "url": "https://github.com/protagolabs/manyfold/issues"
+        "url": "https://github.com/manyfold-open/manyfold/issues"
     },
     "type": "module",
     "bin": {

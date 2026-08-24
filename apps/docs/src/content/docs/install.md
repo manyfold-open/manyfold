@@ -11,7 +11,7 @@ The `mf` CLI is distributed as a standalone binary, so you do not need Node.js f
 ## macOS and Linux
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup
+curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup
 ```
 
 This installs `mf`, signs you in, registers the machine, and starts its daemon. To install the CLI without running setup, omit `-s -- setup`.
@@ -27,7 +27,7 @@ export PATH="$HOME/.local/bin:$PATH"
 You can choose a different install directory:
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
 ```
 
 You may need `sudo` for system directories such as `/usr/local/bin`.
@@ -38,16 +38,16 @@ Download the Windows zip from the manual download path below, extract `mf.exe`, 
 
 ## Manual download
 
-Download a tarball or zip from:
+Every release attaches its assets to a GitHub release:
 
 ```text
-https://cdn1.manyfold.ai/cli/v<version>/
+https://github.com/manyfold-open/manyfold/releases/tag/cli-v<version>
 ```
 
-The latest version string is published at:
+Which version each channel currently points at is published as a manifest:
 
 ```text
-https://cdn1.manyfold.ai/cli/latest/version.txt
+https://github.com/manyfold-open/manyfold/releases/download/cli-channels/stable.json
 ```
 
 | platform            | asset                          |
@@ -58,7 +58,7 @@ https://cdn1.manyfold.ai/cli/latest/version.txt
 | macos-arm64 (Apple) | `mf-<ver>-darwin-arm64.tar.gz` |
 | windows-x64         | `mf-<ver>-windows-x64.zip`     |
 
-Each tarball ships with a sibling `.sha256` for verification.
+Each tarball ships with a sibling `.sha256` for verification, and the manifest above records the same checksum for every asset.
 
 ## Sign in
 

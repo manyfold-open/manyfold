@@ -30,7 +30,7 @@ Manyfold 可以帮你创建托管的 AI Agent，为它分配工作区，并通�
 如果需要在终端中使用，请在登录后安装 CLI：
 
 ```sh
-curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh
+curl -fsSL https://manyfold.ai/cli/install.sh | sh
 mf login
 mf whoami
 ```
