@@ -46,6 +46,7 @@ const makeHarness = (opts?: {
                 return {
                     from: '1.0.0',
                     to: spec.targetVersion ?? '2.0.0',
+                    commit: 'a72f4de',
                     execPath: '/tmp/mf',
                     changed: opts?.changed ?? true
                 }
@@ -204,6 +205,7 @@ test('a request during an in-flight apply is rejected', async () => {
             return {
                 from: '1.0.0',
                 to: '2.0.0',
+                commit: 'a72f4de',
                 execPath: '/tmp/mf',
                 changed: true
             }

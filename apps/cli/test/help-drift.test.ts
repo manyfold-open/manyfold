@@ -33,6 +33,7 @@ const EXCLUDED_COMMANDS = [
     'profile',
     'setup',
     'update',
+    'version',
     'help'
 ] as const
 

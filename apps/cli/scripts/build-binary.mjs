@@ -145,8 +145,8 @@ await packageAsset(cfg.exe, `mf-${version}-${cfg.os}-${cfg.arch}`)
 // Pre-rename binaries self-update by downloading `nca-<ver>-<os>-<arch>.tar.gz`
 // and expect an inner binary named `nca`. Keep publishing that shape so
 // `nca update` still lands users on the renamed CLI. Drop once the old
-// installed base is gone. The staging channel has no legacy installed base.
-if (cfg.ext === 'tar.gz' && channel !== 'staging') {
+// installed base is gone. The dev channel has no legacy installed base.
+if (cfg.ext === 'tar.gz' && channel !== 'dev' && channel !== 'staging') {
     copyFileSync(exePath, join(outDir, 'nca'))
     await packageAsset('nca', `nca-${version}-${cfg.os}-${cfg.arch}`)
 }

@@ -51,6 +51,7 @@ import {
     readFinal,
     readMeta
 } from './exec-buffer'
+import { normalizeWireChannel } from '@/channel'
 import { performSelfUpdate } from '@/commands/update'
 import { detectStartupMethod } from './startup-method'
 import {
@@ -935,12 +936,7 @@ const handlers: Partial<
                 : undefined
         // An API deployed before the dev rename still sends 'staging' on the
         // wire; a rolling deploy must not brick the RPC.
-        const channel =
-            payload.channel === 'dev' || payload.channel === 'staging'
-                ? ('dev' as const)
-                : payload.channel === 'stable'
-                  ? ('stable' as const)
-                  : undefined
+        const channel = normalizeWireChannel(payload.channel)
         let outcome
         try {
             outcome = await updateCoordinator.request({
@@ -966,6 +962,10 @@ const handlers: Partial<
             payload: {
                 fromVersion: outcome.result.from,
                 toVersion: outcome.result.to,
+                // Which commit a dev daemon actually landed on: consecutive
+                // dev builds share a version, so the server cannot tell from
+                // toVersion alone.
+                toCommit: outcome.result.commit,
                 restarting: outcome.result.changed
             }
         }

@@ -18,6 +18,7 @@ import { registerA2a } from '@/commands/a2a'
 import { registerDaemon } from '@/commands/daemon'
 import { registerSetup } from '@/commands/setup'
 import { registerUpdate } from '@/commands/update'
+import { registerVersion } from '@/commands/version'
 import { configureHumanHelp } from '@/human-help'
 import { resolveProfile, setProfileFlag } from '@/config'
 import { MF_CLI_VERSION } from '@/version'
@@ -74,6 +75,7 @@ export const buildProgram = (): Command => {
     registerDaemon(program)
     registerProfile(program)
     registerUpdate(program)
+    registerVersion(program)
     registerHelp(program)
     configureHumanHelp(program)
 
