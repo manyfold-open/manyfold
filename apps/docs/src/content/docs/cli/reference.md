@@ -35,7 +35,6 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 
 ## Global options
 
-
 **Usage:** `mf [options] [command]`
 
 **Options**
