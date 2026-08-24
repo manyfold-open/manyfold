@@ -1,0 +1,70 @@
+name: sync-release-to-develop
+
+on:
+    pull_request:
+        types: [closed]
+        branches: [main]
+    workflow_dispatch: {}
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: sync-release-to-develop
+    cancel-in-progress: false
+
+jobs:
+    # Without this, GitFlow leaks: `changeset version` bumps package.json and
+    # deletes the consumed changesets on main, develop never learns, and the
+    # next develop-to-main promotion resurrects them.
+    #
+    # Matches the changesets branch and, by title, a hand-made Version Packages
+    # branch: a version PR pushed from any other branch name used to skip the
+    # sync silently. The title must stay identical to the `title:` input of
+    # version-pr.yml.
+    open-sync-pr:
+        if: >-
+            github.repository == 'manyfold-open/manyfold' &&
+            (github.event_name == 'workflow_dispatch' ||
+            (github.event.pull_request.merged == true &&
+            (github.event.pull_request.head.ref == 'changeset-release/main' ||
+            startsWith(github.event.pull_request.title, 'chore(release): version tracked packages'))))
+        runs-on: ubuntu-24.04
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: main
+                  fetch-depth: 0
+            - name: Open main to develop sync PR
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags origin \
+                      +refs/heads/main:refs/remotes/origin/main \
+                      +refs/heads/develop:refs/remotes/origin/develop
+
+                  if [ "$(git rev-list --count origin/develop..origin/main)" -eq 0 ]; then
+                      echo 'develop already contains every main commit; nothing to sync'
+                      exit 0
+                  fi
+
+                  OPEN_PR=$(gh pr list \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --base develop \
+                      --head main \
+                      --state open \
+                      --json url \
+                      --jq '.[0].url // empty')
+                  if [ -n "$OPEN_PR" ]; then
+                      echo "sync PR already open: $OPEN_PR"
+                      exit 0
+                  fi
+
+                  gh pr create \
+                      --repo "$GITHUB_REPOSITORY" \
+                      --base develop \
+                      --head main \
+                      --title 'chore(release): sync main back to develop' \
+                      --body 'Brings release-only version and changelog updates, plus consumed changeset deletions, back to develop. Merge this after the release workflows succeed. Use a merge commit, not squash, so the next develop to main promotion preserves the release ancestry.'

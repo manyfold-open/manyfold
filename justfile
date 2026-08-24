@@ -112,6 +112,23 @@ cli-binary-host: cli-build
         T="bun-$OS-$ARCH"; \
         echo "building $T"; \
         pnpm --filter @manyfold/cli exec node scripts/build-binary.mjs $T
+
+# Tag a stable CLI release (release-cli then builds and promotes stable.json)
+cli-release:
+    @git diff --quiet || (echo 'working tree dirty; commit first' && exit 1)
+    @git diff --cached --quiet || (echo 'staged changes; commit first' && exit 1)
+    @[ "$(git rev-parse --abbrev-ref HEAD)" = "main" ] || (echo 'must release from main' && exit 1)
+    @V=$(node -p "require('./apps/cli/package.json').version"); \
+        T="cli-v$V"; \
+        if git rev-parse "$T" >/dev/null 2>&1; then \
+            echo "tag $T already exists locally; aborting"; exit 1; \
+        fi; \
+        echo "tagging $T → builds 5 targets, then promotes stable.json"; \
+        git tag "$T"; \
+        git push origin main; \
+        git push origin "$T"; \
+        echo "watch: gh run watch --repo manyfold-open/manyfold"
+
 check:
     pnpm check
 

@@ -1,0 +1,170 @@
+# Stable CLI releases. A `cli-v<semver>` tag builds the five targets, attaches
+# them to their own release, and only then promotes that release's manifest to
+# the stable channel pointer.
+#
+# The ordering is the whole point: `stable.json` is written LAST, so a reader
+# never sees a channel pointer naming an artifact that has not finished
+# uploading. The pointer lives on a fixed `cli-channels` prerelease whose asset
+# URLs therefore never move, and it carries absolute artifact URLs — which is
+# what lets the artifact storage relocate later without reissuing binaries.
+#
+# Zero repository secrets, same contract as ci.yml and release.yml.
+name: release-cli
+on:
+    push:
+        tags: ['cli-v*']
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: 'existing tag (e.g. cli-v0.24.0)'
+                required: true
+
+permissions:
+    contents: write
+
+concurrency:
+    group: release-cli-${{ github.event.inputs.tag || github.ref_name }}
+    cancel-in-progress: false
+
+jobs:
+    prepare:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            tag: ${{ steps.meta.outputs.tag }}
+            version: ${{ steps.meta.outputs.version }}
+            commit: ${{ steps.meta.outputs.commit }}
+            buildTime: ${{ steps.meta.outputs.buildTime }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.inputs.tag || github.ref }}
+            - id: meta
+              run: |
+                  set -eu
+                  TAG='${{ github.event.inputs.tag || github.ref_name }}'
+                  case "$TAG" in
+                      cli-v[0-9]*) ;;
+                      *) echo "::error::'$TAG' is not a cli version tag"; exit 1 ;;
+                  esac
+                  VERSION="${TAG#cli-v}"
+                  # Asset names come from package.json while the tag names the
+                  # release; a skew between them publishes a manifest whose
+                  # URLs 404, so refuse the release instead.
+                  PKG=$(node -p "require('./apps/cli/package.json').version")
+                  if [ "$VERSION" != "$PKG" ]; then
+                      echo "::error::tag $TAG disagrees with apps/cli/package.json ($PKG)"
+                      exit 1
+                  fi
+                  {
+                      echo "tag=$TAG"
+                      echo "version=$VERSION"
+                      echo "commit=$(git rev-parse HEAD)"
+                      echo "buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  } >>"$GITHUB_OUTPUT"
+
+    build:
+        needs: prepare
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                target:
+                    - bun-linux-x64
+                    - bun-linux-arm64
+                    - bun-darwin-x64
+                    - bun-darwin-arm64
+                    - bun-windows-x64
+        env:
+            MF_CLI_CHANNEL: stable
+            MF_CLI_VERSION: ${{ needs.prepare.outputs.version }}
+            MF_CLI_COMMIT: ${{ needs.prepare.outputs.commit }}
+            MF_CLI_BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.prepare.outputs.tag }}
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: latest
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm --filter '@manyfold/cli...' build
+            - run: node apps/cli/scripts/build-binary.mjs ${{ matrix.target }}
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: cli-${{ matrix.target }}
+                  # Only the mf-* assets: the nca-* legacy alias serves the
+                  # hosted edition's pre-rename installed base.
+                  path: |
+                      apps/cli/dist-bin/mf-*
+                  if-no-files-found: error
+
+    publish:
+        needs: [prepare, build]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            GH_TOKEN: ${{ github.token }}
+            TAG: ${{ needs.prepare.outputs.tag }}
+            VERSION: ${{ needs.prepare.outputs.version }}
+            COMMIT: ${{ needs.prepare.outputs.commit }}
+            BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.prepare.outputs.tag }}
+            - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+              with:
+                  path: dist-bin
+                  pattern: cli-*
+                  merge-multiple: true
+            - name: Build the release manifest
+              run: |
+                  set -eu
+                  node apps/cli/scripts/build-manifest.mjs \
+                      --channel stable \
+                      --version "$VERSION" \
+                      --commit "$COMMIT" \
+                      --build-time "$BUILD_TIME" \
+                      --tag "$TAG" \
+                      --dir dist-bin \
+                      --base "https://github.com/${{ github.repository }}/releases/download/$TAG" \
+                      --notes-url "https://github.com/${{ github.repository }}/releases/tag/$TAG" \
+                      --out dist-bin/manifest.json
+            - name: Publish the version release
+              run: |
+                  set -eu
+                  node apps/cli/scripts/release-notes.mjs "$VERSION" >notes.md
+                  NOTES=()
+                  if [ -s notes.md ]; then
+                      NOTES=(--notes-file notes.md)
+                  else
+                      NOTES=(--generate-notes)
+                  fi
+                  gh release create "$TAG" \
+                      --title "mf $VERSION" \
+                      "${NOTES[@]}" \
+                      dist-bin/*
+              shell: bash
+            # Only now that every URL the manifest names is resolvable does the
+            # channel pointer move. `--prerelease` keeps cli-channels out of
+            # `releases/latest` permanently.
+            - name: Promote to the stable channel
+              run: |
+                  set -eu
+                  gh release view cli-channels >/dev/null 2>&1 || gh release create cli-channels \
+                      --prerelease \
+                      --target "${{ github.event.repository.default_branch }}" \
+                      --title 'CLI release channels' \
+                      --notes 'Machine-readable channel manifests consumed by `mf update` and install.sh. Not a downloadable release — see the cli-v* releases for binaries.'
+                  cp dist-bin/manifest.json stable.json
+                  gh release upload cli-channels stable.json --clobber
+                  echo "stable → $VERSION ($COMMIT)"

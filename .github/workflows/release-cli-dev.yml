@@ -1,0 +1,188 @@
+# Dev channel: the latest `develop` build whose CI passed.
+#
+# Gated on `workflow_run` completion rather than on push, because the channel
+# must mean "latest successful develop build", not "latest develop commit" — a
+# red build must never become the thing every dev-channel machine installs.
+#
+# `workflow_run` gotcha: GitHub always runs the copy of THIS file that lives on
+# the default branch, and checks out that branch by default. Hence the explicit
+# `ref: github.event.workflow_run.head_sha` everywhere. It also means this file
+# has to reach `main` before the dev channel can fire at all.
+#
+# Artifact names embed the full dev version, so every upload is additive and
+# immutable even though the release itself is rolling. `dev.json` is written
+# last, so it never names bytes that are still uploading.
+#
+# Zero repository secrets, same contract as ci.yml and release.yml.
+name: release-cli-dev
+on:
+    workflow_run:
+        workflows: [ci]
+        types: [completed]
+        branches: [develop]
+    workflow_dispatch: {}
+
+permissions:
+    contents: write
+
+concurrency:
+    group: release-cli-dev
+    cancel-in-progress: true
+
+jobs:
+    prepare:
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            github.event.workflow_run.conclusion == 'success'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            version: ${{ steps.meta.outputs.version }}
+            commit: ${{ steps.meta.outputs.commit }}
+            buildTime: ${{ steps.meta.outputs.buildTime }}
+            skip: ${{ steps.skipcheck.outputs.skip }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ github.event.workflow_run.head_sha || 'develop' }}
+                  fetch-depth: 0
+            - id: meta
+              run: |
+                  set -eu
+                  BASE=$(node -p "require('./apps/cli/package.json').version")
+                  STAMP=$(date -u +%Y%m%d%H%M)
+                  SHA=$(git rev-parse HEAD)
+                  {
+                      echo "version=${BASE}-dev.${STAMP}.${SHA:0:7}"
+                      echo "commit=$SHA"
+                      echo "buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  } >>"$GITHUB_OUTPUT"
+            # A docs-only develop commit would otherwise publish a byte-identical
+            # build under a new version, and every dev machine would download it.
+            - id: skipcheck
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -eu
+                  PREV=$(gh release download cli-channels --pattern dev.json --output - 2>/dev/null \
+                      | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{process.stdout.write(JSON.parse(s).commit??"")}catch{}})' \
+                      || true)
+                  if [ -n "$PREV" ] && git cat-file -e "$PREV^{commit}" 2>/dev/null; then
+                      if git diff --quiet "$PREV" HEAD -- apps/cli packages pnpm-lock.yaml; then
+                          echo 'skip=1' >>"$GITHUB_OUTPUT"
+                          echo "no CLI-relevant change since $PREV; skipping"
+                      fi
+                  fi
+
+    build:
+        needs: prepare
+        if: needs.prepare.outputs.skip != '1'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 25
+        strategy:
+            fail-fast: false
+            matrix:
+                target:
+                    - bun-linux-x64
+                    - bun-linux-arm64
+                    - bun-darwin-x64
+                    - bun-darwin-arm64
+                    - bun-windows-x64
+        env:
+            MF_CLI_CHANNEL: dev
+            MF_CLI_VERSION: ${{ needs.prepare.outputs.version }}
+            MF_CLI_COMMIT: ${{ needs.prepare.outputs.commit }}
+            MF_CLI_BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.prepare.outputs.commit }}
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+              with:
+                  bun-version: latest
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm --filter '@manyfold/cli...' build
+            - run: node apps/cli/scripts/build-binary.mjs ${{ matrix.target }}
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: cli-${{ matrix.target }}
+                  path: |
+                      apps/cli/dist-bin/mf-*
+                  if-no-files-found: error
+
+    publish:
+        needs: [prepare, build]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            GH_TOKEN: ${{ github.token }}
+            VERSION: ${{ needs.prepare.outputs.version }}
+            COMMIT: ${{ needs.prepare.outputs.commit }}
+            BUILD_TIME: ${{ needs.prepare.outputs.buildTime }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  ref: ${{ needs.prepare.outputs.commit }}
+            - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+              with:
+                  path: dist-bin
+                  pattern: cli-*
+                  merge-multiple: true
+            - name: Build the release manifest
+              run: |
+                  set -eu
+                  node apps/cli/scripts/build-manifest.mjs \
+                      --channel dev \
+                      --version "$VERSION" \
+                      --commit "$COMMIT" \
+                      --build-time "$BUILD_TIME" \
+                      --tag cli-dev \
+                      --dir dist-bin \
+                      --base "https://github.com/${{ github.repository }}/releases/download/cli-dev" \
+                      --out "dist-bin/manifest-$VERSION.json"
+            - name: Publish the dev build
+              run: |
+                  set -eu
+                  gh release view cli-dev >/dev/null 2>&1 || gh release create cli-dev \
+                      --prerelease \
+                      --target develop \
+                      --title 'mf dev channel (rolling)' \
+                      --notes 'Rolling pre-release: the latest develop build whose CI passed. Install with `curl -fsSL https://manyfold.ai/cli/install.sh | MF_CHANNEL=dev sh`.'
+                  gh release upload cli-dev dist-bin/* --clobber
+            # Last, and only now that every artifact is uploaded.
+            - name: Promote to the dev channel
+              run: |
+                  set -eu
+                  gh release view cli-channels >/dev/null 2>&1 || gh release create cli-channels \
+                      --prerelease \
+                      --target "${{ github.event.repository.default_branch }}" \
+                      --title 'CLI release channels' \
+                      --notes 'Machine-readable channel manifests consumed by `mf update` and install.sh. Not a downloadable release — see the cli-v* releases for binaries.'
+                  cp "dist-bin/manifest-$VERSION.json" dev.json
+                  gh release upload cli-channels dev.json --clobber
+                  echo "dev → $VERSION ($COMMIT)"
+            # Keep the rolling release from growing without bound. Never touches
+            # the build dev.json currently names.
+            - name: Prune superseded dev builds
+              run: |
+                  set -eu
+                  KEEP=5
+                  VERSIONS=$(gh release view cli-dev --json assets \
+                      --jq '[.assets[].name | capture("^manifest-(?<v>.+)\\.json$").v] | sort | reverse | .[]')
+                  KEPT=0
+                  for v in $VERSIONS; do
+                      KEPT=$((KEPT + 1))
+                      if [ "$KEPT" -le "$KEEP" ] || [ "$v" = "$VERSION" ]; then continue; fi
+                      echo "pruning $v"
+                      for name in $(gh release view cli-dev --json assets \
+                          --jq ".assets[].name | select(startswith(\"mf-$v-\") or . == \"manifest-$v.json\")"); do
+                          gh release delete-asset cli-dev "$name" --yes || true
+                      done
+                  done

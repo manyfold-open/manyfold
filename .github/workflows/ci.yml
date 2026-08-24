@@ -3,7 +3,10 @@
 name: ci
 on:
     push:
-        branches: [main]
+        # develop too: its ci-ok is what gates the dev CLI channel
+        # (release-cli-dev) and what the superproject's oss-bump leg polls
+        # before moving the submodule pointer.
+        branches: [main, develop]
     pull_request:
 
 concurrency:
