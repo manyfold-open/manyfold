@@ -153,10 +153,7 @@ test('buildShellEnvBlock omits MF_API_TOKEN when no token is provided', () => {
 
 test('buildCliInstallScript installs the dev channel over ~/.local/bin/mf', () => {
     const script = buildCliInstallScript('dev')
-    assert.match(
-        script,
-        /https:\/\/cdn1\.manyfold\.ai\/cli\/staging\/install\.sh/
-    )
+    assert.match(script, /https:\/\/manyfold\.ai\/cli\/install\.sh/)
     assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
     assert.match(script, /"\$HOME\/\.local\/bin\/mf" --version/)
     assert.match(script, /MF_DEV_CLI_OK/)
@@ -164,18 +161,26 @@ test('buildCliInstallScript installs the dev channel over ~/.local/bin/mf', () =
 
 test('buildCliInstallScript installs the default channel over ~/.local/bin/mf', () => {
     const script = buildCliInstallScript('stable')
-    assert.match(script, /https:\/\/cdn1\.manyfold\.ai\/cli\/install\.sh/)
+    assert.match(script, /https:\/\/manyfold\.ai\/cli\/install\.sh/)
     assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
     assert.match(script, /"\$HOME\/\.local\/bin\/mf" --version/)
     assert.match(script, /MF_STABLE_CLI_OK/)
 })
 
-test('buildCliInstallScript picks exact channel URLs', () => {
-    assert.doesNotMatch(
-        buildCliInstallScript('stable'),
-        /cli\/staging\/install\.sh/
+// One installer URL now; the channel rides an env var that install.sh reads to
+// pick which manifest to resolve. A stable install must not carry it at all.
+test('buildCliInstallScript selects the channel by env, not by URL', () => {
+    assert.doesNotMatch(buildCliInstallScript('stable'), /MF_CHANNEL/)
+    assert.match(buildCliInstallScript('dev'), /MF_CHANNEL=dev /)
+    // The env assignment has to sit after the pipe so sh receives it.
+    assert.match(
+        buildCliInstallScript('dev'),
+        /\| MF_CHANNEL=dev MF_INSTALL_DIR=/
     )
-    assert.match(buildCliInstallScript('dev'), /cli\/staging\/install\.sh/)
+    assert.match(
+        buildCliInstallScript('dev', '1.2.3'),
+        /\| VERSION="1\.2\.3" MF_CHANNEL=dev MF_INSTALL_DIR=/
+    )
 })
 
 test('cliInstallChannelForDeployEnv maps only the staging deploy env to dev', () => {

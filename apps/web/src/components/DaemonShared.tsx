@@ -15,7 +15,7 @@ import { useI18n } from '@/lib/i18n'
 // registers + starts the daemon in one copy-paste. The second is for machines
 // that already have `mf`. `-y` skips the start prompt either way.
 export const daemonInstallCommand = (token: string): string =>
-    `curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- daemon register --token ${token} -y`
+    `curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- daemon register --token ${token} -y`
 
 export const daemonRegisterCommand = (token: string): string =>
     `mf daemon register --token ${token} -y`
@@ -26,7 +26,7 @@ export const daemonRegisterCommand = (token: string): string =>
 // needs a per-machine token — nothing to leak into shell history or a screen
 // share, nothing to re-issue.
 export const daemonSetupCommand = (): string =>
-    'curl -fsSL https://cdn1.manyfold.ai/cli/install.sh | sh -s -- setup'
+    'curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup'
 
 export const DaemonStatusDot: FC<{ online: boolean }> = ({
     online
