@@ -9,6 +9,7 @@ import type {
     LarkChannelConfig,
     LarkSubscriptionMode,
     LinearChannelConfig,
+    LineChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -82,6 +83,7 @@ const PROVIDER_ORDER: ChannelProviderName[] = [
     'weixin',
     'linear',
     'github',
+    'line',
     'fake'
 ]
 
@@ -676,6 +678,8 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
     const [weixinOperatorUserIds, setWeixinOperatorUserIds] = useState('')
     const [weixinQuickState, setWeixinQuickState] =
         useState<WeixinQuickCreateState>({ id: null, status: 'idle' })
+    const [lineChannelSecret, setLineChannelSecret] = useState('')
+    const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const larkQuickActive =
@@ -789,7 +793,9 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                 weixinBotToken,
                 weixinBaseUrl,
                 weixinAllowedUserIds,
-                weixinOperatorUserIds
+                weixinOperatorUserIds,
+                lineChannelSecret,
+                lineChannelAccessToken
             })
             const created = await client.channels.create(body)
             onCreated(created.id)
@@ -881,7 +887,8 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                         { value: 'matrix', label: 'Matrix' },
                         { value: 'weixin', label: 'WeChat' },
                         { value: 'linear', label: 'Linear' },
-                        { value: 'github', label: 'GitHub' }
+                        { value: 'github', label: 'GitHub' },
+                        { value: 'line', label: 'LINE' }
                     ]}
                 />
             </Field>
@@ -1127,6 +1134,42 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                     </Field>
                     <p className='text-ui text-muted -mt-2'>
                         {t('web.channels.settings.help.githubCreate')}
+                    </p>
+                </>
+            )}
+
+            {provider === 'line' && (
+                <>
+                    <Field label={t('web.channels.settings.fields.channelSecret')}>
+                        <input
+                            type='password'
+                            className='workbench-input'
+                            value={lineChannelSecret}
+                            onChange={(e) =>
+                                setLineChannelSecret(e.target.value)
+                            }
+                            autoComplete='new-password'
+                            required
+                        />
+                    </Field>
+                    <Field
+                        label={t(
+                            'web.channels.settings.fields.channelAccessToken'
+                        )}
+                    >
+                        <input
+                            type='password'
+                            className='workbench-input'
+                            value={lineChannelAccessToken}
+                            onChange={(e) =>
+                                setLineChannelAccessToken(e.target.value)
+                            }
+                            autoComplete='new-password'
+                            required
+                        />
+                    </Field>
+                    <p className='text-ui text-muted -mt-2'>
+                        {t('web.channels.settings.help.lineCreate')}
                     </p>
                 </>
             )}
@@ -1509,6 +1552,8 @@ const buildBody = (input: {
     weixinBaseUrl: string
     weixinAllowedUserIds: string
     weixinOperatorUserIds: string
+    lineChannelSecret: string
+    lineChannelAccessToken: string
 }): CreateChannelBody => {
     if (isLarkProviderChoice(input.provider)) {
         if (
@@ -1708,6 +1753,33 @@ const buildBody = (input: {
         return {
             agentId: input.agentId,
             provider: 'weixin',
+            label: input.label.trim(),
+            config,
+            credentials
+        }
+    }
+    if (input.provider === 'line') {
+        const channelSecret = input.lineChannelSecret.trim()
+        const channelAccessToken = input.lineChannelAccessToken.trim()
+        if (!channelSecret || !channelAccessToken)
+            throw new Error(
+                translate('web.channels.settings.errors.lineCredentials')
+            )
+        const config: LineChannelConfig = {
+            allowedUserIds: [],
+            operatorUserIds: [],
+            allowedChatIds: [],
+            mentionOnly: true,
+            shareSessionInChannel: false,
+            progressMode: 'final'
+        }
+        const credentials: ChannelCredentials = {
+            channelSecret,
+            channelAccessToken
+        }
+        return {
+            agentId: input.agentId,
+            provider: 'line',
             label: input.label.trim(),
             config,
             credentials

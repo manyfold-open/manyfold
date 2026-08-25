@@ -66,6 +66,35 @@ test('slack scope shapes', () => {
     )
 })
 
+test('line scopes read their kind off the id prefix', () => {
+    // LINE prefixes ids by source kind: U = user (so the chat is a 1:1),
+    // C = group, R = multi-person room.
+    assert.deepEqual(describeChannelScope('line', 'line:Uuser1:Uuser1'), {
+        kind: 'dm',
+        channelId: 'Uuser1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Cgroup1:Uuser1'), {
+        kind: 'channel-user',
+        channelId: 'Cgroup1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Cgroup1'), {
+        kind: 'channel',
+        channelId: 'Cgroup1',
+        threadId: null,
+        userId: null
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Rroom1:Uuser1'), {
+        kind: 'channel-user',
+        channelId: 'Rroom1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+})
+
 test('unknown providers and malformed keys fall back to conversation', () => {
     const fallback = {
         kind: 'conversation',
@@ -81,5 +110,6 @@ test('unknown providers and malformed keys fall back to conversation', () => {
     assert.deepEqual(describeChannelScope('discord', 'discord:guild'), fallback)
     assert.deepEqual(describeChannelScope('discord', 'slack:T1:C1'), fallback)
     assert.deepEqual(describeChannelScope('slack', 'slack:T1'), fallback)
+    assert.deepEqual(describeChannelScope('line', 'line:'), fallback)
     assert.deepEqual(describeChannelScope('fake', 'whatever'), fallback)
 })

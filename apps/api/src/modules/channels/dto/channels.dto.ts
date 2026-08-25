@@ -34,7 +34,8 @@ const providerNames: ChannelProviderName[] = [
     'matrix',
     'weixin',
     'linear',
-    'github'
+    'github',
+    'line'
 ]
 const channelStatuses: ChannelStatus[] = ['draft', 'active', 'paused', 'error']
 const larkAppRegions: LarkAppRegion[] = ['feishu', 'lark']
