@@ -46,12 +46,18 @@ const MAX_QR_REFRESH = 3
 const REGISTRATION_TTL_MS = 8 * 60_000
 const CLEANUP_INTERVAL_MS = 60_000
 const CLEANUP_RETENTION_MS = 60 * 60_000
+// Backstop for a pair-success that is never followed by the reconnect close.
+const PAIRING_SETTLE_FALLBACK_MS = 5_000
 
 interface PairingSession {
     socket: WASocket
     flush: () => Promise<void>
     stopStore: () => void
     closed: boolean
+    // Set once the phone accepts the code, so the close that follows is read
+    // as a handover rather than an unscanned drop.
+    paired: boolean
+    settleTimer: NodeJS.Timeout | null
 }
 
 export interface WhatsappRegistrationOwner {
@@ -211,13 +217,38 @@ export class WhatsappRegistrationService
             socket,
             flush: store.flush,
             stopStore: store.stop,
-            closed: false
+            closed: false,
+            paired: false,
+            settleTimer: null
         }
         this.sessions.set(row.id, session)
 
         socket.ev.on('creds.update', () => {
-            void store.flush().catch(() => undefined)
+            store.touch()
         })
+
+        const settle = async (): Promise<void> => {
+            if (session.closed) return
+            await store.flush()
+            const snap = snapshot.current
+            // flush() forces the pending write, so a null here means the
+            // snapshot was never populated. Persisting the creds with no Signal
+            // keys would mint a channel that can never decrypt a message, so
+            // fail the registration loudly instead.
+            if (!snap) {
+                this.log.error(
+                    `WhatsApp pairing produced no auth snapshot id=${row.id}`
+                )
+                this.closeSession(row.id)
+                await this.fail(
+                    row.id,
+                    'upstream_error',
+                    'pairing produced no session state'
+                )
+                return
+            }
+            await this.completePairing(row.id, snap)
+        }
 
         socket.ev.on('connection.update', (update) => {
             void (async () => {
@@ -226,24 +257,38 @@ export class WhatsappRegistrationService
                     await this.recordQr(row.id, update.qr)
                     return
                 }
+                // The phone accepted the code. `creds.me` is now set and
+                // WhatsApp asks for a reconnect (code 515). Do NOT gate on
+                // `creds.registered`: Baileys only ever sets that on the
+                // phone-number pairing-code flow, never on the QR flow, so
+                // requiring it strands every scan in 'pending'.
+                if (update.isNewLogin) {
+                    session.paired = true
+                    this.log.log(`WhatsApp pairing accepted id=${row.id}`)
+                    // The close normally arrives within a second and is the
+                    // cleaner handover point (it proves Baileys finished
+                    // replying to the pair-success stanza). This is only the
+                    // backstop for a close that never comes.
+                    session.settleTimer = setTimeout(() => {
+                        void settle().catch((err) =>
+                            this.log.warn(
+                                `WhatsApp pairing settle failed id=${row.id}: ${(err as Error).message}`
+                            )
+                        )
+                    }, PAIRING_SETTLE_FALLBACK_MS)
+                    session.settleTimer.unref?.()
+                    return
+                }
                 if (update.connection === 'close') {
                     const code = waCloseCode(update.lastDisconnect?.error)
-                    // 515 immediately after a successful scan is WhatsApp
-                    // asking for a reconnect, not a failure — by then the
-                    // creds carry the linked identity and pairing is done.
-                    const creds = store.state.creds
-                    if (creds?.me?.id && creds.registered) {
-                        await store.flush()
-                        await this.completePairing(
-                            row.id,
-                            snapshot.current ?? {
-                                creds,
-                                keys: {}
-                            }
-                        )
+                    if (session.paired || store.state.creds?.me?.id) {
+                        await settle()
                         return
                     }
                     if (code === WA_RESTART_REQUIRED) return
+                    this.log.log(
+                        `WhatsApp pairing socket closed unscanned id=${row.id} code=${code ?? 'none'}`
+                    )
                     await this.refreshOrExpire(row.id)
                 }
             })().catch((err) =>
@@ -451,6 +496,7 @@ export class WhatsappRegistrationService
         if (!session) return
         session.closed = true
         this.sessions.delete(id)
+        if (session.settleTimer) clearTimeout(session.settleTimer)
         session.stopStore()
         try {
             session.socket.end(undefined)

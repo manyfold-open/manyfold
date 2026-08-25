@@ -98,6 +98,31 @@ test('a save failure is reported rather than crashing the socket', async () => {
     store.stop()
 })
 
+// Baileys mutates `creds` in place and announces it through `creds.update`,
+// which never goes through the key store. Seen on local self-host [2026-08-25]:
+// a creds-only rotation left the snapshot null, so a paired session risked
+// being persisted with no Signal keys at all.
+test('touch persists a creds-only rotation that never touched a key', async () => {
+    const { store, writes } = await collectStore()
+    Object.assign(store.state.creds, {
+        me: { id: '15550001111:12@s.whatsapp.net', name: 'Agent' }
+    })
+    store.touch()
+    await store.flush()
+    assert.equal(writes.length, 1)
+    assert.equal(writes[0].creds.me?.id, '15550001111:12@s.whatsapp.net')
+    store.stop()
+})
+
+test('flush without anything pending writes nothing', async () => {
+    const { store, writes } = await collectStore()
+    await store.flush()
+    // Otherwise every creds.update in the provider path would force a row
+    // write and the debounce would buy nothing.
+    assert.equal(writes.length, 0)
+    store.stop()
+})
+
 test('a restored store returns the keys it was loaded with', async () => {
     const seeded: WhatsappAuthSnapshot = {
         creds: { registered: true } as never,

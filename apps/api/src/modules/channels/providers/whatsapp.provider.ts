@@ -317,8 +317,10 @@ export class WhatsappChannelProvider implements ChannelProvider {
         const sock = await createWaSocket({ state: store.state })
         this.sockets.set(channelId, sock)
 
+        // Debounced, not flushed: creds rotate on nearly every message, and a
+        // write per rotation would hammer the row for no durability gain.
         sock.ev.on('creds.update', () => {
-            void store.flush().catch(() => undefined)
+            store.touch()
         })
 
         sock.ev.on('connection.update', (update) => {

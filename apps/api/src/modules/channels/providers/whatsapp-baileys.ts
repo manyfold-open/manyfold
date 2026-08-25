@@ -48,6 +48,10 @@ export interface WhatsappAuthSnapshot {
 
 export interface WhatsappAuthStore {
     state: AuthenticationState
+    // Mark the snapshot dirty. Baileys mutates `creds` in place and announces
+    // it through `creds.update`, which never touches the key store, so without
+    // this a creds-only rotation would never be persisted.
+    touch: () => void
     // Resolves once every write queued so far has landed. Callers that must
     // not lose auth (pairing handoff, shutdown) await it.
     flush: () => Promise<void>
@@ -134,6 +138,7 @@ export const createWhatsappAuthStore = async (
 
     return {
         state: { creds, keys: keyStore },
+        touch: schedule,
         flush: async () => {
             if (timer) {
                 clearTimeout(timer)

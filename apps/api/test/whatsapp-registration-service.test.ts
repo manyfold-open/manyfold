@@ -230,25 +230,40 @@ const startPending = async (h: Harness) => {
     return summary
 }
 
-// Drives the socket to the state WhatsApp leaves it in after a successful
-// scan: creds carry the linked identity, then the connection closes with 515.
+const settle = async (): Promise<void> => {
+    // The update handlers run in floating promises; yield until they settle.
+    for (let i = 0; i < 20; i += 1) await Promise.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+}
+
+// Reproduces exactly what Baileys does on a scan the phone accepts, in order:
+// configureSuccessfulPairing merges `me` into the same creds object the store
+// handed over, a `creds.update` fires, `connection.update { isNewLogin: true }`
+// fires, and WhatsApp then closes the socket with 515 asking for a reconnect.
+//
+// Deliberately does NOT set `creds.registered`. Baileys only sets that on the
+// phone-number pairing-code flow (messages-recv.js, link_code_pairing_ref);
+// on the QR flow it stays false forever. Seen on local self-host [2026-08-25]:
+// gating completion on it stranded every scan in 'pending'.
 const completeScan = async (
     h: Harness,
     socketIndex = 0,
     me = { id: '15550001111:12@s.whatsapp.net', name: 'Agent' }
 ): Promise<void> => {
     const state = h.states[socketIndex]
-    Object.assign(state.creds, { me, registered: true })
+    const socket = h.sockets[socketIndex]
+    Object.assign(state.creds, { me })
     await state.keys.set({
         session: { s1: { data: new Uint8Array([7, 7]) } }
     } as never)
-    h.sockets[socketIndex].emitUpdate({
+    socket.emit('creds.update', state.creds)
+    socket.emitUpdate({ isNewLogin: true, qr: undefined })
+    await settle()
+    socket.emitUpdate({
         connection: 'close',
         lastDisconnect: { error: { output: { statusCode: 515 } } }
     })
-    // The handler runs in a floating promise; yield until it settles.
-    for (let i = 0; i < 20; i += 1) await Promise.resolve()
-    await new Promise((resolve) => setImmediate(resolve))
+    await settle()
 }
 
 test('start refuses an agent the caller does not own', async () => {
@@ -297,8 +312,7 @@ test('an unscanned socket close reopens a new one, up to the refresh cap', async
             connection: 'close',
             lastDisconnect: { error: { output: { statusCode: 428 } } }
         })
-        for (let i = 0; i < 20; i += 1) await Promise.resolve()
-        await new Promise((resolve) => setImmediate(resolve))
+        await settle()
         assert.equal(h.db.row?.refreshCount, attempt)
         assert.equal(h.sockets.length, attempt + 1)
     }
@@ -308,8 +322,7 @@ test('an unscanned socket close reopens a new one, up to the refresh cap', async
         connection: 'close',
         lastDisconnect: { error: { output: { statusCode: 428 } } }
     })
-    for (let i = 0; i < 20; i += 1) await Promise.resolve()
-    await new Promise((resolve) => setImmediate(resolve))
+    await settle()
     assert.equal(h.db.row?.status, 'expired')
     assert.equal(h.sockets.length, 4)
 })
@@ -354,6 +367,40 @@ test('a successful scan creates the channel, stores auth, then activates', async
     assert.ok(snapshot.keys.session.s1)
 })
 
+// Regression: the QR flow never sets creds.registered, so completion must not
+// depend on it. Before the fix this test failed — the row stayed 'pending' with
+// a live QR while the phone showed a linked device.
+test('a QR scan completes even though creds.registered stays false', async () => {
+    const h = makeHarness()
+    await startPending(h)
+    await completeScan(h)
+    assert.equal(h.states[0].creds.registered, false)
+    assert.equal(h.db.row?.status, 'succeeded')
+    assert.equal(h.created.length, 1)
+})
+
+// The reconnect close is the normal handover point, but a pair-success that is
+// never followed by one must still land rather than hang until the TTL.
+test('pairing settles from isNewLogin alone when no close follows', async () => {
+    const h = makeHarness()
+    await startPending(h)
+    const state = h.states[0]
+    Object.assign(state.creds, {
+        me: { id: '15550001111:12@s.whatsapp.net', name: 'Agent' }
+    })
+    await state.keys.set({
+        session: { s1: { data: new Uint8Array([7, 7]) } }
+    } as never)
+    h.sockets[0].emitUpdate({ isNewLogin: true, qr: undefined })
+    await settle()
+    // No close is ever emitted; the backstop timer carries it.
+    assert.equal(h.db.row?.status, 'pending')
+    await new Promise((resolve) => setTimeout(resolve, 5200))
+    await settle()
+    assert.equal(h.db.row?.status, 'succeeded')
+    assert.equal(h.created.length, 1)
+})
+
 test('a scan whose channel is already bound reports already_bound', async () => {
     const h = makeHarness({
         onCreate: async () => {
@@ -391,8 +438,7 @@ test('a close before any scan never creates a channel', async () => {
         connection: 'close',
         lastDisconnect: { error: { output: { statusCode: 401 } } }
     })
-    for (let i = 0; i < 20; i += 1) await Promise.resolve()
-    await new Promise((resolve) => setImmediate(resolve))
+    await settle()
     assert.equal(h.created.length, 0)
     assert.equal(h.db.row?.status, 'pending')
     h.svc.onModuleDestroy()
