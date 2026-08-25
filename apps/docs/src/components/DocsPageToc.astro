@@ -74,9 +74,22 @@ const copy = getUi(locale)
             if (id) links.set(id, link)
         }
 
+        // Sorted by where they actually are, not by the order the outline
+        // lists them. update() below walks this list and stops at the first
+        // heading below the line, so one entry out of document order would cut
+        // the scan short. The guides build the outline from the rendered
+        // headings and cannot disagree; the API pages assemble theirs from the
+        // same conditions that render the sections, which is a promise in a
+        // comment rather than a fact. This makes it a fact.
         const headings = [...links.keys()]
             .map((id) => document.getElementById(id))
             .filter((el): el is HTMLElement => el !== null)
+            .sort((a, b) =>
+                a.compareDocumentPosition(b) &
+                Node.DOCUMENT_POSITION_FOLLOWING
+                    ? -1
+                    : 1
+            )
 
         let active: HTMLAnchorElement | null = null
         const mark = (id: string | null) => {

@@ -52,18 +52,6 @@ export const changelogTitle = (entry: Entry): string => {
 // The lead paragraph, for <meta description> and the card. The body's first
 // block after the headline is written as one, which is what makes this
 // worth reading out rather than generating a sentence.
-export const changelogLead = (entry: Entry): string | undefined => {
-    const blocks = (entry.body ?? '')
-        .split(/\n{2,}/)
-        .map((block) => block.trim())
-        .filter(Boolean)
-    const paragraph = blocks.find(
-        (block) => !/^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\|)/.test(block)
-    )
-    if (!paragraph) return undefined
-    return clamp(stripInline(paragraph.replace(/\n/g, ' ')))
-}
-
 // A release note's first paragraph is written to be read on the page, and for
 // twelve entries that paragraph ran past 250 characters -- as the meta
 // description, which a search result cuts near 160, and as the headline baked
@@ -77,6 +65,19 @@ const clamp = (text: string): string => {
     const boundary = cut.lastIndexOf(' ')
     return `${(boundary > 80 ? cut.slice(0, boundary) : cut).replace(/[,;:.\s]+$/, '')}…`
 }
+
+export const changelogLead = (entry: Entry): string | undefined => {
+    const blocks = (entry.body ?? '')
+        .split(/\n{2,}/)
+        .map((block) => block.trim())
+        .filter(Boolean)
+    const paragraph = blocks.find(
+        (block) => !/^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\|)/.test(block)
+    )
+    if (!paragraph) return undefined
+    return clamp(stripInline(paragraph.replace(/\n/g, ' ')))
+}
+
 
 // The body with its headline removed, matching what the page renders: the
 // rehype plugin drops that h2 from the HTML, and the twin prints it as the h1
