@@ -19,6 +19,7 @@
         "@astrojs/sitemap": "^3.7.2",
         "@fontsource/geist": "^5.3.0",
         "@fontsource/geist-mono": "^5.3.0",
+        "@lucide/astro": "^1.11.0",
         "@manyfold/i18n": "workspace:*",
         "@resvg/resvg-js": "^2.6.2",
         "@tailwindcss/vite": "^4.2.4",

@@ -4,6 +4,7 @@ import Header from '@/components/Header.astro'
 import Footer from '@/components/Footer.astro'
 import SearchModal from '@/components/SearchModal.astro'
 import SupportBubble from '@/components/SupportBubble.astro'
+import { appUrl } from '@/lib/siteLinks'
 import {
     alternateLocalePath,
     getUi,
@@ -28,6 +29,19 @@ interface Props {
     // Per-page social card, overriding the shared static one below. Docs pages
     // pass their generated card; everything else keeps the shared art.
     ogImage?: string
+    // The schema.org type for the page's own content, when it has content of
+    // its own. Only BreadcrumbList shipped before this, which told a crawler
+    // where a page sits and nothing about what it is; a guide, an endpoint and
+    // a release note are all articles and none of them said so.
+    articleType?: 'TechArticle' | 'Article'
+    // Only the changelog has a real one. The docs carry no dates in
+    // frontmatter, and a datePublished invented at build time is a freshness
+    // claim the content does not support, so those pages omit it rather than
+    // assert the day they were compiled.
+    datePublished?: string
+    // The site node. One page carries it -- the docs home -- because it
+    // describes the site rather than the page.
+    siteJsonLd?: boolean
 }
 
 const {
@@ -39,7 +53,10 @@ const {
     breadcrumbs = [],
     hideSupportBubble = false,
     noindex = false,
-    ogImage: ogImageOverride
+    ogImage: ogImageOverride,
+    articleType,
+    datePublished,
+    siteJsonLd = false
 } = Astro.props
 const fullTitle = title === 'Manyfold' ? title : `${title} — Manyfold`
 const option = localeOption(locale)
@@ -74,6 +91,48 @@ const xDefault = new URL(
     alternateLocalePath(Astro.url.pathname, defaultAlternateLocale),
     Astro.site
 ).toString()
+const publisher = {
+    '@type': 'Organization',
+    name: 'Manyfold',
+    url: appUrl,
+    logo: new URL('/social/manyfold-og-v3.png', Astro.site).toString()
+}
+
+const articleJsonLd = articleType
+    ? JSON.stringify({
+          '@context': 'https://schema.org',
+          '@type': articleType,
+          headline: title,
+          description: desc,
+          url: canonical,
+          mainEntityOfPage: canonical,
+          inLanguage: option.locale,
+          isPartOf: {
+              '@type': 'WebSite',
+              name: 'Manyfold documentation',
+              url: Astro.site?.toString()
+          },
+          publisher,
+          ...(datePublished
+              ? { datePublished, dateModified: datePublished }
+              : {})
+      }).replace(/</g, '\\u003c')
+    : null
+
+const siteJsonLdPayload = siteJsonLd
+    ? JSON.stringify([
+          {
+              '@context': 'https://schema.org',
+              '@type': 'WebSite',
+              name: 'Manyfold documentation',
+              url: Astro.site?.toString(),
+              inLanguage: option.locale,
+              publisher
+          },
+          { '@context': 'https://schema.org', ...publisher }
+      ]).replace(/</g, '\\u003c')
+    : null
+
 const breadcrumbJsonLd =
     breadcrumbs.length >= 2
         ? JSON.stringify({
@@ -181,6 +240,24 @@ const breadcrumbJsonLd =
                 />
             )
         }
+        {
+            articleJsonLd && (
+                <script
+                    type="application/ld+json"
+                    is:inline
+                    set:html={articleJsonLd}
+                />
+            )
+        }
+        {
+            siteJsonLdPayload && (
+                <script
+                    type="application/ld+json"
+                    is:inline
+                    set:html={siteJsonLdPayload}
+                />
+            )
+        }
     </head>
     <body class="bg-app text-fg flex min-h-screen flex-col">
         <!--
@@ -190,8 +267,21 @@ const breadcrumbJsonLd =
             index announced ahead of the content on every single page. This is what
             an agent gets when it fetches the page URL instead of the .md twin.
         -->
+        <!--
+            The label is a bold paragraph rather than a heading. This block is
+            the first thing in the body, so a level-2 heading here opened every
+            page's outline one level below the page's own title -- 167 pages
+            whose first heading was not their h1. The block is aria-hidden, so
+            the heading bought no assistive value either; what it had to do was
+            label the paragraph for a text extractor, and bold text does that
+            in extracted text exactly as well.
+
+            (No tag names spelled out above: check-seo reads this file's output
+            with regexes, and a comment that names a heading level is a heading
+            to them.)
+        -->
         <blockquote class="sr-only" data-agent-docs-index="true" aria-hidden="true">
-            <h2>Documentation Index</h2>
+            <p><strong>Documentation Index</strong></p>
             <p>
                 Fetch the complete documentation index at:{' '}
                 <a href={localePath(locale, '/llms.txt')} tabindex="-1">
@@ -294,10 +384,15 @@ const breadcrumbJsonLd =
             })
         </script>
         <script>
+            // lucide `copy` and `check`, inlined because this button is built
+            // at runtime by the script below and cannot import a component.
+            // Keep these in step with @lucide/astro when it moves: the pair
+            // they replaced was a Lucide copy from an earlier release and had
+            // drifted from what the rest of the site draws.
             const ICON_COPY =
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>'
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>'
             const ICON_DONE =
-                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
+                '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>'
             const LANG_LABEL: Record<string, string> = {
                 sh: 'bash',
                 shell: 'bash',

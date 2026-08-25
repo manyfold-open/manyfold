@@ -232,13 +232,49 @@
         var(--color-focus) 0 0 0 1px,
         color-mix(in srgb, var(--color-focus) 18%, transparent) 0 0 0 4px;
 
-    --container-prose: 700px;
-    /* Matches the landing's .lp-container (apps/web styles.css): the header,
-       the footer and every docs page now share one page width with the
-       marketing site, so moving between them does not resize the column the
-       reader is following. The article grid below spends the extra 120px on
-       the content column rather than on the rail. */
-    --container-content: 1200px;
+    /* --lp-shadow-button-primary, carried over verbatim. The solid button is
+       the one element that appears on both surfaces looking like the same
+       object -- same fill, same pill, often the same words -- and the docs
+       copy was flat while the landing's was tactile, which read as two
+       different buttons rather than one button on two pages. */
+    --shadow-button-primary:
+        rgba(255, 255, 255, 0.3) 0 3px 5px -2px inset,
+        rgba(160, 180, 200, 0.18) 0 -1px 3px -1px inset,
+        rgba(0, 0, 0, 0.5) 0 -2.5px 5px -2px inset,
+        0 1px 0 0 rgba(15, 17, 20, 0.1),
+        0 3px 7px -2px rgba(15, 17, 20, 0.12),
+        0 7px 16px -6px rgba(15, 17, 20, 0.1);
+
+    /* The reading measure, and the floor a wide table needs, which are the
+       same number rather than two that happen to agree: .docs-table's
+       min-width is 40rem, measured as the width at which the corpus's widest
+       table stops breaking phrases mid-clause, and the column is now exactly
+       that. The widest table fills the column and never scrolls.
+
+       Measured on mintlify.com/docs [2026-08-25], the reference for this
+       layout: 648px of text at 18px, about 72 characters. Ours is 15px, so
+       640 lands near 85. The 700 it replaces was 93, past the width at which
+       a reader still finds the start of the next line. Closing the rest of
+       that gap means retuning --text-body, which is a type-scale decision and
+       not this one. */
+    --container-prose: 640px;
+    /* Supersedes the 1200 that matched the landing's .lp-container. Three
+       columns do not fit in 1200: 1136px of inner width, less a 264 rail and
+       a 240 outline, leaves 536 for the text. The shell carries its own width
+       now and the header follows the shell rather than the marketing page, so
+       the docs header and the docs grid still open and close on the same two
+       lines -- just not the same two lines as the landing.
+
+       Capped rather than full-bleed, which is where this parts with the
+       reference. Mintlify pins both rails to the viewport and lets the gaps
+       grow with it: measured at a 2560 viewport [2026-08-25], their rail ends
+       at x=204 and their first line of text starts at x=956, 752px of nothing
+       in between. Their rail is 224 and holds one level; ours is 264 and
+       holds three. */
+    --container-content: 1536px;
+    /* Two lines of a section title at --text-ui, and no more: this is an
+       index of the page, not a second column of content. */
+    --container-toc: 240px;
 }
 
 @layer base {
@@ -329,6 +365,13 @@
         --shadow-focus:
             var(--color-focus) 0 0 0 1px,
             color-mix(in srgb, var(--color-focus) 26%, transparent) 0 0 0 4px;
+
+        --shadow-button-primary:
+            rgba(255, 255, 255, 0.18) 0 3px 5px -2px inset,
+            rgba(0, 0, 0, 0.32) 0 -2.5px 5px -2px inset,
+            0 1px 0 0 rgba(0, 0, 0, 0.18),
+            0 3px 7px -2px rgba(0, 0, 0, 0.2),
+            0 7px 14px -6px rgba(0, 0, 0, 0.15);
     }
 
     html {
@@ -414,19 +457,60 @@
         @apply mx-auto w-full max-w-prose px-[18px] min-[481px]:px-6 min-[721px]:px-8;
     }
 
-    /* The article shell: rail, then content. One rule for the six surfaces
-       that render the tree beside a page (guides, dashboard, API landing, API
-       endpoint, changelog index, changelog entry) so the column geometry
-       cannot drift between them.
+    /* One shell for all six surfaces that put the tree beside a page. There
+       were two for a while, an index geometry whose column filled the page and
+       a reading geometry capped at the measure, on the theory that a grid of
+       cards is not prose and does not need one. What that produced was a
+       dashboard whose cards ran to the page edge while its own paragraphs
+       stopped at 672, and a reader crossing from a guide to the overview
+       watching the column change width under them. A card grid does not need
+       the measure; the site needs one column.
+
+       The content column is capped and justify-content splits the surplus
+       between the two gaps, so the column sits in the middle of the space the
+       rails leave it rather than against one of them.
 
        264px rail because the tree is three levels deep now: a leaf under a
        subgroup starts 52px in, and at the old 220 the CLI section's rows
        ("Manage automations with the CLI") had 140px of column left and wrapped
-       to three lines. The gap is 48, up from 32: the rail lost its own filled
-       background long ago, so the hairline plus whitespace is all that
+       to three lines. 48 is the gap's floor, up from 32: the rail lost its own
+       filled background long ago, so the hairline plus whitespace is all that
        separates two columns of text. */
     .docs-shell {
-        @apply grid gap-8 py-6 md:py-8 lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-12;
+        @apply grid gap-8 py-6 md:py-8;
+    }
+
+    /* Three tracks from lg up, and the third one is auto rather than a width:
+       below 1320 the outline is display:none and the track collapses to zero,
+       above it the outline sizes the track itself. Which means the geometry is
+       one rule instead of a base and an override, and a page with no outline at
+       all -- a changelog entry, a three-section guide -- lays out on the same
+       grid as one that has it.
+
+       Two tracks was the first attempt and it put the surplus in the single
+       gap: at 1319, the widest the two-column tier gets, that left 352px
+       between the rail and the first word and pinned the text to the right
+       edge of the screen. With the empty third track the surplus splits, so
+       the column sits in the middle of the space the rails leave it, which is
+       also what it does once the outline is really there.
+
+       48 is a floor and almost never the gap: space-between grows it as soon
+       as there is anything to grow it with, and it only binds between 1024 and
+       1064, where the column is short of the measure by up to 40px. In that
+       band the widest table in the corpus is over its own 40rem floor and
+       scrolls inside its panel. Paying for it would mean a gap tuned to make
+       one arithmetic work out at one viewport width, which is the kind of
+       number that breaks silently the next time the rail or the measure
+       moves. */
+    @media (min-width: 1024px) {
+        .docs-shell {
+            grid-template-columns:
+                264px
+                minmax(0, var(--container-prose))
+                auto;
+            justify-content: space-between;
+            gap: 48px;
+        }
     }
 
     .docs-page-section {
@@ -479,15 +563,18 @@
        Dark fill in light mode; hover steps up the graphite
        ramp. Text and icon color stay put — the fill carries
        the hover signal. */
+    /* tracking is .lp-btn's, which puts it on both button roles rather than
+       on the solid one only. */
     .docs-button-primary {
-        @apply bg-strong text-strong-fg text-ui hover:bg-strong-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+        @apply bg-strong text-strong-fg text-ui hover:bg-strong-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium tracking-[-0.005em] no-underline transition-colors hover:no-underline;
+        box-shadow: var(--shadow-button-primary);
     }
 
     /* === Secondary button (class S, DESIGN.md §8.10) ===
        Paper fill + the uniform 1px ring; hover steps the
        fill up one same-hue notch. */
     .docs-button-secondary {
-        @apply text-ui text-fg bg-surface hover:bg-surface-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+        @apply text-ui text-fg bg-surface hover:bg-surface-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium tracking-[-0.005em] no-underline transition-colors hover:no-underline;
         box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
@@ -599,19 +686,47 @@
         @apply text-muted hover:bg-soft hover:text-fg flex items-center gap-2 rounded-sm px-2 py-1 no-underline transition-colors hover:no-underline;
     }
 
-    /* The leaf mark. 7px of hairline, currentColor at half strength: enough
-       to say "row of a list" at a glance without reading as a bullet. */
+    /* The leaf mark. A hairline in currentColor, and the shaft of the arrow
+       the current row carries -- the two have to read as one drawing at two
+       states, not as two glyphs.
+
+       12px and 75%, up from 7px and 50%. Both numbers exist to close the gap
+       to that arrow. At 50% the dash was a ghost, so the arrow beside it
+       looked like a different species rather than the same mark with a head;
+       at 12px the arrow's stroke lands on a whole pixel (2 of a 24 viewBox),
+       which is what lets the two match in weight instead of only in colour.
+       The width is shared so the active row's text cannot step sideways from
+       the rows above and below it. */
     .docs-tree-leaf::before {
         content: '';
-        @apply h-px w-[7px] shrink-0 bg-current opacity-50;
+        @apply h-px w-3 shrink-0 bg-current opacity-75;
     }
 
     .docs-tree-leaf[aria-current='page'] {
         @apply bg-info-bg text-info-strong font-medium;
     }
 
+    /* The current page's mark, following Replicate: the dash becomes an
+       arrow on the row you are standing on. In a column of otherwise
+       identical rows it is the one place a different glyph earns its keep --
+       the state stops resting on colour alone, so it survives greyscale and a
+       reader who does not separate this blue from this grey.
+
+       A mask rather than a character, for the same reason the heading anchor
+       is one: '→' is a font's opinion about weight and baseline, and this has
+       to sit on the same slot and the same stroke weight as the hairline it
+       replaces. Drawn here rather than taken from lucide, which is the one
+       icon on the site that is: lucide `arrow-right` is a 14-unit shaft under
+       a 7-unit head, and at this size that head is twice the mark the dash
+       beside it makes. The shaft runs 16 of the 24 units and the head takes 3.5, so
+       what changes between the two states is a point on the end of a line the
+       reader was already looking at. The first version had a 13-unit shaft
+       and a 5-unit head, which is a different drawing, not a state of one. */
     .docs-tree-leaf[aria-current='page']::before {
-        @apply opacity-80;
+        @apply h-3 opacity-100;
+        background-color: currentColor;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h16M14.5 8.5 18 12l-3.5 3.5'/%3E%3C/svg%3E")
+            center / contain no-repeat;
     }
 
     /* An ancestor of the current page (the API reference landing while a
@@ -647,31 +762,30 @@
        Sans for everything (no serif italic — landing-only,
        §5). Headings descend one step to ink-soft via the
        default token system. */
-    /* The measure is on the children, not on the column.
-       Prose stays at --container-prose because that is the line length a
-       reader can follow; a table is not prose and was being squeezed into
-       the same 700px. The capability matrix on /docs/channels is the case
-       that forced this: five columns of phrases in 700px, which laid out at
-       10 to 15 lines per row and could not be read across.
+    /* No max-width here, and none on the children either. The measure is the
+       column's, set once on .docs-shell, and every block child fills
+       it.
 
-       So .prose-doc is now as wide as the column it sits in and every child
-       is capped back to the measure, except the ones that opt out below. */
-    .prose-doc {
-        max-width: none;
-    }
+       It used to be on the children, so that a wide table could opt out and
+       run past the text: the capability matrix on /docs/channels is what
+       forced that, five columns of phrases laying out at 10 to 15 lines per
+       row. It worked for the table and cost the page its right edge. Prose
+       stopped at 700, the table and the header rule and the page actions ran
+       to 824, the deck stopped at 62ch, and a reader looking down the right
+       side of the page found three edges and no reason for any of them.
 
-    .prose-doc > * {
-        max-width: var(--container-prose);
-    }
-
-    /* Wide media, breaking out to the full content column (824px at the wide
-       layout). The wrapper is added by rehypeTableWrap in astro.config.mjs:
-       it owns the ring and the rounding so a table that is still too wide
-       scrolls inside a panel rather than taking the page sideways with it.
-       tabindex is on the wrapper for the same reason: a scroll region a mouse
-       can reach and a keyboard cannot is a keyboard trap in reverse. */
+       The table gets what it needed a different way now: the column is 640 and
+       .docs-table's floor is 40rem, so the widest table in the corpus fills
+       the column exactly rather than opting out of it. */
+    /* The table's own panel. The wrapper is added by rehypeTableWrap in
+       astro.config.mjs: it owns the ring and the rounding so a table that is
+       wider than the column scrolls inside a panel rather than taking the page
+       sideways with it. Above lg nothing in the corpus does -- the column and
+       the floor below are both 640 -- so this is the phone case. tabindex is
+       on the wrapper for the same reason the overflow is: a scroll region a
+       mouse can reach and a keyboard cannot is a keyboard trap in reverse. */
     .prose-doc > .docs-table {
-        @apply my-5 max-w-none overflow-x-auto rounded-sm;
+        @apply my-5 overflow-x-auto rounded-sm;
         box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
@@ -807,17 +921,22 @@
        What is left here is the changelog timeline, whose anchor sits on a date
        row rather than a heading, so it has no level to mark and keeps the icon.
        The icon is a CSS mask rather than inline SVG so the <a> stays empty and
-       a heading's text is exactly its text for anything extracting it. */
+       a heading's text is exactly its text for anything extracting it. That is
+       also why it cannot be a <Link> component like every other icon on the
+       site: the path below is lucide `link`, copied, and has to be re-copied
+       if @lucide/astro redraws it. */
     /* The changelog timeline already owns the left gutter, the entry dot sits
        there, so its anchor rides inline after the date instead of colliding. */
     .docs-heading-anchor.is-inline {
         @apply static;
     }
 
-    /* Copied. Same box, same size, the mask swaps to a tick. */
+    /* Copied. Same box, same size, the mask swaps to a tick. lucide `check`,
+       at lucide's own stroke of 2 -- it was 2.4 here, which is the kind of
+       local retune that is exactly why the icons had drifted apart. */
     .docs-heading-anchor.is-done {
         @apply text-success opacity-100;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
             center / contain no-repeat;
     }
 
@@ -1088,8 +1207,14 @@
        matters more than it looks — a solid --color-surface-hover chip reads as
        a filled button beside the landing's, which is what made the two rows
        look like different design systems at the same 32px. */
+    /* hover:bg-soft is the half of .lp-nav-ico:hover that was missing. The
+       landing's utilities take a fill on hover and the docs' took only a
+       colour change, so the same control answered a pointer differently on
+       the two surfaces. The fill is each surface's own row-hover token rather
+       than the landing's literal rgba: the two canvases are not the same
+       tone, so matching the overlay would not match what a reader sees. */
     .docs-icon-btn {
-        @apply text-muted hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
+        @apply text-muted hover:bg-soft hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
         box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
@@ -1122,8 +1247,11 @@
 
     /* Language-switcher code — mono short code (EN / ZH) beside the
        globe, mirroring the landing nav `.lp-nav-chip-code`. */
+    /* .lp-nav-ico-text: 12.5px, medium, +0.01em, and in the interface face.
+       This was mono at 11.5px, which is the only place in either header where
+       a two-letter label was set as code. */
     .docs-lang-code {
-        @apply font-mono text-[0.71875rem] tracking-[0.02em];
+        @apply text-[0.78125rem] font-medium tracking-[0.01em];
     }
 
     .docs-kbd {
@@ -1228,7 +1356,16 @@
        one piece that is structural rather than decorative, because without it
        the deck and the first body paragraph read as one run of muted text. */
     .docs-page-head {
-        @apply border-divider mb-6 flex items-start justify-between gap-6 border-b pb-5;
+        @apply border-divider mb-6 border-b pb-5;
+    }
+
+    /* The deck is not in this row, and that is the whole point of the row
+       existing. It used to sit in the same flex child as the title, so the
+       page actions set its wrap width: in a 640 column the deck broke at 472
+       and the page carried a fourth right edge for the sake of one paragraph.
+       The title shares the row, the deck runs the column. */
+    .docs-page-head-row {
+        @apply flex items-start justify-between gap-6;
     }
 
     /* text-wrap: balance used to live here. It is on the h1 element in the base
@@ -1241,7 +1378,7 @@
        box reads as a callout or an aside to a text extractor, which is the
        opposite of what this sentence is for. */
     .docs-deck {
-        @apply text-muted mt-2 mb-0 max-w-[62ch] text-base leading-relaxed;
+        @apply text-muted mt-2 mb-0 text-base leading-relaxed;
         text-wrap: pretty;
     }
 
@@ -1280,112 +1417,64 @@
     }
 
     @media (max-width: 640px) {
-        .docs-page-head {
+        .docs-page-head-row {
             @apply flex-col gap-4;
         }
     }
 
-    /* === Inline table of contents (benchmark 3.2) ===
-       Two columns, following Replicate, so a long section list stays compact
-       and does not push the first body paragraph below the fold. Deliberately
-       quiet: this is a wayfinder inside the content, not a callout, and the
-       muted treatment keeps it from competing with the deck above it. */
-    /* The page's only section list, at every width. There were two: this one
-       and a third column pinned to the right edge, the same links twice, four
-       pixels apart in size, with no rule saying which to use. The rail took
-       the job for one revision and gave it back — a page outline is not a
-       branch of the documentation tree, and rendering it as one put a fourth
-       level under 93% of the pages (see DocsSidebar.astro).
+    /* === Page outline (third column) ===
+       The section list of the page being read, pinned beside it. This is the
+       third column coming back, and the objection that removed it last time
+       was that it duplicated the inline list below it. It does — so the
+       inline list goes on the surfaces that have this one, and the two never
+       ship together. The AEO half of that objection is answered somewhere
+       else now: every page publishes a .md twin (DocsPageActions), and that
+       twin, not the rendered HTML, is what an answer engine should be reading.
 
-       In the content flow, which is where it was always the more useful of
-       the two: a text extractor reads the body and either strips a rail or
-       appends it after everything else, so only this copy lands near the top
-       of what an answer engine reads. Two columns keep it compact — the
-       longest page in the corpus has 15 sections and spends 8 rows on them. */
-    .docs-inline-toc {
-        @apply mb-7;
-    }
-
-    /* Normal case, unlike the eyebrow and the sidebar group headers. This label
-       is inside the content flow, so it ends up in extracted text: uppercasing
-       it in CSS makes innerText read "TABLE OF CONTENTS" to every extractor.
-       Replicate sets it in normal case for the same reason.
-
-       In the guides it is the <summary> of a real <details>, so the chevron is
-       there at every width because the control is real at every width. The
-       default triangle goes, the same way the sidebar's summaries drop theirs.
-       */
-    .docs-inline-toc-title {
-        @apply text-subtle text-ui mb-2 flex list-none items-center gap-1.5 font-medium;
-    }
-
-    /* The pointer, the hover and the chevron are scoped to the interactive
-       form, because this class has two call sites and only one of them is a
-       <summary>. The API landing page and the endpoint pages use a <p>: there
-       is nothing to expand there, and every one of them was rendering an inert
-       label under a pointer cursor with a chevron beside it. Same shape as the
-       drift the type scale pass cleaned up, one call site restyled without the
-       other being checked. */
-    summary.docs-inline-toc-title {
-        @apply cursor-pointer;
-    }
-
-    .docs-inline-toc-title::-webkit-details-marker {
+       Sticky at the same offsets as .docs-nav-rail so the two columns move
+       as one plane, and quieter than the rail at every state — a hairline
+       and a weight change where the rail uses a filled pill — because two
+       columns of navigation competing for the same eye is what made the first
+       version of this hard to use. */
+    .docs-toc {
         @apply hidden;
     }
 
-    summary.docs-inline-toc-title:hover {
-        @apply text-fg;
-    }
-
-    summary.docs-inline-toc-title::after {
-        @apply block h-3 w-3 shrink-0 bg-current transition-transform;
-        content: '';
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
-    }
-
-    .docs-inline-toc details[open] > summary.docs-inline-toc-title::after {
-        transform: rotate(90deg);
-    }
-
-    .docs-inline-toc ul {
-        @apply m-0 list-none p-0;
-        columns: 2;
-        column-gap: 2rem;
-    }
-
-    .docs-inline-toc li {
-        @apply m-0;
-        /* Keep an entry from splitting across the column break. */
-        break-inside: avoid;
-    }
-
-    /* Underlined, and at 14px, both measured off Replicate's nav.toc: every
-       link there is underlined at 14px/400. Ours were 13px with the underline
-       explicitly removed, which left a two-column block of muted text that a
-       reader has no reason to read as ten links. This is the only list on the
-       page whose entire job is to be clicked.
-
-       Underline offset and thickness keep it from crowding descenders at this
-       size; the colour stays muted so the block does not compete with the
-       prose under it. */
-    .docs-inline-toc a {
-        @apply text-muted hover:text-fg block py-1 underline;
-        font-size: 0.875rem;
-        text-decoration-thickness: 1px;
-        text-underline-offset: 2px;
-        text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
-        text-wrap: pretty;
-    }
-
-    .docs-inline-toc a:hover {
-        text-decoration-color: currentColor;
-    }
-
-    @media (max-width: 640px) {
-        .docs-inline-toc ul {
-            columns: 1;
+    /* 1320 rather than a Tailwind stop. 32 + 264 + 48 + 640 + 48 + 240 + 32 is
+       1304: the width at which the outline fits with both gaps at their floor,
+       which is to say the width at which it fits and looks cramped. 1320 gives
+       it the first 16px of air. */
+    @media (min-width: 1320px) {
+        .docs-toc {
+            @apply text-ui sticky top-24 block max-h-[calc(100vh-6rem)] self-start overflow-y-auto;
+            width: var(--container-toc);
         }
+    }
+
+    .docs-toc-title {
+        @apply text-subtle mb-2.5 font-medium;
+    }
+
+    /* The hairline runs the height of the list, so the active mark reads as a
+       segment of one continuous edge rather than a floating tick. */
+    .docs-toc-list {
+        @apply border-divider m-0 list-none border-l p-0;
+    }
+
+    .docs-toc-link {
+        @apply text-muted hover:text-fg -ml-px block border-l border-transparent py-1 pl-3 no-underline transition-colors hover:no-underline;
+    }
+
+    .docs-toc-link.is-active {
+        @apply text-fg font-medium;
+        border-left-color: var(--color-link);
+    }
+
+    /* An h3 under its h2. One step of indent and nothing else: the rail's own
+       levels are marked by chevrons and dashes, and repeating that grammar
+       here would make the outline read as a second tree. */
+    .docs-toc-link-sub {
+        @apply pl-6;
     }
 
     /* === Prev / next pager — bordered, not filled === */

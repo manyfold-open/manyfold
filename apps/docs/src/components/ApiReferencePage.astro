@@ -51,6 +51,7 @@ const hl = {
     errorResponse: await highlight(ex.errorResponse, 'json')
 }
 import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageToc from '@/components/DocsPageToc.astro'
 import DocsPageActions from '@/components/DocsPageActions.astro'
 import { filterDocsByLocale } from '@/lib/i18n'
 
@@ -74,6 +75,7 @@ const pageUrl = new URL(localePath(locale, '/api-reference'), Astro.site).toStri
     title={reference.title}
     description={reference.description}
     locale={locale}
+    articleType="TechArticle"
     ogImage={ogImage}
 >
     <!--
@@ -113,27 +115,11 @@ const pageUrl = new URL(localePath(locale, '/api-reference'), Astro.site).toStri
             <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
             </header>
 
-            {/* The three sections used to be rows in this surface's own
-                sidebar, which the documentation tree replaced. They come back
-                in the content flow rather than as a third column: it is the
-                same inline table of contents the guides use, it needs no
-                layout change, and unlike the rail it is in the page body where
-                an extractor reads it. */}
-            <nav class="docs-inline-toc mt-8" aria-label={ui.tableOfContents}>
-                <p class="docs-inline-toc-title">{ui.tableOfContents}</p>
-                <ul>
-                    {
-                        sections.map((section) => (
-                            <li>
-                                <a href={`#${section.id}`}>{section.label}</a>
-                            </li>
-                        ))
-                    }
-                </ul>
-            </nav>
-
             <!-- Quick start -->
-            <div class="mt-10 grid gap-x-10 gap-y-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+            {/* Stacked, not two-up. The 300px aside fitted while this surface
+                had a content column of its own; in the shared 640 column it
+                left the quick start 300px to run curl commands in. */}
+            <div class="mt-10 grid gap-x-10 gap-y-6">
                 <div class="min-w-0">
                     <h2 id="quick-start" class="scroll-mt-24 text-h2">
                         <a class="docs-heading-anchor" href="#quick-start" aria-label={ui.headingLink}></a>
@@ -252,5 +238,9 @@ const pageUrl = new URL(localePath(locale, '/api-reference'), Astro.site).toStri
                 </div>
             </div>
     </div>
+
+    {sections.length > 1 && (
+        <DocsPageToc locale={locale} sections={sections} />
+    )}
 </section>
 </BaseLayout>

@@ -60,7 +60,22 @@ export const changelogLead = (entry: Entry): string | undefined => {
     const paragraph = blocks.find(
         (block) => !/^(#{1,6}\s|[-*+]\s|\d+\.\s|>|```|\|)/.test(block)
     )
-    return paragraph ? stripInline(paragraph.replace(/\n/g, ' ')) : undefined
+    if (!paragraph) return undefined
+    return clamp(stripInline(paragraph.replace(/\n/g, ' ')))
+}
+
+// A release note's first paragraph is written to be read on the page, and for
+// twelve entries that paragraph ran past 250 characters -- as the meta
+// description, which a search result cuts near 160, and as the headline baked
+// into the social card. Cut on a word boundary so the tail is a word and not a
+// syllable, and only when there is something to cut.
+const DESCRIPTION_LIMIT = 155
+
+const clamp = (text: string): string => {
+    if (text.length <= DESCRIPTION_LIMIT) return text
+    const cut = text.slice(0, DESCRIPTION_LIMIT)
+    const boundary = cut.lastIndexOf(' ')
+    return `${(boundary > 80 ? cut.slice(0, boundary) : cut).replace(/[,;:.\s]+$/, '')}…`
 }
 
 // The body with its headline removed, matching what the page renders: the

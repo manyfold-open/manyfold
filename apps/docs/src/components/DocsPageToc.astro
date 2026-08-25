@@ -1,0 +1,133 @@
+---
+// The page outline, as the third column. Replaces the inline list the guides
+// and the endpoint pages used to carry above their first paragraph: the same
+// links, in the place a reader looks for them, and out of the reading column.
+//
+// The sections are handed in rather than derived here, because the two call
+// sites derive them differently — a guide filters its trailer headings out of
+// the markdown outline, an endpoint page builds its list from the schema — and
+// the only thing they agree on is the shape of a row.
+import { getUi, type Locale } from '@/lib/i18n'
+
+export interface TocSection {
+    id: string
+    label: string
+    // 2 or 3. An h3 is indented under its h2 and nothing more; see
+    // .docs-toc-link-sub for why it is not marked any further.
+    depth?: number
+}
+
+interface Props {
+    locale: Locale
+    sections: readonly TocSection[]
+}
+
+const { locale, sections } = Astro.props
+const copy = getUi(locale)
+---
+
+<nav class="docs-toc" aria-label={copy.onThisPage} data-page-toc>
+    <p class="docs-toc-title">{copy.onThisPage}</p>
+    <ul class="docs-toc-list">
+        {
+            sections.map((section) => (
+                <li>
+                    <a
+                        class:list={[
+                            'docs-toc-link',
+                            section.depth === 3 && 'docs-toc-link-sub'
+                        ]}
+                        href={`#${section.id}`}
+                        data-toc-link={section.id}
+                    >
+                        {section.label}
+                    </a>
+                </li>
+            ))
+        }
+    </ul>
+</nav>
+
+<script>
+    // Scroll spy. The one thing on this surface that cannot be answered on the
+    // server: which section a reader is in is a scroll position.
+    //
+    // Read off the headings' own positions rather than an IntersectionObserver
+    // band. The band version worked while scrolling and failed on every jump:
+    // a fragment link, a restored scroll position and the browser's own
+    // find-in-page all move a heading from below the band to above it without
+    // it ever being inside, so the observer never reported it and the rail
+    // stayed blank on exactly the arrivals that most need it.
+    //
+    // The offset is the sticky header's, the same 6rem the two rails use for
+    // their own top. A heading at or above that line has been reached; the
+    // last one that has is the section being read.
+    const HEADER_OFFSET = 96
+
+    const nav = document.querySelector<HTMLElement>('[data-page-toc]')
+    if (nav) {
+        const links = new Map<string, HTMLAnchorElement>()
+        for (const link of nav.querySelectorAll<HTMLAnchorElement>(
+            '[data-toc-link]'
+        )) {
+            const id = link.dataset.tocLink
+            if (id) links.set(id, link)
+        }
+
+        const headings = [...links.keys()]
+            .map((id) => document.getElementById(id))
+            .filter((el): el is HTMLElement => el !== null)
+
+        let active: HTMLAnchorElement | null = null
+        const mark = (id: string | null) => {
+            const next = id ? (links.get(id) ?? null) : null
+            if (next === active) return
+            active?.classList.remove('is-active')
+            next?.classList.add('is-active')
+            active = next
+            // A long outline scrolls inside its own column, so the active row
+            // has to be brought into that box or it silently leaves the rail.
+            if (next && nav.scrollHeight > nav.clientHeight) {
+                nav.scrollTo({
+                    top: next.offsetTop - nav.clientHeight / 2,
+                    behavior: 'smooth'
+                })
+            }
+        }
+
+        const update = () => {
+            if (headings.length === 0) return
+            // Above the first heading the first section stays marked rather
+            // than nothing being marked: an outline with no mark at all reads
+            // as one that is broken, and the reference marks its first section
+            // from the top of the page.
+            let current = headings[0].id
+            for (const heading of headings) {
+                if (heading.getBoundingClientRect().top > HEADER_OFFSET) break
+                current = heading.id
+            }
+            // The last section can be shorter than the space below it, so its
+            // heading never reaches the line and it could never be marked by
+            // position alone. At the bottom of the document it is the answer
+            // whether or not it got there.
+            if (
+                window.innerHeight + window.scrollY >=
+                document.documentElement.scrollHeight - 2
+            ) {
+                current = headings[headings.length - 1].id
+            }
+            mark(current)
+        }
+
+        // Called straight off the scroll event, with no rAF throttle in
+        // between. The reads are a getBoundingClientRect per heading -- 15 on
+        // the longest page in the corpus -- and nothing writes to the DOM
+        // unless the active row actually changes, so there is no layout to
+        // thrash. A rAF throttle would be the reflex here and it buys nothing
+        // at this size while adding a dependency on frames being scheduled at
+        // all: a backgrounded tab stops rAF, and so does a headless render.
+        update()
+        addEventListener('scroll', update, { passive: true })
+        addEventListener('resize', update, { passive: true })
+    }
+</script>

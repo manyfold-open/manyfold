@@ -6,6 +6,7 @@
 //
 // Copy fetches the twin rather than serialising the DOM, so what lands on the
 // clipboard is authored markdown, not a reconstruction of the rendered page.
+import { ChevronDown, Copy } from '@lucide/astro'
 import { getUi, type Locale } from '@/lib/i18n'
 
 interface Props {
@@ -26,20 +27,7 @@ const llmPrompt = `Read ${pageUrl} and ask questions about it.`
     data-copied={copy.copied}
 >
     <button type="button" class="docs-pa-main" data-copy-page>
-        <svg
-            width="15"
-            height="15"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.4"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-        >
-            <rect x="5.5" y="2.5" width="8" height="10" rx="1.5" />
-            <path d="M3.5 10.2V4a1.5 1.5 0 0 1 1.5-1.5h4.7" />
-        </svg>
+        <Copy size={15} stroke-width={1.6} />
         <span data-copy-label>{copy.copyPage}</span>
     </button>
     <button
@@ -50,19 +38,7 @@ const llmPrompt = `Read ${pageUrl} and ask questions about it.`
         aria-label={copy.morePageActions}
         data-pa-toggle
     >
-        <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.6"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-        >
-            <path d="M3 4.5 6 7.5 9 4.5" />
-        </svg>
+        <ChevronDown size={13} stroke-width={2} />
     </button>
     <div class="docs-pa-menu" role="menu" hidden data-pa-menu>
         <a role="menuitem" href={mdHref} target="_blank" rel="noopener">

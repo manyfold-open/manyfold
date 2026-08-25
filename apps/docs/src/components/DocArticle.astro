@@ -1,8 +1,10 @@
 ---
+import { ThumbsDown, ThumbsUp } from '@lucide/astro'
 import { render } from 'astro:content'
 import type { CollectionEntry } from 'astro:content'
 import DocsSidebar from '@/components/DocsSidebar.astro'
 import DocsPageActions from '@/components/DocsPageActions.astro'
+import DocsPageToc from '@/components/DocsPageToc.astro'
 import { docsNavOrder } from '@/lib/docs-nav'
 import { isTrailerHeading } from '@/lib/trailers'
 import {
@@ -76,27 +78,30 @@ const pageUrl = new URL(entryHref(entry, locale), Astro.site).toString()
 // channels/slack means the setup sequence itself is one of the first things
 // an answer engine reads. The rail stays; this is an addition, not a move.
 //
-// The benchmark's trigger was "every page whose H2s are `Step N:` shaped".
-// No page in this repo uses that shape, so the trigger here is section count
-// instead. 6 was chosen from the real distribution: 32 of 33 pages have 4 or
-// more H2s, so a lower bar would put a TOC on essentially every page and the
-// signal would be worth nothing, while 6 covers the 26 pages long enough that
-// the section list is genuinely an answer rather than decoration.
-const INLINE_TOC_MIN_SECTIONS = 6
-// Trailers are filtered out before the count, not just before the render, and
-// that is the whole point rather than a detail. This list exists to tell an
-// extractor what the page covers, and a "See also" entry describes no content,
-// so it should never have counted toward "is this page long enough for the list
-// to be an answer". It had been padding the number: 12 pages sat at exactly six
-// h2s and only qualified because a link trailer was one of them. They have five
-// content sections and now read as five, so they lose the list. Coverage goes
-// 76 pages to 64, and the alternative of dropping the bar to five lands on 72,
-// which is wider than the corpus had before and would put the list back on
-// pages it was never meant for. See src/lib/trailers.ts.
-const inlineToc = headings.filter(
-    (h) => h.depth === 2 && !isTrailerHeading(h.text)
-)
-const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
+// The bar was 6, and it was 6 because the list used to sit in the content
+// flow: it pushed the first sentence down, so it had to earn the space, and
+// the count was the test of whether it had. In the third column it costs the
+// reading column nothing and it is not what an extractor reads either, so the
+// only case left to exclude is the one that says nothing — an outline that
+// repeats the single heading below it. That is the same guard the endpoint
+// pages already use.
+const PAGE_TOC_MIN_SECTIONS = 2
+// Trailers are filtered out before the count, not just before the render.
+// "See also" and "Learn next" name no content: they are the page's exits, and
+// an outline that lists them tells a reader the page has a section it does
+// not. See src/lib/trailers.ts.
+//
+// h3s come along now. In the content flow the list was h2-only because a
+// nested list doubled a block already competing with the deck above it; a
+// column has the room, and the pages that carry h3s are the long reference
+// ones where the h2 alone lands a reader several screens from what they were
+// looking for.
+const pageToc = headings
+    .filter((h) => h.depth === 2 || h.depth === 3)
+    .filter((h) => !isTrailerHeading(h.text))
+    .map((h) => ({ id: h.slug, label: h.text, depth: h.depth }))
+const showPageToc =
+    pageToc.filter((h) => h.depth === 2).length >= PAGE_TOC_MIN_SECTIONS
 
 // Collapse is presentational only, at both tiers. Every link stays in the DOM
 // at every open/closed state, because the sidebar is also the internal-linking
@@ -176,65 +181,18 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
             </nav>
 
         <header class="docs-page-head">
-            <div class="min-w-0">
-                <h1 class="docs-page-title" id="page-title">
+            <div class="docs-page-head-row">
+                <h1 class="docs-page-title min-w-0" id="page-title">
                     {entry.data.title}
                 </h1>
-                {
-                    entry.data.description && (
-                        <p class="docs-deck">{entry.data.description}</p>
-                    )
-                }
+                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
             </div>
-            <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
-        </header>
-
-        {
-            showInlineToc && (
-                /* Collapsible, and closed at rest. On a phone this list ran
-                   239px and pushed the first sentence of the page to y=580 of
-                   an 812 viewport, so the whole first screen was chrome. It
-                   opens at md and up, where there is room, which is where it
-                   has always been open.
-
-                   <details> hides visually without removing nodes, so every
-                   link stays in the DOM and in the HTML at every state. That
-                   is the same reason the sidebar collapses this way, and it is
-                   what keeps the AEO argument for having this list inline
-                   intact: a text extractor still reads the section list near
-                   the top of the body whether or not it is open. The <nav>
-                   stays outside so the landmark does not depend on the state. */
-                <nav class="docs-inline-toc" aria-label={copy.tableOfContents}>
-                    <details data-inline-toc>
-                        <summary class="docs-inline-toc-title">
-                            {copy.tableOfContents}
-                        </summary>
-                        <ul>
-                            {inlineToc.map((heading) => (
-                                <li>
-                                    <a href={`#${heading.slug}`}>
-                                        {heading.text}
-                                    </a>
-                                </li>
-                            ))}
-                        </ul>
-                    </details>
-                </nav>
-            )
-        }
-
-        {/* Authored closed, so the phone case is the no-JS case and there is
-            nothing to flash. Whether there is room to keep it open is a
-            viewport question and the server cannot answer it, so this is the
-            one thing here that runs on the client. It is inline and sits
-            directly after the element so it resolves during parsing, before
-            the region paints. */}
-        <script is:inline>
-            if (window.matchMedia('(min-width: 48rem)').matches) {
-                const toc = document.querySelector('[data-inline-toc]')
-                if (toc) toc.open = true
+            {
+                entry.data.description && (
+                    <p class="docs-deck">{entry.data.description}</p>
+                )
             }
-        </script>
+        </header>
 
         <div class="prose-doc" data-copy-scope>
             <Content />
@@ -243,37 +201,11 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
         <div class="border-divider mt-8 flex flex-wrap items-center gap-3 border-t pt-4" data-helpful>
                 <span class="text-ui text-muted">{copy.helpfulQuestion}</span>
                 <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-yes>
-                    <svg
-                        class="shrink-0"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
-                    </svg>
+                    <ThumbsUp class="shrink-0" size={14} stroke-width={2} />
                     {copy.helpfulYes}
                 </button>
                 <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-no>
-                    <svg
-                        class="shrink-0"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
-                    </svg>
+                    <ThumbsDown class="shrink-0" size={14} stroke-width={2} />
                     {copy.helpfulNo}
                 </button>
             <span class="text-ui text-success hidden" data-helpful-thanks>
@@ -309,6 +241,7 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
         }
     </article>
 
+    {showPageToc && <DocsPageToc locale={locale} sections={pageToc} />}
 </section>
 
 <script>
@@ -328,5 +261,5 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
             )
     }
 
-    // The section scroll-spy moved to DocsSidebar with the list it drives.
+    // The section scroll-spy lives in DocsPageToc, with the list it drives.
 </script>

@@ -34,6 +34,20 @@ const rehypeChangelogHeadline = () => (tree, file) => {
         (node) => node.type === 'element' && node.tagName === 'h2'
     )
     if (index >= 0) tree.children.splice(index, 1)
+    // Lifting what is left by one level. An entry is authored as `##` headline
+    // plus `###` sections; the headline is pulled out above to become the h1,
+    // which left 36 pages running h1 -> h3 with no h2 between them. No entry in
+    // the corpus carries both levels, so the shift cannot collide, and the
+    // check-seo heading gate below fails if one ever does.
+    const lift = (nodes) => {
+        for (const node of nodes) {
+            if (node.type !== 'element') continue
+            if (node.tagName === 'h3') node.tagName = 'h2'
+            else if (node.tagName === 'h4') node.tagName = 'h3'
+            if (node.children) lift(node.children)
+        }
+    }
+    lift(tree.children)
 }
 
 // A heading's visible text, for the trailer check below. Reads the children it

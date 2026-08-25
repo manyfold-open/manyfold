@@ -63,6 +63,8 @@ const breadcrumbs = [
     description={lead ?? copy.changelogDescription}
     locale={locale}
     type="article"
+    articleType="Article"
+    datePublished={entry.data.date}
     breadcrumbs={breadcrumbs}
     ogImage={ogImage}
     availableLocales={['en']}
@@ -88,22 +90,24 @@ const breadcrumbs = [
             </nav>
 
             <header class="docs-page-head">
-                <div class="min-w-0">
-                    <div class="flex flex-wrap items-center gap-2.5">
-                        <span
-                            class="bg-info-bg text-info-strong rounded-xs px-2 py-0.5 font-mono text-caption font-semibold"
-                        >
-                            v{entry.data.version}
-                        </span>
-                        <time class="text-ui text-subtle" datetime={entry.data.date}>
-                            {entry.data.date}
-                        </time>
+                <div class="docs-page-head-row">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-2.5">
+                            <span
+                                class="bg-info-bg text-info-strong rounded-xs px-2 py-0.5 font-mono text-caption font-semibold"
+                            >
+                                v{entry.data.version}
+                            </span>
+                            <time class="text-ui text-subtle" datetime={entry.data.date}>
+                                {entry.data.date}
+                            </time>
+                        </div>
+                        <h1 class="docs-page-title mt-2.5" id="page-title">
+                            {title}
+                        </h1>
                     </div>
-                    <h1 class="docs-page-title mt-2.5" id="page-title">
-                        {title}
-                    </h1>
+                    <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
                 </div>
-                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
             </header>
 
             <div class="prose-doc">

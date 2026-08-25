@@ -15,6 +15,11 @@ const locale: Locale = 'en'
 const copy = dashboardCopyFor(locale)
 ---
 
-<BaseLayout title={copy.title} description={copy.description} locale={locale}>
+<BaseLayout
+    title={copy.title}
+    description={copy.description}
+    locale={locale}
+    siteJsonLd
+>
     <DocsDashboard locale={locale} />
 </BaseLayout>

@@ -5,17 +5,16 @@
 // response. Those pages carry a single H1 and no on-this-page rail, because
 // the page is itself one unit and the rail's job is done by the sidebar.
 //
-// There is no rail here either, for that reason. There is an inline table of
-// contents, which is a different thing and was added after measuring: the
-// sidebar navigates between endpoints, not within one, so nothing here pointed
-// at a section. The deciding number was the comparison with this surface's own
-// landing page, which carries the same inline list at 408 words and three
-// sections, while chat-completions had none at 425 words and four, with three
-// code blocks between the top of the page and the response.
+// The measurement that added a section list here still holds — the sidebar
+// navigates between endpoints, not within one, so nothing here pointed at a
+// section — but the list is the third column now rather than a block above the
+// signature, which is where it stopped competing with the one thing a reader
+// came to this page for.
 import { codeToHtml } from 'shiki'
 import BaseLayout from '@/layouts/BaseLayout.astro'
 import DocsSidebar from '@/components/DocsSidebar.astro'
 import DocsPageActions from '@/components/DocsPageActions.astro'
+import DocsPageToc from '@/components/DocsPageToc.astro'
 import { getCollection } from 'astro:content'
 import {
     apiReferenceFor,
@@ -104,6 +103,7 @@ const breadcrumbs = [
     description={endpoint.description}
     locale={locale}
     type="article"
+    articleType="TechArticle"
     breadcrumbs={breadcrumbs}
     ogImage={ogImage}
 >
@@ -132,13 +132,13 @@ const breadcrumbs = [
             </nav>
 
             <header class="docs-page-head">
-                <div class="min-w-0">
-                    <h1 class="docs-page-title" id="page-title">
+                <div class="docs-page-head-row">
+                    <h1 class="docs-page-title min-w-0" id="page-title">
                         {endpoint.title}
                     </h1>
-                    <p class="docs-deck">{endpoint.description}</p>
+                    <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
                 </div>
-                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+                <p class="docs-deck">{endpoint.description}</p>
             </header>
 
             <div class="docs-cell flex flex-wrap items-center gap-2">
@@ -162,32 +162,6 @@ const breadcrumbs = [
                     <dd class="mt-1 text-ui text-fg">{endpoint.quota}</dd>
                 </div>
             </dl>
-
-            {/* Below the signature rather than directly under the header, which
-                is where the landing page puts its copy. The method, path, auth
-                and quota are this page's identity, not a section of it, so a
-                list of sections above them would push the one thing a reader
-                came for below the fold. Guarded at two, because a list that
-                repeats the only heading on the page is noise. */}
-            {
-                sections.length > 1 && (
-                    <nav
-                        class="docs-inline-toc mt-6"
-                        aria-label={ui.tableOfContents}
-                    >
-                        <p class="docs-inline-toc-title">
-                            {ui.tableOfContents}
-                        </p>
-                        <ul>
-                            {sections.map((section) => (
-                                <li>
-                                    <a href={`#${section.id}`}>{section.label}</a>
-                                </li>
-                            ))}
-                        </ul>
-                    </nav>
-                )
-            }
 
             {
                 endpoint.params.length > 0 && (
@@ -288,5 +262,9 @@ const breadcrumbs = [
                 </a>
             </p>
         </div>
+
+        {sections.length > 1 && (
+            <DocsPageToc locale={locale} sections={sections} />
+        )}
     </section>
 </BaseLayout>

@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url'
 
 const site = 'https://docs.manyfold.ai'
 const dist = fileURLToPath(new URL('../dist/', import.meta.url))
+// What a search result will actually show. Shared by the gate below and by
+// changelogLead, which clamps to 155 to stay under it.
+const DESCRIPTION_LIMIT = 165
+
 const failures = []
 
 const fail = (route, message) => failures.push(`${route}: ${message}`)
@@ -141,6 +145,17 @@ for (const page of indexablePages) {
     const descriptionTag = meta(html, 'name', 'description')
     const description = decode(attribute(descriptionTag ?? '', 'content') ?? '')
     if (!description.trim()) fail(route, 'meta description is empty')
+    // A search result cuts the description near 160 characters, so anything
+    // past that is written for nobody: the tail is never shown and the visible
+    // half was not composed to stand on its own. Twelve changelog entries were
+    // over it, one at 288, because the description is the entry's first
+    // paragraph and nothing clamped it (see changelogLead).
+    if (description.length > DESCRIPTION_LIMIT) {
+        fail(
+            route,
+            `meta description is ${description.length} characters, over the ${DESCRIPTION_LIMIT} a result will show`
+        )
+    }
 
     const titleKey = `${lang}\0${title}`
     const descriptionKey = `${lang}\0${description}`
@@ -157,8 +172,39 @@ for (const page of indexablePages) {
         )
     }
 
-    const h1Count = (html.match(/<h1\b/gi) ?? []).length
+    // Comments stripped first. They are not markup a crawler reads, and a
+    // source comment that spells out a tag name is otherwise indistinguishable
+    // from the tag to everything below -- which is how a comment explaining
+    // this very gate reported itself as two extra headings on 167 pages.
+    const markup = html.replace(/<!--[\s\S]*?-->/g, '')
+
+    const h1Count = (markup.match(/<h1\b/gi) ?? []).length
     if (h1Count !== 1) fail(route, `expected one h1, found ${h1Count}`)
+
+    // The document outline. Two failures this catches, both of which shipped:
+    // a sr-only agent-index block opened every page with an <h2> above the
+    // <h1>, and the changelog dropped its `##` headline to make the h1 and
+    // left the `###` sections hanging one level below nothing.
+    const headings = [...markup.matchAll(/<h([1-4])\b/gi)].map((match) =>
+        Number(match[1])
+    )
+    const firstH1 = headings.indexOf(1)
+    if (firstH1 > 0) {
+        fail(
+            route,
+            `h${headings[0]} precedes the h1, so the outline opens below the page title`
+        )
+    }
+    const outline = firstH1 >= 0 ? headings.slice(firstH1) : headings
+    for (let index = 1; index < outline.length; index += 1) {
+        if (outline[index] - outline[index - 1] > 1) {
+            fail(
+                route,
+                `heading level jumps h${outline[index - 1]} to h${outline[index]}`
+            )
+            break
+        }
+    }
 
     const expectedMeta = [
         ['property', 'og:title', title],
@@ -226,6 +272,27 @@ for (const page of indexablePages) {
         }
     })
     const breadcrumb = jsonLd.find((item) => item['@type'] === 'BreadcrumbList')
+
+    // A page that declares itself an article to a social card should say the
+    // same thing to a crawler. BreadcrumbList was the only node the site
+    // emitted for a long time, which told a crawler where a page sits and
+    // nothing about what it holds.
+    const ogType = decode(
+        attribute(meta(html, 'property', 'og:type') ?? '', 'content') ?? ''
+    )
+    if (ogType === 'article') {
+        const article = jsonLd.find((item) =>
+            ['TechArticle', 'Article'].includes(item['@type'])
+        )
+        if (!article) {
+            fail(route, 'og:type is article but no TechArticle/Article JSON-LD')
+        } else if (article.url !== expectedCanonical) {
+            fail(
+                route,
+                `article JSON-LD url is ${article.url}, expected ${expectedCanonical}`
+            )
+        }
+    }
     const isGuide = /^\/(?:zh\/)?docs\/.+\/$/.test(route)
     const isGettingStarted = route.endsWith('/docs/getting-started/')
     if (isGuide && !isGettingStarted && !breadcrumb) {
@@ -576,13 +643,15 @@ for (const { route, html } of pages) {
         )
     }
 
-    const inlineToc = html.match(
-        /<nav class="docs-inline-toc[\s\S]*?<\/nav>/
-    )
-    if (inlineToc && inlineToc[0].includes(`#${trailer.id}`)) {
+    // The page outline, wherever a page renders one. This matched a class
+    // that no longer exists for one revision, which is a gate that keeps
+    // passing while checking nothing -- worth re-reading whenever the outline
+    // markup moves.
+    const outline = html.match(/<nav class="docs-toc[\s\S]*?<\/nav>/)
+    if (outline && outline[0].includes(`#${trailer.id}`)) {
         fail(
             route,
-            `navigational trailer "${trailer.text}" is listed in the inline table of contents, which exists to tell an extractor what the page covers`
+            `navigational trailer "${trailer.text}" is listed in the page outline, which names what the page covers and not where it exits to`
         )
     }
 }
@@ -604,7 +673,7 @@ console.log(
     `Markup gates: ${pages.length} pages checked, ${exemptRoutes.size} exempt from the duplicate-id gate (${[...exemptRoutes].sort().join(', ')})`
 )
 console.log(
-    `Trailer gate: ${trailers.length} navigational trailers, none anchored, none in an inline TOC (${
+    `Trailer gate: ${trailers.length} navigational trailers, none anchored, none in a page outline (${
         [...new Set(trailers.map((t) => t.text))].sort().join(', ')
     })`
 )

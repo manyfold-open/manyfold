@@ -1,4 +1,5 @@
 ---
+import { ChevronDown, Menu, X } from '@lucide/astro'
 // The documentation tree. Extracted out of DocArticle so the dashboard at
 // /docs/ can show the same navigation: it was the one docs URL with no
 // sidebar at all, while replicate.com/docs carries its full tree.
@@ -204,18 +205,7 @@ const navGroups = [
     aria-controls="docs-nav"
     data-drawer-open
 >
-    <svg
-        width="16"
-        height="16"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        aria-hidden="true"
-    >
-        <path d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
+    <Menu size={16} stroke-width={2} />
     {/* aria-hidden because aria-label on the button already says the whole
         thing, and a screen reader reading "Documentation" then "Open
         documentation navigation" would say it twice. */}
@@ -233,7 +223,7 @@ const navGroups = [
 
 <aside
     id="docs-nav"
-    class="docs-nav-rail border-divider-soft lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-4"
+    class="docs-nav-rail lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-4"
     data-drawer
 >
     {/* Neither AppShell nor SettingsLayout has an in-drawer close control:
@@ -265,18 +255,7 @@ const navGroups = [
             aria-label={copy.closeNav}
             data-drawer-close
         >
-            <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                aria-hidden="true"
-            >
-                <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
+            <X size={16} stroke-width={2} />
         </button>
     </div>
 
@@ -294,18 +273,7 @@ const navGroups = [
                         aria-controls={`docs-tree-${groupIndex}`}
                         data-tree-toggle
                     >
-                        <svg
-                            class="docs-tree-chev"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            aria-hidden="true"
-                        >
-                            <path d="m6 9 6 6 6-6" />
-                        </svg>
+                        <ChevronDown class="docs-tree-chev" stroke-width={2.5} />
                         <span>{group.title}</span>
                     </button>
                     <div class="docs-tree-kids" id={`docs-tree-${groupIndex}`}>
@@ -328,18 +296,7 @@ const navGroups = [
                                             aria-controls={`docs-tree-${groupIndex}-${rowIndex}`}
                                             data-tree-toggle
                                         >
-                                            <svg
-                                                class="docs-tree-chev"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                stroke-width="2.5"
-                                                stroke-linecap="round"
-                                                stroke-linejoin="round"
-                                                aria-hidden="true"
-                                            >
-                                                <path d="m6 9 6 6 6-6" />
-                                            </svg>
+                                            <ChevronDown class="docs-tree-chev" stroke-width={2.5} />
                                             <span>{row.title}</span>
                                         </button>
                                         <div
