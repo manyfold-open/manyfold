@@ -3,6 +3,7 @@ import { render } from 'astro:content'
 import type { CollectionEntry } from 'astro:content'
 import DocsSidebar from '@/components/DocsSidebar.astro'
 import DocsPageActions from '@/components/DocsPageActions.astro'
+import { docsNavOrder } from '@/lib/docs-nav'
 import { isTrailerHeading } from '@/lib/trailers'
 import {
     entryHref,
@@ -27,14 +28,24 @@ const copy = getUi(locale)
 const activeSlug = entrySlug(entry)
 // The docs home is the dashboard at /docs/ now, not the first article.
 const docsHome = localePath(locale, '/docs/')
-const flatIndex = entries.findIndex((item) => entrySlug(item) === activeSlug)
-const prev = flatIndex > 0 ? entries[flatIndex - 1] : null
+// Sequence comes from the tree, not from the frontmatter `order` field the
+// flat list is sorted by. See docsNavOrder().
+const ordered = docsNavOrder(entries, locale)
+const flatIndex = ordered.findIndex((item) => entrySlug(item) === activeSlug)
+const prev = flatIndex > 0 ? ordered[flatIndex - 1] : null
 const next =
-    flatIndex >= 0 && flatIndex < entries.length - 1
-        ? entries[flatIndex + 1]
+    flatIndex >= 0 && flatIndex < ordered.length - 1
+        ? ordered[flatIndex + 1]
         : null
 
-const toc = headings.filter((h) => h.depth === 2 || h.depth === 3)
+// The page's sections, handed to the rail. h2 only: the rail renders them
+// under the row for this page, which is already two levels into the tree, and
+// a fourth tier of 13px rows in a 248px column reads as texture rather than
+// as a list. The inline list below lg is h2-only for the same reason, so both
+// section lists on the site now answer with the same granularity.
+const sections = headings
+    .filter((heading) => heading.depth === 2)
+    .map((heading) => ({ id: heading.slug, label: heading.text }))
 
 // Wave 2a header block. See docs-ui-redesign-benchmark.md sections 3.3, 3.4
 // and 4/2a. Three things the page did not have before:
@@ -102,10 +113,19 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
 // without removing nodes; nothing here renders client-side.
 ---
 
-<section
-    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]"
->
-    <DocsSidebar entries={entries} locale={locale} activeSlug={activeSlug} />
+{/* Two columns at every width. The third one held the on-this-page rail, and
+    its rows are in the tree now, under the row for this page: one column
+    carrying both scales of "where am I" rather than one at each margin, with
+    the page's own outline pinned to the entry it belongs to. The content
+    column inherits the width the rail gave up, which is what lets a wide
+    table break out of the reading measure. */}
+<section class="docs-container docs-shell">
+    <DocsSidebar
+        entries={entries}
+        locale={locale}
+        activeSlug={activeSlug}
+        sections={sections}
+    />
 
     <article class="min-w-0">
         {/* Every page gets a breadcrumb now. getting-started used to be the docs
@@ -302,56 +322,6 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
         }
     </article>
 
-    {
-        toc.length > 0 && (
-            <aside class="hidden xl:sticky xl:top-24 xl:block xl:self-start xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
-                {/* Sentence case at text-ui, which is fal's treatment: theirs
-                    reads "On this page" at the same size as the links beside
-                    it. This was text-caption uppercased with 1.1px tracking,
-                    which made the label of the rail smaller and louder than
-                    anything in it.
-
-                    The uppercasing stays in CSS rather than the string on the
-                    surfaces that still shout, for the reason the inline TOC
-                    label documents: an extractor reads the text node, so
-                    "ON THIS PAGE" in the markup would be read as shouting.
-                    Here there is no uppercasing left at all.
-
-                    The glyph is fal's too. Three unequal rules read as "list of
-                    sections" without a word, and it distinguishes this rail
-                    from the tree on the other side of the page. */}
-                <p
-                    class="text-ui text-subtle mb-2 flex items-center gap-1.5"
-                >
-                    <svg
-                        width="13"
-                        height="13"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        aria-hidden="true"
-                        class="shrink-0"
-                    >
-                        <path d="M4 6h16M4 12h11M4 18h7" />
-                    </svg>
-                    {copy.onThisPage}
-                </p>
-                <nav id="docs-toc" aria-label={copy.onThisPage}>
-                    {toc.map((heading) => (
-                        <a
-                            href={`#${heading.slug}`}
-                            data-depth={heading.depth}
-                            class="docs-toc-link"
-                        >
-                            {heading.text}
-                        </a>
-                    ))}
-                </nav>
-            </aside>
-        )
-    }
 </section>
 
 <script>
@@ -371,29 +341,5 @@ const showInlineToc = inlineToc.length >= INLINE_TOC_MIN_SECTIONS
             )
     }
 
-    // TOC scroll-spy
-    const tocLinks = Array.from(
-        document.querySelectorAll<HTMLAnchorElement>('#docs-toc a')
-    )
-    if (tocLinks.length) {
-        const bySlug = new Map(
-            tocLinks.map((a) => [decodeURIComponent(a.hash.slice(1)), a])
-        )
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((e) => {
-                    if (!e.isIntersecting) return
-                    const link = bySlug.get(e.target.id)
-                    if (!link) return
-                    tocLinks.forEach((a) => a.classList.remove('is-active'))
-                    link.classList.add('is-active')
-                })
-            },
-            { rootMargin: '0px 0px -75% 0px', threshold: 0 }
-        )
-        bySlug.forEach((_, slug) => {
-            const el = document.getElementById(slug)
-            if (el) observer.observe(el)
-        })
-    }
+    // The section scroll-spy moved to DocsSidebar with the list it drives.
 </script>

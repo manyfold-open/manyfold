@@ -10,6 +10,11 @@ import type { Locale } from '@/lib/i18n'
 // copy either: every line restates what getting-started.md says under
 // "First setup", plus the CLI line that page ends on, so the dashboard and
 // the guide cannot describe two different first runs.
+//
+// Section titles, section descriptions and page titles are deliberately NOT
+// here. They are read from the navigation tree and the collection, which is
+// what keeps the dashboard from describing a section one way and the sidebar
+// another; this file holds only the prose that exists nowhere else.
 
 type RuntimeCard = {
     badge: string
@@ -39,8 +44,8 @@ export type DashboardCopy = {
     stepsHeading: string
     stepsIntro: string
     steps: readonly Step[]
-    indexHeading: string
-    indexIntro: string
+    browseHeading: string
+    browseIntro: string
 }
 
 const en: DashboardCopy = {
@@ -105,9 +110,9 @@ const en: DashboardCopy = {
             href: '/docs/install/'
         }
     ],
-    indexHeading: 'Everything, by group',
-    indexIntro:
-        'The full tree, so a reader who already knows what they want does not have to guess a path.'
+    browseHeading: 'Browse the docs',
+    browseIntro:
+        'Where each section starts. The full tree is in the sidebar, open at every level.'
 }
 
 const zh: DashboardCopy = {
@@ -171,8 +176,8 @@ const zh: DashboardCopy = {
             href: '/docs/install/'
         }
     ],
-    indexHeading: '全部内容，按分组',
-    indexIntro: '完整的路由树，让已经知道目标的读者不必猜路径。'
+    browseHeading: '浏览文档',
+    browseIntro: '每个分组从哪里开始。完整的路由树在左侧导航里，各层默认展开。'
 }
 
 export const dashboardCopyFor = (locale: Locale): DashboardCopy =>

@@ -41,13 +41,20 @@ const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
 ---
 
 <header class="border-divider bg-main sticky top-0 z-30 border-b">
+    {/* Geometry is the landing's, measured off .lp-nav-inner: the same
+        1200px inner width, the same 16/32 padding, the same 4px inside the
+        brand lockup and 6px between utilities. The two headers carry the same
+        wordmark on adjacent surfaces and were starting at different x, at
+        different sizes, with different gaps. Nothing is imported the other
+        way: the docs keep their search field and their own CTA, and the
+        landing's page links stay on the landing. */}
     <div
-        class="mx-auto flex max-w-content items-center gap-3 px-4 py-4 md:px-6"
+        class="mx-auto flex max-w-content items-center gap-3 px-[18px] py-4 min-[481px]:px-6 min-[721px]:px-8"
     >
         <a
             href={homeHref}
             aria-label={copy.brand}
-            class="text-fg inline-flex shrink-0 items-center gap-2 no-underline hover:no-underline"
+            class="text-fg inline-flex shrink-0 items-center gap-1 no-underline hover:no-underline"
         >
             <svg
                 class="docs-brand-mark"
@@ -61,13 +68,13 @@ const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
                 <polygon points="85,15 110,80 97.5,15 122.5,80" fill="currentColor"></polygon>
             </svg>
             <span
-                class="hidden text-[1.0625rem] font-medium tracking-[-0.015em] sm:inline"
+                class="hidden text-[1.1875rem] font-medium tracking-[-0.015em] sm:inline"
                 >{copy.brandShort}</span
             >
             <span class="docs-brand-beta" aria-label="Beta">Beta</span>
         </a>
 
-        <div class="ml-auto flex shrink-0 items-center gap-2">
+        <div class="ml-auto flex shrink-0 items-center gap-1.5">
             <button
                 type="button"
                 data-search-trigger
@@ -110,6 +117,10 @@ const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
                 </svg>
             </a>
 
+            {/* The same split the landing nav draws: what leaves the site on
+                one side, what changes this page on the other. */}
+            <span class="docs-nav-sep hidden md:block" aria-hidden="true"></span>
+
             {
                 languages.length > 1 && (
                     <details class="group relative">
@@ -117,7 +128,7 @@ const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
                             "language" by itself — and the chevron added so a
                             bare label still reads as a menu. */}
                         <summary
-                            class="docs-icon-btn docs-icon-bare w-auto gap-1 px-2 [&::-webkit-details-marker]:hidden"
+                            class="docs-icon-btn docs-icon-bare w-auto gap-[3px] px-2 [&::-webkit-details-marker]:hidden"
                             aria-label={copy.languageLabel}
                         >
                             <span class="docs-lang-code">
@@ -199,7 +210,7 @@ const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
 
             <a
                 href={homeHref}
-                class="docs-button-primary hidden h-8 px-3.5 text-ui sm:inline-flex"
+                class="docs-button-primary hidden h-[34px] px-4 text-ui sm:inline-flex"
             >
                 {copy.requestAccess}
             </a>

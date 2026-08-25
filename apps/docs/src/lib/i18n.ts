@@ -81,7 +81,6 @@ type UiCopy = {
     themeToggle: string
     joinDiscord: string
     followX: string
-    onThisPage: string
     tableOfContents: string
     copyPage: string
     copied: string
@@ -158,7 +157,6 @@ const defaultUi: UiCopy = {
     // "Discord", not "our Discord": the invite opens the NetMind.AI server.
     joinDiscord: 'Join Discord',
     followX: 'Follow on X',
-    onThisPage: 'On this page',
     tableOfContents: 'Table of contents',
     copyPage: 'Copy page',
     copied: 'Copied',
@@ -235,7 +233,6 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
         loginLabel: '登录',
         requestAccess: '申请使用',
         themeToggle: '切换主题',
-        onThisPage: '本页内容',
         tableOfContents: '目录',
         copyPage: '复制页面',
         copied: '已复制',

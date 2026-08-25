@@ -20,9 +20,17 @@ interface Props {
     entries: CollectionEntry<'docs'>[]
     locale: Locale
     activeSlug?: string
+    // The current page's own sections, rendered under the row for that page.
+    // This is what the right-hand rail used to carry: the tree and the page
+    // outline are the same question asked at two zoom levels ("where am I in
+    // the documentation" / "where am I in this page"), and answering them at
+    // opposite edges of the screen meant a reader tracking their position had
+    // to watch both margins at once. Optional: the dashboard and the changelog
+    // index pass none, and a page with one section passes none either.
+    sections?: { id: string; label: string }[]
 }
 
-const { entries, locale, activeSlug } = Astro.props
+const { entries, locale, activeSlug, sections = [] } = Astro.props
 const copy = getUi(locale)
 const { grouped, remaining } = docsNavGroups(entries, locale)
 // Exactly one row can be the current page. The reference row stays marked
@@ -36,23 +44,8 @@ const isCurrentPage = (href: string): boolean =>
     pathname === href || pathname === withSlash(href)
 const isAncestorPage = (href: string): boolean =>
     !isCurrentPage(href) && pathname.startsWith(withSlash(href))
-
-// A section opens because the reader is inside it, so the predicate has to see
-// every kind of row a section can hold: a collection page, a nested tier of
-// them, or a generated page like an endpoint.
 const isCurrentEntry = (entry: CollectionEntry<'docs'>): boolean =>
     entrySlug(entry) === activeSlug
-const containsCurrent = (nodes: DocsNavNode[]): boolean =>
-    nodes.some((node) =>
-        node.kind === 'entry'
-            ? isCurrentEntry(node.entry)
-            : node.kind === 'subgroup'
-              ? node.entries.some(isCurrentEntry)
-              : node.kind === 'page'
-                ? isCurrentPage(node.href) ||
-                  (node.ancestor === true && isAncestorPage(node.href))
-                : false
-    )
 
 // llms.txt, llms-full.txt and the changelog feed are not rows here any more.
 // They are raw files rather than pages, they were the only rows in the tree
@@ -66,17 +59,85 @@ const withoutFiles = (nodes: DocsNavNode[]) =>
             node.kind !== 'file'
     )
 
+// A subgroup at or under this many rows is never collapsed: below it the
+// collapse costs a reader a click to see what fits on screen anyway. Nine is
+// the size of the CLI subgroup, the largest that still reads as one block
+// under its parent; the two above it are 11 and 21.
+const SUBGROUP_ALWAYS_OPEN_MAX = 9
+
+// One shape for every row the tree can draw, resolved here so the markup below
+// is a tree walk and nothing else. It used to branch three ways inline, which
+// is how a half-finished refactor once shipped the whole tree twice.
+type Leaf = {
+    href: string
+    title: string
+    current: boolean
+    ancestor: boolean
+    badge?: { label: string; className: string }
+    // Rows that hang off this one: the API reference's three endpoints. They
+    // arrive as a flat run of `nested` siblings and are folded in here so a
+    // child is a child in the markup too.
+    children: Leaf[]
+}
+type Row =
+    | { kind: 'leaf'; leaf: Leaf }
+    | { kind: 'branch'; title: string; open: boolean; leaves: Leaf[] }
+
+const entryLeaf = (entry: CollectionEntry<'docs'>): Leaf => ({
+    href: entryHref(entry, locale),
+    title: entry.data.title,
+    current: isCurrentEntry(entry),
+    ancestor: false,
+    children: []
+})
+
+type NavNode = Exclude<DocsNavNode, { kind: 'file' }>
+
+const rowsFor = (nodes: NavNode[]): Row[] => {
+    const rows: Row[] = []
+    for (const node of nodes) {
+        if (node.kind === 'subgroup') {
+            rows.push({
+                kind: 'branch',
+                title: node.title,
+                open:
+                    node.entries.length <= SUBGROUP_ALWAYS_OPEN_MAX ||
+                    node.entries.some(isCurrentEntry),
+                leaves: node.entries.map(entryLeaf)
+            })
+            continue
+        }
+        if (node.kind === 'entry') {
+            rows.push({ kind: 'leaf', leaf: entryLeaf(node.entry) })
+            continue
+        }
+        const leaf: Leaf = {
+            href: node.href,
+            title: node.title,
+            current: isCurrentPage(node.href),
+            ancestor: node.ancestor === true && isAncestorPage(node.href),
+            badge: node.badge,
+            children: []
+        }
+        const previous = rows[rows.length - 1]
+        if (node.nested && previous?.kind === 'leaf') {
+            previous.leaf.children.push(leaf)
+            continue
+        }
+        rows.push({ kind: 'leaf', leaf })
+    }
+    return rows
+}
+
 const navGroups = [
     ...grouped.map((group) => ({
         title: group.title,
-        entries: group.entries,
         nodes: withoutFiles(group.nodes)
     })),
     ...(remaining.length > 0
         ? [
               {
                   title: copy.more,
-                  entries: remaining,
                   nodes: withoutFiles(
                       remaining.map(
                           (entry): DocsNavNode => ({ kind: 'entry', entry })
@@ -86,31 +147,22 @@ const navGroups = [
           ]
         : [])
 ].map((group) => ({
-    ...group,
-    // The count is every row behind the summary, which is what tells a reader
-    // how much a closed section is hiding.
-    count: group.nodes.reduce(
-        (total, node) =>
-            total + (node.kind === 'subgroup' ? node.entries.length : 1),
-        0
-    ),
-    // Open only along the path the reader is on. This was open-at-rest, and it
-    // was right for the shape the tree had then: nine flat sections, where
-    // collapsing all but the active one showed 2 of 36 links, 6% of the tree,
-    // and a reader could not tell what the documentation covered.
+    title: group.title,
+    // Every section stands open. It was open only along the reader's own path,
+    // on the argument that four labels are the whole map in four lines — but
+    // the label is the one thing a reader already knows before they arrive,
+    // and on the two surfaces with no active section (the dashboard and the
+    // changelog) the argument produced a rail holding four words and nothing
+    // else, next to a page about what the documentation contains.
     //
-    // Four sections change that arithmetic. Closed, the rail is four labels
-    // with counts beside them, which is the whole map in four lines; open along
-    // the current path it adds that section's ten to fourteen rows. That is a
-    // rail a reader can read, rather than 40 rows they scroll past.
-    // replicate.com/docs collapses the same way, measured: four sections, each
-    // carrying aria-expanded="false" until it is the one you are in.
-    open: containsCurrent(group.nodes),
-    nodes: group.nodes.map((node) =>
-        node.kind === 'subgroup'
-            ? { ...node, open: node.entries.some(isCurrentEntry) }
-            : node
-    )
+    // The count beside each label went with it. It only existed to say how
+    // much a closed section was hiding, and an open section shows it.
+    //
+    // What stays collapsible is the tier below: two subgroups are long enough
+    // to bury the sections under them (Channels at 11 rows, CLI commands at
+    // 21), and those two open when the reader is inside them.
+    open: true,
+    rows: rowsFor(group.nodes)
 }))
 ---
 
@@ -178,7 +230,7 @@ const navGroups = [
 
 <aside
     id="docs-nav"
-    class="docs-nav-rail border-divider lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-5"
+    class="docs-nav-rail border-divider-soft lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-4"
     data-drawer
 >
     {/* Neither AppShell nor SettingsLayout has an in-drawer close control:
@@ -225,134 +277,243 @@ const navGroups = [
         </button>
     </div>
 
-    <nav class="text-ui pb-4" aria-label={copy.docs}>
+    <nav class="docs-tree pb-4" aria-label={copy.docs}>
         {
-                navGroups.map((group) => (
-                    <details open={group.open} class="docs-sidebar-details">
-                        <summary class="docs-sidebar-group docs-sidebar-summary">
-                            <span>{group.title}</span>
-                            <em>{group.count}</em>
-                        </summary>
-                        <ul class="space-y-0.5">
-                            {group.nodes.map((node) =>
-                                node.kind === 'subgroup' ? (
-                                    <li>
-                                        <details
-                                            open={node.open}
-                                            class="docs-sidebar-subdetails"
+            navGroups.map((group, groupIndex) => (
+                <div
+                    class:list={['docs-tree-node', group.open && 'is-open']}
+                    data-tree-node
+                >
+                    <button
+                        type="button"
+                        class="docs-tree-head docs-tree-head-group"
+                        aria-expanded={group.open ? 'true' : 'false'}
+                        aria-controls={`docs-tree-${groupIndex}`}
+                        data-tree-toggle
+                    >
+                        <svg
+                            class="docs-tree-chev"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="m6 9 6 6 6-6" />
+                        </svg>
+                        <span>{group.title}</span>
+                    </button>
+                    <div class="docs-tree-kids" id={`docs-tree-${groupIndex}`}>
+                        <div class="docs-tree-kids-in">
+                            {group.rows.map((row, rowIndex) =>
+                                row.kind === 'branch' ? (
+                                    <div
+                                        class:list={[
+                                            'docs-tree-node',
+                                            row.open && 'is-open'
+                                        ]}
+                                        data-tree-node
+                                    >
+                                        <button
+                                            type="button"
+                                            class="docs-tree-head docs-tree-head-sub"
+                                            aria-expanded={
+                                                row.open ? 'true' : 'false'
+                                            }
+                                            aria-controls={`docs-tree-${groupIndex}-${rowIndex}`}
+                                            data-tree-toggle
                                         >
-                                            <summary class="docs-sidebar-link docs-sidebar-subsummary text-muted hover:bg-soft hover:text-fg">
-                                                <span>{node.title}</span>
-                                                <svg
-                                                    class="docs-sidebar-chevron"
-                                                    width="10"
-                                                    height="10"
-                                                    viewBox="0 0 12 12"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    stroke-width="1.6"
-                                                    stroke-linecap="round"
-                                                    stroke-linejoin="round"
-                                                    aria-hidden="true"
-                                                >
-                                                    <path d="M4.5 3 7.5 6 4.5 9" />
-                                                </svg>
-                                            </summary>
-                                            <ul class="docs-sidebar-sublist space-y-0.5">
-                                                {node.entries.map((item: CollectionEntry<'docs'>) => (
-                                                    <li>
+                                            <svg
+                                                class="docs-tree-chev"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                stroke-width="2.5"
+                                                stroke-linecap="round"
+                                                stroke-linejoin="round"
+                                                aria-hidden="true"
+                                            >
+                                                <path d="m6 9 6 6 6-6" />
+                                            </svg>
+                                            <span>{row.title}</span>
+                                        </button>
+                                        <div
+                                            class="docs-tree-kids"
+                                            id={`docs-tree-${groupIndex}-${rowIndex}`}
+                                        >
+                                            <div class="docs-tree-kids-in">
+                                                {row.leaves.map((leaf) => (
+                                                    <>
                                                         <a
-                                                            href={entryHref(item, locale)}
+                                                            href={leaf.href}
+                                                            class="docs-tree-leaf"
                                                             aria-current={
-                                                                entrySlug(item) === activeSlug
+                                                                leaf.current
                                                                     ? 'page'
                                                                     : undefined
                                                             }
-                                                            class:list={[
-                                                                'docs-sidebar-link',
-                                                                entrySlug(item) === activeSlug
-                                                                    ? 'bg-info-bg font-medium text-info-strong'
-                                                                    : 'text-muted hover:bg-soft hover:text-fg'
-                                                            ]}
                                                         >
-                                                            {item.data.title}
+                                                            {leaf.title}
                                                         </a>
-                                                    </li>
+                                                        {leaf.current &&
+                                                            sections.length >
+                                                                0 && (
+                                                                <ul class="docs-tree-sections">
+                                                                    {sections.map(
+                                                                        (
+                                                                            section
+                                                                        ) => (
+                                                                            <li>
+                                                                                <a
+                                                                                    class="docs-tree-section"
+                                                                                    href={`#${section.id}`}
+                                                                                    data-tree-section
+                                                                                >
+                                                                                    {
+                                                                                        section.label
+                                                                                    }
+                                                                                </a>
+                                                                            </li>
+                                                                        )
+                                                                    )}
+                                                                </ul>
+                                                            )}
+                                                    </>
                                                 ))}
-                                            </ul>
-                                        </details>
-                                    </li>
-                                ) : node.kind === 'page' ? (
-                                    <li>
-                                        <a
-                                            href={node.href}
-                                            aria-current={
-                                                isCurrentPage(node.href)
-                                                    ? 'page'
-                                                    : undefined
-                                            }
-                                            class:list={[
-                                                'docs-sidebar-link',
-                                                node.nested && 'docs-sidebar-nested',
-                                                node.badge && 'docs-sidebar-endpoint',
-                                                isCurrentPage(node.href)
-                                                    ? 'bg-info-bg font-medium text-info-strong'
-                                                    : node.ancestor === true &&
-                                                        isAncestorPage(node.href)
-                                                      ? 'text-fg font-medium hover:bg-soft'
-                                                      : 'text-muted hover:bg-soft hover:text-fg'
-                                            ]}
-                                        >
-                                            {node.badge && (
-                                                <span
-                                                    class:list={[
-                                                        'docs-method-pill',
-                                                        node.badge.className
-                                                    ]}
-                                                >
-                                                    {node.badge.label}
-                                                </span>
-                                            )}
-                                            {node.badge ? (
-                                                <span class="min-w-0 truncate">
-                                                    {node.title}
-                                                </span>
-                                            ) : (
-                                                node.title
-                                            )}
-                                        </a>
-                                    </li>
+                                            </div>
+                                        </div>
+                                    </div>
                                 ) : (
-                                    <li>
+                                    <>
                                         <a
-                                            href={entryHref(node.entry, locale)}
+                                            href={row.leaf.href}
+                                            class:list={[
+                                                'docs-tree-leaf',
+                                                row.leaf.ancestor &&
+                                                    'is-ancestor'
+                                            ]}
                                             aria-current={
-                                                entrySlug(node.entry) === activeSlug
+                                                row.leaf.current
                                                     ? 'page'
                                                     : undefined
                                             }
-                                            class:list={[
-                                                'docs-sidebar-link',
-                                                entrySlug(node.entry) === activeSlug
-                                                    ? 'bg-info-bg font-medium text-info-strong'
-                                                    : 'text-muted hover:bg-soft hover:text-fg'
-                                            ]}
                                         >
-                                            {node.entry.data.title}
+                                            {row.leaf.title}
                                         </a>
-                                    </li>
+                                        {row.leaf.current &&
+                                            sections.length > 0 && (
+                                                <ul class="docs-tree-sections">
+                                                    {sections.map((section) => (
+                                                        <li>
+                                                            <a
+                                                                class="docs-tree-section"
+                                                                href={`#${section.id}`}
+                                                                data-tree-section
+                                                            >
+                                                                {section.label}
+                                                            </a>
+                                                        </li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        {row.leaf.children.length > 0 && (
+                                            <div class="docs-tree-kids-in">
+                                                {row.leaf.children.map(
+                                                    (child) => (
+                                                        <>
+                                                            <a
+                                                                href={
+                                                                    child.href
+                                                                }
+                                                                class:list={[
+                                                                    'docs-tree-leaf',
+                                                                    child.badge &&
+                                                                        'docs-tree-leaf-endpoint'
+                                                                ]}
+                                                                aria-current={
+                                                                    child.current
+                                                                        ? 'page'
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                {child.badge && (
+                                                                    <span
+                                                                        class:list={[
+                                                                            'docs-method-pill',
+                                                                            child
+                                                                                .badge
+                                                                                .className
+                                                                        ]}
+                                                                    >
+                                                                        {
+                                                                            child
+                                                                                .badge
+                                                                                .label
+                                                                        }
+                                                                    </span>
+                                                                )}
+                                                                <span class="min-w-0">
+                                                                    {
+                                                                        child.title
+                                                                    }
+                                                                </span>
+                                                            </a>
+                                                            {child.current &&
+                                                                sections.length >
+                                                                    0 && (
+                                                                    <ul class="docs-tree-sections">
+                                                                        {sections.map(
+                                                                            (
+                                                                                section
+                                                                            ) => (
+                                                                                <li>
+                                                                                    <a
+                                                                                        class="docs-tree-section"
+                                                                                        href={`#${section.id}`}
+                                                                                        data-tree-section
+                                                                                    >
+                                                                                        {
+                                                                                            section.label
+                                                                                        }
+                                                                                    </a>
+                                                                                </li>
+                                                                            )
+                                                                        )}
+                                                                    </ul>
+                                                                )}
+                                                        </>
+                                                    )
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
                                 )
                             )}
-                        </ul>
-                    </details>
-                ))
-            }
+                        </div>
+                    </div>
+                </div>
+            ))
+        }
     </nav>
 </aside>
 
+{/* Without JS the toggles do nothing, so the two collapsed subgroups would be
+    unreachable rows. Opened here instead: a reader without scripting gets the
+    complete tree, which is more of it than the previous <details> markup gave
+    them (that shipped every section but the reader's own closed). */}
+<noscript>
+    <style>
+        .docs-tree-kids {
+            visibility: visible !important;
+            grid-template-rows: 1fr !important;
+        }
+    </style>
+</noscript>
+
 <script>
-    // The drawer is the only stateful thing in this component. The tree's own
-    // collapse stays server-rendered <details>, as before.
+    // Two stateful things here: the drawer, and the tree's own collapse.
     const drawer = document.querySelector<HTMLElement>('[data-drawer]')
     const trigger = document.querySelector<HTMLButtonElement>('[data-drawer-open]')
     // The backdrop is singled out because it is the only closer that also has
@@ -360,6 +521,53 @@ const navGroups = [
     const backdrop = document.querySelector<HTMLButtonElement>('[data-drawer-backdrop]')
     const closers = document.querySelectorAll<HTMLElement>('[data-drawer-close]')
     const wide = window.matchMedia('(min-width: 64rem)')
+
+    // The collapse is a class on the node plus aria-expanded on its button;
+    // the height transition is CSS (see .docs-tree-kids). Server-rendered
+    // open state, so nothing flashes and no toggle animates on load.
+    document
+        .querySelectorAll<HTMLButtonElement>('[data-tree-toggle]')
+        .forEach((button) =>
+            button.addEventListener('click', () => {
+                const node = button.closest<HTMLElement>('[data-tree-node]')
+                if (!node) return
+                const open = node.classList.toggle('is-open')
+                button.setAttribute('aria-expanded', open ? 'true' : 'false')
+            })
+        )
+
+    // Scroll-spy over the current page's sections, moved here with the list
+    // itself. Same shape as the rail's: the last heading to cross the top
+    // quarter of the viewport wins.
+    const sectionLinks = Array.from(
+        document.querySelectorAll<HTMLAnchorElement>('[data-tree-section]')
+    )
+    if (sectionLinks.length) {
+        const bySlug = new Map(
+            sectionLinks.map((link) => [
+                decodeURIComponent(link.hash.slice(1)),
+                link
+            ])
+        )
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (!entry.isIntersecting) return
+                    const link = bySlug.get(entry.target.id)
+                    if (!link) return
+                    sectionLinks.forEach((other) =>
+                        other.classList.remove('is-active')
+                    )
+                    link.classList.add('is-active')
+                })
+            },
+            { rootMargin: '0px 0px -75% 0px', threshold: 0 }
+        )
+        bySlug.forEach((_, slug) => {
+            const heading = document.getElementById(slug)
+            if (heading) observer.observe(heading)
+        })
+    }
 
     if (drawer && trigger && backdrop) {
         const close = (returnFocus = true) => {
@@ -382,7 +590,7 @@ const navGroups = [
             backdrop.hidden = false
             trigger.setAttribute('aria-expanded', 'true')
             document.body.style.overflow = 'hidden'
-            drawer.querySelector<HTMLElement>('a, summary')?.focus()
+            drawer.querySelector<HTMLElement>('a, button')?.focus()
         }
 
         trigger.addEventListener('click', open)
@@ -400,32 +608,21 @@ const navGroups = [
             // there. Without this, Tab walked straight out of the drawer into
             // the page it had just claimed was hidden, which is worse than not
             // claiming it. apps/web has the same gap; it is not worth copying.
-            if (event.key !== 'Tab') return
-            // Filtered, because the selector matches every row in the tree and
-            // a row inside a collapsed <details> cannot hold focus. All groups
-            // but the reader's own are collapsed, so on /docs/workspace/ at
-            // 375px this matched 68 elements of which 11 could take focus, and
-            // the last was an endpoint link three groups deep in a closed
-            // section. activeElement could never equal it, so the forward wrap
-            // never fired and Tab walked out of the dialog aria-modal claims is
-            // the only thing on the page; the backward wrap called focus() on
-            // the same unfocusable element and moved nothing. The trap only
-            // ever worked on Reference pages, where the last group is the open
-            // one.
             //
-            // checkVisibility is the only predicate that sees this.
-            // offsetParent is non-null for all 68, and excluding anything
-            // inside a closed <details> drops to 6: it also excludes those
-            // groups' own summaries, which are focusable and are most of the
-            // real stops. Guarded so a browser without it falls back to the
-            // unfiltered list rather than throwing.
+            // The filter asks about visibility as well as display now. A
+            // collapsed subtree used to be a closed <details>, which is
+            // display:none and drops out of the default check; it is a
+            // 0fr grid row plus visibility:hidden today, which is still
+            // unfocusable but only the visibility test sees it. Without the
+            // option the trap would wrap around rows a reader cannot reach.
+            if (event.key !== 'Tab') return
             const stops = [
                 ...drawer.querySelectorAll<HTMLElement>(
-                    'a[href], summary, button:not([disabled])'
+                    'a[href], button:not([disabled])'
                 )
             ].filter((el) =>
                 typeof el.checkVisibility === 'function'
-                    ? el.checkVisibility()
+                    ? el.checkVisibility({ visibilityProperty: true })
                     : true
             )
             if (!stops.length) return

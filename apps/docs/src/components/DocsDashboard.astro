@@ -2,6 +2,7 @@
 import { getCollection } from 'astro:content'
 import {
     entryHref,
+    entrySlug,
     filterDocsByLocale,
     getUi,
     groupKeyForTitle,
@@ -22,93 +23,99 @@ const { locale } = Astro.props
 const copy = dashboardCopyFor(locale)
 const ui = getUi(locale)
 const entries = filterDocsByLocale(await getCollection('docs'), locale)
-const { grouped, remaining } = docsNavGroups(entries, locale)
+const { grouped } = docsNavGroups(entries, locale)
 
-// The page index reads the sidebar's own tree rather than a second hand-written
-// list, so it cannot drift from the nav. A group node is one of three things: a
-// page, a nested tier of pages, or a build artifact that is not a page at all.
-// The index below flattens the first two. Nothing reads the third any more: the
-// machine-readable block was the only consumer and it is gone.
-type IndexRow =
-    | { kind: 'label'; title: string; anchor?: string }
-    | { kind: 'link'; title: string; href: string; sub: boolean }
+// Where each section starts, rather than every page it holds.
+//
+// This block used to be the whole tree: 60-odd links in two flowed columns,
+// the same rows the sidebar was already rendering four inches to the left,
+// under the heading "Everything, by group". It was written when the sidebar
+// collapsed to four labels, so the dashboard was the only place the tree was
+// visible. The sidebar stands open now, which leaves this page free to answer
+// the question a landing page is actually asked — where do I start — instead
+// of repeating the navigation next to it.
+//
+// The slugs are hand-picked and locale-independent; every title, href and
+// description on the block is read from the tree and the collection, so a
+// renamed page or section cannot leave a stale copy of itself here. A path
+// rather than a slug means a generated page that is not a collection entry.
+const CURATED: Record<string, readonly string[]> = {
+    'group-start': ['getting-started', 'install', 'create-agent'],
+    'group-build': ['workspace', 'model-providers', 'local-daemons', 'cli'],
+    'group-connect': ['channels', 'api-chat', 'api-conversations', 'api-a2a'],
+    'group-reference': ['cli/reference', '/api-reference', 'faq']
+}
 
-const indexRows = (nodes: DocsNavNode[]): IndexRow[] =>
-    nodes.flatMap((node): IndexRow[] => {
-        if (node.kind === 'entry') {
-            return [
-                {
-                    kind: 'link',
-                    title: node.entry.data.title,
-                    href: entryHref(node.entry, locale),
-                    sub: false
+// One line-drawn mark per section, keyed by the same locale-independent group
+// key. Four identical text blocks was the other half of what made this page
+// hard to scan: the section a reader wants is found by reading four
+// paragraphs, and a mark is what lets them find it by shape instead.
+// Sandbox, the reader's own machine, a host that stays up. Same line weight
+// and the same 34px tile as the section marks below, so the page has one
+// family of glyphs rather than two.
+const RUNTIME_GLYPHS = [
+    '<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>',
+    '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M2 20h20"/>',
+    '<path d="M17.5 19a4.5 4.5 0 1 0-.4-9A7 7 0 1 0 4 14.9"/><path d="M12 12v9m-3-3 3 3 3-3"/>'
+]
+
+const GLYPHS: Record<string, string> = {
+    'group-start':
+        'M4 19.5A2.5 2.5 0 0 1 6.5 17H20M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z',
+    'group-build': 'M4 17l6-6-6-6M12 19h8',
+    'group-connect': 'M9 17H7A5 5 0 0 1 7 7h2m6 0h2a5 5 0 1 1 0 10h-2m-7-5h8',
+    'group-reference': 'M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM21 21l-4.3-4.3'
+}
+
+const browseGroups = grouped
+    .map((group) => {
+        const key = groupKeyForTitle(group.title, locale)
+        const bySlug = new Map(
+            group.entries.map((entry) => [entrySlug(entry), entry])
+        )
+        const links = (key ? (CURATED[key] ?? []) : [])
+            .map((id) => {
+                if (id.startsWith('/')) {
+                    const href = localePath(locale, id)
+                    const page = group.nodes.find(
+                        (node): node is Extract<DocsNavNode, { kind: 'page' }> =>
+                            node.kind === 'page' && node.href === href
+                    )
+                    return page ? { title: page.title, href } : null
                 }
-            ]
+                const entry = bySlug.get(id)
+                return entry
+                    ? { title: entry.data.title, href: entryHref(entry, locale) }
+                    : null
+            })
+            .filter((link): link is { title: string; href: string } =>
+                Boolean(link)
+            )
+        return {
+            title: group.title,
+            description: group.description,
+            anchor: key,
+            glyph: key ? GLYPHS[key] : undefined,
+            // The tier below the section, named. It is the one piece of the
+            // old index worth keeping at this altitude: "Connect" says nothing
+            // about Channels and API being the two halves of it. These also
+            // carry the ids every page's BreadcrumbList points at, which is
+            // why they are rendered from the tree rather than hand-listed.
+            subgroups: group.nodes.flatMap((node) =>
+                node.kind === 'subgroup'
+                    ? [
+                          {
+                              title: node.title,
+                              anchor: subgroupAnchorForTitle(node.title, locale)
+                          }
+                      ]
+                    : []
+            ),
+            links
         }
-        if (node.kind === 'page') {
-            // The Overview row is this page. The rail carries it because a
-            // reader needs a way back; an index of the tree listing itself is
-            // just a link to where you already are.
-            if (node.href === localePath(locale, '/docs/')) return []
-            return [
-                {
-                    kind: 'link',
-                    title: node.title,
-                    href: node.href,
-                    sub: node.nested
-                }
-            ]
-        }
-        if (node.kind === 'subgroup') {
-            return [
-                {
-                    kind: 'label',
-                    title: node.title,
-                    // Where a page's breadcrumb sends a reader who clicks the
-                    // tier between the section and the page.
-                    anchor: subgroupAnchorForTitle(node.title, locale)
-                },
-                ...node.entries.map((entry): IndexRow => ({
-                    kind: 'link',
-                    title: entry.data.title,
-                    href: entryHref(entry, locale),
-                    sub: true
-                }))
-            ]
-        }
-        return []
     })
+    .filter((group) => group.links.length > 0)
 
-// Same fallback the sidebar and llms.txt use: a page in no group is still a
-// page, and "Everything, by group" has to mean everything.
-const indexGroups = [
-    ...grouped.map((group) => ({
-        title: group.title,
-        // Where a page's breadcrumb sends a reader who clicks its group.
-        anchor: groupKeyForTitle(group.title, locale),
-        description: group.description,
-        rows: indexRows(group.nodes)
-    })),
-    ...(remaining.length > 0
-        ? [
-              {
-                  title: ui.more,
-                  anchor: undefined,
-                  description: '',
-                  rows: remaining.map((entry): IndexRow => ({
-                      kind: 'link',
-                      title: entry.data.title,
-                      href: entryHref(entry, locale),
-                      sub: false
-                  }))
-              }
-          ]
-        : [])
-].filter((group) => group.rows.length > 0)
-
-
-// A concrete twin rather than a placeholder: the convention is only checkable
-// if the reader can click one.
 ---
 
 <!--
@@ -118,7 +125,7 @@ const indexGroups = [
     half its job. No third column, because there is no on-this-page rail here.
 -->
 <section
-    class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+    class="docs-container docs-shell"
 >
     <DocsSidebar entries={entries} locale={locale} />
 
@@ -130,9 +137,12 @@ const indexGroups = [
         kicker 133.
     -->
     <div class="min-w-0">
+        {/* No eyebrow. It read "MANYFOLD" in mono caps directly under a header
+            carrying the same wordmark next to the logo, and directly above an
+            h1 that opens with the same word again: three brand marks in the
+            first 120px of the page, of which two are chrome. */}
         <header class="docs-page-header">
-            <p class="docs-kicker">{ui.brandShort}</p>
-            <h1 class="mt-3 text-h1" id="page-title">
+            <h1 class="text-h1" id="page-title">
                 {copy.heading}
             </h1>
             <p class="docs-copy mt-2 max-w-2xl">{copy.deck}</p>
@@ -168,14 +178,36 @@ const indexGroups = [
                                 index === 0 && 'dash-default'
                             ]}
                         >
-                            <span
-                                class:list={[
-                                    'docs-pill',
-                                    index === 0 && 'dash-badge'
-                                ]}
-                            >
-                                {card.badge}
-                            </span>
+                            {/* Three cards of the same size holding the same
+                                four text blocks: the reader's own machine, a
+                                sandbox and a long-running cloud host differ by
+                                where the work happens, and nothing in the card
+                                said so until the third line of body copy. The
+                                mark says it before the title is read. The badge
+                                moves to the top-right of the same row, which is
+                                also where it stops pushing the title down. */}
+                            <div class="flex items-start justify-between gap-3">
+                                <span class="dash-glyph" aria-hidden="true">
+                                    <svg
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        stroke-width="1.8"
+                                        stroke-linecap="round"
+                                        stroke-linejoin="round"
+                                    >
+                                        <Fragment set:html={RUNTIME_GLYPHS[index]} />
+                                    </svg>
+                                </span>
+                                <span
+                                    class:list={[
+                                        'docs-pill',
+                                        index === 0 && 'dash-badge'
+                                    ]}
+                                >
+                                    {card.badge}
+                                </span>
+                            </div>
                             <h3 class="text-h3 mt-3">{card.title}</h3>
                             <p class="text-ui text-muted mt-1.5">{card.body}</p>
                             <p class="text-ui text-fg mt-3 font-medium">
@@ -219,55 +251,66 @@ const indexGroups = [
             </ol>
         </div>
 
-        <!-- 3. The full tree -->
+        <!-- 3. Where each section starts -->
         <div class="mt-12">
-            <h2 id="everything" class="text-h2 scroll-mt-24">
-                <a class="docs-heading-anchor" href="#everything" aria-label={ui.headingLink}></a>
-                {copy.indexHeading}
+            <h2 id="browse" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#browse" aria-label={ui.headingLink}></a>
+                {copy.browseHeading}
             </h2>
-            <p class="docs-copy mt-2 max-w-2xl">{copy.indexIntro}</p>
-            {/* Flowed columns, not a grid. Four sections whose depths are 3,
-                14, 14 and 9 rows: in a grid the short block is stretched to
-                its row's height, which put a screen of empty space under
-                Start. Multi-column lets each block end where it ends and the
-                next one start there. */}
-            <div class="mt-5 gap-x-10 lg:columns-2">
+            <p class="docs-copy mt-2 max-w-2xl">{copy.browseIntro}</p>
+            <div class="mt-5 grid gap-3 md:grid-cols-2">
                 {
-                    indexGroups.map((group) => (
-                        <div class="min-w-0 break-inside-avoid pb-8">
-                            <p class="docs-kicker" id={group.anchor}>
-                                {group.title}
-                            </p>
+                    browseGroups.map((group) => (
+                        <section class="docs-block">
+                            <div class="flex items-center gap-2.5">
+                                {group.glyph && (
+                                    <span class="dash-glyph" aria-hidden="true">
+                                        <svg
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="1.8"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <path d={group.glyph} />
+                                        </svg>
+                                    </span>
+                                )}
+                                <h3 class="text-h4" id={group.anchor}>
+                                    {group.title}
+                                </h3>
+                            </div>
                             {group.description && (
-                                <p class="text-ui text-muted mt-1.5">
+                                <p class="text-ui text-muted mt-2">
                                     {group.description}
                                 </p>
                             )}
-                            <ul class="dash-index mt-2.5">
-                                {group.rows.map((row) =>
-                                    row.kind === 'label' ? (
+                            {group.subgroups.length > 0 && (
+                                <ul class="dash-chips">
+                                    {group.subgroups.map((subgroup) => (
                                         <li
-                                            class="dash-index-label"
-                                            id={row.anchor}
+                                            class="docs-pill"
+                                            id={subgroup.anchor}
                                         >
-                                            {row.title}
+                                            {subgroup.title}
                                         </li>
-                                    ) : (
-                                        <li>
-                                            <a
-                                                href={row.href}
-                                                class:list={[
-                                                    'dash-index-link',
-                                                    row.sub && 'dash-index-sub'
-                                                ]}
-                                            >
-                                                {row.title}
-                                            </a>
-                                        </li>
-                                    )
-                                )}
+                                    ))}
+                                </ul>
+                            )}
+                            <ul class="dash-links">
+                                {group.links.map((link) => (
+                                    <li>
+                                        <a href={link.href} class="dash-link">
+                                            <span>{link.title}</span>
+                                            <span class="dash-arrow" aria-hidden="true">
+                                                &#8594;
+                                            </span>
+                                        </a>
+                                    </li>
+                                ))}
                             </ul>
-                        </div>
+                        </section>
                     ))
                 }
             </div>
@@ -324,35 +367,74 @@ const indexGroups = [
         text-decoration: underline;
     }
 
-    .dash-index {
-        list-style: none;
-        padding-left: 0;
-        margin: 0;
+    /* The mark on a runtime card and on a section block. One tile, one size,
+       the recessed fill the rest of the page uses for a nested surface. */
+    .dash-glyph {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.125rem;
+        height: 2.125rem;
+        flex: none;
+        border-radius: var(--radius-xs);
+        background: var(--color-soft);
+        color: var(--color-muted);
     }
 
-    .dash-index-link {
-        display: block;
-        padding: 0.1875rem 0;
+    .dash-glyph svg {
+        width: 1.0625rem;
+        height: 1.0625rem;
+    }
+
+    /* The tier below the section, named rather than expanded. These carry the
+       ids every page's BreadcrumbList points at, so they are also the reason
+       this block cannot be reduced to four links and a heading. */
+    .dash-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        list-style: none;
+        margin: 0.75rem 0 0;
+        padding: 0;
+    }
+
+    .dash-links {
+        list-style: none;
+        margin: 0.75rem 0 0;
+        padding: 0;
+    }
+
+    .dash-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.625rem;
+        margin: 0 -0.5rem;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius-xs);
         font-size: var(--text-ui);
         line-height: var(--text-ui--line-height);
-        color: var(--color-muted);
+        color: var(--color-fg);
+        text-decoration: none;
+        transition: background 150ms ease;
+    }
+
+    .dash-link:hover {
+        background: var(--color-soft);
+        color: var(--color-fg);
         text-decoration: none;
     }
 
-    .dash-index-link:hover {
-        color: var(--color-fg);
-    }
-
-    /* Nested tier, matching the sidebar's one level of indent. */
-    .dash-index-sub {
-        padding-left: 0.75rem;
-        box-shadow: inset 1px 0 0 0 var(--color-divider);
-    }
-
-    .dash-index-label {
-        margin-top: 0.5rem;
-        font-size: var(--text-caption);
-        line-height: var(--text-caption--line-height);
+    /* Rest is not "no affordance": the row is a link and reads as one from
+       the block it sits in. The arrow is the hover confirmation, so four rows
+       of them do not turn the block into a column of chevrons. */
+    .dash-arrow {
         color: var(--color-subtle);
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    .dash-link:hover .dash-arrow {
+        opacity: 1;
     }
 </style>

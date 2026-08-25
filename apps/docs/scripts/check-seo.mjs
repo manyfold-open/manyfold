@@ -70,6 +70,12 @@ const textContent = (value) =>
             .trim()
     )
 
+// A section heading in the navigation tree: the disclosure button, its
+// chevron, and the label. Shared by the duplicate-tree gate and the ungrouped
+// bucket gate below, which are two questions about the same row.
+const GROUP_HEADING =
+    /<button[^>]*class="docs-tree-head docs-tree-head-group"[^>]*>(?:\s*<svg\b[\s\S]*?<\/svg>)?\s*<span>([\s\S]*?)<\/span>/g
+
 const htmlFiles = walk(dist, (file) => file.endsWith('.html'))
 const pages = htmlFiles.map((file) => {
     const html = fs.readFileSync(file, 'utf8')
@@ -341,10 +347,14 @@ for (const page of pages) {
     // shipped the whole 36-link tree twice with a stray ') : (' between them,
     // and nothing caught it: the markup is valid, the types check, the build
     // passes. Repeated group headings are the cheapest signature of that.
+    //
+    // Anchored to the button's own open tag and one optional glyph, so the
+    // match cannot run from one section heading to a <span> belonging to
+    // another. The rows were <summary> elements before the tree became a set
+    // of disclosure buttons; a shape gate has to be re-pointed when the shape
+    // changes, which is the cost of it noticing anything at all.
     const groups = [
-        ...html.matchAll(
-            /<summary class="docs-sidebar-group docs-sidebar-summary">\s*<span>(.*?)<\/span>/g
-        )
+        ...html.matchAll(GROUP_HEADING)
     ].map((match) => textContent(match[1]))
     const seenGroups = new Set()
     for (const group of groups) {
@@ -493,10 +503,11 @@ const ungrouped = []
 for (const { route, html } of pages) {
     const nav = html.match(/<aside id="docs-nav"[\s\S]*?<\/aside>/)
     if (!nav) continue
+    const headings = [...nav[0].matchAll(GROUP_HEADING)].map((match) =>
+        textContent(match[1])
+    )
     for (const label of ungroupedLabels) {
-        if (
-            new RegExp(`<summary[^>]*>\\s*<span>${label}</span>`).test(nav[0])
-        ) {
+        if (headings.includes(label)) {
             ungrouped.push(route)
             break
         }

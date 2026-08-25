@@ -44,6 +44,21 @@ const REFERENCE_GROUP = 'group-reference'
 // it there would list the entry page twice in the same file.
 const START_GROUP = 'group-start'
 
+// The tree's own order, flattened. Prev/next used to walk `entries`, which is
+// every doc sorted by its frontmatter `order` field — a per-page number that
+// nothing reconciles with the hand-written group lists, so the two disagreed:
+// on /docs/getting-started/ the pager offered `mf auth` as the previous page,
+// three groups away in Reference, and Self-hosting as the next one. A pager
+// under an article means "the page before and after this one in the sequence
+// you are reading", and the sidebar is where that sequence is written down.
+export const docsNavOrder = (
+    entries: CollectionEntry<'docs'>[],
+    locale: Locale
+): CollectionEntry<'docs'>[] => {
+    const { grouped, remaining } = groupDocs(entries, locale)
+    return [...grouped.flatMap((group) => group.entries), ...remaining]
+}
+
 export const docsNavGroups = (
     entries: CollectionEntry<'docs'>[],
     locale: Locale

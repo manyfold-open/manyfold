@@ -89,6 +89,35 @@ const rehypeHeadingAnchors = () => (tree, file) => {
     walk(tree)
 }
 
+// A markdown table is the one block in the corpus that does not fit the
+// reading measure. Wrapping it lets the table keep its own width and scroll
+// inside a panel, instead of the page scrolling sideways or every cell
+// wrapping to a column of single words (see .docs-table in global.css).
+//
+// A plugin rather than the client script that wraps <pre>: a table's layout is
+// what is being fixed, so it has to be right in the HTML the reader gets and
+// in the HTML a crawler parses, not one frame later.
+const rehypeTableWrap = () => (tree) => {
+    const walk = (node) => {
+        const children = node.children ?? []
+        for (let index = 0; index < children.length; index += 1) {
+            const child = children[index]
+            if (child.type !== 'element') continue
+            if (child.tagName === 'table') {
+                children[index] = {
+                    type: 'element',
+                    tagName: 'div',
+                    properties: { className: ['docs-table'], tabIndex: 0 },
+                    children: [child]
+                }
+                continue
+            }
+            walk(child)
+        }
+    }
+    walk(tree)
+}
+
 // Entry points that must land on the docs home live in public/_redirects, not
 // here: a static build can only emit a meta-refresh stub for `redirects`, and
 // the browser paints that stub before it forwards.
@@ -100,7 +129,8 @@ export default defineConfig({
         rehypePlugins: [
             rehypeHeadingIds,
             rehypeHeadingAnchors,
-            rehypeChangelogHeadline
+            rehypeChangelogHeadline,
+            rehypeTableWrap
         ],
         shikiConfig: {
             themes: { light: 'github-light', dark: 'github-dark-dimmed' },

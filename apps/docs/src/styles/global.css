@@ -31,12 +31,17 @@
 @theme {
     /* === Text === */
     --color-fg: rgb(10 12 15);                  /* --lp-ink         */
+    --color-ink-soft: rgb(31 36 44);            /* --lp-ink-soft    */
     --color-muted: rgb(82 88 97);               /* --lp-muted       */
     --color-subtle: rgb(130 136 145);           /* --lp-subtle      */
     --color-placeholder: rgb(155 161 170);
 
     /* === Lines / dividers === */
     --color-divider: rgba(10, 12, 15, 0.18);    /* --lp-line        */
+    /* Half-strength rule, for lines that group rather than separate: the
+       hairline down a nav subtree runs the height of the rail, and at
+       --color-divider it read as a second border beside the column rule. */
+    --color-divider-soft: rgba(10, 12, 15, 0.09); /* --lp-line-soft */
 
     /* === Workbench surface ramp ===
        Same-hue cool graphite stepping, values shared with the product
@@ -228,7 +233,12 @@
         color-mix(in srgb, var(--color-focus) 18%, transparent) 0 0 0 4px;
 
     --container-prose: 700px;
-    --container-content: 1080px;
+    /* Matches the landing's .lp-container (apps/web styles.css): the header,
+       the footer and every docs page now share one page width with the
+       marketing site, so moving between them does not resize the column the
+       reader is following. The article grid below spends the extra 120px on
+       the content column rather than on the rail. */
+    --container-content: 1200px;
 }
 
 @layer base {
@@ -236,11 +246,13 @@
         color-scheme: dark;
 
         --color-fg: rgb(228 231 236);              /* --lp-ink */
+        --color-ink-soft: rgb(185 190 198);        /* --lp-ink-soft */
         --color-muted: rgb(124 131 140);
         --color-subtle: rgb(80 85 92);
         --color-placeholder: rgb(100 106 114);
 
         --color-divider: rgba(255, 255, 255, 0.13);
+        --color-divider-soft: rgba(255, 255, 255, 0.06);
 
         /* Aligned with the product's dark ramp (apps/web styles.css), same
            reasoning as the light block: one room, one set of values. The
@@ -390,12 +402,31 @@
         background: var(--color-main);
     }
 
+    /* Gutters are the landing's, measured off .lp-container: 32 / 24 / 18 at
+       the same two breakpoints. They were 16/24, so the docs page edge sat
+       16px from the viewport where the marketing page sat 32px from it, and
+       the two headers carrying the same wordmark started at different x. */
     .docs-container {
-        @apply max-w-content mx-auto w-full px-4 md:px-6;
+        @apply max-w-content mx-auto w-full px-[18px] min-[481px]:px-6 min-[721px]:px-8;
     }
 
     .docs-prose-container {
-        @apply mx-auto w-full max-w-prose px-4 md:px-6;
+        @apply mx-auto w-full max-w-prose px-[18px] min-[481px]:px-6 min-[721px]:px-8;
+    }
+
+    /* The article shell: rail, then content. One rule for the six surfaces
+       that render the tree beside a page (guides, dashboard, API landing, API
+       endpoint, changelog index, changelog entry) so the column geometry
+       cannot drift between them.
+
+       264px rail because the tree is three levels deep now: a leaf under a
+       subgroup starts 52px in, and at the old 220 the CLI section's rows
+       ("Manage automations with the CLI") had 140px of column left and wrapped
+       to three lines. The gap is 48, up from 32: the rail lost its own filled
+       background long ago, so the hairline plus whitespace is all that
+       separates two columns of text. */
+    .docs-shell {
+        @apply grid gap-8 py-6 md:py-8 lg:grid-cols-[264px_minmax(0,1fr)] lg:gap-12;
     }
 
     .docs-page-section {
@@ -477,25 +508,148 @@
         box-shadow: var(--shadow-card);
     }
 
-    /* === Sidebar (popover / drawer surface) ===
-       The docs sidebar is a popover-class surface: paper
-       fill + md shadow. The `/90` backdrop-blur dance from
-       the warm-paper era is gone — at workbench density a
-       flat opaque surface reads cleaner. */
-    .docs-sidebar {
-        @apply bg-surface text-ui rounded-md p-1.5;
-        box-shadow: var(--shadow-card);
+    /* ===================== The navigation tree =====================
+       Three kinds of row, each with its own mark, so depth is read rather
+       than inferred:
+
+         group / subgroup   a disclosure button, chevron on the LEFT
+         page               a leaf, short dash on the left
+         endpoint           a leaf whose method pill is its mark
+
+       and one hairline down the left of every child list, so a row's parent
+       is the line it hangs off.
+
+       What this replaces: three tiers that differed only by indent, size and
+       case (uppercase caption group / sentence-case row / same-again nested
+       row), with the one chevron in the tree on the right of a subgroup and
+       nothing on the groups. Depth had to be counted, not seen.
+
+       Buttons rather than <details>/<summary>. The tree stands open now, so
+       the disclosure is a refinement rather than the only way in, and a
+       button is what carries aria-expanded plus a height transition — a
+       closed <details> is display:none, which cannot animate and jumped the
+       whole rail on every toggle. <noscript> re-opens everything, so a reader
+       without JS sees more of the tree than the old markup gave them, and
+       every link is in the DOM at every state either way (the rail is also
+       the internal-linking surface a crawler reads). */
+    .docs-tree {
+        @apply text-ui;
     }
 
-    /* List-row inside the sidebar / menu (class L, §8.10).
-       Hover = bg-soft (a step toward the canvas), not
-       surface-hover; rows are wide and a strong fill on
-       every hover would feel like the list is flashing. */
-    /* Indented past the group heading. Both reference sidebars indent the rows
-       under a heading; ours had leaf and heading on the same 10px left edge,
-       so nothing in the layout said which rows belonged to which group. */
-    .docs-sidebar-link {
-        @apply block rounded-sm py-1.5 pr-2.5 pl-5 no-underline transition-colors hover:no-underline;
+    .docs-tree-node + .docs-tree-node,
+    .docs-tree-leaf + .docs-tree-node {
+        @apply mt-2.5;
+    }
+
+    .docs-tree-head {
+        @apply hover:bg-soft flex w-full cursor-pointer items-center gap-[7px] rounded-sm px-2 py-1 text-left transition-colors;
+    }
+
+    /* Weight carries the tier: 600 for a section, 500 for the tier under it,
+       400 for a page. Size stays --text-ui throughout, so the rail is one
+       dense column rather than three competing type sizes. */
+    .docs-tree-head-group {
+        @apply text-fg font-semibold;
+    }
+
+    .docs-tree-head-sub {
+        @apply font-medium;
+        color: var(--color-ink-soft);
+    }
+
+    .docs-tree-chev {
+        @apply text-subtle h-2.5 w-2.5 shrink-0;
+        transform: rotate(-90deg);
+        transition: transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+    }
+
+    .docs-tree-node.is-open > .docs-tree-head .docs-tree-chev {
+        transform: rotate(0deg);
+    }
+
+    /* 0fr → 1fr is the height animation that does not need a measured pixel
+       value. visibility rides along so a collapsed subtree is out of the tab
+       order as well as out of sight: it transitions discretely, which lands
+       "visible" at the start of the open and "hidden" at the end of the
+       close, and it is what the drawer's focus trap filters on. */
+    .docs-tree-kids {
+        @apply invisible grid;
+        grid-template-rows: 0fr;
+        transition:
+            grid-template-rows 200ms cubic-bezier(0.2, 0.7, 0.3, 1),
+            visibility 200ms;
+    }
+
+    .docs-tree-node.is-open > .docs-tree-kids {
+        @apply visible;
+        grid-template-rows: 1fr;
+    }
+
+    /* 12px per level: the chevron's own centre, so a child's hairline runs
+       down through the middle of the mark that opened it. */
+    .docs-tree-kids-in {
+        @apply border-divider-soft ml-3 min-h-0 overflow-hidden border-l pl-1;
+    }
+
+    .docs-tree-node.is-open > .docs-tree-kids > .docs-tree-kids-in {
+        @apply mt-0.5;
+    }
+
+    .docs-tree-leaf {
+        @apply text-muted hover:bg-soft hover:text-fg flex items-center gap-2 rounded-sm px-2 py-1 no-underline transition-colors hover:no-underline;
+    }
+
+    /* The leaf mark. 7px of hairline, currentColor at half strength: enough
+       to say "row of a list" at a glance without reading as a bullet. */
+    .docs-tree-leaf::before {
+        content: '';
+        @apply h-px w-[7px] shrink-0 bg-current opacity-50;
+    }
+
+    .docs-tree-leaf[aria-current='page'] {
+        @apply bg-info-bg text-info-strong font-medium;
+    }
+
+    .docs-tree-leaf[aria-current='page']::before {
+        @apply opacity-80;
+    }
+
+    /* An ancestor of the current page (the API reference landing while a
+       reader is on one of its endpoints): marked, but not as the page. */
+    .docs-tree-leaf.is-ancestor {
+        @apply text-fg font-medium;
+    }
+
+    /* An endpoint row. The method pill is the mark, so the dash goes; the
+       title wraps to a second line instead of truncating, which is what
+       "List conversatio…" twice over used to do to the two GET rows. */
+    .docs-tree-leaf-endpoint {
+        @apply items-start;
+    }
+
+    .docs-tree-leaf-endpoint::before {
+        @apply hidden;
+    }
+
+    .docs-tree-leaf-endpoint > .docs-method-pill {
+        @apply mt-0.5;
+    }
+
+    /* The current page's own sections, hanging off the row for that page.
+       This is the right rail, moved: one column now carries where you are in
+       the documentation and where you are in the page, instead of splitting
+       the two across opposite edges of the screen. */
+    .docs-tree-sections {
+        @apply border-divider mt-0.5 mb-1 ml-[15px] list-none border-l p-0;
+    }
+
+    .docs-tree-section {
+        @apply text-muted hover:text-fg -ml-px block border-l border-transparent py-1 pl-3 no-underline transition-colors hover:no-underline;
+    }
+
+    .docs-tree-section.is-active {
+        @apply text-fg font-medium;
+        border-left-color: var(--color-link);
     }
 
     /* Prose-scoped panel (article surface) — same anatomy as
@@ -509,8 +663,36 @@
        Sans for everything (no serif italic — landing-only,
        §5). Headings descend one step to ink-soft via the
        default token system. */
+    /* The measure is on the children, not on the column.
+       Prose stays at --container-prose because that is the line length a
+       reader can follow; a table is not prose and was being squeezed into
+       the same 700px. The capability matrix on /docs/channels is the case
+       that forced this: five columns of phrases in 700px, which laid out at
+       10 to 15 lines per row and could not be read across.
+
+       So .prose-doc is now as wide as the column it sits in and every child
+       is capped back to the measure, except the ones that opt out below. */
     .prose-doc {
+        max-width: none;
+    }
+
+    .prose-doc > * {
         max-width: var(--container-prose);
+    }
+
+    /* Wide media, breaking out to the full content column (824px at the wide
+       layout). The wrapper is added by rehypeTableWrap in astro.config.mjs:
+       it owns the ring and the rounding so a table that is still too wide
+       scrolls inside a panel rather than taking the page sideways with it.
+       tabindex is on the wrapper for the same reason: a scroll region a mouse
+       can reach and a keyboard cannot is a keyboard trap in reverse. */
+    .prose-doc > .docs-table {
+        @apply my-5 max-w-none overflow-x-auto rounded-sm;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .prose-doc > .docs-table > table {
+        @apply my-0;
     }
 
     .prose-doc h1 {
@@ -586,35 +768,41 @@
         @apply relative;
     }
 
+    /* One mark for every anchor on the site: a link glyph in the left gutter,
+       drawn as a CSS mask so the <a> stays empty and a heading's text is
+       exactly its text for anything extracting it.
+
+       It replaces a persistent '##' / '###' / '####' set in mono above the
+       heading. Two things were wrong with that. A markdown token rendered in
+       the output reads as markdown that failed to render, which is what it
+       was reported as; and the shape said "syntax" while the element is a
+       link, so the one mark that was always on screen never looked clickable.
+       Replicate ships the same token and gets away with it at roughly 2:1
+       against the page under a 36px heading — ours sat at 5.3:1 under a 22px
+       one, which is the contrast an anchor needs to be a control and exactly
+       what made it the loudest thing in the column.
+
+       Hover to reveal is GitHub's and fal's shape and it is the one that fits
+       a mark whose job is occasional: the reader who wants to cite a section
+       is already pointing at that section. Nothing is lost at rest, because
+       at rest there is nothing to act on. */
     .docs-heading-anchor {
-        @apply text-muted absolute font-mono leading-none no-underline transition-colors;
-        /* The glyph keeps the position the marker always had. top and left
-           carry the padding below, so the box grows around the 10px text and
-           gives a pointer more than 10px to hit without moving the mark. */
-        top: -1.2rem;
-        left: -0.375rem;
-        padding: 0.25rem 0.375rem;
-        font-size: 0.625rem;
-        letter-spacing: 0.08em;
-    }
-
-    h2 > .docs-heading-anchor::before {
-        content: '##';
-    }
-
-    h3 > .docs-heading-anchor::before {
-        content: '###';
-    }
-
-    h4 > .docs-heading-anchor::before {
-        content: '####';
+        @apply text-subtle absolute block h-3.5 w-3.5 no-underline opacity-0;
+        top: 0.34em;
+        left: -1.75rem;
+        background-color: currentColor;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+            center / contain no-repeat;
+        transition:
+            opacity 120ms ease,
+            color 120ms ease;
     }
 
     :is(h2, h3, h4):hover > .docs-heading-anchor,
     .docs-anchor-host:hover > .docs-heading-anchor,
     .docs-heading-anchor:hover,
     .docs-heading-anchor:focus-visible {
-        @apply text-fg;
+        @apply text-fg opacity-100;
     }
 
     /* h1 has no anchor at all, which is what Replicate does. Measured on
@@ -636,78 +824,38 @@
        row rather than a heading, so it has no level to mark and keeps the icon.
        The icon is a CSS mask rather than inline SVG so the <a> stays empty and
        a heading's text is exactly its text for anything extracting it. */
-    .docs-anchor-host > .docs-heading-anchor {
-        @apply block h-3.5 w-3.5 opacity-0 transition-opacity;
-        /* 14px in a 32px gutter leaves 9px on each side. At 16px in the 24px
-           gutter the layout used before, it cleared the sidebar's rule by 2px
-           and read as touching it. */
-        top: 0.34em;
-        left: -1.4375rem;
-        padding: 0;
-        background-color: currentColor;
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E") center / contain no-repeat;
-    }
-
-    .docs-anchor-host:hover > .docs-heading-anchor,
-    .docs-anchor-host > .docs-heading-anchor:focus-visible {
-        @apply opacity-100;
-    }
-
     /* The changelog timeline already owns the left gutter, the entry dot sits
        there, so its anchor rides inline after the date instead of colliding. */
     .docs-heading-anchor.is-inline {
         @apply static;
     }
 
-    /* Copied. The icon-drawn anchors swap the mask; the marker-drawn ones hide
-       the glyph and lay the same check over the box it left behind. */
+    /* Copied. Same box, same size, the mask swaps to a tick. */
     .docs-heading-anchor.is-done {
         @apply text-success opacity-100;
-    }
-
-    .docs-anchor-host > .docs-heading-anchor.is-done {
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
-    }
-
-    /* The check flows in the glyph's place rather than being laid over it. An
-       absolute overlay resolved against the heading once the anchor went
-       static at the narrow layout, which put the tick in the middle of the
-       heading line instead of on the mark that was clicked. */
-    :is(h2, h3, h4) > .docs-heading-anchor.is-done::before {
-        @apply hidden;
-    }
-
-    :is(h2, h3, h4) > .docs-heading-anchor.is-done::after {
-        @apply inline-block h-3 w-3 bg-current align-middle;
-        content: '';
-        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E") center / contain no-repeat;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+            center / contain no-repeat;
     }
 
     @media (width < 64rem) {
-        /* The gutter the chain icon sits in only exists at the wide layout, so
-           the changelog's host, the one that draws an icon, stays hidden here.
-           A section marker needs no
-           gutter: it goes static and leads the heading text, which reads as the
-           markdown it is, and finally gives a phone a way to copy a section
-           link at all. It used to be display:none at this width, so there was
-           none. */
-        .docs-anchor-host > .docs-heading-anchor {
-            @apply hidden;
-        }
+        /* The gutter only exists once the rail is beside the content: below
+           lg the article runs to the container padding, so an anchor reaching
+           28px to its left would sit off-screen.
 
-        /* Trailing the heading text, not leading it. Leading it indented every
-           section heading past the body copy beside it, which read as broken
-           alignment rather than as markdown. The heading becomes a baseline
-           flex row so the mark can be ordered after its own text without the
-           anchor moving in the DOM, where it has to stay first for the
+           It trails the heading text instead, and it is visible at rest here
+           rather than on hover, because this is the width where the pointer
+           is a finger and there is no hover to reveal it with. The heading
+           becomes a baseline flex row so the mark can be ordered after its own
+           text without moving in the DOM, where it has to stay first for the
            hand-written headings that share this class. */
-        :is(h2, h3, h4):has(> .docs-heading-anchor) {
+        :is(h2, h3, h4):has(> .docs-heading-anchor),
+        .docs-anchor-host {
             @apply flex flex-wrap items-baseline gap-1.5;
         }
 
-        :is(h2, h3, h4) > .docs-heading-anchor {
-            @apply static order-last inline-block;
-            padding: 0;
+        .docs-heading-anchor {
+            @apply static order-last inline-block opacity-70;
+            transform: translateY(1px);
         }
     }
 
@@ -876,6 +1024,14 @@
         @apply text-ui my-5 w-full border-collapse;
     }
 
+    /* Wide tables get a floor rather than wrapping every cell to a column of
+       single words. Under it the table fits and this does nothing; over it
+       the wrapper scrolls. 40rem is the width at which the corpus's widest
+       table (five columns) stops breaking phrases mid-clause. */
+    .prose-doc .docs-table > table {
+        min-width: 40rem;
+    }
+
     .prose-doc th,
     .prose-doc td {
         @apply border-divider border-b px-3 py-2.5 text-left align-top;
@@ -899,14 +1055,18 @@
 
     /* === Brand mark — the four-blade Manyfold logo, matching the
        landing nav. Outer blades take currentColor (ink); the two
-       inner blades step down to muted for the folded-plane read. */
+       inner blades step down for the folded-plane read.
+       28px and --color-ink-soft are the landing's own values
+       (.lp-brand-mark): the same lockup rendered at 22px here and 28px
+       there was the loudest of the header's mismatches, and the inner
+       blades were a step paler than the landing's besides. */
     .docs-brand-mark {
-        @apply block h-[22px] w-auto shrink-0;
+        @apply block h-7 w-auto shrink-0;
     }
 
     .docs-brand-mark polygon:nth-child(2),
     .docs-brand-mark polygon:nth-child(4) {
-        fill: var(--color-muted);
+        fill: var(--color-ink-soft);
     }
 
     /* Beta pill sitting after the wordmark — mirrors the landing
@@ -937,10 +1097,31 @@
         @apply bg-surface text-fg;
     }
 
-    /* === Header chrome (DESIGN.md §8.10 ghost/icon buttons) === */
+    /* === Header chrome (DESIGN.md §8.10 ghost/icon buttons) ===
+       32px, bare, and the hover is a translucent ink wash rather than a step
+       up the surface ramp: all three are .lp-nav-ico's, so the utility run in
+       this header and the one on the landing are the same control. The wash
+       matters more than it looks — a solid --color-surface-hover chip reads as
+       a filled button beside the landing's, which is what made the two rows
+       look like different design systems at the same 32px. */
     .docs-icon-btn {
-        @apply text-muted hover:bg-surface-hover hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
+        @apply text-muted hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
         box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-icon-btn:hover {
+        background: rgba(10, 12, 15, 0.05);
+    }
+
+    html[data-theme='dark'] .docs-icon-btn:hover {
+        background: rgba(255, 255, 255, 0.07);
+    }
+
+    /* Splits the utility run into "leaves the site" and "changes this page",
+       the same job and the same 1px × 18px rule as .lp-nav-sep. */
+    .docs-nav-sep {
+        @apply mx-1.5 h-[18px] w-px shrink-0;
+        background: var(--color-divider);
     }
     /* Bare variant for the header's outward link and its preference toggles.
        The search field is the only control up there that takes input, so it
@@ -973,38 +1154,6 @@
 
     .docs-copy-btn.is-done {
         @apply text-success;
-    }
-
-    /* === Right-rail table of contents === */
-    .docs-toc-link {
-        @apply text-muted hover:text-fg block border-l py-1 pl-3 text-ui no-underline transition-colors hover:no-underline;
-        border-color: var(--color-divider);
-        margin-left: -1px;
-    }
-
-    .docs-toc-link[data-depth='3'] {
-        @apply pl-6 text-[0.8125rem];
-    }
-
-    .docs-toc-link.is-active {
-        @apply text-fg font-medium;
-        border-color: var(--color-link);
-    }
-
-    /* === Sidebar group heading === */
-    /* A group heading is the parent of the rows under it, so it has to read
-       heavier than them, not lighter. This was text-caption/uppercase in
-       text-subtle: smaller AND paler than its own children, which inverts the
-       hierarchy, and it measured 2.12:1 against the sidebar background in
-       light mode and 2.72:1 in dark, under the 4.5:1 AA floor in both. fal
-       sets its group headings at the same size as the leaf rows, one weight
-       up, in near-black. Same idea here, in this system's tokens. */
-    .docs-sidebar-group {
-        @apply text-fg text-ui px-2.5 pt-4 pb-1 font-semibold;
-    }
-
-    .docs-sidebar-group:first-child {
-        @apply pt-1;
     }
 
     /* === The tree as a drawer, below lg ===
@@ -1075,39 +1224,6 @@
         @apply shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors;
     }
 
-    /* === Collapsible sidebar groups ===
-       The group header keeps .docs-sidebar-group's type treatment and becomes
-       the <summary>; only layout and the affordance are added here. The count
-       tells a reader how much is behind a closed group, which is the whole
-       reason collapsing is tolerable on a tree this size. */
-    /* The first group heading is the sidebar's optical top edge, and it has to
-       line up with the first line of the content column beside it. Both are
-       box-aligned already, but the content's eyebrow is 11px on a 14.6px line
-       while this is 13px on 18.6px, so the smaller type's cap sits ~5px
-       higher inside its own line box. Measured from cap position, not box
-       position. Nudging the rail rather than the eyebrow because .docs-kicker
-       is shared with nine pages that have no sidebar to align to. */
-    .docs-sidebar-details:first-child > .docs-sidebar-group {
-        padding-top: 0;
-        margin-top: -1px;
-    }
-
-    .docs-sidebar-summary {
-        @apply flex cursor-pointer list-none items-center justify-between gap-2;
-    }
-
-    .docs-sidebar-summary::-webkit-details-marker {
-        @apply hidden;
-    }
-
-    .docs-sidebar-summary:hover {
-        @apply text-fg;
-    }
-
-    .docs-sidebar-summary em {
-        @apply text-subtle not-italic tabular-nums tracking-normal;
-    }
-
     /* === Method pills in the rail ===
        fal puts a coloured verb on every endpoint row of its API rail, so the
        shape of the surface reads before any label does. Sized to fal's
@@ -1120,64 +1236,6 @@
         line-height: 1.5;
         letter-spacing: 0.04em;
         min-width: 30px;
-    }
-
-    .docs-sidebar-endpoint {
-        @apply flex items-center gap-2;
-    }
-
-    /* === Nested sidebar tier ===
-       One level below a group, used only where the content already has that
-       shape (the eight chat and work channels, the per-task CLI guides). The
-       nested <summary> is styled as a list row rather than a second group
-       heading: same padding and type as a leaf link, sentence case, with the
-       chevron on the right saying "this opens" instead of "this navigates".
-       Closed is presentational, so the child links are still in the DOM. */
-    .docs-sidebar-subsummary {
-        @apply flex cursor-pointer list-none items-center justify-between gap-2;
-    }
-
-    .docs-sidebar-subsummary::-webkit-details-marker {
-        @apply hidden;
-    }
-
-    .docs-sidebar-chevron {
-        @apply text-subtle shrink-0 transition-transform;
-    }
-
-    .docs-sidebar-subdetails[open]
-        > .docs-sidebar-subsummary
-        .docs-sidebar-chevron {
-        transform: rotate(90deg);
-    }
-
-    /* The hairline carries the whole depth cue. No smaller type and no second
-       indent step, so a nested leaf still scans as a peer of the flat ones. */
-    .docs-sidebar-sublist {
-        @apply border-divider ml-6 border-l pl-1.5;
-    }
-
-    /* An endpoint row under the API reference. It carries the same hairline and
-       indent as .docs-sidebar-sublist, applied per row rather than to a wrapping
-       <ul>, because the reference is one page with three children rather than a
-       collapsible section of its own. */
-    .docs-sidebar-nested {
-        @apply border-divider ml-6 border-l;
-    }
-
-    /* === Machine-readable artifacts as sidebar rows ===
-       llms.txt, llms-full.txt and the changelog feed are built and served but
-       nothing in the UI said so, which is the one thing replicate.com/docs
-       does that costs a single nav edit. They are raw files rather than pages,
-       so they open in a new tab exactly like the outbound links in
-       Header.astro and Footer.astro, and the arrow is what tells a reader the
-       row leaves the docs shell before they click it. */
-    .docs-sidebar-file {
-        @apply flex items-center justify-between gap-2;
-    }
-
-    .docs-sidebar-ext {
-        @apply text-subtle text-caption shrink-0;
     }
 
     /* === Page header block (docs-ui-redesign-benchmark.md 4/2a) ===
@@ -1248,8 +1306,20 @@
        and does not push the first body paragraph below the fold. Deliberately
        quiet: this is a wayfinder inside the content, not a callout, and the
        muted treatment keeps it from competing with the deck above it. */
+    /* Below lg only. Above it the rail carries this page's sections under the
+       row for this page, and two section lists on one screen is what the
+       right rail and this list were doing to each other: the same nine links,
+       once in the content and once in a third column, four pixels apart in
+       size and with no rule saying which to use.
+
+       display:none rather than not rendering it, deliberately. The reason
+       this list is in the content flow at all is that a text extractor reads
+       the body and either strips a rail or appends it after everything else,
+       so the section list has to be near the top of the extracted text. It
+       still is: the markup ships at every width, and only the wide layout
+       declines to paint it. */
     .docs-inline-toc {
-        @apply mb-7;
+        @apply mb-7 lg:hidden;
     }
 
     /* Normal case, unlike the eyebrow and the sidebar group headers. This label

@@ -108,13 +108,17 @@ const breadcrumbs = [
     ogImage={ogImage}
 >
     <section
-        class="docs-container grid gap-8 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)]"
+        class="docs-container docs-shell"
     >
     {/* One sidebar, the documentation tree, with the reference and its
         endpoints as rows in the API group. This surface used to swap in a rail
         of its own, so walking into the reference replaced the whole tree and
         walking out replaced it back. */}
-        <DocsSidebar entries={docsEntries} locale={locale} />
+        <DocsSidebar
+        entries={docsEntries}
+        locale={locale}
+        sections={sections}
+    />
 
         <div class="min-w-0" data-copy-scope>
             <nav
