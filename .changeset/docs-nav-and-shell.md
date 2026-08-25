@@ -13,13 +13,13 @@ dash on anything that navigates, a hairline down each subtree — and opening a
 section animates instead of jumping the rail. Only Channels and the CLI
 command list still collapse, and they open when you are inside them.
 
-The on-this-page rail is gone from the right edge. A page's sections hang off
-its own row in the tree, so one column answers both "where am I in the docs"
-and "where am I on this page", and the in-content list of sections is the
-narrow-screen form of the same thing rather than a second copy of it. The
-content column inherits the width, which is what lets a wide table break out
-of the reading measure and scroll in place: the channel capability matrix was
-laying out at 10 to 15 lines per row.
+The on-this-page rail is gone from the right edge, and the section list it
+held is the one already in the page, which now shows at every width instead of
+only on narrow screens. Two columns keep it short: the longest page in the
+docs has 15 sections and spends 8 rows on them. The content column inherits
+the width the rail gave up, which is what lets a wide table break out of the
+reading measure and scroll in place: the channel capability matrix was laying
+out at 10 to 15 lines per row.
 
 Heading anchors are a link icon revealed on hover, in place of a `##` that was
 always on screen and read as markdown that had failed to render. Prev/next

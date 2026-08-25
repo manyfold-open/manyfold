@@ -635,22 +635,6 @@
         @apply mt-0.5;
     }
 
-    /* The current page's own sections, hanging off the row for that page.
-       This is the right rail, moved: one column now carries where you are in
-       the documentation and where you are in the page, instead of splitting
-       the two across opposite edges of the screen. */
-    .docs-tree-sections {
-        @apply border-divider mt-0.5 mb-1 ml-[15px] list-none border-l p-0;
-    }
-
-    .docs-tree-section {
-        @apply text-muted hover:text-fg -ml-px block border-l border-transparent py-1 pl-3 no-underline transition-colors hover:no-underline;
-    }
-
-    .docs-tree-section.is-active {
-        @apply text-fg font-medium;
-        border-left-color: var(--color-link);
-    }
 
     /* Prose-scoped panel (article surface) — same anatomy as
        docs-panel but with prose-friendly padding. */
@@ -1306,20 +1290,20 @@
        and does not push the first body paragraph below the fold. Deliberately
        quiet: this is a wayfinder inside the content, not a callout, and the
        muted treatment keeps it from competing with the deck above it. */
-    /* Below lg only. Above it the rail carries this page's sections under the
-       row for this page, and two section lists on one screen is what the
-       right rail and this list were doing to each other: the same nine links,
-       once in the content and once in a third column, four pixels apart in
-       size and with no rule saying which to use.
+    /* The page's only section list, at every width. There were two: this one
+       and a third column pinned to the right edge, the same links twice, four
+       pixels apart in size, with no rule saying which to use. The rail took
+       the job for one revision and gave it back — a page outline is not a
+       branch of the documentation tree, and rendering it as one put a fourth
+       level under 93% of the pages (see DocsSidebar.astro).
 
-       display:none rather than not rendering it, deliberately. The reason
-       this list is in the content flow at all is that a text extractor reads
-       the body and either strips a rail or appends it after everything else,
-       so the section list has to be near the top of the extracted text. It
-       still is: the markup ships at every width, and only the wide layout
-       declines to paint it. */
+       In the content flow, which is where it was always the more useful of
+       the two: a text extractor reads the body and either strips a rail or
+       appends it after everything else, so only this copy lands near the top
+       of what an answer engine reads. Two columns keep it compact — the
+       longest page in the corpus has 15 sections and spends 8 rows on them. */
     .docs-inline-toc {
-        @apply mb-7 lg:hidden;
+        @apply mb-7;
     }
 
     /* Normal case, unlike the eyebrow and the sidebar group headers. This label

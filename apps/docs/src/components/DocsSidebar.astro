@@ -16,21 +16,24 @@ import {
     type Locale
 } from '@/lib/i18n'
 
+// The rail carries the documentation tree and nothing else. It briefly also
+// carried the current page's sections, hanging off the row for that page, on
+// the argument that "where am I in the documentation" and "where am I in this
+// page" are one question at two zoom levels. Measured across the corpus, they
+// are not: 50 of the 54 pages sit under a subgroup, so the outline landed at a
+// fourth level on 93% of them, and it is a different kind of object wearing
+// the tree's indent — the only row in the rail that grows children which are
+// not pages. On /docs/channels/lark/ it put 16 section rows into the middle of
+// the 11 channel siblings, 23 rows down, so a reader scanning for another
+// channel had to scroll past the outline of the one they were already on.
+// The in-content table of contents is the section list now, at every width.
 interface Props {
     entries: CollectionEntry<'docs'>[]
     locale: Locale
     activeSlug?: string
-    // The current page's own sections, rendered under the row for that page.
-    // This is what the right-hand rail used to carry: the tree and the page
-    // outline are the same question asked at two zoom levels ("where am I in
-    // the documentation" / "where am I in this page"), and answering them at
-    // opposite edges of the screen meant a reader tracking their position had
-    // to watch both margins at once. Optional: the dashboard and the changelog
-    // index pass none, and a page with one section passes none either.
-    sections?: { id: string; label: string }[]
 }
 
-const { entries, locale, activeSlug, sections = [] } = Astro.props
+const { entries, locale, activeSlug } = Astro.props
 const copy = getUi(locale)
 const { grouped, remaining } = docsNavGroups(entries, locale)
 // Exactly one row can be the current page. The reference row stays marked
@@ -345,42 +348,17 @@ const navGroups = [
                                         >
                                             <div class="docs-tree-kids-in">
                                                 {row.leaves.map((leaf) => (
-                                                    <>
-                                                        <a
-                                                            href={leaf.href}
-                                                            class="docs-tree-leaf"
-                                                            aria-current={
-                                                                leaf.current
-                                                                    ? 'page'
-                                                                    : undefined
-                                                            }
-                                                        >
-                                                            {leaf.title}
-                                                        </a>
-                                                        {leaf.current &&
-                                                            sections.length >
-                                                                0 && (
-                                                                <ul class="docs-tree-sections">
-                                                                    {sections.map(
-                                                                        (
-                                                                            section
-                                                                        ) => (
-                                                                            <li>
-                                                                                <a
-                                                                                    class="docs-tree-section"
-                                                                                    href={`#${section.id}`}
-                                                                                    data-tree-section
-                                                                                >
-                                                                                    {
-                                                                                        section.label
-                                                                                    }
-                                                                                </a>
-                                                                            </li>
-                                                                        )
-                                                                    )}
-                                                                </ul>
-                                                            )}
-                                                    </>
+                                                    <a
+                                                        href={leaf.href}
+                                                        class="docs-tree-leaf"
+                                                        aria-current={
+                                                            leaf.current
+                                                                ? 'page'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        {leaf.title}
+                                                    </a>
                                                 ))}
                                             </div>
                                         </div>
@@ -402,88 +380,43 @@ const navGroups = [
                                         >
                                             {row.leaf.title}
                                         </a>
-                                        {row.leaf.current &&
-                                            sections.length > 0 && (
-                                                <ul class="docs-tree-sections">
-                                                    {sections.map((section) => (
-                                                        <li>
-                                                            <a
-                                                                class="docs-tree-section"
-                                                                href={`#${section.id}`}
-                                                                data-tree-section
-                                                            >
-                                                                {section.label}
-                                                            </a>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            )}
                                         {row.leaf.children.length > 0 && (
                                             <div class="docs-tree-kids-in">
                                                 {row.leaf.children.map(
                                                     (child) => (
-                                                        <>
-                                                            <a
-                                                                href={
-                                                                    child.href
-                                                                }
-                                                                class:list={[
-                                                                    'docs-tree-leaf',
-                                                                    child.badge &&
-                                                                        'docs-tree-leaf-endpoint'
-                                                                ]}
-                                                                aria-current={
-                                                                    child.current
-                                                                        ? 'page'
-                                                                        : undefined
-                                                                }
-                                                            >
-                                                                {child.badge && (
-                                                                    <span
-                                                                        class:list={[
-                                                                            'docs-method-pill',
-                                                                            child
-                                                                                .badge
-                                                                                .className
-                                                                        ]}
-                                                                    >
-                                                                        {
-                                                                            child
-                                                                                .badge
-                                                                                .label
-                                                                        }
-                                                                    </span>
-                                                                )}
-                                                                <span class="min-w-0">
+                                                        <a
+                                                            href={child.href}
+                                                            class:list={[
+                                                                'docs-tree-leaf',
+                                                                child.badge &&
+                                                                    'docs-tree-leaf-endpoint'
+                                                            ]}
+                                                            aria-current={
+                                                                child.current
+                                                                    ? 'page'
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            {child.badge && (
+                                                                <span
+                                                                    class:list={[
+                                                                        'docs-method-pill',
+                                                                        child
+                                                                            .badge
+                                                                            .className
+                                                                    ]}
+                                                                >
                                                                     {
-                                                                        child.title
+                                                                        child
+                                                                            .badge
+                                                                            .label
                                                                     }
                                                                 </span>
-                                                            </a>
-                                                            {child.current &&
-                                                                sections.length >
-                                                                    0 && (
-                                                                    <ul class="docs-tree-sections">
-                                                                        {sections.map(
-                                                                            (
-                                                                                section
-                                                                            ) => (
-                                                                                <li>
-                                                                                    <a
-                                                                                        class="docs-tree-section"
-                                                                                        href={`#${section.id}`}
-                                                                                        data-tree-section
-                                                                                    >
-                                                                                        {
-                                                                                            section.label
-                                                                                        }
-                                                                                    </a>
-                                                                                </li>
-                                                                            )
-                                                                        )}
-                                                                    </ul>
-                                                                )}
-                                                        </>
+                                                            )}
+                                                            <span class="min-w-0">
+                                                                {child.title}
+                                                            </span>
+                                                        </a>
                                                     )
                                                 )}
                                             </div>
@@ -535,39 +468,6 @@ const navGroups = [
                 button.setAttribute('aria-expanded', open ? 'true' : 'false')
             })
         )
-
-    // Scroll-spy over the current page's sections, moved here with the list
-    // itself. Same shape as the rail's: the last heading to cross the top
-    // quarter of the viewport wins.
-    const sectionLinks = Array.from(
-        document.querySelectorAll<HTMLAnchorElement>('[data-tree-section]')
-    )
-    if (sectionLinks.length) {
-        const bySlug = new Map(
-            sectionLinks.map((link) => [
-                decodeURIComponent(link.hash.slice(1)),
-                link
-            ])
-        )
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((entry) => {
-                    if (!entry.isIntersecting) return
-                    const link = bySlug.get(entry.target.id)
-                    if (!link) return
-                    sectionLinks.forEach((other) =>
-                        other.classList.remove('is-active')
-                    )
-                    link.classList.add('is-active')
-                })
-            },
-            { rootMargin: '0px 0px -75% 0px', threshold: 0 }
-        )
-        bySlug.forEach((_, slug) => {
-            const heading = document.getElementById(slug)
-            if (heading) observer.observe(heading)
-        })
-    }
 
     if (drawer && trigger && backdrop) {
         const close = (returnFocus = true) => {

@@ -12,9 +12,14 @@
 // section list lands in extracted text and tells an answer engine what the page
 // covers, and this is the one entry in that list that describes no content.
 //
-// So the anchor and the TOC entry are dropped and the right rail keeps them,
-// because the rail is in-page navigation and jumping to the end of a page is a
-// real thing a reader does. The heading keeps its id for exactly that reason.
+// So the anchor and the TOC entry are dropped. The right rail used to keep
+// them, on the grounds that jumping to the end of a page is a real thing a
+// reader does; there is no right rail now — the inline list is the only
+// section list — so a trailer is listed nowhere. That follows the same
+// argument rather than reversing it: the list exists to tell a reader and an
+// extractor what the page covers, and a section of outbound links covers
+// nothing. The heading keeps its id, so a link someone has already written to
+// one still resolves.
 //
 // A name list rather than structural detection, deliberately, because the two
 // consumers cannot both do the same thing: the rehype plugin walks the whole
