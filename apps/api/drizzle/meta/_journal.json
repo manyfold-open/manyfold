@@ -36,6 +36,13 @@
       "when": 1787419046122,
       "tag": "0004_user_data_export",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1787639494443,
+      "tag": "0005_whatsapp_registrations",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { SlackChannelProvider } from './providers/slack.provider'
 import { DiscordChannelProvider } from './providers/discord.provider'
 import { MatrixChannelProvider } from './providers/matrix.provider'
 import { WeixinChannelProvider } from './providers/weixin.provider'
+import { WhatsappChannelProvider } from './providers/whatsapp.provider'
 import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
@@ -24,6 +25,7 @@ export class ChannelProviderRegistry {
         discord: DiscordChannelProvider,
         matrix: MatrixChannelProvider,
         weixin: WeixinChannelProvider,
+        whatsapp: WhatsappChannelProvider,
         linear: LinearChannelProvider,
         github: GithubChannelProvider,
         line: LineChannelProvider
@@ -35,6 +37,7 @@ export class ChannelProviderRegistry {
         this.providers.set('discord', discord)
         this.providers.set('matrix', matrix)
         this.providers.set('weixin', weixin)
+        this.providers.set('whatsapp', whatsapp)
         this.providers.set('linear', linear)
         this.providers.set('github', github)
         this.providers.set('line', line)

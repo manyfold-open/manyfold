@@ -28,6 +28,7 @@ const makeController = (): {
         { isEnabled: () => true } as never,
         {} as never,
         {} as never,
+        {} as never,
         {} as never
     )
     return { controller, updates }

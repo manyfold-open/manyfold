@@ -95,6 +95,35 @@ test('line scopes read their kind off the id prefix', () => {
     })
 })
 
+test('whatsapp scopes label DMs, shared groups and per-sender groups', () => {
+    const user = encodeURIComponent('15557654321@s.whatsapp.net')
+    const group = encodeURIComponent('120363000000000000@g.us')
+    assert.deepEqual(describeChannelScope('whatsapp', `whatsapp:dm:${user}`), {
+        kind: 'dm',
+        channelId: '15557654321@s.whatsapp.net',
+        threadId: null,
+        userId: '15557654321@s.whatsapp.net'
+    })
+    assert.deepEqual(
+        describeChannelScope('whatsapp', `whatsapp:group:${group}`),
+        {
+            kind: 'channel',
+            channelId: '120363000000000000@g.us',
+            threadId: null,
+            userId: null
+        }
+    )
+    assert.deepEqual(
+        describeChannelScope('whatsapp', `whatsapp:group:${group}:${user}`),
+        {
+            kind: 'channel-user',
+            channelId: '120363000000000000@g.us',
+            threadId: null,
+            userId: '15557654321@s.whatsapp.net'
+        }
+    )
+})
+
 test('unknown providers and malformed keys fall back to conversation', () => {
     const fallback = {
         kind: 'conversation',
@@ -112,4 +141,9 @@ test('unknown providers and malformed keys fall back to conversation', () => {
     assert.deepEqual(describeChannelScope('slack', 'slack:T1'), fallback)
     assert.deepEqual(describeChannelScope('line', 'line:'), fallback)
     assert.deepEqual(describeChannelScope('fake', 'whatever'), fallback)
+    assert.deepEqual(describeChannelScope('whatsapp', 'whatsapp:dm'), fallback)
+    assert.deepEqual(
+        describeChannelScope('whatsapp', 'whatsapp:broadcast:x'),
+        fallback
+    )
 })

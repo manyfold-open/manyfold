@@ -37,6 +37,7 @@ export const channels = pgTable(
                 'discord',
                 'matrix',
                 'weixin',
+                'whatsapp',
                 'linear',
                 'github',
                 'line'

@@ -16,6 +16,7 @@ import { ChannelSendRateLimitService } from './channel-send-rate-limit.service'
 import { ChannelsService } from './channels.service'
 import { LarkRegistrationService } from './lark-registration.service'
 import { WeixinRegistrationService } from './weixin-registration.service'
+import { WhatsappRegistrationService } from './whatsapp-registration.service'
 import { ChannelsRepository } from './channels.repository'
 import { ChannelBridgeService } from './channel-bridge.service'
 import { ChannelManagerService } from './channel-manager.service'
@@ -29,6 +30,7 @@ import { SlackChannelProvider } from './providers/slack.provider'
 import { DiscordChannelProvider } from './providers/discord.provider'
 import { MatrixChannelProvider } from './providers/matrix.provider'
 import { WeixinChannelProvider } from './providers/weixin.provider'
+import { WhatsappChannelProvider } from './providers/whatsapp.provider'
 import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
@@ -55,6 +57,7 @@ import { LineChannelProvider } from './providers/line.provider'
         ChannelsService,
         LarkRegistrationService,
         WeixinRegistrationService,
+        WhatsappRegistrationService,
         CliAuthRateLimitService,
         ChannelBridgeService,
         ChannelSendRateLimitService,
@@ -69,6 +72,7 @@ import { LineChannelProvider } from './providers/line.provider'
         DiscordChannelProvider,
         MatrixChannelProvider,
         WeixinChannelProvider,
+        WhatsappChannelProvider,
         LinearChannelProvider,
         GithubChannelProvider,
         LineChannelProvider
