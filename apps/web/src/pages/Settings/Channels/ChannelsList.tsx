@@ -57,6 +57,9 @@ import LarkQuickCreate, { type LarkQuickCreateState } from './LarkQuickCreate'
 import WeixinQuickCreate, {
     type WeixinQuickCreateState
 } from './WeixinQuickCreate'
+import WhatsappQuickCreate, {
+    type WhatsappQuickCreateState
+} from './WhatsappQuickCreate'
 
 type CreateProviderChoice = ChannelProviderName | LarkAppRegion
 
@@ -81,6 +84,7 @@ const PROVIDER_ORDER: ChannelProviderName[] = [
     'discord',
     'matrix',
     'weixin',
+    'whatsapp',
     'linear',
     'github',
     'line',
@@ -678,6 +682,8 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
     const [weixinOperatorUserIds, setWeixinOperatorUserIds] = useState('')
     const [weixinQuickState, setWeixinQuickState] =
         useState<WeixinQuickCreateState>({ id: null, status: 'idle' })
+    const [whatsappQuickState, setWhatsappQuickState] =
+        useState<WhatsappQuickCreateState>({ id: null, status: 'idle' })
     const [lineChannelSecret, setLineChannelSecret] = useState('')
     const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
     const [busy, setBusy] = useState(false)
@@ -691,10 +697,45 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
         weixinQuickState.status === 'pending' ||
         weixinQuickState.status === 'need_verify_code' ||
         weixinQuickState.status === 'creating'
-    const quickActive = larkQuickActive || weixinQuickActive
+    const whatsappQuickActive =
+        whatsappQuickState.status === 'starting' ||
+        whatsappQuickState.status === 'pending' ||
+        whatsappQuickState.status === 'creating'
+    const quickActive =
+        larkQuickActive || weixinQuickActive || whatsappQuickActive
     const larkQrMode = isLarkProviderChoice(provider) && larkMode === 'qr'
 
     const handleClose = async (): Promise<void> => {
+        const whatsappPendingId =
+            provider === 'whatsapp' &&
+            whatsappQuickState.status === 'pending' &&
+            whatsappQuickState.id
+                ? whatsappQuickState.id
+                : null
+        if (whatsappPendingId) {
+            setBusy(true)
+            setError(null)
+            try {
+                await client.channels.cancelWhatsappRegistration(
+                    whatsappPendingId
+                )
+                const latest =
+                    await client.channels.getWhatsappRegistration(
+                        whatsappPendingId
+                    )
+                setWhatsappQuickState({ id: latest.id, status: latest.status })
+                if (latest.status === 'succeeded' && latest.channelId) {
+                    onCreated(latest.channelId)
+                    return
+                }
+                if (!whatsappQuickActive) onClose()
+            } catch (err) {
+                setError(apiErrorMessage(err))
+            } finally {
+                setBusy(false)
+            }
+            return
+        }
         const weixinPendingId =
             provider === 'weixin' &&
             weixinMode === 'qr' &&
@@ -757,6 +798,7 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
         e.preventDefault()
         if (larkQrMode) return
         if (provider === 'weixin' && weixinMode === 'qr') return
+        if (provider === 'whatsapp') return
         setBusy(true)
         setError(null)
         try {
@@ -828,12 +870,15 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                             larkQuickState.status === 'starting' ||
                             larkQuickState.status === 'creating' ||
                             weixinQuickState.status === 'starting' ||
-                            weixinQuickState.status === 'creating'
+                            weixinQuickState.status === 'creating' ||
+                            whatsappQuickState.status === 'starting' ||
+                            whatsappQuickState.status === 'creating'
                         }
                     >
                         {t('common.cancel')}
                     </button>
                     {!larkQrMode &&
+                        provider !== 'whatsapp' &&
                         !(provider === 'weixin' && weixinMode === 'qr') && (
                             <button
                                 type='submit'
@@ -886,6 +931,7 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                         { value: 'discord', label: 'Discord' },
                         { value: 'matrix', label: 'Matrix' },
                         { value: 'weixin', label: 'WeChat' },
+                        { value: 'whatsapp', label: 'WhatsApp' },
                         { value: 'linear', label: 'Linear' },
                         { value: 'github', label: 'GitHub' },
                         { value: 'line', label: 'LINE' }
@@ -1360,6 +1406,15 @@ const CreateChannelDialog: FC<CreateChannelDialogProps> = ({
                         </>
                     )}
                 </>
+            )}
+
+            {provider === 'whatsapp' && (
+                <WhatsappQuickCreate
+                    agentId={agentId}
+                    label={label}
+                    onCreated={onCreated}
+                    onStateChange={setWhatsappQuickState}
+                />
             )}
         </ProductDialog>
     )

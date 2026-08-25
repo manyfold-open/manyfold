@@ -16,7 +16,8 @@ import type {
     SlackChannelConfig,
     TelegramChannelConfig,
     UpdateChannelBody,
-    WeixinChannelConfig
+    WeixinChannelConfig,
+    WhatsappChannelConfig
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
@@ -696,6 +697,7 @@ const isWebhookMode = (channel: ChannelDetailType): boolean => {
     if (channel.provider === 'discord') return false
     if (channel.provider === 'matrix') return false
     if (channel.provider === 'weixin') return false
+    if (channel.provider === 'whatsapp') return false
     if (channel.provider !== 'lark') return true
     const config = channel.config as LarkChannelConfig
     return config.subscriptionMode !== 'websocket'
@@ -709,6 +711,7 @@ const providerLabel = (channel: ChannelDetailType): string => {
     if (channel.provider === 'discord') return 'Discord'
     if (channel.provider === 'matrix') return 'Matrix'
     if (channel.provider === 'weixin') return 'WeChat'
+    if (channel.provider === 'whatsapp') return 'WhatsApp'
     if (channel.provider === 'linear') return 'Linear'
     if (channel.provider === 'github') return 'GitHub'
     if (channel.provider === 'line') return 'LINE'
@@ -983,6 +986,10 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
         channel.provider === 'weixin'
             ? (channel.config as WeixinChannelConfig)
             : null
+    const initialWhatsapp =
+        channel.provider === 'whatsapp'
+            ? (channel.config as WhatsappChannelConfig)
+            : null
     const initialLinear =
         channel.provider === 'linear'
             ? (channel.config as LinearChannelConfig)
@@ -1038,6 +1045,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialDiscord?.mentionOnly ??
             initialMatrix?.mentionOnly ??
             initialLine?.mentionOnly ??
+            initialWhatsapp?.mentionOnly ??
             true
     )
     const [shareSessionInChannel, setShareSessionInChannel] = useState(
@@ -1047,6 +1055,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialDiscord?.shareSessionInChannel ??
             initialMatrix?.shareSessionInChannel ??
             initialLine?.shareSessionInChannel ??
+            initialWhatsapp?.shareSessionInChannel ??
             false
     )
     const [threadIsolation, setThreadIsolation] = useState(
@@ -1064,6 +1073,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialDiscord?.progressMode ??
             initialMatrix?.progressMode ??
             initialGithub?.progressMode ??
+            initialWhatsapp?.progressMode ??
             'preview'
     )
     const [contextProjection, setContextProjection] = useState(
@@ -1074,6 +1084,7 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
             initialMatrix?.contextProjection ??
             initialGithub?.contextProjection ??
             initialLine?.contextProjection ??
+            initialWhatsapp?.contextProjection ??
             true
     )
     const [appSecret, setAppSecret] = useState('')
@@ -1202,6 +1213,18 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
     )
     const [weixinOutboundFiles, setWeixinOutboundFiles] = useState(
         initialWeixin?.outboundFiles !== false
+    )
+    const [whatsappAllowedUserIds, setWhatsappAllowedUserIds] = useState(
+        (initialWhatsapp?.allowedUserIds ?? []).join(', ')
+    )
+    const [whatsappOperatorUserIds, setWhatsappOperatorUserIds] = useState(
+        (initialWhatsapp?.operatorUserIds ?? []).join(', ')
+    )
+    const [whatsappAllowedChatIds, setWhatsappAllowedChatIds] = useState(
+        (initialWhatsapp?.allowedChatIds ?? []).join(', ')
+    )
+    const [whatsappOutboundFiles, setWhatsappOutboundFiles] = useState(
+        initialWhatsapp?.outboundFiles !== false
     )
     const [lineChannelSecret, setLineChannelSecret] = useState('')
     const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
@@ -1389,6 +1412,21 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
                         baseUrl: null
                     }
                 }
+            } else if (channel.provider === 'whatsapp') {
+                const nextConfig: WhatsappChannelConfig = {
+                    botJid: initialWhatsapp?.botJid ?? null,
+                    botName: initialWhatsapp?.botName ?? null,
+                    allowedUserIds: commaList(whatsappAllowedUserIds),
+                    operatorUserIds: commaList(whatsappOperatorUserIds),
+                    allowedChatIds: commaList(whatsappAllowedChatIds),
+                    mentionOnly,
+                    shareSessionInChannel,
+                    progressMode,
+                    outboundFiles: whatsappOutboundFiles,
+                    contextProjection,
+                    resetOnIdleMins: initialWhatsapp?.resetOnIdleMins ?? null
+                }
+                body.config = nextConfig
             } else if (channel.provider === 'linear') {
                 const clientId = linearClientId.trim()
                 const clientSecret = linearClientSecret.trim()
@@ -2164,6 +2202,91 @@ const EditChannelDialog: FC<EditChannelDialogProps> = ({
                     />
                     <p className='text-ui text-muted'>
                         {t('web.channels.settings.help.weixinEdit')}
+                    </p>
+                </>
+            )}
+
+            {channel.provider === 'whatsapp' && (
+                <>
+                    <Field
+                        label={t('web.channels.settings.fields.allowedUserIds')}
+                    >
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={whatsappAllowedUserIds}
+                            onChange={(e) =>
+                                setWhatsappAllowedUserIds(e.target.value)
+                            }
+                            placeholder='+15551234567, ...'
+                        />
+                    </Field>
+                    <Field
+                        label={t(
+                            'web.channels.settings.fields.operatorUserIds'
+                        )}
+                    >
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={whatsappOperatorUserIds}
+                            onChange={(e) =>
+                                setWhatsappOperatorUserIds(e.target.value)
+                            }
+                            placeholder='+15551234567, ...'
+                        />
+                    </Field>
+                    <Field
+                        label={t(
+                            'web.channels.settings.fields.allowedGroupChatIdsOptional'
+                        )}
+                    >
+                        <input
+                            type='text'
+                            className='workbench-input'
+                            value={whatsappAllowedChatIds}
+                            onChange={(e) =>
+                                setWhatsappAllowedChatIds(e.target.value)
+                            }
+                            placeholder='120363000000000000@g.us, ...'
+                        />
+                    </Field>
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.mentionOnly')}
+                        description={t(
+                            'web.channels.settings.behaviors.mentionOnlyDescription'
+                        )}
+                        checked={mentionOnly}
+                        onChange={setMentionOnly}
+                    />
+                    <CheckboxField
+                        label={t(
+                            'web.channels.settings.behaviors.shareSession'
+                        )}
+                        description={t(
+                            'web.channels.settings.behaviors.shareSessionDescription'
+                        )}
+                        checked={shareSessionInChannel}
+                        onChange={setShareSessionInChannel}
+                    />
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.attachFiles')}
+                        description={t(
+                            'web.channels.settings.behaviors.attachFilesWeixinDescription'
+                        )}
+                        checked={whatsappOutboundFiles}
+                        onChange={setWhatsappOutboundFiles}
+                    />
+                    <CheckboxField
+                        label={t('web.channels.settings.behaviors.sendContext')}
+                        description={t(
+                            'web.channels.settings.behaviors.sendContextDescription'
+                        )}
+                        checked={contextProjection}
+                        onChange={setContextProjection}
+                    />
+                    <p className='text-ui text-muted'>
+                        {t('web.channels.settings.help.whatsappEdit')}
                     </p>
                 </>
             )}

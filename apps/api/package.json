@@ -52,6 +52,7 @@
         "@opentelemetry/semantic-conventions": "^1.40.0",
         "@sentry/node": "^10.69.0",
         "@sentry/opentelemetry": "^10.69.0",
+        "baileys": "7.0.0-rc14",
         "better-sqlite3": "^11.7.0",
         "class-transformer": "^0.5.1",
         "class-validator": "^0.14.1",

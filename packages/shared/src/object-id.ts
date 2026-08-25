@@ -23,6 +23,7 @@ export const objectIdPrefixes = Object.freeze({
     channel: 'chn',
     larkAppRegistration: 'lreg',
     weixinRegistration: 'wxr',
+    whatsappRegistration: 'war',
     channelSession: 'chs',
     chatMessageSource: 'cms',
     chatSession: 'cts',

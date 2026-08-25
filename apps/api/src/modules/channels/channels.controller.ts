@@ -9,7 +9,8 @@ import type {
     GithubAppManifestResponse,
     LarkAppRegistrationSummary,
     UpdateChannelSessionBody,
-    WeixinRegistrationSummary
+    WeixinRegistrationSummary,
+    WhatsappRegistrationSummary
 } from '@manyfold/shared'
 import {
     Body,
@@ -43,10 +44,12 @@ import { ChannelsService } from './channels.service'
 import { ChannelManagerService } from './channel-manager.service'
 import { LarkRegistrationService } from './lark-registration.service'
 import { WeixinRegistrationService } from './weixin-registration.service'
+import { WhatsappRegistrationService } from './whatsapp-registration.service'
 import {
     CreateChannelDto,
     StartLarkRegistrationDto,
     StartWeixinRegistrationDto,
+    StartWhatsappRegistrationDto,
     SubmitWeixinVerifyCodeDto,
     UpdateChannelDto
 } from './dto/channels.dto'
@@ -61,6 +64,7 @@ export class ChannelsController {
         private readonly manager: ChannelManagerService,
         private readonly larkRegistrations: LarkRegistrationService,
         private readonly weixinRegistrations: WeixinRegistrationService,
+        private readonly whatsappRegistrations: WhatsappRegistrationService,
         private readonly rateLimit: CliAuthRateLimitService
     ) {}
 
@@ -253,6 +257,80 @@ export class ChannelsController {
             windowMs: RATE_WINDOW_MS
         })
         await this.weixinRegistrations.cancel(
+            {
+                userId: user.userId,
+                boundAgentId: boundAgentIdFromUser(user)
+            },
+            id
+        )
+    }
+
+    @Post('whatsapp-registrations')
+    @HttpCode(201)
+    @RequireApiTokenScope('channels:edit')
+    @SubjectAgentFromBody('agentId')
+    startWhatsappRegistration(
+        @CurrentUser() user: AuthPrincipal,
+        @Body() dto: StartWhatsappRegistrationDto,
+        @Req() req: FastifyRequest
+    ): Promise<WhatsappRegistrationSummary> {
+        this.assertEnabled()
+        this.rateLimit.consume({
+            key: `whatsapp-registration:start:user:${user.userId}`,
+            limit: 10,
+            windowMs: RATE_WINDOW_MS
+        })
+        this.rateLimit.consume({
+            key: `whatsapp-registration:start:ip:${clientKey(req)}`,
+            limit: 30,
+            windowMs: RATE_WINDOW_MS
+        })
+        return this.whatsappRegistrations.start(user.userId, dto)
+    }
+
+    @Get('whatsapp-registrations/:id')
+    @RequireApiTokenScope('channels:read')
+    @AllowBoundTokenWithoutSubject(
+        'registration service enforces the stored subject agent'
+    )
+    getWhatsappRegistration(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Req() req: FastifyRequest
+    ): Promise<WhatsappRegistrationSummary> {
+        this.assertEnabled()
+        this.rateLimit.consume({
+            key: `whatsapp-registration:get:ip:${clientKey(req)}`,
+            limit: 120,
+            windowMs: RATE_WINDOW_MS
+        })
+        return this.whatsappRegistrations.get(
+            {
+                userId: user.userId,
+                boundAgentId: boundAgentIdFromUser(user)
+            },
+            id
+        )
+    }
+
+    @Delete('whatsapp-registrations/:id')
+    @HttpCode(204)
+    @RequireApiTokenScope('channels:edit')
+    @AllowBoundTokenWithoutSubject(
+        'registration service enforces the stored subject agent'
+    )
+    async cancelWhatsappRegistration(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Req() req: FastifyRequest
+    ): Promise<void> {
+        this.assertEnabled()
+        this.rateLimit.consume({
+            key: `whatsapp-registration:cancel:ip:${clientKey(req)}`,
+            limit: 30,
+            windowMs: RATE_WINDOW_MS
+        })
+        await this.whatsappRegistrations.cancel(
             {
                 userId: user.userId,
                 boundAgentId: boundAgentIdFromUser(user)

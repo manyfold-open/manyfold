@@ -404,6 +404,7 @@ const defaultDocsGroups: DocsGroup[] = [
             'channels/matrix',
             'channels/weixin',
             'channels/line',
+            'channels/whatsapp',
             'channels/linear',
             'channels/github',
             'channels/session-switching'
@@ -465,6 +466,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                 'channels/matrix',
                 'channels/weixin',
                 'channels/line',
+                'channels/whatsapp',
                 'channels/linear',
                 'channels/github',
                 'channels/session-switching'

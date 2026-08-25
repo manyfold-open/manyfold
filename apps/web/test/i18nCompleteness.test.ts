@@ -718,7 +718,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Matrix',
         'Slack',
         'Telegram',
-        'WeChat'
+        'WeChat',
+        'WhatsApp'
     ],
     'lib/fontSize.tsx': ['default'],
     'lib/i18n.tsx': ['zh'],
@@ -777,6 +778,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     ],
     'pages/Settings/BuyContainer.tsx': ['GB', 'MB'],
     'pages/Settings/Channels/ChannelDetail.tsx': [
+        '120363000000000000@g.us, ...',
         '!roomid:matrix.example.org, ...',
         '/new',
         '123456789:AAH...',
@@ -800,6 +802,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'U01ABCDEF, U02GHIJKL',
         'U4af4980629..., ...',
         'WeChat',
+        'WhatsApp',
         'https://matrix.example.org',
         'ou_xxxx',
         'ou_xxxx, ou_yyyy',
@@ -824,6 +827,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'U01ABCDEF',
         'U01ABCDEF, U02GHIJKL',
         'WeChat',
+        'WhatsApp',
         'cli_xxxxx',
         'error',
         'https://ilinkai.weixin.qq.com',

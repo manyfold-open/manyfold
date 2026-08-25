@@ -6,6 +6,7 @@ export type ChannelProviderName =
     | 'discord'
     | 'matrix'
     | 'weixin'
+    | 'whatsapp'
     | 'linear'
     | 'github'
     | 'line'
@@ -88,6 +89,40 @@ export interface WeixinRegistrationSummary {
     status: WeixinRegistrationStatus
     // Scannable QR content (a URL); present only while pending/need_verify_code.
     qrcodeContent: string | null
+    errorCode:
+        | 'access_denied'
+        | 'already_bound'
+        | 'upstream_error'
+        | 'channel_create_failed'
+        | null
+    errorMessage: string | null
+    channelId: string | null
+    expiresAt: string
+    createdAt: string
+    updatedAt: string
+}
+
+export type WhatsappRegistrationStatus =
+    | 'pending'
+    | 'creating'
+    | 'succeeded'
+    | 'failed'
+    | 'expired'
+    | 'cancelled'
+
+export interface StartWhatsappRegistrationBody {
+    agentId: string
+    label: string
+}
+
+export interface WhatsappRegistrationSummary {
+    id: string
+    agentId: string
+    status: WhatsappRegistrationStatus
+    // Scannable QR payload, rendered by the client. WhatsApp rotates it every
+    // ~20s while the pairing socket waits, so it changes across polls and is
+    // null once the registration leaves 'pending'.
+    qrContent: string | null
     errorCode:
         | 'access_denied'
         | 'already_bound'
@@ -296,6 +331,37 @@ export interface WeixinChannelConfig {
     resetOnIdleMins?: number | null
 }
 
+export interface WhatsappChannelConfig {
+    // The linked phone's own jid (e.g. 15551234567@s.whatsapp.net) and push
+    // name, captured at QR pairing. Informational for the operator; the jid
+    // also anchors self-mention detection in groups.
+    botJid?: string | null
+    botName?: string | null
+    // Senders allowed to drive this agent, written either as a phone number
+    // (+15551234567) or a raw jid. External actors, never Manyfold
+    // identities. Empty = anyone who messages the linked number.
+    allowedUserIds: string[]
+    // Senders allowed to run agent-wide commands (e.g. /model). Empty = those
+    // commands are disabled from WhatsApp (fail-closed).
+    operatorUserIds: string[]
+    // Group jids (…@g.us) this channel reacts to. Empty = every group the
+    // linked number belongs to.
+    allowedChatIds: string[]
+    mentionOnly: boolean
+    shareSessionInChannel: boolean
+    // WhatsApp has no reliable edit-for-everyone API on linked devices, so
+    // 'preview' is meaningless and every value normalizes to 'final'.
+    progressMode: ChannelProgressMode
+    outboundFiles?: boolean
+    // Prepend the [Channel message context] metadata block to each
+    // channel-driven turn. On by default; set false to disable.
+    contextProjection?: boolean
+    // Agent-managed reply: forward structured source context and let the
+    // agent deliver via its own channel tools (narranexus only). Off by default.
+    agentManagedReply?: boolean
+    resetOnIdleMins?: number | null
+}
+
 export interface LinearChannelConfig {
     // App user identity in the installed workspace (GraphQL viewer.id), the
     // workspace id and its url key. All three are captured by register() and
@@ -396,6 +462,7 @@ export type ChannelConfig =
     | DiscordChannelConfig
     | MatrixChannelConfig
     | WeixinChannelConfig
+    | WhatsappChannelConfig
     | LinearChannelConfig
     | GithubChannelConfig
     | LineChannelConfig
@@ -682,6 +749,27 @@ export const describeChannelScope = (
             }
         return { kind: 'channel', channelId: chatId, threadId: null, userId: null }
     }
+    if (provider === 'whatsapp' && segments[0] === 'whatsapp') {
+        const chatId = segments[2] ? decodeURIComponent(segments[2]) : null
+        if (!chatId) return UNKNOWN_SCOPE
+        if (segments[1] === 'dm')
+            return {
+                kind: 'dm',
+                channelId: chatId,
+                threadId: null,
+                userId: chatId
+            }
+        if (segments[1] === 'group') {
+            const userId = segments[3] ? decodeURIComponent(segments[3]) : null
+            return {
+                kind: userId ? 'channel-user' : 'channel',
+                channelId: chatId,
+                threadId: null,
+                userId
+            }
+        }
+        return UNKNOWN_SCOPE
+    }
     // linear:{organizationId}:{agentSessionId} needs no branch: an agent
     // session is one conversation and its id is neither a channel nor a thread
     // id, so the generic fallback is already the honest descriptor. The same
@@ -720,6 +808,7 @@ export const AGENT_SEND_PROVIDERS: readonly ChannelProviderName[] = [
     'lark',
     'telegram',
     'weixin',
+    'whatsapp',
     'matrix',
     'line',
     'fake'

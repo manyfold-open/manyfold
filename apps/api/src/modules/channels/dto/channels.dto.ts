@@ -8,6 +8,7 @@ import type {
     LarkAppRegion,
     StartLarkRegistrationBody,
     StartWeixinRegistrationBody,
+    StartWhatsappRegistrationBody,
     SubmitWeixinVerifyCodeBody,
     UpdateChannelBody
 } from '@manyfold/shared'
@@ -33,6 +34,7 @@ const providerNames: ChannelProviderName[] = [
     'discord',
     'matrix',
     'weixin',
+    'whatsapp',
     'linear',
     'github',
     'line'
@@ -62,6 +64,20 @@ export class StartLarkRegistrationDto implements StartLarkRegistrationBody {
 
 export class StartWeixinRegistrationDto
     implements StartWeixinRegistrationBody
+{
+    @Transform(({ value }) => trimString(value))
+    @IsString()
+    @Length(1, 120)
+    agentId!: string
+
+    @Transform(({ value }) => trimString(value))
+    @IsString()
+    @Length(1, 200)
+    label!: string
+}
+
+export class StartWhatsappRegistrationDto
+    implements StartWhatsappRegistrationBody
 {
     @Transform(({ value }) => trimString(value))
     @IsString()
