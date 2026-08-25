@@ -3,10 +3,7 @@ title: 安装 CLI
 description: 安装、登录、更新并验证 mf CLI。
 order: 2
 ---
-
-# 安装 CLI
-
-`mf` CLI 以独立二进制形式分发，日常使用不需要安装 Node.js。Agent、runtime、channel、automation、文件、backup、skill、usage、A2A 和 daemon 能力见 [CLI 总览](../cli/)。
+`mf` CLI 以独立二进制形式分发，日常使用不需要安装 Node.js。Agent、runtime、channel、automation、文件、backup、skill、usage、A2A 和 daemon 能力见 [CLI 总览](/zh/docs/cli/)。
 
 ## macOS 和 Linux
 
@@ -30,7 +27,7 @@ export PATH="$HOME/.local/bin:$PATH"
 curl -fsSL https://manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
 ```
 
-如果安装到 `/usr/local/bin` 这类系统目录，可能需要 `sudo`。
+> **注意：** 如果安装到 `/usr/local/bin` 这类系统目录，可能需要 `sudo`。
 
 ## Windows
 
@@ -83,7 +80,7 @@ mf setup --no-launch-browser
 ```
 
 Credential 和 daemon state 存放在当前选择的
-[CLI profile](../profiles/) 中。如果同一台机器要连接多个 Manyfold 部署，请使用
+[CLI profile](/zh/docs/profiles/) 中。如果同一台机器要连接多个 Manyfold 部署，请使用
 `--profile <name>` 或 `MF_PROFILE`。
 
 ## 验证安装
@@ -104,7 +101,7 @@ mf update --check
 mf update
 ```
 
-如果本地 daemon 正在运行，更新 CLI 后请重启它，让它使用新的二进制。
+> **注意：** 如果本地 daemon 正在运行，更新 CLI 后请重启它，让它使用新的二进制。
 
 ### 从 CLI 0.21 或更早版本升级
 
@@ -114,7 +111,7 @@ CLI 0.22 引入了当前 profile layout，并移除了旧 config 和 daemon fall
 
 ## 下一步
 
-- [了解 CLI](../cli/)
-- [Profile 和环境](../profiles/)
-- [用 mf 编写脚本](../scripting/)
-- [注册自有计算机](../local-daemons/)
+- [了解 CLI](/zh/docs/cli/)
+- [Profile 和环境](/zh/docs/profiles/)
+- [用 mf 编写脚本](/zh/docs/scripting/)
+- [注册自有计算机](/zh/docs/local-daemons/)

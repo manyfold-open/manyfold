@@ -3,14 +3,11 @@ title: 通过 A2A 调用 Agent
 description: 让外部 client 或 SDK 通过 A2A 协议调用 Manyfold 上的 Agent。
 order: 6
 ---
-
-# 通过 A2A 调用 Agent
-
 Manyfold 可以把一个 Agent 暴露成 [A2A](https://a2a-protocol.org/) server，这样任何 A2A client（官方 SDK、其它 Agent 平台，或者直接 `curl`）都能给它派活并取回结果。
 
-调用方说 A2A 协议时用这条路。只要一个 HTTP 聊天端点的话，用 [OpenAI 兼容 Chat API](../api-chat/) 更简单。
+调用方说 A2A 协议时用这条路。只要一个 HTTP 聊天端点的话，用 [OpenAI 兼容 Chat API](/zh/docs/api-chat/) 更简单。
 
-## 1. 暴露 Agent
+## 第 1 步：暴露 Agent
 
 打开 Agent，进 **A2A** tab，打开暴露开关。没打开之前所有 A2A 请求都返回 `404`——未暴露的 Agent 和不存在的 Agent 对外没有区别。
 
@@ -30,7 +27,7 @@ GET  /api/a2a/agents/{agentId}/agent-card.json
 POST /api/a2a/agents/{agentId}/rpc
 ```
 
-## 2. 给你的 client 铸一个 token
+## 第 2 步：给你的 client 铸一个 token
 
 还是 **A2A** tab：**Add caller → External client**。填个名字（比如 `zapier-integration`），可选填过期天数，然后把 token 复制走——它只显示一次。
 
@@ -61,7 +58,7 @@ store；警告和 endpoint 信息写到 stderr。`--json` 会返回包括一次�
 `mf a2a callers revoke <tokenId> --yes` 撤销。读取 callers/exposure
 需要 `a2a:read`；enable、disable、add、revoke 需要 `a2a:edit`。
 
-## 3. 免复制粘贴接入应用
+## 第 3 步：免复制粘贴接入应用
 
 第三方应用可以走 device-code Connect flow，让已登录用户选择一个或多个 Agent。应用不需要获得用户的 Manyfold session 或 personal API token。
 
@@ -131,7 +128,7 @@ curl -X POST https://api.manyfold.ai/api/connect/a2a/poll \
 
 Connect device code 不是 Manyfold API bearer，也不能拿到 CLI login flow 里兑换。用户从每个 Agent 的 A2A callers 列表撤销最终生成的 token；当前还没有应用级一键断开端点。
 
-## 4. 取 Agent Card
+## 第 4 步：取 Agent Card
 
 Card 是公开的，不需要 token，里面有协议版本、传输方式和 skill：
 
@@ -151,7 +148,7 @@ resolver = A2ACardResolver(
 card = await resolver.get_agent_card()
 ```
 
-## 5. 发消息
+## 第 5 步：发消息
 
 `message/send` 跑完一轮并返回完成的 task：
 

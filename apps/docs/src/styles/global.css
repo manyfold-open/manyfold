@@ -23,27 +23,35 @@
 /*   bg-surface— code block / card / popover              */
 /* Values are taken from the product's ramp so the docs   */
 /* canvas and the chat canvas are the same room. bg-rail  */
-/* has no consumer here: unlike the app, a docs sidebar   */
-/* is reading aid, not chrome, so it is never filled.     */
+/* has no consumer in the app shell: a docs sidebar is    */
+/* reading aid, not chrome, so it is never filled. The    */
+/* drawer below lg is the one exception and does use it.  */
 /* ====================================================== */
 
 @theme {
     /* === Text === */
     --color-fg: rgb(10 12 15);                  /* --lp-ink         */
+    --color-ink-soft: rgb(31 36 44);            /* --lp-ink-soft    */
     --color-muted: rgb(82 88 97);               /* --lp-muted       */
     --color-subtle: rgb(130 136 145);           /* --lp-subtle      */
     --color-placeholder: rgb(155 161 170);
 
     /* === Lines / dividers === */
     --color-divider: rgba(10, 12, 15, 0.18);    /* --lp-line        */
+    /* Half-strength rule, for lines that group rather than separate: the
+       hairline down a nav subtree runs the height of the rail, and at
+       --color-divider it read as a second border beside the column rule. */
+    --color-divider-soft: rgba(10, 12, 15, 0.09); /* --lp-line-soft */
 
     /* === Workbench surface ramp ===
        Same-hue cool graphite stepping, values shared with the product
        (apps/web styles.css) so a reader moving between the workspace
-       and the docs never sees the ground change under them. */
+       and the docs never sees the ground change under them. Verified
+       identical: --color-app-bg 222 226 230, --color-main-bg 247 249 251,
+       --color-surface 251 252 254. */
     --color-app: rgb(222 226 230);              /* floor — overscroll only */
     --color-main: rgb(247 249 251);             /* docs canvas === chat canvas */
-    --color-rail: rgb(235 238 241);             /* unconsumed; kept aligned to the product rail */
+    --color-rail: rgb(235 238 241);             /* the mobile drawer; aligned to the product rail */
     --color-soft: rgb(234 237 241);             /* list-row hover */
     --color-soft-hover: rgb(226 230 234);       /* one step down, toward the floor */
     --color-surface: rgb(251 252 254);          /* code blocks, cards, popovers */
@@ -119,20 +127,54 @@
     --text-display--letter-spacing: -0.025em;
     --text-display--font-weight: 500;
 
-    --text-h1: 1.75rem;
+    /* 600, not 500, and the same for h2 and h3 below. The docs had two h1
+       paths: .docs-page-title was Tailwind's generic text-3xl plus
+       font-semibold while text-h1 was 1.75rem at 500, so a dashboard title
+       rendered both smaller and lighter than an article title, and once h2 went
+       to 600 the dashboard's h2 outweighed its own h1. Every heading is 600
+       now, size carries the level and weight only separates heading from body,
+       which is Replicate's system: h1 36/600, h2 24/600, body 16/400.
+
+       The size is 1.875rem because that is text-3xl, the larger of the two
+       treatments, so unifying them shrank no title on any page. Both call
+       sites use this token now; nothing reaches for a generic Tailwind step. */
+    --text-h1: 1.875rem;
     --text-h1--line-height: 1.1;
     --text-h1--letter-spacing: -0.02em;
-    --text-h1--font-weight: 500;
+    --text-h1--font-weight: 600;
 
-    --text-h2: 1.25rem;
-    --text-h2--line-height: 1.25;
+    --text-h2: 1.375rem;
+    --text-h2--line-height: 1.3;
     --text-h2--letter-spacing: -0.015em;
-    --text-h2--font-weight: 500;
+    --text-h2--font-weight: 600;
 
-    --text-h3: 1rem;
+    --text-h3: 1.125rem;
     --text-h3--line-height: 1.4;
     --text-h3--letter-spacing: -0.01em;
-    --text-h3--font-weight: 500;
+    --text-h3--font-weight: 600;
+
+    /* The one level where size stops carrying the distinction, so it is worth
+       saying why the step is small. Measured on replicate.com/docs/reference/mcp,
+       which has h4s: 36/28/24/20 over a 14px body, steps of -8, -4, -4. Ours
+       run 30/22/18 over a 15px body, so the same shape would land h4 at 14px,
+       below our own paragraph. Their h3 sits at 1.71x their body and ours at
+       1.20x, so they have a level of headroom left under h3 and we do not.
+
+       16px is therefore a 1.07x step and the 600 weight does most of the work.
+       That is the ratio the h3 pass rejected as 'bold body text', and the
+       judgement stands: this is the weakest level in the scale. Widening it
+       means retuning --text-body or --text-h3, which the whole site and the web
+       app's DESIGN.md share, so it is a decision rather than a tweak.
+
+       It still beats what it replaces. Both h4s in the corpus are entirely
+       <code>, and code:not(pre code) is 0.85em, so an unstyled h4 rendered its
+       mono at 12.75px/400: smaller and lighter than the body text beside it.
+       At 16px/600 that code lands at 13.6px/600, which reads against body code
+       at 12.75px/400 and under h3 code at 15.3px/600. The order is intact. */
+    --text-h4: 1rem;
+    --text-h4--line-height: 1.45;
+    --text-h4--letter-spacing: -0.005em;
+    --text-h4--font-weight: 600;
 
     --text-body: 0.9375rem;
     --text-body--line-height: 1.5;
@@ -142,8 +184,10 @@
     --text-caption--line-height: 1.33;
     /* One rung for every code surface, inline and block alike — docs has no
        display-mode switch, so it is a single value rather than the webapp's
-       three-column ramp (DESIGN.md §5). 13px against the 15px body is the
-       same ~0.87 optical ratio the webapp runs. */
+       three-column ramp (DESIGN.md §5). Taken from upstream, which introduced
+       it to replace a relative 0.85em. Relative sizing was what let inline
+       code inherit whatever its parent happened to be, which is why an
+       all-code heading used to shrink with no rule saying it should. */
     --text-code: 0.8125rem;
     --text-code--line-height: 1.6;
 
@@ -188,8 +232,49 @@
         var(--color-focus) 0 0 0 1px,
         color-mix(in srgb, var(--color-focus) 18%, transparent) 0 0 0 4px;
 
-    --container-prose: 700px;
-    --container-content: 1080px;
+    /* --lp-shadow-button-primary, carried over verbatim. The solid button is
+       the one element that appears on both surfaces looking like the same
+       object -- same fill, same pill, often the same words -- and the docs
+       copy was flat while the landing's was tactile, which read as two
+       different buttons rather than one button on two pages. */
+    --shadow-button-primary:
+        rgba(255, 255, 255, 0.3) 0 3px 5px -2px inset,
+        rgba(160, 180, 200, 0.18) 0 -1px 3px -1px inset,
+        rgba(0, 0, 0, 0.5) 0 -2.5px 5px -2px inset,
+        0 1px 0 0 rgba(15, 17, 20, 0.1),
+        0 3px 7px -2px rgba(15, 17, 20, 0.12),
+        0 7px 16px -6px rgba(15, 17, 20, 0.1);
+
+    /* The reading measure, and the floor a wide table needs, which are the
+       same number rather than two that happen to agree: .docs-table's
+       min-width is 40rem, measured as the width at which the corpus's widest
+       table stops breaking phrases mid-clause, and the column is now exactly
+       that. The widest table fills the column and never scrolls.
+
+       Measured on mintlify.com/docs [2026-08-25], the reference for this
+       layout: 648px of text at 18px, about 72 characters. Ours is 15px, so
+       640 lands near 85. The 700 it replaces was 93, past the width at which
+       a reader still finds the start of the next line. Closing the rest of
+       that gap means retuning --text-body, which is a type-scale decision and
+       not this one. */
+    --container-prose: 640px;
+    /* Supersedes the 1200 that matched the landing's .lp-container. Three
+       columns do not fit in 1200: 1136px of inner width, less a 264 rail and
+       a 240 outline, leaves 536 for the text. The shell carries its own width
+       now and the header follows the shell rather than the marketing page, so
+       the docs header and the docs grid still open and close on the same two
+       lines -- just not the same two lines as the landing.
+
+       Capped rather than full-bleed, which is where this parts with the
+       reference. Mintlify pins both rails to the viewport and lets the gaps
+       grow with it: measured at a 2560 viewport [2026-08-25], their rail ends
+       at x=204 and their first line of text starts at x=956, 752px of nothing
+       in between. Their rail is 224 and holds one level; ours is 264 and
+       holds three. */
+    --container-content: 1536px;
+    /* Two lines of a section title at --text-ui, and no more: this is an
+       index of the page, not a second column of content. */
+    --container-toc: 240px;
 }
 
 @layer base {
@@ -197,19 +282,28 @@
         color-scheme: dark;
 
         --color-fg: rgb(228 231 236);              /* --lp-ink */
+        --color-ink-soft: rgb(185 190 198);        /* --lp-ink-soft */
         --color-muted: rgb(124 131 140);
         --color-subtle: rgb(80 85 92);
         --color-placeholder: rgb(100 106 114);
 
         --color-divider: rgba(255, 255, 255, 0.13);
+        --color-divider-soft: rgba(255, 255, 255, 0.06);
 
         /* Aligned with the product's dark ramp (apps/web styles.css), same
            reasoning as the light block: one room, one set of values. The
-           canvas is lifted above the floor rather than pressed into it —
-           dark mode reads a fill below the canvas as a hole. */
+           canvas is lifted above the floor rather than pressed into it,
+           because dark mode reads a fill below the canvas as a hole.
+
+           This moved the ground the anchor contrast was measured against.
+           Recomputed on the new canvas: --color-fg 14.50:1 (was 16.48),
+           --color-muted 4.69:1 (was 5.33), --color-subtle 2.39:1 (was 2.72).
+           The anchor and its marker draw from --color-muted and still clear
+           the 3:1 floor a control has to hold, with less headroom than
+           before. Light mode improved instead: muted goes 5.41 to 6.80. */
         --color-app: rgb(7 9 12);                  /* floor — overscroll only */
         --color-main: rgb(20 23 27);               /* docs canvas === chat canvas */
-        --color-rail: rgb(13 16 20);               /* unconsumed; aligned to the product rail */
+        --color-rail: rgb(13 16 20);               /* the mobile drawer */
         --color-soft: rgb(28 32 38);               /* list-row hover — lifts off the canvas */
         --color-soft-hover: rgb(38 43 50);
         --color-surface: rgb(32 36 42);            /* code blocks, cards, popovers */
@@ -271,6 +365,13 @@
         --shadow-focus:
             var(--color-focus) 0 0 0 1px,
             color-mix(in srgb, var(--color-focus) 26%, transparent) 0 0 0 4px;
+
+        --shadow-button-primary:
+            rgba(255, 255, 255, 0.18) 0 3px 5px -2px inset,
+            rgba(0, 0, 0, 0.32) 0 -2.5px 5px -2px inset,
+            0 1px 0 0 rgba(0, 0, 0, 0.18),
+            0 3px 7px -2px rgba(0, 0, 0, 0.2),
+            0 7px 14px -6px rgba(0, 0, 0, 0.15);
     }
 
     html {
@@ -302,6 +403,25 @@
         color: var(--color-link-hover);
     }
 
+    /* Both reference sites balance the H1, and a two-line title that breaks
+       after one word is the common case it fixes.
+
+       On the element rather than on either h1 path, because the two paths
+       disagreeing about this was the last thing left of the split the type
+       scale pass closed: .docs-page-title had it and the twelve `text-h1` call
+       sites did not, so a dashboard or legal-page title could still break badly
+       while an article title could not. Nine call-site edits would have been
+       nine more places to drift.
+
+       Safe as an element rule because every h1 in this app is a page title:
+       audited across the build at 110 .docs-page-title, 37 with the changelog's
+       margin, 12 bare `text-h1`, plus 404's, which is exactly one per page and
+       nothing else. There is no hero or marketing h1 here with a different
+       intent. */
+    h1 {
+        text-wrap: balance;
+    }
+
     code,
     pre,
     .font-mono {
@@ -325,12 +445,72 @@
         background: var(--color-main);
     }
 
+    /* Gutters are the landing's, measured off .lp-container: 32 / 24 / 18 at
+       the same two breakpoints. They were 16/24, so the docs page edge sat
+       16px from the viewport where the marketing page sat 32px from it, and
+       the two headers carrying the same wordmark started at different x. */
     .docs-container {
-        @apply max-w-content mx-auto w-full px-4 md:px-6;
+        @apply max-w-content mx-auto w-full px-[18px] min-[481px]:px-6 min-[721px]:px-8;
     }
 
     .docs-prose-container {
-        @apply mx-auto w-full max-w-prose px-4 md:px-6;
+        @apply mx-auto w-full max-w-prose px-[18px] min-[481px]:px-6 min-[721px]:px-8;
+    }
+
+    /* One shell for all six surfaces that put the tree beside a page. There
+       were two for a while, an index geometry whose column filled the page and
+       a reading geometry capped at the measure, on the theory that a grid of
+       cards is not prose and does not need one. What that produced was a
+       dashboard whose cards ran to the page edge while its own paragraphs
+       stopped at 672, and a reader crossing from a guide to the overview
+       watching the column change width under them. A card grid does not need
+       the measure; the site needs one column.
+
+       The content column is capped and justify-content splits the surplus
+       between the two gaps, so the column sits in the middle of the space the
+       rails leave it rather than against one of them.
+
+       264px rail because the tree is three levels deep now: a leaf under a
+       subgroup starts 52px in, and at the old 220 the CLI section's rows
+       ("Manage automations with the CLI") had 140px of column left and wrapped
+       to three lines. 48 is the gap's floor, up from 32: the rail lost its own
+       filled background long ago, so the hairline plus whitespace is all that
+       separates two columns of text. */
+    .docs-shell {
+        @apply grid gap-8 py-6 md:py-8;
+    }
+
+    /* Three tracks from lg up, and the third one is auto rather than a width:
+       below 1320 the outline is display:none and the track collapses to zero,
+       above it the outline sizes the track itself. Which means the geometry is
+       one rule instead of a base and an override, and a page with no outline at
+       all -- a changelog entry, a three-section guide -- lays out on the same
+       grid as one that has it.
+
+       Two tracks was the first attempt and it put the surplus in the single
+       gap: at 1319, the widest the two-column tier gets, that left 352px
+       between the rail and the first word and pinned the text to the right
+       edge of the screen. With the empty third track the surplus splits, so
+       the column sits in the middle of the space the rails leave it, which is
+       also what it does once the outline is really there.
+
+       48 is a floor and almost never the gap: space-between grows it as soon
+       as there is anything to grow it with, and it only binds between 1024 and
+       1064, where the column is short of the measure by up to 40px. In that
+       band the widest table in the corpus is over its own 40rem floor and
+       scrolls inside its panel. Paying for it would mean a gap tuned to make
+       one arithmetic work out at one viewport width, which is the kind of
+       number that breaks silently the next time the rail or the measure
+       moves. */
+    @media (min-width: 1024px) {
+        .docs-shell {
+            grid-template-columns:
+                264px
+                minmax(0, var(--container-prose))
+                auto;
+            justify-content: space-between;
+            gap: 48px;
+        }
     }
 
     .docs-page-section {
@@ -383,15 +563,18 @@
        Dark fill in light mode; hover steps up the graphite
        ramp. Text and icon color stay put — the fill carries
        the hover signal. */
+    /* tracking is .lp-btn's, which puts it on both button roles rather than
+       on the solid one only. */
     .docs-button-primary {
-        @apply bg-strong text-strong-fg text-ui hover:bg-strong-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+        @apply bg-strong text-strong-fg text-ui hover:bg-strong-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium tracking-[-0.005em] no-underline transition-colors hover:no-underline;
+        box-shadow: var(--shadow-button-primary);
     }
 
     /* === Secondary button (class S, DESIGN.md §8.10) ===
        Paper fill + the uniform 1px ring; hover steps the
        fill up one same-hue notch. */
     .docs-button-secondary {
-        @apply text-ui text-fg bg-surface hover:bg-surface-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium no-underline transition-colors hover:no-underline;
+        @apply text-ui text-fg bg-surface hover:bg-surface-hover inline-flex h-9 items-center justify-center rounded-pill px-4 font-medium tracking-[-0.005em] no-underline transition-colors hover:no-underline;
         box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
@@ -412,26 +595,161 @@
         box-shadow: var(--shadow-card);
     }
 
-    /* === Sidebar (popover / drawer surface) ===
-       The docs sidebar is a popover-class surface: paper
-       fill + md shadow. The `/90` backdrop-blur dance from
-       the warm-paper era is gone — at workbench density a
-       flat opaque surface reads cleaner. */
-    .docs-sidebar {
-        @apply bg-surface text-ui rounded-md p-1.5;
-        box-shadow: var(--shadow-card);
+    /* ===================== The navigation tree =====================
+       Three kinds of row, each with its own mark, so depth is read rather
+       than inferred:
+
+         group / subgroup   a disclosure button, chevron on the LEFT
+         page               a leaf, short dash on the left
+         endpoint           a leaf whose method pill is its mark
+
+       and one hairline down the left of every child list, so a row's parent
+       is the line it hangs off.
+
+       What this replaces: three tiers that differed only by indent, size and
+       case (uppercase caption group / sentence-case row / same-again nested
+       row), with the one chevron in the tree on the right of a subgroup and
+       nothing on the groups. Depth had to be counted, not seen.
+
+       Buttons rather than <details>/<summary>. The tree stands open now, so
+       the disclosure is a refinement rather than the only way in, and a
+       button is what carries aria-expanded plus a height transition — a
+       closed <details> is display:none, which cannot animate and jumped the
+       whole rail on every toggle. <noscript> re-opens everything, so a reader
+       without JS sees more of the tree than the old markup gave them, and
+       every link is in the DOM at every state either way (the rail is also
+       the internal-linking surface a crawler reads). */
+    .docs-tree {
+        @apply text-ui;
     }
 
-    /* List-row inside the sidebar / menu (class L, §8.10).
-       Hover = bg-soft, not surface-hover; rows are wide and
-       a strong fill on every hover would feel like the list
-       is flashing. The nav sits directly on the canvas (it
-       has no fill of its own), so the hover steps DOWN from
-       it — on a near-white page a row acknowledges by
-       darkening, never by getting brighter. */
-    .docs-sidebar-link {
-        @apply block rounded-sm px-2.5 py-1.5 no-underline transition-colors hover:no-underline;
+    .docs-tree-node + .docs-tree-node,
+    .docs-tree-leaf + .docs-tree-node {
+        @apply mt-2.5;
     }
+
+    .docs-tree-head {
+        @apply hover:bg-soft flex w-full cursor-pointer items-center gap-[7px] rounded-sm px-2 py-1 text-left transition-colors;
+    }
+
+    /* Weight carries the tier: 600 for a section, 500 for the tier under it,
+       400 for a page. Size stays --text-ui throughout, so the rail is one
+       dense column rather than three competing type sizes. */
+    .docs-tree-head-group {
+        @apply text-fg font-semibold;
+    }
+
+    .docs-tree-head-sub {
+        @apply font-medium;
+        color: var(--color-ink-soft);
+    }
+
+    .docs-tree-chev {
+        @apply text-subtle h-2.5 w-2.5 shrink-0;
+        transform: rotate(-90deg);
+        transition: transform 180ms cubic-bezier(0.2, 0.7, 0.3, 1);
+    }
+
+    .docs-tree-node.is-open > .docs-tree-head .docs-tree-chev {
+        transform: rotate(0deg);
+    }
+
+    /* 0fr → 1fr is the height animation that does not need a measured pixel
+       value. visibility rides along so a collapsed subtree is out of the tab
+       order as well as out of sight: it transitions discretely, which lands
+       "visible" at the start of the open and "hidden" at the end of the
+       close, and it is what the drawer's focus trap filters on. */
+    .docs-tree-kids {
+        @apply invisible grid;
+        grid-template-rows: 0fr;
+        transition:
+            grid-template-rows 200ms cubic-bezier(0.2, 0.7, 0.3, 1),
+            visibility 200ms;
+    }
+
+    .docs-tree-node.is-open > .docs-tree-kids {
+        @apply visible;
+        grid-template-rows: 1fr;
+    }
+
+    /* 12px per level: the chevron's own centre, so a child's hairline runs
+       down through the middle of the mark that opened it. */
+    .docs-tree-kids-in {
+        @apply border-divider-soft ml-3 min-h-0 overflow-hidden border-l pl-1;
+    }
+
+    .docs-tree-node.is-open > .docs-tree-kids > .docs-tree-kids-in {
+        @apply mt-0.5;
+    }
+
+    .docs-tree-leaf {
+        @apply text-muted hover:bg-soft hover:text-fg flex items-center gap-2 rounded-sm px-2 py-1 no-underline transition-colors hover:no-underline;
+    }
+
+    /* The leaf mark. A hairline in currentColor, and the shaft of the arrow
+       the current row carries -- the two have to read as one drawing at two
+       states, not as two glyphs.
+
+       12px and 75%, up from 7px and 50%. Both numbers exist to close the gap
+       to that arrow. At 50% the dash was a ghost, so the arrow beside it
+       looked like a different species rather than the same mark with a head;
+       at 12px the arrow's stroke lands on a whole pixel (2 of a 24 viewBox),
+       which is what lets the two match in weight instead of only in colour.
+       The width is shared so the active row's text cannot step sideways from
+       the rows above and below it. */
+    .docs-tree-leaf::before {
+        content: '';
+        @apply h-px w-3 shrink-0 bg-current opacity-75;
+    }
+
+    .docs-tree-leaf[aria-current='page'] {
+        @apply bg-info-bg text-info-strong font-medium;
+    }
+
+    /* The current page's mark, following Replicate: the dash becomes an
+       arrow on the row you are standing on. In a column of otherwise
+       identical rows it is the one place a different glyph earns its keep --
+       the state stops resting on colour alone, so it survives greyscale and a
+       reader who does not separate this blue from this grey.
+
+       A mask rather than a character, for the same reason the heading anchor
+       is one: '→' is a font's opinion about weight and baseline, and this has
+       to sit on the same slot and the same stroke weight as the hairline it
+       replaces. Drawn here rather than taken from lucide, which is the one
+       icon on the site that is: lucide `arrow-right` is a 14-unit shaft under
+       a 7-unit head, and at this size that head is twice the mark the dash
+       beside it makes. The shaft runs 16 of the 24 units and the head takes 3.5, so
+       what changes between the two states is a point on the end of a line the
+       reader was already looking at. The first version had a 13-unit shaft
+       and a 5-unit head, which is a different drawing, not a state of one. */
+    .docs-tree-leaf[aria-current='page']::before {
+        @apply h-3 opacity-100;
+        background-color: currentColor;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 12h16M14.5 8.5 18 12l-3.5 3.5'/%3E%3C/svg%3E")
+            center / contain no-repeat;
+    }
+
+    /* An ancestor of the current page (the API reference landing while a
+       reader is on one of its endpoints): marked, but not as the page. */
+    .docs-tree-leaf.is-ancestor {
+        @apply text-fg font-medium;
+    }
+
+    /* An endpoint row. The method pill is the mark, so the dash goes; the
+       title wraps to a second line instead of truncating, which is what
+       "List conversatio…" twice over used to do to the two GET rows. */
+    .docs-tree-leaf-endpoint {
+        @apply items-start;
+    }
+
+    .docs-tree-leaf-endpoint::before {
+        @apply hidden;
+    }
+
+    .docs-tree-leaf-endpoint > .docs-method-pill {
+        @apply mt-0.5;
+    }
+
 
     /* Prose-scoped panel (article surface) — same anatomy as
        docs-panel but with prose-friendly padding. */
@@ -444,29 +762,222 @@
        Sans for everything (no serif italic — landing-only,
        §5). Headings descend one step to ink-soft via the
        default token system. */
-    .prose-doc {
-        max-width: var(--container-prose);
+    /* No max-width here, and none on the children either. The measure is the
+       column's, set once on .docs-shell, and every block child fills
+       it.
+
+       It used to be on the children, so that a wide table could opt out and
+       run past the text: the capability matrix on /docs/channels is what
+       forced that, five columns of phrases laying out at 10 to 15 lines per
+       row. It worked for the table and cost the page its right edge. Prose
+       stopped at 700, the table and the header rule and the page actions ran
+       to 824, the deck stopped at 62ch, and a reader looking down the right
+       side of the page found three edges and no reason for any of them.
+
+       The table gets what it needed a different way now: the column is 640 and
+       .docs-table's floor is 40rem, so the widest table in the corpus fills
+       the column exactly rather than opting out of it. */
+    /* The table's own panel. The wrapper is added by rehypeTableWrap in
+       astro.config.mjs: it owns the ring and the rounding so a table that is
+       wider than the column scrolls inside a panel rather than taking the page
+       sideways with it. Above lg nothing in the corpus does -- the column and
+       the floor below are both 640 -- so this is the phone case. tabindex is
+       on the wrapper for the same reason the overflow is: a scroll region a
+       mouse can reach and a keyboard cannot is a keyboard trap in reverse. */
+    .prose-doc > .docs-table {
+        @apply my-5 overflow-x-auto rounded-sm;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .prose-doc > .docs-table > table {
+        @apply my-0;
     }
 
     .prose-doc h1 {
         @apply text-h1 text-fg mt-1 mb-4;
     }
 
+    /* Sized by the tokens, not in this scope. The first attempt set the size
+       here to avoid retuning shared tokens, which left h2 at 22px in prose and
+       20px everywhere else, and h3 at 18px against 16px: the same split that
+       had to be cleaned up for h1. One token per level now, and these rules
+       carry only their margins.
+
+       Measured against Replicate: their body is 16px and their section heading
+       24px, a 1.5x step. Ours was 20px over a 15px body, 1.33x, and h3 was
+       16px over that same 15px body, 1.07x, which is not a level at all, it is
+       bold body text. 22px and 18px put the two steps at 1.47x and 1.2x.
+
+       font-semibold is explicit here because it has to be. Swapping @apply
+       text-h2 for a bare font-size dropped the weight that utility carries,
+       and Tailwind's preflight resets a heading to font-weight: inherit, so
+       these rendered at 400: the same weight as the paragraph under them,
+       larger and nothing else. The tokens moved 500 to 600 in the same pass,
+       for both the size utilities and here. Replicate sets its headings at 600
+       against a 400 body, two steps; ours were one step at 500, and our own h1
+       was already 600, so h1 and h2 disagreed. Geist 600 is already loaded for
+       that h1, so this costs no extra font file.
+
+       Space above a heading is now much larger than space below it, so a
+       heading reads as belonging to what follows rather than floating between
+       two blocks. That relationship is what was missing once paragraph spacing
+       grew below. */
     .prose-doc h2 {
-        @apply text-h2 text-fg mt-8 mb-3;
+        @apply text-h2 text-fg mt-10 mb-3;
     }
 
     .prose-doc h3 {
-        @apply text-h3 text-fg mt-6 mb-2.5;
+        @apply text-h3 text-fg mt-7 mb-2.5;
     }
 
+    /* Margins continue the descent above, 40/28/20 over 12/10/8. An unstyled
+       h4 had margin 0 on both sides, so the two that exist sat flush against
+       the paragraph above them with no space to mark the boundary: the same
+       inverted-rhythm problem as the paragraph gap, at a heading. Replicate's
+       h4 is mt 35.6 mb 8.9, and the 8.9 is what the 8 here matches. */
+    .prose-doc h4 {
+        @apply text-h4 text-fg mt-5 mb-2;
+    }
+
+    /* === Heading anchor and level marker ===
+
+       A link to a heading's own id, so a reader can cite one section instead of
+       the whole page. fal and Replicate both ship this; this site had nothing,
+       so pointing at a section meant reading the address bar.
+
+       The marker and the anchor used to be two elements: '##' as generated
+       content on the heading, always there, and a 14px chain icon in the left
+       gutter, revealed on hover. That put the only always-visible mark on the
+       part you cannot click, so a reader had no way to tell which headings had
+       an anchor without hovering each one in turn, and read the ones they had
+       not hovered as having none. Measured against the page behind it, the
+       marker came to 1.65:1 and the icon 2.72:1 even fully revealed, under the
+       3:1 floor a control has to clear.
+
+       So the <a> carries the marker itself. The mark that is always there is
+       now the one you click, at --color-muted, 5.34:1, brightening on hover.
+       It is still generated content: it must be seen and never read, the same
+       reasoning as the table-of-contents label further down.
+
+       Both hang off :has(> .docs-heading-anchor) so one rule covers markdown
+       headings and the hand-written ones on the dashboard and API pages. */
+    :is(h2, h3, h4):has(> .docs-heading-anchor),
+    .docs-anchor-host {
+        @apply relative;
+    }
+
+    /* One mark for every anchor on the site: a link glyph in the left gutter,
+       drawn as a CSS mask so the <a> stays empty and a heading's text is
+       exactly its text for anything extracting it.
+
+       It replaces a persistent '##' / '###' / '####' set in mono above the
+       heading. Two things were wrong with that. A markdown token rendered in
+       the output reads as markdown that failed to render, which is what it
+       was reported as; and the shape said "syntax" while the element is a
+       link, so the one mark that was always on screen never looked clickable.
+       Replicate ships the same token and gets away with it at roughly 2:1
+       against the page under a 36px heading — ours sat at 5.3:1 under a 22px
+       one, which is the contrast an anchor needs to be a control and exactly
+       what made it the loudest thing in the column.
+
+       Hover to reveal is GitHub's and fal's shape and it is the one that fits
+       a mark whose job is occasional: the reader who wants to cite a section
+       is already pointing at that section. Nothing is lost at rest, because
+       at rest there is nothing to act on. */
+    .docs-heading-anchor {
+        @apply text-subtle absolute block h-3.5 w-3.5 no-underline opacity-0;
+        top: 0.34em;
+        left: -1.75rem;
+        background-color: currentColor;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'/%3E%3Cpath d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'/%3E%3C/svg%3E")
+            center / contain no-repeat;
+        transition:
+            opacity 120ms ease,
+            color 120ms ease;
+    }
+
+    :is(h2, h3, h4):hover > .docs-heading-anchor,
+    .docs-anchor-host:hover > .docs-heading-anchor,
+    .docs-heading-anchor:hover,
+    .docs-heading-anchor:focus-visible {
+        @apply text-fg opacity-100;
+    }
+
+    /* h1 has no anchor at all, which is what Replicate does. Measured on
+       replicate.com/docs/reference/mcp: their h1 carries no id, no anchor
+       element and no ::before marker, while every h2 and h3 carries all three.
+
+       It used to keep the hover-only chain icon here, which left two idioms on
+       one page: a persistent mark on section headings and a hidden one on the
+       title. It was also misaligned, 8px above the first line's optical centre,
+       because top: 0.34em was tuned against the 20px h2 and drifts as the font
+       grows: at the h1's 30px it is 10.2px down a 36px line. Both problems go
+       away with the element. A page title's link is the page URL, which is what
+       the Copy page button already hands over.
+
+       The id stays, unlike Replicate's. Nothing links it now, but it is a
+       stable target for anyone who types one, and it costs a crawler nothing.
+
+       What is left here is the changelog timeline, whose anchor sits on a date
+       row rather than a heading, so it has no level to mark and keeps the icon.
+       The icon is a CSS mask rather than inline SVG so the <a> stays empty and
+       a heading's text is exactly its text for anything extracting it. That is
+       also why it cannot be a <Link> component like every other icon on the
+       site: the path below is lucide `link`, copied, and has to be re-copied
+       if @lucide/astro redraws it. */
+    /* The changelog timeline already owns the left gutter, the entry dot sits
+       there, so its anchor rides inline after the date instead of colliding. */
+    .docs-heading-anchor.is-inline {
+        @apply static;
+    }
+
+    /* Copied. Same box, same size, the mask swaps to a tick. lucide `check`,
+       at lucide's own stroke of 2 -- it was 2.4 here, which is the kind of
+       local retune that is exactly why the icons had drifted apart. */
+    .docs-heading-anchor.is-done {
+        @apply text-success opacity-100;
+        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E")
+            center / contain no-repeat;
+    }
+
+    @media (width < 64rem) {
+        /* The gutter only exists once the rail is beside the content: below
+           lg the article runs to the container padding, so an anchor reaching
+           28px to its left would sit off-screen.
+
+           It trails the heading text instead, and it is visible at rest here
+           rather than on hover, because this is the width where the pointer
+           is a finger and there is no hover to reveal it with. The heading
+           becomes a baseline flex row so the mark can be ordered after its own
+           text without moving in the DOM, where it has to stay first for the
+           hand-written headings that share this class. */
+        :is(h2, h3, h4):has(> .docs-heading-anchor),
+        .docs-anchor-host {
+            @apply flex flex-wrap items-baseline gap-1.5;
+        }
+
+        .docs-heading-anchor {
+            @apply static order-last inline-block opacity-70;
+            transform: translateY(1px);
+        }
+    }
+
+    /* The gap between paragraphs is one line, which is the single change that
+       made these pages read as paragraphs instead of one slab.
+
+       It was 14px against a 25.5px line, a ratio of 0.55: looser inside a
+       paragraph than between them, so the boundaries disappeared. Replicate
+       runs 24px on a 24px line, exactly 1.0. This is 24px, and the leading
+       stays at 1.7 because at 71 characters a line that is the comfortable
+       value; it was never the leading that was wrong, only the relationship
+       between the two. */
     .prose-doc p {
-        @apply text-body text-fg/90 my-3.5 leading-[1.7];
+        @apply text-body text-fg/90 my-6 leading-[1.7];
     }
 
     .prose-doc ul,
     .prose-doc ol {
-        @apply text-body text-fg/90 my-3.5 pl-5 leading-[1.7];
+        @apply text-body text-fg/90 my-6 pl-5 leading-[1.7];
     }
 
     .prose-doc ul {
@@ -488,6 +999,10 @@
     .prose-doc ol > li::before,
     .docs-steps > li::before {
         content: counter(docs-step);
+        /* 500, following upstream. These are chrome, not headings, and with
+           our headings at 600 a 600 chip competes with them. Lowering the
+           chrome is the half of upstream's weight sweep that supports a 600
+           heading rather than contradicting it. */
         @apply bg-info-bg text-info-strong absolute left-0 top-0.5 flex h-6 w-6 items-center justify-center rounded-pill text-caption font-medium;
     }
 
@@ -499,14 +1014,19 @@
         @apply font-medium;
     }
 
-    /* Without a rule of its own this fell to the browser default 700, which
-       reads as shouting next to 500 headings. */
+    /* Without a rule of its own this fell to the browser default 700. Upstream
+       added this because 700 shouts next to their 500 headings; it matters more
+       here, not less, because our headings are 600 and a 700 <strong> in a
+       paragraph outweighed every heading on the page. */
     .prose-doc strong {
         @apply font-medium;
     }
 
-    /* See BaseLayout.astro for why: on Windows the CJK fallback has no
-       Medium, so 500 would render Regular and emphasis would vanish. */
+    /* See BaseLayout.astro: Microsoft YaHei ships only 400 and 700, so a CJK
+       run at 500 resolves to Regular and <strong> loses its only signal. 600
+       maps to Bold there. Upstream's mechanism, adopted unchanged: it is a
+       font-availability fact rather than a weight choice, so keeping our
+       headings at 600 does not affect it. */
     html[data-cjk-weights='coarse'] .prose-doc strong {
         font-weight: 600;
     }
@@ -519,9 +1039,16 @@
         color: var(--color-info-strong);
     }
 
-    /* Code in a heading steps down with the heading instead of sitting at
-       the body rung, so a heading that is entirely code still reads as a
-       heading. */
+    /* Code in a heading steps down with the heading instead of sitting at the
+       code rung, so a heading that is entirely code still reads as a heading.
+       Upstream's ladder, resolved against our type scale rather than theirs:
+       each level takes the size of the level below it.
+
+       The ladder runs 22, 18, 16, 15 and stays above body code's 13px at every
+       level, so an all-code heading is never the size of an all-code sentence.
+       That matters most at h4, where both of the corpus's h4s are entirely
+       code: 15px/600 against body code's 13px/400 separates them by size and
+       weight both, where h4 itself only manages weight. */
     .prose-doc h1 code:not(pre code) {
         font-size: var(--text-h2);
     }
@@ -531,6 +1058,10 @@
     }
 
     .prose-doc h3 code:not(pre code) {
+        font-size: var(--text-h4);
+    }
+
+    .prose-doc h4 code:not(pre code) {
         font-size: var(--text-body);
     }
 
@@ -555,6 +1086,18 @@
     .docs-code > pre {
         @apply my-0 rounded-none;
         box-shadow: none;
+    }
+
+    /* Hand-authored code panel, for a page that builds its own <pre> outside a
+       markdown body. The .prose-doc pre rules above never reach those, so
+       without this the panel has no surface, no padding and no horizontal
+       scroll, and .docs-code's overflow-hidden clips the long lines away with
+       no way to reach them. The figure the copy script adds wraps this and
+       overrides the margin, rounding and ring, so the two compose. */
+    .docs-pre {
+        @apply bg-surface-subtle my-4 overflow-x-auto rounded-sm px-4 py-3.5 font-mono leading-[1.7];
+        font-size: var(--text-code);
+        box-shadow: inset 0 0 0 1px var(--color-divider);
     }
 
     .docs-codebar {
@@ -584,6 +1127,14 @@
         @apply text-ui my-5 w-full border-collapse;
     }
 
+    /* Wide tables get a floor rather than wrapping every cell to a column of
+       single words. Under it the table fits and this does nothing; over it
+       the wrapper scrolls. 40rem is the width at which the corpus's widest
+       table (five columns) stops breaking phrases mid-clause. */
+    .prose-doc .docs-table > table {
+        min-width: 40rem;
+    }
+
     .prose-doc th,
     .prose-doc td {
         @apply border-divider border-b px-3 py-2.5 text-left align-top;
@@ -607,14 +1158,18 @@
 
     /* === Brand mark — the four-blade Manyfold logo, matching the
        landing nav. Outer blades take currentColor (ink); the two
-       inner blades step down to muted for the folded-plane read. */
+       inner blades step down for the folded-plane read.
+       28px and --color-ink-soft are the landing's own values
+       (.lp-brand-mark): the same lockup rendered at 22px here and 28px
+       there was the loudest of the header's mismatches, and the inner
+       blades were a step paler than the landing's besides. */
     .docs-brand-mark {
-        @apply block h-[22px] w-auto shrink-0;
+        @apply block h-7 w-auto shrink-0;
     }
 
     .docs-brand-mark polygon:nth-child(2),
     .docs-brand-mark polygon:nth-child(4) {
-        fill: var(--color-muted);
+        fill: var(--color-ink-soft);
     }
 
     /* Beta pill sitting after the wordmark — mirrors the landing
@@ -645,10 +1200,37 @@
         @apply bg-surface text-fg;
     }
 
-    /* === Header chrome (DESIGN.md §8.10 ghost/icon buttons) === */
+    /* === Header chrome (DESIGN.md §8.10 ghost/icon buttons) ===
+       32px, bare, and the hover is a translucent ink wash rather than a step
+       up the surface ramp: all three are .lp-nav-ico's, so the utility run in
+       this header and the one on the landing are the same control. The wash
+       matters more than it looks — a solid --color-surface-hover chip reads as
+       a filled button beside the landing's, which is what made the two rows
+       look like different design systems at the same 32px. */
+    /* hover:bg-soft is the half of .lp-nav-ico:hover that was missing. The
+       landing's utilities take a fill on hover and the docs' took only a
+       colour change, so the same control answered a pointer differently on
+       the two surfaces. The fill is each surface's own row-hover token rather
+       than the landing's literal rgba: the two canvases are not the same
+       tone, so matching the overlay would not match what a reader sees. */
     .docs-icon-btn {
-        @apply text-muted hover:bg-surface-hover hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
+        @apply text-muted hover:bg-soft hover:text-fg inline-flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-pill transition-colors;
         box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-icon-btn:hover {
+        background: rgba(10, 12, 15, 0.05);
+    }
+
+    html[data-theme='dark'] .docs-icon-btn:hover {
+        background: rgba(255, 255, 255, 0.07);
+    }
+
+    /* Splits the utility run into "leaves the site" and "changes this page",
+       the same job and the same 1px × 18px rule as .lp-nav-sep. */
+    .docs-nav-sep {
+        @apply mx-1.5 h-[18px] w-px shrink-0;
+        background: var(--color-divider);
     }
     /* Bare variant for the header's outward link and its preference toggles.
        The search field is the only control up there that takes input, so it
@@ -665,8 +1247,11 @@
 
     /* Language-switcher code — mono short code (EN / ZH) beside the
        globe, mirroring the landing nav `.lp-nav-chip-code`. */
+    /* .lp-nav-ico-text: 12.5px, medium, +0.01em, and in the interface face.
+       This was mono at 11.5px, which is the only place in either header where
+       a two-letter label was set as code. */
     .docs-lang-code {
-        @apply font-mono text-[0.71875rem] tracking-[0.02em];
+        @apply text-[0.78125rem] font-medium tracking-[0.01em];
     }
 
     .docs-kbd {
@@ -683,29 +1268,213 @@
         @apply text-success;
     }
 
-    /* === Right-rail table of contents === */
-    .docs-toc-link {
-        @apply text-muted hover:text-fg block border-l py-1 pl-3 text-ui no-underline transition-colors hover:no-underline;
-        border-color: var(--color-divider);
+    /* === The tree as a drawer, below lg ===
+       Above the breakpoint the rail carries its own lg: utilities in the
+       markup and nothing here applies. Below it the same element goes
+       off-canvas, so there is one copy of the tree in the DOM rather than one
+       per layout. Measurements are apps/web's: 19rem, z-100 over a z-90
+       backdrop, 200ms on the transform.
+
+       max-w caps it on a small phone. At 19rem flat, a 320px screen would
+       leave 16px of backdrop, which is not enough of a target to close it. */
+    @media (width < 64rem) {
+        .docs-nav-rail {
+            @apply bg-rail border-divider/80 fixed inset-y-0 left-0 z-[100] w-[19rem] max-w-[85vw] overflow-y-auto border-r px-4 py-5 transition-transform duration-200;
+            /* The offset is written out rather than applied as
+               -translate-x-full. That utility compiles to a literal
+               `translate: -100%`, while translate-x-0 only assigns the custom
+               property behind it, so .is-open set the variable and the drawer
+               stayed off-canvas: every state transition looked right and
+               nothing moved. */
+            translate: -100%;
+        }
+
+        .docs-nav-rail.is-open {
+            translate: none;
+        }
+    }
+
+    /* Same pill as apps/web's mobile menu button, down to the sizing. It sits
+       above the breadcrumb rather than beside a title of its own: the
+       breadcrumb on the next line already names the page, and repeating it is
+       what got the eyebrow removed. */
+    /* Proportions are Replicate's, measured: 14px label, 8px from the icon,
+       34px tall against our 36px pill. Padding is 6px/10px there; here the
+       pill's radius wants a touch more on the right, and h-9 with px-3 lands
+       at the same optical size. */
+    .docs-drawer-trigger {
+        @apply shadow-ring-light bg-surface text-muted hover:bg-surface-hover text-ui rounded-pill inline-flex h-9 shrink-0 items-center justify-self-start gap-2 px-3 font-medium transition-colors;
+        /* justify-self, because this is a grid item in the section's
+           one-column stack. A grid item with auto width stretches its track,
+           and blockification turns the inline-flex into flex, so without this
+           the pill ran the full 343px column. */
+        /* It is a grid item in a one-column stack here, so the section's own
+           gap-8 already sits under it. Left alone that put 44px between the
+           button and the breadcrumb it belongs to. Pulled back to 12px. */
+        margin-bottom: -1.25rem;
+    }
+
+    .docs-drawer-backdrop {
+        @apply fixed inset-0 z-[90] bg-black/20;
+    }
+
+    /* The drawer's own header row: what this panel is, and the way out of it.
+       Only rendered below lg, where the aside is a modal drawer; above it the
+       same element is the page's navigation rail and has nothing to dismiss.
+
+       The rule under it separates the label from the first group heading, which
+       is also text-ui/600 in --color-fg. Without it the two read as one list
+       with the panel's name as its first row. */
+    .docs-drawer-head {
+        @apply border-divider/80 mb-1 flex items-center justify-between gap-3 border-b pb-3;
+    }
+
+    /* apps/web's icon button, unchanged: the same pill as the mobile menu
+       trigger it is the counterpart to, at the same 36px. The X is 16px on a
+       2px stroke, matching the hamburger in the trigger. */
+    .docs-drawer-dismiss {
+        @apply shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors;
+    }
+
+    /* === Method pills in the rail ===
+       fal puts a coloured verb on every endpoint row of its API rail, so the
+       shape of the surface reads before any label does. Sized to fal's
+       measurements: 8.8px at weight 700 in a 2px/4px box, which keeps the pill
+       between 25 and 37px and leaves the title room in a 220px column. The
+       colours come from the design system's status spectrum, not from fal. */
+    .docs-method-pill {
+        @apply shrink-0 rounded-sm px-1 py-px text-center font-mono font-bold;
+        font-size: 8.8px;
+        line-height: 1.5;
+        letter-spacing: 0.04em;
+        min-width: 30px;
+    }
+
+    /* === Page header block (docs-ui-redesign-benchmark.md 4/2a) ===
+       Eyebrow, title, deck, actions, then a rule. Built entirely from existing
+       tokens: no new colours, no new radii, no new shadows. The rule is the
+       one piece that is structural rather than decorative, because without it
+       the deck and the first body paragraph read as one run of muted text. */
+    .docs-page-head {
+        @apply border-divider mb-6 border-b pb-5;
+    }
+
+    /* The deck is not in this row, and that is the whole point of the row
+       existing. It used to sit in the same flex child as the title, so the
+       page actions set its wrap width: in a 640 column the deck broke at 472
+       and the page carried a fourth right edge for the sake of one paragraph.
+       The title shares the row, the deck runs the column. */
+    .docs-page-head-row {
+        @apply flex items-start justify-between gap-6;
+    }
+
+    /* text-wrap: balance used to live here. It is on the h1 element in the base
+       layer now, so both h1 paths get it instead of only this one. */
+    .docs-page-title {
+        @apply text-h1 text-fg m-0;
+    }
+
+    /* The answer-first line. Plain muted text on purpose: a bordered or tinted
+       box reads as a callout or an aside to a text extractor, which is the
+       opposite of what this sentence is for. */
+    .docs-deck {
+        @apply text-muted mt-2 mb-0 text-base leading-relaxed;
+        text-wrap: pretty;
+    }
+
+    /* === Copy page split button === */
+    .docs-page-actions {
+        @apply relative flex shrink-0 items-stretch;
+    }
+
+    .docs-pa-main {
+        @apply bg-surface text-fg hover:bg-soft text-ui flex h-9 cursor-pointer items-center gap-2 rounded-l-md px-3 font-medium;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .docs-pa-toggle {
+        @apply bg-surface text-muted hover:bg-soft hover:text-fg flex h-9 w-8 cursor-pointer items-center justify-center rounded-r-md;
+        box-shadow: inset 0 0 0 1px var(--color-divider);
         margin-left: -1px;
     }
 
-    .docs-toc-link[data-depth='3'] {
-        @apply pl-6 text-[0.8125rem];
+    /* Sized by its widest row rather than to a fixed 18rem. The rows used to
+       carry a second line each, two of which restated the row above them, and
+       that hint text set a width the menu kept after the hints were gone. */
+    .docs-pa-menu {
+        @apply bg-surface absolute right-0 top-10 z-20 w-max overflow-hidden rounded-md p-1;
+        box-shadow:
+            inset 0 0 0 1px var(--color-divider),
+            var(--shadow-elevated);
+    }
+
+    .docs-pa-menu[hidden] {
+        display: none;
+    }
+
+    .docs-pa-menu a {
+        @apply text-fg text-ui hover:bg-soft block whitespace-nowrap rounded-sm px-3 py-1.5 font-medium no-underline hover:no-underline;
+    }
+
+    @media (max-width: 640px) {
+        .docs-page-head-row {
+            @apply flex-col gap-4;
+        }
+    }
+
+    /* === Page outline (third column) ===
+       The section list of the page being read, pinned beside it. This is the
+       third column coming back, and the objection that removed it last time
+       was that it duplicated the inline list below it. It does — so the
+       inline list goes on the surfaces that have this one, and the two never
+       ship together. The AEO half of that objection is answered somewhere
+       else now: every page publishes a .md twin (DocsPageActions), and that
+       twin, not the rendered HTML, is what an answer engine should be reading.
+
+       Sticky at the same offsets as .docs-nav-rail so the two columns move
+       as one plane, and quieter than the rail at every state — a hairline
+       and a weight change where the rail uses a filled pill — because two
+       columns of navigation competing for the same eye is what made the first
+       version of this hard to use. */
+    .docs-toc {
+        @apply hidden;
+    }
+
+    /* 1320 rather than a Tailwind stop. 32 + 264 + 48 + 640 + 48 + 240 + 32 is
+       1304: the width at which the outline fits with both gaps at their floor,
+       which is to say the width at which it fits and looks cramped. 1320 gives
+       it the first 16px of air. */
+    @media (min-width: 1320px) {
+        .docs-toc {
+            @apply text-ui sticky top-24 block max-h-[calc(100vh-6rem)] self-start overflow-y-auto;
+            width: var(--container-toc);
+        }
+    }
+
+    .docs-toc-title {
+        @apply text-subtle mb-2.5 font-medium;
+    }
+
+    /* The hairline runs the height of the list, so the active mark reads as a
+       segment of one continuous edge rather than a floating tick. */
+    .docs-toc-list {
+        @apply border-divider m-0 list-none border-l p-0;
+    }
+
+    .docs-toc-link {
+        @apply text-muted hover:text-fg -ml-px block border-l border-transparent py-1 pl-3 no-underline transition-colors hover:no-underline;
     }
 
     .docs-toc-link.is-active {
         @apply text-fg font-medium;
-        border-color: var(--color-link);
+        border-left-color: var(--color-link);
     }
 
-    /* === Sidebar group heading === */
-    .docs-sidebar-group {
-        @apply text-subtle px-2.5 pt-3 pb-1 text-caption font-medium uppercase tracking-[0.1em];
-    }
-
-    .docs-sidebar-group:first-child {
-        @apply pt-1;
+    /* An h3 under its h2. One step of indent and nothing else: the rail's own
+       levels are marked by chevrons and dashes, and repeating that grammar
+       here would make the outline read as a second tree. */
+    .docs-toc-link-sub {
+        @apply pl-6;
     }
 
     /* === Prev / next pager — bordered, not filled === */
@@ -1111,7 +1880,9 @@ html {
     scroll-behavior: smooth;
 }
 
-:where(h1, h2, h3) {
+/* h4 included since the type scale gained one: the split command pages carry
+   two, and a fragment jump to either landed them under the sticky header. */
+:where(h1, h2, h3, h4) {
     scroll-margin-top: 5rem;
 }
 

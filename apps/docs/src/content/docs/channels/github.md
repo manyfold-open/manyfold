@@ -3,9 +3,6 @@ title: GitHub
 description: Mention a Manyfold agent on GitHub issues and pull requests.
 order: 17
 ---
-
-# GitHub
-
 Connect GitHub when you want an agent to answer where the work is filed. A dedicated GitHub App becomes the agent's identity: mention it in an issue or pull-request comment and it replies right there, streaming progress as a live-edited comment.
 
 ## What the channel supports
@@ -26,7 +23,7 @@ Connect GitHub when you want an agent to answer where the work is filed. A dedic
 - An existing Manyfold agent.
 - Permission to create a GitHub App on your account or organization, and to install it on the target repositories.
 
-## Connect it
+## Connect it to Manyfold
 
 1. Go to **Settings → Channels → New channel** and choose **GitHub**. Pick the agent, optionally restrict repositories, and save — no credentials yet.
 2. On the channel page, enter your organization login (or leave it empty for a personal account) and press **Create GitHub App**. GitHub shows a pre-filled app creation page; confirm it. GitHub sends the credentials back to Manyfold automatically and the channel activates.
@@ -40,7 +37,7 @@ Mention the app — `@your-app summarize the discussion` — in an issue body, i
 
 The issue title, body, and recent comments ride along as context, so the agent sees the discussion even when it is only mentioned at the end.
 
-To let the agent clone, push, or open pull requests, link a [GitHub Connection](../../workspace/) to the same agent — the channel app deliberately has no repository-contents access.
+To let the agent clone, push, or open pull requests, link a [GitHub Connection](/docs/workspace/) to the same agent — the channel app deliberately has no repository-contents access.
 
 ## Settings
 
@@ -69,3 +66,9 @@ To let the agent clone, push, or open pull requests, link a [GitHub Connection](
 - Comments are text only; files are not exchanged in either direction.
 - Review-thread comments (inline code comments on a PR diff) are not yet handled; the PR conversation tab works.
 - The channel app has no code access: repository write always comes from a GitHub Connection.
+
+## See also
+
+- [Connect channels](/docs/channels/)
+- [Linear](/docs/channels/linear/)
+- [Create your first agent](/docs/create-agent/)

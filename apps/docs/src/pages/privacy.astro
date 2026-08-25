@@ -1,5 +1,11 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
+import { getUi } from '@/lib/i18n'
+
+// en only: availableLocales below says so, and /zh/terms/ and
+// /zh/privacy/ do not exist. Read through getUi anyway so the
+// anchor label has the same single source as every other surface.
+const ui = getUi('en')
 ---
 
 <BaseLayout
@@ -10,7 +16,9 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
     <article class="docs-prose-container py-6 md:py-8">
         <header class="mb-4">
             <p class="docs-kicker">Netmind</p>
-            <h1 class="mt-3 text-h1">Privacy Policy</h1>
+            <h1 class="mt-3 text-h1" id="page-title">
+                Privacy Policy
+            </h1>
             <p class="mt-2 text-ui text-muted">Last updated: August 6, 2026.</p>
         </header>
 
@@ -32,7 +40,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 for that organization.
             </p>
 
-            <h2>1. Who controls your personal data</h2>
+            <h2 id="who-controls-your-personal-data">
+                <a
+                    class="docs-heading-anchor"
+                    href="#who-controls-your-personal-data"
+                    aria-label={ui.headingLink}></a>
+                1. Who controls your personal data
+            </h2>
             <p>
                 NetMind AI LTD is responsible for the personal data it processes
                 as a controller under applicable data protection laws, including
@@ -46,7 +60,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 United Kingdom, EC4N 7BE.
             </p>
 
-            <h2>2. Personal data we collect</h2>
+            <h2 id="personal-data-we-collect">
+                <a
+                    class="docs-heading-anchor"
+                    href="#personal-data-we-collect"
+                    aria-label={ui.headingLink}></a>
+                2. Personal data we collect
+            </h2>
             <p>
                 The data we collect depends on how you use the Services. It may
                 include:
@@ -108,7 +128,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 in a support question.
             </p>
 
-            <h2>3. How we collect personal data</h2>
+            <h2 id="how-we-collect-personal-data">
+                <a
+                    class="docs-heading-anchor"
+                    href="#how-we-collect-personal-data"
+                    aria-label={ui.headingLink}></a>
+                3. How we collect personal data
+            </h2>
             <p>We collect personal data from:</p>
             <ul>
                 <li>
@@ -129,7 +155,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 </li>
             </ul>
 
-            <h2>4. How we use personal data</h2>
+            <h2 id="how-we-use-personal-data">
+                <a
+                    class="docs-heading-anchor"
+                    href="#how-we-use-personal-data"
+                    aria-label={ui.headingLink}></a>
+                4. How we use personal data
+            </h2>
             <p>We use personal data to:</p>
             <ul>
                 <li>Provide, operate, maintain, and secure the Services.</li>
@@ -165,7 +197,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 </li>
             </ul>
 
-            <h2>5. AI-generated content</h2>
+            <h2 id="ai-generated-content">
+                <a
+                    class="docs-heading-anchor"
+                    href="#ai-generated-content"
+                    aria-label={ui.headingLink}></a>
+                5. AI-generated content
+            </h2>
             <p>
                 The Services include AI-powered features that generate automated
                 responses and content based on your inputs and connected tools.
@@ -180,7 +218,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 use it as a substitute for qualified professional judgment.
             </p>
 
-            <h2>6. How we share personal data</h2>
+            <h2 id="how-we-share-personal-data">
+                <a
+                    class="docs-heading-anchor"
+                    href="#how-we-share-personal-data"
+                    aria-label={ui.headingLink}></a>
+                6. How we share personal data
+            </h2>
             <p>
                 We may share personal data with the following categories of
                 recipients where needed to provide, secure, or improve the
@@ -217,7 +261,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 policies.
             </p>
 
-            <h2>7. International transfers</h2>
+            <h2 id="international-transfers">
+                <a
+                    class="docs-heading-anchor"
+                    href="#international-transfers"
+                    aria-label={ui.headingLink}></a>
+                7. International transfers
+            </h2>
             <p>
                 We are based in the United Kingdom, but our providers and users
                 may be located in other countries. Where personal data is
@@ -226,7 +276,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 provider data processing terms.
             </p>
 
-            <h2>8. Retention and deletion</h2>
+            <h2 id="retention-and-deletion">
+                <a
+                    class="docs-heading-anchor"
+                    href="#retention-and-deletion"
+                    aria-label={ui.headingLink}></a>
+                8. Retention and deletion
+            </h2>
             <p>
                 We retain personal data for as long as needed to provide the
                 Services, maintain security and audit records, comply with legal
@@ -243,7 +299,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 overwritten or removed according to our retention processes.
             </p>
 
-            <h2>9. Security</h2>
+            <h2 id="security">
+                <a
+                    class="docs-heading-anchor"
+                    href="#security"
+                    aria-label={ui.headingLink}></a>
+                9. Security
+            </h2>
             <p>
                 We use reasonable technical and organizational safeguards
                 designed to protect personal data, including access controls,
@@ -254,7 +316,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 secure.
             </p>
 
-            <h2>10. Cookies and analytics</h2>
+            <h2 id="cookies-and-analytics">
+                <a
+                    class="docs-heading-anchor"
+                    href="#cookies-and-analytics"
+                    aria-label={ui.headingLink}></a>
+                10. Cookies and analytics
+            </h2>
             <p>
                 We use a small number of cookies and similar technologies.
                 Essential browser storage (such as your session, language and
@@ -293,7 +361,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 and is deleted with your account.
             </p>
 
-            <h2>11. Your rights</h2>
+            <h2 id="your-rights">
+                <a
+                    class="docs-heading-anchor"
+                    href="#your-rights"
+                    aria-label={ui.headingLink}></a>
+                11. Your rights
+            </h2>
             <p>
                 Depending on your location, you may have rights to request access
                 to, correction of, deletion of, restriction of, portability of,
@@ -309,7 +383,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 Office or your local data protection authority.
             </p>
 
-            <h2>12. Children's data</h2>
+            <h2 id="childrens-data">
+                <a
+                    class="docs-heading-anchor"
+                    href="#childrens-data"
+                    aria-label={ui.headingLink}></a>
+                12. Children's data
+            </h2>
             <p>
                 The Services are not intended for children under 18. You may not
                 create an account or use the Services if you are under 18. Do not
@@ -317,7 +397,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 you have a lawful basis and all required consents.
             </p>
 
-            <h2>13. Third-party links and services</h2>
+            <h2 id="third-party-links-and-services">
+                <a
+                    class="docs-heading-anchor"
+                    href="#third-party-links-and-services"
+                    aria-label={ui.headingLink}></a>
+                13. Third-party links and services
+            </h2>
             <p>
                 The Services may link to or interoperate with third-party
                 websites, applications, models, tools, APIs, app stores, and
@@ -326,7 +412,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 before using them.
             </p>
 
-            <h2>14. Changes to this policy</h2>
+            <h2 id="changes-to-this-policy">
+                <a
+                    class="docs-heading-anchor"
+                    href="#changes-to-this-policy"
+                    aria-label={ui.headingLink}></a>
+                14. Changes to this policy
+            </h2>
             <p>
                 We may update this Privacy Policy from time to time. If changes
                 are material, we will use reasonable efforts to notify users,
@@ -335,7 +427,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 date shows when this version took effect.
             </p>
 
-            <h2>15. Contact</h2>
+            <h2 id="contact">
+                <a
+                    class="docs-heading-anchor"
+                    href="#contact"
+                    aria-label={ui.headingLink}></a>
+                15. Contact
+            </h2>
             <p>
                 For privacy questions or requests, contact <a
                     href="mailto:customer-support@netmind.ai"

@@ -1,5 +1,11 @@
 ---
 import BaseLayout from '@/layouts/BaseLayout.astro'
+import { getUi } from '@/lib/i18n'
+
+// en only: availableLocales below says so, and /zh/terms/ and
+// /zh/privacy/ do not exist. Read through getUi anyway so the
+// anchor label has the same single source as every other surface.
+const ui = getUi('en')
 ---
 
 <BaseLayout
@@ -10,7 +16,9 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
     <article class="docs-prose-container py-6 md:py-8">
         <header class="mb-4">
             <p class="docs-kicker">Netmind</p>
-            <h1 class="mt-3 text-h1">Terms of Service</h1>
+            <h1 class="mt-3 text-h1" id="page-title">
+                Terms of Service
+            </h1>
             <p class="mt-2 text-ui text-muted">Last updated: May 5, 2026.</p>
         </header>
 
@@ -31,7 +39,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 organization to these Terms.
             </p>
 
-            <h2>1. Eligibility and accounts</h2>
+            <h2 id="eligibility-and-accounts">
+                <a
+                    class="docs-heading-anchor"
+                    href="#eligibility-and-accounts"
+                    aria-label={ui.headingLink}></a>
+                1. Eligibility and accounts
+            </h2>
             <p>
                 You must be at least 18 years old to use the Services. You must
                 provide accurate account information, keep it current, and
@@ -45,7 +59,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 compromised.
             </p>
 
-            <h2>2. The Services</h2>
+            <h2 id="the-services">
+                <a
+                    class="docs-heading-anchor"
+                    href="#the-services"
+                    aria-label={ui.headingLink}></a>
+                2. The Services
+            </h2>
             <p>
                 Manyfold lets users create, configure, host, and
                 operate AI agents. Agent runtimes may execute code, call tools,
@@ -60,7 +80,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 workflows you run through the Services.
             </p>
 
-            <h2>3. AI-generated outputs</h2>
+            <h2 id="ai-generated-outputs">
+                <a
+                    class="docs-heading-anchor"
+                    href="#ai-generated-outputs"
+                    aria-label={ui.headingLink}></a>
+                3. AI-generated outputs
+            </h2>
             <p>
                 AI-generated outputs are automated, probabilistic, and may be
                 inaccurate, incomplete, outdated, offensive, or unsuitable for
@@ -74,7 +100,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 outputs.
             </p>
 
-            <h2>4. Your content</h2>
+            <h2 id="your-content">
+                <a
+                    class="docs-heading-anchor"
+                    href="#your-content"
+                    aria-label={ui.headingLink}></a>
+                4. Your content
+            </h2>
             <p>
                 "Your Content" means prompts, chat messages, files, code,
                 repositories, data, datasets, credentials you submit for use by
@@ -98,7 +130,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 others.
             </p>
 
-            <h2>5. Credentials, integrations, and end users</h2>
+            <h2 id="credentials-integrations-and-end-users">
+                <a
+                    class="docs-heading-anchor"
+                    href="#credentials-integrations-and-end-users"
+                    aria-label={ui.headingLink}></a>
+                5. Credentials, integrations, and end users
+            </h2>
             <p>
                 When you connect a model provider, repository, messaging
                 channel, API, or other integration, you authorize us to use the
@@ -114,7 +152,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 appropriate for their intended audience.
             </p>
 
-            <h2>6. Acceptable use</h2>
+            <h2 id="acceptable-use">
+                <a
+                    class="docs-heading-anchor"
+                    href="#acceptable-use"
+                    aria-label={ui.headingLink}></a>
+                6. Acceptable use
+            </h2>
             <p>You must not use the Services to:</p>
             <ul>
                 <li>Violate any law, regulation, contractual duty, or third-party right.</li>
@@ -156,7 +200,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 Services, users, Netmind, or third parties.
             </p>
 
-            <h2>7. Third-party services</h2>
+            <h2 id="third-party-services">
+                <a
+                    class="docs-heading-anchor"
+                    href="#third-party-services"
+                    aria-label={ui.headingLink}></a>
+                7. Third-party services
+            </h2>
             <p>
                 The Services may interoperate with third-party services,
                 including AI model providers, hosting providers, app stores,
@@ -166,7 +216,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 content, policies, availability, security, or outputs.
             </p>
 
-            <h2>8. Plans, usage limits, and fees</h2>
+            <h2 id="plans-usage-limits-and-fees">
+                <a
+                    class="docs-heading-anchor"
+                    href="#plans-usage-limits-and-fees"
+                    aria-label={ui.headingLink}></a>
+                8. Plans, usage limits, and fees
+            </h2>
             <p>
                 Some Services may be offered under free, invite-only, trial,
                 usage-limited, metered, or paid plans. We may apply limits to
@@ -181,7 +237,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 stated in writing.
             </p>
 
-            <h2>9. Service changes and availability</h2>
+            <h2 id="service-changes-and-availability">
+                <a
+                    class="docs-heading-anchor"
+                    href="#service-changes-and-availability"
+                    aria-label={ui.headingLink}></a>
+                9. Service changes and availability
+            </h2>
             <p>
                 We may add, modify, suspend, or discontinue features at any time.
                 The Services may include preview, beta, experimental, or
@@ -195,7 +257,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 or recoverable.
             </p>
 
-            <h2>10. Intellectual property and feedback</h2>
+            <h2 id="intellectual-property-and-feedback">
+                <a
+                    class="docs-heading-anchor"
+                    href="#intellectual-property-and-feedback"
+                    aria-label={ui.headingLink}></a>
+                10. Intellectual property and feedback
+            </h2>
             <p>
                 We and our licensors retain all rights, title, and interest in
                 the Services, including software, infrastructure, models,
@@ -210,7 +278,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 restriction or compensation.
             </p>
 
-            <h2>11. Privacy</h2>
+            <h2 id="privacy">
+                <a
+                    class="docs-heading-anchor"
+                    href="#privacy"
+                    aria-label={ui.headingLink}></a>
+                11. Privacy
+            </h2>
             <p>
                 Our Privacy Policy explains how we collect, use, share, and
                 retain personal data. By using the Services, you acknowledge that
@@ -219,7 +293,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 needed to provide the Services.
             </p>
 
-            <h2>12. Termination</h2>
+            <h2 id="termination">
+                <a
+                    class="docs-heading-anchor"
+                    href="#termination"
+                    aria-label={ui.headingLink}></a>
+                12. Termination
+            </h2>
             <p>
                 You may stop using the Services at any time. We may suspend or
                 terminate your access to the Services, remove content, disable
@@ -234,7 +314,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 and dispute provisions.
             </p>
 
-            <h2>13. Disclaimers</h2>
+            <h2 id="disclaimers">
+                <a
+                    class="docs-heading-anchor"
+                    href="#disclaimers"
+                    aria-label={ui.headingLink}></a>
+                13. Disclaimers
+            </h2>
             <p>
                 To the maximum extent permitted by law, the Services are
                 provided "as is" and "as available" without warranties of any
@@ -249,7 +335,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 regulated, safety-critical, or high-impact contexts.
             </p>
 
-            <h2>14. Limitation of liability</h2>
+            <h2 id="limitation-of-liability">
+                <a
+                    class="docs-heading-anchor"
+                    href="#limitation-of-liability"
+                    aria-label={ui.headingLink}></a>
+                14. Limitation of liability
+            </h2>
             <p>
                 Nothing in these Terms limits liability that cannot be limited
                 under applicable law, including liability for death or personal
@@ -266,7 +358,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 of the possibility of such damages.
             </p>
 
-            <h2>15. Indemnity</h2>
+            <h2 id="indemnity">
+                <a
+                    class="docs-heading-anchor"
+                    href="#indemnity"
+                    aria-label={ui.headingLink}></a>
+                15. Indemnity
+            </h2>
             <p>
                 To the extent permitted by law, you will defend, indemnify, and
                 hold harmless Netmind and its affiliates, officers, employees,
@@ -277,7 +375,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 or third-party rights.
             </p>
 
-            <h2>16. Governing law and jurisdiction</h2>
+            <h2 id="governing-law-and-jurisdiction">
+                <a
+                    class="docs-heading-anchor"
+                    href="#governing-law-and-jurisdiction"
+                    aria-label={ui.headingLink}></a>
+                16. Governing law and jurisdiction
+            </h2>
             <p>
                 These Terms and any dispute or claim arising out of or in
                 connection with them are governed by the laws of England and
@@ -286,7 +390,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 rights to bring claims elsewhere.
             </p>
 
-            <h2>17. Miscellaneous</h2>
+            <h2 id="miscellaneous">
+                <a
+                    class="docs-heading-anchor"
+                    href="#miscellaneous"
+                    aria-label={ui.headingLink}></a>
+                17. Miscellaneous
+            </h2>
             <p>
                 These Terms, together with any supplemental terms and policies
                 incorporated by reference, are the entire agreement between you
@@ -303,7 +413,13 @@ import BaseLayout from '@/layouts/BaseLayout.astro'
                 effect means you accept the updated Terms.
             </p>
 
-            <h2>18. Contact</h2>
+            <h2 id="contact">
+                <a
+                    class="docs-heading-anchor"
+                    href="#contact"
+                    aria-label={ui.headingLink}></a>
+                18. Contact
+            </h2>
             <p>
                 For questions about these Terms, contact <a
                     href="mailto:customer-support@netmind.ai"

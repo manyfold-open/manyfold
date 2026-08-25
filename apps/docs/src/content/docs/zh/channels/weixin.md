@@ -3,9 +3,6 @@ title: WeChat
 description: 通过腾讯 iLink 网关把个人微信 bot 连接到 Manyfold Agent。
 order: 15
 ---
-
-# WeChat
-
 当你希望 Agent 在个人微信里回复私聊消息时，可以连接 WeChat。Manyfold 通过腾讯官方的 iLink bot 网关接入：你用微信扫码授权一个 bot，Manyfold 用得到的 bot token 对网关做长轮询，不需要公开 webhook。
 
 WeChat 只支持**私聊**。扫码授权得到的是一个 bot 身份（`…@im.bot`），它无法被拉进普通微信群，网关也不会投递群消息事件。因此没有群聊、@mention 或 thread 相关配置。
@@ -91,10 +88,10 @@ mf channels send <channelId> --user-id 'wxid_xxx@im.wechat' --text '你的构建
 - **Agent 主动发送失败**：接收方必须此前给 bot 发过至少一条消息，才存在回复凭证。
 - **群消息被忽略**：个人微信 bot 只支持私聊，网关不投递群事件。
 
-## 参见
+## 另请参阅
 
-- [连接渠道](../)
-- [会话切换](../session-switching/)
-- [Telegram](../telegram/)
-- [Matrix](../matrix/)
-- [从 Agent 主动发送](../agent-send/)
+- [连接渠道](/zh/docs/channels/)
+- [会话切换](/zh/docs/channels/session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Matrix](/zh/docs/channels/matrix/)
+- [从 Agent 主动发送](/zh/docs/channels/agent-send/)

@@ -1,0 +1,16 @@
+---
+import ApiEndpointPage from '@/components/ApiEndpointPage.astro'
+import { apiReferenceFor } from '@/lib/api-reference'
+import type { Locale } from '@/lib/i18n'
+
+export const getStaticPaths = () =>
+    apiReferenceFor('en').endpoints.map((endpoint) => ({
+        params: { endpoint: endpoint.id },
+        props: { endpoint }
+    }))
+
+const locale: Locale = 'en'
+const { endpoint } = Astro.props
+---
+
+<ApiEndpointPage locale={locale} endpoint={endpoint} />

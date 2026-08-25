@@ -3,25 +3,22 @@ title: 连接渠道
 description: 将 Agent 连接到受支持的聊天与工作跟踪渠道。
 order: 7
 ---
-
-# 连接渠道
-
 Channel 让用户可以在日常使用的聊天工具中调用 Manyfold Agent。一个渠道把一个外部 bot/app 账号连接到一个 Manyfold Agent，同时保留各平台的私聊、群聊、房间和 thread 行为。
 
-建议先在 Manyfold Web workspace 中确认 Agent 行为符合预期，再根据对话形式、文件、访问控制和托管方式选择渠道。
+建议先在 [Manyfold Web workspace](/zh/docs/workspace/) 中确认 Agent 行为符合预期，再根据对话形式、文件、访问控制和托管方式选择渠道。
 
 ## 能力概览
 
 | 渠道                  | 投递方式                     | 对话范围                                       | 文件           | 特色能力                                                                                                                            |
 | --------------------- | ---------------------------- | ---------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| [Telegram](telegram/) | 带 secret 校验的托管 webhook | 私聊、群组、超级群组、论坛话题/回复            | Inbound 仅文本/caption；支持显式 Agent 文件发送 | 自动注册 webhook、best-effort 注册原生命令菜单；无 sender/operator allowlist。                                      |
-| [Slack](slack/)       | 签名 webhook                 | DM、MPIM、channel、thread、Assistant/DM thread | 收发文件       | 生成 app manifest、原生 ephemeral slash command、用户/operator policy、auto-thread。                                                |
-| [Lark 和飞书](lark/)  | Webhook 或长连接             | 私聊、群聊、消息 thread                        | 收发文件       | 富文本/卡片渲染、CardKit streaming、历史回填、session 卡片按钮、用户/operator policy。                                              |
-| [Discord](discord/)   | Gateway 连接                 | DM、server channel、thread                     | 收发文件       | 原生命令/回复、auto-thread、历史回填、可选 usage footer 和 fresh-final 通知。                                                       |
-| [Matrix](matrix/)     | Client `/sync`               | 私聊、房间、thread                             | 收发文件       | 自托管 homeserver、actor/operator policy、原生回复、历史回填、Agent 主动发送和媒体；不支持 E2EE。                                   |
-| [WeChat](weixin/)     | iLink 长轮询                 | 仅个人私聊                                     | 收发文件       | 扫码授权个人 bot、sender/operator policy、typing 状态、引用上下文，以及向已给 bot 发过消息的用户主动发送。                            |
-| [Linear](linear/)     | 签名 webhook                 | 每个 agent session 一个会话，挂在 issue 上     | 不支持         | Agent 作为工作区成员，可被 mention 或委派 issue；思考过程、工具调用与任务清单展示在 session 上；支持 stop request、用户 allowlist。 |
-| [GitHub](github/)     | 签名 webhook                 | 每个 issue / PR 一个会话                       | 不支持         | 通过 manifest 流程自动创建专属 GitHub App；在 issue/PR 上 mention 或用标签委派；实时编辑的进展评论；表情回执；association 把关与 login 允许列表。 |
+| [Telegram](/zh/docs/channels/telegram/) | 带 secret 校验的托管 webhook | 私聊、群组、超级群组、论坛话题/回复            | Inbound 仅文本/caption；支持显式 Agent 文件发送 | 自动注册 webhook、best-effort 注册原生命令菜单；无 sender/operator allowlist。                                      |
+| [Slack](/zh/docs/channels/slack/)       | 签名 webhook                 | DM、MPIM、channel、thread、Assistant/DM thread | 收发文件       | 生成 app manifest、原生 ephemeral slash command、用户/operator policy、auto-thread。                                                |
+| [Lark 和飞书](/zh/docs/channels/lark/)  | Webhook 或长连接             | 私聊、群聊、消息 thread                        | 收发文件       | 富文本/卡片渲染、CardKit streaming、历史回填、session 卡片按钮、用户/operator policy。                                              |
+| [Discord](/zh/docs/channels/discord/)   | Gateway 连接                 | DM、server channel、thread                     | 收发文件       | 原生命令/回复、auto-thread、历史回填、可选 usage footer 和 fresh-final 通知。                                                       |
+| [Matrix](/zh/docs/channels/matrix/)     | Client `/sync`               | 私聊、房间、thread                             | 收发文件       | 自托管 homeserver、actor/operator policy、原生回复、历史回填、Agent 主动发送和媒体；不支持 E2EE。                                   |
+| [WeChat](/zh/docs/channels/weixin/)     | iLink 长轮询                 | 仅个人私聊                                     | 收发文件       | 扫码授权个人 bot、sender/operator policy、typing 状态、引用上下文，以及向已给 bot 发过消息的用户主动发送。                            |
+| [Linear](/zh/docs/channels/linear/)     | 签名 webhook                 | 每个 agent session 一个会话，挂在 issue 上     | 不支持         | Agent 作为工作区成员，可被 mention 或委派 issue；思考过程、工具调用与任务清单展示在 session 上；支持 stop request、用户 allowlist。 |
+| [GitHub](/zh/docs/channels/github/)     | 签名 webhook                 | 每个 issue / PR 一个会话                       | 不支持         | 通过 manifest 流程自动创建专属 GitHub App；在 issue/PR 上 mention 或用标签委派；实时编辑的进展评论；表情回执；association 把关与 login 允许列表。 |
 
 ## 通用配置流程
 
@@ -53,11 +50,11 @@ Provider 文档还会说明 Slack/Lark/Matrix actor policy、Discord/Lark/Matrix
 
 Scope 决定对话状态所在位置：一个 DM、群内某个用户、共享群聊或 provider thread。每个 scope 可以保存多个命名 session，并记住当前 active session。
 
-所有渠道都理解 `/new`、`/list`、`/switch`、`/current`、`/rename`、`/delete`、`/stop`、`/model`、`/usage`、`/history` 和 `/help`。Telegram、Slack 和 Discord 还提供原生命令入口；Lark/飞书可渲染交互式 session 卡片。详见[切换会话](session-switching/)。
+所有渠道都理解 `/new`、`/list`、`/switch`、`/current`、`/rename`、`/delete`、`/stop`、`/model`、`/usage`、`/history` 和 `/help`。Telegram、Slack 和 Discord 还提供原生命令入口；Lark/飞书可渲染交互式 session 卡片。详见[切换会话](/zh/docs/channels/session-switching/)。
 
 ## Agent 主动发送
 
-Agent 可以使用 `mf channels send` 主动向绑定到自身且处于 active 状态的 Channel 发送消息。Lark/飞书、Telegram、WeChat 和 Matrix 支持 direct text send；Lark/飞书与 Telegram 还支持显式 workspace 文件。每次发送只选择一个 provider chat、user 或 message reply target，并使用 durable delivery/retry 路径。命令、target ID、文件语义、返回结果和频率限制见[从 Agent 主动发送](agent-send/)。
+Agent 可以使用 `mf channels send` 主动向绑定到自身且处于 active 状态的 Channel 发送消息。Lark/飞书、Telegram、WeChat 和 Matrix 支持 direct text send；Lark/飞书与 Telegram 还支持显式 workspace 文件。每次发送只选择一个 provider chat、user 或 message reply target，并使用 durable delivery/retry 路径。命令、target ID、文件语义、返回结果和频率限制见[从 Agent 主动发送](/zh/docs/channels/agent-send/)。
 
 ## Automation 结果投递
 
@@ -84,13 +81,13 @@ Telegram 目前只传递 inbound 文本/caption，但 Agent 可以通过 `mf cha
 
 ## 渠道指南
 
-- [Telegram](telegram/)
-- [Slack](slack/)
-- [Lark 和飞书](lark/)
-- [Discord](discord/)
-- [Matrix](matrix/)
-- [WeChat](weixin/)
-- [Linear](linear/)
-- [GitHub](github/)
-- [从 Agent 主动发送](agent-send/)
-- [切换会话](session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Slack](/zh/docs/channels/slack/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Discord](/zh/docs/channels/discord/)
+- [Matrix](/zh/docs/channels/matrix/)
+- [WeChat](/zh/docs/channels/weixin/)
+- [Linear](/zh/docs/channels/linear/)
+- [GitHub](/zh/docs/channels/github/)
+- [从 Agent 主动发送](/zh/docs/channels/agent-send/)
+- [切换会话](/zh/docs/channels/session-switching/)

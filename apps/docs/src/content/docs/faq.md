@@ -3,12 +3,9 @@ title: FAQ
 description: Common questions about agents, runtimes, providers, channels, and safety.
 order: 30
 ---
-
-# FAQ
-
 ## Is Manyfold just a chat wrapper?
 
-No. Manyfold hosts real agent runtimes with workspace files, terminal access, resumable sessions, provider settings, skills, and optional channel connections.
+No. Manyfold hosts real agent runtimes with [workspace files, terminal access, resumable sessions](/docs/workspace/), provider settings, skills, and optional [channel connections](/docs/channels/).
 
 ## Which agent should I choose first?
 
@@ -20,7 +17,7 @@ Yes. Use the attachment button in the chat composer to add images or documents t
 
 ## Do I need my own model keys?
 
-You can bring your own provider keys. Some workspaces may also have managed model access. The creation flow shows the options available to your account.
+You can bring your own [provider keys](/docs/model-providers/). Some workspaces may also have managed model access. The creation flow shows the options available to your account.
 
 ## What is the difference between a stateful sandbox and a cloud computer?
 
@@ -30,7 +27,7 @@ A cloud computer is best for always-on work such as services, connectors, or sch
 
 ## Can I run agents on my own machine?
 
-Yes. Use **Settings -> Self-owned computers** to issue a token, then register the machine with the `mf` CLI. The registered machine appears as a self-owned computer and is useful when the agent needs access to local files, hardware, or a private network that is not available from the cloud workspace.
+Yes. Use **Settings -> Self-owned computers** to issue a token, then [register the machine](/docs/local-daemons/) with the `mf` CLI. The registered machine appears as a self-owned computer and is useful when the agent needs access to local files, hardware, or a private network that is not available from the cloud workspace.
 
 ## Can I connect one agent to multiple channels?
 

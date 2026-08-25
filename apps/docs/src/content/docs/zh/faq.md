@@ -3,12 +3,9 @@ title: 常见问题
 description: 关于 Agent、运行模式、模型提供方、渠道和安全性的常见问题。
 order: 30
 ---
-
-# 常见问题
-
 ## Manyfold 只是一个聊天包装层吗？
 
-不是。Manyfold 托管真实的 Agent 运行环境，并提供工作区文件、终端访问、可恢复会话、模型提供方设置、skills 和可选的渠道连接。
+不是。Manyfold 托管真实的 Agent 运行环境，并提供[工作区文件、终端访问、可恢复会话](/zh/docs/workspace/)、模型提供方设置、skills 和可选的[渠道连接](/zh/docs/channels/)。
 
 ## 我应该先选择哪个 Agent？
 
@@ -20,7 +17,7 @@ order: 30
 
 ## 我需要自带模型 key 吗？
 
-你可以自带模型提供方 key。部分工作区也可能有托管模型额度。创建流程会展示当前账户可用的选项。
+你可以自带[模型提供方](/zh/docs/model-providers/) key。部分工作区也可能有托管模型额度。创建流程会展示当前账户可用的选项。
 
 ## Stateful sandbox 和 Cloud computer 有什么区别？
 
@@ -30,7 +27,7 @@ Cloud computer 适合常驻任务，例如服务、连接器或定时工作流�
 
 ## 可以在自己的机器上运行 Agent 吗？
 
-可以。进入 **Settings -> Self-owned computers** 生成 token，然后用 `mf` CLI 注册这台机器。注册后的机器会作为 self-owned computer 出现；当 Agent 需要访问本地文件、硬件或云端工作区无法访问的私有网络时，它很有用。
+可以。进入 **Settings -> Self-owned computers** 生成 token，然后用 `mf` CLI [注册这台机器](/zh/docs/local-daemons/)。注册后的机器会作为 self-owned computer 出现；当 Agent 需要访问本地文件、硬件或云端工作区无法访问的私有网络时，它很有用。
 
 ## 一个 Agent 可以连接多个渠道吗？
 

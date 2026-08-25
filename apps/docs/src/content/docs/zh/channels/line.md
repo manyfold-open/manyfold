@@ -4,8 +4,6 @@ description: 把 LINE 官方账号连接到 Manyfold Agent。
 order: 15
 ---
 
-# LINE
-
 当你希望 Agent 可以通过 LINE 官方账号被找到时，就连接 LINE —— 既支持与用户的一对一聊天，也支持账号被邀请加入的群组和多人房间。Manyfold 会代你设置 Webhook URL，其余配置在 LINE Developers 控制台完成。
 
 ## 该频道支持什么
@@ -106,7 +104,7 @@ Agent 可以用 `mf channels send` 给 LINE 用户或账号所在的群发消息
 - **群里没有输入动画**：LINE 的加载动画是一对一功能，无法在群组或房间中显示。
 - **某个用户意外能运行 `/model`**：他在操作员列表里。操作员同样会被放行通过发送者允许列表。
 
-## 参见
+## 另请参阅
 
 - [连接频道](../)
 - [会话切换](../session-switching/)

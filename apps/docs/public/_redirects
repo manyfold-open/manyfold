@@ -1,23 +1,23 @@
-# The docs site has no index page of its own, so /, /docs and their zh twins
-# are entry points that have to land on getting-started. They belong here and
-# not in astro.config.mjs: a static build turns `redirects` into meta-refresh
-# stubs, which the browser paints for a frame before forwarding.
-/ /docs/getting-started/ 301
-/docs /docs/getting-started/ 301
-/docs/ /docs/getting-started/ 301
-/zh /zh/docs/getting-started/ 301
-/zh/ /zh/docs/getting-started/ 301
-/zh/docs /zh/docs/getting-started/ 301
-/zh/docs/ /zh/docs/getting-started/ 301
+# /docs/ and /zh/docs/ are real pages now (src/pages/docs/index.astro and its
+# [locale] twin), so only the bare site roots still redirect, and they land on
+# the dashboard rather than on one article. The four /docs rules that used to
+# forward to getting-started are gone: a redirect on a URL that has content
+# would hide the highest-authority page on the site from both readers and
+# crawlers. These rules belong here and not in astro.config.mjs: a static
+# build turns `redirects` into meta-refresh stubs, which the browser paints
+# for a frame before forwarding.
+/ /docs/ 301
+/zh /zh/docs/ 301
+/zh/ /zh/docs/ 301
 
 # Internal release process pages were accidentally published once. Keep these
 # redirects so stale static paths cannot expose the old content again.
-/docs/release-process /docs 302
-/docs/release-process/ /docs 302
-/zh/docs/release-process /zh/docs 302
-/zh/docs/release-process/ /zh/docs 302
-/:locale/docs/release-process /:locale/docs 302
-/:locale/docs/release-process/ /:locale/docs 302
+/docs/release-process /docs/ 302
+/docs/release-process/ /docs/ 302
+/zh/docs/release-process /zh/docs/ 302
+/zh/docs/release-process/ /zh/docs/ 302
+/:locale/docs/release-process /:locale/docs/ 302
+/:locale/docs/release-process/ /:locale/docs/ 302
 
 # Docs content exists in en/zh only (#534). The other app UI languages used
 # to build as English-fallback pages with self canonicals; permanently
@@ -40,3 +40,42 @@
 /ar/* /:splat 301
 /hi / 301
 /hi/* /:splat 301
+
+# The CLI task guides and the command reference moved under the /docs/cli/ hub,
+# which already existed as a page. They were flat siblings of it (/docs/cli-usage/)
+# while /docs/channels/ nested its ten children correctly, and both reference
+# sites nest: Replicate publishes /docs/topics/<topic>/index plus
+# /docs/topics/<topic>/<task>, fal publishes /docs/api-reference/cli/index plus a
+# page per command. Nothing about the pages changed except where they live.
+/docs/cli-usage /docs/cli/usage/ 301
+/docs/cli-usage/ /docs/cli/usage/ 301
+/zh/docs/cli-usage /zh/docs/cli/usage/ 301
+/zh/docs/cli-usage/ /zh/docs/cli/usage/ 301
+/docs/cli-agents /docs/cli/agents/ 301
+/docs/cli-agents/ /docs/cli/agents/ 301
+/zh/docs/cli-agents /zh/docs/cli/agents/ 301
+/zh/docs/cli-agents/ /zh/docs/cli/agents/ 301
+/docs/cli-a2a /docs/cli/a2a/ 301
+/docs/cli-a2a/ /docs/cli/a2a/ 301
+/zh/docs/cli-a2a /zh/docs/cli/a2a/ 301
+/zh/docs/cli-a2a/ /zh/docs/cli/a2a/ 301
+/docs/cli-backups /docs/cli/backups/ 301
+/docs/cli-backups/ /docs/cli/backups/ 301
+/zh/docs/cli-backups /zh/docs/cli/backups/ 301
+/zh/docs/cli-backups/ /zh/docs/cli/backups/ 301
+/docs/cli-runtimes /docs/cli/runtimes/ 301
+/docs/cli-runtimes/ /docs/cli/runtimes/ 301
+/zh/docs/cli-runtimes /zh/docs/cli/runtimes/ 301
+/zh/docs/cli-runtimes/ /zh/docs/cli/runtimes/ 301
+/docs/cli-skills /docs/cli/skills/ 301
+/docs/cli-skills/ /docs/cli/skills/ 301
+/zh/docs/cli-skills /zh/docs/cli/skills/ 301
+/zh/docs/cli-skills/ /zh/docs/cli/skills/ 301
+/docs/cli-automations /docs/cli/automations/ 301
+/docs/cli-automations/ /docs/cli/automations/ 301
+/zh/docs/cli-automations /zh/docs/cli/automations/ 301
+/zh/docs/cli-automations/ /zh/docs/cli/automations/ 301
+/docs/cli-reference /docs/cli/reference/ 301
+/docs/cli-reference/ /docs/cli/reference/ 301
+/zh/docs/cli-reference /zh/docs/cli/reference/ 301
+/zh/docs/cli-reference/ /zh/docs/cli/reference/ 301

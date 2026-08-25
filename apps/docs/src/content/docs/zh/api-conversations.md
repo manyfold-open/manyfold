@@ -3,10 +3,7 @@ title: 通过 API 读取对话
 description: 列出并回读你用 OpenAI 兼容 v1 API 创建的对话。
 order: 6
 ---
-
-# 通过 API 读取对话
-
-用 [Chat Completions API](../api-chat/) 与 Agent 对话时，每一轮都会返回一个 `session_id`（既是
+用 [Chat Completions API](/zh/docs/api-chat/) 与 Agent 对话时，每一轮都会返回一个 `session_id`（既是
 `x-session-id` 响应头，也是 `metadata.session_id`）。读取 API 让你重新列出这些对话并回读其中的消息——
 适合做仪表盘、审计，或在你自己的界面里继续一段会话。
 
@@ -129,3 +126,8 @@ curl "https://api.manyfold.ai/api/v1/conversations/cts_your_session_id/messages"
     }
 }
 ```
+
+## 另请参阅
+
+- [API 参考](/zh/api-reference/)
+- [用 API 与 Agent 对话](/zh/docs/api-chat/)

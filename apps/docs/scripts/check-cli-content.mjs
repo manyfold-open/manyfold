@@ -17,9 +17,12 @@ const markdownFiles = (directory) =>
     })
 
 const cliVersion = JSON.parse(read(join(cliDir, 'package.json'))).version
+// The command reference moved from a flat cli-reference.md to a hub at
+// cli/reference.md with one page per command beside it. The generated stamp
+// still lives on the hub, which is what this asserts.
 for (const path of [
-    join(docsDir, 'cli-reference.md'),
-    join(docsDir, 'zh/cli-reference.md')
+    join(docsDir, 'cli/reference.md'),
+    join(docsDir, 'zh/cli/reference.md')
 ]) {
     if (!read(path).includes(`\`mf ${cliVersion}\``))
         errors.push(`${path} is not generated for mf ${cliVersion}`)
@@ -45,19 +48,21 @@ for (const match of cliChangelog.matchAll(/^## (\d+\.\d+\.\d+)$/gm)) {
         errors.push(`${path} has mismatched version frontmatter`)
 }
 
+// The cli-* pages are nested under the cli hub now, matching how channels/*
+// already worked and how both reference sites publish a command surface.
 const maintainedPages = [
     'cli',
     'install',
     'profiles',
     'scripting',
-    'cli-agents',
-    'cli-runtimes',
-    'cli-automations',
-    'cli-backups',
-    'cli-skills',
-    'cli-usage',
-    'cli-a2a',
-    'cli-reference',
+    'cli/agents',
+    'cli/runtimes',
+    'cli/automations',
+    'cli/backups',
+    'cli/skills',
+    'cli/usage',
+    'cli/a2a',
+    'cli/reference',
     'local-daemons'
 ]
 for (const page of maintainedPages) {

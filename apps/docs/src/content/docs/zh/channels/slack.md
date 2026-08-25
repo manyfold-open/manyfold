@@ -3,9 +3,6 @@ title: Slack
 description: 将 Slack app 连接到 Manyfold Agent。
 order: 11
 ---
-
-# Slack
-
 当你希望在 Slack 私聊、公共/私有 channel、多人私聊、thread 或 Slack Assistant 面板中使用 Agent 时，可以连接 Slack。Slack 通过带签名的 webhook 投递事件和原生 slash command。
 
 ## 渠道能力
@@ -99,7 +96,7 @@ Manifest 会配置 Request URL、所有 event subscription、11 个 slash comman
 - 开启 **Thread isolation** 后，每个 channel thread、Assistant 对话或手动 DM thread 映射到独立 session；普通 DM 按用户保持一个扁平 session。
 - **Auto-thread** 会把顶层 channel mention 回复到以该消息为根的新 thread。它要求 thread isolation，且不适用于 DM 或 slash command。
 - 原生 slash command 使用 Slack command payload，并返回仅调用者可见的 ephemeral 回复。Slack 原生命令 payload 不包含输入框所在 thread，因此它操作 channel-level scope，而不是当前打开的 thread。
-- 文本形式的命令仍走普通消息路径。完整命令见[切换 Session](../session-switching/)。
+- 文本形式的命令仍走普通消息路径。完整命令见[切换 Session](/zh/docs/channels/session-switching/)。
 
 ## 设置
 
@@ -144,11 +141,11 @@ Manifest 会配置 Request URL、所有 event subscription、11 个 slash comman
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [切换 Session](../session-switching/)
-- [Telegram](../telegram/)
-- [Lark 和飞书](../lark/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
+- [连接渠道](/zh/docs/channels/)
+- [切换 Session](/zh/docs/channels/session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Discord](/zh/docs/channels/discord/)
+- [Matrix](/zh/docs/channels/matrix/)
 - [Slack app manifests](https://api.slack.com/reference/manifests)
 - [Slack Events API](https://api.slack.com/apis/events-api)

@@ -3,25 +3,22 @@ title: Connect channels
 description: Connect an agent to supported chat and work-tracking channels.
 order: 7
 ---
-
-# Connect channels
-
 Channels let people use a Manyfold agent from the chat tools where work already happens. One channel connects one external bot/app account to one Manyfold agent, while preserving provider-specific DMs, groups, rooms, and threads.
 
-Start by testing the agent in the Manyfold web workspace. Then choose a channel based on the conversations, files, access controls, and hosting model you need.
+Start by testing the agent in the [Manyfold web workspace](/docs/workspace/). Then choose a channel based on the conversations, files, access controls, and hosting model you need.
 
 ## Capability overview
 
 | Channel                  | Delivery                        | Conversations                                       | Files              | Distinctive capabilities                                                                                                                                |
 | ------------------------ | ------------------------------- | --------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Telegram](telegram/)    | Secret-verified managed webhook | DMs, groups, supergroups, forum topics/replies      | Inbound text/captions; explicit Agent file send | Automatic webhook and best-effort native command-menu registration; no sender/operator allowlist.                                      |
-| [Slack](slack/)          | Signed webhook                  | DMs, MPIMs, channels, threads, Assistant/DM threads | Receive and send   | Generated app manifest, native ephemeral slash commands, user/operator policy, auto-thread.                                                             |
-| [Lark and Feishu](lark/) | Webhook or long connection      | Private chats, groups, message threads              | Receive and send   | Rich-text/card rendering, CardKit streaming, history backfill, session-card buttons, user/operator policy.                                              |
-| [Discord](discord/)      | Gateway connection              | DMs, server channels, threads                       | Receive and send   | Native commands/replies, auto-thread, history backfill, optional usage footer and fresh-final notification.                                             |
-| [Matrix](matrix/)        | Client `/sync`                  | DMs, rooms, threads                                 | Receive and send   | Self-managed homeservers, actor/operator policy, native replies, history backfill, agent-initiated sends, and media. No E2EE.                           |
-| [WeChat](weixin/)        | iLink long poll                 | Personal DMs only                                   | Receive and send   | QR-authorized personal bot, sender/operator policy, typing state, quoted context, and agent-initiated sends to users who already messaged the bot.       |
-| [Linear](linear/)        | Signed webhook                  | One conversation per agent session on an issue      | None               | Agent is a workspace member you mention or delegate issues to; thinking, tool calls and a task list show on the session; stop requests; user allowlist. |
-| [GitHub](github/)        | Signed webhook                  | One conversation per issue or pull request          | None               | Dedicated GitHub App created for you via the manifest flow; mention it on issues/PRs or delegate with a label; live-edited progress comment; reaction acknowledgements; association gate and login allowlists. |
+| [Telegram](/docs/channels/telegram/)    | Secret-verified managed webhook | DMs, groups, supergroups, forum topics/replies      | Inbound text/captions; explicit Agent file send | Automatic webhook and best-effort native command-menu registration; no sender/operator allowlist.                                      |
+| [Slack](/docs/channels/slack/)          | Signed webhook                  | DMs, MPIMs, channels, threads, Assistant/DM threads | Receive and send   | Generated app manifest, native ephemeral slash commands, user/operator policy, auto-thread.                                                             |
+| [Lark and Feishu](/docs/channels/lark/) | Webhook or long connection      | Private chats, groups, message threads              | Receive and send   | Rich-text/card rendering, CardKit streaming, history backfill, session-card buttons, user/operator policy.                                              |
+| [Discord](/docs/channels/discord/)      | Gateway connection              | DMs, server channels, threads                       | Receive and send   | Native commands/replies, auto-thread, history backfill, optional usage footer and fresh-final notification.                                             |
+| [Matrix](/docs/channels/matrix/)        | Client `/sync`                  | DMs, rooms, threads                                 | Receive and send   | Self-managed homeservers, actor/operator policy, native replies, history backfill, agent-initiated sends, and media. No E2EE.                           |
+| [WeChat](/docs/channels/weixin/)        | iLink long poll                 | Personal DMs only                                   | Receive and send   | QR-authorized personal bot, sender/operator policy, typing state, quoted context, and agent-initiated sends to users who already messaged the bot.       |
+| [Linear](/docs/channels/linear/)        | Signed webhook                  | One conversation per agent session on an issue      | None               | Agent is a workspace member you mention or delegate issues to; thinking, tool calls and a task list show on the session; stop requests; user allowlist. |
+| [GitHub](/docs/channels/github/)        | Signed webhook                  | One conversation per issue or pull request          | None               | Dedicated GitHub App created for you via the manifest flow; mention it on issues/PRs or delegate with a label; live-edited progress comment; reaction acknowledgements; association gate and login allowlists. |
 
 ## Common setup pattern
 
@@ -53,11 +50,11 @@ Provider guides describe additional settings such as Slack/Lark/Matrix actor pol
 
 Scopes determine where conversation state lives: a DM, one user in a group, a shared group, or a provider thread. Each scope can host multiple named sessions and remembers which one is active.
 
-All channels understand `/new`, `/list`, `/switch`, `/current`, `/rename`, `/delete`, `/stop`, `/model`, `/usage`, `/history`, and `/help`. Telegram, Slack, and Discord also expose native command surfaces; Lark/Feishu can render interactive session cards. See [Session switching](session-switching/).
+All channels understand `/new`, `/list`, `/switch`, `/current`, `/rename`, `/delete`, `/stop`, `/model`, `/usage`, `/history`, and `/help`. Telegram, Slack, and Discord also expose native command surfaces; Lark/Feishu can render interactive session cards. See [Session switching](/docs/channels/session-switching/).
 
 ## Agent-initiated messages
 
-An Agent can use `mf channels send` to proactively message an active channel bound to itself. Text direct send supports Lark/Feishu, Telegram, WeChat, and Matrix; explicit workspace files support Lark/Feishu and Telegram. Each send targets exactly one provider chat, user, or message reply, and uses the durable delivery/retry path. See [Send from an agent](agent-send/) for commands, target IDs, file behavior, results, and rate limits.
+An Agent can use `mf channels send` to proactively message an active channel bound to itself. Text direct send supports Lark/Feishu, Telegram, WeChat, and Matrix; explicit workspace files support Lark/Feishu and Telegram. Each send targets exactly one provider chat, user, or message reply, and uses the durable delivery/retry path. See [Send from an agent](/docs/channels/agent-send/) for commands, target IDs, file behavior, results, and rate limits.
 
 ## Automation result delivery
 
@@ -84,13 +81,13 @@ Telegram currently passes only inbound text/captions, although an Agent can expl
 
 ## Channel guides
 
-- [Telegram](telegram/)
-- [Slack](slack/)
-- [Lark and Feishu](lark/)
-- [Discord](discord/)
-- [Matrix](matrix/)
-- [WeChat](weixin/)
-- [Linear](linear/)
-- [GitHub](github/)
-- [Send from an agent](agent-send/)
-- [Session switching](session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Slack](/docs/channels/slack/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Discord](/docs/channels/discord/)
+- [Matrix](/docs/channels/matrix/)
+- [WeChat](/docs/channels/weixin/)
+- [Linear](/docs/channels/linear/)
+- [GitHub](/docs/channels/github/)
+- [Send from an agent](/docs/channels/agent-send/)
+- [Session switching](/docs/channels/session-switching/)

@@ -5,8 +5,15 @@ import { getUi, type Locale } from '@/lib/i18n'
 
 const locale: Locale = 'en'
 const copy = getUi(locale)
+
+// The generated card, one route over. English only: Geist ships no CJK, so a
+// Chinese card renders every Chinese character as a tofu box, verified by
+// rendering one. The Chinese pages keep the shared static art.
+const ogImage = new URL('/changelog.png', Astro.site).toString()
 ---
 
-<BaseLayout title={copy.changelogTitle} description={copy.changelogDescription} locale={locale}>
+<BaseLayout title={copy.changelogTitle} description={copy.changelogDescription} locale={locale}
+    ogImage={ogImage}
+>
     <ChangelogTimeline locale={locale} />
 </BaseLayout>

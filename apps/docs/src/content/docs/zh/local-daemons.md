@@ -3,9 +3,6 @@ title: 注册 Self-owned computer
 description: 把自己的笔记本、台式机或 homelab 接入 Manyfold 作为运行环境。
 order: 4
 ---
-
-# 注册 Self-owned computer
-
 Self-owned computer 让 Manyfold 把任务路由到你自己的机器，而不是云端 sandbox。`mf` CLI 会在该机器上运行本地 daemon，上报已安装的 coding agent（Claude Code、Codex、Gemini CLI），并按需承接 agent 会话。
 
 适合使用 self-owned computer 的场景：
@@ -16,15 +13,15 @@ Self-owned computer 让 Manyfold 把任务路由到你自己的机器，而不�
 
 ## 准备工作
 
-- 在要注册的机器上安装 `mf` CLI。参考 [安装 CLI](../install/)。
-- 选择要持有这份注册信息的 [CLI profile](../profiles/)。
+- 在要注册的机器上安装 `mf` CLI。参考 [安装 CLI](/zh/docs/install/)。
+- 选择要持有这份注册信息的 [CLI profile](/zh/docs/profiles/)。
 - 登录：`mf login`。如果是通过 SSH 连接的无浏览器机器，用 `mf login --no-launch-browser`，然后在任意一台机器的浏览器里完成授权。
 
 最短路径是 `mf setup`：它会完成登录、签发机器 token、注册 host、安装
 autostart，并等待 daemon 健康。SSH 环境使用
 `mf setup --no-launch-browser`。如果 token 由管理员代为签发，再使用下方的手动流程。
 
-## 1. 申请 token
+## 第 1 步：申请 token
 
 在网页应用打开 **设置 → Self-owned computers**。在 **注册新机器** 区域给机器起个名字（比如 `laptop` 或 `homelab-1`），点击 **Issue token**。
 
@@ -36,7 +33,7 @@ mf daemon register --token ldt_xxxxxxxxxxxxxxxxxxxxxxxxxx
 
 Token 只显示一次。**立即复制整条命令**。如果丢了，先撤销旧 token 再申请新的。
 
-## 2. 在目标机器上运行命令
+## 第 2 步：在目标机器上运行命令
 
 把命令粘贴到要注册的机器的终端里。CLI 会：
 
@@ -66,7 +63,7 @@ Start the daemon now? It will auto-start on login. [Y/n]
 mf daemon register --token ldt_xxxxxxxx -y
 ```
 
-## 3. 确认机器上线
+## 第 3 步：确认机器上线
 
 回到网页应用的 **设置 → Self-owned computers**。这台机器会出现在 **Connected machines** 列表里，前面是绿点。如果 daemon 超过 45 秒没发心跳，绿点会变灰。
 
@@ -79,7 +76,7 @@ mf daemon status
 mf daemon logs
 ```
 
-## 4. 在这台机器上创建 Agent
+## 第 4 步：在这台机器上创建 Agent
 
 在 **Connected machines** 列表里，点击在线机器旁的 **+ Create agent →**，新建 agent 流程会自动选好这台机器作为 runtime。
 

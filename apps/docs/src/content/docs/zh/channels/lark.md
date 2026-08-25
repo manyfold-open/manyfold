@@ -3,9 +3,6 @@ title: Lark 和飞书
 description: 将 Lark 或飞书自定义 app 连接到 Manyfold Agent。
 order: 12
 ---
-
-# Lark 和飞书
-
 当你希望在 Lark 或飞书工作区的私聊、群聊或团队工作流中访问 Agent 时，可以连接对应平台。请选择创建 app 时所在的开放平台：`open.feishu.cn` 对应飞书，`open.larksuite.com` 对应 Lark。
 
 ## 渠道能力
@@ -125,7 +122,7 @@ Inbound attachment 每条消息最多 10 个文件、单文件 25 MB、总计 10
 
 ## 从 Agent 主动发送
 
-Agent 可以使用 `mf channels send` 按 Lark/飞书 `open_id` 发起私聊、向已知 chat ID 发消息、回复某条 provider message，并显式附加最多四个 workspace 文件。文本与文件使用独立的 durable delivery，因此附件重试不会重复已成功的文本。命令示例、target ID、返回结果和限制见[从 Agent 主动发送](../agent-send/)。
+Agent 可以使用 `mf channels send` 按 Lark/飞书 `open_id` 发起私聊、向已知 chat ID 发消息、回复某条 provider message，并显式附加最多四个 workspace 文件。文本与文件使用独立的 durable delivery，因此附件重试不会重复已成功的文本。命令示例、target ID、返回结果和限制见[从 Agent 主动发送](/zh/docs/channels/agent-send/)。
 
 ## 手动连接到 Manyfold
 
@@ -146,7 +143,7 @@ Agent 可以使用 `mf channels send` 按 Lark/飞书 `open_id` 发起私聊、�
 - 开启 **Thread isolation** 后，每个消息 thread/root 使用独立 session，回复保持在线程中。
 - 群聊答案会尽量原生回复触发消息。
 - 已识别命令不受 mention gate 限制。`/list` 和 session detail 使用交互卡片；按钮需要订阅 `card.action.trigger`。
-- `/new`、`/list`、`/switch`、`/stop`、`/model`、`/usage` 等命令见[切换 Session](../session-switching/)。
+- `/new`、`/list`、`/switch`、`/stop`、`/model`、`/usage` 等命令见[切换 Session](/zh/docs/channels/session-switching/)。
 
 ## 推荐设置
 
@@ -189,13 +186,13 @@ Agent 可以使用 `mf channels send` 按 Lark/飞书 `open_id` 发起私聊、�
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [切换 Session](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
-- [从 Agent 主动发送](../agent-send/)
+- [连接渠道](/zh/docs/channels/)
+- [切换 Session](/zh/docs/channels/session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Slack](/zh/docs/channels/slack/)
+- [Discord](/zh/docs/channels/discord/)
+- [Matrix](/zh/docs/channels/matrix/)
+- [从 Agent 主动发送](/zh/docs/channels/agent-send/)
 - [飞书开放平台](https://open.feishu.cn/)
 - [Lark Open Platform](https://open.larksuite.com/)
 - [飞书 API 权限列表](https://open.feishu.cn/document/server-docs/application-scope/scope-list)

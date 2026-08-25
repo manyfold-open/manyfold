@@ -1,0 +1,504 @@
+---
+import { ChevronDown, Menu, X } from '@lucide/astro'
+// The documentation tree. Extracted out of DocArticle so the dashboard at
+// /docs/ can show the same navigation: it was the one docs URL with no
+// sidebar at all, while replicate.com/docs carries its full tree.
+//
+// activeSlug is optional. The dashboard passes none, so no row is marked
+// aria-current and nothing is highlighted, which is correct: the dashboard is
+// not one of the pages in the tree.
+import type { CollectionEntry } from 'astro:content'
+import { docsNavGroups } from '@/lib/docs-nav'
+import {
+    entryHref,
+    entrySlug,
+    getUi,
+    type DocsNavNode,
+    type Locale
+} from '@/lib/i18n'
+
+// The rail carries the documentation tree and nothing else. It briefly also
+// carried the current page's sections, hanging off the row for that page, on
+// the argument that "where am I in the documentation" and "where am I in this
+// page" are one question at two zoom levels. Measured across the corpus, they
+// are not: 50 of the 54 pages sit under a subgroup, so the outline landed at a
+// fourth level on 93% of them, and it is a different kind of object wearing
+// the tree's indent — the only row in the rail that grows children which are
+// not pages. On /docs/channels/lark/ it put 16 section rows into the middle of
+// the 11 channel siblings, 23 rows down, so a reader scanning for another
+// channel had to scroll past the outline of the one they were already on.
+// The in-content table of contents is the section list now, at every width.
+interface Props {
+    entries: CollectionEntry<'docs'>[]
+    locale: Locale
+    activeSlug?: string
+}
+
+const { entries, locale, activeSlug } = Astro.props
+const copy = getUi(locale)
+const { grouped, remaining } = docsNavGroups(entries, locale)
+// Exactly one row can be the current page. The reference row stays marked
+// while a reader is on one of its endpoints, but as an ancestor rather than a
+// second current page: two rows carrying aria-current="page" tells a screen
+// reader the document is in two places at once.
+const pathname = Astro.url.pathname
+const withSlash = (href: string): string =>
+    href.endsWith('/') ? href : `${href}/`
+const isCurrentPage = (href: string): boolean =>
+    pathname === href || pathname === withSlash(href)
+const isAncestorPage = (href: string): boolean =>
+    !isCurrentPage(href) && pathname.startsWith(withSlash(href))
+const isCurrentEntry = (entry: CollectionEntry<'docs'>): boolean =>
+    entrySlug(entry) === activeSlug
+
+// llms.txt, llms-full.txt and the changelog feed are not rows here any more.
+// They are raw files rather than pages, they were the only rows in the tree
+// that opened in a new tab, and the dashboard already gives them a block of
+// their own with a clickable twin. The group data keeps them: that block reads
+// its list from the same file nodes, so dropping them from the data would empty
+// it.
+const withoutFiles = (nodes: DocsNavNode[]) =>
+    nodes.filter(
+        (node): node is Exclude<DocsNavNode, { kind: 'file' }> =>
+            node.kind !== 'file'
+    )
+
+// A subgroup at or under this many rows is never collapsed: below it the
+// collapse costs a reader a click to see what fits on screen anyway. Nine is
+// the size of the CLI subgroup, the largest that still reads as one block
+// under its parent; the two above it are 11 and 21.
+const SUBGROUP_ALWAYS_OPEN_MAX = 9
+
+// One shape for every row the tree can draw, resolved here so the markup below
+// is a tree walk and nothing else. It used to branch three ways inline, which
+// is how a half-finished refactor once shipped the whole tree twice.
+type Leaf = {
+    href: string
+    title: string
+    current: boolean
+    ancestor: boolean
+    badge?: { label: string; className: string }
+    // Rows that hang off this one: the API reference's three endpoints. They
+    // arrive as a flat run of `nested` siblings and are folded in here so a
+    // child is a child in the markup too.
+    children: Leaf[]
+}
+type Row =
+    | { kind: 'leaf'; leaf: Leaf }
+    | { kind: 'branch'; title: string; open: boolean; leaves: Leaf[] }
+
+const entryLeaf = (entry: CollectionEntry<'docs'>): Leaf => ({
+    href: entryHref(entry, locale),
+    title: entry.data.title,
+    current: isCurrentEntry(entry),
+    ancestor: false,
+    children: []
+})
+
+type NavNode = Exclude<DocsNavNode, { kind: 'file' }>
+
+const rowsFor = (nodes: NavNode[]): Row[] => {
+    const rows: Row[] = []
+    for (const node of nodes) {
+        if (node.kind === 'subgroup') {
+            rows.push({
+                kind: 'branch',
+                title: node.title,
+                open:
+                    node.entries.length <= SUBGROUP_ALWAYS_OPEN_MAX ||
+                    node.entries.some(isCurrentEntry),
+                leaves: node.entries.map(entryLeaf)
+            })
+            continue
+        }
+        if (node.kind === 'entry') {
+            rows.push({ kind: 'leaf', leaf: entryLeaf(node.entry) })
+            continue
+        }
+        const leaf: Leaf = {
+            href: node.href,
+            title: node.title,
+            current: isCurrentPage(node.href),
+            ancestor: node.ancestor === true && isAncestorPage(node.href),
+            badge: node.badge,
+            children: []
+        }
+        const previous = rows[rows.length - 1]
+        if (node.nested && previous?.kind === 'leaf') {
+            previous.leaf.children.push(leaf)
+            continue
+        }
+        rows.push({ kind: 'leaf', leaf })
+    }
+    return rows
+}
+
+const navGroups = [
+    ...grouped.map((group) => ({
+        title: group.title,
+        nodes: withoutFiles(group.nodes)
+    })),
+    ...(remaining.length > 0
+        ? [
+              {
+                  title: copy.more,
+                  nodes: withoutFiles(
+                      remaining.map(
+                          (entry): DocsNavNode => ({ kind: 'entry', entry })
+                      )
+                  )
+              }
+          ]
+        : [])
+].map((group) => ({
+    title: group.title,
+    // Every section stands open. It was open only along the reader's own path,
+    // on the argument that four labels are the whole map in four lines — but
+    // the label is the one thing a reader already knows before they arrive,
+    // and on the two surfaces with no active section (the dashboard and the
+    // changelog) the argument produced a rail holding four words and nothing
+    // else, next to a page about what the documentation contains.
+    //
+    // The count beside each label went with it. It only existed to say how
+    // much a closed section was hiding, and an open section shows it.
+    //
+    // What stays collapsible is the tier below: two subgroups are long enough
+    // to bury the sections under them (Channels at 11 rows, CLI commands at
+    // 21), and those two open when the reader is inside them.
+    open: true,
+    rows: rowsFor(group.nodes)
+}))
+---
+
+{/* Below lg the tree was display:none and nothing replaced it, so a phone's
+    entire navigation was the breadcrumb, search and one header link. It is a
+    drawer here instead.
+
+    The mechanics follow apps/web's SettingsLayout, which is the nearest thing
+    in the product: a section rail beside content, off-canvas at the same lg
+    breakpoint this sidebar already uses, 19rem wide, slid in on a transform,
+    with a <button> rather than a div as the backdrop so it is reachable by
+    keyboard, plus Escape and a body scroll lock.
+
+    One deliberate difference. SettingsLayout renders its rail into two asides,
+    one for each layout. Doing that here would put all 38 tree links in the DOM
+    twice on every page, which is the duplicated-sidebar bug of the last pass
+    made deliberate, and this tree is also the internal-linking surface a
+    crawler reads. So there is one aside and its positioning changes.
+
+    The other difference: role="dialog" and aria-modal. SettingsLayout has
+    neither, but SearchModal in this app does, and inside the docs that is the
+    convention to follow. */}
+{/* Icon plus label, which is the one thing both reference sites do and this
+    did not. Measured: Replicate's is a 76x34 button, 14px/400 label, 8px from
+    its icon, and fal's is a borderless row reading "Documentation". A bare
+    hamburger says nothing about what is behind it.
+
+    Shape stays the house pill rather than Replicate's square outline, because
+    apps/web's mobile menu button is this pill and the docs already use it
+    everywhere; the proportions are Replicate's. */}
+<button
+    type="button"
+    class="docs-drawer-trigger lg:hidden"
+    aria-label={copy.openNav}
+    aria-expanded="false"
+    aria-controls="docs-nav"
+    data-drawer-open
+>
+    <Menu size={16} stroke-width={2} />
+    {/* aria-hidden because aria-label on the button already says the whole
+        thing, and a screen reader reading "Documentation" then "Open
+        documentation navigation" would say it twice. */}
+    <span aria-hidden="true">{copy.docs}</span>
+</button>
+
+<button
+    type="button"
+    class="docs-drawer-backdrop lg:hidden"
+    aria-label={copy.closeNav}
+    data-drawer-backdrop
+    data-drawer-close
+    hidden
+></button>
+
+<aside
+    id="docs-nav"
+    class="docs-nav-rail lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:pr-4"
+    data-drawer
+>
+    {/* Neither AppShell nor SettingsLayout has an in-drawer close control:
+        both close on a labelled backdrop button and nothing else, and the
+        backdrop above already matches that. This goes further than the app for
+        the same reason the focus trap does.
+
+        The app can afford it. AppShell's mobile header is z-20 under a z-[100]
+        drawer, and what it covers is a menu button and the page title. This
+        header holds search and the language switcher, and below lg there is no
+        other route to either, so the drawer is covering the only copy of two
+        controls rather than a title the drawer itself replaces.
+
+        That leaves a modal whose only exit on the one device it appears on is
+        an unlabelled 20%-black area, since Escape needs a keyboard. Claiming
+        aria-modal and then not offering a visible way out is the same shape of
+        gap as claiming it without a focus trap, which this component already
+        declined to copy.
+
+        The label is the trigger's own string, and the trigger is underneath the
+        drawer while it is open, so it is the only "Documentation" on screen
+        rather than a second one: it names the panel that just covered the
+        header. No new copy; copy.docs and copy.closeNav both already exist. */}
+    <div class="docs-drawer-head lg:hidden">
+        <span class="text-fg text-ui font-semibold">{copy.docs}</span>
+        <button
+            type="button"
+            class="docs-drawer-dismiss"
+            aria-label={copy.closeNav}
+            data-drawer-close
+        >
+            <X size={16} stroke-width={2} />
+        </button>
+    </div>
+
+    <nav class="docs-tree pb-4" aria-label={copy.docs}>
+        {
+            navGroups.map((group, groupIndex) => (
+                <div
+                    class:list={['docs-tree-node', group.open && 'is-open']}
+                    data-tree-node
+                >
+                    <button
+                        type="button"
+                        class="docs-tree-head docs-tree-head-group"
+                        aria-expanded={group.open ? 'true' : 'false'}
+                        aria-controls={`docs-tree-${groupIndex}`}
+                        data-tree-toggle
+                    >
+                        <ChevronDown class="docs-tree-chev" stroke-width={2.5} />
+                        <span>{group.title}</span>
+                    </button>
+                    <div class="docs-tree-kids" id={`docs-tree-${groupIndex}`}>
+                        <div class="docs-tree-kids-in">
+                            {group.rows.map((row, rowIndex) =>
+                                row.kind === 'branch' ? (
+                                    <div
+                                        class:list={[
+                                            'docs-tree-node',
+                                            row.open && 'is-open'
+                                        ]}
+                                        data-tree-node
+                                    >
+                                        <button
+                                            type="button"
+                                            class="docs-tree-head docs-tree-head-sub"
+                                            aria-expanded={
+                                                row.open ? 'true' : 'false'
+                                            }
+                                            aria-controls={`docs-tree-${groupIndex}-${rowIndex}`}
+                                            data-tree-toggle
+                                        >
+                                            <ChevronDown class="docs-tree-chev" stroke-width={2.5} />
+                                            <span>{row.title}</span>
+                                        </button>
+                                        <div
+                                            class="docs-tree-kids"
+                                            id={`docs-tree-${groupIndex}-${rowIndex}`}
+                                        >
+                                            <div class="docs-tree-kids-in">
+                                                {row.leaves.map((leaf) => (
+                                                    <a
+                                                        href={leaf.href}
+                                                        class="docs-tree-leaf"
+                                                        aria-current={
+                                                            leaf.current
+                                                                ? 'page'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        {leaf.title}
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <a
+                                            href={row.leaf.href}
+                                            class:list={[
+                                                'docs-tree-leaf',
+                                                row.leaf.ancestor &&
+                                                    'is-ancestor'
+                                            ]}
+                                            aria-current={
+                                                row.leaf.current
+                                                    ? 'page'
+                                                    : undefined
+                                            }
+                                        >
+                                            {row.leaf.title}
+                                        </a>
+                                        {row.leaf.children.length > 0 && (
+                                            <div class="docs-tree-kids-in">
+                                                {row.leaf.children.map(
+                                                    (child) => (
+                                                        <a
+                                                            href={child.href}
+                                                            class:list={[
+                                                                'docs-tree-leaf',
+                                                                child.badge &&
+                                                                    'docs-tree-leaf-endpoint'
+                                                            ]}
+                                                            aria-current={
+                                                                child.current
+                                                                    ? 'page'
+                                                                    : undefined
+                                                            }
+                                                        >
+                                                            {child.badge && (
+                                                                <span
+                                                                    class:list={[
+                                                                        'docs-method-pill',
+                                                                        child
+                                                                            .badge
+                                                                            .className
+                                                                    ]}
+                                                                >
+                                                                    {
+                                                                        child
+                                                                            .badge
+                                                                            .label
+                                                                    }
+                                                                </span>
+                                                            )}
+                                                            <span class="min-w-0">
+                                                                {child.title}
+                                                            </span>
+                                                        </a>
+                                                    )
+                                                )}
+                                            </div>
+                                        )}
+                                    </>
+                                )
+                            )}
+                        </div>
+                    </div>
+                </div>
+            ))
+        }
+    </nav>
+</aside>
+
+{/* Without JS the toggles do nothing, so the two collapsed subgroups would be
+    unreachable rows. Opened here instead: a reader without scripting gets the
+    complete tree, which is more of it than the previous <details> markup gave
+    them (that shipped every section but the reader's own closed). */}
+<noscript>
+    <style>
+        .docs-tree-kids {
+            visibility: visible !important;
+            grid-template-rows: 1fr !important;
+        }
+    </style>
+</noscript>
+
+<script>
+    // Two stateful things here: the drawer, and the tree's own collapse.
+    const drawer = document.querySelector<HTMLElement>('[data-drawer]')
+    const trigger = document.querySelector<HTMLButtonElement>('[data-drawer-open]')
+    // The backdrop is singled out because it is the only closer that also has
+    // to be shown and hidden. Everything carrying data-drawer-close just closes.
+    const backdrop = document.querySelector<HTMLButtonElement>('[data-drawer-backdrop]')
+    const closers = document.querySelectorAll<HTMLElement>('[data-drawer-close]')
+    const wide = window.matchMedia('(min-width: 64rem)')
+
+    // The collapse is a class on the node plus aria-expanded on its button;
+    // the height transition is CSS (see .docs-tree-kids). Server-rendered
+    // open state, so nothing flashes and no toggle animates on load.
+    document
+        .querySelectorAll<HTMLButtonElement>('[data-tree-toggle]')
+        .forEach((button) =>
+            button.addEventListener('click', () => {
+                const node = button.closest<HTMLElement>('[data-tree-node]')
+                if (!node) return
+                const open = node.classList.toggle('is-open')
+                button.setAttribute('aria-expanded', open ? 'true' : 'false')
+            })
+        )
+
+    if (drawer && trigger && backdrop) {
+        const close = (returnFocus = true) => {
+            drawer.classList.remove('is-open')
+            // Dialog semantics only hold while it is a drawer. Above the
+            // breakpoint the same element is the page's navigation rail, and
+            // announcing a rail as a modal would be a lie.
+            drawer.removeAttribute('role')
+            drawer.removeAttribute('aria-modal')
+            backdrop.hidden = true
+            trigger.setAttribute('aria-expanded', 'false')
+            document.body.style.removeProperty('overflow')
+            if (returnFocus) trigger.focus()
+        }
+
+        const open = () => {
+            drawer.classList.add('is-open')
+            drawer.setAttribute('role', 'dialog')
+            drawer.setAttribute('aria-modal', 'true')
+            backdrop.hidden = false
+            trigger.setAttribute('aria-expanded', 'true')
+            document.body.style.overflow = 'hidden'
+            drawer.querySelector<HTMLElement>('a, button')?.focus()
+        }
+
+        trigger.addEventListener('click', open)
+        closers.forEach((el) => el.addEventListener('click', () => close()))
+
+        document.addEventListener('keydown', (event) => {
+            if (!drawer.classList.contains('is-open')) return
+
+            if (event.key === 'Escape') {
+                close()
+                return
+            }
+
+            // aria-modal tells a screen reader the rest of the page is not
+            // there. Without this, Tab walked straight out of the drawer into
+            // the page it had just claimed was hidden, which is worse than not
+            // claiming it. apps/web has the same gap; it is not worth copying.
+            //
+            // The filter asks about visibility as well as display now. A
+            // collapsed subtree used to be a closed <details>, which is
+            // display:none and drops out of the default check; it is a
+            // 0fr grid row plus visibility:hidden today, which is still
+            // unfocusable but only the visibility test sees it. Without the
+            // option the trap would wrap around rows a reader cannot reach.
+            if (event.key !== 'Tab') return
+            const stops = [
+                ...drawer.querySelectorAll<HTMLElement>(
+                    'a[href], button:not([disabled])'
+                )
+            ].filter((el) =>
+                typeof el.checkVisibility === 'function'
+                    ? el.checkVisibility({ visibilityProperty: true })
+                    : true
+            )
+            if (!stops.length) return
+            const first = stops[0]
+            const last = stops[stops.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault()
+                last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault()
+                first.focus()
+            }
+        })
+
+        // Crossing the breakpoint with the drawer open would otherwise leave
+        // the rail holding a scroll lock and a stale role. Nothing to return
+        // focus to in that case: the reader did not close it.
+        wide.addEventListener('change', (event) => {
+            if (event.matches) close(false)
+        })
+    }
+</script>

@@ -3,9 +3,6 @@ title: Getting started
 description: What Manyfold does and the shortest path to a working agent.
 order: 1
 ---
-
-# Getting started
-
 Manyfold lets you create hosted AI agents, give them a workspace, and talk to them from the web app, CLI, or team chat tools.
 
 You can start with a coding agent such as Claude Code, Codex, or Gemini CLI, then add framework agents for longer-running workflows when you need them.
@@ -16,7 +13,7 @@ You can start with a coding agent such as Claude Code, Codex, or Gemini CLI, the
 - Keep each agent's files, chat sessions, terminal state, and settings together.
 - Connect model providers such as Anthropic, OpenAI, Google Gemini, or OpenRouter.
 - Install skills so agents can follow repeatable workflows.
-- Reach the same agent from the web workspace, the `mf` CLI, Slack, Lark, Feishu, Telegram, Discord, or Matrix.
+- Reach the same agent from the web workspace, the `mf` CLI, [Slack](/docs/channels/slack/), [Lark, Feishu](/docs/channels/lark/), [Telegram](/docs/channels/telegram/), [Discord](/docs/channels/discord/), or [Matrix](/docs/channels/matrix/).
 - Review sessions, usage, channel deliveries, and runtime status from the product UI.
 
 ## First setup
@@ -37,8 +34,9 @@ mf whoami
 
 ## Learn next
 
-- [Install the CLI](../install/)
-- [Create your first agent](../create-agent/)
-- [Connect model providers](../model-providers/)
-- [Use the workspace](../workspace/)
-- [Connect channels](../channels/)
+- [Install the CLI](/docs/install/)
+- [Create your first agent](/docs/create-agent/)
+- [Connect model providers](/docs/model-providers/)
+- [Use the workspace](/docs/workspace/)
+- [Connect channels](/docs/channels/)
+- [FAQ](/docs/faq/)

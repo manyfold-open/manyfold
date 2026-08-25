@@ -3,9 +3,6 @@ title: Scripting with mf
 description: Use JSON output, stable exit codes, profiles, and safe credentials in scripts and CI.
 order: 4
 ---
-
-# Scripting with mf
-
 The CLI separates machine-readable payloads from human diagnostics so scripts
 can handle both success and failure reliably.
 
@@ -100,9 +97,9 @@ printf '%s' "$MF_CI_TOKEN" |
   mf --api-url https://api.manyfold.ai/api --token - whoami --json
 ```
 
-Avoid a literal `--token <value>` because arguments may appear in shell
-history and process listings. Never log `MF_TOKEN`, `MF_API_TOKEN`, an agent
-credential reveal, or files below `~/.manyfold/profiles/<name>/`.
+> **Warning:** Avoid a literal `--token <value>` because arguments may appear
+> in shell history and process listings. Never log `MF_TOKEN`, `MF_API_TOKEN`,
+> an agent credential reveal, or files below `~/.manyfold/profiles/<name>/`.
 
 ## Timeouts and version drift
 
@@ -119,6 +116,6 @@ mf automations create --help
 
 ## See also
 
-- [Profiles and environments](../profiles/)
-- [CLI command reference](../cli-reference/)
-- [Manyfold CLI](../cli/)
+- [Profiles and environments](/docs/profiles/)
+- [CLI command reference](/docs/cli/reference/)
+- [Manyfold CLI](/docs/cli/)

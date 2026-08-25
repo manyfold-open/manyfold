@@ -3,9 +3,6 @@ title: Use the workspace
 description: Work with chat, files, terminal sessions, usage, skills, and resumable agent sessions.
 order: 5
 ---
-
-# Use the workspace
-
 The workspace is where you talk to an agent and inspect the work it is doing. Each agent has its own chat sessions, files, terminal access, skills, and settings.
 
 ## Chat
@@ -52,5 +49,12 @@ Open **Settings -> Usage** to review model usage and costs by time range, agent,
 - Start with a small task and expand once the agent is oriented.
 - Review code and files before shipping.
 - Keep credentials in provider settings or channel settings, not in prompts.
-- Use channel connections only after the agent works well in the web workspace.
+- Use [channel connections](/docs/channels/) only after the agent works well in the web workspace.
 - Delete unused agents or runtimes when you no longer need them.
+
+## See also
+
+- [Create your first agent](/docs/create-agent/)
+- [Connect channels](/docs/channels/)
+- [Manage skills with the CLI](/docs/cli/skills/)
+- [Query usage with the CLI](/docs/cli/usage/)
