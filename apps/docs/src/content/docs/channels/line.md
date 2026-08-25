@@ -4,8 +4,6 @@ description: Connect a LINE Official Account to a Manyfold agent.
 order: 15
 ---
 
-# LINE
-
 Connect LINE when you want an agent reachable from a LINE Official Account — in one-on-one chats with users, and in group chats or multi-person rooms the account has been invited to. Manyfold sets the webhook URL for you; the rest of the setup happens in the LINE Developers console.
 
 ## What the channel supports

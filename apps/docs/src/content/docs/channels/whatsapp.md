@@ -4,8 +4,6 @@ description: Link a WhatsApp number to a Manyfold agent by scanning a QR code.
 order: 16
 ---
 
-# WhatsApp
-
 Connect WhatsApp when you want an agent to answer in WhatsApp direct messages and group chats. Manyfold links to your number the same way WhatsApp Web does: you scan a QR code with your phone, and Manyfold keeps the linked-device session running on its servers. No public webhook and no Meta Business account are required.
 
 :::caution

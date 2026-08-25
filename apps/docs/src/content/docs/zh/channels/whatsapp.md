@@ -4,8 +4,6 @@ description: 扫码把一个 WhatsApp 号码关联到 Manyfold Agent。
 order: 16
 ---
 
-# WhatsApp
-
 当你希望 Agent 在 WhatsApp 私聊和群聊里回复时，可以连接 WhatsApp。Manyfold 的接入方式与 WhatsApp Web 相同：你用手机扫码，Manyfold 在服务端维持这个「已关联设备」会话。不需要公开 webhook，也不需要 Meta Business 账号。
 
 :::caution
@@ -96,7 +94,7 @@ mf channels send <channelId> --user-id '+15551234567' --text 'Your build finishe
 - **Agent 级命令被拒绝**：把该发送者加入 **Operator 用户**。
 - **Channel 反复重连**：WhatsApp 会例行断开关联设备，Manyfold 会按退避策略重连。持续失败通常意味着手机长时间离线——在手机上打开 WhatsApp 即可。
 
-## 参见
+## 另请参阅
 
 - [连接 Channel](../)
 - [会话切换](../session-switching/)
