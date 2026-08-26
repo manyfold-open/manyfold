@@ -3096,36 +3096,36 @@ const AppShell: FC = (): ReactNode => {
                         collapsed ? 'flex flex-col items-center' : ''
                     ].join(' ')}
                 >
-                    {showCollapseToggle && (
-                        <div
-                            className={[
-                                'mb-2 flex',
-                                collapsed
-                                    ? 'flex-col items-center gap-2'
-                                    : 'items-center justify-between [container-name:railhead] [container-type:inline-size]'
-                            ].join(' ')}
-                        >
-                            {collapsed ? (
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg flex items-center justify-center'
-                                >
-                                    <BrandMark className='block h-7 w-auto' />
-                                </Link>
-                            ) : (
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg inline-flex min-w-0 items-center gap-1 px-1 text-[19px] font-medium tracking-[-0.015em]'
-                                >
-                                    <BrandMark className='block h-7 w-auto shrink-0' />
-                                    <span className='rail-brand-name whitespace-nowrap'>
-                                        {t('common.appName')}
-                                    </span>
-                                    <SignupBetaBadge />
-                                </Link>
-                            )}
+                    <div
+                        className={[
+                            'mb-2 flex',
+                            collapsed
+                                ? 'flex-col items-center gap-2'
+                                : 'items-center justify-between [container-name:railhead] [container-type:inline-size]'
+                        ].join(' ')}
+                    >
+                        {collapsed ? (
+                            <Link
+                                to='/?stay=1'
+                                aria-label={t('common.appName')}
+                                className='text-fg flex items-center justify-center'
+                            >
+                                <BrandMark className='block h-7 w-auto' />
+                            </Link>
+                        ) : (
+                            <Link
+                                to='/?stay=1'
+                                aria-label={t('common.appName')}
+                                className='text-fg inline-flex min-w-0 items-center gap-1 px-1 text-[19px] font-medium tracking-[-0.015em]'
+                            >
+                                <BrandMark className='block h-7 w-auto shrink-0' />
+                                <span className='rail-brand-name whitespace-nowrap'>
+                                    {t('common.appName')}
+                                </span>
+                                <SignupBetaBadge />
+                            </Link>
+                        )}
+                        {showCollapseToggle && (
                             <ShortcutTooltip
                                 label={
                                     collapsed
@@ -3159,8 +3159,8 @@ const AppShell: FC = (): ReactNode => {
                                     />
                                 </button>
                             </ShortcutTooltip>
-                        </div>
-                    )}
+                        )}
+                    </div>
 
                     <ShortcutTooltip
                         label={collapsed ? newChatLabel : undefined}
@@ -4129,31 +4129,22 @@ const AppShell: FC = (): ReactNode => {
             </aside>
             <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-none'>
                 {!pageOwnMobileHeader && (
-                    <header className='border-divider/80 bg-surface/90 relative z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 backdrop-blur md:hidden'>
-                        <div className='flex min-w-0 items-center gap-3'>
-                            <button
-                                type='button'
-                                onClick={() => setDrawerOpen(true)}
-                                aria-label={t('web.shell.menu')}
-                                className='shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors'
-                            >
-                                <MenuIcon className='h-4 w-4' />
-                            </button>
-                            <div className='min-w-0'>
-                                <div className='text-ui text-fg truncate font-medium'>
-                                    {currentLabel}
-                                </div>
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg mt-0.5 inline-flex items-center gap-1 truncate text-[13px] font-medium tracking-[-0.015em]'
-                                >
-                                    <BrandMark className='block h-4 w-auto' />
-                                    <span className='truncate'>
-                                        {t('common.appName')}
-                                    </span>
-                                </Link>
-                            </div>
+                    // One line, same register as the chat page's own bar: the
+                    // brand belongs at the top of the drawer, where the rail
+                    // keeps it on desktop. Stacked under the page name it read
+                    // as a subtitle and took as much room as the one word that
+                    // actually changes between pages.
+                    <header className='border-divider/80 bg-surface/90 relative z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4 backdrop-blur md:hidden'>
+                        <button
+                            type='button'
+                            onClick={() => setDrawerOpen(true)}
+                            aria-label={t('web.shell.menu')}
+                            className='shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors'
+                        >
+                            <MenuIcon className='h-4 w-4' />
+                        </button>
+                        <div className='text-ui text-fg min-w-0 truncate font-medium'>
+                            {currentLabel}
                         </div>
                     </header>
                 )}
