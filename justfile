@@ -142,19 +142,6 @@ lint-fix:
 knip:
     pnpm knip
 
-e2e-staging *ARGS:
-    pnpm e2e:staging {{ARGS}}
-
-e2e-staging-report *ARGS:
-    pnpm e2e:staging:report {{ARGS}}
-
-e2e-staging-full *ARGS:
-    pnpm e2e:staging --suite smoke {{ARGS}}
-    pnpm e2e:staging --suite codex-main {{ARGS}}
-    pnpm e2e:staging --suite openclaw-main {{ARGS}}
-    pnpm e2e:staging --suite signup-journey {{ARGS}}
-    pnpm e2e:staging --suite topup {{ARGS}}
-
 format:
     pnpm format
 
