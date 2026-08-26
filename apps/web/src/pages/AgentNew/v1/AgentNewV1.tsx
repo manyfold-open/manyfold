@@ -19,7 +19,6 @@ import {
     CheckIcon,
     ChevronDownIcon,
     CloseIcon,
-    MenuIcon,
     ProviderIcon
 } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
@@ -202,9 +201,6 @@ const RuntimeAgentIcons: FC<{
     </span>
 )
 
-const mobileHeaderButtonClass =
-    'shadow-ring-light bg-surface text-muted hover:bg-surface-hover inline-flex h-9 shrink-0 items-center justify-center rounded-md transition-colors'
-
 interface ExternalAgentSectionProps {
     framework: FrameworkChoice
     providers: UserExternalAgentProviderSummary[]
@@ -311,7 +307,7 @@ const AgentNew: FC = (): ReactNode => {
         description: t(option.descriptionKey)
     }))
     const navigate = useNavigate()
-    const { openMobileSidebar, refreshAgents } = useAppShellContext()
+    const { refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
     const initialDaemonId = params.get('daemonId') ?? ''
@@ -1936,32 +1932,6 @@ const AgentNew: FC = (): ReactNode => {
 
     return (
         <>
-            <header className='border-divider/80 bg-surface/90 relative z-[80] flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 backdrop-blur md:hidden'>
-                <div className='flex min-w-0 items-center gap-3'>
-                    <button
-                        type='button'
-                        className={`${mobileHeaderButtonClass} w-9`}
-                        aria-label={t('web.agentNew.openMenu')}
-                        onClick={openMobileSidebar}
-                    >
-                        <MenuIcon className='h-4 w-4' />
-                    </button>
-                    <div className='min-w-0'>
-                        <h1 className='text-ui text-fg truncate font-medium'>
-                            {t('web.agentNew.newAgent')}
-                        </h1>
-                        <div className='text-caption text-placeholder mt-0.5 truncate'>
-                            {t('web.agentNew.createAgent')}
-                        </div>
-                    </div>
-                </div>
-                <Link
-                    to='/workspace'
-                    className={`${mobileHeaderButtonClass} text-ui px-3 font-medium`}
-                >
-                    {t('web.agentNew.workspace')}
-                </Link>
-            </header>
             <div className='workbench-page-narrow pt-5 md:py-8'>
                 <Link
                     to='/workspace'

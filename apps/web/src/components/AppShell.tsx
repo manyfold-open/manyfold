@@ -82,6 +82,7 @@ import { navigateWithRailTransition } from '@/lib/railTransition'
 import { useTheme } from '@/lib/theme'
 import { matchesKeyboardShortcut } from '@/lib/keyboardShortcuts'
 import { docsHref } from '@/lib/docsLinks'
+import { pageLabelFor } from '@/lib/pageTitle'
 import { agentDashboardOpener } from '@/lib/openDashboard'
 import type { AgentMenuItem } from '@/lib/agentMenu'
 import { buildAgentMenuItems, isSectionBoundary } from '@/lib/agentMenu'
@@ -2144,9 +2145,13 @@ const AppShell: FC = (): ReactNode => {
     const mcpMatch = useMatch('/mcp/*')
     const customizeMatch = skillsMatch ?? connectionsMatch ?? mcpMatch
     const automationsMatch = useMatch('/automations/*')
-    const pageOwnMobileHeader = Boolean(
-        chatMatch || agentDetailMatch || agentNewMatch
-    )
+    // This header holds the only button that opens the sidebar on a narrow
+    // screen, so a route qualifies here only if its own page draws a menu
+    // button too — chat's toolbar does. Seen on prod [2026-08-26]: /agents/new
+    // was listed from when v1 drew its own mobile header, and after the v3
+    // rewrite dropped that header a new account — which every route into the
+    // app funnels to /agents/new — had no navigation at all.
+    const pageOwnMobileHeader = Boolean(chatMatch)
     const selectedAgentId =
         chatMatch?.params.id ??
         (agentNewMatch ? null : (agentDetailMatch?.params.id ?? null))
@@ -2299,13 +2304,13 @@ const AppShell: FC = (): ReactNode => {
     const sessionsError = selectedAgentId
         ? (sessionErrorByAgent[selectedAgentId] ?? null)
         : null
-    const currentLabel = location.pathname.startsWith('/settings')
-        ? t('web.settingsMenu.settings')
-        : location.pathname.startsWith('/skills')
-          ? t('web.shell.skills')
-          : location.pathname.startsWith('/automations')
-            ? t('web.shell.automations')
-            : (currentAgent?.name ?? t('common.appName'))
+    // Read off the title table rather than a prefix ladder of its own: that
+    // way a page added to the router is named here the moment it is named in
+    // the tab, instead of quietly reporting the bare brand.
+    const currentLabel =
+        currentAgent?.name ??
+        pageLabelFor(location.pathname) ??
+        t('common.appName')
     /* New chat button is enabled when there's *any* ready agent to target.
        In a chat page the target is the selected agent; outside chat (Skills,
        Automations, Settings) the target is the first ready agent the user

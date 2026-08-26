@@ -119,6 +119,16 @@ export const pageTitleFor = (pathname: string): string => {
     return BRAND
 }
 
+// The matched label with no brand appended. The shell's mobile header prints
+// it above a link that already says Manyfold, so the suffix would read as a
+// stutter there. Null when no route matches, leaving the fallback to the
+// caller.
+export const pageLabelFor = (pathname: string): string | null => {
+    for (const route of TITLE_ROUTES)
+        if (matchPath(route.path, pathname)) return t(route.labelKey)
+    return null
+}
+
 export const DocumentTitle: FC = () => {
     const { pathname } = useLocation()
     // Re-runs on a language switch so the tab does not keep the old wording.
