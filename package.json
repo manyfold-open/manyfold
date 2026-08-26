@@ -9,8 +9,6 @@
         "dev:admin": "pnpm --filter @manyfold/admin dev",
         "dev:web": "pnpm --filter @manyfold/web dev",
         "dev:cli": "pnpm --filter @manyfold/cli dev",
-        "e2e:staging": "node scripts/e2e-staging-with-report.mjs",
-        "e2e:staging:report": "node scripts/e2e-staging-show-report.mjs",
         "build": "turbo build",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
