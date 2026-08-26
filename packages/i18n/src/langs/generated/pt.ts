@@ -349,6 +349,7 @@ const pt: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'Os agentes criados neste runtime aparecem aqui.',
     'web.emptyState.agentsTitle': 'Nenhum agente ainda',
     'web.emptyState.agentsSidebarBody': 'Crie um agente para começar.',
+    'web.emptyState.agentsWorkspaceBody': 'Um agente trabalha no seu próprio ambiente isolado: converse com ele, dê-lhe habilidades ou agende a sua execução.',
     'web.emptyState.agentsCreateAction': 'Criar agente',
     'web.emptyState.agentsDetailBody': 'Crie um agente para ver seus detalhes aqui.',
     'web.emptyState.agentsNoSelectionTitle': 'Nenhum agente selecionado',
@@ -2386,6 +2387,9 @@ const pt: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'A verificação expirou. Tente novamente.',
     'web.agentNewV3.keyCheckFailed': 'Não foi possível verificar esta chave. Tente novamente ou continue na configuração avançada.',
     'web.agentNewV3.nameLabel': 'Nome',
+    'web.agentNewV3.nameHint':
+        'Letras, números, emoji, espaços, sublinhado, hífen e ponto. Até {{max}} caracteres.',
+    'web.agentNewV3.nameFixTo': 'Usar "{{name}}"',
     'web.agentNewV3.randomize': 'Novo nome',
     'web.agentNewV3.workspaceLabel': 'workspace',
     'web.agentNewV3.workspaceHint': 'O diretório de trabalho do agente. {agent-id} é preenchido automaticamente.',

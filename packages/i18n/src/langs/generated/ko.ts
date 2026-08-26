@@ -349,6 +349,7 @@ const ko: Record<string, string> = {
     "web.emptyState.runtimeAgentsBody": "이 런타임에서 생성된 에이전트가 여기에 표시됩니다.",
     "web.emptyState.agentsTitle": "아직 에이전트 없음",
     "web.emptyState.agentsSidebarBody": "시작하려면 에이전트를 만드세요.",
+    'web.emptyState.agentsWorkspaceBody': '에이전트는 자체 샌드박스에서 동작합니다. 대화하거나, 스킬을 추가하거나, 일정에 맞춰 실행할 수 있습니다.',
     "web.emptyState.agentsCreateAction": "에이전트 만들기",
     "web.emptyState.agentsDetailBody": "여기에서 세부정보를 보려면 에이전트를 만드세요.",
     "web.emptyState.agentsNoSelectionTitle": "선택한 에이전트가 없습니다.",
@@ -2386,6 +2387,9 @@ const ko: Record<string, string> = {
     "web.agentNewV3.keyCheckTimeout": "확인 시간이 초과되었습니다. 다시 시도해 보세요.",
     "web.agentNewV3.keyCheckFailed": "이 키를 확인할 수 없습니다. 다시 시도하거나 고급 설정을 계속하세요.",
     "web.agentNewV3.nameLabel": "이름",
+    'web.agentNewV3.nameHint':
+        '문자, 숫자, 이모지, 공백, 밑줄, 하이픈, 마침표를 사용할 수 있습니다. 최대 {{max}}자입니다.',
+    'web.agentNewV3.nameFixTo': "'{{name}}' 사용",
     "web.agentNewV3.randomize": "새 이름",
     "web.agentNewV3.workspaceLabel": "작업공간",
     "web.agentNewV3.workspaceHint": "에이전트의 작업 디렉터리입니다. {agent-id}는 자동으로 채워집니다.",

@@ -349,6 +349,7 @@ const ru: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'Здесь отображаются агенты, созданные в этой среде выполнения.',
     'web.emptyState.agentsTitle': 'Агентов пока нет',
     'web.emptyState.agentsSidebarBody': 'Создайте агента, чтобы начать.',
+    'web.emptyState.agentsWorkspaceBody': 'Агент работает в собственной песочнице — общайтесь с ним, добавляйте навыки или запускайте его по расписанию.',
     'web.emptyState.agentsCreateAction': 'Создать агента',
     'web.emptyState.agentsDetailBody': 'Создайте агента, чтобы увидеть его подробности здесь.',
     'web.emptyState.agentsNoSelectionTitle': 'Агент не выбран',
@@ -2386,6 +2387,9 @@ const ru: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'Время проверки истекло. Попробуйте еще раз.',
     'web.agentNewV3.keyCheckFailed': 'Не удалось проверить этот ключ. Попробуйте еще раз или продолжите расширенную настройку.',
     'web.agentNewV3.nameLabel': 'Имя',
+    'web.agentNewV3.nameHint':
+        'Буквы, цифры, эмодзи, пробелы, подчёркивание, дефис и точка. Не более {{max}} символов.',
+    'web.agentNewV3.nameFixTo': 'Использовать "{{name}}"',
     'web.agentNewV3.randomize': 'Новое имя',
     'web.agentNewV3.workspaceLabel': 'Рабочая область',
     'web.agentNewV3.workspaceHint': 'Рабочий каталог агента. {agent-id} заполняется автоматически.',

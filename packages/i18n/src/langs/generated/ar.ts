@@ -284,6 +284,9 @@ const ar: Record<string, string> = {
     'web.agentNewV3.modelLabel': 'النموذج',
     'web.agentNewV3.modelManualHint': 'تعذر تحميل النماذج — أدخل واحداً يدوياً.',
     'web.agentNewV3.modelProbing': 'جارٍ جلب النماذج…',
+    'web.agentNewV3.nameFixTo': 'استخدام "{{name}}"',
+    'web.agentNewV3.nameHint':
+        'أحرف وأرقام ورموز تعبيرية ومسافات وشرطة سفلية وشرطة ونقطة — حتى {{max}} حرفًا.',
     'web.agentNewV3.nameLabel': 'الاسم',
     'web.agentNewV3.preparingAccount': 'جارٍ تجهيز حسابك…',
     'web.agentNewV3.providerCompatHint': 'عرض الموفّرين المتوافقين مع {{family}}',
@@ -1473,6 +1476,7 @@ const ar: Record<string, string> = {
     'web.emptyState.agentsNoSelectionBody': 'حدد وكيلًا لرؤية تفاصيله.',
     'web.emptyState.agentsNoSelectionTitle': 'لم يتم تحديد وكيل',
     'web.emptyState.agentsSidebarBody': 'قم بإنشاء وكيل للبدء.',
+    'web.emptyState.agentsWorkspaceBody': 'يعمل الوكيل داخل بيئة معزولة خاصة به — تحدّث معه، أضف إليه مهارات، أو اجعله يعمل وفق جدول زمني.',
     'web.emptyState.agentsTitle': 'لا يوجد وكلاء بعد',
     'web.emptyState.channelDeliveriesEmpty': 'لا توجد تسليمات حديثة.',
     'web.emptyState.channelNoSelectionBody': 'حدد قناة لرؤية إعداداتها.',

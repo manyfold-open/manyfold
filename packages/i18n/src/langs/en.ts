@@ -837,6 +837,8 @@ const en = {
             runtimeAgentsBody: 'Agents created on this runtime appear here.',
             agentsTitle: 'No agents yet',
             agentsSidebarBody: 'Create an agent to get started.',
+            agentsWorkspaceBody:
+                'An agent works in its own sandbox — chat with it, give it skills, or put it on a schedule.',
             agentsCreateAction: 'Create agent',
             agentsDetailBody: 'Create an agent to see its details here.',
             agentsNoSelectionTitle: 'No agent selected',
@@ -4135,6 +4137,9 @@ const en = {
             keyCheckFailed:
                 "Couldn't verify this key. Try again, or continue in advanced setup.",
             nameLabel: 'Name',
+            nameHint:
+                'Letters, numbers, emoji, spaces, underscore, dash and dot — up to {{max}} characters.',
+            nameFixTo: 'Use "{{name}}"',
             randomize: 'New name',
             workspaceLabel: 'Workspace',
             workspaceHint:
