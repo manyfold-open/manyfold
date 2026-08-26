@@ -1,5 +1,47 @@
 # @manyfold/web
 
+## 0.43.0
+
+### Minor Changes
+
+- [#33](https://github.com/manyfold-open/manyfold/pull/33) [`95e4991`](https://github.com/manyfold-open/manyfold/commit/95e499187d2208c7dede9d6bd216bf4c3fb522fc) Thanks [@yingca1](https://github.com/yingca1)! - Agents can now be reached from a LINE Official Account. Create a Messaging API
+  channel in the LINE Developers console, paste the channel secret and a
+  long-lived channel access token, and Manyfold sets the webhook URL and captures
+  the bot identity for you.
+
+    The channel works in one-on-one chats and in groups and multi-person rooms,
+    with the usual allowed-user, operator and mention-only gating; group mentions
+    use LINE's own `isSelf` flag rather than name matching. Inbound images, video,
+    audio and files reach the turn, replies are chunked to LINE's 5,000-character
+    limit, and a group reply quotes the message that triggered it.
+
+    Two limits come from the platform. LINE has no message-edit API, so replies are
+    final-only — there is no live preview. Outbound media needs publicly hosted
+    URLs, so the agent's file links stay in the text. Replies are push messages and
+    count against the LINE plan's monthly quota.
+
+    Two console settings still need a human: turn **Use webhook** on (the channel's
+    Test action reports when it is off) and turn auto-reply messages off, or LINE
+    answers alongside the agent.
+
+- [#32](https://github.com/manyfold-open/manyfold/pull/32) [`329ce8c`](https://github.com/manyfold-open/manyfold/commit/329ce8c974cf0e45f8f42bde959d772b370c8703) Thanks [@yingca1](https://github.com/yingca1)! - Added a WhatsApp channel. Create one under Settings -> Channels, scan the QR
+  code from your phone's **Linked devices** screen, and the agent starts
+  answering on that number — no token to paste, no webhook to expose, no Meta
+  Business account.
+
+    Direct messages and group chats are both supported. Groups are mention-gated by
+    default (a reply to the agent counts as addressing it) and can be restricted to
+    specific group jids. Allowed and operator senders accept either a phone number
+    or a raw jid. Inbound images and documents reach the agent as attachments, and
+    files the agent links come back as images or documents. The triggering message
+    is marked 👀 while the agent works, then ✅ or ❌.
+
+    Two things worth knowing before you link a number. Linking runs through
+    WhatsApp Web, which Meta does not officially support for automated use, so use
+    a number you can dedicate to the agent rather than your personal one. And if
+    the linked device is later removed from the phone, the stored session cannot be
+    revived — delete the channel and scan again.
+
 ## 0.42.10
 
 ### Patch Changes
