@@ -31,9 +31,15 @@ concurrency:
 
 jobs:
     prepare:
+        # `branches:` above filters the triggering run's head branch, and a
+        # develop → main promotion PR has head branch `develop` — so its
+        # `pull_request` ci run matches it too. Seen on GitHub Actions
+        # [2026-08-26]: promotion PR #40 fired a fifth dev-channel run on top
+        # of the four real develop pushes.
         if: >-
             github.event_name == 'workflow_dispatch' ||
-            github.event.workflow_run.conclusion == 'success'
+            (github.event.workflow_run.event == 'push' &&
+            github.event.workflow_run.conclusion == 'success')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         outputs:
