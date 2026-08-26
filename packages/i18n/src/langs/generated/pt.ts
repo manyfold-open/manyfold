@@ -2386,6 +2386,9 @@ const pt: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'A verificação expirou. Tente novamente.',
     'web.agentNewV3.keyCheckFailed': 'Não foi possível verificar esta chave. Tente novamente ou continue na configuração avançada.',
     'web.agentNewV3.nameLabel': 'Nome',
+    'web.agentNewV3.nameHint':
+        'Letras, números, emoji, espaços, sublinhado, hífen e ponto. Até {{max}} caracteres.',
+    'web.agentNewV3.nameFixTo': 'Usar "{{name}}"',
     'web.agentNewV3.randomize': 'Novo nome',
     'web.agentNewV3.workspaceLabel': 'workspace',
     'web.agentNewV3.workspaceHint': 'O diretório de trabalho do agente. {agent-id} é preenchido automaticamente.',

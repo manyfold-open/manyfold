@@ -284,6 +284,9 @@ const ar: Record<string, string> = {
     'web.agentNewV3.modelLabel': 'النموذج',
     'web.agentNewV3.modelManualHint': 'تعذر تحميل النماذج — أدخل واحداً يدوياً.',
     'web.agentNewV3.modelProbing': 'جارٍ جلب النماذج…',
+    'web.agentNewV3.nameFixTo': 'استخدام "{{name}}"',
+    'web.agentNewV3.nameHint':
+        'أحرف وأرقام ورموز تعبيرية ومسافات وشرطة سفلية وشرطة ونقطة — حتى {{max}} حرفًا.',
     'web.agentNewV3.nameLabel': 'الاسم',
     'web.agentNewV3.preparingAccount': 'جارٍ تجهيز حسابك…',
     'web.agentNewV3.providerCompatHint': 'عرض الموفّرين المتوافقين مع {{family}}',

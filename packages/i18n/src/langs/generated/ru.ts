@@ -2386,6 +2386,9 @@ const ru: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'Время проверки истекло. Попробуйте еще раз.',
     'web.agentNewV3.keyCheckFailed': 'Не удалось проверить этот ключ. Попробуйте еще раз или продолжите расширенную настройку.',
     'web.agentNewV3.nameLabel': 'Имя',
+    'web.agentNewV3.nameHint':
+        'Буквы, цифры, эмодзи, пробелы, подчёркивание, дефис и точка. Не более {{max}} символов.',
+    'web.agentNewV3.nameFixTo': 'Использовать "{{name}}"',
     'web.agentNewV3.randomize': 'Новое имя',
     'web.agentNewV3.workspaceLabel': 'Рабочая область',
     'web.agentNewV3.workspaceHint': 'Рабочий каталог агента. {agent-id} заполняется автоматически.',

@@ -52,6 +52,7 @@ export type {
 } from './a2a'
 export {
     normalizeAgentName,
+    suggestAgentName,
     validateAgentName,
     type AgentNameValidationCode,
     type AgentNameValidationResult

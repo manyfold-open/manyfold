@@ -2386,6 +2386,9 @@ const hi: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'चेक का समय समाप्त हो गया. पुनः प्रयास करें।',
     'web.agentNewV3.keyCheckFailed': 'इस कुंजी को सत्यापित नहीं किया जा सका. पुनः प्रयास करें, या उन्नत सेटअप में जारी रखें।',
     'web.agentNewV3.nameLabel': 'नाम',
+    'web.agentNewV3.nameHint':
+        'अक्षर, अंक, इमोजी, स्पेस, अंडरस्कोर, हाइफ़न और डॉट - अधिकतम {{max}} वर्ण।',
+    'web.agentNewV3.nameFixTo': '"{{name}}" का उपयोग करें',
     'web.agentNewV3.randomize': 'नया नाम',
     'web.agentNewV3.workspaceLabel': 'कार्यस्थान',
     'web.agentNewV3.workspaceHint': 'एजेंट की कार्यशील निर्देशिका। {agent-id} स्वचालित रूप से भर जाता है।',
