@@ -349,6 +349,7 @@ const de: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'In dieser Runtime erstellte Agenten werden hier angezeigt.',
     'web.emptyState.agentsTitle': 'Noch keine Agenten',
     'web.emptyState.agentsSidebarBody': 'Erstellen Sie einen Agenten, um loszulegen.',
+    'web.emptyState.agentsWorkspaceBody': 'Ein Agent arbeitet in seiner eigenen Sandbox – chatten Sie mit ihm, geben Sie ihm Skills oder lassen Sie ihn nach Zeitplan laufen.',
     'web.emptyState.agentsCreateAction': 'Agent erstellen',
     'web.emptyState.agentsDetailBody': 'Erstellen Sie einen Agenten, um dessen Details hier anzuzeigen.',
     'web.emptyState.agentsNoSelectionTitle': 'Kein Agent ausgewählt',

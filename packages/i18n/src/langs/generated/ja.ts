@@ -349,6 +349,7 @@ const ja: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'このランタイムで作成されたエージェントがここに表示されます。',
     'web.emptyState.agentsTitle': 'まだエージェントがいません',
     'web.emptyState.agentsSidebarBody': 'まずエージェントを作成します。',
+    'web.emptyState.agentsWorkspaceBody': 'エージェントは自分専用のサンドボックスで動きます。チャットしたり、スキルを追加したり、スケジュールで実行したりできます。',
     'web.emptyState.agentsCreateAction': 'エージェントの作成',
     'web.emptyState.agentsDetailBody': 'ここでエージェントを作成して詳細を確認します。',
     'web.emptyState.agentsNoSelectionTitle': 'エージェントが選択されていません',

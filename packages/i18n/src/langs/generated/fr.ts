@@ -349,6 +349,7 @@ const fr: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'Les agents créés sur ce runtime apparaissent ici.',
     'web.emptyState.agentsTitle': 'Aucun agent pour l\'instant',
     'web.emptyState.agentsSidebarBody': 'Créez un agent pour commencer.',
+    'web.emptyState.agentsWorkspaceBody': 'Un agent travaille dans son propre bac à sable : discutez avec lui, donnez-lui des compétences ou planifiez son exécution.',
     'web.emptyState.agentsCreateAction': 'Créer un agent',
     'web.emptyState.agentsDetailBody': 'Créez un agent pour voir ses détails ici.',
     'web.emptyState.agentsNoSelectionTitle': 'Aucun agent sélectionné',
