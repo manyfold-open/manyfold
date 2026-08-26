@@ -2386,6 +2386,9 @@ const es: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'Se agotó el tiempo de verificación. Inténtalo de nuevo.',
     'web.agentNewV3.keyCheckFailed': 'No se pudo verificar esta clave. Inténtalo de nuevo o continúa en la configuración avanzada.',
     'web.agentNewV3.nameLabel': 'Nombre',
+    'web.agentNewV3.nameHint':
+        'Letras, números, emoji, espacios, guion bajo, guion y punto; hasta {{max}} caracteres.',
+    'web.agentNewV3.nameFixTo': 'Usar "{{name}}"',
     'web.agentNewV3.randomize': 'Nuevo nombre',
     'web.agentNewV3.workspaceLabel': 'Espacio de trabajo',
     'web.agentNewV3.workspaceHint': 'El directorio de trabajo del agente. {agent-id} se completa automáticamente.',

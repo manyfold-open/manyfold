@@ -3930,6 +3930,9 @@ const zh: Translations = {
             keyCheckTimeout: '验证超时，再试一次。',
             keyCheckFailed: '无法验证这个 key，重试或去高级设置继续。',
             nameLabel: '名称',
+            nameHint:
+                '可用字母、数字、表情、空格、下划线、连字符和点，最多 {{max}} 个字符。',
+            nameFixTo: '改成「{{name}}」',
             randomize: '换一个名称',
             workspaceLabel: '工作区',
             workspaceHint: 'agent 的工作目录，{agent-id} 会自动替换。',

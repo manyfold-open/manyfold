@@ -2386,6 +2386,9 @@ const de: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'Bei der Prüfung ist eine Zeitüberschreitung aufgetreten. Versuchen Sie es erneut.',
     'web.agentNewV3.keyCheckFailed': 'Dieser Schlüssel konnte nicht überprüft werden. Versuchen Sie es erneut oder fahren Sie mit der erweiterten Einrichtung fort.',
     'web.agentNewV3.nameLabel': 'Name',
+    'web.agentNewV3.nameHint':
+        'Buchstaben, Zahlen, Emoji, Leerzeichen, Unterstrich, Bindestrich und Punkt. Maximal {{max}} Zeichen.',
+    'web.agentNewV3.nameFixTo': '„{{name}}“ verwenden',
     'web.agentNewV3.randomize': 'Neuer Name',
     'web.agentNewV3.workspaceLabel': 'Arbeitsplatz',
     'web.agentNewV3.workspaceHint': 'Das Arbeitsverzeichnis des Agenten. {agent-id} wird automatisch ausgefüllt.',

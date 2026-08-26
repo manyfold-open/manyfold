@@ -16,10 +16,12 @@ import {
     defaultProtocolForProvider,
     externalSteps,
     frameworkSupportsProtocol,
+    inputValidation,
     isManagedProtocolAllowedForFramework,
     normalizeAgentName,
     providerProtocolForTarget,
     providerSupportsTarget,
+    suggestAgentName,
     validateAgentName
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
@@ -753,7 +755,10 @@ const AgentNewV3: FC = (): ReactNode => {
         : normalizeAgentName(name)
     const nameError = nameValidation.valid
         ? null
-        : t(NAME_ERROR_KEY[nameValidation.code])
+        : t(NAME_ERROR_KEY[nameValidation.code], {
+              max: inputValidation.AGENT_NAME.MAX
+          })
+    const nameSuggestion = nameValidation.valid ? null : suggestAgentName(name)
 
     const workspaceInputEnabled =
         !isExternal &&
@@ -1855,6 +1860,16 @@ const AgentNewV3: FC = (): ReactNode => {
         </section>
     )
 
+    const nameSuggestionNode = nameSuggestion ? (
+        <button
+            type='button'
+            onClick={() => setName(nameSuggestion)}
+            className='text-link hover:text-fg text-caption mt-1 block font-medium'
+        >
+            {t('web.agentNewV3.nameFixTo', { name: nameSuggestion })}
+        </button>
+    ) : null
+
     const renderQuickDefaults = (): ReactNode => (
         <section className='bg-surface-subtle divide-divider divide-y rounded-md px-3.5'>
             <div className='py-2.5'>
@@ -1866,6 +1881,7 @@ const AgentNewV3: FC = (): ReactNode => {
                         value={name}
                         onChange={(e) => setName(e.target.value)}
                         aria-label={t('web.agentNewV3.nameLabel')}
+                        aria-invalid={nameError !== null}
                         className='text-fg text-caption focus-visible:shadow-focus rounded-xs -my-0.5 min-w-0 flex-1 bg-transparent py-0.5 font-mono transition-shadow focus:outline-none'
                         maxLength={64}
                     />
@@ -1881,9 +1897,12 @@ const AgentNewV3: FC = (): ReactNode => {
                 {nameError && (
                     <div className='flex gap-3'>
                         <span className='w-28 shrink-0' />
-                        <p className='text-error text-caption mt-1'>
-                            {nameError}
-                        </p>
+                        <div className='mt-1 min-w-0'>
+                            <p className='text-error text-caption'>
+                                {nameError}
+                            </p>
+                            {nameSuggestionNode}
+                        </div>
                     </div>
                 )}
             </div>
@@ -2084,6 +2103,7 @@ const AgentNewV3: FC = (): ReactNode => {
                     <input
                         value={name}
                         onChange={(e) => setName(e.target.value)}
+                        aria-invalid={nameError !== null}
                         className='workbench-input font-mono'
                         maxLength={64}
                     />
@@ -2096,7 +2116,19 @@ const AgentNewV3: FC = (): ReactNode => {
                         <RefreshIcon className='h-4 w-4' />
                     </button>
                 </div>
+                <p
+                    className={[
+                        'text-caption mt-1',
+                        nameError ? 'text-error' : 'text-subtle'
+                    ].join(' ')}
+                >
+                    {nameError ??
+                        t('web.agentNewV3.nameHint', {
+                            max: inputValidation.AGENT_NAME.MAX
+                        })}
+                </p>
             </label>
+            {nameSuggestionNode}
         </section>
     )
 

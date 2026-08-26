@@ -2386,6 +2386,9 @@ const ja: Record<string, string> = {
     'web.agentNewV3.keyCheckTimeout': 'チェックがタイムアウトしました。もう一度やり直してください。',
     'web.agentNewV3.keyCheckFailed': 'このキーを確認できませんでした。もう一度試すか、詳細設定を続行してください。',
     'web.agentNewV3.nameLabel': '名前',
+    'web.agentNewV3.nameHint':
+        'アルファベット、数字、絵文字、スペース、アンダースコア、ハイフン、ピリオドが使えます。{{max}} 文字まで。',
+    'web.agentNewV3.nameFixTo': '「{{name}}」を使う',
     'web.agentNewV3.randomize': '新しい名前',
     'web.agentNewV3.workspaceLabel': 'ワークスペース',
     'web.agentNewV3.workspaceHint': 'エージェントの作業ディレクトリ。 {agent-id} は自動的に入力されます。',

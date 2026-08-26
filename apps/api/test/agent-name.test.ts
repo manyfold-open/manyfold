@@ -1,5 +1,6 @@
 import {
     normalizeAgentName,
+    suggestAgentName,
     validateAgentName
 } from '@manyfold/shared'
 import 'reflect-metadata'
@@ -48,6 +49,30 @@ test('agent name helper rejects invalid names', () => {
     for (const name of invalidNames) {
         assert.equal(validateAgentName(name).valid, false, name)
     }
+})
+
+test('agent name suggestion repairs the characters users actually paste', () => {
+    const repairs: Array<[string, string]> = [
+        [
+            'Interview Killer — Core & Hard Questions',
+            'Interview Killer - Core Hard Questions'
+        ],
+        ['面试杀手 — 核心 & 难题', '面试杀手 - 核心 难题'],
+        ['code-review/bot', 'code-review bot'],
+        ['   ---leading dashes', 'leading dashes'],
+        ['Tabs\tand\nnewlines & stuff', 'Tabs and newlines stuff'],
+        [`${'x'.repeat(80)} & tail`, 'x'.repeat(64)]
+    ]
+
+    for (const [input, expected] of repairs) {
+        assert.equal(suggestAgentName(input), expected, input)
+        assert.equal(validateAgentName(expected).valid, true, expected)
+    }
+})
+
+test('agent name suggestion stays silent when it has nothing to offer', () => {
+    for (const name of ['already-valid.v2', '研发助手 🚀', '@@@', '   '])
+        assert.equal(suggestAgentName(name), null, name)
 })
 
 test('agent DTOs accept normalized Chinese and emoji names', async () => {

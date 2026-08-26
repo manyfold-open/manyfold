@@ -4135,6 +4135,9 @@ const en = {
             keyCheckFailed:
                 "Couldn't verify this key. Try again, or continue in advanced setup.",
             nameLabel: 'Name',
+            nameHint:
+                'Letters, numbers, emoji, spaces, underscore, dash and dot — up to {{max}} characters.',
+            nameFixTo: 'Use "{{name}}"',
             randomize: 'New name',
             workspaceLabel: 'Workspace',
             workspaceHint:
