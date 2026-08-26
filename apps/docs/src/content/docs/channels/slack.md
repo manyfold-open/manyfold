@@ -3,9 +3,6 @@ title: Slack
 description: Connect a Slack app to a Manyfold agent.
 order: 11
 ---
-
-# Slack
-
 Connect Slack when you want an agent in direct messages, public or private channels, multiparty DMs, threads, or the Slack Assistant panel. Slack uses a signed webhook for events and native slash commands.
 
 ## What the channel supports
@@ -99,7 +96,7 @@ File input still depends on the selected agent framework supporting attachments.
 - With **Thread isolation** on, each channel thread, Assistant conversation, or manual DM thread maps to its own session. Plain DMs keep one flat session per user.
 - **Auto-thread** answers a top-level channel mention in a new thread rooted at that message. It requires thread isolation and does not apply to DMs or slash commands.
 - Native slash commands use Slack's command payload and return a private ephemeral response. Slack's slash-command composer does not include thread context, so native commands operate on the channel-level scope rather than the open thread.
-- Typed commands still use the normal message flow. See [Session switching](../session-switching/) for the full command list.
+- Typed commands still use the normal message flow. See [Session switching](/docs/channels/session-switching/) for the full command list.
 
 ## Settings
 
@@ -144,11 +141,11 @@ Run **Test** to verify the token with `auth.test` and confirm the channel is act
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Telegram](../telegram/)
-- [Lark and Feishu](../lark/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Discord](/docs/channels/discord/)
+- [Matrix](/docs/channels/matrix/)
 - [Slack app manifests](https://api.slack.com/reference/manifests)
 - [Slack Events API](https://api.slack.com/apis/events-api)

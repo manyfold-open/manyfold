@@ -3,10 +3,7 @@ title: Install the CLI
 description: Install, sign in, update, and verify the mf CLI.
 order: 2
 ---
-
-# Install the CLI
-
-The `mf` CLI is distributed as a standalone binary, so you do not need Node.js for normal use. See the [CLI overview](../cli/) for its agent, runtime, channel, automation, file, backup, skill, usage, A2A, and daemon capabilities.
+The `mf` CLI is distributed as a standalone binary, so you do not need Node.js for normal use. See the [CLI overview](/docs/cli/) for its agent, runtime, channel, automation, file, backup, skill, usage, A2A, and daemon capabilities.
 
 ## macOS and Linux
 
@@ -30,7 +27,7 @@ You can choose a different install directory:
 curl -fsSL https://manyfold.ai/cli/install.sh | MF_INSTALL_DIR=/usr/local/bin sh
 ```
 
-You may need `sudo` for system directories such as `/usr/local/bin`.
+> **Note:** You may need `sudo` for system directories such as `/usr/local/bin`.
 
 ## Windows
 
@@ -83,7 +80,7 @@ mf setup --no-launch-browser
 ```
 
 Credentials and daemon state are stored in the selected
-[CLI profile](../profiles/). Use `--profile <name>` or `MF_PROFILE` when one
+[CLI profile](/docs/profiles/). Use `--profile <name>` or `MF_PROFILE` when one
 machine connects to more than one Manyfold deployment.
 
 ## Verify the installation
@@ -104,7 +101,7 @@ mf update --check
 mf update
 ```
 
-If a local daemon is running, restart it after updating the CLI so it uses the new binary.
+> **Note:** If a local daemon is running, restart it after updating the CLI so it uses the new binary.
 
 ### Upgrading from CLI 0.21 or earlier
 
@@ -115,7 +112,7 @@ under `~/.manyfold` remain in place.
 
 ## Next steps
 
-- [Explore the CLI](../cli/)
-- [Profiles and environments](../profiles/)
-- [Scripting with mf](../scripting/)
-- [Register a self-owned computer](../local-daemons/)
+- [Explore the CLI](/docs/cli/)
+- [Profiles and environments](/docs/profiles/)
+- [Scripting with mf](/docs/scripting/)
+- [Register a self-owned computer](/docs/local-daemons/)

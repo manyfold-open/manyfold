@@ -143,6 +143,9 @@ export const apiPaths = {
         `/channels/weixin-registrations/${id}`,
     CHANNEL_WEIXIN_REGISTRATION_VERIFY_CODE: (id: string) =>
         `/channels/weixin-registrations/${id}/verify-code`,
+    CHANNEL_WHATSAPP_REGISTRATIONS: '/channels/whatsapp-registrations',
+    CHANNEL_WHATSAPP_REGISTRATION_BY_ID: (id: string) =>
+        `/channels/whatsapp-registrations/${id}`,
     CHANNEL_BY_ID: (id: string) => `/channels/${id}`,
     CHANNEL_TEST: (id: string) => `/channels/${id}/test`,
     CHANNEL_REGISTER: (id: string) => `/channels/${id}/register`,

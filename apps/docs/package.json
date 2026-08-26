@@ -13,14 +13,18 @@
         "preview": "astro preview --port 3003"
     },
     "dependencies": {
-        "@fontsource/geist": "^5.3.0",
-        "@fontsource/geist-mono": "^5.3.0",
-        "@manyfold/i18n": "workspace:*",
-        "astro": "^6.2.2",
         "@astrojs/check": "^0.9.9",
+        "@astrojs/markdown-remark": "^7.2.0",
         "@astrojs/mdx": "^5.0.4",
         "@astrojs/sitemap": "^3.7.2",
+        "@fontsource/geist": "^5.3.0",
+        "@fontsource/geist-mono": "^5.3.0",
+        "@lucide/astro": "^1.11.0",
+        "@manyfold/i18n": "workspace:*",
+        "@resvg/resvg-js": "^2.6.2",
         "@tailwindcss/vite": "^4.2.4",
+        "astro": "^6.2.2",
+        "satori": "^0.29.1",
         "shiki": "^4.0.2",
         "tailwindcss": "^4.2.4",
         "typescript": "^5.6.3"

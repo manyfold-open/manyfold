@@ -3,9 +3,6 @@ title: Session switching
 description: Run multiple parallel conversations in one channel, and switch between them with slash commands.
 order: 16
 ---
-
-# Session switching
-
 A single chat or DM with the agent can host multiple parallel conversations. Each conversation is a **session** — its own history, its own context for the model. Session switching lets you keep one chat as a fresh debugging thread, another as your long-running feature work, and move between them without losing either.
 
 The same set of slash commands works in every channel (Telegram, Slack, Lark, Feishu, Discord, Matrix). The active session is automatically remembered for the next message.

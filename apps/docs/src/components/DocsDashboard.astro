@@ -1,0 +1,439 @@
+---
+import {
+    Book,
+    Box,
+    CloudDownload,
+    Laptop,
+    Link2,
+    Search,
+    Terminal
+} from '@lucide/astro'
+import type { AstroComponent } from '@lucide/astro'
+import { getCollection } from 'astro:content'
+import {
+    entryHref,
+    entrySlug,
+    filterDocsByLocale,
+    getUi,
+    groupKeyForTitle,
+    subgroupAnchorForTitle,
+    localePath,
+    type DocsNavNode,
+    type Locale
+} from '@/lib/i18n'
+import { dashboardCopyFor } from '@/lib/dashboard-copy'
+import { docsNavGroups } from '@/lib/docs-nav'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+
+interface Props {
+    locale: Locale
+}
+
+const { locale } = Astro.props
+const copy = dashboardCopyFor(locale)
+const ui = getUi(locale)
+const entries = filterDocsByLocale(await getCollection('docs'), locale)
+const { grouped } = docsNavGroups(entries, locale)
+
+// Where each section starts, rather than every page it holds.
+//
+// This block used to be the whole tree: 60-odd links in two flowed columns,
+// the same rows the sidebar was already rendering four inches to the left,
+// under the heading "Everything, by group". It was written when the sidebar
+// collapsed to four labels, so the dashboard was the only place the tree was
+// visible. The sidebar stands open now, which leaves this page free to answer
+// the question a landing page is actually asked — where do I start — instead
+// of repeating the navigation next to it.
+//
+// The slugs are hand-picked and locale-independent; every title, href and
+// description on the block is read from the tree and the collection, so a
+// renamed page or section cannot leave a stale copy of itself here. A path
+// rather than a slug means a generated page that is not a collection entry.
+const CURATED: Record<string, readonly string[]> = {
+    'group-start': ['getting-started', 'install', 'create-agent'],
+    'group-build': ['workspace', 'model-providers', 'local-daemons', 'cli'],
+    'group-connect': ['channels', 'api-chat', 'api-conversations', 'api-a2a'],
+    'group-reference': ['cli/reference', '/api-reference', 'faq']
+}
+
+// One line-drawn mark per section, keyed by the same locale-independent group
+// key. Four identical text blocks was the other half of what made this page
+// hard to scan: the section a reader wants is found by reading four
+// paragraphs, and a mark is what lets them find it by shape instead.
+// Sandbox, the reader's own machine, a host that stays up. Same line weight
+// and the same 34px tile as the section marks below, so the page has one
+// family of glyphs rather than two.
+// Components, not path strings. These were hand-copied Lucide paths and they
+// had drifted: the book was a shape Lucide replaced, the laptop was a plain
+// rounded rect, and the magnifier was r=7 where the real one is r=8 -- so the
+// same four icons rendered one way here and another in the app.
+const RUNTIME_GLYPHS = [Box, Laptop, CloudDownload]
+
+const GLYPHS: Record<string, AstroComponent> = {
+    'group-start': Book,
+    'group-build': Terminal,
+    'group-connect': Link2,
+    'group-reference': Search
+}
+
+const browseGroups = grouped
+    .map((group) => {
+        const key = groupKeyForTitle(group.title, locale)
+        const bySlug = new Map(
+            group.entries.map((entry) => [entrySlug(entry), entry])
+        )
+        const links = (key ? (CURATED[key] ?? []) : [])
+            .map((id) => {
+                if (id.startsWith('/')) {
+                    const href = localePath(locale, id)
+                    const page = group.nodes.find(
+                        (node): node is Extract<DocsNavNode, { kind: 'page' }> =>
+                            node.kind === 'page' && node.href === href
+                    )
+                    return page ? { title: page.title, href } : null
+                }
+                const entry = bySlug.get(id)
+                return entry
+                    ? { title: entry.data.title, href: entryHref(entry, locale) }
+                    : null
+            })
+            .filter((link): link is { title: string; href: string } =>
+                Boolean(link)
+            )
+        return {
+            title: group.title,
+            description: group.description,
+            anchor: key,
+            glyph: key ? GLYPHS[key] : undefined,
+            // The tier below the section, named. It is the one piece of the
+            // old index worth keeping at this altitude: "Connect" says nothing
+            // about Channels and API being the two halves of it. These also
+            // carry the ids every page's BreadcrumbList points at, which is
+            // why they are rendered from the tree rather than hand-listed.
+            subgroups: group.nodes.flatMap((node) =>
+                node.kind === 'subgroup'
+                    ? [
+                          {
+                              title: node.title,
+                              anchor: subgroupAnchorForTitle(node.title, locale)
+                          }
+                      ]
+                    : []
+            ),
+            links
+        }
+    })
+    .filter((group) => group.links.length > 0)
+
+---
+
+<!--
+    Two columns, matching the article layout. The dashboard was the one docs
+    URL with no sidebar: replicate.com/docs carries its whole tree there, and
+    a landing page that cannot show what the documentation contains is doing
+    half its job. No third column, because there is no on-this-page rail here.
+-->
+<section
+    class="docs-container docs-shell"
+>
+    <DocsSidebar entries={entries} locale={locale} />
+
+    <!--
+        min-w-0 only, matching DocArticle's <article>. .docs-page-section adds
+        py-7/md:py-9 on top of the grid's own py-6/md:py-8, which the sidebar
+        column does not get, so the content started 36px below the first
+        sidebar row. Measured, not guessed: aside top 97, first group row 97,
+        kicker 133.
+    -->
+    <div class="min-w-0">
+        {/* No eyebrow. It read "MANYFOLD" in mono caps directly under a header
+            carrying the same wordmark next to the logo, and directly above an
+            h1 that opens with the same word again: three brand marks in the
+            first 120px of the page, of which two are chrome. */}
+        <header class="docs-page-header">
+            <h1 class="text-h1" id="page-title">
+                {copy.heading}
+            </h1>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.deck}</p>
+            <div class="mt-5 flex flex-wrap gap-2">
+                <a
+                    href={localePath(locale, '/docs/getting-started/')}
+                    class="docs-button-primary"
+                >
+                    {copy.ctaPrimary}
+                </a>
+                <a
+                    href={localePath(locale, '/docs/create-agent/')}
+                    class="docs-button-secondary"
+                >
+                    {copy.ctaSecondary}
+                </a>
+            </div>
+        </header>
+
+        <!-- 1. The runtime decision, above everything else -->
+        <div class="mt-12">
+            <h2 id="runtimes" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#runtimes" aria-label={ui.headingLink}></a>
+                {copy.runtimeHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.runtimeIntro}</p>
+            {/* Stacked, and laid out across rather than down. Three cards of
+                the same four text blocks read as a comparison, which is why
+                they were side by side; in the shared 640 column three columns
+                is 205px each, and at that width the titles broke ("Self-owned
+                / computer"), the bodies ran five lines, and the three cards
+                that are supposed to be comparable were three different
+                heights. Across the row the mark and the badge bracket the
+                title on one line and the body has room to be two. */}
+            <div class="mt-4 grid gap-3">
+                {
+                    copy.runtimes.map((card, index) => (
+                        <article
+                            class:list={[
+                                'docs-panel p-4 md:p-5',
+                                index === 0 && 'dash-default'
+                            ]}
+                        >
+                            {/* The mark says where the work happens before the
+                                title is read: the reader's own machine, a
+                                sandbox and a long-running cloud host differ by
+                                exactly that, and nothing in the card said so
+                                until the third line of body copy. */}
+                            <div class="flex items-center gap-3">
+                                <span class="dash-glyph" aria-hidden="true">
+                                    {(() => {
+                                        const Glyph = RUNTIME_GLYPHS[index]
+                                        return <Glyph stroke-width={1.8} />
+                                    })()}
+                                </span>
+                                <h3 class="text-h3 min-w-0 flex-1">{card.title}</h3>
+                                <span
+                                    class:list={[
+                                        'docs-pill shrink-0',
+                                        index === 0 && 'dash-badge'
+                                    ]}
+                                >
+                                    {card.badge}
+                                </span>
+                            </div>
+                            <p class="text-ui text-muted mt-2.5">{card.body}</p>
+                            <p class="text-ui text-fg mt-2 font-medium">
+                                {card.pick}
+                            </p>
+                        </article>
+                    ))
+                }
+            </div>
+            <p class="mt-3">
+                <a
+                    href={localePath(locale, '/docs/create-agent/')}
+                    class="dash-more text-ui font-medium"
+                >
+                    {copy.runtimeMore} <span aria-hidden="true">&#8594;</span>
+                </a>
+            </p>
+        </div>
+
+        <!-- 2. The first run, in order -->
+        <div class="mt-12">
+            <h2 id="steps" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#steps" aria-label={ui.headingLink}></a>
+                {copy.stepsHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.stepsIntro}</p>
+            <ol class="docs-steps mt-4 max-w-2xl">
+                {
+                    copy.steps.map((step) => (
+                        <li>
+                            <a
+                                href={localePath(locale, step.href)}
+                                class="dash-more text-ui font-medium"
+                            >
+                                {step.title}
+                            </a>
+                            <p class="text-ui text-muted mt-0.5">{step.body}</p>
+                        </li>
+                    ))
+                }
+            </ol>
+        </div>
+
+        <!-- 3. Where each section starts -->
+        <div class="mt-12">
+            <h2 id="browse" class="text-h2 scroll-mt-24">
+                <a class="docs-heading-anchor" href="#browse" aria-label={ui.headingLink}></a>
+                {copy.browseHeading}
+            </h2>
+            <p class="docs-copy mt-2 max-w-2xl">{copy.browseIntro}</p>
+            <div class="mt-5 grid gap-3 md:grid-cols-2">
+                {
+                    browseGroups.map((group) => (
+                        <section class="docs-block">
+                            <div class="flex items-center gap-2.5">
+                                {group.glyph && (
+                                    <span class="dash-glyph" aria-hidden="true">
+                                        <group.glyph stroke-width={1.8} />
+                                    </span>
+                                )}
+                                <h3 class="text-h4" id={group.anchor}>
+                                    {group.title}
+                                </h3>
+                            </div>
+                            {group.description && (
+                                <p class="text-ui text-muted mt-2">
+                                    {group.description}
+                                </p>
+                            )}
+                            {group.subgroups.length > 0 && (
+                                <ul class="dash-chips">
+                                    {group.subgroups.map((subgroup) => (
+                                        <li
+                                            class="docs-pill"
+                                            id={subgroup.anchor}
+                                        >
+                                            {subgroup.title}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                            <ul class="dash-links">
+                                {group.links.map((link) => (
+                                    <li>
+                                        <a href={link.href} class="dash-link">
+                                            <span>{link.title}</span>
+                                            <span class="dash-arrow" aria-hidden="true">
+                                                &#8594;
+                                            </span>
+                                        </a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    ))
+                }
+            </div>
+        </div>
+
+        {/* The machine-readable block was removed from this page on request:
+            /llms.txt, /llms-full.txt, /changelog/feed.xml and the .md twins
+            are no longer advertised here.
+
+            Discoverability was checked before removing it rather than after.
+            /llms.txt keeps 99 other links, one per page, from the sr-only
+            Documentation Index blockquote, and /llms-full.txt is listed inside
+            /llms.txt itself, which is the convention an agent follows. The feed
+            was the one real loss: this block was its only link anywhere, and the
+            changelog page carried no reference to its own feed, so BaseLayout
+            declares it for autodiscovery now, which is invisible and is how a
+            feed is meant to be found.
+
+            The copy stays in dashboard-copy.ts on purpose. This work lives as
+            regenerated patches rather than commits, so deleting the authored zh
+            strings would lose them outright. machineNoteFor is now an unused
+            export and the nav data's file variant now has no consumer; both are
+            in the handoff rather than cleaned up here. */}
+</div>
+</section>
+
+<style>
+    /* Scoped rather than global.css: this is one page's worth of rules and
+       nothing else on the site renders a runtime option grid. Every value is
+       a design token; no new colour, radius, shadow or type step. */
+
+    /* The default choice is one elevation step above its two siblings, which
+       is the whole "recommended" signal. No badge colour on the card itself,
+       no border, same fill. */
+    .dash-default {
+        box-shadow: var(--shadow-elevated);
+    }
+
+    /* The one tinted pill on the page, on the LED/info hue the rest of the
+       docs already uses for an active state. */
+    .dash-badge {
+        background: var(--color-info-bg);
+        color: var(--color-info-strong);
+        box-shadow: inset 0 0 0 1px var(--color-divider);
+    }
+
+    .dash-more {
+        color: var(--color-link);
+        text-decoration: none;
+    }
+
+    .dash-more:hover {
+        color: var(--color-link-hover);
+        text-decoration: underline;
+    }
+
+    /* The mark on a runtime card and on a section block. One tile, one size,
+       the recessed fill the rest of the page uses for a nested surface. */
+    .dash-glyph {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.125rem;
+        height: 2.125rem;
+        flex: none;
+        border-radius: var(--radius-xs);
+        background: var(--color-soft);
+        color: var(--color-muted);
+    }
+
+    .dash-glyph svg {
+        width: 1.0625rem;
+        height: 1.0625rem;
+    }
+
+    /* The tier below the section, named rather than expanded. These carry the
+       ids every page's BreadcrumbList points at, so they are also the reason
+       this block cannot be reduced to four links and a heading. */
+    .dash-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.375rem;
+        list-style: none;
+        margin: 0.75rem 0 0;
+        padding: 0;
+    }
+
+    .dash-links {
+        list-style: none;
+        margin: 0.75rem 0 0;
+        padding: 0;
+    }
+
+    .dash-link {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.625rem;
+        margin: 0 -0.5rem;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius-xs);
+        font-size: var(--text-ui);
+        line-height: var(--text-ui--line-height);
+        color: var(--color-fg);
+        text-decoration: none;
+        transition: background 150ms ease;
+    }
+
+    .dash-link:hover {
+        background: var(--color-soft);
+        color: var(--color-fg);
+        text-decoration: none;
+    }
+
+    /* Rest is not "no affordance": the row is a link and reads as one from
+       the block it sits in. The arrow is the hover confirmation, so four rows
+       of them do not turn the block into a column of chevrons. */
+    .dash-arrow {
+        color: var(--color-subtle);
+        opacity: 0;
+        transition: opacity 150ms ease;
+    }
+
+    .dash-link:hover .dash-arrow {
+        opacity: 1;
+    }
+</style>

@@ -1,0 +1,25 @@
+---
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import DocsDashboard from '@/components/DocsDashboard.astro'
+import { dashboardCopyFor } from '@/lib/dashboard-copy'
+import type { Locale } from '@/lib/i18n'
+
+// The docs home. `/` and `/docs` used to 301 straight to
+// /docs/getting-started/, which left the highest-authority URL on the site
+// with no content of its own; public/_redirects now points them here.
+//
+// An index route and the sibling [...slug] catch-all do not collide: Astro
+// ranks a static segment above a rest parameter, and getStaticPaths for the
+// catch-all never emits an empty slug, so /docs/ has exactly one owner.
+const locale: Locale = 'en'
+const copy = dashboardCopyFor(locale)
+---
+
+<BaseLayout
+    title={copy.title}
+    description={copy.description}
+    locale={locale}
+    siteJsonLd
+>
+    <DocsDashboard locale={locale} />
+</BaseLayout>

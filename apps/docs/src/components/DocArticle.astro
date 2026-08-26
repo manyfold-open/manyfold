@@ -1,11 +1,19 @@
 ---
+import { ThumbsDown, ThumbsUp } from '@lucide/astro'
 import { render } from 'astro:content'
 import type { CollectionEntry } from 'astro:content'
+import DocsSidebar from '@/components/DocsSidebar.astro'
+import DocsPageActions from '@/components/DocsPageActions.astro'
+import DocsPageToc from '@/components/DocsPageToc.astro'
+import { docsNavOrder } from '@/lib/docs-nav'
+import { isTrailerHeading } from '@/lib/trailers'
 import {
     entryHref,
+    groupKeyForTitle,
+    groupTitleFor,
+    subgroupFor,
     entrySlug,
     getUi,
-    groupDocs,
     localePath,
     type Locale
 } from '@/lib/i18n'
@@ -19,71 +27,118 @@ interface Props {
 const { entry, entries, locale } = Astro.props
 const { Content, headings } = await render(entry)
 const copy = getUi(locale)
-const { grouped, remaining } = groupDocs(entries, locale)
-
 const activeSlug = entrySlug(entry)
-const docsHome = localePath(locale, '/docs/getting-started/')
-const flatIndex = entries.findIndex((item) => entrySlug(item) === activeSlug)
-const prev = flatIndex > 0 ? entries[flatIndex - 1] : null
+// The docs home is the dashboard at /docs/ now, not the first article.
+const docsHome = localePath(locale, '/docs/')
+// Sequence comes from the tree, not from the frontmatter `order` field the
+// flat list is sorted by. See docsNavOrder().
+const ordered = docsNavOrder(entries, locale)
+const flatIndex = ordered.findIndex((item) => entrySlug(item) === activeSlug)
+const prev = flatIndex > 0 ? ordered[flatIndex - 1] : null
 const next =
-    flatIndex >= 0 && flatIndex < entries.length - 1
-        ? entries[flatIndex + 1]
+    flatIndex >= 0 && flatIndex < ordered.length - 1
+        ? ordered[flatIndex + 1]
         : null
 
-const toc = headings.filter((h) => h.depth === 2 || h.depth === 3)
 
-const navGroups = [
-    ...grouped.map((group) => ({ title: group.title, entries: group.entries })),
-    ...(remaining.length > 0
-        ? [{ title: copy.more, entries: remaining }]
-        : [])
-]
+// Wave 2a header block. See docs-ui-redesign-benchmark.md sections 3.3, 3.4
+// and 4/2a. Three things the page did not have before:
+//
+//   deck     the description field, rendered as visible muted text under the
+//            H1. It was in <meta> only, so the answer-first sentence existed
+//            for the SERP snippet and not for the reader or for an extractor
+//            reading the page body. One string, three jobs, and it cannot
+//            drift because all three read the same frontmatter field.
+//   actions  Copy page, plus the .md twin and the two LLM hand-offs
+//
+// The H1 moves here too, from the markdown body, so the frontmatter title is
+// the single source for the title, the breadcrumb, the sidebar and <meta>.
+//
+// The group used to render again as an eyebrow above the H1. The breadcrumb
+// above says the same word one line higher, so the eyebrow was removed rather
+// than kept as a second copy. The generated OG card still carries it: a card
+// has no breadcrumb, so there it is the only signal of which part of the docs
+// a shared link came from, and it reads the group from groupTitleFor() itself
+// rather than from here.
+const group = groupTitleFor(entry, locale)
+// Still resolved here even though the visible crumb no longer links it: the
+// BreadcrumbList needs the same anchor, and computing it once means the trail
+// a reader reads and the trail a crawler parses cannot name different groups.
+const groupAnchor = group && groupKeyForTitle(group, locale)
+const subgroup = subgroupFor(entry, locale)
+const mdHref = `${entryHref(entry, locale).replace(/\/$/, '')}.md`
+const pageUrl = new URL(entryHref(entry, locale), Astro.site).toString()
+
+// Inline table of contents, in the content flow. See
+// docs-ui-redesign-benchmark.md 3.2, which ranks this second overall.
+//
+// The right rail is chrome: a text extractor either strips it or appends it
+// after the body, so the section list arrives late or not at all. An inline
+// <nav> is part of the first screen of extracted text, which for a page like
+// channels/slack means the setup sequence itself is one of the first things
+// an answer engine reads. The rail stays; this is an addition, not a move.
+//
+// The bar was 6, and it was 6 because the list used to sit in the content
+// flow: it pushed the first sentence down, so it had to earn the space, and
+// the count was the test of whether it had. In the third column it costs the
+// reading column nothing and it is not what an extractor reads either, so the
+// only case left to exclude is the one that says nothing — an outline that
+// repeats the single heading below it. That is the same guard the endpoint
+// pages already use.
+const PAGE_TOC_MIN_SECTIONS = 2
+// Trailers are filtered out before the count, not just before the render.
+// "See also" and "Learn next" name no content: they are the page's exits, and
+// an outline that lists them tells a reader the page has a section it does
+// not. See src/lib/trailers.ts.
+//
+// h3s come along now. In the content flow the list was h2-only because a
+// nested list doubled a block already competing with the deck above it; a
+// column has the room, and the pages that carry h3s are the long reference
+// ones where the h2 alone lands a reader several screens from what they were
+// looking for.
+const pageToc = headings
+    .filter((h) => h.depth === 2 || h.depth === 3)
+    .filter((h) => !isTrailerHeading(h.text))
+    .map((h) => ({ id: h.slug, label: h.text, depth: h.depth }))
+const showPageToc =
+    pageToc.filter((h) => h.depth === 2).length >= PAGE_TOC_MIN_SECTIONS
+
+// Collapse is presentational only, at both tiers. Every link stays in the DOM
+// at every open/closed state, because the sidebar is also the internal-linking
+// surface a crawler reads: hiding links to tidy the visual would undo the
+// reason the tree was regrouped in the first place. <details> hides visually
+// without removing nodes; nothing here renders client-side.
 ---
 
-<section
-    class="docs-container grid gap-6 py-6 md:py-8 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_200px]"
->
-    <aside class="border-divider hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-6rem)] lg:self-start lg:overflow-y-auto lg:border-r lg:pr-5">
-        <nav class="text-ui pb-4" aria-label={copy.docs}>
-            {
-                navGroups.map((group) => (
-                    <div>
-                        <p class="docs-sidebar-group">{group.title}</p>
-                        <ul class="space-y-0.5">
-                            {group.entries.map((item) => (
-                                <li>
-                                    <a
-                                        href={entryHref(item, locale)}
-                                        aria-current={
-                                            entrySlug(item) === activeSlug
-                                                ? 'page'
-                                                : undefined
-                                        }
-                                        class:list={[
-                                            'docs-sidebar-link',
-                                            entrySlug(item) === activeSlug
-                                                ? 'bg-info-bg font-medium text-info-strong'
-                                                : 'text-muted hover:bg-soft hover:text-fg'
-                                        ]}
-                                    >
-                                        {item.data.title}
-                                    </a>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
-                ))
-            }
-        </nav>
-    </aside>
+{/* Two columns at every width. The third held the on-this-page rail, which
+    was a second copy of the section list already in the content below — and
+    the content is where an extractor reads it. So the rail goes and the
+    inline list stands at every width, while the tree keeps the left column to
+    itself. The content column inherits the width the third one gave up, which
+    is what lets a wide table break out of the reading measure. */}
+<section class="docs-container docs-shell">
+    <DocsSidebar entries={entries} locale={locale} activeSlug={activeSlug} />
 
     <article class="min-w-0">
-        {
-            activeSlug !== 'getting-started' && (
-                <nav
-                    class="text-ui text-subtle mb-3 flex items-center gap-1.5"
-                    aria-label="Breadcrumb"
-                >
+        {/* Every page gets a breadcrumb now. getting-started used to be the docs
+            home, so its crumb would have pointed at the page you were already on.
+            The home is the dashboard at /docs/, so the crumb is meaningful here too. */}
+        <nav
+                class="text-ui text-subtle mb-3 flex items-center gap-1.5"
+                aria-label="Breadcrumb"
+            >
+                {/* The root crumb is hidden below lg, where the drawer trigger
+                    one line above says the same word. Two stacked rows opening
+                    with "Documentation" is the duplication that got the eyebrow
+                    removed, and this is a phone screen. The trail still reads
+                    as a hierarchy without it, and the BreadcrumbList is built
+                    separately, so a crawler still gets all four levels with the
+                    root intact at every width.
+
+                    lg:contents rather than lg:inline: the crumb and its
+                    separator have to go back to being flex items of the nav,
+                    not children of a wrapper. */}
+                <span class="hidden lg:contents">
                     <a
                         href={docsHome}
                         class="text-muted hover:text-fg no-underline hover:no-underline"
@@ -91,10 +146,53 @@ const navGroups = [
                         {copy.docs}
                     </a>
                     <span aria-hidden="true" class="opacity-50">/</span>
-                    <span class="text-fg">{entry.data.title}</span>
-                </nav>
-            )
-        }
+                </span>
+                {/* The two middle crumbs are not pages. They are sidebar
+                    groupings, and the anchors they used to link pointed at a
+                    kicker and at a bare <li> label in the middle of the
+                    dashboard's multi-column index: a scroll position dressed
+                    up as a level in the hierarchy. They render as text here.
+
+                    The BreadcrumbList still carries an `item` URL for both,
+                    because an intermediate item with no `item` is what Google
+                    drops a trail over. That constraint is on the structured
+                    data, not on the visible trail, and the two are built
+                    separately, so only this one loses its links. The gate in
+                    check-seo.mjs reads the JSON-LD `item` URLs now for exactly
+                    that reason: nothing in the markup points at those anchors
+                    any more, so nothing else would notice a renamed group. */}
+                {group && groupAnchor && (
+                    <>
+                        <span class="text-muted">{group}</span>
+                        <span aria-hidden="true" class="opacity-50">
+                            /
+                        </span>
+                    </>
+                )}
+                {subgroup && (
+                    <>
+                        <span class="text-muted">{subgroup.title}</span>
+                        <span aria-hidden="true" class="opacity-50">
+                            /
+                        </span>
+                    </>
+                )}
+                <span class="text-fg">{entry.data.title}</span>
+            </nav>
+
+        <header class="docs-page-head">
+            <div class="docs-page-head-row">
+                <h1 class="docs-page-title min-w-0" id="page-title">
+                    {entry.data.title}
+                </h1>
+                <DocsPageActions locale={locale} mdHref={mdHref} pageUrl={pageUrl} />
+            </div>
+            {
+                entry.data.description && (
+                    <p class="docs-deck">{entry.data.description}</p>
+                )
+            }
+        </header>
 
         <div class="prose-doc" data-copy-scope>
             <Content />
@@ -103,37 +201,11 @@ const navGroups = [
         <div class="border-divider mt-8 flex flex-wrap items-center gap-3 border-t pt-4" data-helpful>
                 <span class="text-ui text-muted">{copy.helpfulQuestion}</span>
                 <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-yes>
-                    <svg
-                        class="shrink-0"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path>
-                    </svg>
+                    <ThumbsUp class="shrink-0" size={14} stroke-width={2} />
                     {copy.helpfulYes}
                 </button>
                 <button type="button" class="docs-button-secondary h-8 gap-1.5 rounded-sm px-3 text-ui" data-helpful-no>
-                    <svg
-                        class="shrink-0"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        aria-hidden="true"
-                    >
-                        <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path>
-                    </svg>
+                    <ThumbsDown class="shrink-0" size={14} stroke-width={2} />
                     {copy.helpfulNo}
                 </button>
             <span class="text-ui text-success hidden" data-helpful-thanks>
@@ -169,26 +241,7 @@ const navGroups = [
         }
     </article>
 
-    {
-        toc.length > 0 && (
-            <aside class="hidden xl:sticky xl:top-24 xl:block xl:self-start xl:max-h-[calc(100vh-6rem)] xl:overflow-y-auto">
-                <p class="text-caption text-subtle mb-2 uppercase tracking-[0.1em]">
-                    {copy.onThisPage}
-                </p>
-                <nav id="docs-toc" aria-label={copy.onThisPage}>
-                    {toc.map((heading) => (
-                        <a
-                            href={`#${heading.slug}`}
-                            data-depth={heading.depth}
-                            class="docs-toc-link"
-                        >
-                            {heading.text}
-                        </a>
-                    ))}
-                </nav>
-            </aside>
-        )
-    }
+    {showPageToc && <DocsPageToc locale={locale} sections={pageToc} />}
 </section>
 
 <script>
@@ -208,29 +261,5 @@ const navGroups = [
             )
     }
 
-    // TOC scroll-spy
-    const tocLinks = Array.from(
-        document.querySelectorAll<HTMLAnchorElement>('#docs-toc a')
-    )
-    if (tocLinks.length) {
-        const bySlug = new Map(
-            tocLinks.map((a) => [decodeURIComponent(a.hash.slice(1)), a])
-        )
-        const observer = new IntersectionObserver(
-            (entries) => {
-                entries.forEach((e) => {
-                    if (!e.isIntersecting) return
-                    const link = bySlug.get(e.target.id)
-                    if (!link) return
-                    tocLinks.forEach((a) => a.classList.remove('is-active'))
-                    link.classList.add('is-active')
-                })
-            },
-            { rootMargin: '0px 0px -75% 0px', threshold: 0 }
-        )
-        bySlug.forEach((_, slug) => {
-            const el = document.getElementById(slug)
-            if (el) observer.observe(el)
-        })
-    }
+    // The section scroll-spy lives in DocsPageToc, with the list it drives.
 </script>

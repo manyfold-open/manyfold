@@ -3,12 +3,9 @@ title: Manyfold CLI
 description: 使用 mf 在终端中管理 Agent、runtime、channel、文件和 automation。
 order: 2
 ---
-
-# Manyfold CLI
-
 `mf` CLI 是 Manyfold 的终端入口，适用于交互式管理、脚本、CI job 和连接自有计算机。它以 macOS、Linux 和 Windows 独立二进制形式分发，日常使用不需要 Node.js。
 
-先[安装 CLI](../install/)，然后登录：
+先[安装 CLI](/zh/docs/install/)，然后登录：
 
 ```sh
 mf setup
@@ -61,7 +58,7 @@ mf channels test chn_xxx
 mf channels sessions list chn_xxx --scope-key '<scope>'
 ```
 
-Provider 配置见[连接渠道](../channels/)，聊天命令模型见[切换会话](../channels/session-switching/)。
+Provider 配置见[连接渠道](/zh/docs/channels/)，聊天命令模型见[切换会话](/zh/docs/channels/session-switching/)。
 
 ### 读写 runtime 文件
 
@@ -101,11 +98,11 @@ mf daemon status
 mf daemon doctor
 ```
 
-Token 签发、autostart 和故障排查见[注册自有计算机](../local-daemons/)。
+Token 签发、autostart 和故障排查见[注册自有计算机](/zh/docs/local-daemons/)。
 
 ## 认证和上下文
 
-普通终端使用 `mf login` 打开浏览器认证，并把 CLI profile 保存在本机。使用 `mf whoami` 确认当前账号。如果终端所在机器本身没有浏览器（例如 SSH 会话），加上 `--no-launch-browser`，改用粘贴授权码的方式登录。参考 [安装 CLI](../install/)。
+普通终端使用 `mf login` 打开浏览器认证，并把 CLI profile 保存在本机。使用 `mf whoami` 确认当前账号。如果终端所在机器本身没有浏览器（例如 SSH 会话），加上 `--no-launch-browser`，改用粘贴授权码的方式登录。参考 [安装 CLI](/zh/docs/install/)。
 
 以下全局选项可为单条命令覆盖当前上下文：
 
@@ -119,10 +116,10 @@ Token 签发、autostart 和故障排查见[注册自有计算机](../local-daem
 | `MF_HTTP_TIMEOUT`                 | 设置普通 API 请求的超时时间，默认值为 `30s`；纯数字按秒解析，也可使用 `ms`、`s`、`m` 或 `h` 后缀。               |
 
 如果要在同一台机器上使用多个 Manyfold 环境，请先阅读
-[Profile 和环境](../profiles/)。
+[Profile 和环境](/zh/docs/profiles/)。
 
 大多数资源命令支持 `--json`。成功 payload 写到 stdout，结构化错误写到 stderr，
-并使用稳定的 exit code。完整契约见[用 mf 编写脚本](../scripting/)。
+并使用稳定的 exit code。完整契约见[用 mf 编写脚本](/zh/docs/scripting/)。
 
 ## Agent 身份和权限
 
@@ -152,16 +149,16 @@ mf help
 
 ## 另请参阅
 
-- [安装 CLI](../install/)
-- [Profile 和环境](../profiles/)
-- [用 mf 编写脚本](../scripting/)
-- [CLI 命令参考](../cli-reference/)
-- [注册自有计算机](../local-daemons/)
-- [用 CLI 管理 Agent](../cli-agents/)
-- [用 CLI 管理 Runtime](../cli-runtimes/)
-- [用 CLI 管理 Automation](../cli-automations/)
-- [备份和恢复 Agent](../cli-backups/)
-- [用 CLI 管理 Skill](../cli-skills/)
-- [用 CLI 查询用量](../cli-usage/)
-- [用 CLI 调用 peer Agent](../cli-a2a/)
-- [连接渠道](../channels/)
+- [安装 CLI](/zh/docs/install/)
+- [Profile 和环境](/zh/docs/profiles/)
+- [用 mf 编写脚本](/zh/docs/scripting/)
+- [CLI 命令参考](/zh/docs/cli/reference/)
+- [注册自有计算机](/zh/docs/local-daemons/)
+- [用 CLI 管理 Agent](/zh/docs/cli/agents/)
+- [用 CLI 管理 Runtime](/zh/docs/cli/runtimes/)
+- [用 CLI 管理 Automation](/zh/docs/cli/automations/)
+- [备份和恢复 Agent](/zh/docs/cli/backups/)
+- [用 CLI 管理 Skill](/zh/docs/cli/skills/)
+- [用 CLI 查询用量](/zh/docs/cli/usage/)
+- [用 CLI 调用 peer Agent](/zh/docs/cli/a2a/)
+- [连接渠道](/zh/docs/channels/)

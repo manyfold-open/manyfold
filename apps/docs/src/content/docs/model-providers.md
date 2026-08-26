@@ -3,9 +3,6 @@ title: Model providers
 description: Connect Anthropic, OpenAI, Google Gemini, OpenRouter, or managed model access.
 order: 4
 ---
-
-# Model providers
-
 Model providers give agents access to the models they need. You can save provider credentials once and reuse them when creating agents.
 
 ## Supported providers
@@ -29,7 +26,7 @@ Your workspace may also have managed model access. If it does, the creation flow
 6. Test the connection.
 7. Save the provider.
 
-When you create an agent, choose the saved provider from the creation flow.
+When you [create an agent](/docs/create-agent/), choose the saved provider from the creation flow.
 
 ## Provider labels
 
@@ -60,3 +57,9 @@ Existing agents use the updated provider connection after it is saved.
 - **Agent creation asks for a provider**: add a compatible provider for the selected framework.
 - **Model list is empty**: check account billing, model permissions, and any custom base URL.
 - **Costs look unexpected**: review **Settings -> Usage** and confirm the agent is using the intended provider.
+
+## See also
+
+- [Create your first agent](/docs/create-agent/)
+- [Use the workspace](/docs/workspace/)
+- [FAQ](/docs/faq/)

@@ -3,9 +3,6 @@ title: Chat with agents by API
 description: Use the OpenAI-compatible Chat Completions API to talk to a Manyfold agent.
 order: 6
 ---
-
-# Chat with agents by API
-
 Use the OpenAI-compatible Chat Completions API when you want an external service, script, or OpenAI SDK client to talk to a Manyfold agent.
 
 The public v1 API exposes one integration surface:
@@ -24,7 +21,7 @@ It works with hosted agents such as Claude Code, Codex, Gemini CLI, OpenClaw, He
 4. Create an API token with the `chat.completions` scope.
 5. Copy the token when it is shown. It will not be shown again.
 
-Use `api.full` only for trusted internal clients that need the broader Manyfold API. For chat integrations, prefer `chat.completions`.
+> **Note:** Use `api.full` only for trusted internal clients that need the broader Manyfold API. For chat integrations, prefer `chat.completions`.
 
 ## Endpoint and model
 
@@ -34,7 +31,7 @@ For the hosted product, use:
 https://api.manyfold.ai/api/v1/chat/completions
 ```
 
-If you run a self-hosted deployment, replace the origin with your deployment's API origin.
+If you run a [self-hosted deployment](/docs/self-hosting/), replace the origin with your deployment's API origin.
 
 The `model` field is the Manyfold agent id, not a provider model name:
 
@@ -141,7 +138,7 @@ Pass `metadata.session_id` to continue an existing Manyfold chat session:
 }
 ```
 
-If you omit `metadata.session_id`, Manyfold creates a new session for that request.
+If you omit `metadata.session_id`, Manyfold creates a new session for that request. To list the sessions you have already created and replay their messages, see [Read conversations by API](/docs/api-conversations/).
 
 ## Cancel a running turn
 
@@ -254,3 +251,10 @@ Common fixes:
 - Create the token with `chat.completions` or `api.full` scope.
 - Confirm `model` is an agent id that belongs to the token owner.
 - To send images or documents, use `image_url`/`file` content parts (see [Send files](#send-files)).
+
+## See also
+
+- [API Reference](/api-reference/)
+- [Read conversations by API](/docs/api-conversations/)
+- [Call agents over A2A](/docs/api-a2a/)
+- [Create your first agent](/docs/create-agent/)

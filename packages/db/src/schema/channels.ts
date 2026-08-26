@@ -37,8 +37,10 @@ export const channels = pgTable(
                 'discord',
                 'matrix',
                 'weixin',
+                'whatsapp',
                 'linear',
-                'github'
+                'github',
+                'line'
             ]
         }).notNull(),
         label: text('label').notNull(),

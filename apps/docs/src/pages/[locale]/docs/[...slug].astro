@@ -7,6 +7,9 @@ import {
     entrySlug,
     filterDocsByLocale,
     getUi,
+    groupKeyForTitle,
+    groupTitleFor,
+    subgroupFor,
     localePath,
     nonDefaultLocales,
     type Locale
@@ -28,16 +31,31 @@ const { entry, locale } = Astro.props as {
     locale: Locale
 }
 const entries = filterDocsByLocale(await getCollection('docs'), locale)
-const breadcrumbs =
-    entrySlug(entry) === 'getting-started'
-        ? undefined
-        : [
+// Four levels where the tree has four. The section and the tier below it both
+// point at their heading in the dashboard's grouped index, which is a real URL:
+// an intermediate BreadcrumbList item with no `item` is what Google drops a
+// trail over.
+const group = groupTitleFor(entry, locale)
+const groupAnchor = group && groupKeyForTitle(group, locale)
+const subgroup = subgroupFor(entry, locale)
+const breadcrumbs = [
+    {
+        name: getUi(locale).docs,
+        href: localePath(locale, '/docs/')
+    },
+    ...(group && groupAnchor
+        ? [{ name: group, href: localePath(locale, `/docs/#${groupAnchor}`) }]
+        : []),
+    ...(subgroup
+        ? [
               {
-                  name: getUi(locale).docs,
-                  href: localePath(locale, '/docs/getting-started/')
-              },
-              { name: entry.data.title }
+                  name: subgroup.title,
+                  href: localePath(locale, `/docs/#${subgroup.anchor}`)
+              }
           ]
+        : []),
+    { name: entry.data.title }
+]
 ---
 
 <BaseLayout
@@ -45,6 +63,7 @@ const breadcrumbs =
     description={entry.data.description}
     locale={locale}
     type="article"
+    articleType="TechArticle"
     breadcrumbs={breadcrumbs}
 >
     <DocArticle entry={entry} entries={entries} locale={locale} />

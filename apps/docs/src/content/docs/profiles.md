@@ -3,15 +3,12 @@ title: Profiles and environments
 description: Keep credentials and local daemons for different Manyfold environments separate.
 order: 3
 ---
-
-# Profiles and environments
-
 A profile is the local control-plane state for one Manyfold environment. It
 contains that environment's API URL, credential, pending login, daemon
 registration, logs, process state, and control socket.
 
 Use profiles when the same machine connects to production, staging, a
-self-hosted deployment, or more than one account.
+[self-hosted deployment](/docs/self-hosting/), or more than one account.
 
 ## Select a profile
 
@@ -73,8 +70,8 @@ Agent IDs are globally unique, so profiles can safely share the default data
 plane. A host that needs separate storage can declare
 `--workspace-root` and `--skills-dir` during `mf daemon register`.
 
-Never print or copy a profile's `config.json` or daemon files: they contain
-credentials and other sensitive state.
+> **Warning:** Never print or copy a profile's `config.json` or daemon files:
+> they contain credentials and other sensitive state.
 
 ## Inspect or delete a profile
 
@@ -114,6 +111,6 @@ place.
 
 ## See also
 
-- [Install the CLI](../install/)
-- [Register a self-owned computer](../local-daemons/)
-- [CLI command reference](../cli-reference/)
+- [Install the CLI](/docs/install/)
+- [Register a self-owned computer](/docs/local-daemons/)
+- [CLI command reference](/docs/cli/reference/)

@@ -3,9 +3,6 @@ title: Register a self-owned computer
 description: Connect your own laptop, desktop, or homelab as a Manyfold runtime.
 order: 4
 ---
-
-# Register a self-owned computer
-
 A self-owned computer lets Manyfold route work to a machine you control instead of a cloud sandbox. The `mf` CLI runs a local daemon in the background on that machine, advertises which coding agents are installed (Claude Code, Codex, Gemini CLI), and handles agent sessions on demand.
 
 Use a self-owned computer when you need:
@@ -16,8 +13,8 @@ Use a self-owned computer when you need:
 
 ## Before you start
 
-- Install the `mf` CLI on the machine you want to register. See [Install the CLI](../install/).
-- Choose the [CLI profile](../profiles/) that should own this registration.
+- Install the `mf` CLI on the machine you want to register. See [Install the CLI](/docs/install/).
+- Choose the [CLI profile](/docs/profiles/) that should own this registration.
 - Sign in: `mf login`. On a headless machine you reach over SSH, use `mf login --no-launch-browser` and approve from a browser on any other machine.
 
 The shortest path is `mf setup`, which signs in, issues a machine token,
@@ -25,7 +22,7 @@ registers the host, installs autostart, and waits for the daemon to become
 healthy. Use `mf setup --no-launch-browser` over SSH. The manual token flow
 below is useful when an administrator issues the registration token for you.
 
-## 1. Issue a token
+## Step 1: Issue a token
 
 Open **Settings → Self-owned computers** in the web app. Under **Register a new machine**, give the machine a name (for example `laptop` or `homelab-1`) and click **Issue token**.
 
@@ -37,7 +34,7 @@ mf daemon register --token ldt_xxxxxxxxxxxxxxxxxxxxxxxxxx
 
 The token is shown only once. Copy the full command immediately. If you lose it, revoke the token and issue a new one.
 
-## 2. Run the command on the target machine
+## Step 2: Run the command on the target machine
 
 Paste the command into a terminal on the machine you are registering. The CLI:
 
@@ -67,7 +64,7 @@ For headless or scripted setups, pass `-y` to skip the prompt and start the daem
 mf daemon register --token ldt_xxxxxxxx -y
 ```
 
-## 3. Verify the machine is online
+## Step 3: Verify the machine is online
 
 Go back to **Settings → Self-owned computers** in the web app. The machine appears under **Connected machines** with a green dot. The dot turns gray if the daemon has not sent a heartbeat in the last 45 seconds.
 
@@ -80,7 +77,7 @@ mf daemon status
 mf daemon logs
 ```
 
-## 4. Create an agent on the machine
+## Step 4: Create an agent on the machine
 
 From the **Connected machines** list, click **+ Create agent →** next to an online machine. The new-agent flow opens with the daemon preselected as the runtime.
 

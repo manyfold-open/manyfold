@@ -1,0 +1,64 @@
+---
+// Copy page, plus the .md twin and the two LLM hand-offs. Extracted out of
+// DocArticle so /api-reference and /changelog get the same control: they are
+// the two surfaces an agent is most likely to want in markdown, and both had
+// no way to reach their twin.
+//
+// Copy fetches the twin rather than serialising the DOM, so what lands on the
+// clipboard is authored markdown, not a reconstruction of the rendered page.
+import { ChevronDown, Copy } from '@lucide/astro'
+import { getUi, type Locale } from '@/lib/i18n'
+
+interface Props {
+    locale: Locale
+    mdHref: string
+    pageUrl: string
+}
+
+const { locale, mdHref, pageUrl } = Astro.props
+const copy = getUi(locale)
+const llmPrompt = `Read ${pageUrl} and ask questions about it.`
+---
+
+<div
+    class="docs-page-actions"
+    data-page-actions
+    data-md={mdHref}
+    data-copied={copy.copied}
+>
+    <button type="button" class="docs-pa-main" data-copy-page>
+        <Copy size={15} stroke-width={1.6} />
+        <span data-copy-label>{copy.copyPage}</span>
+    </button>
+    <button
+        type="button"
+        class="docs-pa-toggle"
+        aria-expanded="false"
+        aria-haspopup="menu"
+        aria-label={copy.morePageActions}
+        data-pa-toggle
+    >
+        <ChevronDown size={13} stroke-width={2} />
+    </button>
+    <div class="docs-pa-menu" role="menu" hidden data-pa-menu>
+        <a role="menuitem" href={mdHref} target="_blank" rel="noopener">
+            {copy.viewAsMarkdown}
+        </a>
+        <a
+            role="menuitem"
+            href={`https://chatgpt.com/?hints=search&q=${encodeURIComponent(llmPrompt)}`}
+            target="_blank"
+            rel="noopener"
+        >
+            {copy.openInChatGpt}
+        </a>
+        <a
+            role="menuitem"
+            href={`https://claude.ai/new?q=${encodeURIComponent(llmPrompt)}`}
+            target="_blank"
+            rel="noopener"
+        >
+            {copy.openInClaude}
+        </a>
+    </div>
+</div>

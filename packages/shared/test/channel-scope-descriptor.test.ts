@@ -66,6 +66,64 @@ test('slack scope shapes', () => {
     )
 })
 
+test('line scopes read their kind off the id prefix', () => {
+    // LINE prefixes ids by source kind: U = user (so the chat is a 1:1),
+    // C = group, R = multi-person room.
+    assert.deepEqual(describeChannelScope('line', 'line:Uuser1:Uuser1'), {
+        kind: 'dm',
+        channelId: 'Uuser1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Cgroup1:Uuser1'), {
+        kind: 'channel-user',
+        channelId: 'Cgroup1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Cgroup1'), {
+        kind: 'channel',
+        channelId: 'Cgroup1',
+        threadId: null,
+        userId: null
+    })
+    assert.deepEqual(describeChannelScope('line', 'line:Rroom1:Uuser1'), {
+        kind: 'channel-user',
+        channelId: 'Rroom1',
+        threadId: null,
+        userId: 'Uuser1'
+    })
+})
+
+test('whatsapp scopes label DMs, shared groups and per-sender groups', () => {
+    const user = encodeURIComponent('15557654321@s.whatsapp.net')
+    const group = encodeURIComponent('120363000000000000@g.us')
+    assert.deepEqual(describeChannelScope('whatsapp', `whatsapp:dm:${user}`), {
+        kind: 'dm',
+        channelId: '15557654321@s.whatsapp.net',
+        threadId: null,
+        userId: '15557654321@s.whatsapp.net'
+    })
+    assert.deepEqual(
+        describeChannelScope('whatsapp', `whatsapp:group:${group}`),
+        {
+            kind: 'channel',
+            channelId: '120363000000000000@g.us',
+            threadId: null,
+            userId: null
+        }
+    )
+    assert.deepEqual(
+        describeChannelScope('whatsapp', `whatsapp:group:${group}:${user}`),
+        {
+            kind: 'channel-user',
+            channelId: '120363000000000000@g.us',
+            threadId: null,
+            userId: '15557654321@s.whatsapp.net'
+        }
+    )
+})
+
 test('unknown providers and malformed keys fall back to conversation', () => {
     const fallback = {
         kind: 'conversation',
@@ -81,5 +139,11 @@ test('unknown providers and malformed keys fall back to conversation', () => {
     assert.deepEqual(describeChannelScope('discord', 'discord:guild'), fallback)
     assert.deepEqual(describeChannelScope('discord', 'slack:T1:C1'), fallback)
     assert.deepEqual(describeChannelScope('slack', 'slack:T1'), fallback)
+    assert.deepEqual(describeChannelScope('line', 'line:'), fallback)
     assert.deepEqual(describeChannelScope('fake', 'whatever'), fallback)
+    assert.deepEqual(describeChannelScope('whatsapp', 'whatsapp:dm'), fallback)
+    assert.deepEqual(
+        describeChannelScope('whatsapp', 'whatsapp:broadcast:x'),
+        fallback
+    )
 })

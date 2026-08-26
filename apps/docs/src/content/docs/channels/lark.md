@@ -3,9 +3,6 @@ title: Lark and Feishu
 description: Connect a Lark or Feishu custom app to a Manyfold agent.
 order: 12
 ---
-
-# Lark and Feishu
-
 Connect Lark or Feishu when you want an agent available from private chats, groups, or team workflows. Choose the platform that matches the Open Platform console where the app was created: Feishu for `open.feishu.cn`, or Lark for `open.larksuite.com`.
 
 ## What the channel supports
@@ -125,7 +122,7 @@ For inbound attachments, Manyfold accepts up to 10 files, 25 MB per file, and 10
 
 ## Send proactively from the Agent
 
-An Agent can use `mf channels send` to start a DM by Lark/Feishu `open_id`, post to a known chat ID, reply to a provider message, and explicitly attach up to four workspace files. Text and files are independent durable deliveries, so an attachment retry does not repeat text that already succeeded. See [Send from an agent](../agent-send/) for examples, target IDs, results, and limits.
+An Agent can use `mf channels send` to start a DM by Lark/Feishu `open_id`, post to a known chat ID, reply to a provider message, and explicitly attach up to four workspace files. Text and files are independent durable deliveries, so an attachment retry does not repeat text that already succeeded. See [Send from an agent](/docs/channels/agent-send/) for examples, target IDs, results, and limits.
 
 ## Connect it to Manyfold manually
 
@@ -146,7 +143,7 @@ An Agent can use `mf channels send` to start a DM by Lark/Feishu `open_id`, post
 - With **Thread isolation** on, each message thread/root gets a separate session and replies remain threaded.
 - Group answers use a native reply to the triggering message when possible.
 - Recognized commands bypass the mention gate. `/list` and session-detail views use interactive cards; subscribe to `card.action.trigger` for their buttons.
-- See [Session switching](../session-switching/) for `/new`, `/list`, `/switch`, `/stop`, `/model`, `/usage`, and the other commands.
+- See [Session switching](/docs/channels/session-switching/) for `/new`, `/list`, `/switch`, `/stop`, `/model`, `/usage`, and the other commands.
 
 ## Recommended settings
 
@@ -189,13 +186,13 @@ Open the channel detail page and run **Test**. A healthy result confirms valid c
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
-- [Send from an agent](../agent-send/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Slack](/docs/channels/slack/)
+- [Discord](/docs/channels/discord/)
+- [Matrix](/docs/channels/matrix/)
+- [Send from an agent](/docs/channels/agent-send/)
 - [Feishu Open Platform](https://open.feishu.cn/)
 - [Lark Open Platform](https://open.larksuite.com/)
 - [Feishu API permission list](https://open.feishu.cn/document/server-docs/application-scope/scope-list)

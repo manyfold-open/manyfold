@@ -3,9 +3,6 @@ title: Send from an agent
 description: Let an agent proactively message a bound channel, including explicit file attachments.
 order: 18
 ---
-
-# Send from an agent
-
 An agent can use `mf channels send` to start a DM, post into a chat, or reply to a provider message without waiting for a new inbound turn. Replies to that message come back through the normal channel flow and, when **Send message context** is enabled, include a `[Channel message context]` block so the agent can correlate sender, chat, message, reply, and thread IDs.
 
 ## Provider support
@@ -81,9 +78,9 @@ When text and files are both present, `files` reports the attachment delivery se
 
 ## See also
 
-- [Connect channels](../)
-- [Lark and Feishu](../lark/)
-- [Telegram](../telegram/)
-- [WeChat](../weixin/)
-- [Matrix](../matrix/)
-- [Session switching](../session-switching/)
+- [Connect channels](/docs/channels/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Telegram](/docs/channels/telegram/)
+- [WeChat](/docs/channels/weixin/)
+- [Matrix](/docs/channels/matrix/)
+- [Session switching](/docs/channels/session-switching/)

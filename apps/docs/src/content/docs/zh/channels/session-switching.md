@@ -3,9 +3,6 @@ title: 切换会话
 description: 在同一个渠道里并行运行多个会话，通过 slash 命令在它们之间切换。
 order: 16
 ---
-
-# 切换会话
-
 一个聊天或私信可以同时承载多个对话。每个对话是一个独立的 **会话**——拥有自己的历史和模型上下文。会话切换让你可以把一个聊天保留为临时排错线程，另一个用作长期功能开发，在它们之间来回切换而互不干扰。
 
 所有渠道（Telegram、Slack、Lark、飞书、Discord、Matrix）使用同一套 slash 命令。当前活跃的会话会自动记住，下一条消息会进入它。
@@ -170,7 +167,7 @@ Use /switch <number|name>, /current, /new, /help.
 - **CLI：** `mf channels sessions list|new|switch|rename|delete` —— 参考 `mf channels sessions --help`。
 - **REST：** `GET /channels/:id/scopes`、`GET /channels/:id/sessions`、`POST /channels/:id/sessions`、`PATCH /channels/:id/sessions/:sessionId`、`DELETE /channels/:id/sessions/:sessionId`。
 
-## 相关链接
+## 另请参阅
 
 - [连接渠道](/zh/docs/channels/)
 - [Telegram](/zh/docs/channels/telegram/)

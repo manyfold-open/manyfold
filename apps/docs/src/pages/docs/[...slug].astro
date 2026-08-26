@@ -6,6 +6,9 @@ import {
     entrySlug,
     filterDocsByLocale,
     getUi,
+    groupKeyForTitle,
+    groupTitleFor,
+    subgroupFor,
     localePath,
     type Locale
 } from '@/lib/i18n'
@@ -21,16 +24,41 @@ export async function getStaticPaths() {
 const locale: Locale = 'en'
 const { entry } = Astro.props
 const entries = filterDocsByLocale(await getCollection('docs'), locale)
-const breadcrumbs =
-    entrySlug(entry) === 'getting-started'
-        ? undefined
-        : [
+// The generated per-page social card, one route over from this one. English
+// only: the card is typeset in Geist, which ships latin, latin-ext, cyrillic
+// and vietnamese and no CJK at all, so a Chinese card renders every Chinese
+// character as a tofu box. Verified by rendering one and looking at it. The
+// Chinese pages keep the shared static card until a CJK face is vendored.
+const ogImage = new URL(
+    `${localePath(locale, `/docs/${entrySlug(entry)}`)}.png`,
+    Astro.site
+).toString()
+
+// Four levels where the tree has four. The section and the tier below it both
+// point at their heading in the dashboard's grouped index, which is a real URL:
+// an intermediate BreadcrumbList item with no `item` is what Google drops a
+// trail over.
+const group = groupTitleFor(entry, locale)
+const groupAnchor = group && groupKeyForTitle(group, locale)
+const subgroup = subgroupFor(entry, locale)
+const breadcrumbs = [
+    {
+        name: getUi(locale).docs,
+        href: localePath(locale, '/docs/')
+    },
+    ...(group && groupAnchor
+        ? [{ name: group, href: localePath(locale, `/docs/#${groupAnchor}`) }]
+        : []),
+    ...(subgroup
+        ? [
               {
-                  name: getUi(locale).docs,
-                  href: localePath(locale, '/docs/getting-started/')
-              },
-              { name: entry.data.title }
+                  name: subgroup.title,
+                  href: localePath(locale, `/docs/#${subgroup.anchor}`)
+              }
           ]
+        : []),
+    { name: entry.data.title }
+]
 ---
 
 <BaseLayout
@@ -38,6 +66,8 @@ const breadcrumbs =
     description={entry.data.description}
     locale={locale}
     type="article"
+    articleType="TechArticle"
+    ogImage={ogImage}
     breadcrumbs={breadcrumbs}
 >
     <DocArticle entry={entry} entries={entries} locale={locale} />

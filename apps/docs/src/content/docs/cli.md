@@ -3,12 +3,9 @@ title: Manyfold CLI
 description: Use mf to manage agents, runtimes, channels, files, automations, and more from a terminal.
 order: 2
 ---
-
-# Manyfold CLI
-
 The `mf` CLI is the terminal interface to Manyfold. Use it for interactive administration, scripts, CI jobs, and connecting a self-owned computer. It is distributed as a standalone binary for macOS, Linux, and Windows; normal use does not require Node.js.
 
-Start with [Install the CLI](../install/), then sign in:
+Start with [Install the CLI](/docs/install/), then sign in:
 
 ```sh
 mf setup
@@ -61,7 +58,7 @@ mf channels test chn_xxx
 mf channels sessions list chn_xxx --scope-key '<scope>'
 ```
 
-See [Connect channels](../channels/) for provider setup and [Session switching](../channels/session-switching/) for the chat command model.
+See [Connect channels](/docs/channels/) for provider setup and [Session switching](/docs/channels/session-switching/) for the chat command model.
 
 ### Read or write runtime files
 
@@ -106,11 +103,11 @@ mf daemon status
 mf daemon doctor
 ```
 
-Follow [Register a self-owned computer](../local-daemons/) for token issuance, autostart, and troubleshooting.
+Follow [Register a self-owned computer](/docs/local-daemons/) for token issuance, autostart, and troubleshooting.
 
 ## Authentication and context
 
-For normal terminal use, `mf login` opens browser authentication and stores the resulting CLI profile locally. Use `mf whoami` to verify which account is active. When the terminal has no browser of its own — an SSH session, for example — add `--no-launch-browser` to sign in by pasting an authorization code instead. See [Install the CLI](../install/).
+For normal terminal use, `mf login` opens browser authentication and stores the resulting CLI profile locally. Use `mf whoami` to verify which account is active. When the terminal has no browser of its own — an SSH session, for example — add `--no-launch-browser` to sign in by pasting an authorization code instead. See [Install the CLI](/docs/install/).
 
 Global options can override the configured context for one command:
 
@@ -123,12 +120,12 @@ Global options can override the configured context for one command:
 | `--account`                       | Explicitly operate across the account instead of only the current agent context; may require user-granted permission.                                     |
 | `MF_HTTP_TIMEOUT`                 | Set the timeout for ordinary API requests. The default is `30s`; use a plain number for seconds or a duration suffix such as `ms`, `s`, `m`, or `h`.      |
 
-See [Profiles and environments](../profiles/) before using one machine with
+See [Profiles and environments](/docs/profiles/) before using one machine with
 multiple Manyfold deployments.
 
 Most resource commands support `--json` for scripts. Successful payloads go
 to stdout; structured failures go to stderr with stable exit codes. See
-[Scripting with mf](../scripting/) for the complete contract.
+[Scripting with mf](/docs/scripting/) for the complete contract.
 
 ## Agent identities and permissions
 
@@ -158,16 +155,16 @@ mf help
 
 ## See also
 
-- [Install the CLI](../install/)
-- [Profiles and environments](../profiles/)
-- [Scripting with mf](../scripting/)
-- [CLI command reference](../cli-reference/)
-- [Register a self-owned computer](../local-daemons/)
-- [Manage agents with the CLI](../cli-agents/)
-- [Manage runtimes with the CLI](../cli-runtimes/)
-- [Manage automations with the CLI](../cli-automations/)
-- [Back up and restore agents](../cli-backups/)
-- [Manage skills with the CLI](../cli-skills/)
-- [Query usage with the CLI](../cli-usage/)
-- [Call peer agents with the CLI](../cli-a2a/)
-- [Connect channels](../channels/)
+- [Install the CLI](/docs/install/)
+- [Profiles and environments](/docs/profiles/)
+- [Scripting with mf](/docs/scripting/)
+- [CLI command reference](/docs/cli/reference/)
+- [Register a self-owned computer](/docs/local-daemons/)
+- [Manage agents with the CLI](/docs/cli/agents/)
+- [Manage runtimes with the CLI](/docs/cli/runtimes/)
+- [Manage automations with the CLI](/docs/cli/automations/)
+- [Back up and restore agents](/docs/cli/backups/)
+- [Manage skills with the CLI](/docs/cli/skills/)
+- [Query usage with the CLI](/docs/cli/usage/)
+- [Call peer agents with the CLI](/docs/cli/a2a/)
+- [Connect channels](/docs/channels/)

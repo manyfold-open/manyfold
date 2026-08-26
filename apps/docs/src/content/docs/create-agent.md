@@ -3,15 +3,12 @@ title: Create your first agent
 description: Choose a framework, runtime, provider, and workspace for a new agent.
 order: 3
 ---
-
-# Create your first agent
-
 An agent is a hosted workspace plus an AI runtime. It keeps the chat, files, terminal, model settings, and channel connections for that agent in one place.
 
 ## Before you start
 
-- Sign in to Manyfold.
-- Add a model provider in [Model providers](../model-providers/), or confirm your workspace has managed model access.
+- Sign in to Manyfold. If Manyfold is new to you, read [Getting started](/docs/getting-started/) first.
+- Add a model provider in [Model providers](/docs/model-providers/), or confirm your workspace has managed model access.
 - Decide what kind of work the agent should do.
 
 ## Choose a framework
@@ -65,8 +62,10 @@ Review the authentication flow and propose the smallest safe fix for the failing
 - The chat thread becomes the agent's working session.
 - Files and terminal access stay attached to the workspace.
 - You can close the browser and return later.
-- You can connect the same agent to a team channel after it is working.
+- You can [connect the same agent to a team channel](/docs/channels/) after it is working.
 
 ## Delete or replace an agent
 
-Open **Settings -> Agents**, choose the agent, and use the available runtime or agent controls. Deleting an agent stops new work for that agent; keep your own backups for any files you cannot lose.
+Open **Settings -> Agents**, choose the agent, and use the available runtime or agent controls.
+
+> **Warning:** Deleting an agent stops new work for that agent; keep your own backups for any files you cannot lose.

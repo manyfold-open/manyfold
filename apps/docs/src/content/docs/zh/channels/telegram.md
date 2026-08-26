@@ -3,9 +3,6 @@ title: Telegram
 description: 将 Telegram bot 连接到 Manyfold Agent。
 order: 10
 ---
-
-# Telegram
-
 当你希望在 Telegram 私聊、群组、超级群组或论坛话题中使用 Agent 时，可以连接 Telegram。Manyfold 会自动管理 bot webhook 和命令菜单。
 
 ## 渠道能力
@@ -67,11 +64,11 @@ Manyfold 会自动：
 - 超过 4,000 字符的回复会拆成多条；代码围栏会在各 chunk 中保持配对，Markdown 表格会包成文本，避免 Telegram 破坏布局。
 - Preview 模式先发送 `thinking…`，Agent 工作时持续编辑；最终编辑失败时回退为一条新消息。
 
-完整的 `/new`、`/list`、`/switch`、`/stop`、`/model`、`/usage` 等命令见[切换 Session](../session-switching/)。
+完整的 `/new`、`/list`、`/switch`、`/stop`、`/model`、`/usage` 等命令见[切换 Session](/zh/docs/channels/session-switching/)。
 
 ## 从 Agent 主动发送
 
-Agent 可以使用 `mf channels send` 发起 Telegram 私聊、向群组或 topic chat ID 发消息、回复已知 Telegram 消息，并显式上传最多四个 workspace 文件。这不会改变上面的 inbound 媒体支持范围，也不会让普通回复中的文件链接自动上传。target ID、命令示例、delivery 返回、重试与限制见[从 Agent 主动发送](../agent-send/)。
+Agent 可以使用 `mf channels send` 发起 Telegram 私聊、向群组或 topic chat ID 发消息、回复已知 Telegram 消息，并显式上传最多四个 workspace 文件。这不会改变上面的 inbound 媒体支持范围，也不会让普通回复中的文件链接自动上传。target ID、命令示例、delivery 返回、重试与限制见[从 Agent 主动发送](/zh/docs/channels/agent-send/)。
 
 ## 设置
 
@@ -109,12 +106,12 @@ Agent 可以使用 `mf channels send` 发起 Telegram 私聊、向群组或 topi
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [切换 Session](../session-switching/)
-- [Slack](../slack/)
-- [Lark 和飞书](../lark/)
-- [Discord](../discord/)
-- [Matrix](../matrix/)
-- [从 Agent 主动发送](../agent-send/)
+- [连接渠道](/zh/docs/channels/)
+- [切换 Session](/zh/docs/channels/session-switching/)
+- [Slack](/zh/docs/channels/slack/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Discord](/zh/docs/channels/discord/)
+- [Matrix](/zh/docs/channels/matrix/)
+- [从 Agent 主动发送](/zh/docs/channels/agent-send/)
 - [Telegram Bot API](https://core.telegram.org/bots/api)
 - [Telegram bot privacy mode](https://core.telegram.org/bots/features#privacy-mode)

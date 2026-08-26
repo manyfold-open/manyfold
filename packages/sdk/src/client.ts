@@ -63,6 +63,8 @@ import type {
     StartLarkRegistrationBody,
     WeixinRegistrationSummary,
     StartWeixinRegistrationBody,
+    WhatsappRegistrationSummary,
+    StartWhatsappRegistrationBody,
     UpdateChannelSessionBody,
     CliLoginApproveBody,
     CliLoginApproveResponse,
@@ -835,6 +837,13 @@ export interface ChannelsClient {
         verifyCode: string
     ) => Promise<WeixinRegistrationSummary>
     cancelWeixinRegistration: (id: string) => Promise<void>
+    startWhatsappRegistration: (
+        body: StartWhatsappRegistrationBody
+    ) => Promise<WhatsappRegistrationSummary>
+    getWhatsappRegistration: (
+        id: string
+    ) => Promise<WhatsappRegistrationSummary>
+    cancelWhatsappRegistration: (id: string) => Promise<void>
     get: (id: string) => Promise<ChannelDetail>
     update: (id: string, body: UpdateChannelBody) => Promise<ChannelDetail>
     delete: (id: string) => Promise<void>
@@ -3001,6 +3010,20 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 ),
             cancelWeixinRegistration: (id) =>
                 deleteNoBody(apiPaths.CHANNEL_WEIXIN_REGISTRATION_BY_ID(id)),
+            startWhatsappRegistration: (body) =>
+                request<WhatsappRegistrationSummary>(
+                    apiPaths.CHANNEL_WHATSAPP_REGISTRATIONS,
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
+                ),
+            getWhatsappRegistration: (id) =>
+                request<WhatsappRegistrationSummary>(
+                    apiPaths.CHANNEL_WHATSAPP_REGISTRATION_BY_ID(id)
+                ),
+            cancelWhatsappRegistration: (id) =>
+                deleteNoBody(apiPaths.CHANNEL_WHATSAPP_REGISTRATION_BY_ID(id)),
             get: (id) => request<ChannelDetail>(apiPaths.CHANNEL_BY_ID(id)),
             update: (id, body) =>
                 request<ChannelDetail>(apiPaths.CHANNEL_BY_ID(id), {

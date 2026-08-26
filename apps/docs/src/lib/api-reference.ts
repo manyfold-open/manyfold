@@ -1,4 +1,4 @@
-import type { Locale } from '@/lib/i18n'
+import { localePath, type Locale } from '@/lib/i18n'
 
 type ApiParam = {
     name: string
@@ -428,5 +428,55 @@ const zh: ApiReferenceCopy = {
 
 export type { ApiEndpoint, ApiParam, ApiReferenceCopy }
 
+// Which shared example belongs to which endpoint. Lives here, next to the
+// data, because the endpoint pages and the landing both need it and a second
+// copy would drift. errorResponse is deliberately absent: it is shared across
+// every endpoint, so it stays on the reference landing rather than being
+// repeated three times.
+export const endpointExamples: Record<
+    string,
+    { request: keyof ApiReferenceCopy['examples']; response?: keyof ApiReferenceCopy['examples']; extra?: keyof ApiReferenceCopy['examples'] }
+> = {
+    'chat-completions': {
+        request: 'chatRequest',
+        response: 'chatResponse',
+        extra: 'streamRequest'
+    },
+    conversations: { request: 'conversationsRequest' },
+    'conversation-messages': { request: 'messagesRequest' }
+}
+
+// One endpoint, one URL. The reference was a single page with three anchors,
+// so no endpoint had its own title, description, canonical, social card or
+// markdown twin. Three endpoints does not justify that on length alone; it is
+// justified because those are per-URL things and an endpoint is the unit
+// people search for.
+export const endpointPath = (locale: Locale, id: string): string =>
+    localePath(locale, `/api-reference/${id}/`)
+
 export const apiReferenceFor = (locale: Locale): ApiReferenceCopy =>
     locale === 'zh' ? zh : en
+
+// The method's colour and label. Both components rendered their own identical
+// copy of this, and the sidebar now needs a third: the pill is what makes an
+// endpoint row scan as a shape before a label is read, and it went missing when
+// the API surface's own rail was folded into the documentation tree.
+//
+// The colours come from the design system's status spectrum: GET reads as
+// success, POST as info, PUT and PATCH as warning, DELETE as error. Only GET
+// and POST exist on the v1 surface today; the rest are here so adding one does
+// not silently fall through to green, which would say "safe, idempotent" about
+// a destructive call.
+export const methodClass = (method: string): string =>
+    ({
+        GET: 'bg-success-bg text-success-strong',
+        POST: 'bg-info-bg text-info-strong',
+        PUT: 'bg-warning-bg text-warning-strong',
+        PATCH: 'bg-warning-bg text-warning-strong',
+        DELETE: 'bg-error-bg text-error-strong'
+    })[method] ?? 'bg-success-bg text-success-strong'
+
+// fal abbreviates DELETE to DEL so the pill stays inside 25 to 37px and does
+// not crowd the endpoint title out of a 220px column.
+export const methodLabel = (method: string): string =>
+    method === 'DELETE' ? 'DEL' : method

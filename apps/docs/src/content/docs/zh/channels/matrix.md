@@ -3,9 +3,6 @@ title: Matrix
 description: 将 Matrix bot 账号连接到 Manyfold Agent。
 order: 14
 ---
-
-# Matrix
-
 当你希望在 Matrix 私聊、房间或 thread 中使用 Agent 时，可以连接 Matrix，既支持公共 homeserver，也支持自托管 homeserver。Manyfold 使用 bot 账号的 Client-Server API access token 和持续运行的 `/sync` 连接，不需要公开 webhook。
 
 ## 渠道能力
@@ -60,7 +57,7 @@ Matrix ID 必须使用完整形式，例如 `!room:example.org` 和 `@alice:exam
 - 开启 **Auto-thread group replies** 后，未在线程中的房间消息会成为新 Matrix thread 的根消息，Agent 在 thread 内回复。
 - 开启 thread isolation 后，不在原生 thread 中的 Matrix reply 会按它直接引用的 event 隔离；出站回复保留原生 reply relation。
 - 未启用 thread isolation 时，群聊默认按用户隔离；开启 **Share session in channel** 后全房间共享。
-- `/new`、`/list`、`/stop`、`/history` 等文本命令不受 mention gate 限制。详见[切换 Session](../session-switching/)。
+- `/new`、`/list`、`/stop`、`/history` 等文本命令不受 mention gate 限制。详见[切换 Session](/zh/docs/channels/session-switching/)。
 
 ## 消息行为
 
@@ -131,11 +128,11 @@ API 会先记录 durable outbound delivery，再发送消息，并返回 deliver
 
 ## 另请参阅
 
-- [连接渠道](../)
-- [切换 Session](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Lark 和飞书](../lark/)
-- [Discord](../discord/)
-- [从 Agent 主动发送](../agent-send/)
+- [连接渠道](/zh/docs/channels/)
+- [切换 Session](/zh/docs/channels/session-switching/)
+- [Telegram](/zh/docs/channels/telegram/)
+- [Slack](/zh/docs/channels/slack/)
+- [Lark 和飞书](/zh/docs/channels/lark/)
+- [Discord](/zh/docs/channels/discord/)
+- [从 Agent 主动发送](/zh/docs/channels/agent-send/)
 - [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/)

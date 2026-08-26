@@ -3,9 +3,6 @@ title: 通过 API 与 Agent 通信
 description: 使用 OpenAI 兼容的 Chat Completions API 与 Manyfold Agent 对话。
 order: 6
 ---
-
-# 通过 API 与 Agent 通信
-
 当你希望外部服务、脚本或 OpenAI SDK 客户端与 Manyfold Agent 对话时，可以使用 OpenAI 兼容的 Chat Completions API。
 
 v1 只暴露一个公开集成入口：
@@ -24,7 +21,7 @@ POST /api/v1/chat/completions
 4. 创建一个带 `chat.completions` scope 的 API token。
 5. 在 token 显示时复制保存。之后不会再次显示明文。
 
-只有可信内部客户端需要更广泛的 Manyfold API 权限时，才使用 `api.full`。普通聊天集成建议使用 `chat.completions`。
+> **注意：** 只有可信内部客户端需要更广泛的 Manyfold API 权限时，才使用 `api.full`。普通聊天集成建议使用 `chat.completions`。
 
 ## Endpoint 和 model
 
@@ -34,7 +31,7 @@ POST /api/v1/chat/completions
 https://api.manyfold.ai/api/v1/chat/completions
 ```
 
-如果你使用自托管部署，请把 origin 替换为自己的 API origin。
+如果你使用[自托管部署](/zh/docs/self-hosting/)，请把 origin 替换为自己的 API origin。
 
 `model` 字段表示 Manyfold agent id，不是底层模型名称：
 
@@ -139,7 +136,7 @@ data: [DONE]
 }
 ```
 
-如果不传 `metadata.session_id`，Manyfold 会为本次请求创建新会话。
+如果不传 `metadata.session_id`，Manyfold 会为本次请求创建新会话。如果要列出已创建的会话并回放其中的消息，见[用 API 读取会话](/zh/docs/api-conversations/)。
 
 ## 取消进行中的回合
 
@@ -250,3 +247,10 @@ console.log(response.choices[0]?.message?.content)
 - 创建 token 时选择 `chat.completions` 或 `api.full` scope。
 - 确认 `model` 是该 token 所属用户拥有的 agent id。
 - 发送图片或文档时，使用 `image_url`/`file` 内容块（见[发送文件](#发送文件)）。
+
+## 另请参阅
+
+- [API 参考](/zh/api-reference/)
+- [用 API 读取会话](/zh/docs/api-conversations/)
+- [通过 A2A 调用 Agent](/zh/docs/api-a2a/)
+- [创建第一个 Agent](/zh/docs/create-agent/)

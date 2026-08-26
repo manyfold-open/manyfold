@@ -3,9 +3,6 @@ title: Discord
 description: Connect a Discord bot to a Manyfold agent.
 order: 13
 ---
-
-# Discord
-
 Connect Discord when you want an agent in direct messages, server channels, or threads. Manyfold maintains a Discord Gateway connection, registers native application commands, and can preserve surrounding channel context for mention-gated conversations.
 
 ## What the channel supports
@@ -84,7 +81,7 @@ Discord does not use the Manyfold inbound URL. Registration reads the bot/applic
 
 Manyfold registers `/new`, `/list`, `/switch`, `/current`, `/rename`, `/delete`, `/stop`, `/model`, `/usage`, `/history`, and `/help`. Native command replies use the deferred Discord interaction when available.
 
-Session commands do not require an @mention. See [Session switching](../session-switching/) for behavior and permissions.
+Session commands do not require an @mention. See [Session switching](/docs/channels/session-switching/) for behavior and permissions.
 
 ## Settings
 
@@ -126,11 +123,11 @@ Run **Test** to confirm the bot identity and Message Content Intent. Then:
 
 ## See also
 
-- [Connect channels](../)
-- [Session switching](../session-switching/)
-- [Telegram](../telegram/)
-- [Slack](../slack/)
-- [Lark and Feishu](../lark/)
-- [Matrix](../matrix/)
+- [Connect channels](/docs/channels/)
+- [Session switching](/docs/channels/session-switching/)
+- [Telegram](/docs/channels/telegram/)
+- [Slack](/docs/channels/slack/)
+- [Lark and Feishu](/docs/channels/lark/)
+- [Matrix](/docs/channels/matrix/)
 - [Discord Developer Portal](https://discord.com/developers/applications)
 - [Discord Gateway intents](https://discord.com/developers/docs/events/gateway#gateway-intents)

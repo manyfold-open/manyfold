@@ -1,0 +1,56 @@
+---
+// Destination: apps/docs/src/pages/404.astro
+//
+// Why this file exists. Before it, the repo contained zero occurrences of "404".
+// With no 404 page in dist, Cloudflare Pages falls back to serving the root
+// index.html, which is the Astro-generated redirect stub for '/'. The result is
+// that every mistyped URL returns HTTP 200 with a meta-refresh to
+// /docs/getting-started/, so crawlers treat unlimited junk URLs as indexable
+// duplicates of the start page.
+//
+// PREREQUISITE: apply section 1 of check-seo-additions.mjs before adding this
+// file, or `pnpm build` will fail. The SEO gate walks every .html in dist and
+// requires each non-redirect page to have a canonical that also appears in the
+// sitemap. A 404 page has neither, by design.
+import BaseLayout from '@/layouts/BaseLayout.astro'
+import { getUi, localePath, type Locale } from '@/lib/i18n'
+
+const locale: Locale = 'en'
+const ui = getUi(locale)
+
+const links = [
+    { label: ui.docsHome, href: localePath(locale, '/docs/') },
+    { label: ui.apiReference, href: localePath(locale, '/api-reference/') },
+    { label: ui.changelog, href: localePath(locale, '/changelog/') },
+    { label: ui.status, href: localePath(locale, '/status/') }
+]
+---
+
+<BaseLayout
+    title="Page not found"
+    description="This documentation page does not exist. Search the docs or start from the guides index."
+    locale={locale}
+    noindex={true}
+>
+    <div class="mx-auto max-w-2xl px-6 py-24">
+        <p class="text-muted text-sm font-medium">404</p>
+        <h1 class="mt-2 text-h1">
+            This page does not exist
+        </h1>
+        <p class="text-muted mt-4">
+            The page may have moved or the URL may be mistyped. Press
+            <kbd>/</kbd> to search the docs, or pick a starting point below.
+        </p>
+        <ul class="mt-8 space-y-2">
+            {
+                links.map((link) => (
+                    <li>
+                        <a class="text-info hover:underline" href={link.href}>
+                            {link.label}
+                        </a>
+                    </li>
+                ))
+            }
+        </ul>
+    </div>
+</BaseLayout>

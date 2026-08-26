@@ -82,6 +82,18 @@ type UiCopy = {
     joinDiscord: string
     followX: string
     onThisPage: string
+    copyPage: string
+    copied: string
+    headingLink: string
+    openNav: string
+    closeNav: string
+    overview: string
+    newerRelease: string
+    olderRelease: string
+    morePageActions: string
+    viewAsMarkdown: string
+    openInChatGpt: string
+    openInClaude: string
     previous: string
     next: string
     helpfulQuestion: string
@@ -95,7 +107,7 @@ type UiCopy = {
 const defaultUi: UiCopy = {
     brand: 'Manyfold',
     brandShort: 'Manyfold',
-    docs: 'Guides',
+    docs: 'Documentation',
     apiReference: 'API reference',
     changelog: 'Changelog',
     status: 'Status',
@@ -145,7 +157,22 @@ const defaultUi: UiCopy = {
     // "Discord", not "our Discord": the invite opens the NetMind.AI server.
     joinDiscord: 'Join Discord',
     followX: 'Follow on X',
+    // The third column's heading, and the only one now: the inline "Table of
+    // contents" the API landing used to carry is the same list, and shipping
+    // both meant one site naming the same object two ways.
     onThisPage: 'On this page',
+    copyPage: 'Copy page',
+    copied: 'Copied',
+    headingLink: 'Copy link to this section',
+    openNav: 'Open documentation navigation',
+    closeNav: 'Close documentation navigation',
+    overview: 'Overview',
+    newerRelease: 'Newer release',
+    olderRelease: 'Older release',
+    morePageActions: 'More page actions',
+    viewAsMarkdown: 'View as Markdown',
+    openInChatGpt: 'Open in ChatGPT',
+    openInClaude: 'Open in Claude',
     previous: 'Previous',
     next: 'Next',
     helpfulQuestion: 'Was this page helpful?',
@@ -160,7 +187,7 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
     zh: {
         brand: 'Manyfold',
         brandShort: 'Manyfold',
-        docs: '指南',
+        docs: '文档',
         apiReference: 'API 参考',
         changelog: '更新日志',
         status: '状态',
@@ -210,7 +237,19 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
         requestAccess: '申请使用',
         themeToggle: '切换主题',
         onThisPage: '本页内容',
-        previous: '上一篇',
+        copyPage: '复制页面',
+        copied: '已复制',
+        headingLink: '复制本节链接',
+        openNav: '打开文档导航',
+        closeNav: '关闭文档导航',
+        overview: '概览',
+        newerRelease: '更新的版本',
+        olderRelease: '更旧的版本',
+        morePageActions: '更多页面操作',
+        viewAsMarkdown: '查看 Markdown',
+        openInChatGpt: '在 ChatGPT 中打开',
+            openInClaude: '在 Claude 中打开',
+            previous: '上一篇',
         next: '下一篇',
         helpfulQuestion: '这个页面有帮助吗？',
         helpfulYes: '有帮助',
@@ -346,66 +385,167 @@ const supportCopy: Record<SupportLocale, SupportCopy> = {
 export const getSupportUi = (locale: Locale): SupportCopy =>
     locale === 'zh' ? supportCopy.zh : supportCopy.en
 
-type DocsGroup = { title: string; description: string; ids: string[] }
+// A sidebar entry is one of three things, so the literals below can be read
+// straight down as the tree the reader sees:
+//
+//   'getting-started'        a page in the docs collection, by slug
+//   { title, ids: [...] }    a nested tier of collection pages
+//   { title, file }          a build artifact that is not a page at all
+//
+// Only one level of nesting exists on purpose. Replicate goes three tiers deep
+// (Guides > Run models > leaf) because its tree is large enough to need it;
+// this one is not, and a third tier would cost a reader a click per page for
+// nothing. Nesting is used only where the content already has that shape, so
+// most groups stay flat.
+//
+// The file nodes are the machine-readable surface the build already ships and
+// the UI never mentioned: llms.txt, llms-full.txt, the changelog feed. Their
+// hrefs are written out per locale rather than run through localePath(),
+// because they are not uniformly localized: llms.txt has a /zh twin and the
+// changelog feed does not. A literal href cannot drift away from the route
+// that actually answers.
+type DocsSubgroup = { title: string; ids: string[] }
+type DocsFile = { title: string; file: string }
+type DocsNode = string | DocsSubgroup | DocsFile
+type DocsGroup = { title: string; description: string; ids: DocsNode[] }
 
+const isDocsFile = (node: DocsNode): node is DocsFile =>
+    typeof node !== 'string' && 'file' in node
+
+const isDocsSubgroup = (node: DocsNode): node is DocsSubgroup =>
+    typeof node !== 'string' && 'ids' in node
+
+// Every collection slug a group owns, at any depth. Nesting is a presentation
+// concern; membership is not, so everything that asks "which group is this
+// page in" goes through here rather than reading group.ids directly.
+const groupSlugs = (group: DocsGroup): string[] =>
+    group.ids.flatMap((node) =>
+        typeof node === 'string'
+            ? [node]
+            : isDocsSubgroup(node)
+              ? node.ids
+              : []
+    )
+
+// Four sections, named for what a reader is doing: Start, Build, Connect, and
+// then Reference for the things they look up rather than read.
+//
+// It was nine sections before, four of which held one or two pages, so the rail
+// was 42 rows and a reader scanned nine labels to learn what the docs covered.
+// The sections are verbs now and the old groups became the tier below them,
+// which is the shape replicate.com/docs uses: four sections, the depth one
+// level down, and a Reference that holds the HTTP API and the OpenAPI schema
+// while every webhook how-to sits under Topics.
+//
+// Reference means generated or canonical, not "API-shaped". The endpoint pages
+// come from a typed structure, the command reference from `mf --help`, and the
+// three machine-readable files from the build, so that section is the part of
+// the site nobody hand-writes. The API guides stay in Connect with the channel
+// guides, because they answer the same question: how do I wire something
+// external to an agent.
+//
+// Three tiers is the limit the renderer draws, so the old 'Supported channels'
+// and 'Task guides' labels are gone: their parents are the collapsing unit now.
 const defaultDocsGroups: DocsGroup[] = [
     {
         title: 'Start',
-        description: 'Understand the product and create your first agent.',
-        ids: ['getting-started', 'create-agent']
+        description:
+            'Understand the product, install mf, and create your first agent.',
+        ids: ['getting-started', 'install', 'create-agent']
     },
     {
-        title: 'CLI',
+        title: 'Build',
         description:
-            'Install mf, manage Manyfold from a terminal, and connect self-owned computers.',
+            'Give an agent a workspace, a model and somewhere to run, then drive it from the terminal.',
         ids: [
-            'cli',
-            'install',
-            'profiles',
-            'scripting',
-            'cli-agents',
-            'cli-runtimes',
-            'cli-automations',
-            'cli-backups',
-            'cli-skills',
-            'cli-usage',
-            'cli-a2a',
-            'cli-reference',
-            'local-daemons'
+            {
+                title: 'Agents',
+                ids: ['workspace', 'profiles', 'model-providers']
+            },
+            {
+                title: 'Runtimes',
+                ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
+            },
+            {
+                title: 'CLI',
+                ids: [
+                    'cli',
+                    'scripting',
+                    'cli/agents',
+                    'cli/runtimes',
+                    'cli/automations',
+                    'cli/backups',
+                    'cli/skills',
+                    'cli/usage',
+                    'cli/a2a'
+                ]
+            }
         ]
     },
     {
-        title: 'Use',
+        title: 'Connect',
         description:
-            'Connect providers, work in the agent workspace, and review common questions.',
-        ids: ['model-providers', 'workspace', 'faq']
-    },
-    {
-        title: 'Self-hosting',
-        description:
-            'Run the open-source stack on your own infrastructure and operate it.',
-        ids: ['self-hosting']
-    },
-    {
-        title: 'API',
-        description:
-            'Call agents through OpenAI-compatible chat and conversation APIs, or the A2A protocol.',
-        ids: ['api-chat', 'api-conversations', 'api-a2a']
-    },
-    {
-        title: 'Channels',
-        description: 'Connect agents to the tools your team already uses.',
+            'Wire an agent to the tools your team already uses, and to your own applications.',
         ids: [
-            'channels',
-            'channels/telegram',
-            'channels/slack',
-            'channels/lark',
-            'channels/discord',
-            'channels/matrix',
-            'channels/weixin',
-            'channels/linear',
-            'channels/github',
-            'channels/session-switching'
+            {
+                title: 'Channels',
+                ids: [
+                    'channels',
+                    'channels/telegram',
+                    'channels/slack',
+                    'channels/lark',
+                    'channels/discord',
+                    'channels/matrix',
+                    'channels/weixin',
+                    'channels/line',
+                    'channels/whatsapp',
+                    'channels/linear',
+                    'channels/github',
+                    'channels/session-switching',
+                    'channels/agent-send'
+                ]
+            },
+            {
+                title: 'API',
+                ids: ['api-chat', 'api-conversations', 'api-a2a']
+            }
+        ]
+    },
+    {
+        title: 'Reference',
+        description:
+            'Look up the exact shape of the API and the CLI, plus the machine-readable versions of these docs.',
+        ids: [
+            {
+                title: 'CLI commands',
+                ids: [
+                    'cli/reference',
+                    'cli/reference/auth',
+                    'cli/reference/setup',
+                    'cli/reference/login',
+                    'cli/reference/whoami',
+                    'cli/reference/agent',
+                    'cli/reference/automations',
+                    'cli/reference/backups',
+                    'cli/reference/channels',
+                    'cli/reference/files',
+                    'cli/reference/connections',
+                    'cli/reference/model-config',
+                    'cli/reference/runtime',
+                    'cli/reference/skills',
+                    'cli/reference/usage',
+                    'cli/reference/a2a',
+                    'cli/reference/daemon',
+                    'cli/reference/profile',
+                    'cli/reference/update',
+                    'cli/reference/version',
+                    'cli/reference/help'
+                ]
+            },
+            'faq',
+            { title: 'llms.txt', file: '/llms.txt' },
+            { title: 'llms-full.txt', file: '/llms-full.txt' },
+            { title: 'Changelog feed', file: '/changelog/feed.xml' }
         ]
     }
 ]
@@ -414,58 +554,99 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
     zh: [
         {
             title: '开始',
-            description: '了解产品并创建第一个 Agent。',
-            ids: ['getting-started', 'create-agent']
+            description: '了解产品、安装 mf，并创建第一个 Agent。',
+            ids: ['getting-started', 'install', 'create-agent']
         },
         {
-            title: 'CLI',
-            description: '安装 mf、通过终端管理 Manyfold，并连接自有计算机。',
+            title: '构建',
+            description: '给 Agent 配置 workspace、模型和运行位置，然后用终端驱动它。',
             ids: [
-                'cli',
-                'install',
-                'profiles',
-                'scripting',
-                'cli-agents',
-                'cli-runtimes',
-                'cli-automations',
-                'cli-backups',
-                'cli-skills',
-                'cli-usage',
-                'cli-a2a',
-                'cli-reference',
-                'local-daemons'
+                {
+                    title: 'Agent',
+                    ids: ['workspace', 'profiles', 'model-providers']
+                },
+                {
+                    title: 'Runtime',
+                    ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
+                },
+                {
+                    title: 'CLI',
+                    ids: [
+                        'cli',
+                        'scripting',
+                        'cli/agents',
+                        'cli/runtimes',
+                        'cli/automations',
+                        'cli/backups',
+                        'cli/skills',
+                        'cli/usage',
+                        'cli/a2a'
+                    ]
+                }
             ]
         },
         {
-            title: '使用',
-            description: '连接模型提供方、使用 Agent 工作区，并查看常见问题。',
-            ids: ['model-providers', 'workspace', 'faq']
-        },
-        {
-            title: '自托管',
-            description: '在自己的基础设施上运行并运维开源版。',
-            ids: ['self-hosting']
-        },
-        {
-            title: 'API',
-            description:
-                '通过 OpenAI 兼容的 Chat / Conversation API 或 A2A 协议调用 Agent。',
-            ids: ['api-chat', 'api-conversations', 'api-a2a']
-        },
-        {
-            title: '渠道',
-            description: '把 Agent 接入团队已经在使用的沟通工具。',
+            title: '连接',
+            description: '把 Agent 接入团队已经在使用的工具，以及你自己的应用。',
             ids: [
-                'channels',
-                'channels/telegram',
-                'channels/slack',
-                'channels/lark',
-                'channels/discord',
-                'channels/matrix',
-                'channels/weixin',
-                'channels/linear',
-                'channels/github',
-                'channels/session-switching'
+                {
+                    title: '渠道',
+                    ids: [
+                        'channels',
+                        'channels/telegram',
+                        'channels/slack',
+                        'channels/lark',
+                        'channels/discord',
+                        'channels/matrix',
+                        'channels/weixin',
+                        'channels/line',
+                        'channels/whatsapp',
+                        'channels/linear',
+                        'channels/github',
+                        'channels/session-switching',
+                        'channels/agent-send'
+                    ]
+                },
+                {
+                    title: 'API',
+                    ids: ['api-chat', 'api-conversations', 'api-a2a']
+                }
+            ]
+        },
+        {
+            title: '参考',
+            description: '查阅 API 与 CLI 的确切形状，以及这份文档的机器可读版本。',
+            ids: [
+                {
+                    title: 'CLI 命令',
+                    ids: [
+                        'cli/reference',
+                        'cli/reference/auth',
+                        'cli/reference/setup',
+                        'cli/reference/login',
+                        'cli/reference/whoami',
+                        'cli/reference/agent',
+                        'cli/reference/automations',
+                        'cli/reference/backups',
+                        'cli/reference/channels',
+                        'cli/reference/files',
+                        'cli/reference/connections',
+                        'cli/reference/model-config',
+                        'cli/reference/runtime',
+                        'cli/reference/skills',
+                        'cli/reference/usage',
+                        'cli/reference/a2a',
+                        'cli/reference/daemon',
+                        'cli/reference/profile',
+                        'cli/reference/update',
+                        'cli/reference/version',
+                        'cli/reference/help'
+                    ]
+                },
+                'faq',
+                { title: 'llms.txt', file: '/zh/llms.txt' },
+                { title: 'llms-full.txt', file: '/zh/llms-full.txt' },
+                { title: '更新日志 RSS', file: '/changelog/feed.xml' }
             ]
         }
     ]
@@ -473,6 +654,110 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
 
 export const docsGroupsFor = (locale: Locale): DocsGroup[] =>
     docsGroupOverrides[locale] ?? defaultDocsGroups
+
+// The sidebar group a doc belongs to, in that locale's wording. Used as the
+// eyebrow line on a page's generated OG card, so a link shared into Slack says
+// which part of the docs it came from before the title is even read. Returns
+// undefined for a doc in no group, which the caller labels generically rather
+// than guessing.
+// A collection id carries the locale directory for non-default locales, so a
+// Chinese page is `zh/cli-agents` while every group in docsGroupOverrides.zh
+// lists the bare `cli-agents`. Comparing ids directly matched nothing for all
+// 33 Chinese pages: no eyebrow rendered on any of them, and every Chinese OG
+// card fell back to the literal word "Documentation". Both this and entrySlug
+// need the same stripping, and keeping two copies of it is what let them
+// drift, so they share one.
+const bareSlug = (id: string): string => {
+    const [firstSegment, ...rest] = id.split('/')
+    return isLocale(firstSegment) && firstSegment !== defaultLocale
+        ? rest.join('/')
+        : id
+}
+
+export const groupTitleFor = (
+    entry: { id: string },
+    locale: Locale
+): string | undefined =>
+    docsGroupsFor(locale).find((group) =>
+        groupSlugs(group).includes(bareSlug(entry.id))
+    )?.title
+
+// A locale-independent anchor for a group, so /docs/#agents is the same target
+// on the English and the Chinese dashboard and a breadcrumb can point at it.
+// A group has no page of its own, and an intermediate BreadcrumbList item
+// without a URL is the kind of thing Google quietly drops the whole trail
+// over, so the middle crumb needs somewhere real to go: the dashboard's
+// grouped index, at that group's heading.
+//
+// The key comes from the default-locale wording, found by shared membership
+// rather than by position in the array. The two arrays are in the same order
+// today, and if that ever slips, position would hand back a confidently wrong
+// anchor while membership hands back none.
+//
+// Prefixed, because the bare keys collide: the dashboard already publishes
+// <h2 id="runtimes"> for its runtime cards, and a section named Runtimes would
+// have taken the same id on the same page.
+const asciiKey = (prefix: string, title: string): string =>
+    `${prefix}-${title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')}`
+
+export const groupKeyForTitle = (
+    title: string,
+    locale: Locale
+): string | undefined => {
+    const group = docsGroupsFor(locale).find((g) => g.title === title)
+    if (!group) return undefined
+    const slugs = new Set(groupSlugs(group))
+    const canonical = defaultDocsGroups.find((g) =>
+        groupSlugs(g).some((slug) => slugs.has(slug))
+    )
+    return canonical ? asciiKey('group', canonical.title) : undefined
+}
+
+// The tier between a section and a page: Channels inside Connect, CLI inside
+// Build. The breadcrumb carries it because without it a channel page's trail
+// reads `Guides / Connect / Telegram` and loses the word that says what kind of
+// thing Telegram is here. Same membership lookup as the section key, so the
+// anchor is the same on both locales' dashboards.
+export const subgroupFor = (
+    entry: { id: string },
+    locale: Locale
+): { title: string; anchor: string } | undefined => {
+    const slug = bareSlug(entry.id)
+    const localised = docsGroupsFor(locale)
+        .flatMap((group) => group.ids)
+        .find((node) => isDocsSubgroup(node) && node.ids.includes(slug))
+    if (!localised || !isDocsSubgroup(localised)) return undefined
+    const canonical = defaultDocsGroups
+        .flatMap((group) => group.ids)
+        .find((node) => isDocsSubgroup(node) && node.ids.includes(slug))
+    if (!canonical || !isDocsSubgroup(canonical)) return undefined
+    return {
+        title: localised.title,
+        anchor: asciiKey('subgroup', canonical.title)
+    }
+}
+
+// The same anchor, reached from a rendered subgroup rather than from a page,
+// for the dashboard's grouped index.
+export const subgroupAnchorForTitle = (
+    title: string,
+    locale: Locale
+): string | undefined => {
+    const localised = docsGroupsFor(locale)
+        .flatMap((group) => group.ids)
+        .find((node) => isDocsSubgroup(node) && node.title === title)
+    if (!localised || !isDocsSubgroup(localised)) return undefined
+    const first = localised.ids[0]
+    const canonical = defaultDocsGroups
+        .flatMap((group) => group.ids)
+        .find((node) => isDocsSubgroup(node) && node.ids.includes(first))
+    return canonical && isDocsSubgroup(canonical)
+        ? asciiKey('subgroup', canonical.title)
+        : undefined
+}
 
 type DocsEntry = CollectionEntry<'docs'>
 
@@ -524,12 +809,7 @@ export const entryLocale = (entry: DocsEntry): Locale => {
         : defaultLocale
 }
 
-export const entrySlug = (entry: DocsEntry): string => {
-    const [firstSegment, ...rest] = entry.id.split('/')
-    return isLocale(firstSegment) && firstSegment !== defaultLocale
-        ? rest.join('/')
-        : entry.id
-}
+export const entrySlug = (entry: DocsEntry): string => bareSlug(entry.id)
 
 export const entryHref = (
     entry: DocsEntry,
@@ -544,18 +824,75 @@ export const filterDocsByLocale = (
         .filter((entry) => entryLocale(entry) === contentLocaleFor(locale))
         .sort((a, b) => a.data.order - b.data.order)
 
+// What the sidebar renders, one node per visible row. `entries` on a group
+// stays the flat depth-first list every other consumer already expects
+// (llms.txt, llms-full.txt), so nesting is additive: it changes the shape of
+// the nav and nothing else.
+export type DocsNavNode =
+    | { kind: 'entry'; entry: DocsEntry }
+    | { kind: 'subgroup'; title: string; entries: DocsEntry[] }
+    | { kind: 'file'; title: string; href: string }
+    // A page that is not a collection entry: the API reference and its
+    // endpoints, which are generated from a typed structure rather than from
+    // markdown. Same-tab, unlike 'file', which is a raw artifact that opens in
+    // a new tab with an outbound arrow.
+    | {
+          kind: 'page'
+          title: string
+          href: string
+          nested: boolean
+          // Whether the rows nested under this one are its children, so it
+          // stays marked while a reader is on one of them. Opt-in, not inferred
+          // from the path: /docs/ is a prefix of every documentation URL, and
+          // inferring it there marked the Overview row on every page.
+          ancestor?: boolean
+          // An endpoint's method pill. Optional because the reference landing
+          // is a page without a method.
+          badge?: { label: string; className: string }
+      }
+
 export const groupDocs = (entries: DocsEntry[], locale: Locale) => {
     const bySlug = new Map(entries.map((entry) => [entrySlug(entry), entry]))
     const groups = docsGroupsFor(locale)
-    const groupedIds = new Set(groups.flatMap((group) => group.ids))
+    const groupedIds = new Set(groups.flatMap(groupSlugs))
+    const lookup = (ids: string[]): DocsEntry[] =>
+        ids
+            .map((id) => bySlug.get(id))
+            .filter((entry): entry is DocsEntry => Boolean(entry))
+
     const grouped = groups
-        .map((group) => ({
-            ...group,
-            entries: group.ids
-                .map((id) => bySlug.get(id))
-                .filter((entry): entry is DocsEntry => Boolean(entry))
-        }))
-        .filter((group) => group.entries.length > 0)
+        .map((group) => {
+            const nodes = group.ids.flatMap((node): DocsNavNode[] => {
+                if (typeof node === 'string') {
+                    const entry = bySlug.get(node)
+                    return entry ? [{ kind: 'entry', entry }] : []
+                }
+                if (isDocsFile(node)) {
+                    return [
+                        { kind: 'file', title: node.title, href: node.file }
+                    ]
+                }
+                const children = lookup(node.ids)
+                return children.length > 0
+                    ? [{ kind: 'subgroup', title: node.title, entries: children }]
+                    : []
+            })
+
+            return {
+                title: group.title,
+                description: group.description,
+                nodes,
+                entries: nodes.flatMap((node) =>
+                    node.kind === 'entry'
+                        ? [node.entry]
+                        : node.kind === 'subgroup'
+                          ? node.entries
+                          : []
+                )
+            }
+        })
+        .filter((group) => group.nodes.length > 0)
+
     const remaining = entries.filter(
         (entry) => !groupedIds.has(entrySlug(entry))
     )
