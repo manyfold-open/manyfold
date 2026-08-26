@@ -19,6 +19,10 @@ jobs:
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  # changeset-presence:check diffs the PR against its base, so
+                  # this job needs history rather than the default depth-1.
+                  fetch-depth: 0
             - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
               with:
                   version: 10.29.3
@@ -36,6 +40,21 @@ jobs:
             - run: pnpm knip
             - run: node scripts/check-migration-ownership.mjs
             - run: node --test scripts/check-migration-ownership.test.mjs
+            # The env-seal wrapper that the pg lane runs its suites through. If
+            # it silently stopped sealing, that lane would keep reporting green
+            # while inheriting whatever credentials the runner had, so its own
+            # tests run here.
+            - run: pnpm sealed-env:check
+            - name: Resolve base for the changeset presence gate
+              env:
+                  CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+              run: scripts/ci-scm-base.sh
+            # Pull requests only: it reads the PR as merged, and the escape
+            # hatch (an empty changeset plus a reason) is something an author
+            # adds to the PR, not to a push that already landed. Reads
+            # TURBO_SCM_BASE, so it must stay after the step above.
+            - if: github.event_name == 'pull_request'
+              run: pnpm changeset-presence:check
 
     api-tests:
         runs-on: ubuntu-24.04

@@ -39,7 +39,10 @@ pnpm -r test
 - Any user-visible behavior change needs a changeset (`pnpm changeset`) that
   names every affected product surface (`@manyfold/api`, `@manyfold/web`,
   `@manyfold/admin`, `@manyfold/cli`, `@manyfold/k8s-gateway`). CI enforces
-  presence; `.changeset/README.md` explains bump levels.
+  presence on every pull request: touch a product package and the PR must add
+  a changeset naming it, or an empty one (`pnpm changeset --empty`) whose body
+  says why no release note is owed. `.changeset/README.md` explains bump
+  levels.
 - Tests must encode why the behavior matters, not just what it does. Tests
   here are hermetic: they run against the open-source composition only, with
   no external credentials (CI has zero secrets).
