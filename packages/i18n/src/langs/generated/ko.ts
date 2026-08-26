@@ -349,6 +349,7 @@ const ko: Record<string, string> = {
     "web.emptyState.runtimeAgentsBody": "이 런타임에서 생성된 에이전트가 여기에 표시됩니다.",
     "web.emptyState.agentsTitle": "아직 에이전트 없음",
     "web.emptyState.agentsSidebarBody": "시작하려면 에이전트를 만드세요.",
+    'web.emptyState.agentsWorkspaceBody': '에이전트는 자체 샌드박스에서 동작합니다. 대화하거나, 스킬을 추가하거나, 일정에 맞춰 실행할 수 있습니다.',
     "web.emptyState.agentsCreateAction": "에이전트 만들기",
     "web.emptyState.agentsDetailBody": "여기에서 세부정보를 보려면 에이전트를 만드세요.",
     "web.emptyState.agentsNoSelectionTitle": "선택한 에이전트가 없습니다.",

@@ -349,6 +349,7 @@ const ru: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'Здесь отображаются агенты, созданные в этой среде выполнения.',
     'web.emptyState.agentsTitle': 'Агентов пока нет',
     'web.emptyState.agentsSidebarBody': 'Создайте агента, чтобы начать.',
+    'web.emptyState.agentsWorkspaceBody': 'Агент работает в собственной песочнице — общайтесь с ним, добавляйте навыки или запускайте его по расписанию.',
     'web.emptyState.agentsCreateAction': 'Создать агента',
     'web.emptyState.agentsDetailBody': 'Создайте агента, чтобы увидеть его подробности здесь.',
     'web.emptyState.agentsNoSelectionTitle': 'Агент не выбран',

@@ -818,6 +818,8 @@ const zh: Translations = {
             runtimeAgentsBody: '在此运行时上创建的 agent 会显示在这里。',
             agentsTitle: '还没有 agent',
             agentsSidebarBody: '创建一个 agent 即可开始。',
+            agentsWorkspaceBody:
+                'Agent 在自己的沙箱里干活 —— 可以和它聊天、给它装技能，或者让它按计划定时跑。',
             agentsCreateAction: '创建 agent',
             agentsDetailBody: '创建 agent 后，详情会显示在这里。',
             agentsNoSelectionTitle: '未选择 agent',

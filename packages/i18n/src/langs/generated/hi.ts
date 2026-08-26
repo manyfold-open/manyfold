@@ -349,6 +349,7 @@ const hi: Record<string, string> = {
     'web.emptyState.runtimeAgentsBody': 'इस रनटाइम पर बनाए गए एजेंट यहां दिखाई देते हैं।',
     'web.emptyState.agentsTitle': 'अभी तक कोई एजेंट नहीं',
     'web.emptyState.agentsSidebarBody': 'आरंभ करने के लिए एक एजेंट बनाएं.',
+    'web.emptyState.agentsWorkspaceBody': 'एजेंट अपने अलग सैंडबॉक्स में काम करता है — उससे चैट करें, उसे स्किल दें, या उसे तय समय पर चलाएँ।',
     'web.emptyState.agentsCreateAction': 'एजेंट बनाएं',
     'web.emptyState.agentsDetailBody': 'इसका विवरण यहां देखने के लिए एक एजेंट बनाएं।',
     'web.emptyState.agentsNoSelectionTitle': 'कोई एजेंट चयनित नहीं',
