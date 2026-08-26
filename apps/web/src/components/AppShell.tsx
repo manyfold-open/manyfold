@@ -82,6 +82,7 @@ import { navigateWithRailTransition } from '@/lib/railTransition'
 import { useTheme } from '@/lib/theme'
 import { matchesKeyboardShortcut } from '@/lib/keyboardShortcuts'
 import { docsHref } from '@/lib/docsLinks'
+import { pageLabelFor } from '@/lib/pageTitle'
 import { agentDashboardOpener } from '@/lib/openDashboard'
 import type { AgentMenuItem } from '@/lib/agentMenu'
 import { buildAgentMenuItems, isSectionBoundary } from '@/lib/agentMenu'
@@ -2144,9 +2145,13 @@ const AppShell: FC = (): ReactNode => {
     const mcpMatch = useMatch('/mcp/*')
     const customizeMatch = skillsMatch ?? connectionsMatch ?? mcpMatch
     const automationsMatch = useMatch('/automations/*')
-    const pageOwnMobileHeader = Boolean(
-        chatMatch || agentDetailMatch || agentNewMatch
-    )
+    // This header holds the only button that opens the sidebar on a narrow
+    // screen, so a route qualifies here only if its own page draws a menu
+    // button too — chat's toolbar does. Seen on prod [2026-08-26]: /agents/new
+    // was listed from when v1 drew its own mobile header, and after the v3
+    // rewrite dropped that header a new account — which every route into the
+    // app funnels to /agents/new — had no navigation at all.
+    const pageOwnMobileHeader = Boolean(chatMatch)
     const selectedAgentId =
         chatMatch?.params.id ??
         (agentNewMatch ? null : (agentDetailMatch?.params.id ?? null))
@@ -2299,13 +2304,13 @@ const AppShell: FC = (): ReactNode => {
     const sessionsError = selectedAgentId
         ? (sessionErrorByAgent[selectedAgentId] ?? null)
         : null
-    const currentLabel = location.pathname.startsWith('/settings')
-        ? t('web.settingsMenu.settings')
-        : location.pathname.startsWith('/skills')
-          ? t('web.shell.skills')
-          : location.pathname.startsWith('/automations')
-            ? t('web.shell.automations')
-            : (currentAgent?.name ?? t('common.appName'))
+    // Read off the title table rather than a prefix ladder of its own: that
+    // way a page added to the router is named here the moment it is named in
+    // the tab, instead of quietly reporting the bare brand.
+    const currentLabel =
+        currentAgent?.name ??
+        pageLabelFor(location.pathname) ??
+        t('common.appName')
     /* New chat button is enabled when there's *any* ready agent to target.
        In a chat page the target is the selected agent; outside chat (Skills,
        Automations, Settings) the target is the first ready agent the user
@@ -3091,36 +3096,36 @@ const AppShell: FC = (): ReactNode => {
                         collapsed ? 'flex flex-col items-center' : ''
                     ].join(' ')}
                 >
-                    {showCollapseToggle && (
-                        <div
-                            className={[
-                                'mb-2 flex',
-                                collapsed
-                                    ? 'flex-col items-center gap-2'
-                                    : 'items-center justify-between [container-name:railhead] [container-type:inline-size]'
-                            ].join(' ')}
-                        >
-                            {collapsed ? (
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg flex items-center justify-center'
-                                >
-                                    <BrandMark className='block h-7 w-auto' />
-                                </Link>
-                            ) : (
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg inline-flex min-w-0 items-center gap-1 px-1 text-[19px] font-medium tracking-[-0.015em]'
-                                >
-                                    <BrandMark className='block h-7 w-auto shrink-0' />
-                                    <span className='rail-brand-name whitespace-nowrap'>
-                                        {t('common.appName')}
-                                    </span>
-                                    <SignupBetaBadge />
-                                </Link>
-                            )}
+                    <div
+                        className={[
+                            'mb-2 flex',
+                            collapsed
+                                ? 'flex-col items-center gap-2'
+                                : 'items-center justify-between [container-name:railhead] [container-type:inline-size]'
+                        ].join(' ')}
+                    >
+                        {collapsed ? (
+                            <Link
+                                to='/?stay=1'
+                                aria-label={t('common.appName')}
+                                className='text-fg flex items-center justify-center'
+                            >
+                                <BrandMark className='block h-7 w-auto' />
+                            </Link>
+                        ) : (
+                            <Link
+                                to='/?stay=1'
+                                aria-label={t('common.appName')}
+                                className='text-fg inline-flex min-w-0 items-center gap-1 px-1 text-[19px] font-medium tracking-[-0.015em]'
+                            >
+                                <BrandMark className='block h-7 w-auto shrink-0' />
+                                <span className='rail-brand-name whitespace-nowrap'>
+                                    {t('common.appName')}
+                                </span>
+                                <SignupBetaBadge />
+                            </Link>
+                        )}
+                        {showCollapseToggle && (
                             <ShortcutTooltip
                                 label={
                                     collapsed
@@ -3154,8 +3159,8 @@ const AppShell: FC = (): ReactNode => {
                                     />
                                 </button>
                             </ShortcutTooltip>
-                        </div>
-                    )}
+                        )}
+                    </div>
 
                     <ShortcutTooltip
                         label={collapsed ? newChatLabel : undefined}
@@ -4124,31 +4129,22 @@ const AppShell: FC = (): ReactNode => {
             </aside>
             <div className='flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden overscroll-none'>
                 {!pageOwnMobileHeader && (
-                    <header className='border-divider/80 bg-surface/90 relative z-20 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4 backdrop-blur md:hidden'>
-                        <div className='flex min-w-0 items-center gap-3'>
-                            <button
-                                type='button'
-                                onClick={() => setDrawerOpen(true)}
-                                aria-label={t('web.shell.menu')}
-                                className='shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors'
-                            >
-                                <MenuIcon className='h-4 w-4' />
-                            </button>
-                            <div className='min-w-0'>
-                                <div className='text-ui text-fg truncate font-medium'>
-                                    {currentLabel}
-                                </div>
-                                <Link
-                                    to='/?stay=1'
-                                    aria-label={t('common.appName')}
-                                    className='text-fg mt-0.5 inline-flex items-center gap-1 truncate text-[13px] font-medium tracking-[-0.015em]'
-                                >
-                                    <BrandMark className='block h-4 w-auto' />
-                                    <span className='truncate'>
-                                        {t('common.appName')}
-                                    </span>
-                                </Link>
-                            </div>
+                    // One line, same register as the chat page's own bar: the
+                    // brand belongs at the top of the drawer, where the rail
+                    // keeps it on desktop. Stacked under the page name it read
+                    // as a subtitle and took as much room as the one word that
+                    // actually changes between pages.
+                    <header className='border-divider/80 bg-surface/90 relative z-20 flex h-14 shrink-0 items-center gap-3 border-b px-4 backdrop-blur md:hidden'>
+                        <button
+                            type='button'
+                            onClick={() => setDrawerOpen(true)}
+                            aria-label={t('web.shell.menu')}
+                            className='shadow-ring-light bg-surface text-muted hover:bg-surface-hover rounded-pill inline-flex h-9 w-9 shrink-0 items-center justify-center transition-colors'
+                        >
+                            <MenuIcon className='h-4 w-4' />
+                        </button>
+                        <div className='text-ui text-fg min-w-0 truncate font-medium'>
+                            {currentLabel}
                         </div>
                     </header>
                 )}
