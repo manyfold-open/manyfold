@@ -1,5 +1,78 @@
 # @manyfold/web
 
+## 0.44.0
+
+### Minor Changes
+
+- [#42](https://github.com/manyfold-open/manyfold/pull/42) [`f7eb47b`](https://github.com/manyfold-open/manyfold/commit/f7eb47b09edb60a244f995d0c57dd7a6db3832d4) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The agent create form says what a name may contain, and offers to fix one that
+  does not.
+
+    The rules — letters, numbers, emoji, spaces, underscore, dash and dot — were
+    never written down anywhere on the form. The quick-create row at least turned
+    red when a name broke them; the advanced form and the external-agent form
+    render that same field through a different node, and that one carried no hint
+    and no error. An em dash or an ampersand pasted in from a task title left the
+    field looking untouched and the Create button grey, with nothing on screen to
+    say why. That field now states the rules under itself and swaps them for the
+    error when a name breaks them; the quick row, which stays deliberately terse,
+    keeps speaking only when something is wrong. Both inputs report `aria-invalid`.
+
+    A rejected name usually only misses by a character or two, so `suggestAgentName`
+    turns it into the nearest legal one — dash lookalikes become a dash, the rest
+    of the disallowed characters collapse into the spaces around them — and the
+    form offers that as a one-click repair rather than rewriting what was typed.
+
+### Patch Changes
+
+- [#41](https://github.com/manyfold-open/manyfold/pull/41) [`859381c`](https://github.com/manyfold-open/manyfold/commit/859381ca3da64b972f29b8d7646d5d7e44810124) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The create-agent page keeps its mobile header, so a phone cannot strand a new
+  account on it.
+
+    Below `md` the workspace collapses to a drawer and the shell's header holds the
+    only button that opens it. `/agents/new` sat on the shell's list of routes whose
+    page draws a header of its own — true while the v1 form did, and not true after
+    the v3 rewrite, which replaced that header with none. On a narrow screen the
+    page therefore rendered with no chrome at all, and an account with no agents yet
+    converges on exactly that page from every direction: signed in, `/` sends you to
+    the workspace, and a workspace with nothing to open sends you here. An account
+    that already has an agent could still leave through the form's own close button;
+    a first-time one has no such button, because there is no workspace for it to
+    close back to.
+
+    The shell draws the header for this route again, and the v1 form drops the
+    duplicate it was carrying. Chat is the only route left on the list — its toolbar
+    carries the menu button at every width — and a test now pins both halves of that
+    deal, so the next rewrite of a page cannot quietly take the navigation with it.
+    The header's title comes off the same table as the browser tab, so it reads
+    "New agent" instead of repeating the brand back at itself.
+
+- [#41](https://github.com/manyfold-open/manyfold/pull/41) [`859381c`](https://github.com/manyfold-open/manyfold/commit/859381ca3da64b972f29b8d7646d5d7e44810124) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The mobile header is one line, and the brand sits at the top of the drawer.
+
+    Below `md` the header stacked the page name over a brand link of nearly the
+    same size and weight. It read as a subtitle — "New agent, by Manyfold" — and
+    spent half a 56px bar on the one word that never changes between pages, while
+    the chat page's own bar next door carries a menu button and a single title.
+
+    The brand moves to the top of the drawer, which had none: the rail keeps it
+    there on desktop, and the mobile drawer was the one place in the product
+    missing it, so the link out to the marketing page is a tap further in rather
+    than gone. What is left in the bar is the menu button and the page name.
+
+- [#43](https://github.com/manyfold-open/manyfold/pull/43) [`7cf8cb0`](https://github.com/manyfold-open/manyfold/commit/7cf8cb03ef0c9de937fa69ffb74d308d2ee53e89) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The workspace answers for itself when there are no agents yet.
+
+    `/workspace` was a route that could not be visited. With no agent to open it
+    forwarded straight to the create form, which made every "back to workspace"
+    affordance a loop and forced that form to hide its own close button — there was
+    nowhere to close back to. A first-time account therefore met the product as a
+    form with a single button, having never seen the page that form belongs to.
+
+    It renders a first-use empty state now, and only redirects when there is an
+    agent to open. The state follows §10.7 rather than inventing its own: the
+    object's own glyph, a title that names the fact, a body saying what having an
+    agent gets you — its own sandbox, chat, skills, a schedule — and exactly one
+    creation action inside the dashed frame that means "your action fills this".
+    Because creating is something you navigate to rather than something you are
+    sent to, the browser's back button now returns you to the workspace.
+
 ## 0.43.0
 
 ### Minor Changes
