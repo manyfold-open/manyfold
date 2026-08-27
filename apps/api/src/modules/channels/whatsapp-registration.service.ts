@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+    BadGatewayException,
     ConflictException,
     ForbiddenException,
     Inject,
@@ -113,6 +114,7 @@ export class WhatsappRegistrationService
             .where(
                 and(
                     eq(whatsappRegistrations.userId, userId),
+                    eq(whatsappRegistrations.status, 'pending'),
                     gt(whatsappRegistrations.expiresAt, now)
                 )
             )
@@ -136,7 +138,23 @@ export class WhatsappRegistrationService
             })
             .returning()
 
-        await this.openPairingSocket(row)
+        // The row exists before the socket does, so a failure here would
+        // otherwise leave it pending: nothing polls a registration whose
+        // start threw, and the sweeper only deletes rows an hour past expiry.
+        // Three of those in a row used to exhaust the cap and report the
+        // wrong problem back to the user.
+        try {
+            await this.openPairingSocket(row)
+        } catch (err) {
+            this.log.warn(
+                `WhatsApp registration start failed id=${row.id}: ${(err as Error).message}`
+            )
+            await this.fail(row.id, 'upstream_error', (err as Error).message)
+            throw new BadGatewayException({
+                code: 'whatsapp_registration_unavailable',
+                message: 'WhatsApp registration is temporarily unavailable'
+            })
+        }
         return this.reloadSummary({ userId }, row.id)
     }
 
@@ -350,11 +368,17 @@ export class WhatsappRegistrationService
             )
             .returning()
         if (!bumped) return
-        await this.openPairingSocket(bumped).catch((err) =>
+        // Same reasoning as start(): a row whose socket cannot be reopened is
+        // not pending any more, it has failed. Leaving it pending would hold a
+        // cap slot with nothing behind it.
+        try {
+            await this.openPairingSocket(bumped)
+        } catch (err) {
             this.log.warn(
                 `WhatsApp QR refresh failed id=${id}: ${(err as Error).message}`
             )
-        )
+            await this.fail(id, 'upstream_error', (err as Error).message)
+        }
     }
 
     private async completePairing(

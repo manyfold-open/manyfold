@@ -85,6 +85,7 @@ export class WeixinRegistrationService
             .where(
                 and(
                     eq(weixinRegistrations.userId, userId),
+                    eq(weixinRegistrations.status, 'pending'),
                     gt(weixinRegistrations.expiresAt, now)
                 )
             )
