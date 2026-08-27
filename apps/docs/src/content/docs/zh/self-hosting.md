@@ -80,6 +80,39 @@ docker compose -f docker-compose.selfhost.yml up -d --build
 降级就是恢复备份:迁移只进不退,回退意味着 checkout 旧代码**并**恢复升级
 前的数据库 dump。
 
+## 套餐与配额
+
+一个账号的所有上限 —— 能开多少 agent、多少个 external API agent、并发沙箱、
+存储、channel、automation —— 都来自 `users.plan_id` 指向的那一档套餐。compose
+栈设置了 `MF_DEFAULT_PLAN_ID=self_hosted`,也就是种子里那个无限档,所以在这套栈
+上创建的账号实际没有限制。
+
+`MF_DEFAULT_PLAN_ID` **只在账号创建的那一刻生效**,别处都不生效。在部署设置它
+之前就建好的账号 —— 早于无限档的旧版本,或者从没传过这个变量的自写
+compose / Kubernetes 清单 —— 会落在云端的 `free` 档并一直留在那里。症状是一条
+提到你从没选过的套餐的配额报错:
+
+```
+External API limit reached (3 for Free plan)
+```
+
+升级后第一次启动时,API 会自动修一次:在没有 billing 模块、且
+`MF_DEFAULT_PLAN_ID` 不是 `free` 的部署上,所有还停在 `free` 的账号会被移到该
+套餐。它只跑一次,并记录在 `app_settings` 里,因此之后人为指定的套餐不会被覆盖。
+
+一次性修复覆盖不到的情况 —— 修复之后新建的账号,或者需要给不同用户不同档位的
+部署 —— 用 admin 控制台用户详情页的 **Plan** 卡片。直接查看当前归属:
+
+```sh
+docker compose -f docker-compose.selfhost.yml exec postgres \
+  psql -U postgres -d manyfold -c \
+  "select u.email, u.plan_id, p.max_agents_provisioned
+     from users u join plans p on p.id = u.plan_id;"
+```
+
+想让新账号落在别的种子套餐(`free`、`hobby`、`plus`、`pro`),在 `.env` 里设置
+`MF_SELFHOST_DEFAULT_PLAN_ID`。
+
 ## 对外服务(localhost 之外)
 
 浏览器从别处访问这套栈时,有两件事必须改:

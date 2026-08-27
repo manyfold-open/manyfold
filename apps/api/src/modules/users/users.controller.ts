@@ -10,6 +10,7 @@ import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { UsersService } from '@/modules/users/users.service'
 import { UpdateUserRoleDto } from '@/modules/users/dto/update-user-role.dto'
+import { UpdateUserPlanDto } from '@/modules/users/dto/update-user-plan.dto'
 import { UpdateUserFrameworkRuntimeOverridesDto } from '@/modules/users/dto/update-user-framework-runtime-overrides.dto'
 import { UpdateUserRuntimeAccessDto } from '@/modules/runtime-access/dto/runtime-access.dto'
 
@@ -47,6 +48,15 @@ export class UsersController {
         @CurrentUser() caller: AuthPrincipal
     ): Promise<SdkUserSummary> {
         return this.usersService.setRuntimeAccess(id, caller.userId, dto)
+    }
+
+    @Patch(':id/plan')
+    setPlan(
+        @Param('id') id: string,
+        @Body() dto: UpdateUserPlanDto,
+        @CurrentUser() caller: AuthPrincipal
+    ): Promise<SdkUserSummary> {
+        return this.usersService.setPlan(id, caller.userId, dto.planId)
     }
 
     @Get(':id/framework-runtime-overrides')

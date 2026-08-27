@@ -264,6 +264,13 @@ export interface UpdateUserRuntimeAccessBody {
     activeHoursBonus?: number
 }
 
+// Admin plan assignment. Self-hosted only: on the cloud edition a user's plan
+// is owned by their subscription, so the route refuses rather than letting an
+// admin desync the two.
+export interface UpdateUserPlanBody {
+    planId: PlanId
+}
+
 // Wire view of the api's UserDeletionStatus (ADR-0023): the same shape the
 // service returns, with timestamps as the ISO strings JSON delivers.
 export interface UserDeletionStatusView {

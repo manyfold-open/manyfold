@@ -31,6 +31,8 @@ import {
 } from './userFormatters'
 import UserContainersSection from './UserContainersSection'
 import UserFrameworkRuntimeOverridesCard from '@/components/UserFrameworkRuntimeOverridesCard'
+import UserPlanCard from '@/components/UserPlanCard'
+import { ADMIN_EDITION } from '@/edition'
 import { DetailRow } from '@/pages/Users/DetailRow'
 import UserCommerceSection from '@/pages/Users/UserCommerceSection'
 import PlanCommerceRows, { ManagedSpendRows } from '@/pages/Users/PlanCommerceRows'
@@ -554,6 +556,14 @@ const UserDetail: FC = (): ReactNode => {
                         userId={user.id}
                         onUserUpdated={setUser}
                     />
+
+                    {ADMIN_EDITION === 'self-hosted' && (
+                        <UserPlanCard
+                            userId={user.id}
+                            planId={user.planId}
+                            onUserUpdated={setUser}
+                        />
+                    )}
 
                     <UserCommerceSection userId={user.id} />
 

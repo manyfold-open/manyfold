@@ -134,6 +134,8 @@ import type {
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
     RuntimeAccessSummary,
+    Plan,
+    PlanId,
     SandboxUsageBreakdown,
     ExperimentAssignments,
     UpdateAgentBody,
@@ -1267,6 +1269,7 @@ export interface NcaClient {
         users: {
             list: () => Promise<SdkUserSummary[]>
             setRole: (id: string, role: UserRole) => Promise<SdkUserSummary>
+            setPlan: (id: string, planId: PlanId) => Promise<SdkUserSummary>
             setRuntimeAccess: (
                 id: string,
                 body: UpdateUserRuntimeAccessBody
@@ -1288,6 +1291,9 @@ export interface NcaClient {
             executeDeletion: (
                 id: string
             ) => Promise<UserDeletionStatusView | null>
+        }
+        plans: {
+            list: () => Promise<Plan[]>
         }
         sandboxQuotas: {
             overview: () => Promise<SandboxQuotasOverview>
@@ -3849,6 +3855,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         method: 'PATCH',
                         body: JSON.stringify({ role })
                     }),
+                setPlan: (id, planId) =>
+                    request<SdkUserSummary>(apiPaths.ADMIN_USER_PLAN(id), {
+                        method: 'PATCH',
+                        body: JSON.stringify({ planId })
+                    }),
                 setRuntimeAccess: (id, body) =>
                     request<SdkUserSummary>(
                         apiPaths.ADMIN_USER_RUNTIME_ACCESS(id),
@@ -3895,6 +3906,9 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         apiPaths.ADMIN_USER_DELETION_EXECUTE(id),
                         { method: 'POST' }
                     )
+            },
+            plans: {
+                list: () => request<Plan[]>(apiPaths.ADMIN_PLANS)
             },
             sandboxQuotas: {
                 overview: () =>

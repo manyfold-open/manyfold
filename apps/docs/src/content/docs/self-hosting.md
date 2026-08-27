@@ -90,6 +90,45 @@ Downgrade is restore-from-backup: migrations are forward-only, so going back
 means checking out the older code **and** restoring the database dump taken
 before the upgrade.
 
+## Plans and quotas
+
+Every limit an account has — how many agents it can provision, how many
+external-API agents, concurrent sandboxes, storage, channels, automations —
+comes from the plan its `users.plan_id` points at. The compose stack sets
+`MF_DEFAULT_PLAN_ID=self_hosted`, the seeded unlimited tier, so accounts
+created on this stack have no practical limits.
+
+`MF_DEFAULT_PLAN_ID` applies **when an account is created** and nowhere else.
+An account created before the deployment set it — the released stack that
+predates the unlimited plan, or a hand-written compose/Kubernetes manifest
+that never passed the variable — landed on the cloud `free` tier and stays
+there. The symptom is a quota error naming a plan you never chose:
+
+```
+External API limit reached (3 for Free plan)
+```
+
+The API repairs this once, on the first start after upgrading: on a
+deployment with no billing module and `MF_DEFAULT_PLAN_ID` set to something
+other than `free`, every account still on `free` moves to that plan. It runs
+exactly once and is recorded in `app_settings`, so a later deliberate
+assignment is never overwritten.
+
+For anything the one-shot repair doesn't cover — an account created after it
+ran, or a deployment that wants different tiers per user — the admin console's
+user detail page has a **Plan** card. To check the current assignment
+directly:
+
+```sh
+docker compose -f docker-compose.selfhost.yml exec postgres \
+  psql -U postgres -d manyfold -c \
+  "select u.email, u.plan_id, p.max_agents_provisioned
+     from users u join plans p on p.id = u.plan_id;"
+```
+
+Set `MF_SELFHOST_DEFAULT_PLAN_ID` in `.env` to put new accounts on a
+different seeded plan (`free`, `hobby`, `plus`, `pro`) instead.
+
 ## Serving beyond localhost
 
 Two things must change when browsers reach the stack from anywhere but the

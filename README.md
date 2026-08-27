@@ -26,7 +26,9 @@ docker compose -f docker-compose.selfhost.yml up -d --build
 Then open **<http://localhost:3001/setup>** — the admin console, where the
 setup token creates your admin account and sign-in methods. The workspace is
 at <http://localhost:3002>. New accounts land on the seeded unlimited
-`self_hosted` plan.
+`self_hosted` plan; an account created before your deployment set that default
+is moved off the `free` tier once, on the next API start, and can be changed
+any time from the admin's user detail page.
 
 `MF_API_CRYPTO_KEY` encrypts stored credentials at rest; keep it wherever you
 keep your database backups, because a dump without it has undecryptable rows.
