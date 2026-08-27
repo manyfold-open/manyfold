@@ -20,9 +20,17 @@ type BaileysModule = typeof import('baileys')
 let modulePromise: Promise<BaileysModule> | null = null
 
 export const loadBaileys = async (): Promise<BaileysModule> => {
+    // Seen on staging [2026-08-26]: the image shipped without baileys, and
+    // because a rejected promise stays memoized, the first failure answered
+    // every later attempt for the life of the process. Drop it so a retry
+    // reaches the resolver again.
     if (!modulePromise)
         modulePromise = nativeImport('baileys').then(
-            (mod) => mod as BaileysModule
+            (mod) => mod as BaileysModule,
+            (err) => {
+                modulePromise = null
+                throw err
+            }
         )
     return modulePromise
 }
