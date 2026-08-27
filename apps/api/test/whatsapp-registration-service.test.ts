@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
-import { ConflictException } from '@nestjs/common'
+import { BadGatewayException, ConflictException } from '@nestjs/common'
 import { agents } from '@manyfold/db'
 import type { AuthenticationState, WASocket } from 'baileys'
 import type { Database, WhatsappRegistrationRow } from '@manyfold/db'
@@ -16,14 +16,32 @@ import {
 } from '../src/modules/channels/whatsapp-registration.service'
 import { deserializeWhatsappAuth } from '../src/modules/channels/providers/whatsapp-baileys'
 
-// Single-row in-memory stand-in for the drizzle query builder, matching the
-// shape the weixin registration suite uses: where-clauses are ignored and the
-// tests drive row state directly.
+// In-memory stand-in for the drizzle query builder. It keeps every row the
+// service inserts so the pending cap can be derived the way the service reads
+// it, which is what makes a leaked registration visible here at all; `row`
+// stays as the most recent one because that is what the single-registration
+// tests mean by it. Where-clauses are still ignored, so the SQL predicate
+// itself is proved in whatsapp-registration-cap.pg.test.ts, not here.
 class FakeDb {
-    row: WhatsappRegistrationRow | null = null
+    rows: WhatsappRegistrationRow[] = []
     agentOwned = true
-    pendingCount = 0
+    pendingCount: number | null = null
     deleted: WhatsappRegistrationRow[] = []
+
+    get row(): WhatsappRegistrationRow | null {
+        return this.rows[this.rows.length - 1] ?? null
+    }
+    set row(next: WhatsappRegistrationRow | null) {
+        if (!next) this.rows = []
+        else if (this.rows.length === 0) this.rows.push(next)
+        else this.rows[this.rows.length - 1] = next
+    }
+
+    livePending(now = new Date()): number {
+        return this.rows.filter(
+            (row) => row.status === 'pending' && row.expiresAt > now
+        ).length
+    }
 
     select(shape?: Record<string, unknown>) {
         return new FakeQuery(this, 'select', undefined, shape)
@@ -82,10 +100,12 @@ class FakeQuery {
     }
     private execute(): Promise<unknown[]> {
         if (this.op === 'select' && this.shape && 'value' in this.shape)
-            return Promise.resolve([{ value: this.db.pendingCount }])
+            return Promise.resolve([
+                { value: this.db.pendingCount ?? this.db.livePending() }
+            ])
         if (this.op === 'insert') {
             const now = new Date()
-            this.db.row = {
+            this.db.rows.push({
                 status: 'pending',
                 refreshCount: 0,
                 qrContent: null,
@@ -96,7 +116,7 @@ class FakeQuery {
                 createdAt: now,
                 updatedAt: now,
                 ...(this.valuesInput ?? {})
-            } as WhatsappRegistrationRow
+            } as WhatsappRegistrationRow)
             return Promise.resolve([{ ...this.db.row }])
         }
         if (this.op === 'update') {
@@ -108,11 +128,11 @@ class FakeQuery {
             return Promise.resolve([{ ...this.db.row }])
         }
         if (this.op === 'delete') {
-            const row = this.db.row
-            if (!row) return Promise.resolve([])
-            this.db.deleted.push(row)
-            this.db.row = null
-            return Promise.resolve([{ id: row.id }])
+            const rows = this.db.rows
+            if (rows.length === 0) return Promise.resolve([])
+            this.db.deleted.push(...rows)
+            this.db.rows = []
+            return Promise.resolve(rows.map((row) => ({ id: row.id })))
         }
         return Promise.resolve([])
     }
@@ -162,6 +182,9 @@ interface Harness {
 const makeHarness = (
     opts: {
         onCreate?: (body: Record<string, unknown>) => Promise<{ id: string }>
+        // Consumed one per open attempt: an Error rejects that attempt, null
+        // opens normally. Anything past the end of the list opens normally.
+        socketErrors?: Array<Error | null>
     } = {}
 ): Harness => {
     const db = new FakeDb()
@@ -202,6 +225,8 @@ const makeHarness = (
         protected createPairingSocket(
             state: AuthenticationState
         ): Promise<WASocket> {
+            const failure = opts.socketErrors?.shift()
+            if (failure) return Promise.reject(failure)
             states.push(state)
             const socket = new FakeSocket()
             sockets.push(socket)
@@ -280,6 +305,55 @@ test('start refuses once too many registrations are already pending', async () =
     // No socket may be opened when the guard trips, or the cap would leak
     // WhatsApp connections.
     assert.equal(h.sockets.length, 0)
+})
+
+// The row is inserted before the pairing socket exists, so an open that
+// throws used to leave it pending with nothing behind it. Nobody polls a
+// registration whose start threw, and the sweeper only deletes rows an hour
+// past expiry, so three failures in a row filled the cap and the fourth
+// attempt blamed the user for having too many pending registrations — which
+// is what a missing baileys reported on staging (#1052).
+test('a failed pairing socket fails the row instead of stranding it', async () => {
+    const unavailable = () => new Error("Cannot find package 'baileys'")
+    const h = makeHarness({
+        socketErrors: [unavailable(), unavailable(), unavailable()]
+    })
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+        await assert.rejects(
+            startPending(h),
+            (err: unknown) =>
+                err instanceof BadGatewayException &&
+                (err.getResponse() as { code?: string }).code ===
+                    'whatsapp_registration_unavailable'
+        )
+        assert.equal(h.db.row?.status, 'failed')
+        assert.equal(h.db.row?.errorCode, 'upstream_error')
+    }
+    assert.equal(h.sockets.length, 0)
+
+    // Nothing is holding a slot, so the next attempt is free to open one.
+    const summary = await startPending(h)
+    assert.equal(summary.status, 'pending')
+    assert.equal(h.sockets.length, 1)
+    h.svc.onModuleDestroy()
+})
+
+// Same leak, reached the other way: the QR refresh reopens the socket, and a
+// failure there left the row pending with a bumped refresh count and no
+// socket to answer it.
+test('a pairing socket that cannot be reopened fails the row', async () => {
+    const h = makeHarness({
+        socketErrors: [null, new Error('reopen refused')]
+    })
+    await startPending(h)
+    h.sockets[0].emitUpdate({
+        connection: 'close',
+        lastDisconnect: { error: { output: { statusCode: 428 } } }
+    })
+    await settle()
+    assert.equal(h.db.row?.status, 'failed')
+    assert.equal(h.db.row?.errorCode, 'upstream_error')
+    h.svc.onModuleDestroy()
 })
 
 test('start opens exactly one pairing socket and reports pending', async () => {
