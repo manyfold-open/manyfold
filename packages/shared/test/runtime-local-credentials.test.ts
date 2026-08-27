@@ -296,6 +296,40 @@ describe('runtimeLocalCredentialStatus — fleet compatibility', () => {
             'expired'
         )
     })
+
+    // Callers hand this raw daemon JSON, where any field can be missing. A
+    // missing expiry must never read as expired: that would fail closed on
+    // exactly the runtimes we cannot judge.
+    it('survives a partial payload from an unknown daemon build', () => {
+        const partial = {
+            framework: 'codex'
+        } as unknown as CodexCredentialFacts
+        assert.equal(
+            runtimeLocalCredentialStatus(partial, NOW).status,
+            'missing'
+        )
+        const partialClaude = {
+            framework: 'claude-code'
+        } as unknown as ClaudeCredentialFacts
+        assert.equal(
+            runtimeLocalCredentialStatus(partialClaude, NOW).status,
+            'missing'
+        )
+        const partialGemini = {
+            framework: 'gemini-cli'
+        } as unknown as GeminiCredentialFacts
+        assert.equal(
+            runtimeLocalCredentialStatus(partialGemini, NOW).status,
+            'missing'
+        )
+        const unknownFramework = {
+            framework: 'something-new'
+        } as unknown as CodexCredentialFacts
+        assert.equal(
+            runtimeLocalCredentialStatus(unknownFramework, NOW).status,
+            'unknown'
+        )
+    })
 })
 
 describe('parseRuntimeLocalCredentialFacts', () => {

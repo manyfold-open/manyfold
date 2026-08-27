@@ -25,6 +25,8 @@ import {
     frameworkUsesModelConfig,
     mergeCachedRuntimeLocalModelConfigView,
     modelConfigDisplayLabel,
+    patchRuntimeLocalDraft,
+    runtimeLocalModelOptions,
     preferredPrimaryModelDefault,
     providerModelIdsForSummary,
     readCachedModelConfigView,
@@ -283,6 +285,8 @@ test('validateModelConfigDraft accepts runtime-local source even when inspect ca
                 framework: 'codex',
                 cliVersion: null,
                 credentialReady: null,
+                credentialStatus: 'unknown',
+                credentialReason: 'not-reported',
                 configReadable: null,
                 current: null,
                 models: [],
@@ -317,6 +321,8 @@ test('validateModelConfigDraft allows runtime-local source after inspect is read
                 framework: 'codex',
                 cliVersion: 'codex 0.118.0',
                 credentialReady: true,
+                credentialStatus: 'valid',
+                credentialReason: 'api-key',
                 configReadable: true,
                 current: 'gpt-5.5 · fast · xhigh',
                 models: ['gpt-5.5'],
@@ -351,6 +357,8 @@ test('model config view cache round-trips runtime inspect results by agent id', 
                 framework: 'codex',
                 cliVersion: 'codex 0.118.0',
                 credentialReady: true,
+                credentialStatus: 'valid',
+                credentialReason: 'api-key',
                 configReadable: true,
                 current: 'gpt-5.5 · fast · xhigh',
                 models: ['gpt-5.5'],
@@ -380,6 +388,8 @@ test('mergeCachedRuntimeLocalModelConfigView keeps newer cached local capability
             framework: 'codex',
             cliVersion: null,
             credentialReady: null,
+            credentialStatus: 'unknown',
+            credentialReason: 'not-reported',
             configReadable: null,
             current: null,
             models: [],
@@ -401,6 +411,8 @@ test('mergeCachedRuntimeLocalModelConfigView keeps newer cached local capability
             framework: 'codex',
             cliVersion: 'codex 0.118.0',
             credentialReady: true,
+            credentialStatus: 'valid',
+            credentialReason: 'api-key',
             configReadable: true,
             current: 'gpt-5.5 · fast · xhigh',
             models: ['gpt-5.5'],
@@ -1395,4 +1407,171 @@ test('gemini draft reconciles onto the newly picked provider', () => {
         ),
         { framework: 'gemini-cli', model: 'auto' }
     )
+})
+
+const runtimeLocalStatus = (
+    overrides: Partial<
+        NonNullable<AgentModelConfigView['runtimeLocal']>
+    > = {}
+): NonNullable<AgentModelConfigView['runtimeLocal']> => ({
+    available: true,
+    ready: true,
+    source: 'daemon-local',
+    framework: 'codex',
+    cliVersion: 'codex 0.118.0',
+    credentialReady: true,
+    credentialStatus: 'valid',
+    credentialReason: 'api-key',
+    configReadable: true,
+    current: 'gpt-5.5',
+    models: ['gpt-5.5', 'gpt-5.6-sol'],
+    aliases: [],
+    speeds: ['standard', 'fast'],
+    intelligence: ['medium', 'xhigh'],
+    lastCheckedAt: '2026-08-27T10:00:00.000Z',
+    error: null,
+    ...overrides
+})
+
+const runtimeLocalView = (
+    runtimeLocal: NonNullable<AgentModelConfigView['runtimeLocal']>
+): AgentModelConfigView => ({
+    ...codexView,
+    source: 'runtime-local',
+    availableSources: ['platform', 'runtime-local'],
+    runtimeLocal
+})
+
+test('validateModelConfigDraft blocks a runtime-local source with expired credentials', () => {
+    const result = validateModelConfigDraft(
+        runtimeLocalView(
+            runtimeLocalStatus({
+                ready: false,
+                credentialStatus: 'expired',
+                credentialReason: 'oauth-expired'
+            })
+        ),
+        null,
+        testT
+    )
+
+    assert.equal(result.valid, false)
+    assert.equal(result.message, 'web.credentials.runtimeLocal.credentialsExpired')
+})
+
+test('validateModelConfigDraft allows a runtime-local source it cannot judge', () => {
+    const result = validateModelConfigDraft(
+        runtimeLocalView(
+            runtimeLocalStatus({
+                credentialStatus: 'unknown',
+                credentialReason: 'unreadable'
+            })
+        ),
+        null,
+        testT
+    )
+
+    assert.deepEqual(result, { valid: true, message: null })
+})
+
+test('validateModelConfigDraft allows a runtime-local source nobody has inspected', () => {
+    const result = validateModelConfigDraft(
+        runtimeLocalView(
+            runtimeLocalStatus({ ready: false, lastCheckedAt: null })
+        ),
+        null,
+        testT
+    )
+
+    assert.deepEqual(result, { valid: true, message: null })
+})
+
+// A stale `ready` cache winning here would show a working picker for a source
+// the very next send is going to be refused by the server.
+test('mergeCachedRuntimeLocalModelConfigView no longer lets a stale ready cache mask a refusal', () => {
+    const apiView = runtimeLocalView(
+        runtimeLocalStatus({
+            ready: false,
+            credentialStatus: 'expired',
+            credentialReason: 'oauth-expired',
+            lastCheckedAt: '2026-08-27T12:00:00.000Z'
+        })
+    )
+    const cachedView = runtimeLocalView(
+        runtimeLocalStatus({ lastCheckedAt: '2026-08-27T09:00:00.000Z' })
+    )
+
+    const merged = mergeCachedRuntimeLocalModelConfigView(apiView, cachedView)
+
+    assert.equal(merged.runtimeLocal?.ready, false)
+    assert.equal(merged.runtimeLocal?.credentialStatus, 'expired')
+})
+
+test('runtimeLocalModelOptions lists aliases before concrete ids and dedupes', () => {
+    const options = runtimeLocalModelOptions(
+        runtimeLocalView(
+            runtimeLocalStatus({
+                aliases: ['sonnet', 'opus'],
+                models: ['opus', 'claude-sonnet-4-5', '  ']
+            })
+        )
+    )
+
+    assert.deepEqual(options, ['sonnet', 'opus', 'claude-sonnet-4-5'])
+})
+
+test('runtimeLocalModelOptions is empty when nothing was reported', () => {
+    assert.deepEqual(
+        runtimeLocalModelOptions(
+            runtimeLocalView(runtimeLocalStatus({ models: [], aliases: [] }))
+        ),
+        []
+    )
+    assert.deepEqual(runtimeLocalModelOptions(null), [])
+})
+
+test('patchRuntimeLocalDraft never invents a tuning default', () => {
+    const first = patchRuntimeLocalDraft('codex', null, { model: 'gpt-5.5' })
+
+    assert.deepEqual(first, {
+        framework: 'codex',
+        model: 'gpt-5.5',
+        speed: null,
+        intelligence: null
+    })
+
+    const tuned = patchRuntimeLocalDraft('codex', first, { speed: 'fast' })
+    assert.deepEqual(tuned, {
+        framework: 'codex',
+        model: 'gpt-5.5',
+        speed: 'fast',
+        intelligence: null
+    })
+
+    const cleared = patchRuntimeLocalDraft('codex', tuned, { speed: null })
+    assert.equal(
+        (cleared as Extract<typeof cleared, { framework: 'codex' }>).speed,
+        null
+    )
+    assert.equal(cleared.model, 'gpt-5.5')
+})
+
+test('patchRuntimeLocalDraft drops the claude model map', () => {
+    const patched = patchRuntimeLocalDraft(
+        'claude-code',
+        {
+            framework: 'claude-code',
+            model: 'sonnet',
+            effort: 'high',
+            modelMap: { sonnet: 'provider/claude-sonnet-4-6' }
+        },
+        { model: 'claude-sonnet-4-5' }
+    )
+
+    assert.deepEqual(patched, {
+        framework: 'claude-code',
+        model: 'claude-sonnet-4-5',
+        effort: 'high',
+        modelMap: { sonnet: 'provider/claude-sonnet-4-6' }
+    })
 })

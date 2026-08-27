@@ -26,7 +26,10 @@ import {
     claudeLocalModelCatalog,
     codexCanonicalModelId,
     codexDefaultIntelligenceForModel,
+    codexIntelligenceLevels,
     codexIntelligenceLevelsForModel,
+    type CodexIntelligence,
+    type RuntimeLocalTuning,
     defaultProtocolForProvider,
     geminiAutoModelKey,
     geminiCanonicalModelId,
@@ -114,6 +117,7 @@ interface RuntimeLocalModelConfigCache extends AgentRuntimeLocalModelConfigStatu
 export interface ResolvedTurnModelConfig {
     model: string | null
     modelConfig: AgentModelConfig | null
+    runtimeLocalTuning?: RuntimeLocalTuning
 }
 
 @Injectable()
@@ -147,7 +151,16 @@ export class AgentModelConfigService {
         const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
         const source = this.resolveIncomingSource(agent, body.modelConfigSource)
         if (source === 'runtime-local') {
-            const next = await this.persistConfigSource(agent, source)
+            const requested =
+                body.model === undefined
+                    ? normalizeNullable(agent.model)
+                    : normalizeNullable(body.model)
+            if (requested) this.assertRuntimeLocalModel(agent, requested)
+            const next = await this.persistRuntimeLocalSelection(
+                agent,
+                requested,
+                this.runtimeLocalTuning(agent, body.modelConfig)
+            )
             return this.buildView(next)
         }
         const config = await this.resolveIncomingConfig(agent, body, true)
@@ -275,9 +288,30 @@ export class AgentModelConfigService {
             input.modelConfigSource
         )
         if (source === 'runtime-local') {
-            if (input.saveAsDefault && input.modelConfigSource)
-                await this.persistConfigSource(agent, source)
-            return { model: null, modelConfig: null }
+            const usable = await this.assertRuntimeLocalUsable(agent)
+            const incomingModel =
+                normalizeNullable(input.model) ??
+                normalizeNullable(input.modelConfig?.model)
+            const requested = incomingModel ?? normalizeNullable(usable.model)
+            if (requested) this.assertRuntimeLocalModel(usable, requested)
+            const tuning = this.runtimeLocalTuning(usable, input.modelConfig)
+            if (
+                input.saveAsDefault &&
+                (input.modelConfigSource || incomingModel || input.modelConfig)
+            )
+                await this.persistRuntimeLocalSelection(
+                    usable,
+                    requested,
+                    tuning
+                )
+            // modelConfig stays null on purpose: the adapters read it as "the
+            // platform owns this turn" and inject platform credentials when it
+            // is set. Local tuning travels in its own field.
+            return {
+                model: requested,
+                modelConfig: null,
+                runtimeLocalTuning: tuning
+            }
         }
 
         const hasIncoming =
@@ -672,28 +706,126 @@ export class AgentModelConfigService {
         return updated
     }
 
-    private async persistConfigSource(
+    private async persistRuntimeLocalSelection(
         agent: Agent,
-        source: AgentModelConfigSource
+        model: string | null,
+        tuning: RuntimeLocalTuning
     ): Promise<Agent> {
         const latest = await this.reloadAgent(agent)
         const existingExtras = safeRecord(latest.extras)
         const existingModelConfig = (asRecord(existingExtras.modelConfig) ??
             {}) as ModelConfigExtras
+        const nextModelConfig: ModelConfigExtras = {
+            ...existingModelConfig,
+            source: 'runtime-local'
+        }
+        // Only the tuning knobs are stored, never a modelMap: that one exists
+        // to point aliases at a platform provider and has no meaning against a
+        // CLI running on its own login.
+        if (agent.framework === 'claude-code')
+            nextModelConfig.claudeCode = {
+                ...(existingModelConfig.claudeCode ?? {}),
+                effort: tuning.effort ?? null
+            }
+        else if (agent.framework === 'codex')
+            nextModelConfig.codex = {
+                speed: tuning.speed ?? null,
+                intelligence: tuning.intelligence ?? null
+            }
         const [updated] = await this.db
             .update(agents)
             .set({
+                model,
                 extras: jsonbMerge(agents.extras, {
-                    modelConfig: {
-                        ...existingModelConfig,
-                        source
-                    }
+                    modelConfig: nextModelConfig
                 }),
                 updatedAt: new Date()
             })
             .where(eq(agents.id, agent.id))
             .returning()
         return updated
+    }
+
+    // A cached refusal can be stale in the one direction that matters: the user
+    // may have just signed in on the runtime host. Re-inspect before refusing
+    // so the gate never blocks a machine that works. The happy path never
+    // reaches here, so a live turn pays nothing for this.
+    private async assertRuntimeLocalUsable(agent: Agent): Promise<Agent> {
+        const cached = this.runtimeLocalConfigFromAgent(agent)
+        if (!cached?.lastCheckedAt || cached.ready) return agent
+        let refreshed: Agent
+        try {
+            await this.refreshRuntimeLocalModelCapability(agent)
+            refreshed = await this.reloadAgent(agent)
+        } catch (err) {
+            // The inspect transport failed rather than the credentials: let the
+            // turn run and report its own error instead of inventing one.
+            if (agent.runtime !== 'daemon') return agent
+            throw new BadRequestException((err as Error).message)
+        }
+        const next = this.runtimeLocalConfigFromAgent(refreshed)
+        if (next?.ready) return refreshed
+        throw new BadRequestException(
+            next?.error ?? 'Runtime local config is not ready'
+        )
+    }
+
+    private assertRuntimeLocalModel(agent: Agent, model: string): void {
+        const runtimeLocal = this.runtimeLocalConfigFromAgent(agent)
+        const known = [
+            ...(runtimeLocal?.models ?? []),
+            ...(runtimeLocal?.aliases ?? [])
+        ]
+        // An empty list means nothing has enumerated this runtime yet (or the
+        // daemon predates the models field); refusing there would make the
+        // picker unusable for exactly the agents it should help.
+        if (known.length === 0) return
+        if (agent.framework === 'gemini-cli' && isGeminiAutoModel(model)) return
+        if (!known.includes(model))
+            throw new BadRequestException(
+                `${model} is not available in the local config for ${agent.framework}`
+            )
+    }
+
+    // Only what the user explicitly picked survives here. Defaulting an unset
+    // knob would push a platform default onto a CLI that was asked to use its
+    // own config — the exact thing this source exists to avoid.
+    private runtimeLocalTuning(
+        agent: Agent,
+        incoming: AgentModelConfig | null | undefined
+    ): RuntimeLocalTuning {
+        const stored = (asRecord(safeRecord(agent.extras).modelConfig) ??
+            {}) as ModelConfigExtras
+        if (agent.framework === 'claude-code') {
+            const requested =
+                incoming?.framework === 'claude-code'
+                    ? incoming.effort
+                    : normalizeNullable(asRecord(stored.claudeCode)?.effort)
+            return {
+                effort: isClaudeCodeEffort(requested) ? requested : null
+            }
+        }
+        if (agent.framework === 'codex') {
+            const raw = asRecord(stored.codex)
+            const speed =
+                incoming?.framework === 'codex'
+                    ? incoming.speed
+                    : normalizeNullable(raw?.speed)
+            const intelligence = normalizeCodexIntelligence(
+                incoming?.framework === 'codex'
+                    ? (incoming.intelligence ?? null)
+                    : normalizeNullable(raw?.intelligence)
+            )
+            return {
+                speed: speed === 'fast' ? 'fast' : null,
+                intelligence: codexIntelligenceLevels.includes(
+                    intelligence as CodexIntelligence
+                )
+                    ? (intelligence as CodexIntelligence)
+                    : null
+            }
+        }
+        return {}
     }
 
     private async reloadAgent(agent: Agent): Promise<Agent> {
@@ -1481,7 +1613,10 @@ const runtimeLocalReady = (
     // facts evaluates to `unknown`, which stays usable.
     if (
         !isRuntimeLocalCredentialUsable(
-            runtimeLocalCredentialStatus(capability.credentialFacts, now).status
+            runtimeLocalCredentialStatus(
+                parseRuntimeLocalCredentialFacts(capability.credentialFacts),
+                now
+            ).status
         )
     )
         return false
@@ -1525,7 +1660,10 @@ const runtimeLocalNotReadyMessage = (
 ): string => {
     const credential = credentialStatusMessage(
         framework,
-        runtimeLocalCredentialStatus(capability.credentialFacts, now).status
+        runtimeLocalCredentialStatus(
+            parseRuntimeLocalCredentialFacts(capability.credentialFacts),
+            now
+        ).status
     )
     if (credential) return credential
     const label = frameworkLabel(framework)

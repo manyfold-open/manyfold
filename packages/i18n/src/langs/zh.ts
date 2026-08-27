@@ -3010,7 +3010,8 @@ const zh: Translations = {
                 useTestedProviderModels: '为 Claude 映射使用已测试的 Provider 模型',
                 chooseSupportedCodexModel: '选择受支持的 Codex 模型',
                 chooseFastCapableModel: '选择支持快速模式的模型',
-                chooseSupportedGeminiModel: '选择受支持的 Gemini 模型'
+                chooseSupportedGeminiModel: '选择受支持的 Gemini 模型',
+                runtimeLocalNotReady: '该运行环境的本地配置尚未就绪'
             },
             manyfoldConfigTitle: 'Manyfold 配置',
             localNotVerified: '运行时本地配置尚未验证。',
@@ -3123,6 +3124,16 @@ const zh: Translations = {
             modelSourcePlatformHint: '使用这里设置的 Provider 和模型',
             modelSourceLocal: '本地配置',
             modelSourceLocalHint: '使用智能体自带的 CLI 配置',
+            runtimeLocal: {
+                credentialsExpired:
+                    '该运行环境上的登录已过期。请在那台机器上重新登录后刷新。',
+                credentialsMissing:
+                    '未在该运行环境上找到登录信息。请在那台机器上登录后刷新。',
+                cliDefault: 'CLI 默认',
+                cliDefaultHint: '交给本地 CLI 决定',
+                modelsFrom: '来自本地 CLI 配置的模型',
+                pickModel: '选择本地模型'
+            },
             claudeMapping: 'Claude 模型映射',
             selectProviderModel: '选择 Provider 模型',
             defaultModel: '默认模型',

@@ -907,10 +907,11 @@ test('AgentModelConfigService defaults daemon chat turns to runtime-local source
     })
 
     assert.deepEqual(codexTurn, {
-        model: null,
-        modelConfig: null
+        model: 'gpt-5.5',
+        modelConfig: null,
+        runtimeLocalTuning: { speed: 'fast', intelligence: 'xhigh' }
     })
-    assert.equal(codexDb.lastAgentPatch, null)
+    assert.equal(codexDb.lastAgentPatch?.model, 'gpt-5.5')
 
     const claudeDb = new FakeDb({
         ...baseAgent,
@@ -940,10 +941,16 @@ test('AgentModelConfigService defaults daemon chat turns to runtime-local source
     })
 
     assert.deepEqual(claudeTurn, {
-        model: null,
-        modelConfig: null
+        model: 'sonnet',
+        modelConfig: null,
+        runtimeLocalTuning: { effort: 'xhigh' }
     })
-    assert.equal(claudeDb.lastAgentPatch, null)
+    // The model map is platform-only: it points aliases at a hosted provider
+    // and means nothing to a CLI running on its own login.
+    const claudePatch = claudeDb.lastAgentPatch?.extras as
+        | Record<string, { claudeCode?: Record<string, unknown> }>
+        | undefined
+    assert.equal(claudePatch?.modelConfig?.claudeCode?.modelMap, undefined)
 })
 
 test('AgentModelConfigService exposes runtime-local for sprites and k8s and lets users select it without a refresh', async () => {
@@ -978,7 +985,11 @@ test('AgentModelConfigService exposes runtime-local for sprites and k8s and lets
             modelConfigSource: 'runtime-local',
             saveAsDefault: true
         })
-        assert.deepEqual(turn, { model: null, modelConfig: null })
+        assert.deepEqual(turn, {
+            model: null,
+            modelConfig: null,
+            runtimeLocalTuning: { speed: null, intelligence: null }
+        })
     }
 })
 
@@ -1009,8 +1020,9 @@ test('AgentModelConfigService allows sprites runtime-local after inspect cache i
 
     assert.equal(view.source, 'runtime-local')
     assert.deepEqual(turn, {
-        model: null,
-        modelConfig: null
+        model: 'gpt-5.5',
+        modelConfig: null,
+        runtimeLocalTuning: { speed: null, intelligence: null }
     })
 })
 
@@ -1320,6 +1332,289 @@ test('AgentModelConfigService leaves a never-inspected runtime-local agent valid
 
     assert.equal(view.runtimeLocal?.lastCheckedAt, null)
     assert.equal(view.validation.valid, true)
+})
+
+const expiredRuntimeLocal = () => ({
+    ...readyRuntimeLocal('codex', 'daemon-local'),
+    credentialFacts: {
+        framework: 'codex',
+        authFilePresent: true,
+        authFileParsed: true,
+        hasAccessToken: true,
+        hasRefreshToken: false,
+        accessTokenExp: Date.now() - 3_600_000
+    }
+})
+
+test('AgentModelConfigService re-inspects before refusing an expired runtime-local turn', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        daemonId: 'daemon-1',
+        framework: 'codex',
+        model: 'gpt-5.5',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: expiredRuntimeLocal()
+        }
+    })
+    let rpcCalls = 0
+    const service = makeService(db, [], {
+        rpc: async () => {
+            rpcCalls += 1
+            return {
+                frameworks: [
+                    {
+                        framework: 'codex',
+                        cliVersion: 'codex 0.118.0',
+                        ready: true,
+                        credentialReady: true,
+                        configReadable: true,
+                        credentialFacts: {
+                            framework: 'codex',
+                            authFilePresent: true,
+                            authFileParsed: true,
+                            apiKeyPresent: true
+                        },
+                        current: 'gpt-5.5',
+                        models: ['gpt-5.5'],
+                        aliases: [],
+                        speeds: [],
+                        intelligence: [],
+                        lastCheckedAt: new Date().toISOString(),
+                        error: null
+                    }
+                ]
+            }
+        }
+    })
+
+    // The user signed in again on the host; a cached refusal must not outlive
+    // that, so the gate inspects before it decides.
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1'
+    })
+
+    assert.equal(rpcCalls, 1)
+    assert.equal(turn.model, 'gpt-5.5')
+    assert.equal(turn.modelConfig, null)
+})
+
+test('AgentModelConfigService refuses a runtime-local turn that is still expired after re-inspect', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        daemonId: 'daemon-1',
+        framework: 'codex',
+        model: 'gpt-5.5',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: expiredRuntimeLocal()
+        }
+    })
+    const service = makeService(db, [], {
+        rpc: async () => ({
+            frameworks: [
+                {
+                    framework: 'codex',
+                    cliVersion: 'codex 0.118.0',
+                    ready: true,
+                    credentialReady: true,
+                    configReadable: true,
+                    credentialFacts: {
+                        framework: 'codex',
+                        authFilePresent: true,
+                        authFileParsed: true,
+                        hasAccessToken: true,
+                        hasRefreshToken: false,
+                        accessTokenExp: Date.now() - 3_600_000
+                    },
+                    current: 'gpt-5.5',
+                    models: ['gpt-5.5'],
+                    aliases: [],
+                    speeds: [],
+                    intelligence: [],
+                    lastCheckedAt: new Date().toISOString(),
+                    error: null
+                }
+            ]
+        })
+    })
+
+    await assert.rejects(
+        service.resolveTurnConfig({
+            callerUserId: 'user-1',
+            agentId: 'agent-1'
+        }),
+        /expired/
+    )
+})
+
+test('AgentModelConfigService never inspects on a healthy runtime-local turn', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        daemonId: 'daemon-1',
+        framework: 'codex',
+        model: 'gpt-5.5',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: readyRuntimeLocal('codex', 'daemon-local')
+        }
+    })
+    let rpcCalls = 0
+    const service = makeService(db, [], {
+        rpc: async () => {
+            rpcCalls += 1
+            return { frameworks: [] }
+        }
+    })
+
+    await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1'
+    })
+
+    assert.equal(rpcCalls, 0)
+})
+
+test('AgentModelConfigService selects and persists a runtime-local model', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        model: null,
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('claude-code', 'daemon-local'),
+                models: ['claude-sonnet-4-5', 'claude-opus-4-8'],
+                aliases: ['sonnet', 'opus']
+            }
+        }
+    })
+    const service = makeService(db, [])
+
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        model: 'claude-opus-4-8',
+        saveAsDefault: true
+    })
+
+    assert.equal(turn.model, 'claude-opus-4-8')
+    assert.equal(turn.modelConfig, null)
+    assert.equal(db.agent.model, 'claude-opus-4-8')
+})
+
+test('AgentModelConfigService rejects a model the local config never reported', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('claude-code', 'daemon-local'),
+                models: ['claude-sonnet-4-5'],
+                aliases: ['sonnet']
+            }
+        }
+    })
+
+    await assert.rejects(
+        makeService(db, []).resolveTurnConfig({
+            callerUserId: 'user-1',
+            agentId: 'agent-1',
+            model: 'gpt-5.5'
+        }),
+        /not available in the local config/
+    )
+})
+
+test('AgentModelConfigService accepts any model when the local list is empty', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('claude-code', 'daemon-local'),
+                models: [],
+                aliases: []
+            }
+        }
+    })
+
+    const turn = await makeService(db, []).resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        model: 'some-model-an-old-daemon-never-listed'
+    })
+
+    assert.equal(turn.model, 'some-model-an-old-daemon-never-listed')
+})
+
+test('AgentModelConfigService carries runtime-local tuning without a modelConfig', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'codex',
+        model: 'gpt-5.5',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: readyRuntimeLocal('codex', 'daemon-local')
+        }
+    })
+    const service = makeService(db, [])
+
+    const turn = await service.resolveTurnConfig({
+        callerUserId: 'user-1',
+        agentId: 'agent-1',
+        modelConfig: {
+            framework: 'codex',
+            model: 'gpt-5.5',
+            speed: 'fast',
+            intelligence: 'xhigh'
+        },
+        saveAsDefault: true
+    })
+
+    assert.equal(turn.modelConfig, null)
+    assert.deepEqual(turn.runtimeLocalTuning, {
+        speed: 'fast',
+        intelligence: 'xhigh'
+    })
+})
+
+test('AgentModelConfigService updates a runtime-local model through updateForAgent', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'codex',
+        model: null,
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('codex', 'daemon-local'),
+                models: ['gpt-5.5', 'gpt-5.6-sol']
+            }
+        }
+    })
+
+    // `/model <name>` and `mf model-config update --model` both land here; they
+    // used to report success while silently dropping the model.
+    const view = await makeService(db, []).updateForAgent(
+        'user-1',
+        'agent-1',
+        { modelConfigSource: 'runtime-local', model: 'gpt-5.6-sol' },
+        false
+    )
+
+    assert.equal(view.source, 'runtime-local')
+    assert.equal(db.agent.model, 'gpt-5.6-sol')
 })
 
 const readyRuntimeLocal = (

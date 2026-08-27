@@ -3145,7 +3145,9 @@ const en = {
                     'Use tested provider models for Claude mapping',
                 chooseSupportedCodexModel: 'Choose a supported Codex model',
                 chooseFastCapableModel: 'Choose a fast-capable model',
-                chooseSupportedGeminiModel: 'Choose a supported Gemini model'
+                chooseSupportedGeminiModel: 'Choose a supported Gemini model',
+                runtimeLocalNotReady:
+                    'The local config on this runtime is not ready'
             },
             manyfoldConfigTitle: 'Manyfold config',
             localNotVerified: 'Runtime local not verified.',
@@ -3262,6 +3264,16 @@ const en = {
             modelSourcePlatformHint: 'Use the provider and model set here',
             modelSourceLocal: 'Local config',
             modelSourceLocalHint: "Use the agent's own CLI config",
+            runtimeLocal: {
+                credentialsExpired:
+                    'The sign-in on this runtime has expired. Sign in again there, then refresh.',
+                credentialsMissing:
+                    'No sign-in was found on this runtime. Sign in there, then refresh.',
+                cliDefault: 'CLI default',
+                cliDefaultHint: 'Let the local CLI choose',
+                modelsFrom: 'Models from the local CLI config',
+                pickModel: 'Select a local model'
+            },
             claudeMapping: 'Claude model mapping',
             selectProviderModel: 'Select provider model',
             defaultModel: 'Default model',

@@ -88,13 +88,16 @@ const evaluation = (
 ): RuntimeLocalCredentialEvaluation => ({ status, reason })
 
 // A live expiry is the only thing that lets us call a token expired. Anything
-// refreshable stays valid: all three CLIs renew silently before a turn.
+// refreshable stays valid: all three CLIs renew silently before a turn. A
+// missing timestamp must fall through rather than compare as expired — raw
+// daemon JSON reports absent fields as undefined, not null.
 const oauthEvaluation = (
-    expiresAt: number | null,
+    expiresAt: number | null | undefined,
     hasRefreshToken: boolean,
     now: number
 ): RuntimeLocalCredentialEvaluation | null => {
-    if (expiresAt === null) return null
+    if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt))
+        return null
     if (expiresAt > now) return evaluation('valid', 'oauth-live')
     if (hasRefreshToken) return evaluation('valid', 'oauth-refreshable')
     return evaluation('expired', 'oauth-expired')
@@ -120,13 +123,19 @@ const evaluateClaude = (
     return evaluation('missing', 'no-credentials')
 }
 
+const codexCustomProviders = (
+    facts: CodexCredentialFacts
+): CodexCustomProviderFact[] =>
+    Array.isArray(facts.customProviders) ? facts.customProviders : []
+
 const codexCustomProviderReady = (facts: CodexCredentialFacts): boolean => {
+    const providers = codexCustomProviders(facts)
     const active = facts.activeProvider
     const candidates = active
-        ? facts.customProviders.filter((provider) => provider.id === active)
-        : facts.customProviders
+        ? providers.filter((provider) => provider?.id === active)
+        : providers
     return candidates.some(
-        (provider) => provider.hasBaseUrl && provider.envKeyPresent
+        (provider) => provider?.hasBaseUrl && provider?.envKeyPresent
     )
 }
 
@@ -146,7 +155,7 @@ const evaluateCodex = (
     if (facts.hasAccessToken) return evaluation('unknown', 'unreadable')
     // config.toml is parsed by regex, so a gateway we failed to match is more
     // likely than a user who configured one they cannot authenticate against.
-    if (facts.customProviders.length > 0)
+    if (codexCustomProviders(facts).length > 0)
         return evaluation('unknown', 'unreadable')
     if (facts.authFilePresent)
         return facts.authFileParsed
@@ -173,6 +182,7 @@ const evaluateGemini = (
 
 // Facts absent means an older daemon that predates this contract: fail open so
 // a rolling CLI fleet never loses access to a runtime it can actually use.
+// Callers may pass a raw wire payload, so every branch tolerates missing keys.
 export const runtimeLocalCredentialStatus = (
     facts: RuntimeLocalCredentialFacts | null | undefined,
     now: number
@@ -180,7 +190,8 @@ export const runtimeLocalCredentialStatus = (
     if (!facts) return evaluation('unknown', 'not-reported')
     if (facts.framework === 'claude-code') return evaluateClaude(facts, now)
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
-    return evaluateGemini(facts, now)
+    if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
+    return evaluation('unknown', 'not-reported')
 }
 
 export const isRuntimeLocalCredentialUsable = (

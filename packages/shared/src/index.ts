@@ -609,6 +609,7 @@ export type {
     GeminiCliAgentModelConfig,
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
+    RuntimeLocalTuning,
     UpdateAgentModelConfigBody
 } from './model-config'
 export {
