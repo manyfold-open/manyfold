@@ -41,6 +41,7 @@ type UiCopy = {
     brandShort: string
     docs: string
     apiReference: string
+    challenge: string
     changelog: string
     status: string
     privacy: string
@@ -109,6 +110,10 @@ const defaultUi: UiCopy = {
     brandShort: 'Manyfold',
     docs: 'Documentation',
     apiReference: 'API reference',
+    // Footer only, and pointed at the app: the series keeps one permanent
+    // address across editions, so the landing footer links it campaign or no
+    // campaign and this one follows.
+    challenge: 'Agent Challenge',
     changelog: 'Changelog',
     status: 'Status',
     privacy: 'Privacy',
@@ -189,6 +194,7 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
         brandShort: 'Manyfold',
         docs: '文档',
         apiReference: 'API 参考',
+        challenge: 'Agent 挑战赛',
         changelog: '更新日志',
         status: '状态',
         privacy: '隐私',
