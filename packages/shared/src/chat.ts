@@ -465,7 +465,6 @@ export const isAllowedChatAttachment = (file: {
 }
 
 export const CHAT_MESSAGE_SOFT_LIMIT = 50
-export const HERMES_HISTORY_BUDGET = 30
 
 export interface RuntimeSessionCandidate {
     sessionRef: string

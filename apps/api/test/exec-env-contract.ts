@@ -105,7 +105,7 @@ export interface ExecEnvSurface {
     providerCreds: EnvInjection
     path: PathStrategy
     resume: ResumeSemantics
-    // turn-rpc / acp-pipe only: the exact env keys the RPC payload carries.
+    // turn-rpc only: the exact env keys the RPC payload carries.
     payloadEnvKeys?: readonly string[]
     // Why an intentional absence or asymmetry is what it is.
     note?: string
