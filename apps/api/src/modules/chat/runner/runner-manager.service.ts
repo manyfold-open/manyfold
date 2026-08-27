@@ -136,6 +136,9 @@ export type RunnerFallbackReason =
     | 'workspace_timeout'
     | 'workspace_connection_closed'
     | 'workspace_error'
+    // hermes only, decided by the caller: the runner came up but its daemon
+    // does not advertise turn.hermes, so it cannot own the ACP client.
+    | 'runner_missing_turn_rpc'
 
 // How the sprite's exec endpoint refused the runner inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run.
