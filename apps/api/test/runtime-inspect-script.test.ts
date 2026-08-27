@@ -3,7 +3,7 @@ import test from 'node:test'
 import { execFile } from 'node:child_process'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
     runtimeLocalCredentialStatus,
@@ -53,6 +53,28 @@ const jwt = (expSeconds: number): string => {
     return `${encode({ alg: 'none' })}.${encode({ exp: expSeconds })}.sig`
 }
 
+// The script probes `<cli> --version` by bare name. Left alone that reaches the
+// sealed-env sentinel (or, without it, a real CLI), so each run plants its own
+// stubs ahead of both — which also pins the versions these assertions would
+// otherwise inherit from whatever the machine has installed.
+const STUB_VERSIONS: Record<string, string> = {
+    claude: '9.9.9 (Claude Code)',
+    codex: 'codex-cli 9.9.9',
+    gemini: '9.9.9'
+}
+
+const plantCliStubs = async (root: string): Promise<string> => {
+    const bin = join(root, 'stub-bin')
+    await mkdir(bin, { recursive: true })
+    for (const [name, version] of Object.entries(STUB_VERSIONS))
+        await writeFile(
+            join(bin, name),
+            `#!/bin/sh\nprintf '%s\\n' '${version}'\n`,
+            { mode: 0o755 }
+        )
+    return bin
+}
+
 const inspect = async (
     framework: string,
     home: string,
@@ -64,12 +86,14 @@ const inspect = async (
         string
     >
     for (const key of CREDENTIAL_ENV) delete sanitized[key]
+    const stubBin = await plantCliStubs(home)
     const { stdout } = await run(
         'bash',
         ['-c', script],
         {
             env: {
                 ...sanitized,
+                PATH: `${stubBin}${delimiter}${sanitized.PATH ?? ''}`,
                 HOME: home,
                 CODEX_HOME: join(home, '.codex'),
                 ...env

@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
+import { delimiter, join as joinPath } from 'node:path'
 import { tmpdir } from 'node:os'
 import type {
     ClaudeCredentialFacts,
@@ -40,17 +41,39 @@ const jwt = (expSeconds: number): string => {
     return `${encode({ alg: 'none' })}.${encode({ exp: expSeconds })}.sig`
 }
 
+// The inspectors probe `<cli> --version` by bare name. Left alone that reaches
+// the sealed-env sentinel (or, without it, a real CLI), so the fixture plants
+// its own stubs ahead of both — which also pins the versions these assertions
+// would otherwise inherit from whatever the machine has installed.
+const STUB_VERSIONS: Record<string, string> = {
+    claude: '9.9.9 (Claude Code)',
+    codex: 'codex-cli 9.9.9',
+    gemini: '9.9.9'
+}
+
+const plantCliStubs = async (root: string): Promise<string> => {
+    const bin = joinPath(root, 'stub-bin')
+    await mkdir(bin, { recursive: true })
+    for (const [name, version] of Object.entries(STUB_VERSIONS))
+        await writeFile(joinPath(bin, name), `#!/bin/sh\nprintf '%s\\n' '${version}'\n`, {
+            mode: 0o755
+        })
+    return bin
+}
+
 const withHome = async (
     fn: (home: string) => Promise<void>
 ): Promise<void> => {
     const home = await mkdtemp(join(tmpdir(), 'mf-model-inspect-'))
     const priorHome = process.env.HOME
     const priorCodexHome = process.env.CODEX_HOME
+    const priorPath = process.env.PATH
     const priorCredentials = CREDENTIAL_ENV.map(
         (key) => [key, process.env[key]] as const
     )
     process.env.HOME = home
     process.env.CODEX_HOME = join(home, '.codex')
+    process.env.PATH = `${await plantCliStubs(home)}${delimiter}${priorPath ?? ''}`
     for (const key of CREDENTIAL_ENV) delete process.env[key]
     try {
         await fn(home)
@@ -59,6 +82,8 @@ const withHome = async (
         else process.env.HOME = priorHome
         if (priorCodexHome === undefined) delete process.env.CODEX_HOME
         else process.env.CODEX_HOME = priorCodexHome
+        if (priorPath === undefined) delete process.env.PATH
+        else process.env.PATH = priorPath
         for (const [key, value] of priorCredentials) {
             if (value === undefined) delete process.env[key]
             else process.env[key] = value

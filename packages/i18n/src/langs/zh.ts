@@ -3130,7 +3130,6 @@ const zh: Translations = {
                 credentialsMissing:
                     '未在该运行环境上找到登录信息。请在那台机器上登录后刷新。',
                 cliDefault: 'CLI 默认',
-                cliDefaultHint: '交给本地 CLI 决定',
                 modelsFrom: '来自本地 CLI 配置的模型',
                 pickModel: '选择本地模型'
             },

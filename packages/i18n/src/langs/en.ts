@@ -3270,7 +3270,6 @@ const en = {
                 credentialsMissing:
                     'No sign-in was found on this runtime. Sign in there, then refresh.',
                 cliDefault: 'CLI default',
-                cliDefaultHint: 'Let the local CLI choose',
                 modelsFrom: 'Models from the local CLI config',
                 pickModel: 'Select a local model'
             },
