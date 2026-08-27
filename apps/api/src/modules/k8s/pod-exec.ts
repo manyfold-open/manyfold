@@ -24,6 +24,19 @@ export interface PodExecStreamHandle {
     abort(): void
 }
 
+export interface PodExecInteractiveRequest {
+    cmd: string[]
+    timeoutMs: number
+}
+
+export interface PodExecInteractiveHandle {
+    stdout: AsyncIterable<string>
+    stderr: AsyncIterable<string>
+    stdin: { write(data: Buffer | string): void; end(): void }
+    result: Promise<PodExecRunResult>
+    abort(): void
+}
+
 export class PodExec {
     private readonly exec: Exec
 
@@ -152,6 +165,141 @@ export class PodExec {
                     upstream?.close()
                 } catch {}
                 settleFail(new Error('pod exec aborted'))
+            }
+        }
+    }
+
+    // Interactive stdio for client-driven protocols (ACP): stdin stays open
+    // and is written per frame. Goes through the direct Exec websocket, never
+    // the gateway — the gateway's POST /exec takes stdin as one up-front
+    // string. Same open-PassThrough shape as terminal/k8s-terminal.ts, minus
+    // the tty (channels must stay split for JSON-RPC).
+    streamInteractive(req: PodExecInteractiveRequest): PodExecInteractiveHandle {
+        const stdoutStream = new PassThrough()
+        const stderrStream = new PassThrough()
+        const stdinStream = new PassThrough()
+
+        let exitCode: number | null = null
+        let settled = false
+        let timedOut = false
+        let stdinEnded = false
+        let upstream: WebSocket | undefined
+
+        let resolveResult!: (v: PodExecRunResult) => void
+        let rejectResult!: (e: Error) => void
+        const result = new Promise<PodExecRunResult>((resolve, reject) => {
+            resolveResult = resolve
+            rejectResult = reject
+        })
+
+        const timeoutMs = Math.max(1_000, req.timeoutMs)
+        const timer = setTimeout(() => {
+            if (settled) return
+            timedOut = true
+            try {
+                upstream?.close()
+            } catch {}
+            settleFail(new Error(`pod exec timed out after ${timeoutMs}ms`))
+        }, timeoutMs)
+
+        const endStdin = (): void => {
+            if (stdinEnded) return
+            stdinEnded = true
+            try {
+                stdinStream.end()
+            } catch {}
+        }
+
+        const finalize = (): void => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            endStdin()
+            try {
+                stdoutStream.end()
+            } catch {}
+            try {
+                stderrStream.end()
+            } catch {}
+            if (exitCode === null) {
+                rejectResult(
+                    new Error(
+                        timedOut
+                            ? `pod exec timed out after ${timeoutMs}ms`
+                            : 'pod exec closed without status'
+                    )
+                )
+                return
+            }
+            resolveResult({ exitCode, stdout: '', stderr: '' })
+        }
+
+        const settleFail = (err: Error): void => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            endStdin()
+            try {
+                stdoutStream.destroy()
+            } catch {}
+            try {
+                stderrStream.destroy()
+            } catch {}
+            rejectResult(err)
+        }
+
+        const onStatus = (status: V1Status): void => {
+            exitCode = parseExitCode(status)
+            // socket close handler runs finalize
+        }
+
+        this.exec
+            .exec(
+                this.namespace,
+                this.podName,
+                this.containerName,
+                req.cmd,
+                stdoutStream,
+                stderrStream,
+                stdinStream,
+                false,
+                onStatus
+            )
+            .then((ws) => {
+                upstream = ws
+                ws.on('close', finalize)
+                ws.on('error', (err: Error) => settleFail(err))
+            })
+            .catch((err: unknown) => settleFail(toError(err)))
+
+        return {
+            stdout: readableToAsyncStrings(stdoutStream),
+            stderr: readableToAsyncStrings(stderrStream),
+            stdin: {
+                write: (data: Buffer | string) => {
+                    if (settled || stdinEnded) return
+                    try {
+                        stdinStream.write(data)
+                    } catch {}
+                },
+                end: endStdin
+            },
+            result,
+            // stdin EOF first: closing the websocket alone does not reliably
+            // kill the remote child, while `hermes acp` (like any stdio
+            // JSON-RPC server) exits on EOF. Settle before close — a close
+            // event that beats settleFail would finalize as 'closed without
+            // status' and lose the abort. The close itself waits one tick:
+            // the EOF frame flushes through the stream pipeline
+            // asynchronously, and a same-tick close drops it.
+            abort: () => {
+                endStdin()
+                settleFail(new Error('pod exec aborted'))
+                setImmediate(() => {
+                    try {
+                        upstream?.close()
+                    } catch {}
+                })
             }
         }
     }
