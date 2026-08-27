@@ -32,10 +32,14 @@ import {
     codexSpeeds,
     geminiAutoModelKey,
     geminiLocalModelCatalog,
+    type ClaudeCredentialFacts,
+    type CodexCredentialFacts,
+    type CodexCustomProviderFact,
     type DaemonFrameworkModelCapability,
     type DaemonModelInspectResponse,
     type DaemonRpcMethod,
-    type DaemonTurnStartPayload
+    type DaemonTurnStartPayload,
+    type GeminiCredentialFacts
 } from '@manyfold/shared'
 import { runAcpTurn } from './acp-turn'
 import { runOpenclawTurn } from './openclaw-turn'
@@ -350,6 +354,119 @@ const codexHomeDir = (): string => {
     return raw ? resolve(expandHome(raw)) : join(homedir(), '.codex')
 }
 
+const parseJsonRecord = (text: string | null): Record<string, unknown> | null => {
+    if (!text?.trim()) return null
+    try {
+        const parsed = JSON.parse(text) as unknown
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null
+    } catch {
+        return null
+    }
+}
+
+const nestedRecord = (
+    record: Record<string, unknown> | null,
+    key: string
+): Record<string, unknown> | null => {
+    const value = record?.[key]
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null
+}
+
+const nonEmptyString = (value: unknown): boolean =>
+    typeof value === 'string' && value.trim().length > 0
+
+// Reads the `exp` claim without verifying the signature: the daemon only needs
+// to know when the CLI will consider the token stale, not to trust it.
+const jwtExpiryMs = (value: unknown): number | null => {
+    if (typeof value !== 'string') return null
+    const payload = value.split('.')[1]
+    if (!payload) return null
+    try {
+        const json = Buffer.from(
+            payload.replace(/-/g, '+').replace(/_/g, '/'),
+            'base64'
+        ).toString('utf8')
+        const exp = (JSON.parse(json) as Record<string, unknown>).exp
+        return typeof exp === 'number' && Number.isFinite(exp)
+            ? Math.round(exp * 1000)
+            : null
+    } catch {
+        return null
+    }
+}
+
+const tomlScalar = (raw: string): string => {
+    const withoutComment = raw.replace(/\s+#.*$/, '').trim()
+    const quoted = /^["']([^"']*)["']$/.exec(withoutComment)
+    return (quoted ? quoted[1] : withoutComment).trim()
+}
+
+interface CodexConfigScan {
+    activeProvider: string | null
+    providers: CodexCustomProviderFact[]
+    profileModels: string[]
+}
+
+// Section-aware scan so `[model_providers.x]` keys are attributed to their
+// provider instead of leaking into the root table the way a bare regex would.
+const scanCodexConfig = (text: string | null): CodexConfigScan => {
+    const scan: CodexConfigScan = {
+        activeProvider: null,
+        providers: [],
+        profileModels: []
+    }
+    if (!text) return scan
+    const providers = new Map<string, Record<string, string>>()
+    let section: string | null = null
+    for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim()
+        if (!line || line.startsWith('#')) continue
+        const header = /^\[+([^\]]+)\]+$/.exec(line)
+        if (header) {
+            section = header[1].trim()
+            if (section.startsWith('model_providers.'))
+                providers.set(
+                    tomlScalar(section.slice('model_providers.'.length)),
+                    {}
+                )
+            continue
+        }
+        const pair = /^([A-Za-z0-9_.-]+)\s*=\s*(.+)$/.exec(line)
+        if (!pair) continue
+        const key = pair[1]
+        const value = tomlScalar(pair[2])
+        if (section === null) {
+            if (key === 'model_provider') scan.activeProvider = value || null
+            continue
+        }
+        if (section.startsWith('model_providers.')) {
+            const id = tomlScalar(section.slice('model_providers.'.length))
+            const entry = providers.get(id)
+            if (entry) entry[key] = value
+            continue
+        }
+        if (section.startsWith('profiles.') && key === 'model' && value)
+            scan.profileModels.push(value)
+    }
+    for (const [id, entry] of providers) {
+        const envKey = entry.env_key || null
+        scan.providers.push({
+            id,
+            hasBaseUrl: Boolean(entry.base_url),
+            envKey,
+            envKeyPresent: Boolean(
+                envKey && process.env[envKey]?.trim()
+            ),
+            requiresOpenaiAuth: entry.requires_openai_auth === 'true'
+        })
+    }
+    return scan
+}
+
 const codexAuthSummary = (text: string | null): string | null => {
     const trimmed = text?.trim()
     if (!trimmed) return null
@@ -378,6 +495,32 @@ const codexAuthSummary = (text: string | null): string | null => {
         return 'auth.json readable'
     } catch {
         return 'auth.json readable'
+    }
+}
+
+const claudeCredentialFacts = async (
+    configPresent: boolean
+): Promise<ClaudeCredentialFacts> => {
+    const credentials = parseJsonRecord(
+        (await readTextIfPresent(join(homedir(), '.claude', '.credentials.json')))
+            .text
+    )
+    const oauth = nestedRecord(credentials, 'claudeAiOauth')
+    const claudeJson = parseJsonRecord(
+        (await readTextIfPresent(join(homedir(), '.claude.json'))).text
+    )
+    return {
+        framework: 'claude-code',
+        envToken: Boolean(
+            process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+            process.env.ANTHROPIC_API_KEY?.trim()
+        ),
+        credentialsFileParsed: credentials !== null,
+        oauthExpiresAt:
+            typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : null,
+        hasRefreshToken: nonEmptyString(oauth?.refreshToken),
+        oauthAccount: nestedRecord(claudeJson, 'oauthAccount') !== null,
+        configPresent
     }
 }
 
@@ -410,6 +553,7 @@ const inspectClaudeModels =
             cliVersion,
             ready: Boolean(cliVersion && credentialReady),
             credentialReady,
+            credentialFacts: await claudeCredentialFacts(configReadable),
             configReadable,
             current,
             models: uniqueStrings([...mapped, ...claudeLocalModelCatalog]),
@@ -420,6 +564,33 @@ const inspectClaudeModels =
             error
         }
     }
+
+const codexCredentialFacts = (
+    auth: { ok: boolean; text: string | null },
+    scan: CodexConfigScan,
+    envCredentialReady: boolean
+): CodexCredentialFacts => {
+    const parsed = parseJsonRecord(auth.text)
+    const tokens = nestedRecord(parsed, 'tokens')
+    return {
+        framework: 'codex',
+        authFilePresent: auth.ok,
+        authFileParsed: parsed !== null,
+        apiKeyPresent:
+            nonEmptyString(parsed?.OPENAI_API_KEY) ||
+            nonEmptyString(parsed?.openaiApiKey),
+        envApiKey: envCredentialReady,
+        hasAccessToken: nonEmptyString(tokens?.access_token),
+        hasRefreshToken: nonEmptyString(tokens?.refresh_token),
+        accessTokenExp: jwtExpiryMs(tokens?.access_token),
+        lastRefresh:
+            typeof parsed?.last_refresh === 'string'
+                ? parsed.last_refresh
+                : null,
+        customProviders: scan.providers,
+        activeProvider: scan.activeProvider
+    }
+}
 
 const inspectCodexModels =
     async (): Promise<DaemonFrameworkModelCapability> => {
@@ -443,6 +614,7 @@ const inspectCodexModels =
             process.env.OPENAI_API_KEY && !requiresOpenAiAuth
         )
         const credentialReady = Boolean(authSummary || envCredentialReady)
+        const scan = scanCodexConfig(config.text)
         const current =
             uniqueStrings([
                 model,
@@ -471,9 +643,18 @@ const inspectCodexModels =
                 cliVersion && config.ok && credentialReady && !error
             ),
             credentialReady,
+            credentialFacts: codexCredentialFacts(
+                auth,
+                scan,
+                envCredentialReady
+            ),
             configReadable: config.ok,
             current,
-            models: uniqueStrings([model, ...codexModels]),
+            models: uniqueStrings([
+                model,
+                ...scan.profileModels,
+                ...codexModels
+            ]),
             aliases: [],
             speeds: [...codexSpeeds],
             intelligence: [...codexIntelligenceLevels],
@@ -512,6 +693,26 @@ const geminiSettingsApiKey = (text: string | null): string | null => {
     }
 }
 
+const geminiCredentialFacts = (
+    oauth: { ok: boolean; text: string | null },
+    envApiKey: string,
+    settingsApiKey: string | null
+): GeminiCredentialFacts => {
+    const parsed = parseJsonRecord(oauth.text)
+    return {
+        framework: 'gemini-cli',
+        envApiKey: Boolean(envApiKey),
+        settingsApiKey: Boolean(settingsApiKey),
+        oauthFilePresent: oauth.ok,
+        oauthFileParsed: parsed !== null,
+        oauthExpiryDate:
+            typeof parsed?.expiry_date === 'number'
+                ? parsed.expiry_date
+                : null,
+        hasRefreshToken: nonEmptyString(parsed?.refresh_token)
+    }
+}
+
 const inspectGeminiModels =
     async (): Promise<DaemonFrameworkModelCapability> => {
         const now = new Date().toISOString()
@@ -531,6 +732,10 @@ const inspectGeminiModels =
             process.env.GOOGLE_GEMINI_API_KEY?.trim() ||
             ''
         const envModel = process.env.GEMINI_MODEL?.trim() || null
+        const envBaseUrl =
+            process.env.GOOGLE_GEMINI_BASE_URL?.trim() ||
+            process.env.GEMINI_BASE_URL?.trim() ||
+            null
         const credentialReady = Boolean(envApiKey || settingsApiKey || oauth.ok)
         const configReadable = (await readablePath(geminiHome)) || settings.ok
         const credentialSummary = envApiKey
@@ -541,9 +746,12 @@ const inspectGeminiModels =
                 ? 'oauth_creds.json'
                 : null
         const current =
-            uniqueStrings([envModel, settingsModel, credentialSummary]).join(
-                ' · '
-            ) || null
+            uniqueStrings([
+                envModel,
+                settingsModel,
+                envBaseUrl,
+                credentialSummary
+            ]).join(' · ') || null
         const error =
             settings.error ??
             oauth.error ??
@@ -557,6 +765,11 @@ const inspectGeminiModels =
             cliVersion,
             ready: Boolean(cliVersion && credentialReady && !error),
             credentialReady,
+            credentialFacts: geminiCredentialFacts(
+                oauth,
+                envApiKey,
+                settingsApiKey
+            ),
             configReadable,
             current,
             models: uniqueStrings([

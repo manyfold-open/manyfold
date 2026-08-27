@@ -571,6 +571,22 @@ export {
     claudeCliModel,
     claudeModelMapEnv
 } from './model-config'
+export {
+    runtimeLocalCredentialStatuses,
+    runtimeLocalCredentialStatus,
+    isRuntimeLocalCredentialUsable,
+    parseRuntimeLocalCredentialFacts
+} from './runtime-local-credentials'
+export type {
+    ClaudeCredentialFacts,
+    CodexCredentialFacts,
+    CodexCustomProviderFact,
+    GeminiCredentialFacts,
+    RuntimeLocalCredentialEvaluation,
+    RuntimeLocalCredentialFacts,
+    RuntimeLocalCredentialReason,
+    RuntimeLocalCredentialStatus
+} from './runtime-local-credentials'
 export type {
     AgentModelConfig,
     AgentModelConfigSource,

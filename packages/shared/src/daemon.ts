@@ -1,4 +1,5 @@
 import type { AgentFramework } from './constants'
+import type { RuntimeLocalCredentialFacts } from './runtime-local-credentials'
 
 export type DaemonHostStatus = 'active' | 'offline' | 'revoked'
 
@@ -78,6 +79,9 @@ export interface DaemonFrameworkModelCapability {
     cliVersion: string | null
     ready?: boolean
     credentialReady?: boolean | null
+    // Optional: daemons older than the credential-facts contract omit it, and
+    // the API treats its absence as "cannot judge" rather than "not ready".
+    credentialFacts?: RuntimeLocalCredentialFacts | null
     configReadable: boolean
     current: string | null
     models: string[]

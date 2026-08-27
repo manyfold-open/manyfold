@@ -1095,6 +1095,8 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
     )
 
     assert.equal(result.ok, true)
+    // A daemon that predates the credential-facts contract stays fully usable:
+    // the evaluation is `unknown`, which never downgrades `ready`.
     assert.deepEqual(db.agent.extras?.runtimeLocalModelConfig, {
         available: true,
         ready: true,
@@ -1102,6 +1104,9 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
         framework: 'codex',
         cliVersion: 'codex 0.118.0',
         credentialReady: true,
+        credentialStatus: 'unknown',
+        credentialReason: 'not-reported',
+        credentialFacts: null,
         configReadable: true,
         current: 'gpt-5.5 · fast · xhigh',
         models: ['gpt-5.5'],
@@ -1174,6 +1179,147 @@ test('AgentModelConfigService refreshes sprites runtime-local capability through
         | undefined
     assert.equal(runtimeLocal?.source, 'sprites-local')
     assert.equal(runtimeLocal?.ready, true)
+})
+
+test('AgentModelConfigService refuses a runtime-local source whose credentials expired', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        daemonId: 'daemon-1',
+        framework: 'codex',
+        model: null,
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('codex', 'daemon-local'),
+                credentialFacts: {
+                    framework: 'codex',
+                    authFilePresent: true,
+                    authFileParsed: true,
+                    hasAccessToken: true,
+                    hasRefreshToken: false,
+                    accessTokenExp: Date.now() - 3_600_000
+                }
+            }
+        }
+    })
+    const service = makeService(db, [])
+
+    const view = await service.getForAgent('user-1', 'agent-1', false)
+
+    assert.equal(view.runtimeLocal?.credentialStatus, 'expired')
+    assert.equal(view.runtimeLocal?.ready, false)
+    assert.equal(view.validation.valid, false)
+    assert.equal(view.validation.cta, 'refresh-runtime-local')
+    assert.match(String(view.runtimeLocal?.error), /expired/)
+})
+
+test('AgentModelConfigService flips a cached runtime-local token to expired as the clock passes it', async () => {
+    const facts = {
+        framework: 'claude-code',
+        envToken: false,
+        credentialsFileParsed: true,
+        oauthExpiresAt: Date.now() + 3_600_000,
+        hasRefreshToken: false,
+        oauthAccount: false,
+        configPresent: true
+    }
+    const cache = {
+        ...readyRuntimeLocal('claude-code', 'daemon-local'),
+        credentialFacts: facts
+    }
+    const live = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: cache
+        }
+    })
+    const liveView = await makeService(live, []).getForAgent(
+        'user-1',
+        'agent-1',
+        false
+    )
+    assert.equal(liveView.runtimeLocal?.credentialStatus, 'valid')
+    assert.equal(liveView.runtimeLocal?.ready, true)
+
+    // Same stored snapshot, later clock: nothing re-inspects, the verdict
+    // still has to change.
+    const stale = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...cache,
+                credentialFacts: {
+                    ...facts,
+                    oauthExpiresAt: Date.now() - 1_000
+                }
+            }
+        }
+    })
+    const staleView = await makeService(stale, []).getForAgent(
+        'user-1',
+        'agent-1',
+        false
+    )
+    assert.equal(staleView.runtimeLocal?.credentialStatus, 'expired')
+    assert.equal(staleView.runtimeLocal?.ready, false)
+})
+
+test('AgentModelConfigService keeps runtime-local usable when credentials cannot be judged', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'claude-code',
+        extras: {
+            modelConfig: { source: 'runtime-local' },
+            runtimeLocalModelConfig: {
+                ...readyRuntimeLocal('claude-code', 'daemon-local'),
+                credentialFacts: {
+                    framework: 'claude-code',
+                    envToken: false,
+                    credentialsFileParsed: false,
+                    oauthExpiresAt: null,
+                    hasRefreshToken: false,
+                    oauthAccount: false,
+                    configPresent: true
+                }
+            }
+        }
+    })
+
+    const view = await makeService(db, []).getForAgent(
+        'user-1',
+        'agent-1',
+        false
+    )
+
+    assert.equal(view.runtimeLocal?.credentialStatus, 'unknown')
+    assert.equal(view.runtimeLocal?.ready, true)
+    assert.equal(view.validation.valid, true)
+})
+
+test('AgentModelConfigService leaves a never-inspected runtime-local agent valid', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        runtime: 'daemon',
+        framework: 'codex',
+        extras: { modelConfig: { source: 'runtime-local' } }
+    })
+
+    const view = await makeService(db, []).getForAgent(
+        'user-1',
+        'agent-1',
+        false
+    )
+
+    assert.equal(view.runtimeLocal?.lastCheckedAt, null)
+    assert.equal(view.validation.valid, true)
 })
 
 const readyRuntimeLocal = (
