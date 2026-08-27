@@ -69,7 +69,32 @@ export interface ExecResumeRequest {
     timeoutMs: number
 }
 
+// Interactive stdio for client-driven protocols (ACP): the caller writes
+// frames after start and decides when input ends. No resume — an open stdin
+// means the conversation lives in this process, so these handles are
+// non-resumable by construction.
+export interface InteractiveExecRequest {
+    cmd: string[]
+    env?: Record<string, string>
+    dir?: string
+    timeoutMs: number
+    onExecSession?: (execSessionId: string) => void
+}
+
+export interface InteractiveExecHandle {
+    stdout: AsyncIterable<string>
+    stderr: AsyncIterable<string>
+    // Enqueue a stdin frame; write failures surface via `result` rejecting.
+    write(data: Buffer): void
+    // Graceful EOF — a stdio JSON-RPC server exits on it.
+    endInput(): void
+    result: Promise<ExecStreamResult>
+    // Hard teardown: kill the remote child and close the transport.
+    abort(): void
+}
+
 export interface ExecDriver {
     stream(req: ExecStreamRequest): ExecStreamHandle
     resumeStream?(req: ExecResumeRequest): ExecStreamHandle
+    streamInteractive?(req: InteractiveExecRequest): InteractiveExecHandle
 }

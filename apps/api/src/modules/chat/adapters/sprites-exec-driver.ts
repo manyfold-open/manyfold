@@ -12,7 +12,9 @@ import type {
     ExecDriver,
     ExecStreamHandle,
     ExecStreamRequest,
-    ExecStreamResult
+    ExecStreamResult,
+    InteractiveExecHandle,
+    InteractiveExecRequest
 } from './exec-driver'
 import { observedResult } from './exec-driver'
 import type { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
@@ -83,6 +85,49 @@ export const deriveMaxRunAfterDisconnectSeconds = (
 ): number =>
     Math.min(SPRITE_EXEC_MAX_DETACH_SECONDS, Math.ceil(timeoutMs / 1000))
 
+// Push-driven stdin for an interactive exec: the SDK consumes an
+// AsyncIterable<Buffer> handed in at start, so post-start writes go through
+// a queue the caller pushes into. `end()` completes the iterable, which the
+// SDK turns into the stdin EOF frame.
+export interface PushStdin {
+    iterable: AsyncIterable<Buffer>
+    write(data: Buffer): void
+    end(): void
+}
+
+export const makePushStdin = (): PushStdin => {
+    const chunks: Buffer[] = []
+    let ended = false
+    let notify: (() => void) | null = null
+    const wake = (): void => {
+        const n = notify
+        notify = null
+        n?.()
+    }
+    return {
+        iterable: {
+            [Symbol.asyncIterator]: async function* () {
+                while (true) {
+                    while (chunks.length > 0) yield chunks.shift()!
+                    if (ended) return
+                    await new Promise<void>((resolve) => {
+                        notify = resolve
+                    })
+                }
+            }
+        },
+        write: (data: Buffer) => {
+            if (ended) return
+            chunks.push(data)
+            wake()
+        },
+        end: () => {
+            ended = true
+            wake()
+        }
+    }
+}
+
 export class SpritesExecDriver implements ExecDriver {
     constructor(
         private readonly client: SpritesClient,
@@ -140,6 +185,57 @@ export class SpritesExecDriver implements ExecDriver {
             stderr: handle.stderr,
             result: observedResult(result),
             abort: handle.abort
+        }
+    }
+
+    streamInteractive(req: InteractiveExecRequest): InteractiveExecHandle {
+        const env = mergeEnv(this.deps?.env, req.env)
+        const stdin = makePushStdin()
+        const handle = execSpriteStream(
+            this.client,
+            this.spriteName,
+            {
+                cmd: wrapSpriteCommand(req.cmd, req.dir, env),
+                env,
+                stdin: stdin.iterable,
+                timeoutMs: req.timeoutMs,
+                capture: 'tail',
+                // No reattach: the SDK requires stdin EOF before it will
+                // re-attach, and an interactive session holds stdin open for
+                // its whole life. 10 matches the platform's post-disconnect
+                // default while opting into the SDK's REST kill on
+                // abort()/timeout, so a cancelled turn dies promptly and a
+                // transient drop leaks at most 10s of compute.
+                maxRunAfterDisconnectSeconds: 10,
+                ...(req.onExecSession
+                    ? { onSessionId: req.onExecSession }
+                    : {})
+            },
+            this.logger
+        )
+        const unregister = this.deps
+            ? this.deps.sessionRegistry.register(this.deps.agentId, {
+                  kind: 'chat-exec',
+                  close: () => handle.abort()
+              })
+            : null
+        const result: Promise<ExecStreamResult> = handle.result
+            .then((r) => ({
+                exitCode: r.exitCode,
+                stdout: r.stdout,
+                stderr: r.stderr
+            }))
+            .finally(() => unregister?.())
+        return {
+            stdout: handle.stdout,
+            stderr: handle.stderr,
+            write: stdin.write,
+            endInput: stdin.end,
+            result: observedResult(result),
+            abort: () => {
+                stdin.end()
+                handle.abort()
+            }
         }
     }
 }
