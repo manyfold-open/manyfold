@@ -1,5 +1,5 @@
 ---
-import { getSupportUi, getUi, localePath, type Locale } from '@/lib/i18n'
+import { getUi, localePath, type Locale } from '@/lib/i18n'
 import { appUrl, socialDiscordUrl, socialXUrl } from '@/lib/siteLinks'
 
 interface Props {
@@ -9,35 +9,51 @@ interface Props {
 const { locale = 'en' } = Astro.props
 const year = new Date().getFullYear()
 const copy = getUi(locale)
-const support = getSupportUi(locale)
 
 // The brand link above points at the landing page in the reader's language,
 // so docs and the marketing site cross-link in both directions (#534).
 const homeHref = locale === 'zh' ? `${appUrl}/zh/` : `${appUrl}/`
 
+// One footer across two sites: same entries, same order, same wording as the
+// landing's (apps/web MarketingFooter). A reader crossing between
+// manyfold.ai and docs.manyfold.ai should not be able to tell the row apart,
+// so anything added there belongs here too. Two deliberate exceptions:
+// "Cookie settings", which re-opens a consent banner that only exists on the
+// app — this site loads no analytics and sets no cookies to configure — and
+// the support chat, which every page already carries as a bubble.
 const links = [
     // The dashboard, not the first article. This was pointing at
     // getting-started from before /docs/ existed, and now that the top menu
     // carries no desktop links it is the only route back into the docs from a
     // page without a sidebar.
-    { href: localePath(locale, '/docs/'), label: copy.docs },
+    //
+    // copy.docsTitle, not copy.docs: beside Changelog / Status / Privacy /
+    // Terms the long form was the one label out of register, and it is the
+    // destination's own title either way. The breadcrumbs and the sidebar
+    // keep "Documentation" — they have the room for it.
+    { href: localePath(locale, '/docs/'), label: copy.docsTitle },
+    { href: `${appUrl}/challenge`, label: copy.challenge },
     { href: localePath(locale, '/changelog'), label: copy.changelog },
     { href: localePath(locale, '/status'), label: copy.status },
-    { href: localePath(locale, '/support'), label: support.supportNavLabel },
     { href: '/privacy', label: copy.privacy },
     { href: '/terms', label: copy.terms }
 ]
 ---
 
 <footer class="docs-footer border-divider/60 bg-main border-t">
+    {/* The landing folds this row at 640 and again at 480 (styles.css
+        `.lp-foot` media queries); the `max-[...]` variants below are those two
+        blocks, so the footer collapses the same way on both sites. */}
     <div
-        class="mx-auto flex max-w-content flex-col items-start justify-between gap-5 px-[18px] pt-9 pb-10 min-[481px]:px-6 min-[721px]:px-8 sm:flex-row sm:items-center"
+        class="mx-auto flex max-w-content flex-col items-start justify-between gap-5 px-[18px] pt-9 pb-10 max-[481px]:pt-7 max-[481px]:pb-8 min-[481px]:px-6 min-[641px]:flex-row min-[641px]:items-center min-[721px]:px-8"
     >
-        <div class="flex flex-wrap items-center gap-x-[18px] gap-y-2">
+        <div
+            class="flex flex-wrap items-center gap-x-[18px] gap-y-2 max-[481px]:gap-x-[14px] max-[481px]:gap-y-1.5"
+        >
             <a
                 href={homeHref}
                 aria-label={copy.brand}
-                class="text-fg inline-flex shrink-0 items-center gap-2 no-underline hover:no-underline"
+                class="text-fg inline-flex shrink-0 items-center gap-1 no-underline hover:no-underline"
             >
                 <svg
                     class="docs-brand-mark"
@@ -56,16 +72,18 @@ const links = [
                 <span class="docs-brand-beta" aria-label="Beta">Beta</span>
             </a>
             <span
-                class="text-subtle font-mono text-[0.75rem] tracking-[0.02em]"
-                >© {year} Netmind</span
+                class="text-muted font-mono text-[0.75rem] tracking-[0.02em] max-[481px]:text-[0.6875rem]"
+                >© {year} {copy.brandShort}</span
             >
         </div>
-        <nav class="flex flex-wrap items-center gap-x-7 gap-y-2">
+        <nav
+            class="flex flex-wrap items-center gap-x-7 gap-y-2 max-[641px]:gap-x-[18px] max-[641px]:gap-y-4"
+        >
             {
                 links.map((link) => (
                     <a
                         href={link.href}
-                        class="text-fg/85 hover:text-fg text-ui no-underline transition-colors hover:no-underline"
+                        class="text-fg/85 hover:text-fg text-[0.875rem] tracking-[-0.005em] no-underline transition-colors hover:no-underline max-[481px]:text-[0.84375rem]"
                     >
                         {link.label}
                     </a>
@@ -74,9 +92,13 @@ const links = [
             {/* One cluster rather than two more entries on the end of the
                 link list — the hairline and the wider gap are what say so.
                 Unlike the header, the footer carries X as well: down here it
-                is a follow, not a way to get unstuck. */}
+                is a follow, not a way to get unstuck.
+
+                The hairline goes once the links wrap: the cluster can then
+                start a line, and the rule would hang there with nothing
+                before it to divide. */}
             <span
-                class="border-divider/60 ml-[-6px] flex items-center gap-0.5 border-l pl-5"
+                class="border-divider/60 ml-1 flex items-center gap-0.5 border-l pl-[22px] max-[641px]:ml-0 max-[641px]:border-l-0 max-[641px]:pl-0"
             >
                 <a
                     href={socialXUrl}
@@ -85,7 +107,7 @@ const links = [
                     class="docs-icon-btn docs-icon-bare"
                     aria-label={copy.followX}
                 >
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                         <path
                             d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"
                         ></path>

@@ -1172,6 +1172,13 @@
         fill: var(--color-ink-soft);
     }
 
+    /* The landing steps its own mark down in the footer (.lp-foot
+       .lp-brand-mark) and holds the wordmark at 17px; the lockup is the
+       same object on both sites, so it takes the same step here. */
+    .docs-footer .docs-brand-mark {
+        @apply h-6;
+    }
+
     /* Beta pill sitting after the wordmark — mirrors the landing
        `.lp-brand-beta`: info-tinted capsule, uppercase, 1px inset ring. */
     .docs-brand-beta {
@@ -1224,6 +1231,14 @@
 
     html[data-theme='dark'] .docs-icon-btn:hover {
         background: rgba(255, 255, 255, 0.07);
+    }
+
+    /* Header utilities recede behind the search field and the CTA; the
+       footer's social pair has nothing to recede behind, and the landing
+       reads them as peers of the link row beside them. Same tone as the
+       links, therefore, not the muted one. */
+    .docs-footer .docs-icon-btn {
+        @apply text-fg/85 hover:text-fg;
     }
 
     /* Splits the utility run into "leaves the site" and "changes this page",
