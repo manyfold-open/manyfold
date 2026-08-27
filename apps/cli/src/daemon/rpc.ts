@@ -505,7 +505,12 @@ const claudeCredentialFacts = async (
         (await readTextIfPresent(join(homedir(), '.claude', '.credentials.json')))
             .text
     )
-    const oauth = nestedRecord(credentials, 'claudeAiOauth')
+    // Older installs wrote the same block under `oauthAccount`. This is a
+    // different file from the ~/.claude.json read below, which happens to use
+    // that name for the profile record.
+    const oauth =
+        nestedRecord(credentials, 'claudeAiOauth') ??
+        nestedRecord(credentials, 'oauthAccount')
     const claudeJson = parseJsonRecord(
         (await readTextIfPresent(join(homedir(), '.claude.json'))).text
     )

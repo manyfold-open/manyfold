@@ -2082,7 +2082,7 @@ if (framework === 'claude-code') {
     ? (credentialReady ? null : 'Claude Code local credentials were not detected')
     : 'claude CLI is not available on PATH'
   const claudeCredentials = parseJson(readText(path.join(home, '.claude', '.credentials.json')).text)
-  const claudeOauth = nested(claudeCredentials, 'claudeAiOauth')
+  const claudeOauth = nested(claudeCredentials, 'claudeAiOauth') || nested(claudeCredentials, 'oauthAccount')
   const claudeJson = parseJson(readText(path.join(home, '.claude.json')).text)
   capability = {
     framework,

@@ -102,6 +102,26 @@ test('claude inspect reports oauth expiry and refresh capability', async () => {
     })
 })
 
+// Older installs wrote the oauth block under `oauthAccount` instead.
+test('claude inspect reads the legacy credentials key', async () => {
+    await withHome(async (home) => {
+        await mkdir(join(home, '.claude'), { recursive: true })
+        await writeFile(
+            join(home, '.claude', '.credentials.json'),
+            JSON.stringify({
+                oauthAccount: {
+                    accessToken: 'redacted',
+                    expiresAt: 1_700_000_000_000
+                }
+            })
+        )
+        const capability = await inspect('claude-code')
+        const facts = capability.credentialFacts as ClaudeCredentialFacts
+        assert.equal(facts.oauthExpiresAt, 1_700_000_000_000)
+        assert.equal(facts.hasRefreshToken, false)
+    })
+})
+
 test('claude inspect reports the login record without reading the keychain', async () => {
     await withHome(async (home) => {
         await writeFile(

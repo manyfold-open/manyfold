@@ -149,9 +149,15 @@ const evaluateCodex = (
     // own env var, so OpenAI credentials being absent says nothing about it.
     if (codexCustomProviderReady(facts))
         return evaluation('valid', 'custom-provider')
-    if (facts.hasRefreshToken) return evaluation('valid', 'oauth-refreshable')
-    const oauth = oauthEvaluation(facts.accessTokenExp, false, now)
+    // Expiry first: a live token that also happens to carry a refresh token is
+    // live, not "expired but renewable".
+    const oauth = oauthEvaluation(
+        facts.accessTokenExp,
+        facts.hasRefreshToken,
+        now
+    )
     if (oauth) return oauth
+    if (facts.hasRefreshToken) return evaluation('valid', 'oauth-refreshable')
     if (facts.hasAccessToken) return evaluation('unknown', 'unreadable')
     // config.toml is parsed by regex, so a gateway we failed to match is more
     // likely than a user who configured one they cannot authenticate against.

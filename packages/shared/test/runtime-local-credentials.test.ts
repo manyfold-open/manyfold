@@ -142,6 +142,24 @@ describe('runtimeLocalCredentialStatus — codex', () => {
         assert.equal(result.reason, 'api-key')
     })
 
+    // Measured on this machine [2026-08-27]: a real codex auth.json carries a
+    // live access token AND a refresh token, and used to report itself as
+    // "expired but renewable".
+    it('calls a live access token live even when it can also refresh', () => {
+        const result = runtimeLocalCredentialStatus(
+            codex({
+                authFilePresent: true,
+                authFileParsed: true,
+                hasAccessToken: true,
+                hasRefreshToken: true,
+                accessTokenExp: NOW + HOUR
+            }),
+            NOW
+        )
+        assert.equal(result.status, 'valid')
+        assert.equal(result.reason, 'oauth-live')
+    })
+
     it('keeps an expired access token valid when a refresh token exists', () => {
         const result = runtimeLocalCredentialStatus(
             codex({

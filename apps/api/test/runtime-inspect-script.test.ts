@@ -141,6 +141,26 @@ test('sandbox inspect reports an expired claude token with no refresh path', asy
     })
 })
 
+test('sandbox inspect reads the legacy claude credentials key', async () => {
+    await withHome(async (home) => {
+        await mkdir(join(home, '.claude'), { recursive: true })
+        await writeFile(
+            join(home, '.claude', '.credentials.json'),
+            JSON.stringify({
+                oauthAccount: {
+                    accessToken: 'redacted',
+                    refreshToken: 'redacted-refresh',
+                    expiresAt: 1_700_000_000_000
+                }
+            })
+        )
+        const capability = await inspect('claude-code', home)
+        const facts = capability.credentialFacts as ClaudeCredentialFacts
+        assert.equal(facts.oauthExpiresAt, 1_700_000_000_000)
+        assert.equal(facts.hasRefreshToken, true)
+    })
+})
+
 test('sandbox inspect reports the claude login record', async () => {
     await withHome(async (home) => {
         await writeFile(
