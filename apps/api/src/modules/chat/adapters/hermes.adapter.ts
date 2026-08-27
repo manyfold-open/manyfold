@@ -213,8 +213,7 @@ export class HermesAdapter implements ApiChatAdapter {
                 daemonId: agentRow.daemonId,
                 cwd: agentRow.workspacePath ?? null,
                 // A BYOD daemon spawns `hermes acp` fresh each turn, so the
-                // agent's env text rides the payload (#781). A sprite hermes
-                // keeps its env on the resident service instead.
+                // agent's env text rides the payload (#781).
                 env: envTextToRecord(envTextFromExtras(agentRow.extras))
             })
             return
@@ -255,15 +254,14 @@ export class HermesAdapter implements ApiChatAdapter {
         // interactive exec channel. Same protocol as every other hermes turn;
         // not resumable, exactly like the gateway POST this replaced.
         yield* this.sendViaInteractiveAcp(ctx, userMessage)
-
     }
 
     // Recover a hermes turn from the buffer of the daemon that carried it. For
     // a turn the runner OWNED (turn.start) the child is still generating inside
     // the sprite, so this replays what it wrote and then follows the live tail
-    // to a real completion. For a legacy pipe-carried turn the child died with
-    // the API, so the completion gate finds no evidence and suspends —
-    // retryable, never a truncated `done`.
+    // to a real completion. A replay without completion evidence suspends —
+    // retryable, never a truncated `done`. Interactive-transport turns record
+    // no daemon refs and decline below.
     async *resumeMessage(
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
