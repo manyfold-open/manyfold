@@ -9,7 +9,7 @@ import type {
     AgentFramework,
     AgentRuntime
 } from '@manyfold/shared'
-import { runtimeHosts } from '@manyfold/db'
+import { runtimeHosts, agentCredentials } from '@manyfold/db'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
@@ -68,7 +68,8 @@ export const DAEMON_BASE_ENV: Record<string, string> = {
 export const PROVIDER_MARKERS = {
     anthropicAuthToken: 'sk-anthropic-marker',
     openaiApiKey: 'sk-openai-marker',
-    googleApiKey: 'sk-google-marker'
+    googleApiKey: 'sk-google-marker',
+    openrouterApiKey: 'sk-openrouter-marker'
 }
 
 export interface CapturedStream {
@@ -131,6 +132,28 @@ const captureDriver = (
     resumeStream: (payload: Record<string, unknown>) => {
         seam.resumes.push({ via: 'runner', payload })
         return emptyHandle()
+    },
+    // The interactive seam (hermes ACP): same capture, plus a handle whose
+    // immediately-settled result makes the ACP client fail fast instead of
+    // waiting for a handshake nothing will answer.
+    streamInteractive: (req: {
+        cmd: string[]
+        env?: Record<string, string>
+    }) => {
+        seam.streams.push({
+            via,
+            cmd: req.cmd,
+            env: req.env,
+            ...(driverEnv ? { driverEnv } : {})
+        })
+        return {
+            stdout: (async function* (): AsyncGenerator<string> {})(),
+            stderr: (async function* (): AsyncGenerator<string> {})(),
+            write: (): void => {},
+            endInput: (): void => {},
+            result: Promise.resolve({ exitCode: 0, stdout: '', stderr: '' }),
+            abort: (): void => {}
+        }
     }
 })
 
@@ -158,7 +181,12 @@ const factoryHandleFor = (
             openaiApiKey: PROVIDER_MARKERS.openaiApiKey,
             googleApiKey: PROVIDER_MARKERS.googleApiKey,
             googleGeminiBaseUrl: null,
-            model: null
+            model: null,
+            // The hermes shape rides the same blob: an openrouter primary so
+            // the alias env (OPENROUTER_API_KEY) is derivable and measurable.
+            primaryModelProvider: 'openrouter',
+            primaryModelApiKey: PROVIDER_MARKERS.openrouterApiKey,
+            primaryModelName: 'marker-model'
         },
         runtime,
         agent: {
@@ -217,9 +245,11 @@ const registryFor = (seam: Seam) => ({
     }
 })
 
-// Serves both queries the service adapters make: the agent row, and the
-// runtime_hosts row `daemonAdvertisesFeature` reads. Discriminating on the
-// table means the capability gate runs for real rather than being stubbed out.
+// Serves the queries the service adapters make: the agent row, the
+// runtime_hosts row `daemonAdvertisesFeature` reads, and the credentials row
+// hermes decrypts for the provider alias env. Discriminating on the table
+// means the capability gate and the alias derivation run for real rather than
+// being stubbed out.
 const dbFor = (opts: {
     runtime: AgentRuntime
     framework: AgentFramework
@@ -231,7 +261,18 @@ const dbFor = (opts: {
                 limit: async (): Promise<unknown[]> =>
                     table === runtimeHosts
                         ? [{ clientFeatures: opts.clientFeatures }]
-                        : [
+                        : table === agentCredentials
+                          ? [
+                                {
+                                    payloadCiphertext: JSON.stringify({
+                                        primaryModelProvider: 'openrouter',
+                                        primaryModelApiKey:
+                                            PROVIDER_MARKERS.openrouterApiKey
+                                    }),
+                                    keyVersion: 1
+                                }
+                            ]
+                          : [
                               {
                                   runtime: opts.runtime,
                                   internalId: 'main',
@@ -338,11 +379,15 @@ export const buildAdapter = (
         case 'hermes':
             return new HermesAdapter(
                 db as never,
-                {} as never,
+                // Passthrough decrypt: the alias-env derivation reads the
+                // stored blob for real, only the cipher is elided.
+                { decrypt: (args: { ciphertext: string }) => args.ciphertext } as never,
                 pricing as never,
                 registry as never,
                 chatRepo as never,
-                adminSettings as never
+                adminSettings as never,
+                undefined as never,
+                drivers as never
             ) as unknown as AdapterUnderTest
         case 'narranexus':
             return opts.withRegistry === false

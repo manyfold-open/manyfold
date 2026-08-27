@@ -1,8 +1,6 @@
 import {
     DAEMON_FEATURE_TURN_HERMES,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
-    HERMES_HISTORY_BUDGET,
-    agentBaseUrl,
     envTextFromExtras,
     envTextToRecord,
     resolveChatExecTimeoutMs
@@ -39,9 +37,12 @@ import type {
 import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
+import { hermesProviderAliasEnv } from '@/modules/agents/bootstrap/hermes-shared'
+import { ExecDriverFactory, type ExecDriverHandle } from './exec-driver-factory'
 import {
     acpEventsFromNotification,
-    HermesAcpClient,
+    HermesAcpTurn,
+    HERMES_ACP_CMD,
     type AcpEvent,
     type AcpRequestTimeouts,
     type JsonRpcNotification
@@ -61,62 +62,8 @@ const HERMES_TURN_IDLE_TIMEOUT_MS = Math.max(
     )
 )
 
-interface HermesRuntime {
-    ingressHost: string
-    apiServerKey: string
-    modelName: string
-}
-
-interface OpenAIToolCallDelta {
-    index?: number
-    id?: string | null
-    type?: string | null
-    function?: {
-        name?: string | null
-        arguments?: string | null
-    } | null
-}
-
-interface OpenAIDelta {
-    choices?: Array<{
-        delta?: {
-            content?: string | null
-            reasoning_content?: string | null
-            reasoning?: string | null
-            tool_calls?: OpenAIToolCallDelta[]
-        }
-        finish_reason?: string | null
-    }>
-    usage?: OpenAIUsage
-    model?: string
-}
-
-interface PendingToolCall {
-    id: string | null
-    name: string | null
-    args: string
-    emitted: boolean
-}
-
-interface OpenAIError {
-    error?: { message?: string; code?: string }
-}
-
-const flagEnabled = (name: string): boolean =>
-    ['1', 'true', 'yes'].includes((process.env[name] ?? '').toLowerCase())
-// Gates attempting an ACP resume at all. Read per call — a module-load
-// snapshot is untestable and undrillable without a process restart, which is
-// how the runner allowlist bug survived every unit test.
-const acpResumeEnabled = (): boolean => flagEnabled('MF_HERMES_ACP_RESUME')
-// Gates the runner-owned transport (turn.start). Off until the staging drill
-// proves recovery end to end; the per-daemon capability check keeps it a no-op
-// against CLIs that predate the RPC either way.
-const turnRpcEnabled = (): boolean => flagEnabled('MF_HERMES_TURN_RPC')
-
 const HERMES_ACP_PARSER_NAME = 'hermes-acp'
 const HERMES_ACP_PARSER_VERSION = '1'
-const HERMES_STREAM_PARSER_NAME = 'hermes-openai-sse'
-const HERMES_STREAM_PARSER_VERSION = '1'
 
 // Content mapping for one ACP event, shared by the live drain and the resume
 // replay so a recovered turn cannot decode differently from the turn it is
@@ -181,7 +128,11 @@ export class HermesAdapter implements ApiChatAdapter {
         @Optional() private readonly adminSettings?: AdminSettingsService,
         // Same rule. Absent, turn.start dispatches unfenced as before (#619).
         @Optional()
-        private readonly fencedDispatch?: DaemonFencedDispatchService
+        private readonly fencedDispatch?: DaemonFencedDispatchService,
+        // Same rule. Carries the interactive exec transports (sprite WSS /
+        // pod exec) for the runtimes where no daemon can own the ACP client.
+        @Optional()
+        private readonly execDrivers?: ExecDriverFactory
     ) {}
 
     // The wall-clock cap is the ADMIN chat exec budget (default 2h) — the same
@@ -229,7 +180,36 @@ export class HermesAdapter implements ApiChatAdapter {
                 throw new Error(
                     `daemon hermes agent ${ctx.agentId} missing daemonId`
                 )
-            yield* this.sendViaDaemonAcp(ctx, userMessage, {
+            let turnRpc: boolean
+            try {
+                turnRpc = await this.requireTurnHermes(agentRow.daemonId)
+            } catch (err) {
+                yield {
+                    type: 'error',
+                    error: {
+                        code: 'hermes_daemon_acp_failed',
+                        message: `turn.hermes capability lookup failed: ${(err as Error).message}`,
+                        retryable: true
+                    }
+                }
+                return
+            }
+            if (!turnRpc) {
+                // The in-API pipe client is gone (#427's retirement gate):
+                // every hermes turn is owned by an ACP client that survives
+                // this process, or is refused with the fix in hand.
+                yield {
+                    type: 'error',
+                    error: {
+                        code: 'hermes_daemon_upgrade_required',
+                        message:
+                            "this daemon's mf CLI predates the hermes turn RPC; run `mf update` on the daemon host and restart the daemon",
+                        retryable: false
+                    }
+                }
+                return
+            }
+            yield* this.sendViaTurnRpc(ctx, userMessage, {
                 daemonId: agentRow.daemonId,
                 cwd: agentRow.workspacePath ?? null,
                 // A BYOD daemon spawns `hermes acp` fresh each turn, so the
@@ -240,242 +220,42 @@ export class HermesAdapter implements ApiChatAdapter {
             return
         }
 
-        // A sprite hermes turn normally POSTs to the sprite's resident
-        // gateway, and closing that socket CANCELS the run — so an api restart
-        // destroys the answer outright, which is the whole reason the runner
-        // exists. Routing a runner-carried turn through the daemon transport is
-        // what makes it survivable.
+        // A sprite hermes turn prefers its runner: the runner daemon owns the
+        // ACP client inside the sprite, so the turn survives an api restart.
         // Measured on staging 2026-07-28: `hermes acp` runs inside the sprite
         // alongside the still-running resident gateway services without
-        // disturbing them. Reachable only via the runner allowlist (empty
-        // everywhere by default).
-        if (ctx.runnerDaemonId) {
+        // disturbing them. Runner resolution already verifies turn.hermes;
+        // the recheck here only covers a stale handle racing a downgrade.
+        if (
+            ctx.runnerDaemonId &&
+            (await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
+        ) {
             this.logger.log(
                 `hermes sprite turn via runner agent=${ctx.agentId} daemonId=${ctx.runnerDaemonId}`
             )
-            yield* this.sendViaDaemonAcp(ctx, userMessage, {
+            yield* this.sendViaTurnRpc(ctx, userMessage, {
                 daemonId: ctx.runnerDaemonId,
-                cwd: agentRow.workspacePath ?? null
+                cwd: agentRow.workspacePath ?? null,
+                // The runner daemon was started detached from a plain exec
+                // session, so the resident gateway's service env — agent
+                // extras and provider alias keys included — never reaches the
+                // child it spawns. Both must ride the payload, or a
+                // non-custom provider has no API key and the Environment
+                // settings silently stop applying. Alias last: the platform
+                // key must win a name collision.
+                env: {
+                    ...envTextToRecord(envTextFromExtras(agentRow.extras)),
+                    ...(await this.providerAliasEnv(ctx.agentId))
+                }
             })
             return
         }
 
-        const runtime = await this.resolveRuntime(ctx.agentId)
-        const url = agentBaseUrl(runtime.ingressHost, '/v1/chat/completions')
-        const truncated = truncateHistory(
-            [...ctx.history, userMessage],
-            HERMES_HISTORY_BUDGET
-        )
+        // Sprites without a runner and k8s: API-owned ACP over the runtime's
+        // interactive exec channel. Same protocol as every other hermes turn;
+        // not resumable, exactly like the gateway POST this replaced.
+        yield* this.sendViaInteractiveAcp(ctx, userMessage)
 
-        let res: Response
-        try {
-            res = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${runtime.apiServerKey}`,
-                    accept: 'text/event-stream'
-                },
-                body: JSON.stringify({
-                    model: runtime.modelName,
-                    stream: true,
-                    stream_options: { include_usage: true },
-                    messages: truncated.map((m) => ({
-                        role: m.role,
-                        content: flattenText(m)
-                    }))
-                }),
-                // #665: this request carried NO signal, so a cancel converged
-                // locally while the sprite's gateway kept generating the whole
-                // answer into a socket nobody read — the same compute/billing
-                // leak the dify path had (#646). ctx.abortSignal is passed
-                // straight through rather than bridged into a private
-                // controller the way openclaw does: openclaw needs one to merge
-                // three timeout budgets with the cancel, this path has none of
-                // its own, and a bridge listener would also miss a signal that
-                // is ALREADY aborted (addEventListener never fires for one)
-                // and leave the pre-dispatch cancel case open.
-                signal: ctx.abortSignal ?? null
-            })
-        } catch (err) {
-            if (ctx.abortSignal?.aborted) {
-                yield abortedEvent()
-                return
-            }
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_network',
-                    message: (err as Error).message,
-                    retryable: true
-                }
-            }
-            return
-        }
-
-        if (!res.ok || !res.body) {
-            const text = await res.text().catch(() => '')
-            const parsed = safeJson<OpenAIError>(text)
-            const upstream = parsed?.error?.message ?? text.slice(0, 256) ?? ''
-            const managedChannelFailure = classifyManagedChannelFailureSignal({
-                status: res.status,
-                message: text
-            })
-            yield {
-                type: 'error',
-                ...(managedChannelFailure ? { managedChannelFailure } : {}),
-                error: {
-                    code: 'hermes_upstream',
-                    message: `${res.status} ${res.statusText}: ${upstream}`,
-                    retryable: res.status >= 500
-                }
-            }
-            return
-        }
-
-        const reader = res.body.getReader()
-        const decoder = new TextDecoder()
-        let buffer = ''
-        let terminated = false
-        const tStart = Date.now()
-        let tFirstToken: number | null = null
-        let capturedUsage: OpenAIUsage | null = null
-        let capturedModel: string | null = null
-        const toolCalls = new Map<number, PendingToolCall>()
-        let sourceSeq = 0
-        // A cancel destroys the body under the reader, so the pending read
-        // REJECTS instead of resolving `done` — the openclaw gateway path
-        // catches the same rejection around its whole loop. Only the cancel is
-        // absorbed here; any other body failure keeps its existing path out of
-        // this generator, where runAdapter terminalizes it.
-        const readChunk = async (): Promise<Uint8Array | null> => {
-            try {
-                const { value, done } = await reader.read()
-                return done ? null : (value ?? null)
-            } catch (err) {
-                if (!ctx.abortSignal?.aborted) throw err
-                return null
-            }
-        }
-
-        while (!terminated) {
-            // Checked before every read, not only on the rejection: a cancel
-            // that lands while this generator is parked on a `yield` leaves the
-            // reader holding bytes that already arrived, so the next read
-            // resolves normally and the loop would keep decoding an answer
-            // nobody is waiting for.
-            if (ctx.abortSignal?.aborted) break
-            const chunk = await readChunk()
-            if (chunk === null) break
-            buffer += decoder.decode(chunk, { stream: true })
-            let boundary = buffer.indexOf('\n\n')
-            while (boundary !== -1) {
-                const frame = buffer.slice(0, boundary)
-                buffer = buffer.slice(boundary + 2)
-                const payload = parseSseFrame(frame)
-                if (payload === null) {
-                    boundary = buffer.indexOf('\n\n')
-                    continue
-                }
-                if (payload === '[DONE]') {
-                    terminated = true
-                    break
-                }
-                const delta = safeJson<OpenAIDelta>(payload)
-                if (!delta) {
-                    boundary = buffer.indexOf('\n\n')
-                    continue
-                }
-                sourceSeq++
-                yield {
-                    type: 'raw_source',
-                    source: {
-                        sourceRef: ctx.frameworkSessionRef,
-                        sourceSeq,
-                        externalId:
-                            stringValue(
-                                (delta as Record<string, unknown>).id
-                            ) ?? `hermes-sse-${sourceSeq}`,
-                        parentExternalId: null,
-                        rawFormat: 'json',
-                        rawJson: delta,
-                        parserName: HERMES_STREAM_PARSER_NAME,
-                        parserVersion: HERMES_STREAM_PARSER_VERSION
-                    }
-                }
-                const choice = delta?.choices?.[0]
-                const content = choice?.delta?.content
-                if (typeof content === 'string' && content.length > 0) {
-                    if (tFirstToken === null) tFirstToken = Date.now()
-                    yield { type: 'token', text: content }
-                }
-                const reasoning =
-                    choice?.delta?.reasoning_content ?? choice?.delta?.reasoning
-                if (typeof reasoning === 'string' && reasoning.length > 0)
-                    yield { type: 'thinking', text: reasoning }
-                const tcDeltas = choice?.delta?.tool_calls
-                if (Array.isArray(tcDeltas)) {
-                    for (const tc of tcDeltas) {
-                        const idx = typeof tc.index === 'number' ? tc.index : 0
-                        const slot = toolCalls.get(idx) ?? {
-                            id: null,
-                            name: null,
-                            args: '',
-                            emitted: false
-                        }
-                        if (typeof tc.id === 'string' && tc.id.length > 0)
-                            slot.id = tc.id
-                        if (typeof tc.function?.name === 'string')
-                            slot.name = tc.function.name
-                        if (typeof tc.function?.arguments === 'string')
-                            slot.args += tc.function.arguments
-                        toolCalls.set(idx, slot)
-                    }
-                }
-                if (delta?.usage) capturedUsage = delta.usage
-                if (delta?.model && !capturedModel) capturedModel = delta.model
-                boundary = buffer.indexOf('\n\n')
-            }
-        }
-
-        // A cancelled turn must not fall through to the usage/`done` tail: that
-        // would bill a partial answer and report it as a completion. Same
-        // terminal the openclaw gateway path emits; chat.service maps it to
-        // cancelled_by_user.
-        if (ctx.abortSignal?.aborted) {
-            yield abortedEvent()
-            return
-        }
-
-        if (toolCalls.size > 0) {
-            const indices = Array.from(toolCalls.keys()).sort((a, b) => a - b)
-            for (const idx of indices) {
-                const slot = toolCalls.get(idx)
-                if (!slot || slot.emitted) continue
-                if (!slot.id || !slot.name) continue
-                slot.emitted = true
-                yield {
-                    type: 'tool_call',
-                    toolCallId: slot.id,
-                    toolName: slot.name,
-                    args: parseToolArgs(slot.args)
-                }
-            }
-        }
-
-        if (capturedUsage) {
-            const usage = buildOpenAiUsage(
-                capturedUsage,
-                capturedModel ?? ctx.model ?? runtime.modelName,
-                tStart,
-                tFirstToken,
-                this.pricing,
-                ctx
-            )
-            yield { type: 'usage', usage }
-        }
-
-        yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
     // Recover a hermes turn from the buffer of the daemon that carried it. For
@@ -487,22 +267,6 @@ export class HermesAdapter implements ApiChatAdapter {
     async *resumeMessage(
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
-        // Rollout gate.
-        // Seen on staging 2026-07-28: 468 of a ~5000-char answer labelled
-        // `done`. That truncation is now structurally blocked by
-        // drainTurnStream's completion gate, but the flag stays off until the
-        // runner-owned path is drilled.
-        if (!acpResumeEnabled()) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_resume_unsupported',
-                    message: 'hermes ACP resume is not enabled',
-                    retryable: true
-                }
-            }
-            return
-        }
         if (!ctx.daemonId || !ctx.daemonExecRef) {
             yield {
                 type: 'error',
@@ -531,28 +295,6 @@ export class HermesAdapter implements ApiChatAdapter {
                 timeoutMs: (await this.turnBudgets()).maxDurationMs + 10_000
             }
         })
-    }
-
-    private async *sendViaDaemonAcp(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage,
-        args: {
-            daemonId: string
-            cwd: string | null
-            env?: Record<string, string>
-        }
-    ): AsyncIterable<EmittedChatEvent> {
-        // Prefer the runner-owned turn: the daemon spawns and DRIVES `hermes
-        // acp` itself, so the turn no longer dies with this process. The pipe
-        // path stays for daemons whose CLI predates turn.start.
-        if (
-            turnRpcEnabled() &&
-            (await this.daemonSupportsTurnRpc(args.daemonId))
-        ) {
-            yield* this.sendViaTurnRpc(ctx, userMessage, args)
-            return
-        }
-        yield* this.sendViaAcpPipe(ctx, userMessage, args)
     }
 
     private async *sendViaTurnRpc(
@@ -828,6 +570,17 @@ export class HermesAdapter implements ApiChatAdapter {
         yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
+    // Unlike daemonSupportsTurnRpc this RETHROWS a lookup failure: for a
+    // daemon-runtime turn "couldn't check" must surface as a retryable error,
+    // never as the non-retryable upgrade demand `false` produces.
+    private async requireTurnHermes(daemonId: string): Promise<boolean> {
+        return daemonAdvertisesFeature(
+            this.db,
+            daemonId,
+            DAEMON_FEATURE_TURN_HERMES
+        )
+    }
+
     private async daemonSupportsTurnRpc(daemonId: string): Promise<boolean> {
         try {
             return await daemonAdvertisesFeature(
@@ -837,29 +590,107 @@ export class HermesAdapter implements ApiChatAdapter {
             )
         } catch (err) {
             this.logger.warn(
-                `turn.hermes capability lookup failed for ${daemonId}: ${(err as Error).message} — using the pipe transport`
+                `turn.hermes capability lookup failed for ${daemonId}: ${(err as Error).message} — using the interactive exec transport`
             )
             return false
         }
     }
 
-    // Legacy transport: THIS process is the ACP client, speaking over a
-    // forwarded exec pipe. It cannot survive an API restart by construction
-    // (ACP is client-driven), which is exactly why turn.start exists. Kept for
-    // daemons whose CLI predates the RPC.
-    private async *sendViaAcpPipe(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage,
-        args: {
-            daemonId: string
-            cwd: string | null
-            env?: Record<string, string>
+    // Decrypt the runtime credentials and alias the primary provider's key to
+    // the env var hermes reads at runtime (OPENROUTER_API_KEY, …). {} on any
+    // failure: env enrichment must never be the reason a turn cannot start,
+    // and a `custom` provider carries its key inside ~/.hermes/config.yaml
+    // already.
+    private async providerAliasEnv(
+        agentId: string
+    ): Promise<Record<string, string>> {
+        try {
+            const [agent] = await this.db
+                .select({ runtimeId: agents.runtimeId })
+                .from(agents)
+                .where(eq(agents.id, agentId))
+                .limit(1)
+            if (!agent?.runtimeId) return {}
+            const [credRow] = await this.db
+                .select()
+                .from(agentCredentials)
+                .where(eq(agentCredentials.runtimeId, agent.runtimeId))
+                .limit(1)
+            if (!credRow) return {}
+            const creds = JSON.parse(
+                this.crypto.decrypt({
+                    ciphertext: credRow.payloadCiphertext,
+                    keyVersion: credRow.keyVersion
+                })
+            ) as HermesCredentialsInput
+            return hermesProviderAliasEnv(
+                (creds.primaryModelProvider as string | undefined) ?? 'openai',
+                creds.primaryModelApiKey ?? ''
+            )
+        } catch (err) {
+            this.logger.warn(
+                `hermes provider alias env unavailable for ${agentId}: ${(err as Error).message}`
+            )
+            return {}
         }
+    }
+
+    // THIS process is the ACP client, over the runtime's interactive exec
+    // channel (sprite WSS / pod exec). It cannot survive an API restart by
+    // construction (ACP is client-driven), so failures here are retryable
+    // errors and never `suspended` — nothing could resume a suspended turn,
+    // which would make it invisible to every later recovery attempt.
+    private async *sendViaInteractiveAcp(
+        ctx: ApiChatAdapterContext,
+        userMessage: ChatMessage
     ): AsyncIterable<EmittedChatEvent> {
+        if (!this.execDrivers) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'hermes_acp_failed',
+                    message:
+                        'interactive exec transport unavailable (no ExecDriverFactory)',
+                    retryable: false
+                }
+            }
+            return
+        }
+        let handle: ExecDriverHandle
+        try {
+            handle = await this.execDrivers.forAgent(ctx.agentId)
+        } catch (err) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'hermes_acp_failed',
+                    message: (err as Error).message,
+                    retryable: true
+                }
+            }
+            return
+        }
+        const streamInteractive = handle.driver.streamInteractive?.bind(
+            handle.driver
+        )
+        if (!streamInteractive) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'hermes_acp_failed',
+                    message: `runtime ${handle.runtime} has no interactive exec transport`,
+                    retryable: false
+                }
+            }
+            return
+        }
+        const creds = (handle.creds ?? {}) as HermesCredentialsInput
+        const budgets = await this.turnBudgets()
+        const cwd = handle.agent.workspacePath ?? null
+        const prompt = messageToPromptText(userMessage)
         const tStart = Date.now()
         let firstTokenAt: number | null = null
-        const prompt = messageToPromptText(userMessage)
-        const cwd = args.cwd || process.env.HOME || '.'
+
         const queue: AcpEvent[] = []
         const waker: { resolve: (() => void) | null } = { resolve: null }
         const wake = (): void => {
@@ -871,20 +702,37 @@ export class HermesAdapter implements ApiChatAdapter {
             queue.push(ev)
             wake()
         }
-        const client = new HermesAcpClient({
-            registry: this.daemonRegistry,
-            daemonId: args.daemonId,
+        const transport = streamInteractive({
+            cmd: HERMES_ACP_CMD,
+            env: {
+                // The sprite driver already carries the per-agent base env
+                // (extras/identity/connections); only per-turn keys ride here.
+                // The alias is the same fix the runner path needs: an exec'd
+                // child never sees the resident gateway's service env.
+                ...hermesProviderAliasEnv(
+                    (creds.primaryModelProvider as string | undefined) ??
+                        'openai',
+                    creds.primaryModelApiKey ?? ''
+                ),
+                HERMES_YOLO_MODE: '1'
+            },
+            ...(cwd ? { dir: cwd } : {}),
+            // Bounds the ACP child's whole lifetime, so it has to be the
+            // turn's ceiling and not the inactivity budget.
+            timeoutMs: budgets.maxDurationMs
+        })
+        const turn = new HermesAcpTurn({
+            transport,
             onEvent: enqueue,
             logger: this.logger
         })
-        const budgets = await this.turnBudgets()
         const state: { finished: boolean; aborted: boolean } = {
             finished: false,
             aborted: false
         }
         const onAbort = (): void => {
             state.aborted = true
-            client.abort()
+            turn.abort()
             wake()
         }
         ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
@@ -892,9 +740,10 @@ export class HermesAdapter implements ApiChatAdapter {
         const fatal: { yielded: boolean } = { yielded: false }
         // Ordinal over ACP events, persisted as the row identity so an
         // interrupted turn can be replayed without duplicating what it already
-        // stored. Before this the ACP path emitted no source rows at all, so its
-        // stream events had a null key, insertStreamEvent plain-inserted them,
-        // and a replay would have appended the whole answer a second time.
+        // stored. Before this the ACP path emitted no source rows at all, so
+        // its stream events had a null key, insertStreamEvent plain-inserted
+        // them, and a replay would have appended the whole answer a second
+        // time.
         const acpSeq = { current: 0 }
         const drainQueue = function* (): IterableIterator<EmittedChatEvent> {
             while (queue.length > 0) {
@@ -914,25 +763,33 @@ export class HermesAdapter implements ApiChatAdapter {
                         break
                     case 'turn_end':
                         break
-                    case 'error':
-                        if (fatal.yielded) {
-                            // duplicate guard — should never happen because
-                            // hermes-acp-client already gates on exitError,
-                            // but defend against any future event re-entry.
-                            break
-                        }
+                    case 'error': {
+                        if (fatal.yielded) break
+                        // The gateway path classified pool exhaustion from
+                        // its 503 body; over ACP the same managed-proxy
+                        // refusal only surfaces on stderr, so classify the
+                        // fatal line or the breaker (#660) never trips for
+                        // hermes.
+                        const managedChannelFailure =
+                            classifyManagedChannelFailureSignal({
+                                message: ev.message
+                            })
                         yield {
                             type: 'error',
+                            ...(managedChannelFailure
+                                ? { managedChannelFailure }
+                                : {}),
                             error: {
-                                code: 'hermes_daemon_acp_event',
+                                code: 'hermes_acp_event',
                                 message: ev.message,
                                 retryable: false
                             }
                         }
                         fatal.yielded = true
                         state.aborted = true
-                        client.abort()
+                        turn.abort()
                         return
+                    }
                     default:
                         break
                 }
@@ -945,19 +802,12 @@ export class HermesAdapter implements ApiChatAdapter {
         } = { current: undefined }
         const promptDone = (async (): Promise<void> => {
             try {
-                await client.start({
-                    // Bounds the ACP child's whole lifetime, so it has to be
-                    // the turn's ceiling and not the inactivity budget.
-                    timeoutMs: budgets.maxDurationMs,
-                    cwd,
-                    env: args.env,
-                    refIdOverride: ctx.messageId
-                })
-                await client.initialize(30_000)
+                await turn.initialize(30_000)
+                const sessionCwd = cwd ?? '.'
                 if (ctx.frameworkSessionRef) {
                     try {
-                        await client.resumeSession({
-                            cwd,
+                        await turn.resumeSession({
+                            cwd: sessionCwd,
                             sessionId: ctx.frameworkSessionRef,
                             timeoutMs: 30_000
                         })
@@ -965,18 +815,18 @@ export class HermesAdapter implements ApiChatAdapter {
                         this.logger.warn(
                             `hermes session/resume failed (${(err as Error).message}); creating new session`
                         )
-                        await client.newSession({
-                            cwd,
+                        await turn.newSession({
+                            cwd: sessionCwd,
                             timeoutMs: 30_000
                         })
                     }
                 } else {
-                    await client.newSession({
-                        cwd,
+                    await turn.newSession({
+                        cwd: sessionCwd,
                         timeoutMs: 30_000
                     })
                 }
-                resultRef.current = await client.prompt({
+                resultRef.current = await turn.prompt({
                     prompt,
                     timeouts: budgets
                 })
@@ -1001,7 +851,7 @@ export class HermesAdapter implements ApiChatAdapter {
             }
         } finally {
             ctx.abortSignal?.removeEventListener('abort', onAbort)
-            await client.close().catch(() => {})
+            await turn.close().catch(() => {})
         }
 
         if (fatal.yielded) {
@@ -1010,48 +860,20 @@ export class HermesAdapter implements ApiChatAdapter {
         }
 
         if (state.aborted) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_daemon_aborted',
-                    message: 'hermes session aborted',
-                    retryable: false
-                }
-            }
+            yield abortedEvent()
             return
         }
 
         const runError = errorRef.current
         if (runError) {
-            // Losing the socket is not the run failing. The daemon re-registering
-            // fails pending RPCs with `connection replaced`, so the reconnect that
-            // could hand this turn back was itself being reported as the failure —
-            // the same bug the claude/codex/gemini adapters had, in the one path
-            // that has its own error handling. Seen on staging 2026-07-28:
-            // restart mid-turn → 1.4s later `hermes_daemon_acp_failed: connection
-            // replaced`, turn dead.
-            //
-            // Suspending leaves no terminal, so the turn stays findable. With
-            // MF_HERMES_ACP_RESUME off (its default) resumeMessage() declines
-            // with `hermes_resume_unsupported`, so recovery lands on the
-            // adoption ladder rather than an ACP replay — but a retryable
-            // outcome beats a turn killed by its own recovery signal.
-            if (isDaemonOfflineTransportError(runError)) {
-                this.logger.log(
-                    `hermes acp suspended (daemon offline) agent=${ctx.agentId} message=${ctx.messageId}`
-                )
-                yield {
-                    type: 'suspended',
-                    daemonId: args.daemonId,
-                    daemonExecRef: ctx.messageId,
-                    reason: runError.message
-                }
-                return
-            }
+            const managedChannelFailure = classifyManagedChannelFailureSignal({
+                message: runError.message
+            })
             yield {
                 type: 'error',
+                ...(managedChannelFailure ? { managedChannelFailure } : {}),
                 error: {
-                    code: 'hermes_daemon_acp_failed',
+                    code: 'hermes_acp_failed',
                     message: runError.message,
                     retryable: true
                 }
@@ -1059,80 +881,40 @@ export class HermesAdapter implements ApiChatAdapter {
             return
         }
 
-        const sid = client.currentSessionId
+        const sid = turn.currentSessionId
         if (sid && !ctx.frameworkSessionRef) {
             await this.chatRepo
                 .updateFrameworkSessionRef(ctx.sessionId, sid, ctx.turnFence)
                 .catch((err) =>
                     this.logger.warn(
-                        `hermes daemon ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
+                        `hermes session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
                     )
                 )
         }
 
         const usage = extractAcpUsage(resultRef.current)
         if (usage) {
-            const built = buildOpenAiUsage(
-                usage,
-                ctx.model ?? 'hermes',
-                tStart,
-                firstTokenAt,
-                this.pricing,
-                ctx
-            )
-            yield { type: 'usage', usage: built }
+            yield {
+                type: 'usage',
+                usage: buildOpenAiUsage(
+                    usage,
+                    ctx.model ??
+                        stringValue(creds.primaryModelName ?? null) ??
+                        'hermes',
+                    tStart,
+                    firstTokenAt,
+                    this.pricing,
+                    ctx
+                )
+            }
         }
         yield { type: 'done', finalMessageId: ctx.messageId }
     }
-
-    private async resolveRuntime(agentId: string): Promise<HermesRuntime> {
-        const agentRows = await this.db
-            .select({
-                ingressHost: agents.ingressHost,
-                runtimeId: agents.runtimeId
-            })
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        const agent = agentRows[0]
-        if (!agent?.ingressHost)
-            throw new Error(`agent ${agentId} has no ingress host`)
-        if (!agent.runtimeId)
-            throw new Error(`agent ${agentId} has no linked runtime`)
-
-        const credRows = await this.db
-            .select()
-            .from(agentCredentials)
-            .where(eq(agentCredentials.runtimeId, agent.runtimeId))
-            .limit(1)
-        const credRow = credRows[0]
-        if (!credRow)
-            throw new Error(`no stored credentials for agent ${agentId}`)
-        const creds = JSON.parse(
-            this.crypto.decrypt({
-                ciphertext: credRow.payloadCiphertext,
-                keyVersion: credRow.keyVersion
-            })
-        ) as HermesCredentialsInput
-        if (!creds.apiServerKey)
-            throw new Error(
-                `agent ${agentId} credentials missing apiServerKey — rebuild the agent`
-            )
-
-        return {
-            ingressHost: agent.ingressHost,
-            apiServerKey: creds.apiServerKey,
-            modelName: creds.primaryModelName ?? 'hermes-agent'
-        }
-    }
 }
 
-const flattenText = (message: ChatMessage): string =>
-    messageToPromptText(message)
-
-// The gateway path's cancel terminal. Distinct from hermes_daemon_aborted so a
-// leaked gateway socket and a cancelled daemon turn stay separable in triage;
-// both normalize to cancelled_by_user in chat.service.
+// The interactive-ACP cancel terminal. Distinct from hermes_daemon_aborted so
+// a cancelled API-owned turn and a cancelled daemon turn stay separable in
+// triage; both normalize to cancelled_by_user in chat.service.
 const abortedEvent = (): EmittedErrorEvent => ({
     type: 'error',
     error: {
@@ -1142,47 +924,8 @@ const abortedEvent = (): EmittedErrorEvent => ({
     }
 })
 
-const truncateHistory = (
-    history: ChatMessage[],
-    budget: number
-): ChatMessage[] => {
-    const systemPrefix: ChatMessage[] = []
-    const rest: ChatMessage[] = []
-    for (const msg of history) {
-        if (msg.role === 'system' && rest.length === 0) systemPrefix.push(msg)
-        else rest.push(msg)
-    }
-    const recent = rest.slice(-budget)
-    return [...systemPrefix, ...recent]
-}
-
-const parseSseFrame = (frame: string): string | null => {
-    const dataLines: string[] = []
-    for (const line of frame.split('\n'))
-        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
-    const payload = dataLines.join('\n').trim()
-    return payload.length === 0 ? null : payload
-}
-
-const safeJson = <T>(text: string): T | null => {
-    try {
-        return JSON.parse(text) as T
-    } catch {
-        return null
-    }
-}
-
 const stringValue = (value: unknown): string | null =>
     typeof value === 'string' && value.length > 0 ? value : null
-
-const parseToolArgs = (raw: string): unknown => {
-    if (raw.length === 0) return null
-    try {
-        return JSON.parse(raw)
-    } catch {
-        return raw
-    }
-}
 
 const extractAcpUsage = (
     result: Record<string, unknown> | undefined

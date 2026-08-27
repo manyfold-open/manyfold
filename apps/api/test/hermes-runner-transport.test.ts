@@ -3,28 +3,28 @@ import test from 'node:test'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import type { ApiChatAdapterContext } from '../src/modules/chat/chat-adapter'
 
-// A sprite hermes turn POSTs to the sprite's resident gateway, and closing that
-// socket CANCELS the run — so an api restart destroys the answer outright. That
-// is the failure the runner transport exists to remove, and the only way out is
-// for something inside the sprite to hold the upstream: the runner.
+// A sprite hermes turn used to POST to the sprite's resident gateway, and
+// closing that socket CANCELLED the run — so an api restart destroyed the
+// answer outright. That is the failure the runner transport removes, and the
+// only way out is for something inside the sprite to hold the upstream: the
+// runner.
 //
-// ACP is not new machinery here — daemon-runtime hermes has used it in
-// production all along (JSON-RPC over a child process's stdio, carried by the
-// daemon exec RPC, which means the runner's durable exec buffer backs it). What
-// these pin is that a runner-carried SPRITE turn takes that same road, and that
-// a turn without a runner is left completely alone.
+// ACP is now the ONLY protocol: a runner-carried sprite turn rides turn.start
+// (daemon-owned client, resumable), and a sprite without a runner falls to
+// the API-owned interactive-exec ACP client — same protocol, not resumable,
+// exactly the durability the gateway POST had.
 //
-// Drilled on staging 2026-07-28 (agent m201): the runner brought itself up, ACP
-// started INSIDE the sprite alongside the still-running resident gateway
+// Drilled on staging 2026-07-28 (agent m201): the runner brought itself up,
+// ACP started INSIDE the sprite alongside the still-running resident gateway
 // services, and the turn completed — so the coexistence worry was unfounded.
-// What is still NOT claimed is recovery: hermes has no resumeMessage, so an
-// interrupted turn suspends and lands on the adoption ladder rather than
-// replaying its ACP stream. The suspend behaviour itself is covered by
-// daemon-transport-suspend.test.ts (the shared predicate) plus that drill.
 
 const buildHarness = (opts: { runtime: 'sprites' | 'daemon' }) => {
-    const acpCalls: Array<{ daemonId: string; cwd: string | null }> = []
-    const gatewayCalls: string[] = []
+    const acpCalls: Array<{
+        daemonId: string
+        cwd: string | null
+        env?: Record<string, string>
+    }> = []
+    const interactiveCalls: string[] = []
 
     const db = {
         select: () => ({
@@ -34,7 +34,8 @@ const buildHarness = (opts: { runtime: 'sprites' | 'daemon' }) => {
                         {
                             runtime: opts.runtime,
                             daemonId: opts.runtime === 'daemon' ? 'dh_own' : null,
-                            workspacePath: '/home/sprite/.manyfold/workspaces/agt_1'
+                            workspacePath: '/home/sprite/.manyfold/workspaces/agt_1',
+                            extras: null
                         }
                     ]
                 })
@@ -50,25 +51,22 @@ const buildHarness = (opts: { runtime: 'sprites' | 'daemon' }) => {
     )
     // Both transports are stubbed: the unit under test is which one is chosen,
     // not what either does with the stream.
-    ;(
-        adapter as unknown as {
-            sendViaDaemonAcp: (
-                c: unknown,
-                m: unknown,
-                a: { daemonId: string; cwd: string | null }
-            ) => AsyncIterable<unknown>
-        }
-    ).sendViaDaemonAcp = async function* (_c, _m, a) {
-        acpCalls.push(a)
+    const a = adapter as unknown as Record<string, unknown>
+    a.sendViaTurnRpc = async function* (
+        _c: unknown,
+        _m: unknown,
+        args: { daemonId: string; cwd: string | null; env?: Record<string, string> }
+    ) {
+        acpCalls.push(args)
         yield { type: 'done', finalMessageId: 'msg_1' }
     }
-    ;(
-        adapter as unknown as { resolveRuntime: (id: string) => Promise<unknown> }
-    ).resolveRuntime = async (id: string) => {
-        gatewayCalls.push(id)
-        throw new Error('gateway path reached')
+    a.sendViaInteractiveAcp = async function* (c: { agentId: string }) {
+        interactiveCalls.push(c.agentId)
+        yield { type: 'done', finalMessageId: 'msg_1' }
     }
-    return { adapter, acpCalls, gatewayCalls }
+    a.requireTurnHermes = async () => true
+    a.daemonSupportsTurnRpc = async () => true
+    return { adapter, acpCalls, interactiveCalls }
 }
 
 const ctx = (extra: Partial<ApiChatAdapterContext> = {}): ApiChatAdapterContext =>
@@ -112,23 +110,25 @@ test('a runner-carried sprite hermes turn goes to ACP over that runner', async (
     )
 
     assert.ok(out.ok, out.error)
-    assert.deepEqual(h.acpCalls, [
-        {
-            daemonId: 'dh_runner',
-            // The sprite's own workspace, so hermes reads the config the sprite
-            // bootstrap wrote — the turn stays a SPRITE turn in every respect
-            // except who holds the transport.
-            cwd: '/home/sprite/.manyfold/workspaces/agt_1'
-        }
-    ])
-    assert.deepEqual(h.gatewayCalls, [], 'the gateway must not be contacted')
+    assert.equal(h.acpCalls.length, 1)
+    assert.equal(h.acpCalls[0].daemonId, 'dh_runner')
+    // The sprite's own workspace, so hermes reads the config the sprite
+    // bootstrap wrote — the turn stays a SPRITE turn in every respect
+    // except who holds the transport.
+    assert.equal(
+        h.acpCalls[0].cwd,
+        '/home/sprite/.manyfold/workspaces/agt_1'
+    )
+    assert.deepEqual(
+        h.interactiveCalls,
+        [],
+        'the interactive fallback must not be used when the runner carries the turn'
+    )
 })
 
-test('a sprite hermes turn with no runner still uses the resident gateway', async () => {
+test('a sprite hermes turn with no runner falls to the interactive ACP transport', async () => {
     const h = buildHarness({ runtime: 'sprites' })
 
-    // WHY: the allowlist is empty everywhere, so this is the path every real
-    // hermes agent takes today. Routing must not disturb it.
     const out = await drain(
         h.adapter.sendMessage(ctx(), {
             role: 'user',
@@ -136,8 +136,25 @@ test('a sprite hermes turn with no runner still uses the resident gateway', asyn
         } as never)
     )
 
-    assert.equal(out.ok, false)
-    assert.match(out.error ?? '', /gateway path reached/)
+    assert.ok(out.ok, out.error)
+    assert.deepEqual(h.interactiveCalls, ['agt_1'])
+    assert.deepEqual(h.acpCalls, [])
+})
+
+test('a runner whose daemon lost turn.hermes falls to interactive ACP, not a dead RPC', async () => {
+    const h = buildHarness({ runtime: 'sprites' })
+    ;(h.adapter as unknown as Record<string, unknown>).daemonSupportsTurnRpc =
+        async () => false
+
+    const out = await drain(
+        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), {
+            role: 'user',
+            contentBlocks: [{ type: 'text', text: 'hi' }]
+        } as never)
+    )
+
+    assert.ok(out.ok, out.error)
+    assert.deepEqual(h.interactiveCalls, ['agt_1'])
     assert.deepEqual(h.acpCalls, [])
 })
 
@@ -187,18 +204,16 @@ test('ACP content events carry a stable, replay-identical source key', async () 
     assert.deepEqual(a, [{ type: 'text', text: 'hello' }])
 })
 
-// The ACP resume is OFF by default and must stay off: a staging drill showed it
-// terminalizing a turn that was still generating (~468 of ~5000 chars, reported
-// as `done`). Daemon-runtime hermes agents in production are daemon-carried, so
-// an enabled-by-default resume would hand them a truncated answer labelled
-// success, where today they get a retryable terminal. This pins the default.
-test('the ACP resume stays disabled unless explicitly enabled', async () => {
+// Resume needs a daemon-carried stream to replay. A turn that ran on the
+// interactive transport (sprite exec / pod exec) recorded no daemon refs, so
+// recovery must decline it cleanly instead of inventing a replay.
+test('resume without daemon refs declines as unsupported', async () => {
     const h = buildHarness({ runtime: 'sprites' })
     const events: Array<Record<string, unknown>> = []
     for await (const ev of h.adapter.resumeMessage!({
         ...ctx(),
-        daemonId: 'dh_runner',
-        daemonExecRef: 'msg_1',
+        daemonId: null,
+        daemonExecRef: null,
         fromSeq: 0
     } as never)) {
         events.push(ev as Record<string, unknown>)
@@ -209,9 +224,7 @@ test('the ACP resume stays disabled unless explicitly enabled', async () => {
         (events[0].error as { code: string }).code,
         'hermes_resume_unsupported'
     )
-    // Retryable: the user can resend. Not a claim that the turn is unrecoverable
-    // in principle — only that this path is not trusted yet.
-    assert.equal((events[0].error as { retryable: boolean }).retryable, true)
+    assert.equal((events[0].error as { retryable: boolean }).retryable, false)
 })
 
 // The exit condition, which is where the truncation came from. `done` is

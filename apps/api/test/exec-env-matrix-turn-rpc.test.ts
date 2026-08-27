@@ -56,8 +56,7 @@ const daemonFeatures = (surface: ExecEnvSurface): string[] =>
 // A runner-carried sprite turn is the only way a sprite reaches a daemon
 // transport; a BYOD daemon agent is already on one.
 const carriesRunner = (surface: ExecEnvSurface): boolean =>
-    surface.runtime === 'sprites' &&
-    (surface.transport === 'turn-rpc' || surface.transport === 'acp-pipe')
+    surface.runtime === 'sprites' && surface.transport === 'turn-rpc'
 
 const dispatch = async (
     surface: ExecEnvSurface,
@@ -158,7 +157,7 @@ for (const surface of execEnvSurfaces.filter(
         }
     })
 
-    test(`${key} stays on the gateway when the daemon does not advertise the capability`, async () => {
+    test(`${key} never dispatches turn.start when the daemon does not advertise the capability`, async () => {
         const seam = await dispatch(surface, { features: [] })
         assert.equal(
             seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,
@@ -176,18 +175,15 @@ for (const surface of execEnvSurfaces.filter(
                 clientFeatures: daemonFeatures(surface)
             })
             assert.ok(adapter.resumeMessage, `${key}: declared resumable`)
-            await withEnv(
-                { ...gateEnv(surface), MF_HERMES_ACP_RESUME: '1' },
-                async () => {
-                    await drain(
-                        adapter.resumeMessage!(
-                            resumeCtx(surface.framework, surface.runtime, {
-                                daemonId: RUNNER_DAEMON_ID
-                            } as never)
-                        )
+            await withEnv(gateEnv(surface), async () => {
+                await drain(
+                    adapter.resumeMessage!(
+                        resumeCtx(surface.framework, surface.runtime, {
+                            daemonId: RUNNER_DAEMON_ID
+                        } as never)
                     )
-                }
-            )
+                )
+            })
             const resume = seam.rpcs.find((rpc) => rpc.method === 'exec.resume')
             assert.ok(resume, `${key}: resume did not reach the daemon`)
             assert.equal(
@@ -196,30 +192,6 @@ for (const surface of execEnvSurfaces.filter(
                 `${key}: a resume re-attaches; it must not re-send env`
             )
         })
-}
-
-for (const surface of execEnvSurfaces.filter(
-    (s) => s.transport === 'acp-pipe'
-)) {
-    const key = execEnvSurfaceKey(surface)
-
-    test(`${key} drives the ACP pipe with exactly the declared payload env`, async () => {
-        // Reached when the carrying daemon predates turn.start: same exec.start
-        // method as a coding turn, but the API drives the conversation.
-        const seam = await dispatch(surface, { features: [] })
-        const payload = rpcOf(seam, 'exec.start')
-        const env = (payload.env ?? {}) as Record<string, string>
-        assert.deepEqual(
-            Object.keys(env).sort(),
-            expectedPayloadEnvKeys(surface),
-            `${key}: exec.start payload env does not match the contract`
-        )
-        assert.equal(
-            seam.rpcs.some((rpc) => rpc.method === 'turn.start'),
-            false,
-            `${key}: this cell exists precisely because turn.start is unavailable`
-        )
-    })
 }
 
 for (const surface of execEnvSurfaces.filter(
@@ -274,8 +246,6 @@ test('every transport observed at the seam has a declared surface', async () => 
         if (seam.gatewayCalls.length > 0) seen.add('gateway-http')
         for (const rpc of seam.rpcs) {
             if (rpc.method === 'turn.start') seen.add('turn-rpc')
-            if (rpc.method === 'exec.start' && seam.streams.length === 0)
-                seen.add('acp-pipe')
         }
         return [...seen]
     }
@@ -310,8 +280,7 @@ test('every transport observed at the seam has a declared surface', async () => 
                 stubGatewayResolution(adapter)
                 await withEnv(
                     {
-                        MF_OPENCLAW_TURN_RPC: '1',
-                        MF_HERMES_TURN_RPC: '1'
+                        MF_OPENCLAW_TURN_RPC: '1'
                     },
                     async () => {
                         await withGatewayFetch(seam, async () => {
