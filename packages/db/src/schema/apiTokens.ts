@@ -37,6 +37,10 @@ export const apiTokens = pgTable(
             enum: ['cli-poll', 'user-grant', 'cli-browser', 'api']
         }),
         tokenKind: text('token_kind', {
+            // 'a2a-ephemeral' is mint-retired (replaced by stateless a2a
+            // tickets) but stays in the enum: rows may survive in databases
+            // whose deploys predate the switch, and the hourly reaper only
+            // deletes them once seen expired.
             enum: ['user-grant', 'a2a-grant', 'a2a-ephemeral', 'terminal']
         })
             .notNull()

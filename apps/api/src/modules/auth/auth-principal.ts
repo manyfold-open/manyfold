@@ -47,12 +47,10 @@ export type AuthPrincipal = AuthPrincipalBase &
               // Present on principals resolved by current ApiTokenService.
               // Optional keeps older in-process adapters/tests structurally
               // compatible while authorization can distinguish caller grants
-              // from real runtime/user-grant credentials.
-              tokenKind?:
-                  | 'user-grant'
-                  | 'a2a-grant'
-                  | 'a2a-ephemeral'
-                  | 'terminal'
+              // from real runtime/user-grant credentials. 'a2a-ephemeral'
+              // cannot appear: minting stopped with the stateless-ticket
+              // switch and its 15-minute TTL means no row can authenticate.
+              tokenKind?: 'user-grant' | 'a2a-grant' | 'terminal'
           }
     )
 

@@ -228,3 +228,34 @@ const auditDb = (): unknown => ({
         values: async () => undefined
     })
 })
+
+test('dashboard auth reads mf_dashboard only; the retired nca_dashboard cookie no longer authenticates', async () => {
+    const runtime = {
+        framework: 'hermes',
+        dashboardEnabled: true,
+        userId: 'user-1'
+    }
+    const bearerAuth = {
+        verifyBearerToken: async (token: string) => {
+            if (token === 'good-token') return { userId: 'user-1' }
+            throw new Error('invalid token')
+        }
+    }
+    const svc = new K8sRuntimeSidecarService(
+        auditDb() as never,
+        {} as never,
+        configFor({}) as never,
+        bearerAuth as never,
+        { findById: async () => runtime } as never
+    )
+    assert.equal(
+        await svc.checkDashboardAuth('mf_dashboard=good-token', 'runtime-1'),
+        true
+    )
+    // Pre-rename cookie name: Max-Age is one hour, so no nca_dashboard cookie
+    // planted before the 2026-06-11 rename can still exist (legacy-inventory).
+    assert.equal(
+        await svc.checkDashboardAuth('nca_dashboard=good-token', 'runtime-1'),
+        false
+    )
+})
