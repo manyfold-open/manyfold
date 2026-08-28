@@ -26,9 +26,18 @@ order: 13
 ## 创建 Discord application
 
 1. 打开 [Discord Developer Portal](https://discord.com/developers/applications)。
+
+   ![Discord Developer Portal 的 Applications 列表](../../../../assets/docs/channels/discord-01-applications.webp)
+
 2. 创建 application。
 3. 打开 **Bot**，创建 bot user，复制或重置 token，并像密码一样保管。
+
+   ![Discord application 的 Bot 设置页，token 已遮蔽](../../../../assets/docs/channels/discord-02-bot-token-redacted.webp)
+
 4. 在 **Privileged Gateway Intents** 下启用 **Message Content Intent**。
+
+   ![Discord Privileged Gateway Intents，已启用 Message Content Intent](../../../../assets/docs/channels/discord-06-gateway-intents.webp)
+
 
 Manyfold 同时处理普通消息和 slash command，因此 Message Content Intent 是必需的。未启用时 Gateway 可能连接成功，但用户 prompt 和 attachment metadata 可能为空。加入 100 个以上 server 的已验证 application 可能还需向 Discord 申请该 privileged intent。
 
@@ -37,6 +46,9 @@ Manyfold 同时处理普通消息和 slash command，因此 Message Content Inte
 在 **OAuth2 -> URL Generator** 中：
 
 1. 选择 `bot` 和 `applications.commands` scope。
+
+   ![Discord OAuth2 URL Generator，已选择 bot scope](../../../../assets/docs/channels/discord-03-oauth2-scopes.webp)
+
 2. 只勾选设置实际需要的 bot permission：
 
 | Bot permission | 用途 |
@@ -48,16 +60,30 @@ Manyfold 同时处理普通消息和 slash command，因此 Message Content Inte
 | Create Public Threads | 在 server 文本 channel 中使用 **Auto-thread**。 |
 | Attach Files | 发送 Agent 链接的文件。 |
 
+![Discord bot permissions，已勾选 View Channels、Send Messages 与 Read Message History](../../../../assets/docs/channels/discord-04-bot-permissions.webp)
+
 打开生成的 URL 并邀请 bot。即使 server role 授予权限，channel-level permission override 仍可能阻止 bot。
+
+![生成的 Discord 邀请 URL，已遮蔽](../../../../assets/docs/channels/discord-05-invite-url-redacted.webp)
+
+**Installation -> Install Link** 是取得同一个邀请链接的另一条路径:在那里选择 **Discord Provided Link** 就能直接生成安装 URL，不必在 URL Generator 中自行组装。两种链接邀请的是同一个 application。
+
+![Discord Installation 页面，已选择 Discord Provided Link 并显示生成的 URL](../../../../assets/docs/channels/discord-09-installation-link.webp)
 
 ## 连接到 Manyfold
 
 1. 打开 **Settings -> Channels**。
 2. 创建渠道并选择 **Discord**。
 3. 选择 Agent，输入标签并粘贴 bot token。
+
+   ![Manyfold 创建 Discord 渠道的 New channel 面板，bot token 已遮蔽](../../../../assets/docs/channels/discord-07-new-channel.webp)
+
 4. 可选填写一个或多个 **Allowed guild IDs**。
 5. 创建渠道。
 6. 运行 **Register**，然后运行 **Test**。
+
+   ![Manyfold Discord 渠道详情页，显示 bot 身份、Message Content intent 与 Gateway 状态](../../../../assets/docs/channels/discord-08-channel-details.webp)
+
 
 Discord 不使用 Manyfold inbound URL。注册会读取 bot/application 身份、检查 Message Content Intent 并注册全局 slash command。Gateway 连接会自动启动，并在短暂断线后重连。
 

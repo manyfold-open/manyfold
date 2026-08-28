@@ -28,10 +28,21 @@ order: 10
 ## 创建 bot
 
 1. 在 Telegram 中打开 `@BotFather`。
+
+   ![Telegram 搜索结果中已认证的 @BotFather 账号](../../../../assets/docs/channels/telegram-01-search-botfather.webp)
+
 2. 发送 `/newbot` 并按提示操作。
+
+   ![BotFather 的 /newbot 对话，依次询问 bot 名称与用户名](../../../../assets/docs/channels/telegram-02-newbot-flow.webp)
+
 3. 设置显示名称和一个以 `bot` 结尾的全局唯一用户名。
 4. 复制 bot token，并像密码一样保管。
+
+   ![BotFather 的创建成功消息，bot token 已遮蔽](../../../../assets/docs/channels/telegram-03-bot-created-redacted.webp)
+
 5. 如果 bot 需要在没有 @mention 时接收普通群消息，请在 BotFather 中打开 **Bot Settings -> Group Privacy** 并关闭 privacy mode。如果已有群组没有应用新设置，请移除后重新添加 bot。
+
+BotFather 还有几个可选命令用于设置 bot 的外观:`/setdescription` 设置详细介绍、`/setabouttext` 设置简短简介、`/setuserpic` 设置头像、`/setcommands` 添加 Telegram 自己的命令菜单。
 
 开启 **Mention only** 时建议保留 privacy mode。Telegram 仍会投递命令、回复 bot 的消息和 @mention bot 的消息，同时不会把无关群聊发送给 bot。但“Telegram 已投递回复”不等于 Manyfold 认定它是 mention：普通回复文本仍需包含 `@BotUsername`，除非关闭 **Mention only**。
 
@@ -41,8 +52,14 @@ order: 10
 2. 创建渠道并选择 **Telegram**。
 3. 选择要接收消息的 Agent。
 4. 输入标签并粘贴 bot token。
+
+   ![Manyfold 创建 Telegram 渠道的 New channel 表单](../../../../assets/docs/channels/telegram-04-manyfold-new-channel.webp)
+
 5. 创建渠道。
 6. 打开渠道详情页并运行 **Test**。
+
+   ![Manyfold Telegram 渠道详情页，显示 bot 身份、webhook 状态与最近交付](../../../../assets/docs/channels/telegram-05-channel-details-demo.webp)
+
 
 Manyfold 会自动：
 
@@ -90,6 +107,8 @@ Agent 可以使用 `mf channels send` 发起 Telegram 私聊、向群组或 topi
 1. 给 bot 发送私聊文本。
 2. 如需群聊，加入 bot 后发送 `@BotUsername hello`。
 3. 运行 `/help`，确认命令菜单和处理器都正常。
+
+![与 demo bot 的第一次 Telegram 对话，bot 已回复](../../../../assets/docs/channels/telegram-06-first-conversation-demo.webp)
 
 ## 排查问题
 

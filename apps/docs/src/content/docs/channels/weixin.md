@@ -23,7 +23,7 @@ WeChat support is **direct-message only**. The iLink identity you authorize is a
 
 - An existing Manyfold agent.
 - A personal WeChat account to scan the bot QR code.
-- The iLink bot token issued after a successful scan.
+- An iLink bot token, only if you connect with **Paste token** instead of scanning inside Manyfold.
 
 The bot token is bound to the authorized session, not to a source IP, so Manyfold can keep the connection running from its servers after you authorize from your phone. If the session later expires, WeChat returns error code `-14` and you re-scan to issue a new token.
 
@@ -32,7 +32,13 @@ The bot token is bound to the authorized session, not to a source IP, so Manyfol
 1. Open **Settings -> Channels**.
 2. Create a channel and choose **WeChat**.
 3. Select the agent and enter a label.
-4. Paste the iLink bot token. Leave the gateway base URL blank to use the default gateway.
+4. Choose how to authorize the bot. **Scan to connect** is the recommended path and needs no token of your own.
+
+   - **Scan to connect**: scan the QR code shown in the dialog with WeChat to authorize the bot.
+   - **Paste token**: paste an iLink bot token you already hold. Leave the gateway base URL blank to use the default gateway.
+
+   ![The Manyfold New channel dialog for WeChat with Scan to connect selected and an authorization QR code](../../../assets/docs/channels/weixin-01-scan-to-connect.webp)
+
 5. Optionally restrict who may use the bot with **Allowed user IDs**, and who may run agent-level commands with **Operator user IDs**.
 6. Create the channel and run **Register**.
 7. Message the bot from WeChat.
@@ -81,7 +87,7 @@ Run **Test**. A healthy result confirms the gateway is reachable, the token is a
 
 ## Troubleshooting
 
-- **Token rejected or channel reports session expired (`-14`)**: the iLink session has expired. Re-scan the QR code, then update the bot token on the channel.
+- **Token rejected or channel reports session expired (`-14`)**: the iLink session has expired. Generate a new QR code on the channel and scan it again to reconnect. If the channel was connected with **Paste token**, issue a new token and update it on the channel instead.
 - **Channel stays connecting or reports a gateway error**: confirm the iLink gateway is reachable from Manyfold and the token is current.
 - **Bot does not respond**: confirm the sender is in **Allowed user IDs** (or leave it empty), and that the channel status is active.
 - **An agent-level command is denied**: add the sender's iLink user ID to **Operator user IDs**.

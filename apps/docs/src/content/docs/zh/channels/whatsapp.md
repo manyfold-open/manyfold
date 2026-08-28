@@ -34,7 +34,12 @@ order: 16
 2. 新建 Channel，选择 **WhatsApp**。
 3. 选择 Agent 并填写标签。
 4. 点击 **生成二维码**。
+
+   ![Manyfold 新建 WhatsApp Channel 的对话框，显示关联二维码与等待扫描状态](../../../../assets/docs/channels/whatsapp-02-manyfold-qr.webp)
+
 5. 在手机上打开 WhatsApp，进入 **已登录的设备 -> 关联设备**，扫描二维码。
+
+   ![WhatsApp 的已登录设备页面与关联设备按钮](../../../../assets/docs/channels/whatsapp-03-linked-devices-demo.webp)
 
 手机确认关联后，Manyfold 会立即创建并激活该 Channel；不需要复制任何 token，也不需要注册 inbound URL。等待期间二维码每隔几秒会刷新一次，整次尝试在 8 分钟后过期——超时后重新生成即可。
 

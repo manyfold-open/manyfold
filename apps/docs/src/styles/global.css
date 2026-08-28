@@ -1010,6 +1010,30 @@
         @apply my-1;
     }
 
+    /* Q&A lists. A FAQ item's first block is nothing but a bold run, which is
+       the question, and everything after it is the answer. That shape is unique
+       in the corpus -- all 56 matches sit under the two FAQ headings, and none
+       of the other 98 loose list items qualify -- so the structure selects
+       itself and needs no class the markdown cannot carry.
+
+       Without this the paragraph margin puts 24px both inside a pair and
+       between pairs, so the pairs never read as pairs. Four to one settles it:
+       the answer sits close to its own question, and the next question is
+       clearly a new one. */
+    .prose-doc ul:has(> li > p:first-child > strong:only-child) > li > p {
+        @apply my-0;
+    }
+
+    .prose-doc ul:has(> li > p:first-child > strong:only-child)
+        > li
+        > p:first-child {
+        margin-bottom: 0.375rem;
+    }
+
+    .prose-doc ul:has(> li > p:first-child > strong:only-child) > li + li {
+        margin-top: 1.5rem;
+    }
+
     .prose-doc a {
         @apply font-medium;
     }
@@ -1121,6 +1145,39 @@
 
     .prose-doc blockquote > :last-child {
         @apply mb-0;
+    }
+
+    /* Screenshots. The corpus carried no images at all until the channel and
+       runtime guides gained them, so this is the first rule they have ever
+       had. A ring in --color-divider rather than none: a light product-UI
+       screenshot has no edge of its own, so on the dark canvas it floats and
+       on the light one it bleeds into the page. A real border and not the
+       inset ring blockquote uses above -- an inset shadow paints beneath the
+       replaced content of an <img> and never shows. */
+    .prose-doc img {
+        @apply my-4 rounded-sm;
+        border: 1px solid var(--color-divider);
+        /* Portrait screenshots -- phone captures, tall dialogs -- stretch to the
+           full 640px prose column and land as much as 1385px tall, well past the
+           fold. Cap the HEIGHT and let the width follow, so each image shrinks
+           proportionally instead of being cropped: 14 of the corpus's 40 images
+           sit above the cap, from a 1170x2532 phone capture (640x1385 -> 240x520)
+           down to ones that lose a few pixels, and the wide shots keep their
+           natural size. Capping the width would do nothing -- the column already
+           sets it, and the height is what runs away. */
+        max-height: 520px;
+        width: auto;
+        /* Once the cap makes an image narrower than the column it would sit hard
+           against the left margin, off the column's centre axis. `auto` centres
+           only what has slack, so the wide shots that still fill the column are
+           untouched and no second rule is needed to tell the two apart. */
+        margin-inline: auto;
+    }
+
+    /* An image nested under a numbered step belongs to that step, so it keeps
+       the step's tighter rhythm rather than the paragraph spacing above. */
+    .prose-doc li img {
+        @apply my-3;
     }
 
     .prose-doc table {
