@@ -4,6 +4,10 @@ import type {
     ProtocolModelMap,
     UserModelProvider
 } from './dtos'
+import type {
+    RuntimeLocalCredentialReason,
+    RuntimeLocalCredentialStatus
+} from './runtime-local-credentials'
 
 export const agentModelConfigSources = ['platform', 'runtime-local'] as const
 export type AgentModelConfigSource = (typeof agentModelConfigSources)[number]
@@ -247,6 +251,15 @@ export type AgentModelConfig =
     | CodexAgentModelConfig
     | GeminiCliAgentModelConfig
 
+// Runtime-local turns must keep `modelConfig` null — the adapters read a set
+// modelConfig as "inject platform credentials" — so the CLI flags that carry
+// no credential travel separately.
+export interface RuntimeLocalTuning {
+    effort?: ClaudeCodeEffort | null
+    speed?: CodexSpeed | null
+    intelligence?: CodexIntelligence | null
+}
+
 export type AgentModelProviderModelsStatus =
     | 'ready'
     | 'needs_refresh'
@@ -267,6 +280,8 @@ export interface AgentRuntimeLocalModelConfigStatus {
     framework: AgentFramework
     cliVersion: string | null
     credentialReady: boolean | null
+    credentialStatus: RuntimeLocalCredentialStatus
+    credentialReason: RuntimeLocalCredentialReason
     configReadable: boolean | null
     current: string | null
     models: string[]
@@ -290,7 +305,11 @@ export interface AgentModelConfigOption {
 export interface AgentModelConfigValidation {
     valid: boolean
     messages: string[]
-    cta?: 'test-provider' | 'configure-claude-mapping' | 'choose-codex-model'
+    cta?:
+        | 'test-provider'
+        | 'configure-claude-mapping'
+        | 'choose-codex-model'
+        | 'refresh-runtime-local'
 }
 
 export interface AgentModelConfigView {

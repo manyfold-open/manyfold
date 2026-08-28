@@ -1221,12 +1221,15 @@ const AgentChat: FC = (): ReactNode => {
                 modelOverride
                     ? modelOverride
                     : null
-            const selectedModelConfig =
-                frameworkModelConfigSupported &&
-                modelConfigSourceDraft === 'platform' &&
-                normalizedModelConfigDraft
-                    ? normalizedModelConfigDraft
-                    : null
+            // For runtime-local the draft carries the picked model and the
+            // tuning knobs. The server reads both out of it but never forwards
+            // it to the adapter, where a set modelConfig would mean "inject
+            // platform credentials".
+            const selectedModelConfig = !frameworkModelConfigSupported
+                ? null
+                : modelConfigSourceDraft === 'platform'
+                  ? normalizedModelConfigDraft
+                  : modelConfigDraft
             const body = {
                 ...(text ? { text } : {}),
                 ...(uploadedAttachments.length > 0
@@ -1282,10 +1285,8 @@ const AgentChat: FC = (): ReactNode => {
                     ...effectiveModelConfigView,
                     source: modelConfigSourceDraft,
                     config:
-                        modelConfigSourceDraft === 'platform' &&
-                        selectedModelConfig
-                            ? selectedModelConfig
-                            : effectiveModelConfigView.config
+                        selectedModelConfig ??
+                        effectiveModelConfigView.config
                 }
                 writeCachedModelConfigView(nextView)
                 applyModelConfigView(nextView)
@@ -1358,12 +1359,15 @@ const AgentChat: FC = (): ReactNode => {
                 modelOverride
                     ? modelOverride
                     : null
-            const selectedModelConfig =
-                frameworkModelConfigSupported &&
-                modelConfigSourceDraft === 'platform' &&
-                normalizedModelConfigDraft
-                    ? normalizedModelConfigDraft
-                    : null
+            // For runtime-local the draft carries the picked model and the
+            // tuning knobs. The server reads both out of it but never forwards
+            // it to the adapter, where a set modelConfig would mean "inject
+            // platform credentials".
+            const selectedModelConfig = !frameworkModelConfigSupported
+                ? null
+                : modelConfigSourceDraft === 'platform'
+                  ? normalizedModelConfigDraft
+                  : modelConfigDraft
             const body = {
                 ...(text ? { text } : {}),
                 ...(selectedModel ? { model: selectedModel } : {}),
@@ -1411,10 +1415,8 @@ const AgentChat: FC = (): ReactNode => {
                     ...effectiveModelConfigView,
                     source: modelConfigSourceDraft,
                     config:
-                        modelConfigSourceDraft === 'platform' &&
-                        selectedModelConfig
-                            ? selectedModelConfig
-                            : effectiveModelConfigView.config
+                        selectedModelConfig ??
+                        effectiveModelConfigView.config
                 }
                 writeCachedModelConfigView(nextView)
                 applyModelConfigView(nextView)

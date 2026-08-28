@@ -168,10 +168,14 @@ export const mergeCachedRuntimeLocalModelConfigView = (
     const cachedIsNewer =
         cachedCheckedAt !== null &&
         (viewCheckedAt === null || cachedCheckedAt >= viewCheckedAt)
-    const cachedIsMoreUseful =
-        Boolean(cached.runtimeLocal.ready) && !view.runtimeLocal?.ready
+    // Only fills a gap, never overrules a verdict: the server now refuses a
+    // runtime-local turn whose credentials it judged unusable, and a stale
+    // `ready` cache winning here would show a picker for a source the next
+    // send is going to reject.
+    const cachedFillsAGap =
+        Boolean(cached.runtimeLocal.ready) && !view.runtimeLocal?.lastCheckedAt
 
-    if (!cachedIsNewer && !cachedIsMoreUseful) return view
+    if (!cachedIsNewer && !cachedFillsAGap) return view
 
     return {
         ...view,
@@ -418,6 +422,88 @@ export const preferredPrimaryModelDefault = (
     return options[0]
 }
 
+// Maps the server's credential verdict onto a localized string. `unknown` gets
+// none on purpose: it means "we could not judge", which is the normal state on
+// a macOS host whose token lives in the keychain, and a warning there would be
+// permanent noise.
+export const runtimeLocalCredentialMessage = (
+    view: AgentModelConfigView | null,
+    t: TFn
+): string | null => {
+    const status = view?.runtimeLocal?.credentialStatus
+    if (status === 'expired')
+        return t('web.credentials.runtimeLocal.credentialsExpired')
+    if (status === 'missing')
+        return t('web.credentials.runtimeLocal.credentialsMissing')
+    return null
+}
+
+// Aliases first: they are what the CLI's own picker shows, and a concrete id
+// below is the escape hatch for a pinned version.
+export const runtimeLocalModelOptions = (
+    view: AgentModelConfigView | null
+): string[] => {
+    const runtimeLocal = view?.runtimeLocal
+    if (!runtimeLocal) return []
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const value of [...runtimeLocal.aliases, ...runtimeLocal.models]) {
+        const trimmed = value.trim()
+        if (!trimmed || seen.has(trimmed)) continue
+        seen.add(trimmed)
+        out.push(trimmed)
+    }
+    return out
+}
+
+// Runtime-local drafts keep every unset knob null. The with* helpers above
+// fill in platform defaults, which would push a Manyfold-chosen effort onto a
+// CLI the user asked to run on its own config.
+export const patchRuntimeLocalDraft = (
+    framework: AgentModelConfigView['framework'],
+    draft: AgentModelConfig | null,
+    patch: {
+        model?: string | null
+        effort?: ClaudeCodeEffort | null
+        speed?: CodexSpeed | null
+        intelligence?: CodexIntelligence | null
+    }
+): AgentModelConfig => {
+    const model =
+        patch.model !== undefined ? patch.model : (draft?.model ?? null)
+    if (framework === 'claude-code')
+        return {
+            framework: 'claude-code',
+            model,
+            effort:
+                patch.effort !== undefined
+                    ? patch.effort
+                    : draft?.framework === 'claude-code'
+                      ? (draft.effort ?? null)
+                      : null,
+            modelMap:
+                draft?.framework === 'claude-code' ? (draft.modelMap ?? {}) : {}
+        }
+    if (framework === 'codex')
+        return {
+            framework: 'codex',
+            model,
+            speed:
+                patch.speed !== undefined
+                    ? patch.speed
+                    : draft?.framework === 'codex'
+                      ? (draft.speed ?? null)
+                      : null,
+            intelligence:
+                patch.intelligence !== undefined
+                    ? patch.intelligence
+                    : draft?.framework === 'codex'
+                      ? (draft.intelligence ?? null)
+                      : null
+        }
+    return { framework: 'gemini-cli', model }
+}
+
 export const validateModelConfigDraft = (
     view: AgentModelConfigView | null,
     draft: AgentModelConfig | null,
@@ -427,7 +513,16 @@ export const validateModelConfigDraft = (
     if (!view || !frameworkUsesModelConfig(view.framework))
         return { valid: true, message: null }
     if (view.source === 'runtime-local') {
-        return { valid: true, message: null }
+        // Never inspected: the server inspects before it refuses, so blocking
+        // the composer here would punish users for not clicking refresh.
+        if (!view.runtimeLocal?.lastCheckedAt || view.runtimeLocal.ready)
+            return { valid: true, message: null }
+        return {
+            valid: false,
+            message:
+                runtimeLocalCredentialMessage(view, t) ??
+                message('web.composer.validation.runtimeLocalNotReady')
+        }
     }
     if (view.providerModelsStatus !== 'ready')
         return {

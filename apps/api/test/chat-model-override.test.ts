@@ -643,6 +643,100 @@ test('Claude daemon runtime-local turn does not inject platform credentials', as
     assert.equal(handle.request?.env, undefined)
 })
 
+test('Claude runtime-local turn passes the picked model id through verbatim', async () => {
+    const handle = makeDriverFactory(
+        {
+            anthropicAuthToken: 'token',
+            anthropicBaseUrl: 'https://api.example.test'
+        },
+        'daemon'
+    )
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'claude-code',
+                runtimeKind: 'daemon',
+                model: 'claude-sonnet-4-5',
+                modelConfig: null
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    const modelIndex = cmd.indexOf('--model')
+    assert.ok(modelIndex >= 0)
+    // The platform path maps this onto the `sonnet` alias so the alias env can
+    // repoint it; a local CLI has no such env and must get the id it was given.
+    assert.equal(cmd[modelIndex + 1], 'claude-sonnet-4-5')
+    assert.equal(handle.request?.env, undefined)
+})
+
+test('Claude runtime-local tuning sets effort without platform credentials', async () => {
+    const handle = makeDriverFactory(
+        {
+            anthropicAuthToken: 'token',
+            anthropicBaseUrl: 'https://api.example.test'
+        },
+        'daemon'
+    )
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'claude-code',
+                runtimeKind: 'daemon',
+                model: 'claude-sonnet-4-5',
+                modelConfig: null,
+                runtimeLocalTuning: { effort: 'high' }
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    const effortIndex = cmd.indexOf('--effort')
+    assert.ok(effortIndex >= 0)
+    assert.equal(cmd[effortIndex + 1], 'high')
+    assert.equal(handle.request?.env, undefined)
+})
+
+test('Claude platform config still maps a concrete model onto its alias', async () => {
+    const handle = makeDriverFactory(
+        {
+            anthropicAuthToken: 'token',
+            anthropicBaseUrl: 'https://api.example.test'
+        },
+        'daemon'
+    )
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'claude-code',
+                runtimeKind: 'daemon',
+                model: 'claude-sonnet-4-5',
+                modelConfig: {
+                    framework: 'claude-code',
+                    model: 'claude-sonnet-4-5',
+                    modelMap: { sonnet: 'claude-sonnet-4-5' }
+                }
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    assert.equal(cmd[cmd.indexOf('--model') + 1], 'sonnet')
+})
+
 test('Claude daemon platform config injects saved platform provider', async () => {
     const handle = makeDriverFactory(
         {
@@ -805,6 +899,69 @@ test('Codex adapter applies full-access permission mode', async () => {
         handle.request?.cmd.includes(
             '--dangerously-bypass-approvals-and-sandbox'
         )
+    )
+})
+
+test('Codex runtime-local tuning sets speed and effort without credentials', async () => {
+    const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
+    const adapter = new CodexAdapter(
+        handle.drivers as never,
+        {} as never,
+        {} as never
+    )
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'codex',
+                runtimeKind: 'daemon',
+                model: 'gpt-5.6-sol',
+                modelConfig: null,
+                runtimeLocalTuning: { speed: 'fast', intelligence: 'xhigh' }
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    assert.ok(cmd.includes('model_reasoning_effort="xhigh"'))
+    assert.ok(cmd.includes('service_tier="fast"'))
+    assert.equal(cmd[cmd.indexOf('--model') + 1], 'gpt-5.6-sol')
+    // The tuning flags carry no credential, so the platform env must stay off.
+    assert.equal(handle.request?.env, undefined)
+})
+
+test('Codex runtime-local turn without tuning leaves the local config alone', async () => {
+    const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
+    const adapter = new CodexAdapter(
+        handle.drivers as never,
+        {} as never,
+        {} as never
+    )
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'codex',
+                runtimeKind: 'daemon',
+                model: 'gpt-5.5',
+                modelConfig: null,
+                runtimeLocalTuning: { speed: null, intelligence: null }
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    assert.equal(
+        cmd.some((arg) => arg.startsWith('model_reasoning_effort=')),
+        false
+    )
+    assert.equal(
+        cmd.some((arg) => arg.startsWith('service_tier=')),
+        false
     )
 })
 

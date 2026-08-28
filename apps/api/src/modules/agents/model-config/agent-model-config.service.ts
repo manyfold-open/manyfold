@@ -26,7 +26,10 @@ import {
     claudeLocalModelCatalog,
     codexCanonicalModelId,
     codexDefaultIntelligenceForModel,
+    codexIntelligenceLevels,
     codexIntelligenceLevelsForModel,
+    type CodexIntelligence,
+    type RuntimeLocalTuning,
     defaultProtocolForProvider,
     geminiAutoModelKey,
     geminiCanonicalModelId,
@@ -41,7 +44,12 @@ import {
     providerModelIdsForProtocol,
     resolveClaudeCodeProviderModel,
     resolveGeminiProviderModel,
-    uniqueTrimmedModelIds
+    uniqueTrimmedModelIds,
+    isRuntimeLocalCredentialUsable,
+    parseRuntimeLocalCredentialFacts,
+    runtimeLocalCredentialStatus,
+    type RuntimeLocalCredentialFacts,
+    type RuntimeLocalCredentialStatus
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -103,11 +111,13 @@ interface ProviderModelsState {
 
 interface RuntimeLocalModelConfigCache extends AgentRuntimeLocalModelConfigStatus {
     source: AgentRuntimeLocalModelConfigSource
+    credentialFacts: RuntimeLocalCredentialFacts | null
 }
 
 export interface ResolvedTurnModelConfig {
     model: string | null
     modelConfig: AgentModelConfig | null
+    runtimeLocalTuning?: RuntimeLocalTuning
 }
 
 @Injectable()
@@ -141,7 +151,16 @@ export class AgentModelConfigService {
         const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
         const source = this.resolveIncomingSource(agent, body.modelConfigSource)
         if (source === 'runtime-local') {
-            const next = await this.persistConfigSource(agent, source)
+            const requested =
+                body.model === undefined
+                    ? normalizeNullable(agent.model)
+                    : normalizeNullable(body.model)
+            if (requested) this.assertRuntimeLocalModel(agent, requested)
+            const next = await this.persistRuntimeLocalSelection(
+                agent,
+                requested,
+                this.runtimeLocalTuning(agent, body.modelConfig)
+            )
             return this.buildView(next)
         }
         const config = await this.resolveIncomingConfig(agent, body, true)
@@ -269,9 +288,30 @@ export class AgentModelConfigService {
             input.modelConfigSource
         )
         if (source === 'runtime-local') {
-            if (input.saveAsDefault && input.modelConfigSource)
-                await this.persistConfigSource(agent, source)
-            return { model: null, modelConfig: null }
+            const usable = await this.assertRuntimeLocalUsable(agent)
+            const incomingModel =
+                normalizeNullable(input.model) ??
+                normalizeNullable(input.modelConfig?.model)
+            const requested = incomingModel ?? normalizeNullable(usable.model)
+            if (requested) this.assertRuntimeLocalModel(usable, requested)
+            const tuning = this.runtimeLocalTuning(usable, input.modelConfig)
+            if (
+                input.saveAsDefault &&
+                (input.modelConfigSource || incomingModel || input.modelConfig)
+            )
+                await this.persistRuntimeLocalSelection(
+                    usable,
+                    requested,
+                    tuning
+                )
+            // modelConfig stays null on purpose: the adapters read it as "the
+            // platform owns this turn" and inject platform credentials when it
+            // is set. Local tuning travels in its own field.
+            return {
+                model: requested,
+                modelConfig: null,
+                runtimeLocalTuning: tuning
+            }
         }
 
         const hasIncoming =
@@ -666,28 +706,126 @@ export class AgentModelConfigService {
         return updated
     }
 
-    private async persistConfigSource(
+    private async persistRuntimeLocalSelection(
         agent: Agent,
-        source: AgentModelConfigSource
+        model: string | null,
+        tuning: RuntimeLocalTuning
     ): Promise<Agent> {
         const latest = await this.reloadAgent(agent)
         const existingExtras = safeRecord(latest.extras)
         const existingModelConfig = (asRecord(existingExtras.modelConfig) ??
             {}) as ModelConfigExtras
+        const nextModelConfig: ModelConfigExtras = {
+            ...existingModelConfig,
+            source: 'runtime-local'
+        }
+        // Only the tuning knobs are stored, never a modelMap: that one exists
+        // to point aliases at a platform provider and has no meaning against a
+        // CLI running on its own login.
+        if (agent.framework === 'claude-code')
+            nextModelConfig.claudeCode = {
+                ...(existingModelConfig.claudeCode ?? {}),
+                effort: tuning.effort ?? null
+            }
+        else if (agent.framework === 'codex')
+            nextModelConfig.codex = {
+                speed: tuning.speed ?? null,
+                intelligence: tuning.intelligence ?? null
+            }
         const [updated] = await this.db
             .update(agents)
             .set({
+                model,
                 extras: jsonbMerge(agents.extras, {
-                    modelConfig: {
-                        ...existingModelConfig,
-                        source
-                    }
+                    modelConfig: nextModelConfig
                 }),
                 updatedAt: new Date()
             })
             .where(eq(agents.id, agent.id))
             .returning()
         return updated
+    }
+
+    // A cached refusal can be stale in the one direction that matters: the user
+    // may have just signed in on the runtime host. Re-inspect before refusing
+    // so the gate never blocks a machine that works. The happy path never
+    // reaches here, so a live turn pays nothing for this.
+    private async assertRuntimeLocalUsable(agent: Agent): Promise<Agent> {
+        const cached = this.runtimeLocalConfigFromAgent(agent)
+        if (!cached?.lastCheckedAt || cached.ready) return agent
+        let refreshed: Agent
+        try {
+            await this.refreshRuntimeLocalModelCapability(agent)
+            refreshed = await this.reloadAgent(agent)
+        } catch (err) {
+            // The inspect transport failed rather than the credentials: let the
+            // turn run and report its own error instead of inventing one.
+            if (agent.runtime !== 'daemon') return agent
+            throw new BadRequestException((err as Error).message)
+        }
+        const next = this.runtimeLocalConfigFromAgent(refreshed)
+        if (next?.ready) return refreshed
+        throw new BadRequestException(
+            next?.error ?? 'Runtime local config is not ready'
+        )
+    }
+
+    private assertRuntimeLocalModel(agent: Agent, model: string): void {
+        const runtimeLocal = this.runtimeLocalConfigFromAgent(agent)
+        const known = [
+            ...(runtimeLocal?.models ?? []),
+            ...(runtimeLocal?.aliases ?? [])
+        ]
+        // An empty list means nothing has enumerated this runtime yet (or the
+        // daemon predates the models field); refusing there would make the
+        // picker unusable for exactly the agents it should help.
+        if (known.length === 0) return
+        if (agent.framework === 'gemini-cli' && isGeminiAutoModel(model)) return
+        if (!known.includes(model))
+            throw new BadRequestException(
+                `${model} is not available in the local config for ${agent.framework}`
+            )
+    }
+
+    // Only what the user explicitly picked survives here. Defaulting an unset
+    // knob would push a platform default onto a CLI that was asked to use its
+    // own config — the exact thing this source exists to avoid.
+    private runtimeLocalTuning(
+        agent: Agent,
+        incoming: AgentModelConfig | null | undefined
+    ): RuntimeLocalTuning {
+        const stored = (asRecord(safeRecord(agent.extras).modelConfig) ??
+            {}) as ModelConfigExtras
+        if (agent.framework === 'claude-code') {
+            const requested =
+                incoming?.framework === 'claude-code'
+                    ? incoming.effort
+                    : normalizeNullable(asRecord(stored.claudeCode)?.effort)
+            return {
+                effort: isClaudeCodeEffort(requested) ? requested : null
+            }
+        }
+        if (agent.framework === 'codex') {
+            const raw = asRecord(stored.codex)
+            const speed =
+                incoming?.framework === 'codex'
+                    ? incoming.speed
+                    : normalizeNullable(raw?.speed)
+            const intelligence = normalizeCodexIntelligence(
+                incoming?.framework === 'codex'
+                    ? (incoming.intelligence ?? null)
+                    : normalizeNullable(raw?.intelligence)
+            )
+            return {
+                speed: speed === 'fast' ? 'fast' : null,
+                intelligence: codexIntelligenceLevels.includes(
+                    intelligence as CodexIntelligence
+                )
+                    ? (intelligence as CodexIntelligence)
+                    : null
+            }
+        }
+        return {}
     }
 
     private async reloadAgent(agent: Agent): Promise<Agent> {
@@ -785,7 +923,8 @@ export class AgentModelConfigService {
             config,
             providerModels,
             options,
-            codexFastModelKeys
+            codexFastModelKeys,
+            runtimeLocal
         })
         return {
             agentId: agent.id,
@@ -855,15 +994,30 @@ export class AgentModelConfigService {
         providerModels: ProviderModelsState
         options: AgentModelConfigView['options']
         codexFastModelKeys: Set<string>
+        runtimeLocal: AgentRuntimeLocalModelConfigStatus | null
     }): AgentModelConfigView['validation'] {
-        const { agent, config, providerModels, options, codexFastModelKeys } =
-            input
+        const {
+            agent,
+            config,
+            providerModels,
+            options,
+            codexFastModelKeys,
+            runtimeLocal
+        } = input
         const messages: string[] = []
         if (!isFrameworkModelConfigurable(agent.framework)) {
             return { valid: true, messages }
         }
         if (this.configSourceFromAgent(agent) === 'runtime-local') {
-            return { valid: true, messages }
+            // An agent nobody has inspected yet stays valid: the turn-time gate
+            // inspects before it refuses, so blocking here would only punish
+            // users for not having clicked refresh.
+            if (!runtimeLocal?.lastCheckedAt || runtimeLocal.ready)
+                return { valid: true, messages }
+            messages.push(
+                runtimeLocal.error ?? 'Runtime local config is not ready'
+            )
+            return { valid: false, messages, cta: 'refresh-runtime-local' }
         }
         if (providerModels.status !== 'ready') {
             messages.push('Test provider before selecting a model.')
@@ -1051,14 +1205,17 @@ export class AgentModelConfigService {
     private runtimeLocalConfigFromAgent(
         agent: Agent
     ): AgentRuntimeLocalModelConfigStatus | null {
-        return (
-            readRuntimeLocalModelConfigCache(agent.extras) ?? {
+        const cached = readRuntimeLocalModelConfigCache(agent.extras)
+        if (!cached)
+            return {
                 available: true,
                 ready: false,
                 source: null,
                 framework: agent.framework,
                 cliVersion: null,
                 credentialReady: null,
+                credentialStatus: 'unknown',
+                credentialReason: 'not-reported',
                 configReadable: null,
                 current: null,
                 models: [],
@@ -1068,7 +1225,28 @@ export class AgentModelConfigService {
                 lastCheckedAt: null,
                 error: null
             }
+        // A cached `ready: true` is only as good as the token it was computed
+        // from, so expiry is re-derived here instead of at inspect time: a
+        // snapshot taken an hour ago must not keep claiming a live token.
+        const evaluated = runtimeLocalCredentialStatus(
+            cached.credentialFacts,
+            Date.now()
         )
+        const usable = isRuntimeLocalCredentialUsable(evaluated.status)
+        return {
+            ...cached,
+            ready: cached.ready && usable,
+            credentialStatus: evaluated.status,
+            credentialReason: evaluated.reason,
+            error:
+                cached.error ??
+                (usable
+                    ? null
+                    : credentialStatusMessage(
+                          agent.framework,
+                          evaluated.status
+                      ))
+        }
     }
 
     private async providerModels(
@@ -1244,12 +1422,16 @@ export class AgentModelConfigService {
         const checkedAt =
             normalizeNullable(capability.lastCheckedAt) ??
             new Date().toISOString()
-        const ready = runtimeLocalReady(agent.framework, capability)
+        const now = Date.now()
+        const credentialFacts =
+            parseRuntimeLocalCredentialFacts(capability.credentialFacts) ?? null
+        const evaluated = runtimeLocalCredentialStatus(credentialFacts, now)
+        const ready = runtimeLocalReady(agent.framework, capability, now)
         const error =
             normalizeNullable(capability.error) ??
             (ready
                 ? null
-                : runtimeLocalNotReadyMessage(agent.framework, capability))
+                : runtimeLocalNotReadyMessage(agent.framework, capability, now))
         const runtimeLocal: RuntimeLocalModelConfigCache = {
             available: true,
             ready,
@@ -1260,6 +1442,9 @@ export class AgentModelConfigService {
                 typeof capability.credentialReady === 'boolean'
                     ? capability.credentialReady
                     : null,
+            credentialStatus: evaluated.status,
+            credentialReason: evaluated.reason,
+            credentialFacts,
             configReadable: capability.configReadable === true,
             current: normalizeNullable(capability.current),
             models,
@@ -1420,8 +1605,21 @@ const runtimeLocalCacheSource = (
 
 const runtimeLocalReady = (
     framework: string,
-    capability: DaemonFrameworkModelCapability
+    capability: DaemonFrameworkModelCapability,
+    now: number
 ): boolean => {
+    // Facts beat the daemon's own verdict: it reports `ready` from a presence
+    // heuristic that cannot see an expired token, and a daemon too old to send
+    // facts evaluates to `unknown`, which stays usable.
+    if (
+        !isRuntimeLocalCredentialUsable(
+            runtimeLocalCredentialStatus(
+                parseRuntimeLocalCredentialFacts(capability.credentialFacts),
+                now
+            ).status
+        )
+    )
+        return false
     if (typeof capability.ready === 'boolean')
         return capability.ready && !normalizeNullable(capability.error)
     if (normalizeNullable(capability.error) || !capability.cliVersion)
@@ -1434,18 +1632,41 @@ const runtimeLocalReady = (
     return capability.credentialReady === true
 }
 
+const frameworkLabel = (framework: string): string =>
+    framework === 'claude-code'
+        ? 'Claude Code'
+        : framework === 'codex'
+          ? 'Codex'
+          : framework === 'gemini-cli'
+            ? 'Gemini CLI'
+            : 'Runtime'
+
+const credentialStatusMessage = (
+    framework: string,
+    status: RuntimeLocalCredentialStatus
+): string | null => {
+    const label = frameworkLabel(framework)
+    if (status === 'expired')
+        return `${label} local credentials have expired — sign in again on the runtime host, then refresh`
+    if (status === 'missing')
+        return `${label} local credentials were not detected`
+    return null
+}
+
 const runtimeLocalNotReadyMessage = (
     framework: string,
-    capability: DaemonFrameworkModelCapability
+    capability: DaemonFrameworkModelCapability,
+    now: number
 ): string => {
-    const label =
-        framework === 'claude-code'
-            ? 'Claude Code'
-            : framework === 'codex'
-              ? 'Codex'
-              : framework === 'gemini-cli'
-                ? 'Gemini CLI'
-                : 'Runtime'
+    const credential = credentialStatusMessage(
+        framework,
+        runtimeLocalCredentialStatus(
+            parseRuntimeLocalCredentialFacts(capability.credentialFacts),
+            now
+        ).status
+    )
+    if (credential) return credential
+    const label = frameworkLabel(framework)
     if (!capability.cliVersion) return `${label} CLI is not available on PATH`
     if (framework === 'codex' && capability.configReadable !== true)
         return 'Codex local config was not detected'
@@ -1679,7 +1900,10 @@ interface RuntimeInspectCatalog {
     geminiAliases: string[]
 }
 
-const runtimeInspectScript = (
+// Exported so a test can execute the emitted script against fixture homes: it
+// is a hand-mirrored copy of the daemon's inspectors (apps/cli/src/daemon/
+// rpc.ts) and nothing else would catch the two drifting apart.
+export const runtimeInspectScript = (
     framework: string,
     catalog: RuntimeInspectCatalog
 ): string => {
@@ -1745,6 +1969,83 @@ const codexHomeDir = () => {
   const raw = process.env.CODEX_HOME && process.env.CODEX_HOME.trim()
   return raw ? path.resolve(raw.replace(/^~/, home)) : path.join(home, '.codex')
 }
+const parseJson = (text) => {
+  if (typeof text !== 'string' || !text.trim()) return null
+  try {
+    const parsed = JSON.parse(text)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+const nested = (record, key) => {
+  const value = record ? record[key] : null
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : null
+}
+const nonEmpty = (value) => typeof value === 'string' && value.trim().length > 0
+const jwtExpiryMs = (value) => {
+  if (typeof value !== 'string') return null
+  const part = value.split('.')[1]
+  if (!part) return null
+  try {
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')
+    const exp = JSON.parse(json).exp
+    return typeof exp === 'number' && isFinite(exp) ? Math.round(exp * 1000) : null
+  } catch {
+    return null
+  }
+}
+const tomlScalar = (raw) => {
+  const withoutComment = raw.replace(/\\s+#.*$/, '').trim()
+  const quoted = /^["']([^"']*)["']$/.exec(withoutComment)
+  return (quoted ? quoted[1] : withoutComment).trim()
+}
+const scanCodexConfig = (text) => {
+  const scan = { activeProvider: null, providers: [], profileModels: [] }
+  if (!text) return scan
+  const providers = new Map()
+  let section = null
+  for (const rawLine of text.split(/\\r?\\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith('#')) continue
+    const header = /^\\[+([^\\]]+)\\]+$/.exec(line)
+    if (header) {
+      section = header[1].trim()
+      if (section.indexOf('model_providers.') === 0)
+        providers.set(tomlScalar(section.slice('model_providers.'.length)), {})
+      continue
+    }
+    const pair = /^([A-Za-z0-9_.-]+)\\s*=\\s*(.+)$/.exec(line)
+    if (!pair) continue
+    const key = pair[1]
+    const value = tomlScalar(pair[2])
+    if (section === null) {
+      if (key === 'model_provider') scan.activeProvider = value || null
+      continue
+    }
+    if (section.indexOf('model_providers.') === 0) {
+      const id = tomlScalar(section.slice('model_providers.'.length))
+      const entry = providers.get(id)
+      if (entry) entry[key] = value
+      continue
+    }
+    if (section.indexOf('profiles.') === 0 && key === 'model' && value)
+      scan.profileModels.push(value)
+  }
+  for (const entry of providers) {
+    const id = entry[0]
+    const values = entry[1]
+    const envKey = values.env_key || null
+    scan.providers.push({
+      id,
+      hasBaseUrl: Boolean(values.base_url),
+      envKey,
+      envKeyPresent: Boolean(envKey && process.env[envKey] && process.env[envKey].trim()),
+      requiresOpenaiAuth: values.requires_openai_auth === 'true'
+    })
+  }
+  return scan
+}
 const codexAuthSummary = (text) => {
   const trimmed = typeof text === 'string' ? text.trim() : ''
   if (!trimmed) return null
@@ -1780,11 +2081,26 @@ if (framework === 'claude-code') {
   const error = cliVersion
     ? (credentialReady ? null : 'Claude Code local credentials were not detected')
     : 'claude CLI is not available on PATH'
+  const claudeCredentials = parseJson(readText(path.join(home, '.claude', '.credentials.json')).text)
+  const claudeOauth = nested(claudeCredentials, 'claudeAiOauth') || nested(claudeCredentials, 'oauthAccount')
+  const claudeJson = parseJson(readText(path.join(home, '.claude.json')).text)
   capability = {
     framework,
     cliVersion,
     ready: Boolean(cliVersion && credentialReady),
     credentialReady,
+    credentialFacts: {
+      framework: 'claude-code',
+      envToken: Boolean(
+        (process.env.ANTHROPIC_AUTH_TOKEN && process.env.ANTHROPIC_AUTH_TOKEN.trim()) ||
+        (process.env.ANTHROPIC_API_KEY && process.env.ANTHROPIC_API_KEY.trim())
+      ),
+      credentialsFileParsed: claudeCredentials !== null,
+      oauthExpiresAt: claudeOauth && typeof claudeOauth.expiresAt === 'number' ? claudeOauth.expiresAt : null,
+      hasRefreshToken: Boolean(claudeOauth && nonEmpty(claudeOauth.refreshToken)),
+      oauthAccount: nested(claudeJson, 'oauthAccount') !== null,
+      configPresent: configReadable
+    },
     configReadable,
     current,
     models: unique([...mapped, ...claudeModelCatalog]),
@@ -1802,10 +2118,13 @@ if (framework === 'claude-code') {
   const model = config.text ? tomlString(config.text, 'model') : null
   const intelligence = config.text ? tomlString(config.text, 'model_reasoning_effort') : null
   const speed = config.text ? tomlString(config.text, 'service_tier') : null
-  const requiresOpenAiAuth = Boolean(config.text && /^\\\\s*requires_openai_auth\\\\s*=\\\\s*true\\\\s*$/m.test(config.text))
+  const requiresOpenAiAuth = Boolean(config.text && /^\\s*requires_openai_auth\\s*=\\s*true\\s*$/m.test(config.text))
   const authSummary = auth.ok ? codexAuthSummary(auth.text) : null
   const envCredentialReady = Boolean(process.env.OPENAI_API_KEY && !requiresOpenAiAuth)
   const credentialReady = Boolean(authSummary || envCredentialReady)
+  const codexScan = scanCodexConfig(config.text)
+  const codexAuth = parseJson(auth.text)
+  const codexTokens = nested(codexAuth, 'tokens')
   const current = unique([model, speed === 'fast' ? 'fast' : null, intelligence, authSummary, envCredentialReady ? 'OPENAI_API_KEY env' : null]).join(' · ') || null
   const error = config.error || auth.error || (cliVersion
     ? (config.ok
@@ -1817,9 +2136,22 @@ if (framework === 'claude-code') {
     cliVersion,
     ready: Boolean(cliVersion && config.ok && credentialReady && !error),
     credentialReady,
+    credentialFacts: {
+      framework: 'codex',
+      authFilePresent: auth.ok,
+      authFileParsed: codexAuth !== null,
+      apiKeyPresent: Boolean(codexAuth && (nonEmpty(codexAuth.OPENAI_API_KEY) || nonEmpty(codexAuth.openaiApiKey))),
+      envApiKey: envCredentialReady,
+      hasAccessToken: Boolean(codexTokens && nonEmpty(codexTokens.access_token)),
+      hasRefreshToken: Boolean(codexTokens && nonEmpty(codexTokens.refresh_token)),
+      accessTokenExp: codexTokens ? jwtExpiryMs(codexTokens.access_token) : null,
+      lastRefresh: codexAuth && typeof codexAuth.last_refresh === 'string' ? codexAuth.last_refresh : null,
+      customProviders: codexScan.providers,
+      activeProvider: codexScan.activeProvider
+    },
     configReadable: config.ok,
     current,
-    models: unique([model, ...codexModelCatalog]),
+    models: unique([model, ...codexScan.profileModels, ...codexModelCatalog]),
     aliases: [],
     speeds: codexSpeeds,
     intelligence: codexIntelligence,
@@ -1847,6 +2179,7 @@ if (framework === 'claude-code') {
     ? settingsParsed.apiKey.trim()
     : null
   const oauth = readText(oauthPath)
+  const geminiOauth = parseJson(oauth.text)
   const envApiKey = (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim())
     || (process.env.GOOGLE_API_KEY && process.env.GOOGLE_API_KEY.trim())
     || (process.env.GOOGLE_GEMINI_API_KEY && process.env.GOOGLE_GEMINI_API_KEY.trim())
@@ -1875,6 +2208,15 @@ if (framework === 'claude-code') {
     cliVersion,
     ready: Boolean(cliVersion && credentialReady && !error),
     credentialReady,
+    credentialFacts: {
+      framework: 'gemini-cli',
+      envApiKey: Boolean(envApiKey),
+      settingsApiKey: Boolean(settingsApiKey),
+      oauthFilePresent: oauth.ok,
+      oauthFileParsed: geminiOauth !== null,
+      oauthExpiryDate: geminiOauth && typeof geminiOauth.expiry_date === 'number' ? geminiOauth.expiry_date : null,
+      hasRefreshToken: Boolean(geminiOauth && nonEmpty(geminiOauth.refresh_token))
+    },
     configReadable,
     current,
     models: unique([envModel, settingsModel, ...geminiModelCatalog]),
@@ -1940,6 +2282,9 @@ const readRuntimeLocalModelConfigCache = (
             typeof raw.credentialReady === 'boolean'
                 ? raw.credentialReady
                 : null,
+        credentialStatus: 'unknown',
+        credentialReason: 'not-reported',
+        credentialFacts: parseRuntimeLocalCredentialFacts(raw.credentialFacts),
         configReadable:
             typeof raw.configReadable === 'boolean' ? raw.configReadable : null,
         current: normalizeNullable(raw.current),

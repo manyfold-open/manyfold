@@ -484,9 +484,17 @@ export class ChannelSlashDispatcher {
                     agentId,
                     false
                 )
-                const options = view.options
-                    .filter((o) => o.enabled)
-                    .map((o) => o.value)
+                // A runtime-local agent has no platform options — its models
+                // come from whatever the CLI on the runtime host reported.
+                const options =
+                    view.source === 'runtime-local'
+                        ? [
+                              ...(view.runtimeLocal?.aliases ?? []),
+                              ...(view.runtimeLocal?.models ?? [])
+                          ]
+                        : view.options
+                              .filter((o) => o.enabled)
+                              .map((o) => o.value)
                 if (options.length === 0)
                     return {
                         replyText: `Model configuration isn't available for this agent (framework ${view.framework}).`,
