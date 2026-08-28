@@ -79,9 +79,10 @@ export const agentUsageEvents = pgTable(
         messageUnique: uniqueIndex('agent_usage_events_message_unique').on(
             table.messageId
         ),
-        // Historical hand-written FK, declared here with its legacy name so
-        // the editions core baseline renders byte-identically to a legacy
-        // chain (it predates drizzle-managed constraints on this table).
+        // Historical hand-written FK, declared under its legacy name: deployed
+        // databases hold the constraint under that name (it predates
+        // drizzle-managed constraints on this table), and renaming buys
+        // nothing but schema/DB drift.
         modelProviderFk: foreignKey({
             columns: [table.modelProviderId],
             foreignColumns: [userModelProviders.id],

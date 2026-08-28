@@ -13,6 +13,8 @@
                 "^build"
             ],
             "passThroughEnv": [
+                "MF_DEV_HOST",
+                "MF_DEV_API_TARGET",
                 "NCA_DEV_HOST",
                 "NCA_DEV_API_TARGET"
             ]

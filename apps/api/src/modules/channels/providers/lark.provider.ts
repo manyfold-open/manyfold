@@ -11,9 +11,11 @@ import {
     BadRequestException,
     Injectable,
     Logger,
+    Optional,
     UnauthorizedException
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import * as Lark from '@larksuiteoapi/node-sdk'
 import {
     UnsupportedEventError,
@@ -103,7 +105,10 @@ export class LarkChannelProvider implements ChannelProvider {
     // not act as the history-backfill boundary; ids are per channel.
     private readonly nonConversationalIds = new Map<string, Set<string>>()
 
-    constructor(config: ConfigService) {
+    constructor(
+        config: ConfigService,
+        @Optional() private readonly telemetry?: TelemetryService
+    ) {
         this.defaultAppRegion =
             parseLarkAppRegion(config.get<string>('LARK_APP_REGION')) ??
             appRegionFromOpenBaseUrl(
@@ -374,7 +379,10 @@ export class LarkChannelProvider implements ChannelProvider {
         raw: unknown
     ): void {
         try {
-            const event = this.normalizeWsEvent(raw, config)
+            const event = this.normalizeWsEvent(raw, config, {
+                source: 'ws',
+                channelId: ctx.channel.id
+            })
             if (!event) return
             void onInbound(event).catch((err) => {
                 this.logger.warn(
@@ -439,14 +447,26 @@ export class LarkChannelProvider implements ChannelProvider {
 
     private normalizeWsEvent(
         raw: unknown,
-        config: LarkChannelConfig
+        config: LarkChannelConfig,
+        origin: { source: 'ws' | 'webhook'; channelId: string }
     ): NormalizedInboundEvent | null {
         const body = raw as LarkWsEventBody | undefined
         if (!body) return null
         const eventType = larkEventType(body)
         if (eventType && !isLarkMessageEventType(eventType))
             throw new UnsupportedEventError(eventType)
-        if (eventType === 'message') return normalizeLegacyEvent(body)
+        if (eventType === 'message') {
+            // Pre-2.0 Lark event schema (flat `type: 'message'` body). A
+            // tenant on an old app config lands here silently, so this event
+            // is the usage signal gating the legacy branch's removal
+            // (legacy-inventory §4.3). Schema tokens only, no content.
+            this.telemetry?.event('channel.lark.legacy_event', {
+                source: origin.source,
+                channelId: origin.channelId,
+                messageType: body.msg_type ?? 'unknown'
+            })
+            return normalizeLegacyEvent(body)
+        }
 
         const event = modernEvent(body)
         const message = event.message ?? null
@@ -518,7 +538,10 @@ export class LarkChannelProvider implements ChannelProvider {
         const eventType = larkEventType(body) ?? 'unknown'
         if (!isLarkMessageEventType(eventType))
             throw new UnsupportedEventError(eventType)
-        const event = this.normalizeWsEvent(body, config)
+        const event = this.normalizeWsEvent(body, config, {
+            source: 'webhook',
+            channelId: ctx.channel.id
+        })
         if (!event)
             throw new BadRequestException('event missing message fields')
         return event

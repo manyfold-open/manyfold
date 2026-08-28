@@ -377,7 +377,7 @@ test('stale sweep window spans the largest cap plus grace', async () => {
     )
 })
 
-test('resolveTurnTimeouts precedence: admin setting > env > defaults', async () => {
+test('resolveTurnTimeouts precedence: admin setting > defaults, env is dead', async () => {
     type Resolver = {
         resolveTurnTimeouts: () => Promise<{
             blockingMs: number
@@ -403,7 +403,10 @@ test('resolveTurnTimeouts precedence: admin setting > env > defaults', async () 
         { blockingMs: 60_000, asyncMs: 120_000 }
     )
 
-    const withEnv = new A2aService(
+    // Retirement pin: a still-set A2A_TURN_TIMEOUT_MS must be ignored — the
+    // startup migration owns it now (A2aTimeoutEnvMigrationService), and the
+    // resolver falls straight from the absent setting to the defaults.
+    const withDeadEnv = new A2aService(
         dbFake,
         {} as never,
         {} as never,
@@ -411,8 +414,8 @@ test('resolveTurnTimeouts precedence: admin setting > env > defaults', async () 
         settingsFake(null) as never
     )
     assert.deepEqual(
-        await (withEnv as unknown as Resolver).resolveTurnTimeouts(),
-        { blockingMs: 123_000, asyncMs: 123_000 }
+        await (withDeadEnv as unknown as Resolver).resolveTurnTimeouts(),
+        { blockingMs: 600_000, asyncMs: 7_200_000 }
     )
 
     const bare = new A2aService(dbFake, {} as never, {} as never)

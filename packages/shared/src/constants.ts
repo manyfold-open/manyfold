@@ -113,6 +113,8 @@ export const auditAction = {
     USER_RUNTIME_ACCESS_UPDATED: 'user.runtime_access.updated',
     USER_PLAN_UPDATED: 'user.plan.updated',
     USER_PLAN_BACKFILLED: 'user.plan.backfilled',
+    A2A_TURN_TIMEOUTS_ENV_MIGRATED:
+        'admin.settings.a2a_turn_timeouts.env_migrated',
     SPRITES_ACCOUNT_CREATED: 'sprites.account.created',
     SPRITES_ACCOUNT_ROTATED: 'sprites.account.rotated',
     SPRITES_ACCOUNT_DISABLED: 'sprites.account.disabled',

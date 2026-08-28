@@ -380,6 +380,13 @@ export const DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG = 'fs.claude-user-config'
 // are only materialized onto daemons that declare this, so a plaintext key
 // never lands world-readable (#781).
 export const DAEMON_FEATURE_FS_WRITE_MODE = 'fs.write.mode'
+// The turn runners parse the split budgets (idleTimeoutMs / headersTimeoutMs /
+// maxDurationMs) on DaemonTurnStartPayload instead of only the legacy 240s
+// `timeoutMs` deadline (#513 / #556). This flag is a retroactive advertisement
+// of behavior the runners already ship — the API keeps sending `timeoutMs`
+// alongside the split budgets until the fleet reports no daemon without it,
+// which is the removal gate for that legacy field.
+export const DAEMON_FEATURE_TURN_BUDGETS = 'turn.budgets'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -391,5 +398,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_OPENCLAW,
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
-    DAEMON_FEATURE_FS_WRITE_MODE
+    DAEMON_FEATURE_FS_WRITE_MODE,
+    DAEMON_FEATURE_TURN_BUDGETS
 ]

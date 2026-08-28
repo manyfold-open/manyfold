@@ -629,7 +629,9 @@ export class AdminSettingsService {
     }
 
     // Null when the admin never saved the setting — callers (A2aService) then
-    // fall back to the legacy A2A_TURN_TIMEOUT_MS env var / code defaults.
+    // fall back to the shared code defaults. (The legacy A2A_TURN_TIMEOUT_MS
+    // env var no longer has a read path; A2aTimeoutEnvMigrationService moves
+    // a still-set value into this row at startup.)
     async getCachedA2aTurnTimeoutsOverride(): Promise<A2aTurnTimeoutsSettings | null> {
         if (
             this.a2aTurnTimeoutsCache &&
@@ -648,6 +650,13 @@ export class AdminSettingsService {
             expiresAt: Date.now() + A2A_TURN_TIMEOUTS_CACHE_TTL_MS
         }
         return value
+    }
+
+    // For writers that bypass updateA2aTurnTimeouts (the env migration writes
+    // with onConflictDoNothing so it can never clobber an admin's save) — they
+    // still must drop a cached null so their row is seen within this boot.
+    invalidateA2aTurnTimeoutsCache(): void {
+        this.a2aTurnTimeoutsCache = null
     }
 
     async getCliMinimumVersion(): Promise<CliMinimumVersionSettings> {

@@ -86,8 +86,9 @@ export const agents = pgTable(
             }),
         internalId: text('internal_id').notNull(),
         model: text('model'),
-        // FK declared below with its historical hand-written name so the
-        // editions core baseline renders byte-identically to a legacy chain.
+        // FK declared below under its historical hand-written name: deployed
+        // databases hold the constraint under that name (it predates the
+        // drizzle baseline), and renaming buys nothing but schema/DB drift.
         modelProviderId: text('model_provider_id'),
         extras: jsonb('extras')
             .$type<Record<string, unknown>>()
