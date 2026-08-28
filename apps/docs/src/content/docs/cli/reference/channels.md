@@ -52,7 +52,7 @@ Create a channel
 | Options | Purpose |
 | --- | --- |
 | `--agent-id <id>` | agent id (defaults to $MF_AGENT_ID or --agent-id global) |
-| `--provider <name>` | channel provider (fake\|lark\|telegram\|slack\|discord\|matrix) Required. |
+| `--provider <name>` | channel provider (fake\|lark\|telegram\|slack\|discord\|matrix\|weixin\|whatsapp\|linear\|github\|line) Required. |
 | `--label <label>` | channel label (1-200 chars) Required. |
 | `--config <json>` | channel config (@path for file, or inline JSON object) Required. |
 | `--credentials <json>` | channel credentials (@path for file, or inline JSON object) |
