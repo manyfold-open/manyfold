@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 0.56.0
+
+### Minor Changes
+
+- [#69](https://github.com/manyfold-open/manyfold/pull/69) [`0f66aec`](https://github.com/manyfold-open/manyfold/commit/0f66aec076e7d5e6c4c070577e9e0653c9839278) Thanks [@yingca1](https://github.com/yingca1)! - The legacy device-code grant flow is removed. `mf login` loses `--poll`, `--wait`, `--scopes`, `--for-agent`, `--limit-to-agent` and `--resume` (and the pending-login file plus its automatic redemption on the next command): `mf auth ensure --scopes <list>` has been the capability-request path since the auth-model refactor, and production minted two grants through the old flow in the last thirty days. On the API, `/auth/cli/start` answers 410 with upgrade guidance when a request carries `requestedScopes`/`requestedAgentId`, `/auth/cli/poll` is a tombstone that always answers the same 410, and the approve/exchange paths refuse the (15-minute-lived) grant sessions a pre-removal deploy may leave behind — so no new `enforceAgentBinding=false` grant can be minted anywhere. Tokens the old flow already issued keep authenticating unchanged; their retirement is the auth-model refactor's Phase 8 and starts its observation window with this release.
+
+### Patch Changes
+
+- [#66](https://github.com/manyfold-open/manyfold/pull/66) [`77b8724`](https://github.com/manyfold-open/manyfold/commit/77b872411022a917b3325b5a5b87c7a3ac944d57) Thanks [@yingca1](https://github.com/yingca1)! - Retire three expired compatibility windows recorded in the legacy inventory: the `nca_auth_`/`nca_dvc_` login-code prefixes are no longer accepted (minting went `mf_`-only at the 2026-06-11 rename and login codes live 15 minutes, so no live legacy code can exist — a legacy-shaped code now gets 400 instead of 404), the stateless v1 consent-token claims shape is no longer resolved (v2 `{id, v: 2}` tokens have been the only mint since the consent table landed, and v1 tokens expired within their hour), and `CliVersionCatalog` no longer carries the deprecated `staging` mirror of `dev` (zero readers since the GitHub-Releases cutover). Also removes the retired-but-never-minted `rti`/`rir` ObjectId prefixes (kept as a retired-prefix comment so they are never reused), the six `docker-build-*` justfile recipes that point at a `docker/` tree this repository does not contain, orphan env-template variables with no reader, and adds the missing `deleted_user_billing_refs` entry to the editions cloud-table contract so the boundary lint denies it like every other cloud table.
+
+- [#68](https://github.com/manyfold-open/manyfold/pull/68) [`d76fb1c`](https://github.com/manyfold-open/manyfold/commit/d76fb1cc79ec49f9fa428daf550b7c944aa7726a) Thanks [@yingca1](https://github.com/yingca1)! - Retire two legacy paths whose removal gates were verified against production and staging (zero live rows in both): the `a2a-ephemeral` token kind is fully mint-retired — the mint parameter and auth-principal unions drop it, bearer verification fails loud on the (impossible-by-TTL) residue row, the hourly ephemeral-token reaper now also drains expired `a2a-ephemeral` rows left by deploys predating the stateless-ticket switch, and the column enum keeps the value only so pre-switch rows stay readable — and the pre-rename `nca_dashboard` cookie fallback in k8s dashboard auth is gone (the cookie's Max-Age is one hour, so none planted before the rename can exist).
+
 ## 0.55.0
 
 ### Minor Changes
