@@ -3910,8 +3910,6 @@ const fr: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'Test réussi',
     'web.runtimesDashboard.testFailed': 'Test échoué',
     'web.runtimesDashboard.neverTested': 'Jamais testé',
-    'web.runtimesDashboard.configuredProviders': 'Fournisseurs configurés',
-    'web.runtimesDashboard.notUsedYet': 'Pas encore utilisé par une exécution',
     'web.runtimesDashboard.noSandboxes': 'Pas encore de bac à sable.',
     'web.runtimesDashboard.noMachines': 'Pas encore d’ordinateur personnel connecté.',
     'web.runtimesDashboard.noClusters': 'Pas encore d’ordinateur cloud.',

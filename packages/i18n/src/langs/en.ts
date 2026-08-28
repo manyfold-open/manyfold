@@ -4723,8 +4723,6 @@ const en = {
             testPassed: 'Test passed',
             testFailed: 'Test failed',
             neverTested: 'Never tested',
-            configuredProviders: 'Configured providers',
-            notUsedYet: 'Not used by a runtime yet',
             noSandboxes: 'No sandboxes yet.',
             noMachines: 'No self-owned computers connected yet.',
             noClusters: 'No cloud computers yet.',

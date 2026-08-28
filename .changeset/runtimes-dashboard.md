@@ -14,15 +14,16 @@ The bare URL now shows a dashboard summarizing every runtime kind in one
 place, with a grid/list toggle (persisted per device). Sandboxes show their
 sprite status, storage, active time this period and agents; self-owned
 computers show online state, platform, mf CLI version and detected
-frameworks; external runtimes show their endpoint and the last connection
-test of the matching provider, and providers not yet bound to any runtime are
-listed alongside. Each section carries a direct create entry for its kind,
+frameworks; the External API section lists the configured providers
+themselves — endpoint, last connection test and how many runtimes use
+each — linking to the providers page, rather than runtime rows. Each
+section carries a direct create entry for its kind,
 and the rail's New-runtime affordances (a plus in the header and the bottom
 button) open a quick dropdown menu instead of the old modal chooser. The
 list view renders each section as a proper table — per-kind columns
 (status, storage, active time, platform, mf CLI, endpoint, last test,
-agents) instead of a single compressed meta line. Cards
-click through to the existing host detail; the kind
+agents) instead of a single compressed meta line. Cards and rows click
+through to the existing host detail, and the kind
 breadcrumb links back to the dashboard. The dashboard also has an explicit
 address — /settings/runtimes/dashboard, reachable from a new rail entry — so
 on narrow screens, where the bare URL still opens the rail, it remains one

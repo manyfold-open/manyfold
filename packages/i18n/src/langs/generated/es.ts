@@ -3910,8 +3910,6 @@ const es: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'Prueba superada',
     'web.runtimesDashboard.testFailed': 'Prueba fallida',
     'web.runtimesDashboard.neverTested': 'Nunca probado',
-    'web.runtimesDashboard.configuredProviders': 'Proveedores configurados',
-    'web.runtimesDashboard.notUsedYet': 'Aún no lo usa ningún tiempo de ejecución',
     'web.runtimesDashboard.noSandboxes': 'Aún no hay zonas de pruebas.',
     'web.runtimesDashboard.noMachines': 'Aún no hay computadoras propias conectadas.',
     'web.runtimesDashboard.noClusters': 'Aún no hay computadoras en la nube.',

@@ -3910,8 +3910,6 @@ const hi: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'परीक्षण सफल',
     'web.runtimesDashboard.testFailed': 'परीक्षण विफल',
     'web.runtimesDashboard.neverTested': 'कभी परीक्षण नहीं हुआ',
-    'web.runtimesDashboard.configuredProviders': 'कॉन्फ़िगर किए गए प्रदाता',
-    'web.runtimesDashboard.notUsedYet': 'अभी तक किसी रनटाइम द्वारा उपयोग नहीं',
     'web.runtimesDashboard.noSandboxes': 'अभी तक कोई सैंडबॉक्स नहीं।',
     'web.runtimesDashboard.noMachines': 'अभी तक कोई मालिकाना कंप्यूटर कनेक्ट नहीं है।',
     'web.runtimesDashboard.noClusters': 'अभी तक कोई क्लाउड कंप्यूटर नहीं।',

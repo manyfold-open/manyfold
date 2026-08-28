@@ -2,9 +2,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { UserExternalAgentProviderSummary } from '@manyfold/shared'
 import {
-    matchProviderByEndpoint,
     normalizeEndpoint,
-    unusedProviders
+    providerRuntimeCounts
 } from '../src/lib/runtimesDashboardData'
 
 let seq = 0
@@ -50,34 +49,35 @@ test('normalizeEndpoint tolerates non-URL values', () => {
     assert.equal(normalizeEndpoint(' Not-A-Url// '), 'not-a-url')
 })
 
-test('matchProviderByEndpoint finds the normalized match', () => {
-    const hit = makeProvider({ endpointUrl: 'https://api.dify.ai/v1' })
-    const miss = makeProvider({ endpointUrl: 'https://other.example.com/v1' })
-    assert.equal(
-        matchProviderByEndpoint([miss, hit], 'https://API.dify.ai/v1/'),
-        hit
-    )
-    assert.equal(matchProviderByEndpoint([miss], 'https://api.dify.ai/v1'), null)
-    assert.equal(matchProviderByEndpoint([hit], null), null)
-    assert.equal(matchProviderByEndpoint([hit], undefined), null)
-})
-
-test('unusedProviders keeps providers no runtime endpoint uses', () => {
-    const used = makeProvider({ endpointUrl: 'https://api.dify.ai/v1' })
+test('providerRuntimeCounts matches runtimes on the normalized endpoint', () => {
+    const bound = makeProvider({ endpointUrl: 'https://api.dify.ai/v1' })
     const idle = makeProvider({ endpointUrl: 'https://langflow.example.com' })
+    const counts = providerRuntimeCounts(
+        [bound, idle],
+        ['https://API.dify.ai/v1/', 'https://api.dify.ai/v1', null, '']
+    )
+    assert.equal(counts.get(bound.id), 2)
+    assert.equal(counts.get(idle.id), 0)
+})
+
+test('providerRuntimeCounts covers every provider, even with no runtimes', () => {
+    const a = makeProvider()
+    const b = makeProvider()
+    const counts = providerRuntimeCounts([a, b], [])
     assert.deepEqual(
-        unusedProviders([used, idle], ['https://api.dify.ai/v1/', null, '']),
-        [idle]
+        [...counts.entries()],
+        [
+            [a.id, 0],
+            [b.id, 0]
+        ]
     )
 })
 
-test('unusedProviders treats a provider shared by several runtimes as used', () => {
-    const shared = makeProvider({ endpointUrl: 'https://api.dify.ai/v1' })
-    assert.deepEqual(
-        unusedProviders(
-            [shared],
-            ['https://api.dify.ai/v1', 'https://api.dify.ai/v1/']
-        ),
-        []
+test('providerRuntimeCounts ignores endpoints no provider owns', () => {
+    const a = makeProvider({ endpointUrl: 'https://api.dify.ai/v1' })
+    const counts = providerRuntimeCounts(
+        [a],
+        ['https://other.example.com/v1']
     )
+    assert.equal(counts.get(a.id), 0)
 })

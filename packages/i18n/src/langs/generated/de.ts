@@ -3909,8 +3909,6 @@ const de: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'Test bestanden',
     'web.runtimesDashboard.testFailed': 'Test fehlgeschlagen',
     'web.runtimesDashboard.neverTested': 'Nie getestet',
-    'web.runtimesDashboard.configuredProviders': 'Konfigurierte Anbieter',
-    'web.runtimesDashboard.notUsedYet': 'Noch von keiner Runtime verwendet',
     'web.runtimesDashboard.noSandboxes': 'Noch keine Sandboxes.',
     'web.runtimesDashboard.noMachines': 'Noch keine eigenen Computer verbunden.',
     'web.runtimesDashboard.noClusters': 'Noch keine Cloud-Computer.',

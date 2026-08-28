@@ -19,10 +19,7 @@ import {
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
-import {
-    matchProviderByEndpoint,
-    unusedProviders
-} from '@/lib/runtimesDashboardData'
+import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
 import {
     readDashboardView,
     writeDashboardView,
@@ -144,7 +141,6 @@ interface VMItemProps {
     vm: RuntimeVM
     usage: SandboxUsageBreakdown | null
     usageLoading: boolean
-    provider: UserExternalAgentProviderSummary | null
     onSelect: () => void
 }
 
@@ -185,7 +181,6 @@ const VMCard: FC<VMItemProps> = ({
     vm,
     usage,
     usageLoading,
-    provider,
     onSelect
 }): ReactNode => {
     const { t } = useI18n()
@@ -300,24 +295,37 @@ const VMCard: FC<VMItemProps> = ({
                     </span>
                 </>
             )}
-            {vm.kind === 'external' && (
-                <>
-                    <CardHeader
-                        lead={vmLead(vm)}
-                        label={vm.label}
-                        aside={provider ? providerTestTag(provider, t) : null}
-                    />
-                    <span className='text-caption text-muted block truncate font-mono'>
-                        {vm.runtimes[0]?.endpointUrl ?? '—'}
-                    </span>
-                    <span className='flex flex-col gap-1.5'>
-                        <MetaRow label={t('web.runtimesDashboard.agents')}>
-                            {vm.agentsCount}
-                        </MetaRow>
-                    </span>
-                </>
-            )}
         </button>
+    )
+}
+
+// The External API section lists configured providers, not the runtimes
+// bound to them — management (and creation) lives on the providers page,
+// so the whole card links there.
+const ProviderCard: FC<{
+    provider: UserExternalAgentProviderSummary
+    runtimeCount: number
+}> = ({ provider, runtimeCount }): ReactNode => {
+    const { t } = useI18n()
+    return (
+        <Link
+            to='/settings/runtimes/external-agent-providers'
+            className='settings-card hover:bg-surface-hover flex flex-col gap-3 p-4 text-left transition-colors'
+        >
+            <CardHeader
+                lead={<FrameworkLogo framework={provider.provider} size={18} />}
+                label={provider.label}
+                aside={providerTestTag(provider, t)}
+            />
+            <span className='text-caption text-muted block truncate font-mono'>
+                {provider.endpointUrl}
+            </span>
+            <span className='flex flex-col gap-1.5'>
+                <MetaRow label={t('web.agentRuntimesList.runtimesTitle')}>
+                    {runtimeCount}
+                </MetaRow>
+            </span>
+        </Link>
     )
 }
 
@@ -363,8 +371,8 @@ const VMTable: FC<{
     vms: RuntimeVM[]
     usage: SandboxUsageBreakdown | null
     usageLoading: boolean
-    providers: UserExternalAgentProviderSummary[] | null
-    idleProviders: UserExternalAgentProviderSummary[]
+    providers: UserExternalAgentProviderSummary[]
+    runtimeCounts: Map<string, number>
     onSelectHost: (key: string) => void
 }> = ({
     kind,
@@ -372,7 +380,7 @@ const VMTable: FC<{
     usage,
     usageLoading,
     providers,
-    idleProviders,
+    runtimeCounts,
     onSelectHost
 }): ReactNode => {
     const { t } = useI18n()
@@ -441,7 +449,7 @@ const VMTable: FC<{
                     {t('web.runtimesDashboard.colLastTest')}
                 </th>
                 <th className={headCellRight}>
-                    {t('web.runtimesDashboard.agents')}
+                    {t('web.agentRuntimesList.runtimesTitle')}
                 </th>
             </tr>
         )
@@ -515,21 +523,7 @@ const VMTable: FC<{
                     <td className={bodyCellRight}>{vm.agentsCount}</td>
                 </ClickableRow>
             )
-        const provider = providers
-            ? matchProviderByEndpoint(providers, vm.runtimes[0]?.endpointUrl)
-            : null
-        return (
-            <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
-                {nameCell(vm)}
-                <td className={`${bodyCell} max-w-64 truncate font-mono`}>
-                    {vm.runtimes[0]?.endpointUrl ?? '—'}
-                </td>
-                <td className={bodyCell}>
-                    {provider ? providerTestTag(provider, t) : '—'}
-                </td>
-                <td className={bodyCellRight}>{vm.agentsCount}</td>
-            </ClickableRow>
-        )
+        return null
     }
 
     return (
@@ -537,44 +531,41 @@ const VMTable: FC<{
             <table className='w-full min-w-[36rem] text-left'>
                 <thead className='workbench-table-head'>{head()}</thead>
                 <tbody>
-                    {vms.map(row)}
-                    {kind === 'external' &&
-                        idleProviders.map((p) => (
-                            <ClickableRow
-                                key={p.id}
-                                onSelect={() =>
-                                    navigate(
-                                        '/settings/runtimes/external-agent-providers'
-                                    )
-                                }
-                            >
-                                <td className='px-4 py-3'>
-                                    <span className='flex items-center gap-2'>
-                                        <FrameworkLogo
-                                            framework={p.provider}
-                                            size={18}
-                                        />
-                                        <span className='text-ui text-fg min-w-0 truncate'>
-                                            {p.label}
-                                        </span>
-                                        <span className='tag tag-neutral shrink-0'>
-                                            {t(
-                                                'web.runtimesDashboard.notUsedYet'
-                                            )}
-                                        </span>
-                                    </span>
-                                </td>
-                                <td
-                                    className={`${bodyCell} max-w-64 truncate font-mono`}
-                                >
-                                    {p.endpointUrl}
-                                </td>
-                                <td className={bodyCell}>
-                                    {providerTestTag(p, t)}
-                                </td>
-                                <td className={bodyCellRight}>—</td>
-                            </ClickableRow>
-                        ))}
+                    {kind === 'external'
+                        ? providers.map((p) => (
+                              <ClickableRow
+                                  key={p.id}
+                                  onSelect={() =>
+                                      navigate(
+                                          '/settings/runtimes/external-agent-providers'
+                                      )
+                                  }
+                              >
+                                  <td className='px-4 py-3'>
+                                      <span className='flex items-center gap-2'>
+                                          <FrameworkLogo
+                                              framework={p.provider}
+                                              size={18}
+                                          />
+                                          <span className='text-ui text-fg min-w-0 truncate'>
+                                              {p.label}
+                                          </span>
+                                      </span>
+                                  </td>
+                                  <td
+                                      className={`${bodyCell} max-w-64 truncate font-mono`}
+                                  >
+                                      {p.endpointUrl}
+                                  </td>
+                                  <td className={bodyCell}>
+                                      {providerTestTag(p, t)}
+                                  </td>
+                                  <td className={bodyCellRight}>
+                                      {runtimeCounts.get(p.id) ?? 0}
+                                  </td>
+                              </ClickableRow>
+                          ))
+                        : vms.map(row)}
                 </tbody>
             </table>
         </div>
@@ -616,15 +607,14 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
     }, [vms])
 
     const externalVms = byKind.get('external') ?? []
-    const idleProviders = useMemo(
+    const sectionProviders = useMemo(() => providers ?? [], [providers])
+    const providerCounts = useMemo(
         () =>
-            providers
-                ? unusedProviders(
-                      providers,
-                      externalVms.map((vm) => vm.runtimes[0]?.endpointUrl)
-                  )
-                : [],
-        [providers, externalVms]
+            providerRuntimeCounts(
+                sectionProviders,
+                externalVms.map((vm) => vm.runtimes[0]?.endpointUrl)
+            ),
+        [sectionProviders, externalVms]
     )
 
     const renderSection = (kind: RuntimeKind): ReactNode => {
@@ -635,10 +625,8 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
         const showCreate =
             option && (!option.requiresCloudComputer || cloudComputerEnabled)
         const sectionCount =
-            sectionVms.length + (kind === 'external' ? idleProviders.length : 0)
-        const empty =
-            sectionVms.length === 0 &&
-            (kind !== 'external' || idleProviders.length === 0)
+            kind === 'external' ? sectionProviders.length : sectionVms.length
+        const empty = sectionCount === 0
         return (
             <section key={kind} aria-busy={kind === 'sprites' && usageLoading}>
                 <div className='mb-3 flex flex-wrap items-center gap-2'>
@@ -673,23 +661,25 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
                     </p>
                 ) : view === 'grid' ? (
                     <div className='grid gap-3 sm:grid-cols-2'>
-                        {sectionVms.map((vm) => (
-                            <VMCard
-                                key={vm.key}
-                                vm={vm}
-                                usage={usage}
-                                usageLoading={usageLoading}
-                                provider={
-                                    kind === 'external' && providers
-                                        ? matchProviderByEndpoint(
-                                              providers,
-                                              vm.runtimes[0]?.endpointUrl
-                                          )
-                                        : null
-                                }
-                                onSelect={() => onSelectHost(vm.key)}
-                            />
-                        ))}
+                        {kind === 'external'
+                            ? sectionProviders.map((p) => (
+                                  <ProviderCard
+                                      key={p.id}
+                                      provider={p}
+                                      runtimeCount={
+                                          providerCounts.get(p.id) ?? 0
+                                      }
+                                  />
+                              ))
+                            : sectionVms.map((vm) => (
+                                  <VMCard
+                                      key={vm.key}
+                                      vm={vm}
+                                      usage={usage}
+                                      usageLoading={usageLoading}
+                                      onSelect={() => onSelectHost(vm.key)}
+                                  />
+                              ))}
                     </div>
                 ) : (
                     <VMTable
@@ -697,47 +687,10 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
                         vms={sectionVms}
                         usage={usage}
                         usageLoading={usageLoading}
-                        providers={providers}
-                        idleProviders={
-                            kind === 'external' ? idleProviders : []
-                        }
+                        providers={kind === 'external' ? sectionProviders : []}
+                        runtimeCounts={providerCounts}
                         onSelectHost={onSelectHost}
                     />
-                )}
-                {view === 'grid' &&
-                    kind === 'external' &&
-                    idleProviders.length > 0 && (
-                    <div className='mt-3'>
-                        <div className='text-caption text-subtle mb-1.5 font-medium'>
-                            {t('web.runtimesDashboard.configuredProviders')}
-                        </div>
-                        <div className='settings-card'>
-                            {idleProviders.map((p) => (
-                                <Link
-                                    key={p.id}
-                                    to='/settings/runtimes/external-agent-providers'
-                                    className='border-divider/60 hover:bg-surface-hover flex items-center gap-3 border-t px-4 py-3 transition-colors first:border-t-0'
-                                >
-                                    <FrameworkLogo
-                                        framework={p.provider}
-                                        size={18}
-                                    />
-                                    <span className='min-w-0 flex-1'>
-                                        <span className='text-ui text-fg block truncate'>
-                                            {p.label}
-                                        </span>
-                                        <span className='text-caption text-muted block truncate font-mono'>
-                                            {p.endpointUrl}
-                                        </span>
-                                    </span>
-                                    {providerTestTag(p, t)}
-                                    <span className='text-caption text-subtle hidden shrink-0 sm:block'>
-                                        {t('web.runtimesDashboard.notUsedYet')}
-                                    </span>
-                                </Link>
-                            ))}
-                        </div>
-                    </div>
                 )}
             </section>
         )

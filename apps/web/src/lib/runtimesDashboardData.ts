@@ -1,7 +1,7 @@
 import type { UserExternalAgentProviderSummary } from '@manyfold/shared'
 
 // An external runtime records no provider id, only the endpoint it was bound
-// to — so the dashboard's runtime↔provider join can only match on a
+// to — so the dashboard's provider↔runtime join can only match on a
 // normalized endpoint URL.
 export const normalizeEndpoint = (url: string): string => {
     const trimmed = url.trim().replace(/\/+$/, '')
@@ -12,26 +12,20 @@ export const normalizeEndpoint = (url: string): string => {
     }
 }
 
-export const matchProviderByEndpoint = (
+export const providerRuntimeCounts = (
     providers: UserExternalAgentProviderSummary[],
-    endpointUrl: string | null | undefined
-): UserExternalAgentProviderSummary | null => {
-    if (!endpointUrl) return null
-    const target = normalizeEndpoint(endpointUrl)
-    return (
-        providers.find((p) => normalizeEndpoint(p.endpointUrl) === target) ??
-        null
+    runtimeEndpoints: Array<string | null | undefined>
+): Map<string, number> => {
+    const used = new Map<string, number>()
+    for (const endpoint of runtimeEndpoints) {
+        if (typeof endpoint !== 'string' || endpoint.length === 0) continue
+        const key = normalizeEndpoint(endpoint)
+        used.set(key, (used.get(key) ?? 0) + 1)
+    }
+    return new Map(
+        providers.map((p) => [
+            p.id,
+            used.get(normalizeEndpoint(p.endpointUrl)) ?? 0
+        ])
     )
-}
-
-export const unusedProviders = (
-    providers: UserExternalAgentProviderSummary[],
-    usedEndpoints: Array<string | null | undefined>
-): UserExternalAgentProviderSummary[] => {
-    const used = new Set(
-        usedEndpoints
-            .filter((e): e is string => typeof e === 'string' && e.length > 0)
-            .map(normalizeEndpoint)
-    )
-    return providers.filter((p) => !used.has(normalizeEndpoint(p.endpointUrl)))
 }

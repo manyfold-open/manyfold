@@ -4499,8 +4499,6 @@ const zh: Translations = {
             testPassed: '测试通过',
             testFailed: '测试失败',
             neverTested: '未测试',
-            configuredProviders: '已配置的 Provider',
-            notUsedYet: '尚未被任何运行时使用',
             noSandboxes: '还没有沙箱。',
             noMachines: '还没有连接自有电脑。',
             noClusters: '还没有云电脑。',

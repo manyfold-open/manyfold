@@ -3909,8 +3909,6 @@ const ja: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'テスト成功',
     'web.runtimesDashboard.testFailed': 'テスト失敗',
     'web.runtimesDashboard.neverTested': '未テスト',
-    'web.runtimesDashboard.configuredProviders': '設定済みプロバイダー',
-    'web.runtimesDashboard.notUsedYet': 'まだどのランタイムでも使用されていません',
     'web.runtimesDashboard.noSandboxes': 'サンドボックスはまだありません。',
     'web.runtimesDashboard.noMachines': '接続された所有コンピューターはまだありません。',
     'web.runtimesDashboard.noClusters': 'クラウドコンピューターはまだありません。',

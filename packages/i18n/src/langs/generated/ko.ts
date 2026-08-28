@@ -3910,8 +3910,6 @@ const ko: Record<string, string> = {
     "web.runtimesDashboard.testPassed": "테스트 통과",
     "web.runtimesDashboard.testFailed": "테스트 실패",
     "web.runtimesDashboard.neverTested": "테스트한 적 없음",
-    "web.runtimesDashboard.configuredProviders": "구성된 프로바이더",
-    "web.runtimesDashboard.notUsedYet": "아직 어떤 런타임도 사용하지 않음",
     "web.runtimesDashboard.noSandboxes": "아직 샌드박스가 없습니다.",
     "web.runtimesDashboard.noMachines": "아직 연결된 소유 컴퓨터가 없습니다.",
     "web.runtimesDashboard.noClusters": "아직 클라우드 컴퓨터가 없습니다.",

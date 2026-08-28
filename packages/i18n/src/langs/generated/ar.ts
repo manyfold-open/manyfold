@@ -3909,8 +3909,6 @@ const ar: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'نجح الاختبار',
     'web.runtimesDashboard.testFailed': 'فشل الاختبار',
     'web.runtimesDashboard.neverTested': 'لم يُختبر بعد',
-    'web.runtimesDashboard.configuredProviders': 'المزوّدون المُكوَّنون',
-    'web.runtimesDashboard.notUsedYet': 'لم تستخدمه أي بيئة تشغيل بعد',
     'web.runtimesDashboard.noSandboxes': 'لا توجد بيئات معزولة بعد.',
     'web.runtimesDashboard.noMachines': 'لا توجد حواسيب مملوكة ذاتيًا متصلة بعد.',
     'web.runtimesDashboard.noClusters': 'لا توجد حواسيب سحابية بعد.',

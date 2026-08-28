@@ -3910,8 +3910,6 @@ const ru: Record<string, string> = {
     'web.runtimesDashboard.testPassed': 'Тест пройден',
     'web.runtimesDashboard.testFailed': 'Тест не пройден',
     'web.runtimesDashboard.neverTested': 'Не тестировался',
-    'web.runtimesDashboard.configuredProviders': 'Настроенные провайдеры',
-    'web.runtimesDashboard.notUsedYet': 'Пока не используется ни одной средой выполнения',
     'web.runtimesDashboard.noSandboxes': 'Песочниц пока нет.',
     'web.runtimesDashboard.noMachines': 'Собственные компьютеры пока не подключены.',
     'web.runtimesDashboard.noClusters': 'Облачных компьютеров пока нет.',
