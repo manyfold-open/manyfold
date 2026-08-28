@@ -60,8 +60,7 @@ export const authenticateA2aRequest = async (
         }
     }
 
-    // Legacy DB-token path: internal a2a-grant bearers + draining a2a-ephemeral
-    // rows authenticate here until the 15-min TTL drains them (no dual-accept).
+    // DB-token path: internal a2a-grant bearers authenticate here.
     if (!isApiToken(token)) throw new A2aHttpError(401, 'invalid api token')
     let user
     try {
