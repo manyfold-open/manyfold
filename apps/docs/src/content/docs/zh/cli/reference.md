@@ -5,7 +5,7 @@ order: 12
 ---
 本页由 mf binary 使用的同一份 Commander tree 生成，记录当前公开 command surface；command 和 option description 保留 binary 中的英文原文以避免漂移。已安装 binary 的自身版本始终是最终依据。
 
-**生成自:** `mf 0.24.0`
+**生成自:** `mf 0.25.0`
 
 运行 `mf <command> --help`，确认当前机器已安装版本的准确语法。
 
