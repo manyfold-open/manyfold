@@ -58,6 +58,7 @@ import {
     ListViewIcon,
     LocalDaemonIcon,
     type LucideIcon,
+    PlusIcon,
     ZapIcon
 } from '@/components/icons'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
@@ -2819,13 +2820,25 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 ].join(' ')}
             >
                 <div className='shrink-0 space-y-2.5 p-3'>
-                    <div className='flex items-center gap-2'>
-                        <h2 className='text-h3 text-fg tracking-tight'>
-                            {t('web.agentRuntimesList.runtimesTitle')}
-                        </h2>
-                        <span className='tag tag-neutral tabular-nums'>
-                            {totalCount}
-                        </span>
+                    <div className='flex items-center justify-between'>
+                        <div className='flex items-center gap-2'>
+                            <h2 className='text-h3 text-fg tracking-tight'>
+                                {t('web.agentRuntimesList.runtimesTitle')}
+                            </h2>
+                            <span className='tag tag-neutral tabular-nums'>
+                                {totalCount}
+                            </span>
+                        </div>
+                        <button
+                            type='button'
+                            onClick={() => setChooserOpen(true)}
+                            aria-label={t(
+                                'web.agentRuntimesList.newRuntimeButton'
+                            )}
+                            className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors'
+                        >
+                            <PlusIcon className='h-4 w-4' />
+                        </button>
                     </div>
 
                     <Link
