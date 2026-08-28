@@ -55,7 +55,8 @@ const SCHEMA_KEYS = [
     'framework',
     'assistantMessageId',
     'runtimeKind',
-    'turnPhase'
+    'turnPhase',
+    'causeVia'
 ]
 
 const BALANCE_MESSAGE =
@@ -126,6 +127,11 @@ test('a dispatch rejection names its unknown runtime instead of inventing one', 
     // Typed HttpException bodies keep the code web/CLI already key off.
     assert.equal(record.attrs.errorCode, 'service_restarting')
     assert.ok(!('cause' in record.attrs))
+    // A specific code with no durable mapping: the classifier refused to read
+    // the prose (which deliberately carries an auth phrase above), and the
+    // via token is what makes that population countable (legacy-inventory
+    // §4.4).
+    assert.equal(record.attrs.causeVia, 'code_unmapped')
     // No durable ChatError was written, so there is no retryable flag to read
     // and none is guessed.
     assert.ok(!('retryable' in record.attrs))
@@ -153,8 +159,13 @@ test('untyped HTTP dispatch errors classify only the status wording that identif
 
         const [record] = harness.streamErrors
         assert.ok(!('errorCode' in record.attrs))
-        if (expected === null) assert.ok(!('cause' in record.attrs))
-        else assert.equal(record.attrs.cause, expected)
+        if (expected === null) {
+            assert.ok(!('cause' in record.attrs))
+            assert.equal(record.attrs.causeVia, 'none')
+        } else {
+            assert.equal(record.attrs.cause, expected)
+            assert.equal(record.attrs.causeVia, 'message')
+        }
     }
 })
 
@@ -170,6 +181,7 @@ test('a live stream failure carries the durable code, its retryable flag and the
     assert.equal(record.attrs.errorCode, 'claude_result_error')
     assert.equal(record.attrs.retryable, true)
     assert.equal(record.attrs.cause, 'balance_exhausted')
+    assert.equal(record.attrs.causeVia, 'message')
     assert.equal(record.attrs.runtimeKind, 'sprites')
     assert.equal(record.attrs.framework, 'claude-code')
     assert.equal(record.attrs.userId, 'user-1')
@@ -194,6 +206,7 @@ test('a thrown adapter error is classified from the terminal that was written', 
     assert.equal(record.attrs.errorCode, 'adapter_error')
     assert.equal(record.attrs.retryable, true)
     assert.equal(record.attrs.cause, 'exec_handshake_failed')
+    assert.equal(record.attrs.causeVia, 'message')
     // The original error keeps its own stack for Sentry's stack view.
     assert.match(record.err.message, /handshake failed/)
 
@@ -217,6 +230,9 @@ test('a resumed turn reports the phase it terminalized in', async () => {
         assert.equal(record.attrs.resumed, true)
         assert.equal(record.attrs.errorCode, 'codex_exec_failed')
         assert.equal(record.attrs.cause, 'daemon_offline')
+        // Not 'message': daemon-transport literals belong to chat-adapter's
+        // terminalize decision, not to the legacy CAUSE_BY_MESSAGE table.
+        assert.equal(record.attrs.causeVia, 'daemon_transport')
         assert.equal(record.attrs.runtimeKind, 'sprites')
         assert.ok(typeof record.attrs.durationMs === 'number')
         assert.equal(sentryOptionsFor(record).tags['nca.chat_turn_phase'], via)
@@ -249,6 +265,7 @@ test('every terminal path reports the same schema', async () => {
             assert.ok(key in record.attrs, `${key} is missing`)
         // One incident, four catch sites, one Sentry group.
         assert.equal(record.attrs.cause, 'balance_exhausted')
+        assert.equal(record.attrs.causeVia, 'message')
         assert.deepEqual(sentryOptionsFor(record).fingerprint, [
             'chat.stream.error.v1',
             'balance_exhausted'
@@ -264,6 +281,10 @@ test('an unrecognised failure ships no cause and keeps default grouping', async 
 
     const [record] = harness.streamErrors
     assert.ok(!('cause' in record.attrs))
+    // A broad code whose message matched nothing: the fallback ran and came
+    // up empty, which is 'none' — distinct from 'code_unmapped', where the
+    // message is never consulted at all.
+    assert.equal(record.attrs.causeVia, 'none')
     // Still identified as far as the evidence goes — the durable code is what
     // an operator triages an unknown failure by.
     assert.equal(record.attrs.errorCode, 'claude_exec_failed')
