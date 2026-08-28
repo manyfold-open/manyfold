@@ -6,7 +6,6 @@ import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { AgentRuntimesService } from './agent-runtimes.service'
 import { AgentRuntimesController } from './agent-runtimes.controller'
 import { AdminAgentRuntimesController } from './admin-agent-runtimes.controller'
-import { AgentRuntimesDashboardAuthController } from './dashboard-auth.controller'
 import { K8sRuntimeSidecarService } from './orchestration/k8s-runtime-sidecar.service'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
@@ -43,8 +42,7 @@ import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
     ],
     controllers: [
         AgentRuntimesController,
-        AdminAgentRuntimesController,
-        AgentRuntimesDashboardAuthController
+        AdminAgentRuntimesController
     ],
     providers: [
         AdminGuard,

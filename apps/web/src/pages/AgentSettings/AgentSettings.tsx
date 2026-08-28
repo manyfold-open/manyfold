@@ -1608,7 +1608,8 @@ const AgentSettingsContent: FC = (): ReactNode => {
                         ) : null}
 
                         {(agent.framework === 'openclaw' ||
-                            agent.framework === 'hermes') &&
+                            (agent.framework === 'hermes' &&
+                                agent.runtime === 'sprites')) &&
                         agent.runtimeId ? (
                             <div className='border-divider border-t pt-5'>
                                 <div className='settings-card'>
