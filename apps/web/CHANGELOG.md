@@ -1,5 +1,93 @@
 # @manyfold/web
 
+## 0.44.1
+
+### Patch Changes
+
+- [#52](https://github.com/manyfold-open/manyfold/pull/52) [`4ec11cb`](https://github.com/manyfold-open/manyfold/commit/4ec11cbf77a7fa0604bc9a784832e522882ad932) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - One footer across both sites, and "Cookie settings" stops being the one entry
+  in the row that looks different.
+
+    The landing's footer and the docs' had drifted apart in wording and in metrics
+    alike. The docs side called the same destination "Documentation" where the
+    landing calls it "Docs" — the one long label in a row of short nouns — carried
+    an "Ask AI" entry with no counterpart on the landing, was missing Agent
+    Challenge, and credited "Netmind" where the landing credits the brand, which is
+    also the name the white-label substitution knows how to rewrite. Underneath the
+    copy: 13px links with no tracking against the landing's 14px at -0.005em, a
+    brand mark that skipped the step down the landing applies in the footer (28px
+    against 24px), a copyright line and a social pair each set a tone paler than
+    the links beside them, and the hairline before that pair sitting 10px closer to
+    them. All of it now matches, and the row folds at the same two widths, which it
+    had not been doing at all — it kept its desktop metrics down to 375px, leaving
+    that hairline hanging at the start of a line once the links wrapped, with
+    nothing before it to divide.
+
+    "Cookie settings" is a button rather than a link, because it re-opens the
+    consent banner instead of going anywhere, and the footer's type rule only ever
+    named `a`. Preflight left the button at the body's size and full ink, so the
+    one control in that row read a step larger and darker than the six links around
+    it. It shares the rule now.
+
+    Two differences are deliberate and stay. "Cookie settings" is not on the docs
+    footer: that site loads no analytics and sets no cookies, so the entry would
+    open nothing — the consent banner it belongs to lives on the app. The support
+    chat is not there either, since every docs page already carries it as a bubble.
+
+    The privacy policy told the reader to find that control "in the site footer",
+    which was true of no footer that reader could be looking at: the policy is
+    served only from the docs site, including from the landing's own Privacy link,
+    so every reading of the sentence happened on the one footer without the
+    control. It now names the web app and its host. The other half of the sentence,
+    Settings -> Account, was and remains true.
+
+- [#53](https://github.com/manyfold-open/manyfold/pull/53) [`5dc901b`](https://github.com/manyfold-open/manyfold/commit/5dc901b70cb3a3bcc8ac102b0f16ed445d0cc222) Thanks [@yingca1](https://github.com/yingca1)! - The runtimes page opens on a dashboard instead of silently picking a host.
+
+    Landing on Settings -> Runtimes used to auto-select the first VM in the list
+    and render its detail panel — which also fired a framework-detection round
+    trip into that sandbox as a side effect of merely opening the page. There was
+    no place to see all runtimes at once: connected machines, sandbox usage and
+    external providers each lived on their own sub-page.
+
+    The bare URL now shows a dashboard summarizing every runtime kind in one
+    place, with a grid/list toggle (persisted per device). Sandboxes show their
+    sprite status, storage, active time this period and agents; self-owned
+    computers show online state, platform, mf CLI version and detected
+    frameworks; the External API section lists the configured providers
+    themselves — endpoint, last connection test and how many runtimes use
+    each — linking to the providers page, rather than runtime rows. Each
+    section carries a direct create entry for its kind,
+    and the rail's New-runtime affordances (a plus in the header and the bottom
+    button) open a quick dropdown menu instead of the old modal chooser. The
+    list view renders each section as a proper table — per-kind columns
+    (status, storage, active time, platform, mf CLI, endpoint, last test,
+    agents) instead of a single compressed meta line. Cards and rows click
+    through to the existing host detail, and the kind
+    breadcrumb links back to the dashboard. The dashboard also has an explicit
+    address — /settings/runtimes/dashboard, reachable from a new rail entry — so
+    on narrow screens, where the bare URL still opens the rail, it remains one
+    tap away.
+
+    Framework detection now runs only when a sandbox is explicitly selected, so
+    opening the page no longer pokes the alphabetically-first sandbox. If sandbox
+    usage or the provider list fails to load, the affected columns degrade to
+    placeholders instead of failing the page.
+
+    The rail itself gets simpler: grouping gains a None option (a plain host
+    tree, no group headers) and None becomes the default — the cascade store
+    moves to a fresh key (`mf.runtimes.cascade.v2`) because the old one had
+    auto-persisted "Kind" for every returning browser, so a fallback change
+    alone would never land. The search box and the All/Ready/Issues filter
+    chips are gone — the dashboard is now the place to survey and triage.
+
+    The three create/manage surfaces move under the runtimes namespace and
+    render beside the rail instead of replacing it: /settings/local-daemons
+    and /settings/external-agent-providers become
+    /settings/runtimes/local-daemons and
+    /settings/runtimes/external-agent-providers (old URLs redirect), and
+    /settings/runtimes/sandbox now keeps the rail too. Leaving one of these
+    pages refetches hosts and providers, so a sandbox you just created or a
+    machine you just revoked is reflected in the rail without a reload.
+
 ## 0.44.0
 
 ### Minor Changes
