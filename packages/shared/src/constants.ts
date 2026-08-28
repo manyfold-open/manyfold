@@ -20,6 +20,11 @@ export const agentRuntime = {
     EXTERNAL: 'external'
 } as const
 
+// The plans row new accounts land on when MF_DEFAULT_PLAN_ID says nothing.
+// Also the value users.plan_id defaults to in the schema, and the only plan
+// the self-host backfill will move an account off — the three must agree.
+export const DEFAULT_PLAN_ID = 'free'
+
 export type AgentRuntime = (typeof agentRuntime)[keyof typeof agentRuntime]
 
 export const runtimeKindLabel = (kind: AgentRuntime): string => {
@@ -106,6 +111,8 @@ export const auditAction = {
     AGENT_CREDENTIALS_UPDATED: 'agent.credentials.updated',
     AGENT_CREDENTIALS_REVEALED: 'agent.credentials.revealed',
     USER_RUNTIME_ACCESS_UPDATED: 'user.runtime_access.updated',
+    USER_PLAN_UPDATED: 'user.plan.updated',
+    USER_PLAN_BACKFILLED: 'user.plan.backfilled',
     SPRITES_ACCOUNT_CREATED: 'sprites.account.created',
     SPRITES_ACCOUNT_ROTATED: 'sprites.account.rotated',
     SPRITES_ACCOUNT_DISABLED: 'sprites.account.disabled',

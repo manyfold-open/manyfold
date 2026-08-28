@@ -88,7 +88,8 @@ export {
     NARRANEXUS_K8S_BASE_WORKING_PATH,
     NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     narraNexusBaseWorkingPath,
-    runtimeKindLabel
+    runtimeKindLabel,
+    DEFAULT_PLAN_ID
 } from './constants'
 export {
     BUILT_IN_PROVIDERS,
@@ -223,6 +224,7 @@ export type {
     RuntimeAccessSummary,
     UsagePeriodSummary,
     UpdateUserRuntimeAccessBody,
+    UpdateUserPlanBody,
     UserDeletionStatusView,
     RequestUserDeletionBody,
     MeDeletionAwaitingView,

@@ -9,6 +9,7 @@ import { AuthModule } from '@/modules/auth/auth.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
 import { AdminSandboxQuotasModule } from '@/modules/admin-sandbox-quotas/admin-sandbox-quotas.module'
 import { UsersModule } from '@/modules/users/users.module'
+import { SelfHostPlanBackfillModule } from '@/modules/self-host-plan-backfill/self-host-plan-backfill.module'
 import { UserDeletionModule } from '@/modules/user-deletion/user-deletion.module'
 import { UserExportModule } from '@/modules/user-export/user-export.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
@@ -65,6 +66,7 @@ export const CORE_MODULES = [
     AdminSettingsModule,
     AdminSandboxQuotasModule,
     UsersModule,
+    SelfHostPlanBackfillModule,
     UserDeletionModule,
     UserExportModule,
     SpritesAccountsModule,

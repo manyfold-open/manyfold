@@ -1,5 +1,6 @@
 import {
     AuthIdentitySummary,
+    DEFAULT_PLAN_ID,
     createObjectId
 } from '@manyfold/shared'
 import {
@@ -562,10 +563,12 @@ export class AuthService {
                 role: shouldBeAdmin ? 'admin' : 'user',
                 // Deployment-owned default: the self-host stack points this
                 // at the seeded unlimited plan. A typo'd plan id fails the FK
-                // loudly instead of silently landing users on 'free'.
+                // loudly instead of silently landing users on 'free'. Only
+                // applies at INSERT — accounts that predate the setting are
+                // moved by SelfHostPlanBackfillService, not from here.
                 planId:
                     this.config.get<string>('MF_DEFAULT_PLAN_ID')?.trim() ||
-                    'free'
+                    DEFAULT_PLAN_ID
             })
             .returning()
         return { user: created, created: true }

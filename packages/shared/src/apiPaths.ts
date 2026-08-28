@@ -203,6 +203,7 @@ export const apiPaths = {
     ADMIN_AGENT_RUNTIME_KEEP_ALIVE: (id: string) =>
         `/admin/agent-runtimes/${id}/keep-alive`,
     ADMIN_USERS: '/admin/users',
+    ADMIN_PLANS: '/admin/plans',
     ADMIN_SETTINGS_LOGIN_PROVIDER: '/admin/settings/login-provider',
     ADMIN_SETTINGS_BUILTIN_SKILL_REPOS: '/admin/settings/builtin-skill-repos',
     ADMIN_SETTINGS_SPRITES_WHOLESALE_CAP:
@@ -227,6 +228,7 @@ export const apiPaths = {
     CONFIG_CLI_MINIMUM_VERSION: '/config/cli-minimum-version',
     CONFIG_CAPABILITIES: '/config/capabilities',
     ADMIN_USER_ROLE: (id: string) => `/admin/users/${id}/role`,
+    ADMIN_USER_PLAN: (id: string) => `/admin/users/${id}/plan`,
     ADMIN_USER_FRAMEWORK_RUNTIME_OVERRIDES: (id: string) =>
         `/admin/users/${id}/framework-runtime-overrides`,
     ADMIN_USER_RUNTIME_ACCESS: (id: string) =>

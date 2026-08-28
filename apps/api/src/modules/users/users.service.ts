@@ -2,6 +2,7 @@ import {
     AgentFramework,
     DEFAULT_USER_FRAMEWORK_RUNTIME_OVERRIDES,
     FrameworkRuntimeChoice,
+    Plan,
     PlanId,
     SdkUserSummary,
     UpdateUserFrameworkRuntimeOverridesSettingsBody,
@@ -13,6 +14,7 @@ import {
 import { randomUUID } from 'node:crypto'
 import {
     BadRequestException,
+    ForbiddenException,
     Inject,
     Injectable,
     NotFoundException,
@@ -30,6 +32,7 @@ import {
     type User
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { CapabilitiesRegistry } from '@/common/capabilities/capabilities.registry'
 import { periodDayWindow } from '@/common/usage-period/usage-period'
 import {
     USAGE_PERIOD_PORT,
@@ -103,6 +106,10 @@ const toSummary = (
 export class UsersService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
+        // Not @Optional like the port below: CapabilitiesModule is @Global, so
+        // resolution can't fail, and a missing registry would read as "no
+        // billing" — i.e. fail open on exactly the edition that must refuse.
+        private readonly capabilities: CapabilitiesRegistry,
         // Appended last + @Optional so positional test construction keeps
         // working; absence means calendar-month windows (no subscriptions).
         @Optional()
@@ -270,6 +277,67 @@ export class UsersService {
                 activeHoursBonus: updated.activeHoursBonus
             }
         )
+        return this.summary(updated)
+    }
+
+    async listPlans(): Promise<Plan[]> {
+        return this.db
+            .select({
+                id: plans.id,
+                name: plans.name,
+                maxAgentsProvisioned: plans.maxAgentsProvisioned,
+                maxConcurrentActive: plans.maxConcurrentActive,
+                maxStorageGb: plans.maxStorageGb,
+                monthlyActiveHoursIncluded: plans.monthlyActiveHoursIncluded,
+                maxAlwaysOnlineRuntimes: plans.maxAlwaysOnlineRuntimes,
+                maxAlwaysOnlineAgents: plans.maxAlwaysOnlineAgents,
+                maxChannels: plans.maxChannels,
+                maxAutomations: plans.maxAutomations,
+                maxAutomationRunsMonthly: plans.maxAutomationRunsMonthly,
+                messageHistoryRetentionDays: plans.messageHistoryRetentionDays,
+                monthlyApiRequestLimit: plans.monthlyApiRequestLimit
+            })
+            .from(plans)
+            .orderBy(asc(plans.maxAgentsProvisioned), asc(plans.id))
+    }
+
+    // Self-hosted recovery path. On the cloud edition the subscription owns
+    // plan_id, so an admin write here would silently desync a user from what
+    // they pay for — the billing capability's presence is the edition signal,
+    // and this refuses rather than trying to reconcile the two.
+    async setPlan(
+        targetId: string,
+        callerId: string,
+        planId: PlanId
+    ): Promise<SdkUserSummary> {
+        if (this.capabilities.has('billing'))
+            throw new ForbiddenException(
+                'plan assignment is owned by billing on this deployment; change the subscription instead'
+            )
+
+        const [existing] = await this.db
+            .select()
+            .from(users)
+            .where(eq(users.id, targetId))
+            .limit(1)
+        if (!existing) throw new NotFoundException('user not found')
+
+        const [plan] = await this.db
+            .select({ id: plans.id })
+            .from(plans)
+            .where(eq(plans.id, planId))
+            .limit(1)
+        if (!plan) throw new BadRequestException(`unknown plan '${planId}'`)
+
+        const [updated] = await this.db
+            .update(users)
+            .set({ planId, updatedAt: new Date() })
+            .where(eq(users.id, targetId))
+            .returning()
+        await this.audit(callerId, auditAction.USER_PLAN_UPDATED, targetId, {
+            previousPlanId: existing.planId,
+            planId: updated.planId
+        })
         return this.summary(updated)
     }
 
