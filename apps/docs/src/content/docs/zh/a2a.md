@@ -37,4 +37,4 @@ A2A 不是让所有 Agent 自动进入同一个群聊，也不是 workspace 文�
 - [阅读 A2A Multi-Agent 实作指南](/zh/docs/a2a/workflows/)
 - [配置 A2A Agent 权限](/zh/docs/a2a/permissions/)
 - [使用 mf CLI 调用 peer Agent](/zh/docs/cli/a2a/)
-- [查看 A2A API 官方文档](/zh/docs/api-a2a/)
+- [通过 A2A 调用 Agent](/zh/docs/api-a2a/)

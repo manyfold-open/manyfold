@@ -5,10 +5,7 @@ order: 5
 ---
 **快速判断**：不需要碰自己的电脑，选择 **Stateful sandbox**；必须使用自己的 repository、CLI、GPU 或私有网络，选择 **Self-owned computer**；需要全天候运行服务或定时任务，选择 **Cloud computer**。
 
-## 开始前准备
-
-- **Sandbox 与 Self-owned computer**: 一个 Manyfold 账户；如果选择 self-owned computer，还需要可联网的 Mac、Linux 或 Windows 电脑。
-- **密钥只放在服务端**: 优先使用官方文档、最小权限凭据，并在生产环境前完成 staging 验证。
+两种 runtime 都需要一个 Manyfold 账户；选择 self-owned computer 时，还需要一台可联网的 Mac、Linux 或 Windows 电脑。
 
 ## 什么是 Stateful sandbox？
 
@@ -31,11 +28,11 @@ Self-owned computer 是你控制的 Mac、Linux 或 Windows 电脑。Manyfold �
 
 ## 如何选择 runtime？
 
-任务不需要使用我的电脑或内部网络 -> 选择 Stateful sandbox
-
-任务必须修改本机项目，或调用我的 CLI、GPU、VPN、内网 -> 选择 Self-owned computer
-
-任务需要云端持续运行服务、connector 或计划工作流 -> 选择 Cloud computer
+| 任务 | 选择 |
+| --- | --- |
+| 不需要使用你的电脑或内部网络 | **Stateful sandbox** |
+| 必须修改本机项目，或需要你的 CLI、GPU、VPN、内网 | **Self-owned computer** |
+| 需要云端持续运行的服务、connector 或计划工作流 | **Cloud computer** |
 
 ### 选择 Sandbox 的典型情况
 
@@ -51,9 +48,9 @@ Self-owned computer 是你控制的 Mac、Linux 或 Windows 电脑。Manyfold �
 - 任务需要使用自己的 GPU，或访问公司 VPN、内网服务与本机网络资源。
 - 你希望 Agent 在特定本机资料夹执行，同时仍由 Manyfold 团队管理与协作。
 
-![在 Agent 创建流程的 Where it runs 中选择 Self-owned computer](../../../assets/docs/choose-a-runtime/03-select-self-owned-computer-demo.webp)
+![在 Agent 创建流程的「在哪里运行」中选择 Self-owned computer](../../../assets/docs/choose-a-runtime/03-select-self-owned-computer-demo.webp)
 
-*在创建 Agent 时，从 Where it runs 选择 self-owned computer 或新建 sandbox。*
+*在创建 Agent 时，从「在哪里运行」选择 self-owned computer 或新建 sandbox。*
 
 **想知道如何连接自己的电脑**？阅读 [如何在自己的电脑运行 AI Agent](/zh/docs/run-agents-on-your-computer/)，了解 macOS、Linux、Windows、mf CLI、Workspace 与 Model source。
 
@@ -75,10 +72,8 @@ Cloud computer 是第三种选择。官方将它用于需要**持续运行的 pr
 
 ## 另请参阅
 
-- [创建 Agent 官方文档](/docs/create-agent/)
-- [本地 daemon 指南](/docs/local-daemons/)
+- [创建第一个 Agent：选择 framework 与 runtime](/zh/docs/create-agent/)
+- [注册 Self-owned computer：本地 daemon 与自有电脑](/zh/docs/local-daemons/)
 - [mf CLI 指南](/zh/docs/cli/)
-- [Create your first agent：选择 framework 与 runtime](/docs/create-agent/)
-- [Register a self-owned computer：本地 daemon 与自有电脑](/docs/local-daemons/)
-- [Getting started with Manyfold](/docs/getting-started/)
-- [Use the workspace：Agent 的 chat、文件和 terminal](/docs/workspace/)
+- [Manyfold 快速开始](/zh/docs/getting-started/)
+- [使用 workspace：Agent 的 chat、文件与 terminal](/zh/docs/workspace/)

@@ -5,11 +5,6 @@ order: 6
 ---
 **Quick answer:** **Claude Code, Codex, Gemini CLI, OpenClaw, and Hermes** are agent frameworks that execute work. **Manyfold** is the platform that creates, hosts, manages, connects, and makes those agents collaborative. It does not replace them; it places them in a shared environment with workspaces, sessions, terminals, skills, channels, and runtimes.
 
-## Before you begin
-
-- **Agent tool comparison**: First separate models, coding-agent frameworks, the Manyfold platform, and runtimes before comparing responsibilities.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
-
 ## First, separate the four layers
 
 | Layer | Products | What it provides |
@@ -79,9 +74,8 @@ Yes. They can be used independently as coding agents. Manyfold adds value when y
 
 ## See also
 
-- [Manyfold FAQ](/docs/faq/)
-- [mf CLI guide](/docs/cli/)
+- [Manyfold CLI: manage agents, runtimes, channels, automations, and skills](/docs/cli/)
 - [Runtime selection guide](/docs/choose-a-runtime/)
 - [Create your first agent: choose a framework and runtime](/docs/create-agent/)
 - [Getting started: what Manyfold can manage](/docs/getting-started/)
-- [Manyfold CLI: manage agents, runtimes, channels, automations, and skills](/docs/cli/)
+- [Manyfold FAQ](/docs/faq/)

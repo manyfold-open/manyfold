@@ -146,7 +146,7 @@ Then test the paths you intend to use:
 ## Troubleshooting
 
 - **Test fails on the bot identity check**: `line bot.info failed: 401` means the channel access token is wrong or was revoked. Issue a new long-lived token, save it, and register again. Registration stops at that point, so the webhook URL will not have been set yet.
-- **Test says "Use webhook" is off**: turn it on in the LINE Developers console under **Messaging API**. Manyfold cannot set it through the API.
+- **Test says "Use webhook" is off**: turn it on in the LINE Official Account Manager under **Response settings**, where the row is labelled simply *Webhook*. Manyfold cannot set it through the API.
 - **Every message gets two answers**: turn off **Auto-reply messages** and **Greeting messages** in the LINE Official Account Manager.
 - **Nothing arrives at all**: run the channel's registration action again, then confirm the webhook URL in the console matches this channel's inbound URL.
 - **Group messages are ignored**: mention the account explicitly, or turn off **Mention only**. Also confirm **Allow bot to join group chats** is enabled, and that the group ID passes the allowed-group list if you set one.

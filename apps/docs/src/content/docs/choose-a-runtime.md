@@ -5,10 +5,7 @@ order: 5
 ---
 **Quick rule:** Choose **Stateful sandbox** when you do not need your own machine. Choose **Self-owned computer** when work needs your repository, CLI, GPU, or private network. Choose **Cloud computer** for always-on services and scheduled work.
 
-## Before you begin
-
-- **Sandbox vs. self-owned computer**: A Manyfold account; if you choose a self-owned computer, you also need an online Mac, Linux, or Windows machine.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
+Either runtime needs a Manyfold account; a self-owned computer also needs an online Mac, Linux, or Windows machine.
 
 ## What is a Stateful sandbox?
 
@@ -31,11 +28,11 @@ A self-owned computer is a Mac, Linux, or Windows machine you control. The Manyf
 
 ## How do you choose the right runtime?
 
-The task does not need my computer or internal network -> Choose Stateful sandbox
-
-The task must change a local project or use my CLI, GPU, VPN, or private network -> Choose Self-owned computer
-
-The task needs an always-on cloud service, connector, or schedule -> Choose Cloud computer
+| If the task | Choose |
+| --- | --- |
+| does not need your computer or internal network | **Stateful sandbox** |
+| must change a local project, or needs your CLI, GPU, VPN, or private network | **Self-owned computer** |
+| needs an always-on cloud service, connector, or schedule | **Cloud computer** |
 
 ### Typical reasons to choose a sandbox
 
@@ -75,10 +72,8 @@ Cloud computer is a third runtime. Manyfold documents it for agents that need an
 
 ## See also
 
-- [Create an agent](/docs/create-agent/)
-- [Local daemon guide](/docs/local-daemons/)
-- [mf CLI guide](/docs/cli/)
 - [Create your first agent: choose framework and runtime](/docs/create-agent/)
 - [Register a self-owned computer: local daemon and your own machine](/docs/local-daemons/)
+- [mf CLI guide](/docs/cli/)
 - [Getting started with Manyfold](/docs/getting-started/)
 - [Use the workspace: agent chat, files, and terminal](/docs/workspace/)

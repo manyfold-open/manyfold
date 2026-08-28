@@ -12,7 +12,7 @@ A calling agent can send work only after the target agent has enabled A2A exposu
 ## Before you begin
 
 - **A2A multi-agent workflow**: At least two Manyfold agents, clear role boundaries, and peer authorization on the target agent.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
+- **A place to hand off results**: A Git remote, a shared repository, or explicit file input — a peer agent cannot read another agent's workspace.
 
 ## Independent workspaces are not automatically shared folders
 
@@ -117,11 +117,10 @@ The important part is that every agent has inspectable inputs and outputs. For c
 
 ## See also
 
-- [A2A API docs](/docs/api-a2a/)
-- [mf CLI guide](/docs/cli/)
-- [Runtime selection guide](/docs/choose-a-runtime/)
 - [Manyfold: call agents over A2A](/docs/api-a2a/)
 - [Manyfold: call peer agents with the CLI](/docs/cli/a2a/)
-- [Manyfold CLI reference: A2A callers, send, and tasks](/docs/cli/reference/)
+- [mf a2a reference: callers, send, and tasks](/docs/cli/reference/a2a/)
+- [mf CLI guide](/docs/cli/)
+- [Runtime selection guide](/docs/choose-a-runtime/)
 - [Manyfold: use the workspace](/docs/workspace/)
 - [A2A Protocol](https://a2a-protocol.org/)

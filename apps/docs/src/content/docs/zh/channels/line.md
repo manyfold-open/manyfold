@@ -146,7 +146,7 @@ Agent 可以用 `mf channels send` 给 LINE 用户或账号所在的群发消息
 ## 排查
 
 - **Test 在机器人身份检查上失败**：`line bot.info failed: 401` 表示 channel access token 不对或已被撤销。重新签发一个长期 token 并保存，然后再次注册。注册在这一步就会中断，因此 Webhook URL 还没有被设置。
-- **Test 提示「Use webhook」已关闭**：在 LINE Developers 控制台的 **Messaging API** 中打开它。Manyfold 无法通过 API 设置。
+- **Test 提示「Use webhook」已关闭**：在 LINE 官方账号管理后台的 **Response settings** 里打开它，那一行只写 *Webhook*。Manyfold 无法通过 API 设置。
 - **每条消息收到两个回复**：在 LINE 官方账号管理后台关闭 **自动回复消息** 和 **欢迎消息**。
 - **完全收不到消息**：重新运行频道的注册操作，然后确认控制台里的 Webhook URL 与该频道的入站 URL 一致。
 - **群消息被忽略**：显式提及该账号，或关闭 **仅提及**。同时确认已启用 **Allow bot to join group chats**，并且群 ID 能通过你设置的允许列表。

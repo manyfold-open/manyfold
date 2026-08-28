@@ -12,7 +12,7 @@ A2A 提供的是受授权、可追踪的任务调用，不是无边界的 Agent 
 ## 开始前准备
 
 - **A2A Multi-Agent 工作流**：至少两个已创建的 Manyfold Agent、清晰的角色边界，以及目标 Agent 的 peer 授权。
-- **密钥只放在服务端**：优先使用官方文档、最小权限凭据，并在生产环境前完成 staging 验证。
+- **交接结果的落点**：一个 Git remote、共享仓库，或明确的文件输入 —— peer Agent 读不到另一个 Agent 的 workspace。
 
 ## 独立 workspace，不是自动共享文件夹
 
@@ -117,11 +117,10 @@ mf a2a tasks get agt_researcher aat_xxx --wait
 
 ## 另请参阅
 
-- [A2A API 官方文档](/zh/docs/api-a2a/)
-- [mf CLI 指南](/zh/docs/cli/)
-- [Runtime 选择指南](/zh/docs/choose-a-runtime/)
 - [Manyfold：通过 A2A 调用 Agent](/zh/docs/api-a2a/)
 - [Manyfold：使用 CLI 调用 peer Agents](/zh/docs/cli/a2a/)
-- [Manyfold CLI reference：A2A callers、send 与 tasks](/zh/docs/cli/reference/)
-- [Manyfold：Use the workspace](/zh/docs/workspace/)
+- [mf a2a reference：callers、send 与 tasks](/zh/docs/cli/reference/a2a/)
+- [mf CLI 指南](/zh/docs/cli/)
+- [Runtime 选择指南](/zh/docs/choose-a-runtime/)
+- [Manyfold：使用 workspace](/zh/docs/workspace/)
 - [A2A Protocol](https://a2a-protocol.org/)

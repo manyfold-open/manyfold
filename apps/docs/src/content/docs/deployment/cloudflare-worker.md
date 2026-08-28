@@ -12,7 +12,7 @@ After deploying, set access protection and secrets before connecting users to an
 ## Before you begin
 
 - **Cloudflare Worker deployment**: A Cloudflare account, a Manyfold agent, and basic Git or Wrangler knowledge.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
+- **A place to keep the token**: The Manyfold API token and the Cloudflare secrets must live in Worker secrets, never in the repository or in browser code.
 
 ## What the starter prepares
 

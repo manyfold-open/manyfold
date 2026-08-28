@@ -12,7 +12,7 @@ The app and the agent keep separate responsibilities: Cloudflare hosts the app; 
 ## Before you begin
 
 - **Cloudflare continuous development**: A Cloudflare project, a GitHub repository, a Manyfold account, and least-privilege deployment credentials.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
+- **Rotatable credentials**: Cloudflare, GitHub, and Manyfold credentials the team can revoke and reissue, each scoped to what the launch flow needs.
 
 ## The five-step launch flow
 

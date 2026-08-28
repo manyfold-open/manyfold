@@ -10,7 +10,7 @@ order: 14
 ## 开始前准备
 
 - **Cloudflare Worker 部署**：Cloudflare 账户、一个 Manyfold Agent，以及 Git 或 Wrangler 基础。
-- **密钥只放在服务端**：优先使用官方文档、最小权限凭据，并在生产环境前完成 staging 验证。
+- **存放 token 的地方**：Manyfold API token 和 Cloudflare 密钥必须放在 Worker secrets 里，不能进仓库，也不能进浏览器端代码。
 
 ## 这个 starter 已准备好的部分
 

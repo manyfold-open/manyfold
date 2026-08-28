@@ -137,11 +137,9 @@ On macOS and Linux, `mf setup` installs a user-scope autostart unit, so you gene
 
 ## See also
 
-- [Learn the mf CLI](/docs/cli/)
-- [Read Local daemons](/docs/local-daemons/)
-- [Manyfold: the team agent workspace](https://manyfold.ai/)
 - [Register a self-owned computer: daemon, autostart, and troubleshooting](/docs/local-daemons/)
 - [Install the Manyfold CLI](/docs/install/)
+- [Learn the mf CLI](/docs/cli/)
 - [Create your first agent](/docs/create-agent/)
 - [Configure model providers](/docs/model-providers/)
 - [Use the agent workspace](/docs/workspace/)

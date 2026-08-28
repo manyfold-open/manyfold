@@ -9,11 +9,6 @@ The two connect through an API, with a clear boundary between agent work and a p
 
 So the question is not "why can't I use Vercel with Manyfold?" It is "where does my application run, and how does it connect safely to an agent?" Manyfold does not require any particular cloud provider for application deployment.
 
-## Before you begin
-
-- **Manyfold and deployment platforms**: A Manyfold agent, an application backend that can keep server-side secrets, and the deployment platform you choose.
-- **Keep secrets server-side**: Use official docs, least-privilege credentials, and a staging check before production.
-
 ## Different roles, one workflow
 
 | Layer | Component | Responsibility |

@@ -5,11 +5,6 @@ order: 6
 ---
 **快速答案**：**Claude Code、Codex、Gemini CLI、OpenClaw、Hermes** 是实际执行工作的 Agent framework；**Manyfold** 是创建、托管、管理、连接并让这些 Agent 与团队协作的平台。Manyfold 不取代它们，而是把它们放进有 workspace、session、terminal、skills、channel 与 runtime 的统一工作环境。
 
-## 开始前准备
-
-- **Agent 工具比较**：先区分模型、coding agent framework、Manyfold 平台与 runtime，再比较各工具的职责。
-- **密钥只放在服务端**：优先使用官方文档、最小权限凭据，并在生产环境前完成 staging 验证。
-
 ## 先分清四个层次
 
 | 层次 | 产品 | 提供什么 |
@@ -79,9 +74,8 @@ Manyfold 是一个 Agent workspace 与控制平台，不只是聊天界面。你
 
 ## 另请参阅
 
-- [Manyfold FAQ](/zh/docs/faq/)
-- [mf CLI 指南](/zh/docs/cli/)
-- [Runtime 选择指南](/zh/docs/choose-a-runtime/)
-- [Create your first agent：framework 与 runtime 选择](/zh/docs/create-agent/)
-- [Getting started：Manyfold 能管理的 Agent 工作内容](/zh/docs/getting-started/)
 - [Manyfold CLI：管理 Agents、Runtimes、Channels、Automations 和 Skills](/zh/docs/cli/)
+- [Runtime 选择指南](/zh/docs/choose-a-runtime/)
+- [创建第一个 Agent：framework 与 runtime 选择](/zh/docs/create-agent/)
+- [快速开始：Manyfold 能管理的 Agent 工作内容](/zh/docs/getting-started/)
+- [Manyfold FAQ](/zh/docs/faq/)
