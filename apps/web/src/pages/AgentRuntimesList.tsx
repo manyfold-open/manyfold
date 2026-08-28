@@ -2116,7 +2116,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
         collapseAll,
         expandAll,
         reveal
-    } = useCascadeState('mf.runtimes.cascade.v1', RUNTIME_DIMS, 'kind')
+        // v2: the store persists groupBy on first mount, so changing the
+        // fallback alone never reaches a browser that has opened the page
+        // before — the key bump is what makes None the default for everyone.
+    } = useCascadeState('mf.runtimes.cascade.v2', RUNTIME_DIMS, 'none')
     const lastRevealed = useRef<string | null>(null)
 
     const refresh = useCallback((): void => {

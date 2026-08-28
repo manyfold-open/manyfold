@@ -30,5 +30,8 @@ usage or the provider list fails to load, the affected columns degrade to
 placeholders instead of failing the page.
 
 The rail itself gets simpler: grouping gains a None option (a plain host
-tree, no group headers), and the search box and the All/Ready/Issues filter
+tree, no group headers) and None becomes the default — the cascade store
+moves to a fresh key (`mf.runtimes.cascade.v2`) because the old one had
+auto-persisted "Kind" for every returning browser, so a fallback change
+alone would never land. The search box and the All/Ready/Issues filter
 chips are gone — the dashboard is now the place to survey and triage.
