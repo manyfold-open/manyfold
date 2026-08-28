@@ -519,8 +519,7 @@ export {
 } from './mcp'
 export {
     chatCapabilitiesByFramework,
-    CHAT_MESSAGE_SOFT_LIMIT,
-    HERMES_HISTORY_BUDGET
+    CHAT_MESSAGE_SOFT_LIMIT
 } from './chat'
 export {
     agentModelConfigSources,

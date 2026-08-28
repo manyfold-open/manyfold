@@ -146,122 +146,148 @@ const drain = async (
     return out
 }
 
-const withEnv = async (
-    env: Record<string, string>,
-    fn: () => Promise<void>
-): Promise<void> => {
-    const prior = new Map(
-        Object.keys(env).map((k) => [k, process.env[k]] as const)
-    )
-    Object.assign(process.env, env)
-    try {
-        await fn()
-    } finally {
-        for (const [k, v] of prior) {
-            if (v === undefined) delete process.env[k]
-            else process.env[k] = v
-        }
-    }
-}
-
 const userMsg = {
     role: 'user',
     contentBlocks: [{ type: 'text', text: 'hi' }]
 } as never
 
-// The transport choice. Flag AND per-daemon capability must both hold: the
-// flag is the rollout switch, the capability keeps the RPC away from CLIs
-// that would answer `not_implemented` and fail the turn.
-test('turn.start needs both the flag and the daemon capability', async () => {
-    for (const [flag, feature, expected] of [
-        ['1', true, 'turn'],
-        ['1', false, 'pipe'],
-        ['', true, 'pipe']
-    ] as const) {
-        await withEnv({ MF_HERMES_TURN_RPC: flag }, async () => {
-            const { adapter } = buildHarness({ lines: [], result: { ok: {} } })
-            const routes: string[] = []
-            const a = adapter as unknown as Record<string, unknown>
-            a.daemonSupportsTurnRpc = async () => feature
-            a.sendViaTurnRpc = async function* () {
-                routes.push('turn')
-                yield { type: 'done', finalMessageId: 'msg_1' }
-            }
-            a.sendViaAcpPipe = async function* () {
-                routes.push('pipe')
-                yield { type: 'done', finalMessageId: 'msg_1' }
-            }
-            await drain(
-                (
-                    adapter as unknown as {
-                        sendViaDaemonAcp: (
-                            c: unknown,
-                            m: unknown,
-                            a: unknown
-                        ) => AsyncIterable<EmittedChatEvent>
-                    }
-                ).sendViaDaemonAcp(ctx(), userMsg, {
-                    daemonId: 'dh_runner',
-                    cwd: '/ws'
+const routingHarness = (row: {
+    runtime: 'sprites' | 'daemon'
+    daemonId: string | null
+}) => {
+    const db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () => [
+                        { ...row, workspacePath: '/w', extras: null }
+                    ]
                 })
-            )
-            assert.deepEqual(
-                routes,
-                [expected],
-                `flag=${flag || 'off'} feature=${feature}`
-            )
+            })
         })
     }
+    const adapter = new HermesAdapter(
+        db as never,
+        {} as never,
+        { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
+        {} as never,
+        {} as never
+    )
+    const routes: Array<{ via: string; env?: Record<string, string> }> = []
+    const a = adapter as unknown as Record<string, unknown>
+    a.sendViaTurnRpc = async function* (
+        _c: unknown,
+        _m: unknown,
+        args: { env?: Record<string, string> }
+    ) {
+        routes.push({ via: 'turn', ...(args.env ? { env: args.env } : {}) })
+        yield { type: 'done', finalMessageId: 'msg_1' }
+    }
+    a.sendViaInteractiveAcp = async function* () {
+        routes.push({ via: 'interactive' })
+        yield { type: 'done', finalMessageId: 'msg_1' }
+    }
+    return { adapter, a, routes }
+}
+
+// The transport choice is now capability-only: no env flag. A daemon that
+// advertises turn.hermes gets the runner-owned turn; one that does not gets a
+// non-retryable error naming the fix, because the in-API pipe fallback was
+// retired (#427's gate).
+test('a daemon with turn.hermes routes to turn.start', async () => {
+    const h = routingHarness({ runtime: 'daemon', daemonId: 'dh_1' })
+    h.a.requireTurnHermes = async () => true
+    const events = await drain(h.adapter.sendMessage(ctx(), userMsg))
+    // env is the (empty) extras record — the BYOD env channel (#781).
+    assert.deepEqual(h.routes, [{ via: 'turn', env: {} }])
+    assert.equal(events.at(-1)?.type, 'done')
+})
+
+test('a daemon without turn.hermes gets the non-retryable upgrade error', async () => {
+    const h = routingHarness({ runtime: 'daemon', daemonId: 'dh_1' })
+    h.a.requireTurnHermes = async () => false
+    const events = await drain(h.adapter.sendMessage(ctx(), userMsg))
+    assert.deepEqual(h.routes, [])
+    assert.equal(events.length, 1)
+    const err = events[0] as { error: { code: string; retryable: boolean } }
+    assert.equal(err.error.code, 'hermes_daemon_upgrade_required')
+    assert.equal(err.error.retryable, false)
+})
+
+// "Couldn't check" must never read as "old CLI": the upgrade error is
+// non-retryable and would misdirect the user at a transient DB failure.
+test('a capability lookup failure is retryable, not an upgrade demand', async () => {
+    const h = routingHarness({ runtime: 'daemon', daemonId: 'dh_1' })
+    h.a.requireTurnHermes = async () => {
+        throw new Error('db unavailable')
+    }
+    const events = await drain(h.adapter.sendMessage(ctx(), userMsg))
+    assert.deepEqual(h.routes, [])
+    const err = events[0] as { error: { code: string; retryable: boolean } }
+    assert.equal(err.error.code, 'hermes_daemon_acp_failed')
+    assert.equal(err.error.retryable, true)
+})
+
+// The runner daemon was started detached from a plain exec session, so the
+// resident gateway's service env (provider alias keys included) never reaches
+// the child it spawns — the alias must ride the turn payload or a non-custom
+// provider has no API key at all.
+test('a runner-carried sprite turn injects the provider alias env', async () => {
+    const h = routingHarness({ runtime: 'sprites', daemonId: null })
+    h.a.providerAliasEnv = async () => ({ OPENROUTER_API_KEY: 'sk-1' })
+    const events = await drain(
+        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [
+        { via: 'turn', env: { OPENROUTER_API_KEY: 'sk-1' } }
+    ])
+    assert.equal(events.at(-1)?.type, 'done')
 })
 
 test('a live turn.start carries the whole turn and refId == messageId', async () => {
-    await withEnv({ MF_HERMES_TURN_RPC: '1' }, async () => {
-        const h = buildHarness({
-            lines: [noteLine('hel'), noteLine('lo')],
-            result: {
-                ok: {
-                    stopReason: 'end_turn',
-                    sessionId: 'sess_new',
-                    result: { usage: { inputTokens: 1, outputTokens: 2 } }
-                }
+    const h = buildHarness({
+        lines: [noteLine('hel'), noteLine('lo')],
+        result: {
+            ok: {
+                stopReason: 'end_turn',
+                sessionId: 'sess_new',
+                result: { usage: { inputTokens: 1, outputTokens: 2 } }
             }
-        })
-        ;(adapterAsAny(h.adapter).daemonSupportsTurnRpc as unknown) =
-            async () => true
-        const events = await drain(
-            adapterAsAny(h.adapter).sendViaDaemonAcp(
-                ctx({ frameworkSessionRef: 'sess_prior' }),
-                userMsg,
-                { daemonId: 'dh_runner', cwd: '/home/sprite/ws' }
-            ) as AsyncIterable<EmittedChatEvent>
-        )
-        assert.equal(h.calls.length, 1)
-        const call = h.calls[0]
-        assert.equal(call.method, 'turn.start')
-        // refId == messageId is what lets the reverse-WS resume path find the
-        // stream again by (daemon_id, daemon_exec_ref).
-        assert.equal(call.refIdOverride, 'msg_1')
-        assert.equal(call.payload.framework, 'hermes')
-        assert.equal(call.payload.prompt, 'hi')
-        assert.equal(call.payload.dir, '/home/sprite/ws')
-        // The prior ACP session rides along so the daemon can session/resume.
-        assert.equal(call.payload.sessionId, 'sess_prior')
-
-        const tokens = events.filter((e) => e.type === 'token')
-        assert.equal(tokens.map((t) => (t as { text: string }).text).join(''), 'hello')
-        // Ordinal source keys, counted from the stream head — the identity a
-        // replay depends on.
-        const sources = events.filter((e) => e.type === 'raw_source')
-        assert.deepEqual(
-            sources.map((s) => (s as { source: { externalId: string } }).source.externalId),
-            ['hermes-acp-1', 'hermes-acp-2']
-        )
-        assert.equal(events.at(-1)?.type, 'done')
-        // The session the daemon ended up with replaces the stale ref (a
-        // resume that fell back to session/new would otherwise strand every
-        // later turn on the dead session).
-        assert.deepEqual(h.sessionRefs, [{ sessionId: 'cts_1', ref: 'sess_new' }])
+        }
     })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(
+            ctx({ frameworkSessionRef: 'sess_prior' }),
+            userMsg,
+            { daemonId: 'dh_runner', cwd: '/home/sprite/ws' }
+        ) as AsyncIterable<EmittedChatEvent>
+    )
+    assert.equal(h.calls.length, 1)
+    const call = h.calls[0]
+    assert.equal(call.method, 'turn.start')
+    // refId == messageId is what lets the reverse-WS resume path find the
+    // stream again by (daemon_id, daemon_exec_ref).
+    assert.equal(call.refIdOverride, 'msg_1')
+    assert.equal(call.payload.framework, 'hermes')
+    assert.equal(call.payload.prompt, 'hi')
+    assert.equal(call.payload.dir, '/home/sprite/ws')
+    // The prior ACP session rides along so the daemon can session/resume.
+    assert.equal(call.payload.sessionId, 'sess_prior')
+
+    const tokens = events.filter((e) => e.type === 'token')
+    assert.equal(tokens.map((t) => (t as { text: string }).text).join(''), 'hello')
+    // Ordinal source keys, counted from the stream head — the identity a
+    // replay depends on.
+    const sources = events.filter((e) => e.type === 'raw_source')
+    assert.deepEqual(
+        sources.map((s) => (s as { source: { externalId: string } }).source.externalId),
+        ['hermes-acp-1', 'hermes-acp-2']
+    )
+    assert.equal(events.at(-1)?.type, 'done')
+    // The session the daemon ended up with replaces the stale ref (a
+    // resume that fell back to session/new would otherwise strand every
+    // later turn on the dead session).
+    assert.deepEqual(h.sessionRefs, [{ sessionId: 'cts_1', ref: 'sess_new' }])
 })
 
 // What a hermes turn puts on the wire is also what the clients are told it can
@@ -272,58 +298,54 @@ test('a live turn.start carries the whole turn and refId == messageId', async ()
 // the row follows them. Cross-framework equality of the two declarations is
 // pinned in chat-capability-contract.test.ts.
 test('a turn emits the token, thinking and tool blocks its capability row claims', async () => {
-    await withEnv({ MF_HERMES_TURN_RPC: '1' }, async () => {
-        const h = buildHarness({
-            lines: [
-                noteLine('hel'),
-                thoughtLine('weighing it'),
-                toolCallLine('call-1', 'Bash'),
-                noteLine('lo')
-            ],
-            result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
-        })
-        ;(adapterAsAny(h.adapter).daemonSupportsTurnRpc as unknown) =
-            async () => true
-        const events = await drain(
-            adapterAsAny(h.adapter).sendViaDaemonAcp(ctx(), userMsg, {
-                daemonId: 'dh_runner',
-                cwd: '/home/sprite/ws'
-            }) as AsyncIterable<EmittedChatEvent>
-        )
-
-        assert.equal(
-            events
-                .filter((e) => e.type === 'token')
-                .map((e) => (e as { text: string }).text)
-                .join(''),
-            'hello'
-        )
-        assert.deepEqual(
-            events
-                .filter((e) => e.type === 'thinking')
-                .map((e) => (e as { text: string }).text),
-            ['weighing it']
-        )
-        assert.deepEqual(
-            events
-                .filter((e) => e.type === 'tool_call')
-                .map((e) => {
-                    const call = e as { toolCallId: string; toolName: string }
-                    return [call.toolCallId, call.toolName]
-                }),
-            [['call-1', 'Bash']]
-        )
-
-        const row = chatCapabilitiesByFramework.hermes
-        assert.deepEqual(
-            {
-                streaming: row.streaming,
-                thinking: row.thinking,
-                toolCalls: row.toolCalls
-            },
-            { streaming: true, thinking: true, toolCalls: true }
-        )
+    const h = buildHarness({
+        lines: [
+            noteLine('hel'),
+            thoughtLine('weighing it'),
+            toolCallLine('call-1', 'Bash'),
+            noteLine('lo')
+        ],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
     })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/home/sprite/ws'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+
+    assert.equal(
+        events
+            .filter((e) => e.type === 'token')
+            .map((e) => (e as { text: string }).text)
+            .join(''),
+        'hello'
+    )
+    assert.deepEqual(
+        events
+            .filter((e) => e.type === 'thinking')
+            .map((e) => (e as { text: string }).text),
+        ['weighing it']
+    )
+    assert.deepEqual(
+        events
+            .filter((e) => e.type === 'tool_call')
+            .map((e) => {
+                const call = e as { toolCallId: string; toolName: string }
+                return [call.toolCallId, call.toolName]
+            }),
+        [['call-1', 'Bash']]
+    )
+
+    const row = chatCapabilitiesByFramework.hermes
+    assert.deepEqual(
+        {
+            streaming: row.streaming,
+            thinking: row.thinking,
+            toolCalls: row.toolCalls
+        },
+        { streaming: true, thinking: true, toolCalls: true }
+    )
 })
 
 // THE truncation regression pin. A resume once replayed 468 of a ~5000-char
@@ -332,40 +354,36 @@ test('a turn emits the token, thinking and tool blocks its capability row claims
 // final (the daemon saw session/prompt resolve) or an in-stream turn_end.
 // A legacy exec final ({exitCode: 0}) carries neither, and MUST suspend.
 test('a final without stopReason and no turn_end suspends, never done', async () => {
-    await withEnv({ MF_HERMES_ACP_RESUME: '1' }, async () => {
-        const h = buildHarness({
-            lines: [noteLine('partial answer so far')],
-            result: { ok: { exitCode: 0 } }
-        })
-        const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
-        const last = events.at(-1)
-        assert.equal(last?.type, 'suspended')
-        assert.match(
-            (last as { reason: string }).reason,
-            /without turn_end/
-        )
-        assert.ok(!events.some((e) => e.type === 'done'))
-        assert.ok(!events.some((e) => e.type === 'error'))
+    const h = buildHarness({
+        lines: [noteLine('partial answer so far')],
+        result: { ok: { exitCode: 0 } }
     })
+    const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
+    const last = events.at(-1)
+    assert.equal(last?.type, 'suspended')
+    assert.match(
+        (last as { reason: string }).reason,
+        /without turn_end/
+    )
+    assert.ok(!events.some((e) => e.type === 'done'))
+    assert.ok(!events.some((e) => e.type === 'error'))
 })
 
 test('a stopReason in the final licenses done; usage rides the result', async () => {
-    await withEnv({ MF_HERMES_ACP_RESUME: '1' }, async () => {
-        const h = buildHarness({
-            lines: [noteLine('whole answer'), turnEndLine()],
-            result: {
-                ok: {
-                    stopReason: 'end_turn',
-                    sessionId: 'sess_1',
-                    result: { usage: { inputTokens: 7, outputTokens: 9 } }
-                }
+    const h = buildHarness({
+        lines: [noteLine('whole answer'), turnEndLine()],
+        result: {
+            ok: {
+                stopReason: 'end_turn',
+                sessionId: 'sess_1',
+                result: { usage: { inputTokens: 7, outputTokens: 9 } }
             }
-        })
-        const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
-        assert.equal(events.at(-1)?.type, 'done')
-        const usage = events.find((e) => e.type === 'usage')
-        assert.ok(usage, 'usage from the prompt result must be emitted')
+        }
     })
+    const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
+    assert.equal(events.at(-1)?.type, 'done')
+    const usage = events.find((e) => e.type === 'usage')
+    assert.ok(usage, 'usage from the prompt result must be emitted')
 })
 
 // Ordinal keys are COUNTED FROM THE STREAM HEAD, so the replay must start
@@ -373,38 +391,34 @@ test('a stopReason in the final licenses done; usage rides the result', async ()
 // would all miss — duplicating the answer instead of absorbing it. The ladder
 // may compute any cursor it likes; hermes must ignore it.
 test('a hermes resume always replays from seq 0, whatever the cursor says', async () => {
-    await withEnv({ MF_HERMES_ACP_RESUME: '1' }, async () => {
-        const h = buildHarness({
-            lines: [turnEndLine()],
-            result: { ok: { stopReason: 'end_turn', sessionId: 's' } }
-        })
-        await drain(h.adapter.resumeMessage!(resumeCtx({ fromSeq: 7 })))
-        assert.equal(h.calls.length, 1)
-        assert.equal(h.calls[0].method, 'exec.resume')
-        assert.equal(h.calls[0].payload.originalRefId, 'msg_1')
-        assert.equal(h.calls[0].payload.fromSeq, 0)
+    const h = buildHarness({
+        lines: [turnEndLine()],
+        result: { ok: { stopReason: 'end_turn', sessionId: 's' } }
     })
+    await drain(h.adapter.resumeMessage!(resumeCtx({ fromSeq: 7 })))
+    assert.equal(h.calls.length, 1)
+    assert.equal(h.calls[0].method, 'exec.resume')
+    assert.equal(h.calls[0].payload.originalRefId, 'msg_1')
+    assert.equal(h.calls[0].payload.fromSeq, 0)
 })
 
 // The reconnect that enables recovery must never be reported as the failure —
-// the same bug class fixed for claude/codex/gemini and for the pipe path.
+// the same bug class fixed for claude/codex/gemini.
 test('a replaced connection suspends the turn instead of killing it', async () => {
-    await withEnv({ MF_HERMES_ACP_RESUME: '1' }, async () => {
-        const h = buildHarness({
-            lines: [],
-            result: { error: 'connection replaced' }
-        })
-        const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
-        const last = events.at(-1)
-        assert.equal(last?.type, 'suspended')
-        assert.equal((last as { daemonExecRef: string }).daemonExecRef, 'msg_1')
+    const h = buildHarness({
+        lines: [],
+        result: { error: 'connection replaced' }
     })
+    const events = await drain(h.adapter.resumeMessage!(resumeCtx()))
+    const last = events.at(-1)
+    assert.equal(last?.type, 'suspended')
+    assert.equal((last as { daemonExecRef: string }).daemonExecRef, 'msg_1')
 })
 
 const adapterAsAny = (
     adapter: HermesAdapter
 ): Record<string, (...args: never[]) => unknown> & {
-    sendViaDaemonAcp: (
+    sendViaTurnRpc: (
         c: unknown,
         m: unknown,
         a: unknown
