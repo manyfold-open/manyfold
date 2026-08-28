@@ -6,12 +6,10 @@ const en = {
         saving: 'Saving…',
         creating: 'Creating…',
         installing: 'Installing…',
-        linking: 'Linking…',
         importing: 'Importing…',
         copying: 'Copying…',
         save: 'Save',
         confirm: 'Confirm',
-        typeToConfirm: 'Type {{value}} to confirm',
         typeToConfirmPrefix: 'Type',
         typeToConfirmSuffix: 'to confirm',
         cancel: 'Cancel',
@@ -22,7 +20,6 @@ const en = {
         done: 'Done',
         continue: 'Continue',
         unknown: 'Unknown',
-        checked: 'Checked {{time}}',
         dismiss: 'Dismiss',
         moreActions: 'More actions',
         breadcrumb: 'Breadcrumb',
@@ -31,10 +28,6 @@ const en = {
             'Sandbox status: {{status}}. Updates live; activate to refresh now.'
     },
     errors: {
-        unauthorized: 'Unauthorized.',
-        forbidden: 'Forbidden.',
-        notFound: 'Not found.',
-        internal: 'Internal server error!',
         appCrash: {
             title: 'Something went wrong',
             body: 'This page hit an unexpected error. Reloading usually fixes it.',
@@ -213,10 +206,7 @@ const en = {
                     tokens: '· {{tokens}} tok'
                 },
                 actions: 'Actions',
-                agentActions: 'Agent actions',
                 agentId: 'Agent ID',
-                agentNotRunning: 'Agent is not running',
-                chat: 'Start Chat',
                 channels: {
                     description:
                         'Connect this agent to messaging platforms. Manage channels in',
@@ -307,15 +297,11 @@ const en = {
                         'format. These are visible to anyone using this environment — don’t add secrets or credentials.',
                     empty: 'No environment variables set.',
                     emptyValue: '(empty)',
-                    later: 'Later',
                     lineError: 'Line {{line}}: {{reason}}',
                     reserved: 'reserved',
                     reservedTooltip:
                         'Reserved platform/framework name — not applied',
-                    restartDescription:
-                        'Environment variables for {{framework}} agents only take effect after the service restarts.',
                     restartNow: 'Restart now',
-                    restartTitle: 'Restart agent to apply changes?',
                     serviceRestartHint:
                         '{{framework}} runs as a service — changes take effect after a restart.',
                     placeholderName: 'Your Name',
@@ -340,24 +326,16 @@ const en = {
                     latestAvailable: '↑ latest {{version}} available',
                     notDetected: 'not detected',
                     refreshVersion: 'Refresh version',
-                    updateAvailable: '{{framework}} v{{version}} is available',
-                    updateDetail:
-                        'Upgrades run in the sandbox and take up to a minute.',
-                    updateDetailCurrent:
-                        'This agent is on v{{version}}. Upgrades run in the sandbox and take up to a minute.',
                     upgrade: 'Upgrade',
-                    upgradeEllipsis: 'Upgrade…',
                     upgradeTitle: 'Upgrade framework',
                     upgrading: 'Upgrading…',
                     upgradingStep: 'Upgrading… {{step}}',
-                    version: 'Framework version',
                     versionBlocked:
                         'This {{framework}} version has a known defect',
                     versionLabel: 'Version'
                 },
                 lastActive: 'Last active',
                 lastMessage: 'Last message',
-                loading: 'Loading agent...',
                 mcp: {
                     alreadySynced: 'Already in sync with the runtime.',
                     deliveryDelivered: 'Delivered to this computer.',
@@ -426,7 +404,6 @@ const en = {
                         'No capabilities granted yet. The agent can only act once you add a permission, or it requests one with',
                     lastUpdated: 'Last updated {{date}}',
                     loadFailed: 'Failed to load permissions.',
-                    loading: 'Loading permissions…',
                     removeAction: 'Remove',
                     removePrefix: 'The agent will lose',
                     removeScope: 'Remove {{scope}}',
@@ -437,7 +414,6 @@ const en = {
                 refresh: 'Refresh',
                 runtime: 'Runtime',
                 saving: 'Saving…',
-                sections: 'Agent detail sections',
                 skills: {
                     description:
                         'Agent skills installed for this {{framework}} agent. Enable, update, or remove skills — changes apply on the next turn.',
@@ -479,23 +455,6 @@ const en = {
                     title: 'Storage',
                     total: 'Total'
                 },
-                tabs: {
-                    a2a: 'A2A',
-                    channels: 'Channels',
-                    connections: 'Connections',
-                    context: 'Context',
-                    environment: 'Environment',
-                    mcp: 'MCP',
-                    modelProvider: 'Model',
-                    overview: 'Overview',
-                    permissions: 'Permissions',
-                    skills: 'Skills',
-                    storage: 'Storage & backups'
-                },
-                terminal: {
-                    title: 'Terminal'
-                },
-                title: 'Agent Detail',
                 updated: 'Updated',
                 updating: 'Updating…',
                 workspace: 'Workspace',
@@ -834,15 +793,10 @@ const en = {
             runtimeAgentsTitle: 'No agents yet',
             runtimeAgentsBody: 'Agents created on this runtime appear here.',
             agentsTitle: 'No agents yet',
-            agentsSidebarBody: 'Create an agent to get started.',
             agentsWorkspaceBody:
                 'An agent works in its own sandbox — chat with it, give it skills, or put it on a schedule.',
             agentsCreateAction: 'Create agent',
-            agentsDetailBody: 'Create an agent to see its details here.',
-            agentsNoSelectionTitle: 'No agent selected',
-            agentsNoSelectionBody: 'Select an agent to see its details.',
             noMatches: 'No matches.',
-            sessionsEmpty: 'No sessions yet.',
             usageEventsTitle: 'No usage events yet',
             usageEventsBody: 'Once your agents run, activity shows up here.',
             usageRangeTitle: 'No usage in the last {{range}}',
@@ -875,14 +829,7 @@ const en = {
             usageWindow5h: 'Last 5 hours',
             usageWindow7d: 'Last week',
             theme: 'Theme',
-            themeLight: 'Light',
-            themeDark: 'Dark',
             language: 'Language',
-            languageHint: 'Applies to this workspace on this device.',
-            signedIn: 'Signed in',
-            loadingAccount: 'Loading account...',
-            openMenu: 'Open settings and account menu',
-            settingsAndAccount: 'Settings and account',
             learnMore: 'Learn more',
             learnMoreMenu: 'Learn more links',
             docs: 'Docs',
@@ -914,7 +861,6 @@ const en = {
                 working: 'Restarting…'
             },
             overview: {
-                status: 'Status',
                 keepAliveOn: 'kept warm',
                 details: 'Details',
                 interfaces: 'Interfaces',
@@ -958,12 +904,10 @@ const en = {
             }
         },
         shell: {
-            appKicker: 'Manyfold',
             newChat: 'New chat',
             newAgent: 'New agent',
             customize: 'Customize',
             automations: 'Automations',
-            skills: 'Skills',
             menu: 'Menu',
             pinned: 'Pinned',
             pinnedChats: 'Pinned chats',
@@ -1006,9 +950,6 @@ const en = {
             retryLoadingChats: 'Retry loading chats',
             showMoreChats: 'Show {{count}} more',
             showFewerChats: 'Show fewer',
-            openChats: 'Open chats',
-            expandList: 'Expand list',
-            collapseList: 'Collapse list',
             agentSettings: 'Agent settings',
             rename: 'Rename',
             openDashboard: 'Open dashboard',
@@ -1017,12 +958,9 @@ const en = {
             openDashboardFailedTitle: 'Failed to open dashboard',
             runtime: 'Runtime',
             modelProvider: 'Model provider',
-            supportedModels: 'Supported models',
             defaultModelTitle: 'Default model',
             defaultModelSubtitle:
                 'Used when this agent runs · {{supported}}/{{total}} available',
-            supportedModelsProviderCount:
-                '{{supported}}/{{total}} supported by this provider',
             supportedModelsNeedsTest:
                 'Needs provider test before support can be shown',
             supportedModelsTestHint:
@@ -1030,7 +968,6 @@ const en = {
             testProvider: 'Test provider',
             testingProvider: 'Testing...',
             currentDefaultModel: 'Current default',
-            setDefaultModel: 'Set default',
             defaultModelUpdated: 'Default model updated.',
             modelNeedsTest: 'Needs test',
             modelUnsupported: 'Unsupported',
@@ -1153,8 +1090,6 @@ const en = {
             planPriceFree: 'Free',
             planHoursIncluded: '{{hours}} active hours / month included',
             planHoursUnlimited: 'Unlimited active hours',
-            quotaTitle: 'Quota usage',
-            quotaBody: "How much of your plan you're using right now.",
             quotaAgents: 'Sandbox VMs provisioned',
             quotaConcurrent: 'Concurrent active sandboxes',
             quotaStorage: 'Sandbox storage',
@@ -1187,9 +1122,7 @@ const en = {
             containersTitle: 'Cloud computer',
             containersBody:
                 'Platform-rented cloud computers count toward your always-online runtime quota and are billed per month.',
-            containersActive: '{{count}} active subscriptions',
             containersCount: '{{count}} active',
-            containersContact: 'Contact sales',
             containersManage: 'Manage cloud computers',
             containersBuy: 'Rent a cloud computer',
             daemonsTitle: 'Self-owned computer',
@@ -1260,7 +1193,6 @@ const en = {
         pricing: {
             title: 'Pricing',
             subtitle: 'Compare plans and upgrade your account.',
-            back: '← Plan & billing',
             colMetric: 'Metric',
             tierFreeTagline:
                 'Great for getting started and seeing what Manyfold can do.',
@@ -1272,34 +1204,29 @@ const en = {
             tierHeadlineSandboxLabel: 'Sandbox agents',
             tierHeadlineAlwaysOnlineLabel: 'Always-online agents',
             tierFreeFeatures: {
-                agents: '3 sandbox agents',
                 hours: '5 sandbox active hours / month',
                 alwaysOnline: '1 always-online runtime',
                 channels: '2 message channels',
                 api: '5,000 API calls / month'
             },
             tierHobbyFeatures: {
-                agents: '10 sandbox agents',
                 hours: '20 sandbox active hours / month',
                 alwaysOnline: '3 always-online runtimes',
                 channels: '8 message channels',
                 api: 'Unlimited API calls'
             },
             tierPlusFeatures: {
-                agents: '25 sandbox agents',
                 hours: '60 sandbox active hours / month',
                 alwaysOnline: '10 always-online runtimes',
                 channels: '25 message channels',
                 history: '180 days message history'
             },
             tierProFeatures: {
-                agents: '75 sandbox agents',
                 hours: '200 sandbox active hours / month',
                 alwaysOnline: '30 always-online runtimes',
                 channels: '100 message channels',
                 history: 'Unlimited message history & automation runs'
             },
-            upgradeCta: 'Get started',
             detailsTitle: "What's included?",
             detailsBody:
                 'Detailed limits per plan. Reach out if you need a custom tier.',
@@ -1330,32 +1257,7 @@ const en = {
             loadError: 'Could not load current plan.'
         },
         home: {
-            kicker: 'Onboarding',
-            title: 'Create your first agent',
-            body: 'Pick a runtime, connect a provider if needed, then start working in the chat workspace.',
             loadingAgents: 'Loading your agents...',
-            workspaceLaunch: 'Setup checklist',
-            launchStep1: 'Choose Claude Code or Codex for the first runtime.',
-            launchStep2:
-                'Add a provider key once and reuse it when creating agents.',
-            launchStep3:
-                'Open the workspace and continue from chat, files, or terminal.',
-            actions: 'Next step',
-            actionsBody: 'This is all you need for the first run.',
-            createFirstAgent: 'New agent',
-            openSettings: 'Provider settings',
-            tagChatFirst: 'chat-first',
-            tagPersistentRail: 'persistent left rail',
-            tagFunctionalAccents: 'functional accents',
-            launchAgentTitle: 'Choose runtime',
-            launchAgentBody:
-                'Spin up Codex or Claude Code and drop straight into the conversation canvas.',
-            saveProvidersTitle: 'Connect provider',
-            saveProvidersBody:
-                'Store reusable model credentials once and attach them from the creation flow.',
-            inspectUsageTitle: 'Start workspace',
-            inspectUsageBody:
-                'Keep spend and runtime operations out of the chat flow, but one click away in settings.'
         },
         challenge: {
             status: {
@@ -1966,59 +1868,10 @@ const en = {
             openWorkspace: 'Open workspace',
             stepCtaStep1: 'Step 1',
             stepCtaStep2: 'Step 2',
-            kicker: 'Agent hosting platform',
-            heroBody:
-                'Create and host Claude Code, Codex, and framework agents in one cloud workspace.',
-            agentsKicker: 'Agents',
-            agentsTitle: 'Bring the agent your team already uses',
-            agentsBody:
-                'Start with native coding agents, then add framework agents when workflows need services, schedulers, or connectors.',
-            claudeCodeBody:
-                'A native coding workspace for repo tasks and long-running development sessions.',
-            codexBody:
-                'A managed Codex environment with workspace context and resumable sessions.',
-            openClawBody:
-                'Framework agents for product workflows that need a hosted runtime surface.',
-            hermesBody:
-                'Connector-ready agents for service workflows and background work.',
-            narraNexusBody:
-                'Narrative and orchestration agents managed from the same workspace.',
-            runtimeKicker: 'Runtime model',
-            runtimeTitle: 'Two runtime modes, one workspace',
-            runtimeBody:
-                'Choose the runtime posture by how the agent works, without exposing infrastructure details to users.',
-            statefulSandboxBody:
-                'A durable, isolated workspace for coding agents, with files, terminal state, and session context ready to resume.',
-            persistentRuntimeBody:
-                'A cloud computer for agents that need always-on services, scheduled work, or platform connectors.',
-            navAgents: 'Agents',
-            navRuntime: 'Runtime',
             navPricing: 'Pricing',
             navDocs: 'Docs',
             navChallenge: 'Challenge',
-            themeToggle: 'Toggle theme',
-            heroTitle1: 'One workspace',
-            heroTitle2: 'for every agent',
-            heroTitle3: 'you ship with.',
-            heroSubtitle:
-                'Create and host Claude Code, Codex, and framework agents in one cloud workspace. Sandboxed, resumable, and quiet by design.',
             heroPrimaryCta: 'Create your first agent',
-            hostsLabel: 'Hosts',
-            howKicker: 'How it works',
-            howTitle: 'Three steps to a working agent.',
-            howBody:
-                'Pick a runtime, connect a provider if needed, then start working in the chat workspace. No infrastructure to babysit.',
-            howStep1Title: 'Pick a runtime',
-            howStep1Body:
-                'Stateful sandbox for coding tasks, cloud computer for always-on services.',
-            howStep2Title: 'Connect a provider',
-            howStep2Body:
-                'Anthropic, OpenAI, Google, or your own keys. Routed per-agent.',
-            howStep3Title: 'Start working',
-            howStep3Body:
-                'Open the chat workspace and issue commands. Sessions resume where you left off.',
-            faqKicker: 'FAQ',
-            faqTitle: 'Questions, answered plainly.',
             faqQ1: 'Is this another wrapper around Claude / Codex?',
             faqA1: 'No. Manyfold hosts the actual agent runtimes — Claude Code, Codex, Gemini CLI — in isolated workspaces with attached files, terminal state, and resumable sessions. You bring your provider keys; we run the loop.',
             faqQ2: "What's the difference between a sandbox and a cloud computer?",
@@ -2037,66 +1890,6 @@ const en = {
             footerPrivacy: 'Privacy',
             footerTerms: 'Terms',
             footerCookies: 'Cookie settings',
-            capKicker: "What's in the box",
-            capTitle: 'Capabilities',
-            capTitleDot: '.',
-            capLede:
-                'Six primitives that turn a chat session into a workspace your agent can actually ship from.',
-            capInstalledBadge: 'installed',
-            capPendingBadge: 'install →',
-            capSkillsLabel: 'Skills',
-            capSkillsTitle: 'Install capabilities from any GitHub repo.',
-            capSkillsBody:
-                'Versioned, pinned, scoped per agent. Ship a fix to the repo, every agent picks it up. No fork, no glue code — the runtime loads them natively.',
-            capSkillsPill1: 'scoped per agent',
-            capSkillsPill2: 'versioned',
-            capSkillsPill3: 'native runtime',
-            capAutomationsLabel: 'Automations',
-            capAutomationsTitle: 'Run on schedule, webhook, or @mention.',
-            capAutomationsBody:
-                'Same agent, no human prompt. Cron, GitHub event, Slack mention, inbound email — all wake the agent in the same workspace, with the same audit trail.',
-            capAutomationsPill1: 'cron',
-            capAutomationsPill2: 'webhook',
-            capAutomationsPill3: '@mention',
-            capAutomationsPill4: 'email',
-            capChannelsLabel: 'Channels',
-            capChannelsTitle: 'Talk to your agent where you already work.',
-            capChannelsBody:
-                'Slack, Lark, Feishu, Telegram, Discord, or in-product chat. The agent threads its own messages and holds context across surfaces.',
-            capChannelsPill1: 'shared session',
-            capChannelsPill2: 'one provider key',
-            capChannelsPill3: 'audit trail',
-            capChannelsAgentChat: 'Agent chat',
-            capMemoryLabel: 'Memory',
-            capMemoryTitle: 'Workspace-scoped memory, recallable on demand.',
-            capMemoryBody:
-                'Decisions, threads, files, and prior runs stay attached to the workspace. The agent recalls the relevant slice when it matters — you can audit, edit, or wipe it.',
-            capMemoryPill1: 'workspace-scoped',
-            capMemoryPill2: 'inspectable',
-            capMemoryPill3: 'wipe · export',
-            capMemoryRecalled: 'recalled',
-            capSessionsLabel: 'Sessions',
-            capSessionsTitle: 'Resumable across days and devices.',
-            capSessionsBody:
-                'Close the laptop, the run keeps going. Reopen on your phone — same thread, same files mounted. Pause, resume, replay, every step recorded.',
-            capSessionsPill1: 'pause / resume',
-            capSessionsPill2: 'cross-device',
-            capSessionsPill3: 'replay',
-            capSessionsStarted: 'started · fri 22:40',
-            capSessionsNow: 'now · mon 09:12',
-            capRuntimesLabel: 'Runtimes',
-            capRuntimesTitle: 'Three runtimes. One workspace.',
-            capRuntimesBody:
-                'Pick the posture per task. Sandbox boots clean and disposable. Cloud computer stays online. Self-owned computer connects your hardware — same skills, same automations.',
-            capRuntimesPill1: 'sandbox',
-            capRuntimesPill2: 'cloud',
-            capRuntimesPill3: 'self-owned',
-            capRuntimeSandboxName: 'Stateful sandbox',
-            capRuntimeSandboxSub: 'on-demand · resumable',
-            capRuntimePersistentName: 'Cloud computer',
-            capRuntimePersistentSub: 'always-on · scheduled',
-            capRuntimeLocalName: 'Self-owned computer',
-            capRuntimeLocalSub: 'your hardware · routed',
             heroEyebrow: 'Manyfold · your agent workspace',
             heroTitleBefore: 'Many agents.',
             heroTitleAfter: 'One',
@@ -2162,7 +1955,6 @@ const en = {
                 'Your laptop or your company’s servers. Everything stays on your side — nothing leaves the machines you already trust.',
             machineByoTag1: 'Your machine',
             machineByoTag2: 'free',
-            machinesFoldsIn: 'Folds in',
             flowTitleBefore: 'From zero to a working agent in',
             flowTitleAccent: 'three steps.',
             flowBody:
@@ -2224,7 +2016,6 @@ const en = {
             ctaTitleAccent: 'fold.',
             ctaLead:
                 'Free during preview. Bring as many agents and machines as you want. Talk to them all in one place starting today.',
-            ctaSecondaryCta: 'Read the docs',
             pricingTitleBefore: 'Start free.',
             pricingTitleAccent: 'Scale when ready.',
             pricingLead:
@@ -2237,11 +2028,6 @@ const en = {
             pricingAlwaysOnlineLabel: 'Always-online agents',
             pricingNote:
                 'Prices in USD. Cancel anytime. Need a custom tier? Reach out and we will size it with you.'
-        },
-        login: {
-            kicker: 'Manyfold',
-            title: 'Developer workspace sign-in',
-            body: 'Sign in to continue into the chat-first runtime workspace.'
         },
         consent: {
             message:
@@ -2288,9 +2074,7 @@ const en = {
             installFirstPartyBody:
                 'manyfold-cli-usage teaches this agent to use the mf CLI. It is installed by default on new agents — add it here if it is missing.',
             searchPlaceholder: 'Search skills',
-            allRepos: 'All repositories',
             searchAction: 'Search',
-            refreshAction: 'Refresh',
             noResultsTitle: 'No skills found',
             noResultsBody:
                 'Try another search or add a repository that contains SKILL.md files.',
@@ -2323,7 +2107,6 @@ const en = {
                 conflictMessage:
                     'A skill named "{{name}}" already exists in your library.',
                 copyToLibrary: 'Copy to library',
-                copied: 'Copied to library',
                 badge: 'Library',
                 edit: 'Edit',
                 export: 'Export',
@@ -2500,10 +2283,6 @@ const en = {
                 connected: 'Connected',
                 updated: 'Updated'
             },
-            skillsTab: 'Skills',
-            libraryTab: 'My skills',
-            myMcpTab: 'My MCP',
-            mcpTab: 'MCP',
             navSkills: 'Skills',
             navMcp: 'MCP',
             navConnections: 'Connections',
@@ -2665,7 +2444,6 @@ const en = {
             resuming: 'Resuming this answer…',
             stalled: 'No output for a while, still waiting…',
             working: 'Working…',
-            tokensPending: 'Tokens pending…',
             tokensNotReported: 'Tokens not reported by this agent',
             modelUnknown: 'model unknown',
             messageDetails: 'Message details',
@@ -2691,7 +2469,6 @@ const en = {
             header: {
                 resizeRuntimeViewer: 'Resize chat and runtime session viewer',
                 openMenu: 'Open menu',
-                openAgentDetails: 'Open {{name}} details',
                 share: 'Share chat',
                 openTerminal: 'Open terminal',
                 refresh: 'Refresh chat and files',
@@ -2821,7 +2598,6 @@ const en = {
         },
         permissions: {
             requestTitle: 'Permission request',
-            existingKept: 'Existing permissions are kept — this only adds what you approve.',
             requestExpired:
                 'This permission request has expired or is no longer valid. Ask the agent to request access again.',
             requestNotFound:
@@ -2958,7 +2734,6 @@ const en = {
                 scanHint:
                     'Scan with WeChat to authorize the bot. The bot token stays on the server. Direct messages only.',
                 waiting: 'Waiting for scan…',
-                scanned: 'Scanned. Confirm on your phone…',
                 verifyPrompt: 'Enter the number shown in WeChat to continue.',
                 verifySubmit: 'Submit',
                 creating: 'Creating channel…',
@@ -3109,7 +2884,6 @@ const en = {
             modelMenuLabel: 'Change model',
             modelDefaultLabel: 'Default ({{model}})',
             modelSettings: 'Model settings',
-            modelProviderSettings: 'Provider settings',
             modelSelectedTitle: '{{model}} (selected for this chat)',
             modelDefaultTitle: 'Default: {{model}}',
             modelManagedBy:
@@ -3125,15 +2899,8 @@ const en = {
             attachmentsTooLarge: 'Attachments exceed {{size}} total.',
             cannotUpload: 'Unsupported file type.',
             attachmentDropHint: 'Drop files to attach',
-            runtimeLocalReady: 'Runtime local config ready',
-            refreshNeeded: 'Needs refresh',
-            testRequired: 'Test required',
-            testedCount: '{{count}} tested',
             refreshing: 'Refreshing…',
             refresh: 'Refresh',
-            testProviderAction: 'Test provider',
-            usingLocalCli: 'Using local CLI/config',
-            overridesLocal: 'Overrides runtime local',
             runtimeLocalUsingTitle: 'Runtime local config',
             validation: {
                 testProvider: 'Test this provider in Source to load its models',
@@ -3147,16 +2914,7 @@ const en = {
                 runtimeLocalNotReady:
                     'The local config on this runtime is not ready'
             },
-            manyfoldConfigTitle: 'Manyfold config',
-            localNotVerified: 'Runtime local not verified.',
-            refreshingDots: 'Refreshing...',
             configure: 'Configure',
-            usingRuntimeLocal: 'Using runtime local config',
-            runtimeWillUseLocal:
-                'Claude Code/Codex will use the model configured on this runtime.',
-            refreshLocalToVerify:
-                'Refresh local config to verify the runtime CLI/config/credentials.',
-            frameworkAgent: 'Agent',
             permission: {
                 claude: {
                     ask: 'Ask permissions',
@@ -3225,7 +2983,6 @@ const en = {
             standardSpeedDescription: 'Default speed, normal usage'
         },
         credentials: {
-            dialogLabel: 'Configure model provider',
             heading: 'Model provider',
             loading: 'Loading model provider…',
             comingSoon: 'Coming soon',
@@ -3240,23 +2997,7 @@ const en = {
                 'Test the saved provider in Settings to enable a dropdown',
             placeholderUnsaved: 'Select a saved provider, or type a model id',
             saving: 'Saving…',
-            runtimeLocalConfig: 'Runtime local config',
-            runtimeLocalConfigInUse: 'Runtime local config · in use',
-            runtimeAvailable: '{{framework}} runtime config is available.',
-            refreshToInspect:
-                'Refresh to inspect the runtime CLI config and credentials.',
             modelsCount: '{{count}} models',
-            ready: 'Ready',
-            needsRefresh: 'Needs refresh',
-            refreshing: 'Refreshing...',
-            refresh: 'Refresh',
-            useManyfoldConfig: 'Use Manyfold config',
-            savedOverrideLocal:
-                'Saved provider and model settings below override Runtime local config.',
-            useLocalCliDefault:
-                'Messages use the runtime local CLI/config by default.',
-            localDaemonDefault: ' Self-owned computer agents default to off.',
-            hostedDefault: ' Hosted agents default to on.',
             modelSourceLabel: 'Model source',
             modelSourcePlatform: 'Manyfold',
             modelSourcePlatformHint: 'Use the provider and model set here',
@@ -3273,8 +3014,6 @@ const en = {
             },
             claudeMapping: 'Claude model mapping',
             selectProviderModel: 'Select provider model',
-            defaultModel: 'Default model',
-            selectModel: 'Select model',
             effort: 'Effort',
             closeProviderMenu: 'Close provider menu',
             modelProviders: 'Model providers',
@@ -3282,7 +3021,6 @@ const en = {
             noSavedProviders: 'No saved {{provider}} providers.',
             addOne: 'Add one',
             inSettings: ' in Settings.',
-            selected: 'Selected',
             currentProvider: 'Current provider',
             selectProvider: 'Select provider',
             pickSavedProvider: 'Pick a saved model provider from Settings',
@@ -3295,7 +3033,6 @@ const en = {
             successUpdatedClaude: 'Updated. Next message will use the new key.',
             successUpdatedDefault:
                 'Updated. Restarting agent — chat will resume in a few seconds.',
-            runtimeLocalNotReady: 'Runtime local config is not ready',
             providerTestFailed: 'Provider test failed',
             pickProvider: 'Pick a saved provider first.',
             testProviderBeforeSave:
@@ -3308,7 +3045,6 @@ const en = {
             closeSearch: 'Close search',
             searchFiles: 'Search files',
             agentStatus: 'Agent is {{status}}.',
-            loadingFiles: 'Loading files…',
             retry: 'Retry',
             noFiles: 'No files in {{root}}.',
             noMatches: 'No matches for "{{query}}".',
@@ -3550,7 +3286,6 @@ const en = {
             adminNeedsToConfigure:
                 'An administrator needs to configure authentication.',
             continueWithSso: 'Continue with SSO',
-            signOut: 'Sign out',
             account: 'Account',
             signInTitle: 'Sign in',
             signUpTitle: 'Create account',
@@ -3563,23 +3298,10 @@ const en = {
             continueWithGoogle: 'Continue with Google',
             continueWithNetmind: 'Continue with NetMind',
             orUseEmail: 'or continue with email',
-            completingSignIn: 'Completing sign-in',
-            finishingGoogle: 'Finishing Google authentication...',
             pleaseWait: 'Please wait...',
             createAccount: 'Create an account',
             useExistingAccount: 'Use an existing account',
-            errorAdditionalVerification: 'Additional verification is required.',
-            errorCodeNotAccepted: 'The verification code was not accepted.',
             errorAuthFailed: 'Authentication failed',
-            errorSignInNotReady: 'Sign-in is not ready',
-            errorSignUpNotReady: 'Sign-up is not ready',
-            errorNoSession: 'No session was created',
-            errorGoogleRedirect: 'Google sign-in did not return a redirect URL',
-            noAccountTitle: 'No account yet',
-            noAccountBody:
-                'We could not find an account for that email. Manyfold is invite-only during the beta — request access first, then create your account from the invite link.',
-            noAccountRequestCta: 'Request access',
-            noAccountRetry: 'Try a different email',
             forgotPasswordCta: 'Forgot password?',
             forgotPasswordTitle: 'Reset your password',
             forgotPasswordBody:
@@ -3590,17 +3312,11 @@ const en = {
                 'Enter the code from your email and a new password.',
             newPasswordLabel: 'New password',
             resetPasswordCta: 'Update password',
-            passwordResetDone:
-                'Password updated. Sign in with your new password.',
-            checkYourEmailTitle: 'Check your email',
             checkYourEmailBody: 'We sent you a verification code.',
             resendCodeCta: 'Resend code',
             codeResent: 'A new code is on its way.',
             backToSignIn: 'Back to sign in',
             oauthError: 'Sign-in could not be completed. Please try again.',
-            errorEmailInUse: 'An account with that email already exists.',
-            errorInvalidCredentials: 'Incorrect email or password.',
-            errorCodeExpired: 'That code has expired. Request a new one.',
             netmindDefaultDescription: 'Sign in with your NetMind account.',
             netmindBindPrompt:
                 'One more step — verify your email to finish linking this NetMind account.',
@@ -4069,7 +3785,6 @@ const en = {
             upgradeBlockedTip:
                 'Remote upgrade needs the daemon online, autostart-managed, and on a recent CLI. Update the CLI on the machine once to enable it.',
             upgradeAvailableSuffix: '{{version}} available',
-            noFrameworks: 'no frameworks detected',
             needsUpgradeTitle: 'CLI upgrade required',
             needsUpgradeHintPrefix:
                 "This machine's mf CLI is below the required minimum version. Run",
@@ -4106,18 +3821,11 @@ const en = {
         agentNewV3: {
             managedProvider: 'Manyfold managed',
             welcomeTitle: 'Create an agent to get started',
-            welcomeSubtitle:
-                "Pick a framework to start — we'll use recommended defaults for everything else.",
             returningTitle: 'Create agent',
-            returningSubtitle:
-                'Pick a framework. Everything else uses recommended defaults you can change later.',
             frameworkLabel: 'Framework',
-            recommended: 'Recommended',
             creditLabel: 'Model provider',
-            creditPlatform: 'Platform credits',
             creditPlatformHint: 'No API key needed — granted to new users',
             creditGranting: 'Claiming your credits…',
-            creditReady: '{{amount}} ready',
             creditError: "Credits didn't arrive yet",
             creditRetry: 'Retry',
             creditBalance: 'Balance {{amount}}',
@@ -4125,7 +3833,6 @@ const en = {
             creditGiftPending: 'Claiming {{amount}} gift…',
             balanceEmptyNote:
                 'You can create your agent now — your credits arrive shortly and chatting begins once they land.',
-            waitingCredits: 'Waiting for credits…',
             preparingAccount: 'Preparing your account…',
             useOwnKey: 'Use your own API key',
             useNewKey: 'Use new API key',
@@ -4159,23 +3866,15 @@ const en = {
             summaryNote:
                 'Model, name, and environment can be changed anytime after creation.',
             summarySandbox: 'Sandbox',
-            summaryPersistent: 'Always-online',
             summaryDefaultModel: 'default model',
             summaryPlatformCredits: 'platform credits',
             summaryOwnKey: 'your API key',
             createCta: 'Create agent',
             creating: 'Creating…',
-            advancedLink:
-                'Advanced setup — customize runtime, model, workspace, and more',
-            externalNeedsAdvanced:
-                'This framework connects an existing app. Continue in advanced setup.',
             chooseFramework: 'Choose framework',
-            continueInAdvanced: 'Continue setup',
-            backToSimple: 'Back to quick create',
             modeQuick: 'Quick',
             modeAdvanced: 'Advanced',
             modeSwitchLabel: 'Create mode',
-            runtimeLabel: 'Runtime',
             runtimeCreateNewLabel: 'Create new',
             runtimeNewSandbox: 'New sandbox',
             runtimeQuotaLabel: 'Sandbox quota',
@@ -4483,7 +4182,6 @@ const en = {
                 '{{enabled}}/{{total}} models · {{protocols}} protocols',
             managedModelsSummarySingle:
                 '{{enabled}}/{{total}} models · {{protocols}} protocol',
-            modelsCount: '{{count}} models',
             usageUpdated: 'Usage updated {{time}}',
             accountSynced: 'Account synced {{time}}',
             requests: '{{count}} requests',
@@ -4496,11 +4194,7 @@ const en = {
             statusError: 'Error'
         },
         runtimeDetail: {
-            copy: 'Copy',
-            copied: 'Copied',
             versionPending: 'version pending',
-            primary: 'Primary',
-            synced: 'synced',
             status: {
                 ready: 'Ready',
                 pending: 'Pending',
@@ -4510,68 +4204,10 @@ const en = {
                 online: 'Online',
                 offline: 'Offline'
             },
-            serviceStatus: {
-                ready: 'Ready',
-                starting: 'Starting',
-                stopped: 'Stopped',
-                unknown: 'Unknown'
-            },
-            checked: 'checked',
-            refreshVersion: 'Refresh version',
             changeVersion: 'change version',
-            refresh: 'Refresh',
-            actions: 'Runtime actions',
-            rename: 'Rename',
-            deleting: 'Deleting…',
-            deleteRuntime: 'Delete runtime',
-            delete: 'Delete',
-            deleteDescription:
-                'Delete runtime "{{name}}"? Its agents and runtime resources will be torn down.',
-            runtimeFailed: 'Runtime failed',
-            failedControlUi: 'Failed to open control UI',
-            failedDashboard: 'Failed to open dashboard',
-            upgradeHint: 'Upgrades run in the sandbox and take up to a minute.',
-            upgradeCurrentHint:
-                'This runtime is on v{{version}}. Upgrades run in the sandbox and take up to a minute.',
-            upgrade: 'Upgrade…',
-            agents: 'Agents',
-            agentsCount: 'Agents ({{count}})',
-            controls: 'Controls',
-            controlUi: 'Control UI',
-            controlUiDescription:
-                'Expose the OpenClaw control UI for this runtime. Toggling briefly restarts the gateway.',
-            restarting: 'Restarting…',
-            openUi: 'Open UI ↗',
-            dashboard: 'Dashboard',
-            dashboardDescription:
-                'Expose the Hermes dashboard for this runtime. First enable builds the web UI (about a minute); toggling briefly restarts the gateway.',
             updating: 'Updating…',
-            openDashboard: 'Open Dashboard ↗',
-            keepAlive: 'Keep alive',
-            keepAliveDescription:
-                'Keeps this sandbox always running. Uses one of your concurrent active sandbox slots and accrues running time until turned off.',
-            details: 'Details',
-            primaryAgent: 'Primary agent',
-            statefulSandbox: 'Stateful sandbox',
-            cluster: 'Cluster',
-            namespace: 'Namespace',
-            ingress: 'Ingress',
-            machine: 'Machine',
             endpoint: 'Endpoint',
-            mountPath: 'Mount path',
-            homeDir: 'Home dir',
-            workspaceBase: 'Workspace base',
-            cliVersion: 'CLI version',
-            lastSeen: 'Last seen',
-            service: 'Service',
-            phase: 'Phase',
-            started: 'Started',
-            created: 'Created',
-            upgradeFramework: 'Upgrade framework',
-            changeFrameworkVersion: 'Change framework version',
-            upgrading: 'Upgrading…',
             version: 'Version',
-            renameRuntime: 'Rename runtime'
         },
         agentRuntimesList: {
             collapseHost: 'Collapse host',
@@ -4654,7 +4290,6 @@ const en = {
             runtimesAria: 'Runtimes',
             collapseAll: 'Collapse all',
             expandAll: 'Expand all',
-            updateAll: 'Update all',
             statusNone: 'None',
             statusKind: 'Kind',
             statusStatus: 'Status',
@@ -4740,11 +4375,6 @@ const en = {
             noProviders: 'No external providers yet.'
         },
         agentRuntimesListExtras: {
-            oneMachineUpgrade: '1 machine needs a CLI upgrade',
-            machinesUpgrade: '{{count}} machines need a CLI upgrade',
-            runUpdate: 'Run',
-            then: 'then',
-            learnHow: 'Learn how',
             upgradeHostDescription:
                 'Upgrade mf CLI on "{{name}}" to {{version}} and restart the daemon. Agents on this machine will be stopped briefly.'
         },
@@ -4764,8 +4394,6 @@ const en = {
             usersBilling: 'Users & billing',
             catalogs: 'Catalogs',
             platformSettings: 'Platform settings',
-            runtimePolicies: 'Runtime policies',
-            releaseControls: 'Release controls',
             agentManagement: 'Agent management',
             accounts: 'Accounts',
             frameworks: 'Frameworks',
@@ -4780,37 +4408,21 @@ const en = {
             sandboxes: 'Sandboxes',
             channels: 'Channels',
             modelProviders: 'Model providers',
-            settings: 'Settings',
             clusters: 'Cloud computer clusters',
             spritesAccounts: 'Stateful sandbox accounts',
             selfOwnedComputers: 'Self-owned computers',
-            sandboxQuotas: 'Sandbox quotas',
-            spritesWholesaleCap: 'Sprites wholesale cap',
             users: 'Users',
-            frameworkModelCatalog: 'Framework model catalog',
-            skillsCatalog: 'Skills catalog',
-            skillRepositories: 'Skill repositories',
-            mcpCatalog: 'MCP catalog',
-            catalogCategories: 'Catalog categories',
             loginProvider: 'Login provider',
             emailProvider: 'Email provider',
             notificationWebhooks: 'Notification webhooks',
-            frameworkRuntimeDefaults: 'Framework runtime defaults',
-            frameworkDefaultVersions: 'Framework default versions',
-            cliMinimumVersion: 'CLI minimum version',
-            chatExecTimeouts: 'Chat exec timeouts',
-            a2aTurnTimeouts: 'A2A turn timeouts',
-            featureToggles: 'Feature toggles'
         },
         dashboard: {
             title: 'Dashboard',
             welcome: 'Welcome back',
-            whoami: 'Signed in as'
         },
         agents: {
             title: 'Agents',
             empty: 'No agents yet. Create your first one to get started.',
-            newButton: 'New Agent',
             primaryTooltip:
                 "This is the runtime's primary agent — remove it via Delete Runtime on the runtime page.",
             filters: {
@@ -4822,14 +4434,12 @@ const en = {
             },
             cols: {
                 name: 'Name',
-                internalId: 'Internal ID',
                 framework: 'Framework',
                 model: 'Model',
                 cluster: 'Cluster',
                 runtime: 'Runtime',
                 status: 'Status',
                 createdAt: 'Created',
-                actions: '',
                 owner: 'Owner'
             },
             status: {
@@ -4934,7 +4544,6 @@ const en = {
                 hermesProfileHint:
                     '1-64 chars. Used to differentiate Hermes deployments for the same user.',
                 submit: 'Create Agent',
-                submitting: 'Creating...',
                 submitDisabledHint:
                     'Fill required fields and pick at least one Hermes platform to enable submit.',
                 back: 'Back to Agents',
@@ -4967,7 +4576,6 @@ const en = {
             },
             detail: {
                 title: 'Agent Detail',
-                back: 'Back to Agents',
                 notFound: 'Agent not found.',
                 owner: 'owner',
                 primaryPill: 'Primary',
@@ -5010,24 +4618,11 @@ const en = {
                         lastActivity: 'Last activity'
                     }
                 },
-                terminal: {
-                    title: 'Terminal',
-                    unavailable:
-                        'Terminal is available once the agent is running.',
-                    reconnect: 'Reconnect',
-                    status: {
-                        connecting: 'Connecting…',
-                        open: 'Connected',
-                        closed: 'Disconnected',
-                        error: 'Error'
-                    }
-                },
                 files: {
                     title: 'Files',
                     unavailable:
                         'File browser is available once the agent is running.',
                     loading: 'Preparing file browser…',
-                    error: 'Failed to open file browser.',
                     refresh: 'Refresh',
                     newFolder: 'New folder',
                     newFolderHere: 'New folder here',
@@ -5080,7 +4675,6 @@ const en = {
             form: {
                 titleCreate: 'Add Cloud computer cluster',
                 titleEdit: 'Edit Cloud computer cluster',
-                back: 'Back to Clusters',
                 nameLabel: 'Name',
                 namePlaceholder: 'eu-west-prod',
                 nameHint: '1-64 chars. Used in dropdowns when creating agents.',
@@ -5097,8 +4691,6 @@ const en = {
                 submitCreate: 'Add Cluster',
                 submitUpdate: 'Save Changes',
                 submitting: 'Saving…',
-                probeSuccess: 'Cluster is reachable.',
-                probeFailed: 'Cluster probe failed.'
             }
         },
         spritesAccounts: {
@@ -5130,7 +4722,6 @@ const en = {
             form: {
                 titleCreate: 'Add Stateful sandbox account',
                 titleEdit: 'Edit Stateful sandbox account',
-                back: 'Back to Stateful sandbox accounts',
                 slugLabel: 'Slug',
                 slugPlaceholder: 'prod-eu',
                 slugHint:
@@ -5150,8 +4741,6 @@ const en = {
                 submitRotate: 'Rotate Token',
                 submitting: 'Saving…',
                 rotateSuccess: 'Token rotated.',
-                invalidTokenError:
-                    'Token must be "<orgSlug>/<orgId>/<tokenId>/<tokenValue>".'
             }
         },
         users: {
@@ -5171,8 +4760,6 @@ const en = {
             actions: {
                 promote: 'Make admin',
                 demote: 'Revoke admin',
-                promoting: 'Promoting…',
-                demoting: 'Revoking…',
                 selfHint: 'You cannot revoke your own admin role.'
             },
             deletion: {
@@ -5250,9 +4837,7 @@ const en = {
                 keepAliveSaving: 'saving…'
             },
             detail: {
-                back: 'Back to Runtimes',
                 notFound: 'Runtime not found.',
-                primaryAgentLabel: 'Primary agent',
                 actions: {
                     addAgent: 'Add agent',
                     addAgentUnsupported:
@@ -5287,7 +4872,6 @@ const en = {
                         workspace: 'Project path',
                         status: 'Status',
                         lastReconciledAt: 'Last synced',
-                        actions: ''
                     }
                 },
                 addAgent: {

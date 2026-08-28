@@ -7,13 +7,11 @@ const zh: Translations = {
         saving: '保存中…',
         creating: '创建中…',
         installing: '安装中…',
-        linking: '关联中…',
         importing: '导入中…',
         copying: '复制中…',
         loadingShort: '加载中…',
         save: '保存',
         confirm: '确认',
-        typeToConfirm: '输入 {{value}} 以确认',
         typeToConfirmPrefix: '输入',
         typeToConfirmSuffix: '以确认',
         cancel: '取消',
@@ -24,7 +22,6 @@ const zh: Translations = {
         done: '完成',
         continue: '继续',
         unknown: '未知',
-        checked: '已检查 {{time}}',
         dismiss: '关闭',
         moreActions: '更多操作',
         breadcrumb: '面包屑导航',
@@ -33,10 +30,6 @@ const zh: Translations = {
             '沙箱状态：{{status}}。状态会实时更新；激活以立即刷新。'
     },
     errors: {
-        unauthorized: '未授权。',
-        forbidden: '无权访问。',
-        notFound: '资源不存在。',
-        internal: '服务器内部错误！',
         appCrash: {
             title: '出了点问题',
             body: '页面遇到未预期的错误，刷新通常可以恢复。',
@@ -212,10 +205,7 @@ const zh: Translations = {
                     tokens: '· {{tokens}} tok'
                 },
                 actions: '操作',
-                agentActions: 'Agent 操作',
                 agentId: 'Agent ID',
-                agentNotRunning: 'Agent 未运行',
-                chat: '开始聊天',
                 channels: {
                     description:
                         '将此 Agent 连接到即时通讯平台。渠道管理入口：',
@@ -303,14 +293,10 @@ const zh: Translations = {
                         '格式。这些变量对使用此环境的人可见，请不要加入密钥或凭据。',
                     empty: '未设置环境变量。',
                     emptyValue: '（空）',
-                    later: '稍后',
                     lineError: '第 {{line}} 行：{{reason}}',
                     reserved: '保留',
                     reservedTooltip: '平台/框架保留名称，不会应用',
-                    restartDescription:
-                        '{{framework}} Agent 的环境变量需要服务重启后才会生效。',
                     restartNow: '立即重启',
-                    restartTitle: '重启 Agent 以应用修改？',
                     serviceRestartHint:
                         '{{framework}} 以服务方式运行，修改会在重启后生效。',
                     placeholderName: '你的姓名',
@@ -335,22 +321,15 @@ const zh: Translations = {
                     latestAvailable: '↑ 最新 {{version}} 可用',
                     notDetected: '未检测到',
                     refreshVersion: '刷新版本',
-                    updateAvailable: '{{framework}} v{{version}} 可用',
-                    updateDetail: '升级会在 sandbox 内执行，最多约一分钟。',
-                    updateDetailCurrent:
-                        '当前 Agent 使用 v{{version}}。升级会在 sandbox 内执行，最多约一分钟。',
                     upgrade: '升级',
-                    upgradeEllipsis: '升级…',
                     upgradeTitle: '升级框架',
                     upgrading: '升级中…',
                     upgradingStep: '升级中… {{step}}',
-                    version: '框架版本',
                     versionBlocked: '当前 {{framework}} 版本存在已知缺陷',
                     versionLabel: '版本'
                 },
                 lastActive: '最近活跃',
                 lastMessage: '最近消息',
-                loading: '正在加载 Agent...',
                 mcp: {
                     alreadySynced: '已与 Runtime 同步。',
                     deliveryDelivered: '已推送到这台电脑。',
@@ -417,7 +396,6 @@ const zh: Translations = {
                         '尚未授予任何能力。添加权限后 Agent 才能执行，或由它通过以下命令申请：',
                     lastUpdated: '最近更新 {{date}}',
                     loadFailed: '权限加载失败。',
-                    loading: '正在加载权限…',
                     removeAction: '移除',
                     removePrefix: 'Agent 将失去',
                     removeScope: '移除 {{scope}}',
@@ -428,7 +406,6 @@ const zh: Translations = {
                 refresh: '刷新',
                 runtime: '运行时',
                 saving: '保存中…',
-                sections: 'Agent 详情分区',
                 skills: {
                     description:
                         '该 {{framework}} Agent 已安装的 Skills。可启用、更新或移除，变更将在下一轮对话生效。',
@@ -469,23 +446,6 @@ const zh: Translations = {
                     title: '存储',
                     total: '总计'
                 },
-                tabs: {
-                    a2a: 'A2A',
-                    channels: '渠道',
-                    connections: '连接',
-                    context: '上下文',
-                    environment: '环境',
-                    mcp: 'MCP',
-                    modelProvider: '模型',
-                    overview: '概览',
-                    permissions: '权限',
-                    skills: 'Skills',
-                    storage: '存储与备份'
-                },
-                terminal: {
-                    title: '终端'
-                },
-                title: 'Agent 详情',
                 updated: '更新时间',
                 updating: '更新中…',
                 workspace: '工作区',
@@ -816,15 +776,10 @@ const zh: Translations = {
             runtimeAgentsTitle: '还没有 agent',
             runtimeAgentsBody: '在此运行时上创建的 agent 会显示在这里。',
             agentsTitle: '还没有 agent',
-            agentsSidebarBody: '创建一个 agent 即可开始。',
             agentsWorkspaceBody:
                 'Agent 在自己的沙箱里干活 —— 可以和它聊天、给它装技能，或者让它按计划定时跑。',
             agentsCreateAction: '创建 agent',
-            agentsDetailBody: '创建 agent 后，详情会显示在这里。',
-            agentsNoSelectionTitle: '未选择 agent',
-            agentsNoSelectionBody: '从列表中选择一个 agent 查看详情。',
             noMatches: '没有匹配项。',
-            sessionsEmpty: '还没有会话。',
             usageEventsTitle: '暂无用量事件',
             usageEventsBody: 'agent 运行后，活动会显示在这里。',
             usageRangeTitle: '最近{{range}}没有用量',
@@ -856,14 +811,7 @@ const zh: Translations = {
             usageWindow5h: '5 小时',
             usageWindow7d: '1 周',
             theme: '主题',
-            themeLight: '浅色',
-            themeDark: '深色',
             language: '语言',
-            languageHint: '仅应用到当前设备上的这个工作区。',
-            signedIn: '已登录',
-            loadingAccount: '正在加载账号...',
-            openMenu: '打开设置与账号菜单',
-            settingsAndAccount: '设置与账号',
             learnMore: '了解更多',
             learnMoreMenu: '了解更多链接',
             docs: '文档',
@@ -895,7 +843,6 @@ const zh: Translations = {
                 working: '重启中…'
             },
             overview: {
-                status: '状态',
                 keepAliveOn: '保持常驻',
                 details: '详细信息',
                 interfaces: '接口',
@@ -937,12 +884,10 @@ const zh: Translations = {
             }
         },
         shell: {
-            appKicker: 'Manyfold',
             newChat: '新建对话',
             newAgent: '新建智能体',
             customize: '自定义',
             automations: '自动化',
-            skills: '技能',
             menu: '菜单',
             pinned: '已固定',
             pinnedChats: '已固定对话',
@@ -984,9 +929,6 @@ const zh: Translations = {
             retryLoadingChats: '重新加载对话',
             showMoreChats: '显示更多 {{count}} 条',
             showFewerChats: '收起',
-            openChats: '打开对话',
-            expandList: '展开列表',
-            collapseList: '收起列表',
             agentSettings: 'Agent 设置',
             rename: '重命名',
             openDashboard: '打开 Dashboard',
@@ -995,19 +937,15 @@ const zh: Translations = {
             openDashboardFailedTitle: '打开 Dashboard 失败',
             runtime: 'Runtime',
             modelProvider: '模型 Provider',
-            supportedModels: '支持的模型',
             defaultModelTitle: '默认模型',
             defaultModelSubtitle:
                 '该 Agent 运行时使用 · {{supported}}/{{total}} 个可用',
-            supportedModelsProviderCount:
-                '当前 Provider 支持 {{supported}}/{{total}} 个',
             supportedModelsNeedsTest: '需要先测试 Provider 才能显示支持情况',
             supportedModelsTestHint:
                 '测试当前 Provider，查看它支持哪些 {{framework}} 模型。',
             testProvider: '测试 Provider',
             testingProvider: '测试中...',
             currentDefaultModel: '当前默认',
-            setDefaultModel: '设为默认',
             defaultModelUpdated: '默认模型已更新。',
             modelNeedsTest: '需要测试',
             modelUnsupported: '不可用',
@@ -1124,8 +1062,6 @@ const zh: Translations = {
             planPriceFree: '免费',
             planHoursIncluded: '每月包含 {{hours}} 小时活跃时长',
             planHoursUnlimited: '不限活跃时长',
-            quotaTitle: '配额使用',
-            quotaBody: '你目前已经用掉了套餐里的多少额度。',
             quotaAgents: '已预配的 Sandbox VM',
             quotaConcurrent: '同时运行的沙箱数',
             quotaStorage: '沙箱存储',
@@ -1157,9 +1093,7 @@ const zh: Translations = {
             containersTitle: '云端计算机',
             containersBody:
                 '从平台租用的云端计算机会占用你的常驻 Runtime 配额,并按月单独计费。',
-            containersActive: '{{count}} 个有效订阅',
             containersCount: '{{count}} 个正在运行',
-            containersContact: '联系销售',
             containersManage: '管理云端计算机',
             containersBuy: '租用云端计算机',
             daemonsTitle: '自有计算机',
@@ -1224,7 +1158,6 @@ const zh: Translations = {
         pricing: {
             title: '套餐定价',
             subtitle: '对比所有套餐并升级你的账户。',
-            back: '← 套餐与账单',
             colMetric: '项目',
             tierFreeTagline: '快速上手,体验 Manyfold 的核心能力。',
             tierHobbyTagline: '面向独立开发者,在生产中运行少量 agent。',
@@ -1233,34 +1166,29 @@ const zh: Translations = {
             tierHeadlineSandboxLabel: '沙箱 Agent',
             tierHeadlineAlwaysOnlineLabel: '常驻 Agent',
             tierFreeFeatures: {
-                agents: '3 个沙箱 Agent',
                 hours: '每月 5 小时沙箱活跃时长',
                 alwaysOnline: '1 个常驻 Runtime',
                 channels: '2 个消息渠道',
                 api: '每月 5,000 次 API 调用'
             },
             tierHobbyFeatures: {
-                agents: '10 个沙箱 Agent',
                 hours: '每月 20 小时沙箱活跃时长',
                 alwaysOnline: '3 个常驻 Runtime',
                 channels: '8 个消息渠道',
                 api: '不限 API 调用'
             },
             tierPlusFeatures: {
-                agents: '25 个沙箱 Agent',
                 hours: '每月 60 小时沙箱活跃时长',
                 alwaysOnline: '10 个常驻 Runtime',
                 channels: '25 个消息渠道',
                 history: '180 天消息历史'
             },
             tierProFeatures: {
-                agents: '75 个沙箱 Agent',
                 hours: '每月 200 小时沙箱活跃时长',
                 alwaysOnline: '30 个常驻 Runtime',
                 channels: '100 个消息渠道',
                 history: '不限消息历史和自动化运行'
             },
-            upgradeCta: '开始使用',
             detailsTitle: '套餐对比详情',
             detailsBody: '每个套餐的具体配额。需要定制档位请联系销售。',
             sectionUsageBasedTitle: '按需 Runtime',
@@ -1290,30 +1218,7 @@ const zh: Translations = {
             loadError: '无法加载当前套餐信息。'
         },
         home: {
-            kicker: '新用户引导',
-            title: '创建你的第一个 Agent',
-            body: '选择运行环境，按需接入模型厂商，然后直接进入对话工作区开始使用。',
             loadingAgents: '正在加载你的 Agents...',
-            workspaceLaunch: '设置清单',
-            launchStep1: '选择 Claude Code 或 Codex 作为第一个运行环境。',
-            launchStep2: '模型厂商保存一次，创建 Agent 时就能复用。',
-            launchStep3: '进入工作区后，从对话、文件或终端继续操作。',
-            actions: '下一步',
-            actionsBody: '第一次启动只需要完成这些。',
-            createFirstAgent: '新建 Agent',
-            openSettings: '模型厂商设置',
-            tagChatFirst: '对话优先',
-            tagPersistentRail: '常驻左侧栏',
-            tagFunctionalAccents: '功能性色彩',
-            launchAgentTitle: '选择运行环境',
-            launchAgentBody:
-                '启动 Codex 或 Claude Code，然后直接进入对话画布。',
-            saveProvidersTitle: '接入模型厂商',
-            saveProvidersBody:
-                '一次保存可复用的模型凭据，并在创建流程里附加使用。',
-            inspectUsageTitle: '进入工作区',
-            inspectUsageBody:
-                '让费用和 Runtime 操作离开对话流，但仍能在设置里一键访问。'
         },
         challenge: {
             status: {
@@ -1918,56 +1823,10 @@ const zh: Translations = {
             openWorkspace: '打开工作区',
             stepCtaStep1: '第一步',
             stepCtaStep2: '第二步',
-            kicker: 'Agent 托管平台',
-            heroBody:
-                '在一个云端工作区里创建和托管 Claude Code、Codex 与框架型 Agent。',
-            agentsKicker: 'Agents',
-            agentsTitle: '接入团队已经在用的 Agent',
-            agentsBody:
-                '先从原生 coding agents 开始，再在需要服务、调度或连接器时加入框架型 agents。',
-            claudeCodeBody:
-                '面向代码仓库任务和长周期开发会话的原生 coding workspace。',
-            codexBody: '带工作区上下文和可恢复会话的托管 Codex 环境。',
-            openClawBody:
-                '面向产品 workflow 的框架型 agents，提供托管 runtime surface。',
-            hermesBody:
-                '面向服务 workflow 和后台任务的 connector-ready agents。',
-            narraNexusBody: '在同一个 workspace 里管理叙事和编排型 agents。',
-            runtimeKicker: 'Runtime model',
-            runtimeTitle: '两类 runtime，一个工作区',
-            runtimeBody:
-                '按 agent 的工作方式选择 runtime 姿态，同时不向用户暴露底层基础设施细节。',
-            statefulSandboxBody:
-                '给 coding agents 使用的持久隔离工作区，文件、终端状态和会话上下文都可恢复。',
-            persistentRuntimeBody:
-                '给需要常驻服务、定时任务或平台连接器的 agents 使用的 cloud computer。',
-            navAgents: 'Agents',
-            navRuntime: 'Runtime',
             navPricing: '价格',
             navDocs: '文档',
             navChallenge: '挑战赛',
-            themeToggle: '切换主题',
-            heroTitle1: '一个工作区',
-            heroTitle2: '托管你需要的',
-            heroTitle3: '所有 Agent。',
-            heroSubtitle:
-                '在一个云端工作区里创建和托管 Claude Code、Codex 与框架型 Agent。沙箱化、可恢复、安静专注。',
             heroPrimaryCta: '创建你的第一个 Agent',
-            hostsLabel: '已支持',
-            howKicker: '工作流程',
-            howTitle: '三步上线一个 Agent。',
-            howBody:
-                '选一个 runtime，按需接入 provider，然后在对话工作区开始工作。无需自行运维基础设施。',
-            howStep1Title: '选择 runtime',
-            howStep1Body:
-                '编码任务用 Stateful sandbox，常驻服务用 Cloud computer。',
-            howStep2Title: '接入 provider',
-            howStep2Body:
-                'Anthropic、OpenAI、Google 或你自己的 key，按 agent 路由。',
-            howStep3Title: '开始工作',
-            howStep3Body: '打开对话工作区下达指令。会话从上次中断处恢复。',
-            faqKicker: '常见问题',
-            faqTitle: '直接、明白的回答。',
             faqQ1: '这只是又一层 Claude / Codex 的封装吗？',
             faqA1: '不是。Manyfold 直接托管 agent runtime —— Claude Code、Codex、Gemini CLI —— 在隔离工作区里附带文件、终端状态和可恢复会话。你提供 provider key，我们负责跑循环。',
             faqQ2: 'Sandbox 和 Cloud computer 有什么区别？',
@@ -1986,65 +1845,6 @@ const zh: Translations = {
             footerPrivacy: '隐私',
             footerTerms: '条款',
             footerCookies: 'Cookie 设置',
-            capKicker: '功能盒子里有什么',
-            capTitle: '能力',
-            capTitleDot: '.',
-            capLede: '六个原语，让一次对话变成 agent 真正能交付的工作区。',
-            capInstalledBadge: '已安装',
-            capPendingBadge: '安装 →',
-            capSkillsLabel: 'Skills',
-            capSkillsTitle: '从任意 GitHub 仓库安装能力。',
-            capSkillsBody:
-                '可按 agent 范围、版本化、Pin 住版本。仓库里改一处，所有 agent 同步生效。无需 fork，无需胶水代码 —— Runtime 原生加载。',
-            capSkillsPill1: 'agent 级范围',
-            capSkillsPill2: '版本化',
-            capSkillsPill3: '原生 runtime',
-            capAutomationsLabel: 'Automations',
-            capAutomationsTitle: '按计划、Webhook 或 @mention 自动运行。',
-            capAutomationsBody:
-                '同一个 agent，无需人工提示。Cron、GitHub 事件、Slack mention、入站邮件 —— 都可以唤醒同一个工作区里的 agent，共享同一份审计轨迹。',
-            capAutomationsPill1: 'cron',
-            capAutomationsPill2: 'webhook',
-            capAutomationsPill3: '@mention',
-            capAutomationsPill4: '邮件',
-            capChannelsLabel: 'Channels',
-            capChannelsTitle: '在你已经工作的地方和 agent 对话。',
-            capChannelsBody:
-                'Slack、Lark、飞书、Telegram、Discord，或产品内置对话。Agent 在不同入口都能管理消息线程并保留上下文。',
-            capChannelsPill1: '共享会话',
-            capChannelsPill2: '同一份 provider key',
-            capChannelsPill3: '审计轨迹',
-            capChannelsAgentChat: '产品内对话',
-            capMemoryLabel: 'Memory',
-            capMemoryTitle: '工作区级别的记忆，按需调用。',
-            capMemoryBody:
-                '决策、对话线程、文件和过往运行都附着在工作区上。Agent 在需要时调取相关切片 —— 你可以审查、编辑或一键清空。',
-            capMemoryPill1: '工作区范围',
-            capMemoryPill2: '可检视',
-            capMemoryPill3: '清空 · 导出',
-            capMemoryRecalled: '已调用',
-            capSessionsLabel: 'Sessions',
-            capSessionsTitle: '跨天、跨设备可恢复。',
-            capSessionsBody:
-                '合上电脑，任务继续跑。在手机上重新打开 —— 同一线程，同一份文件挂载。暂停、恢复、回放，每一步都有记录。',
-            capSessionsPill1: '暂停 / 恢复',
-            capSessionsPill2: '跨设备',
-            capSessionsPill3: '回放',
-            capSessionsStarted: '开始 · 周五 22:40',
-            capSessionsNow: '现在 · 周一 09:12',
-            capRuntimesLabel: 'Runtimes',
-            capRuntimesTitle: '三种 Runtime，一个工作区。',
-            capRuntimesBody:
-                '按任务选择姿态。Sandbox 启动干净、即用即弃。Cloud computer 持续在线。Self-owned computer 接入你自己的硬件 —— 共享同一套 skills 和 automations。',
-            capRuntimesPill1: 'sandbox',
-            capRuntimesPill2: 'cloud',
-            capRuntimesPill3: 'self-owned',
-            capRuntimeSandboxName: 'Stateful sandbox',
-            capRuntimeSandboxSub: '按需 · 可恢复',
-            capRuntimePersistentName: 'Cloud computer',
-            capRuntimePersistentSub: '常驻 · 定时',
-            capRuntimeLocalName: 'Self-owned computer',
-            capRuntimeLocalSub: '你的硬件 · 路由',
             heroEyebrow: 'Manyfold · your agent workspace',
             heroTitleBefore: '多个 Agent。',
             heroTitleAfter: '同一个',
@@ -2109,7 +1909,6 @@ const zh: Translations = {
                 '你的笔记本，或者公司自己的服务器。所有东西都留在你信任的机器上，不出本地。',
             machineByoTag1: '自有机器',
             machineByoTag2: '免费',
-            machinesFoldsIn: '已接入',
             flowTitleBefore: '从零到一个可用的 agent，',
             flowTitleAccent: '只需三步。',
             flowBody:
@@ -2170,7 +1969,6 @@ const zh: Translations = {
             ctaTitleAccent: '工作区。',
             ctaLead:
                 'Preview 期间免费。想接多少 agent、多少机器都行，从今天起在一个地方和它们对话。',
-            ctaSecondaryCta: '查看文档',
             pricingTitleBefore: '免费开始，',
             pricingTitleAccent: '需要时再扩展。',
             pricingLead:
@@ -2183,11 +1981,6 @@ const zh: Translations = {
             pricingAlwaysOnlineLabel: '常驻 Agents',
             pricingNote:
                 '价格以美元计，可随时取消。需要定制档位？联系我们一起为你规划。'
-        },
-        login: {
-            kicker: 'Manyfold',
-            title: '开发者工作区登录',
-            body: '登录后继续进入对话优先的运行时工作区。'
         },
         consent: {
             message:
@@ -2234,9 +2027,7 @@ const zh: Translations = {
             installFirstPartyBody:
                 'manyfold-cli-usage 让该 agent 学会使用 mf CLI。新建 agent 时会默认安装，这里可以补装。',
             searchPlaceholder: '搜索 skills',
-            allRepos: '全部仓库',
             searchAction: '搜索',
-            refreshAction: '刷新',
             noResultsTitle: '没有找到 Skill',
             noResultsBody: '换个关键词，或添加包含 SKILL.md 的仓库。',
             ownerPlaceholder: 'owner',
@@ -2267,7 +2058,6 @@ const zh: Translations = {
                 conflictRename: '保留两者',
                 conflictMessage: '技能库中已存在名为「{{name}}」的 skill。',
                 copyToLibrary: '复制到技能库',
-                copied: '已复制到技能库',
                 badge: '技能库',
                 edit: '编辑',
                 export: '导出',
@@ -2435,10 +2225,6 @@ const zh: Translations = {
                 connected: '连接时间',
                 updated: '更新时间'
             },
-            skillsTab: 'Skills',
-            libraryTab: '我的技能',
-            myMcpTab: '我的 MCP',
-            mcpTab: 'MCP',
             navSkills: '技能',
             navMcp: 'MCP',
             navConnections: '连接',
@@ -2591,7 +2377,6 @@ const zh: Translations = {
             resuming: '正在接回这条回答…',
             stalled: '已有一段时间没有输出，仍在等待…',
             working: '正在工作…',
-            tokensPending: 'tokens 计算中…',
             tokensNotReported: '该 agent 未返回 tokens 信息',
             modelUnknown: '未知模型',
             messageDetails: '消息详情',
@@ -2617,7 +2402,6 @@ const zh: Translations = {
             header: {
                 resizeRuntimeViewer: '调整聊天与 Runtime 会话查看器大小',
                 openMenu: '打开菜单',
-                openAgentDetails: '打开 {{name}} 详情',
                 share: '分享聊天',
                 openTerminal: '打开终端',
                 refresh: '刷新聊天和文件',
@@ -2745,7 +2529,6 @@ const zh: Translations = {
         },
         permissions: {
             requestTitle: '权限请求',
-            existingKept: '现有权限会保留 — 此操作只会添加你批准的权限。',
             requestExpired: '此权限请求已过期或不再有效，请让 Agent 重新请求访问权限。',
             requestNotFound:
                 '找不到此权限请求。它可能已处理，或属于其他账号。',
@@ -2870,7 +2653,6 @@ const zh: Translations = {
                 scanHint:
                     '用微信扫码授权机器人。bot token 只在服务端处理。仅支持私聊。',
                 waiting: '等待扫码…',
-                scanned: '已扫描，请在手机上确认…',
                 verifyPrompt: '输入微信中显示的数字以继续。',
                 verifySubmit: '提交',
                 creating: '正在创建 Channel…',
@@ -2978,7 +2760,6 @@ const zh: Translations = {
             modelMenuLabel: '切换模型',
             modelDefaultLabel: '默认（{{model}}）',
             modelSettings: '模型设置',
-            modelProviderSettings: '服务商设置',
             modelSelectedTitle: '{{model}}（已为本次对话选择）',
             modelDefaultTitle: '默认：{{model}}',
             modelManagedBy: '{{base}}；模型切换由 {{framework}} 管理',
@@ -2992,15 +2773,8 @@ const zh: Translations = {
             attachmentsTooLarge: '附件总大小不能超过 {{size}}。',
             cannotUpload: '不支持的文件类型。',
             attachmentDropHint: '拖放文件以添加附件',
-            runtimeLocalReady: '运行时本地配置已就绪',
-            refreshNeeded: '需要刷新',
-            testRequired: '需要测试',
-            testedCount: '已测试 {{count}} 个',
             refreshing: '刷新中…',
             refresh: '刷新',
-            testProviderAction: '测试 Provider',
-            usingLocalCli: '使用本地 CLI 配置',
-            overridesLocal: '覆盖运行时本地配置',
             runtimeLocalUsingTitle: '运行时本地配置',
             validation: {
                 testProvider: '请在来源中测试此 Provider 以加载模型',
@@ -3012,16 +2786,7 @@ const zh: Translations = {
                 chooseSupportedGeminiModel: '选择受支持的 Gemini 模型',
                 runtimeLocalNotReady: '该运行环境的本地配置尚未就绪'
             },
-            manyfoldConfigTitle: 'Manyfold 配置',
-            localNotVerified: '运行时本地配置尚未验证。',
-            refreshingDots: '刷新中...',
             configure: '配置',
-            usingRuntimeLocal: '正在使用运行时本地配置',
-            runtimeWillUseLocal:
-                'Claude Code / Codex 将使用此运行时上配置的模型。',
-            refreshLocalToVerify:
-                '刷新本地配置以验证运行时的 CLI、配置和凭据。',
-            frameworkAgent: '智能体',
             permission: {
                 claude: {
                     ask: '询问权限',
@@ -3089,7 +2854,6 @@ const zh: Translations = {
             standardSpeedDescription: '默认速度，正常使用量'
         },
         credentials: {
-            dialogLabel: '配置模型 Provider',
             heading: '模型 Provider',
             loading: '加载模型 Provider 中…',
             comingSoon: '即将推出',
@@ -3103,21 +2867,7 @@ const zh: Translations = {
                 '请先在设置中测试已保存的 Provider 以启用下拉选项',
             placeholderUnsaved: '选择已保存的 Provider，或手动输入模型 ID',
             saving: '保存中…',
-            runtimeLocalConfig: '运行时本地配置',
-            runtimeLocalConfigInUse: '运行时本地配置 · 正在使用',
-            runtimeAvailable: '{{framework}} 运行时配置可用。',
-            refreshToInspect: '刷新以检查运行时的 CLI 配置和凭据。',
             modelsCount: '{{count}} 个模型',
-            ready: '就绪',
-            needsRefresh: '需要刷新',
-            refreshing: '刷新中...',
-            refresh: '刷新',
-            useManyfoldConfig: '使用 Manyfold 配置',
-            savedOverrideLocal:
-                '下方保存的 Provider 和模型设置会覆盖运行时本地配置。',
-            useLocalCliDefault: '消息默认使用运行时本地 CLI 配置。',
-            localDaemonDefault: ' 自有计算机的智能体默认关闭。',
-            hostedDefault: ' 托管智能体默认开启。',
             modelSourceLabel: '模型来源',
             modelSourcePlatform: 'Manyfold',
             modelSourcePlatformHint: '使用这里设置的 Provider 和模型',
@@ -3134,8 +2884,6 @@ const zh: Translations = {
             },
             claudeMapping: 'Claude 模型映射',
             selectProviderModel: '选择 Provider 模型',
-            defaultModel: '默认模型',
-            selectModel: '选择模型',
             effort: '推理强度',
             closeProviderMenu: '关闭 Provider 菜单',
             modelProviders: '模型 Provider',
@@ -3143,7 +2891,6 @@ const zh: Translations = {
             noSavedProviders: '没有已保存的 {{provider}} Provider。',
             addOne: '添加一个',
             inSettings: '（在设置中）。',
-            selected: '已选',
             currentProvider: '当前 Provider',
             selectProvider: '选择 Provider',
             pickSavedProvider: '在设置中选择已保存的模型 Provider',
@@ -3156,7 +2903,6 @@ const zh: Translations = {
             successUpdatedClaude: '已更新。下一条消息将使用新密钥。',
             successUpdatedDefault:
                 '已更新。智能体重启中 — 几秒后对话会自动恢复。',
-            runtimeLocalNotReady: '运行时本地配置尚未就绪',
             providerTestFailed: 'Provider 测试失败',
             pickProvider: '请先选择一个已保存的 Provider。',
             testProviderBeforeSave: '保存模型设置前请先测试所选 Provider。',
@@ -3168,7 +2914,6 @@ const zh: Translations = {
             closeSearch: '关闭搜索',
             searchFiles: '搜索文件',
             agentStatus: '智能体当前状态：{{status}}。',
-            loadingFiles: '加载文件中…',
             retry: '重试',
             noFiles: '{{root}} 中没有文件。',
             noMatches: '没有匹配「{{query}}」的结果。',
@@ -3393,7 +3138,6 @@ const zh: Translations = {
             setupRequired: '需要初始化',
             adminNeedsToConfigure: '需要管理员配置认证后才能登录。',
             continueWithSso: '使用 SSO 继续',
-            signOut: '退出登录',
             account: '账号',
             signInTitle: '登录',
             signUpTitle: '创建账号',
@@ -3406,23 +3150,10 @@ const zh: Translations = {
             continueWithGoogle: '使用 Google 继续',
             continueWithNetmind: '使用 NetMind 继续',
             orUseEmail: '或使用邮箱登录',
-            completingSignIn: '正在完成登录',
-            finishingGoogle: '正在完成 Google 认证...',
             pleaseWait: '请稍候...',
             createAccount: '创建账号',
             useExistingAccount: '使用已有账号',
-            errorAdditionalVerification: '需要额外验证。',
-            errorCodeNotAccepted: '验证码未通过。',
             errorAuthFailed: '认证失败',
-            errorSignInNotReady: '登录尚未就绪',
-            errorSignUpNotReady: '注册尚未就绪',
-            errorNoSession: '未创建会话',
-            errorGoogleRedirect: 'Google 登录未返回跳转地址',
-            noAccountTitle: '尚未注册',
-            noAccountBody:
-                '没有找到使用该邮箱的账号。Manyfold 在 Beta 期间仅限邀请注册——请先申请使用权限，再通过邀请链接创建账号。',
-            noAccountRequestCta: '申请使用',
-            noAccountRetry: '换一个邮箱重试',
             forgotPasswordCta: '忘记密码？',
             forgotPasswordTitle: '重置密码',
             forgotPasswordBody: '输入邮箱，我们会发送重置验证码。',
@@ -3431,16 +3162,11 @@ const zh: Translations = {
             resetPasswordBody: '输入邮件中的验证码并设置新密码。',
             newPasswordLabel: '新密码',
             resetPasswordCta: '更新密码',
-            passwordResetDone: '密码已更新，请使用新密码登录。',
-            checkYourEmailTitle: '请查收邮件',
             checkYourEmailBody: '我们已向你的邮箱发送验证码。',
             resendCodeCta: '重新发送验证码',
             codeResent: '新的验证码已发送。',
             backToSignIn: '返回登录',
             oauthError: '登录未能完成，请重试。',
-            errorEmailInUse: '该邮箱已被注册。',
-            errorInvalidCredentials: '邮箱或密码不正确。',
-            errorCodeExpired: '验证码已过期，请重新获取。',
             netmindDefaultDescription: '使用 NetMind 账号登录。',
             netmindBindPrompt: '还差一步：验证邮箱以完成 NetMind 账号连接。',
             netmindEmailLabel: 'NetMind 邮箱',
@@ -3870,7 +3596,6 @@ const zh: Translations = {
             upgradeBlockedTip:
                 '远程升级需要 daemon 在线、由自启动管理且 CLI 版本较新。先在机器上手动升级一次 CLI 即可启用。',
             upgradeAvailableSuffix: '有 {{version}} 可用',
-            noFrameworks: '未检测到任何框架',
             needsUpgradeTitle: '需要升级 CLI',
             needsUpgradeHintPrefix: '这台机器的 mf CLI 低于所需最低版本。运行',
             needsUpgradeHintThen: '然后',
@@ -3906,17 +3631,11 @@ const zh: Translations = {
         agentNewV3: {
             managedProvider: 'Manyfold 托管',
             welcomeTitle: '创建一个 agent 开始使用',
-            welcomeSubtitle: '选一个框架就能开始，其余配置我们先用推荐默认值。',
             returningTitle: '创建 agent',
-            returningSubtitle:
-                '选一个框架，其余都用推荐默认值，之后可随时修改。',
             frameworkLabel: '框架',
-            recommended: '推荐',
             creditLabel: '模型服务',
-            creditPlatform: '平台额度',
             creditPlatformHint: '无需 API key，新用户赠送',
             creditGranting: '赠送额度领取中…',
-            creditReady: '{{amount}} 已到账',
             creditError: '额度暂未到账',
             creditRetry: '重试',
             creditBalance: '余额 {{amount}}',
@@ -3924,7 +3643,6 @@ const zh: Translations = {
             creditGiftPending: '赠送 {{amount}} 领取中…',
             balanceEmptyNote:
                 '现在就能创建 agent，赠送额度稍后到账，到账后即可开始对话。',
-            waitingCredits: '等待额度到账…',
             preparingAccount: '正在准备账户…',
             useOwnKey: '使用自己的 API key',
             useNewKey: '使用新的 API key',
@@ -3952,22 +3670,15 @@ const zh: Translations = {
             modelManualHint: '无法获取模型列表，请手动填写。',
             summaryNote: '模型、名称、环境配置创建后可随时修改。',
             summarySandbox: '沙箱',
-            summaryPersistent: '长驻',
             summaryDefaultModel: '默认模型',
             summaryPlatformCredits: '平台额度',
             summaryOwnKey: '你的 API key',
             createCta: '创建 agent',
             creating: '创建中…',
-            advancedLink: '高级设置 — 自定义运行方式、模型、工作区等全部细节',
-            externalNeedsAdvanced:
-                '该框架用于接入已有应用，请在高级设置中继续。',
             chooseFramework: '选择框架',
-            continueInAdvanced: '继续配置',
-            backToSimple: '返回简单创建',
             modeQuick: '快速',
             modeAdvanced: '高级',
             modeSwitchLabel: '创建模式',
-            runtimeLabel: '运行方式',
             runtimeCreateNewLabel: '新建',
             runtimeNewSandbox: '新建 Sandbox',
             runtimeQuotaLabel: '沙箱配额',
@@ -4262,7 +3973,6 @@ const zh: Translations = {
                 '{{enabled}}/{{total}} 个模型 · {{protocols}} 个协议',
             managedModelsSummarySingle:
                 '{{enabled}}/{{total}} 个模型 · {{protocols}} 个协议',
-            modelsCount: '{{count}} 个模型',
             usageUpdated: '用量更新于 {{time}}',
             accountSynced: '账户同步于 {{time}}',
             requests: '{{count}} 个请求',
@@ -4275,11 +3985,7 @@ const zh: Translations = {
             statusError: '错误'
         },
         runtimeDetail: {
-            copy: '复制',
-            copied: '已复制',
             versionPending: '版本待定',
-            primary: '主 Agent',
-            synced: '已同步',
             status: {
                 ready: '就绪',
                 pending: '等待中',
@@ -4289,68 +3995,10 @@ const zh: Translations = {
                 online: '在线',
                 offline: '离线'
             },
-            serviceStatus: {
-                ready: '就绪',
-                starting: '启动中',
-                stopped: '已停止',
-                unknown: '未知'
-            },
-            checked: '检查于',
-            refreshVersion: '刷新版本',
             changeVersion: '更改版本',
-            refresh: '刷新',
-            actions: '运行时操作',
-            rename: '重命名',
-            deleting: '删除中…',
-            deleteRuntime: '删除运行时',
-            delete: '删除',
-            deleteDescription:
-                '删除运行时“{{name}}”？其 Agent 和运行时资源都会被拆除。',
-            runtimeFailed: '运行时失败',
-            failedControlUi: '打开控制 UI 失败',
-            failedDashboard: '打开仪表盘失败',
-            upgradeHint: '升级在沙箱中运行，可能需要一分钟。',
-            upgradeCurrentHint:
-                '此运行时为 v{{version}}。升级在沙箱中运行，可能需要一分钟。',
-            upgrade: '升级…',
-            agents: 'Agent',
-            agentsCount: 'Agent（{{count}}）',
-            controls: '控制',
-            controlUi: '控制 UI',
-            controlUiDescription:
-                '公开此运行时的 OpenClaw 控制 UI。切换时网关会短暂重启。',
-            restarting: '重启中…',
-            openUi: '打开 UI ↗',
-            dashboard: '仪表盘',
-            dashboardDescription:
-                '公开此运行时的 Hermes 仪表盘。首次启用会构建网页 UI（约一分钟），切换时网关会短暂重启。',
             updating: '更新中…',
-            openDashboard: '打开仪表盘 ↗',
-            keepAlive: '保持运行',
-            keepAliveDescription:
-                '让此沙箱持续运行，占用一个并发活跃沙箱名额并持续累计运行时间，直到关闭。',
-            details: '详情',
-            primaryAgent: '主 Agent',
-            statefulSandbox: '有状态沙箱',
-            cluster: '集群',
-            namespace: '命名空间',
-            ingress: '入口',
-            machine: '机器',
             endpoint: '端点',
-            mountPath: '挂载路径',
-            homeDir: '主目录',
-            workspaceBase: '工作区基目录',
-            cliVersion: 'CLI 版本',
-            lastSeen: '最近在线',
-            service: '服务',
-            phase: '阶段',
-            started: '开始时间',
-            created: '创建时间',
-            upgradeFramework: '升级框架',
-            changeFrameworkVersion: '更改框架版本',
-            upgrading: '升级中…',
             version: '版本',
-            renameRuntime: '重命名运行时'
         },
         agentRuntimesList: {
             collapseHost: '收起主机',
@@ -4434,7 +4082,6 @@ const zh: Translations = {
             runtimesAria: '运行时',
             collapseAll: '全部收起',
             expandAll: '全部展开',
-            updateAll: '全部更新',
             statusNone: '无',
             statusKind: '类型',
             statusStatus: '状态',
@@ -4515,11 +4162,6 @@ const zh: Translations = {
             noProviders: '还没有外部 Provider。'
         },
         agentRuntimesListExtras: {
-            oneMachineUpgrade: '1 台机器需要升级 CLI',
-            machinesUpgrade: '{{count}} 台机器需要升级 CLI',
-            runUpdate: '运行',
-            then: '然后',
-            learnHow: '了解详情',
             upgradeHostDescription:
                 '将“{{name}}”上的 mf CLI 升级到 {{version}} 并重启守护进程。此机器上的 Agent 会短暂停止。'
         },
@@ -4539,8 +4181,6 @@ const zh: Translations = {
             usersBilling: '用户与计费',
             catalogs: '目录',
             platformSettings: '平台设置',
-            runtimePolicies: 'Runtime 策略',
-            releaseControls: '发布控制',
             agentManagement: 'Agent 管理',
             accounts: '账号',
             frameworks: 'Frameworks',
@@ -4555,37 +4195,21 @@ const zh: Translations = {
             sandboxes: 'Sandboxes',
             channels: '消息渠道',
             modelProviders: '模型服务商',
-            settings: '设置',
             clusters: 'Cloud computer 集群',
             spritesAccounts: 'Stateful sandbox 账号',
             selfOwnedComputers: '自有电脑',
-            sandboxQuotas: 'Sandbox 配额',
-            spritesWholesaleCap: 'Sprites 批发容量上限',
             users: '用户',
-            frameworkModelCatalog: 'Framework 模型目录',
-            skillsCatalog: 'Skills 目录',
-            skillRepositories: 'Skill 仓库',
-            mcpCatalog: 'MCP 目录',
-            catalogCategories: '目录分类',
             loginProvider: '登录服务',
             emailProvider: '邮件服务',
             notificationWebhooks: '通知 Webhooks',
-            frameworkRuntimeDefaults: 'Framework Runtime 默认值',
-            frameworkDefaultVersions: 'Framework 默认版本',
-            cliMinimumVersion: 'CLI 最低版本',
-            chatExecTimeouts: 'Chat 执行超时',
-            a2aTurnTimeouts: 'A2A 回合超时',
-            featureToggles: '功能开关'
         },
         dashboard: {
             title: '仪表盘',
             welcome: '欢迎回来',
-            whoami: '当前登录'
         },
         agents: {
             title: 'Agents',
             empty: '还没有 agent，创建第一个开始使用。',
-            newButton: '新建 Agent',
             primaryTooltip:
                 '这是 runtime 的主 agent — 请在 runtime 页面通过「删除 Runtime」移除。',
             filters: {
@@ -4597,14 +4221,12 @@ const zh: Translations = {
             },
             cols: {
                 name: '名称',
-                internalId: '内部 ID',
                 framework: '框架',
                 model: '模型',
                 cluster: '集群',
                 runtime: 'Runtime',
                 status: '状态',
                 createdAt: '创建时间',
-                actions: '',
                 owner: '所属用户'
             },
             status: {
@@ -4701,7 +4323,6 @@ const zh: Translations = {
                 hermesProfileHint:
                     '1-64 字符。用于区分同一用户下多个 Hermes 部署。',
                 submit: '创建 Agent',
-                submitting: '创建中...',
                 submitDisabledHint:
                     '请填完必填项，并至少选择一个 Hermes 接入平台后提交。',
                 back: '返回 Agents',
@@ -4733,7 +4354,6 @@ const zh: Translations = {
             },
             detail: {
                 title: 'Agent 详情',
-                back: '返回 Agents',
                 notFound: '未找到该 Agent。',
                 owner: '所属用户',
                 primaryPill: '主 Agent',
@@ -4775,22 +4395,10 @@ const zh: Translations = {
                         lastActivity: '最后活跃'
                     }
                 },
-                terminal: {
-                    title: '终端',
-                    unavailable: 'Agent 运行后即可使用终端。',
-                    reconnect: '重新连接',
-                    status: {
-                        connecting: '连接中…',
-                        open: '已连接',
-                        closed: '已断开',
-                        error: '错误'
-                    }
-                },
                 files: {
                     title: '文件',
                     unavailable: 'Agent 运行后即可打开文件浏览器。',
                     loading: '正在准备文件浏览器…',
-                    error: '文件浏览器打开失败。',
                     refresh: '刷新',
                     newFolder: '新建文件夹',
                     newFolderHere: '在此新建文件夹',
@@ -4843,7 +4451,6 @@ const zh: Translations = {
             form: {
                 titleCreate: '添加 Cloud computer 集群',
                 titleEdit: '编辑 Cloud computer 集群',
-                back: '返回集群列表',
                 nameLabel: '名称',
                 namePlaceholder: 'eu-west-prod',
                 nameHint: '1-64 字符，创建 agent 时下拉选择时展示。',
@@ -4860,8 +4467,6 @@ const zh: Translations = {
                 submitCreate: '添加集群',
                 submitUpdate: '保存修改',
                 submitting: '保存中…',
-                probeSuccess: '集群可达。',
-                probeFailed: '集群探测失败。'
             }
         },
         spritesAccounts: {
@@ -4893,7 +4498,6 @@ const zh: Translations = {
             form: {
                 titleCreate: '添加 Stateful sandbox 账号',
                 titleEdit: '编辑 Stateful sandbox 账号',
-                back: '返回 Stateful sandbox 账号',
                 slugLabel: 'Slug',
                 slugPlaceholder: 'prod-eu',
                 slugHint:
@@ -4913,8 +4517,6 @@ const zh: Translations = {
                 submitRotate: '轮换 Token',
                 submitting: '保存中…',
                 rotateSuccess: 'Token 已轮换。',
-                invalidTokenError:
-                    'Token 必须是 "<orgSlug>/<orgId>/<tokenId>/<tokenValue>" 格式。'
             }
         },
         users: {
@@ -4934,8 +4536,6 @@ const zh: Translations = {
             actions: {
                 promote: '设为管理员',
                 demote: '取消管理员',
-                promoting: '授权中…',
-                demoting: '撤销中…',
                 selfHint: '不能取消自己的管理员角色。'
             },
             deletion: {
@@ -5011,9 +4611,7 @@ const zh: Translations = {
                 keepAliveSaving: '保存中…'
             },
             detail: {
-                back: '返回 Runtimes',
                 notFound: '未找到该 Runtime。',
-                primaryAgentLabel: '主 Agent',
                 actions: {
                     addAgent: '添加 Agent',
                     addAgentUnsupported:
@@ -5048,7 +4646,6 @@ const zh: Translations = {
                         workspace: '项目路径',
                         status: '状态',
                         lastReconciledAt: '最近同步',
-                        actions: ''
                     }
                 },
                 addAgent: {
