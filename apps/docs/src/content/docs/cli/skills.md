@@ -18,6 +18,12 @@ mf skills install --skill-id skl_xxx --agent-id agt_xxx
 mf skills installed --agent-id agt_xxx
 ```
 
+Discovery is paginated: results arrive one page at a time (up to 100 per
+page, featured ranking by default; `--sort latest` ranks by recency). When
+more results exist the command prints a hint with the cursor to pass as
+`--cursor`, and `--json` output is the page object — `items` plus a
+`nextCursor` that is `null` on the last page.
+
 Install to several agents with:
 
 ```sh

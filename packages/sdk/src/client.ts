@@ -731,11 +731,6 @@ export interface SkillsClient {
         agentId?: string,
         opts?: SkillsInstalledOptions
     ) => Promise<AgentSkillsGroup[]>
-    discover: (opts?: {
-        agentId?: string
-        q?: string
-        repoId?: string
-    }) => Promise<DiscoverableSkillSummary[]>
     discoverPage: (opts?: {
         agentId?: string
         q?: string
@@ -2765,16 +2760,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     `${apiPaths.SKILLS_INSTALLED}${query ? `?${query}` : ''}`
                 )
             },
-            discover: (opts) => {
-                const q = new URLSearchParams()
-                if (opts?.agentId) q.set('agentId', opts.agentId)
-                if (opts?.q) q.set('q', opts.q)
-                if (opts?.repoId) q.set('repoId', opts.repoId)
-                const query = q.toString()
-                return request<DiscoverableSkillSummary[]>(
-                    `${apiPaths.SKILLS_DISCOVER}${query ? `?${query}` : ''}`
-                )
-            },
             discoverPage: (opts) => {
                 const q = new URLSearchParams()
                 if (opts?.agentId) q.set('agentId', opts.agentId)
@@ -2783,7 +2768,8 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 if (opts?.category) q.set('category', opts.category)
                 if (opts?.tag) q.set('tag', opts.tag)
                 // sort is always sent so the API returns the paged envelope
-                // instead of the legacy bare array.
+                // instead of the legacy bare array (which the route keeps
+                // only for released CLI binaries that predate discoverPage).
                 q.set('sort', opts?.sort ?? 'featured')
                 if (opts?.cursor) q.set('cursor', opts.cursor)
                 if (opts?.limit) q.set('limit', String(opts.limit))

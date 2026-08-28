@@ -51,6 +51,9 @@ Discover skills available to install
 | `--agent-id <id>` | filter to this agent context |
 | `--q <query>` | search query |
 | `--repo-id <id>` | filter to a specific repo |
+| `--sort <order>` | 'featured' (default) or 'latest' |
+| `--cursor <cursor>` | opaque cursor from previous page |
+| `--limit <n>` | page size (1-100, default 100) |
 | `--json` | emit raw JSON |
 | `-h, --help` | display help for command |
 
