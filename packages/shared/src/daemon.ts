@@ -359,8 +359,10 @@ export const DAEMON_FEATURE_FS_WRITE_BINARY = 'fs.write.binary'
 // itself once drained. Daemons without this restart immediately.
 export const DAEMON_FEATURE_DAEMON_UPDATE_DRAIN = 'daemon.update.drain'
 // The daemon accepts turn.start for the named framework (see
-// DaemonTurnStartPayload). The API must fall back to its own client when the
-// capability is absent, so it gates the transport choice per daemon.
+// DaemonTurnStartPayload). For openclaw the API falls back to its own client
+// when the capability is absent, so it gates the transport choice per daemon.
+// For hermes it is an admission gate since ADR-0024 (chat is ACP-only): a
+// daemon without it is refused with `hermes_daemon_upgrade_required`.
 export const DAEMON_FEATURE_TURN_HERMES = 'turn.hermes'
 export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'
 // The hello's inflightStreams field is authoritative when PRESENT (an empty

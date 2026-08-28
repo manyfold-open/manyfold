@@ -40,19 +40,8 @@ interface StatefulConsentToken {
     v: 2
 }
 
-interface LegacyConsentToken {
-    // Transitional tokens from the original stateful implementation included
-    // both an id and the legacy claims. Resolve those through the row too.
-    id?: string
-    agentId: string
-    scopes: GrantableScope[]
-    exp: number
-}
-
-type ConsentToken = StatefulConsentToken | LegacyConsentToken
-
 interface ConsentPayload {
-    id?: string
+    id: string
     agentId: string
     scopes: GrantableScope[]
     exp: number
@@ -60,7 +49,7 @@ interface ConsentPayload {
 
 interface ResolvedConsent {
     payload: ConsentPayload
-    record: PermissionConsentRequest | null
+    record: PermissionConsentRequest
 }
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
@@ -122,7 +111,7 @@ export class AgentPermissionsService {
     ): Promise<PermissionConsentPreview> {
         const { payload, record } = await this.resolve(token)
         const agent = await this.assertOwned(payload.agentId, approverUserId)
-        const status = record?.status ?? 'pending'
+        const status = record.status
         if (status === 'pending') this.assertUnexpired(payload)
         return {
             agentId: payload.agentId,
@@ -137,10 +126,10 @@ export class AgentPermissionsService {
             }),
             expiresAt: new Date(payload.exp).toISOString(),
             status,
-            approvedScopes: (record?.approvedScopes ?? []).filter(
+            approvedScopes: (record.approvedScopes ?? []).filter(
                 isGrantableScope
             ),
-            resolvedAt: record?.resolvedAt?.toISOString() ?? null
+            resolvedAt: record.resolvedAt?.toISOString() ?? null
         }
     }
 
@@ -310,9 +299,8 @@ export class AgentPermissionsService {
     }
 
     private async loadRequest(
-        id: string | undefined
+        id: string
     ): Promise<PermissionConsentRequest | null> {
-        if (!id) return null
         const [row] = await this.db
             .select()
             .from(permissionConsentRequests)
@@ -323,11 +311,10 @@ export class AgentPermissionsService {
 
     // Conditional UPDATE on status='pending' — the whole point of the row. Two
     // approvals racing (double click, two tabs) mean exactly one claims it and
-    // the loser gets 410 instead of silently re-granting. Tokens minted before
-    // the table existed carry no id and stay stateless until they expire.
+    // the loser gets 410 instead of silently re-granting.
     private async claim(
         exec: Executor,
-        id: string | undefined,
+        id: string,
         args: {
             status: Exclude<PermissionConsentStatus, 'pending'>
             approvedScopes: GrantableScope[] | null
@@ -335,7 +322,6 @@ export class AgentPermissionsService {
             resolvedAt?: Date
         }
     ): Promise<void> {
-        if (!id) return
         const [claimed] = await exec
             .update(permissionConsentRequests)
             .set({
@@ -454,39 +440,29 @@ export class AgentPermissionsService {
 
     private async resolve(token: string): Promise<ResolvedConsent> {
         const decoded = this.decode(token)
-        if ('v' in decoded || decoded.id) {
-            const record = await this.loadRequest(decoded.id)
-            if (!record)
-                throw new BadRequestException(
-                    'consent request does not exist or is no longer available'
-                )
-            const scopes = this.validateScopes(
-                record.requestedScopes as GrantableScope[]
+        const record = await this.loadRequest(decoded.id)
+        if (!record)
+            throw new BadRequestException(
+                'consent request does not exist or is no longer available'
             )
-            const exp = record.expiresAt.getTime()
-            if (!Number.isFinite(exp))
-                throw new BadRequestException('invalid consent request expiry')
-            return {
-                payload: {
-                    id: record.id,
-                    agentId: record.agentId,
-                    scopes,
-                    exp
-                },
-                record
-            }
-        }
+        const scopes = this.validateScopes(
+            record.requestedScopes as GrantableScope[]
+        )
+        const exp = record.expiresAt.getTime()
+        if (!Number.isFinite(exp))
+            throw new BadRequestException('invalid consent request expiry')
         return {
             payload: {
-                agentId: decoded.agentId,
-                scopes: this.validateScopes(decoded.scopes),
-                exp: decoded.exp
+                id: record.id,
+                agentId: record.agentId,
+                scopes,
+                exp
             },
-            record: null
+            record
         }
     }
 
-    private decode(token: string): ConsentToken {
+    private decode(token: string): StatefulConsentToken {
         let payload: unknown
         try {
             const enc = JSON.parse(
@@ -505,21 +481,7 @@ export class AgentPermissionsService {
             typeof payload.id === 'string'
         )
             return payload as StatefulConsentToken
-        if (
-            !payload ||
-            typeof payload !== 'object' ||
-            !('agentId' in payload) ||
-            typeof payload.agentId !== 'string' ||
-            !('scopes' in payload) ||
-            !Array.isArray(payload.scopes) ||
-            !('exp' in payload) ||
-            typeof payload.exp !== 'number' ||
-            ('id' in payload &&
-                payload.id !== undefined &&
-                typeof payload.id !== 'string')
-        )
-            throw new BadRequestException('invalid consent token payload')
-        return payload as LegacyConsentToken
+        throw new BadRequestException('invalid consent token payload')
     }
 
     private assertUnexpired(payload: ConsentPayload): void {

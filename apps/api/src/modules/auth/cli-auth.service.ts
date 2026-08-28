@@ -37,9 +37,7 @@ import { CliAuthRateLimitService } from './cli-auth-rate-limit.service'
 const LOGIN_TTL_MS = 15 * 60_000
 const CLI_TOKEN_EXPIRES_DAYS = 90
 const AUTH_CODE_PREFIX = 'mf_auth_'
-const LEGACY_AUTH_CODE_PREFIX = 'nca_auth_'
 const DEVICE_CODE_PREFIX = 'mf_dvc_'
-const LEGACY_DEVICE_CODE_PREFIX = 'nca_dvc_'
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const CLEANUP_INTERVAL_MS = 60_000
 const CLEANUP_RETENTION_MS = 60 * 60_000
@@ -269,7 +267,7 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
 
     async exchange(authCode: string): Promise<CliLoginExchangeResponse> {
         const code = authCode.trim()
-        if (!hasPrefix(code, [AUTH_CODE_PREFIX, LEGACY_AUTH_CODE_PREFIX]))
+        if (!code.startsWith(AUTH_CODE_PREFIX))
             throw new BadRequestException('invalid auth code')
 
         const codeHash = hashSecret(code)
@@ -325,13 +323,7 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
 
     async poll(input: { deviceCode: string }): Promise<CliLoginPollResponse> {
         const deviceCode = input.deviceCode?.trim()
-        if (
-            !deviceCode ||
-            !hasPrefix(deviceCode, [
-                DEVICE_CODE_PREFIX,
-                LEGACY_DEVICE_CODE_PREFIX
-            ])
-        )
+        if (!deviceCode || !deviceCode.startsWith(DEVICE_CODE_PREFIX))
             throw new BadRequestException('invalid deviceCode')
 
         const hash = hashSecret(deviceCode)
@@ -647,9 +639,6 @@ export const generateUserCode = (): string => {
     )
     return `${chars.slice(0, 4).join('')}-${chars.slice(4).join('')}`
 }
-
-const hasPrefix = (value: string, prefixes: readonly string[]): boolean =>
-    prefixes.some((prefix) => value.startsWith(prefix))
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '')
 

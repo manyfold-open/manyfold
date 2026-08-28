@@ -525,10 +525,15 @@ test('exchange rejects grant-mode sessions', async () => {
     await assert.rejects(() => cliAuth.exchange('mf_auth_fake'), /not found/)
 })
 
-test('exchange accepts legacy auth code prefix during migration', async () => {
+test('exchange rejects the retired nca_auth_ prefix at the shape gate', async () => {
     const db = new FakeDb()
     const cliAuth = newCliAuth(db)
-    await assert.rejects(() => cliAuth.exchange('nca_auth_fake'), /not found/)
+    // No live legacy code can exist: minting went mf_-only at the rename and
+    // login codes expire after 15 minutes (legacy-inventory §2).
+    await assert.rejects(
+        () => cliAuth.exchange('nca_auth_fake'),
+        /invalid auth code/
+    )
 })
 
 test('poll: deviceCode not found → 404', async () => {
@@ -540,12 +545,12 @@ test('poll: deviceCode not found → 404', async () => {
     )
 })
 
-test('poll accepts legacy device code prefix during migration', async () => {
+test('poll rejects the retired nca_dvc_ prefix at the shape gate', async () => {
     const db = new FakeDb()
     const cliAuth = newCliAuth(db)
     await assert.rejects(
         () => cliAuth.poll({ deviceCode: 'nca_dvc_missing' }),
-        /not found/
+        /invalid deviceCode/
     )
 })
 

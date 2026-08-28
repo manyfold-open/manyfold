@@ -40,8 +40,9 @@ export const objectIdPrefixes = Object.freeze({
     mcpCatalogEntry: 'mcp',
     notificationWebhook: 'nwh',
     oauthState: 'oas',
-    runtimeInvite: 'rti',
-    runtimeInviteRedemption: 'rir',
+    // Retired, never reusable (prefixes are forever): 'rti' (runtimeInvite),
+    // 'rir' (runtimeInviteRedemption) — allocated by ADR-0004, no row was ever
+    // minted, resource kinds removed with the invite feature.
     sandboxHost: 'sbx',
     scopedModelPrice: 'smp',
     skillRepo: 'skr',

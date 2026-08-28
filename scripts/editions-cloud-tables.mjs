@@ -45,7 +45,12 @@ export const CLOUD_TABLE_CONTRACT = [
     { table: 'plan_billing', dbExport: 'planBilling' },
     // §4.1 Phase-4 expand (2026-08-21): the new home for the Stripe customer
     // mapping on core users; the matching core-column contract follows.
-    { table: 'stripe_customers', dbExport: 'stripeCustomers' }
+    { table: 'stripe_customers', dbExport: 'stripeCustomers' },
+    // ADR-0023 deletion tombstone (2026-08-22).
+    {
+        table: 'deleted_user_billing_refs',
+        dbExport: 'deletedUserBillingRefs'
+    }
 ]
 
 export const CLOUD_TABLE_DB_EXPORTS = CLOUD_TABLE_CONTRACT.map(

@@ -1,11 +1,6 @@
 set shell := ['bash', '-cu']
 set dotenv-load := false
 
-IMAGE_VERSION := `node -p "require('./package.json').version || '0.0.0'" 2>/dev/null || echo 0.0.0`
-IMAGE_DATE := `date -u +%Y%m%d`
-IMAGE_SHA := `git rev-parse --short HEAD 2>/dev/null || echo nogit`
-IMAGE_TAG := IMAGE_VERSION + "-" + IMAGE_DATE + "-" + IMAGE_SHA
-
 default:
     @just --list
 
@@ -150,27 +145,6 @@ format-check:
 
 health:
     curl -sSf http://localhost:2222/api/health | jq .
-
-image-tag:
-    @echo {{IMAGE_TAG}}
-
-docker-build-base TAG="debian-bookworm":
-    docker build -t mf-runtime-base:{{TAG}} docker/mf-base
-
-docker-build-openclaw TAG=IMAGE_TAG: docker-build-base
-    docker build -t openclaw:{{TAG}} -t openclaw:latest docker/openclaw
-
-docker-build-hermes TAG=IMAGE_TAG: docker-build-base
-    docker build -t hermes:{{TAG}} -t hermes:latest docker/hermes
-
-docker-build-claude-code TAG=IMAGE_TAG: docker-build-base
-    docker build -t claude-code:{{TAG}} -t claude-code:latest docker/claude-code
-
-docker-build-codex TAG=IMAGE_TAG: docker-build-base
-    docker build -t codex:{{TAG}} -t codex:latest docker/codex
-
-docker-build-gemini-cli TAG=IMAGE_TAG: docker-build-base
-    docker build -t gemini-cli:{{TAG}} -t gemini-cli:latest docker/gemini-cli
 
 clean:
     rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist .turbo
