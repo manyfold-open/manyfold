@@ -16,6 +16,8 @@ mf skills install --skill-id skl_xxx --agent-id agt_xxx
 mf skills installed --agent-id agt_xxx
 ```
 
+Discovery 是分页的：结果按页返回（每页最多 100 条，默认 featured 排序；`--sort latest` 按最新排序）。还有更多结果时命令会提示下一页的 cursor（传给 `--cursor` 继续），`--json` 输出的是页对象——`items` 加 `nextCursor`（最后一页为 `null`）。
+
 批量安装到多个 Agent：
 
 ```sh
