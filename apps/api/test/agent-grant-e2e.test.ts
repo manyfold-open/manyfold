@@ -1,17 +1,16 @@
 /**
- * Phase 9 — end-to-end grant lifecycle (services only, no HTTP).
- *
- * Drives the full happy path:
- *   1. CLI `start` (grant mode) creates a session with deviceCode
- *   2. Web `approve` records approvedScopes + agent ownership check
- *   3. CLI `poll` mints the grant token via ApiTokenService.mintGrantInTx
- *   4. AuthGuard accepts the token for a method requiring channels:edit
- *   5. AuthGuard rejects the same token for an endpoint requiring agents:edit
- *   6. ApiTokenService.revoke marks the token revoked
- *   7. AuthGuard rejects the token on the next request
- *   8. Re-login (start → approve → poll) with widened scopes mints a NEW
- *      token; old token stays revoked; new token passes channels:edit AND
- *      automations:read.
+ * End-to-end lifecycle of a legacy unbound grant token (services only, no
+ * HTTP). The device-code grant flow that minted these is retired, but tokens
+ * it issued live 90 days and must keep behaving until Phase 8 retires the
+ * acceptance side, so the mint here goes through ApiTokenService.mintGrant
+ * exactly as the flow did:
+ *   1. Mint (createdVia 'cli-poll', enforceAgentBinding false)
+ *   2. AuthGuard accepts the token for a method requiring channels:edit
+ *   3. AuthGuard rejects the same token for an endpoint requiring agents:edit
+ *   4. ApiTokenService.revoke marks the token revoked
+ *   5. AuthGuard rejects the token on the next request
+ *   6. Re-mint with widened scopes; old token stays revoked; new token
+ *      passes channels:edit AND automations:read.
  */
 import 'reflect-metadata'
 import test from 'node:test'
@@ -396,35 +395,23 @@ const newStack = () => {
 
 // ---------- The e2e flow ----------
 
-test('grant lifecycle: start → approve → poll → guard → revoke → re-login → guard', async () => {
-    const { db, apiTokenSvc, cliAuth, guard } = newStack()
+// The device-code grant flow that used to mint these tokens is retired, but
+// the tokens it minted live 90 days and still authenticate (Phase 8 owns the
+// final removal). This e2e keeps the guard-side lifecycle honest by minting
+// through ApiTokenService directly, exactly as the retired flow did.
+test('legacy grant lifecycle: mint → guard → revoke → re-mint → guard', async () => {
+    const { db, apiTokenSvc, guard } = newStack()
 
-    // Step 1 — CLI starts the grant session.
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-    assert.match(started.deviceCode ?? '', /^mf_dvc_/)
-    assert.equal(db.sessionRows[0].status, 'pending')
-
-    // Step 2 — User approves with the same scopes.
-    const approved = await cliAuth.approve({
-        requestId: started.requestId,
-        userCode: started.userCode,
+    const minted = await apiTokenSvc.mintGrant({
         userId: 'user-1',
-        approvedScopes: ['channels:read', 'channels:edit']
+        agentId: 'agt_A',
+        scopes: ['channels:read', 'channels:edit'],
+        createdVia: 'cli-poll',
+        enforceAgentBinding: false,
+        replaceExisting: true
     })
-    assert.equal(approved.mode, 'grant')
-    assert.equal(approved.authCode, null)
-
-    // Step 3 — CLI polls and gets the token.
-    const polled = await cliAuth.poll({ deviceCode: started.deviceCode! })
-    assert.equal(polled.status, 'approved')
-    if (polled.status !== 'approved') return
-    const token = polled.token
+    const token = minted.plaintext
     assert.match(token, /^nca_/)
-    assert.deepEqual(polled.scopes, ['channels:read', 'channels:edit'])
-    assert.equal(polled.userEmail, 'user@example.com')
 
     // Step 4 — Guard accepts the token for a channels:edit endpoint (acting
     // on a DIFFERENT agent than the token was minted for — decision #5).
@@ -480,23 +467,18 @@ test('grant lifecycle: start → approve → poll → guard → revoke → re-lo
         /revoked/
     )
 
-    // Step 8 — Re-login with WIDENED scopes (add automations:read).
-    const started2 = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit', 'automations:read'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started2.requestId,
-        userCode: started2.userCode,
+    // Step 8 — Re-mint with WIDENED scopes (add automations:read), as a
+    // re-login used to do.
+    const minted2 = await apiTokenSvc.mintGrant({
         userId: 'user-1',
-        approvedScopes: ['channels:edit', 'automations:read']
+        agentId: 'agt_A',
+        scopes: ['channels:edit', 'automations:read'],
+        createdVia: 'cli-poll',
+        enforceAgentBinding: false,
+        replaceExisting: true
     })
-    const polled2 = await cliAuth.poll({ deviceCode: started2.deviceCode! })
-    if (polled2.status !== 'approved')
-        throw new Error('second poll did not approve')
-    const token2 = polled2.token
+    const token2 = minted2.plaintext
     assert.notEqual(token, token2)
-    assert.deepEqual(polled2.scopes, ['channels:edit', 'automations:read'])
 
     // Old token (still revoked) is still rejected.
     await assert.rejects(
@@ -547,33 +529,27 @@ test('grant lifecycle: start → approve → poll → guard → revoke → re-lo
     )
 })
 
-test('grant flow: prior grant for same agent is revoked when re-login mints', async () => {
-    const { db, cliAuth } = newStack()
+test('legacy grants: prior grant for same agent is revoked when a new one mints', async () => {
+    const { db, apiTokenSvc } = newStack()
 
-    const started1 = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started1.requestId,
-        userCode: started1.userCode,
+    const first = await apiTokenSvc.mintGrant({
         userId: 'user-1',
-        approvedScopes: ['channels:read']
+        agentId: 'agt_A',
+        scopes: ['channels:read'],
+        createdVia: 'cli-poll',
+        enforceAgentBinding: false,
+        replaceExisting: true
     })
-    await cliAuth.poll({ deviceCode: started1.deviceCode! })
-    const firstTokenId = db.tokenRows[0].id
+    const firstTokenId = first.tokenId
 
-    const started2 = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started2.requestId,
-        userCode: started2.userCode,
+    await apiTokenSvc.mintGrant({
         userId: 'user-1',
-        approvedScopes: ['channels:read', 'channels:edit']
+        agentId: 'agt_A',
+        scopes: ['channels:read', 'channels:edit'],
+        createdVia: 'cli-poll',
+        enforceAgentBinding: false,
+        replaceExisting: true
     })
-    await cliAuth.poll({ deviceCode: started2.deviceCode! })
 
     assert.equal(db.tokenRows.length, 2)
     const firstRow = db.tokenRows.find((r) => r.id === firstTokenId)
