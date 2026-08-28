@@ -4494,6 +4494,8 @@ const zh: Translations = {
             storage: '存储',
             activeThisPeriod: '本周期活跃',
             agents: 'Agent 数',
+            colName: '名称',
+            colLastTest: '上次测试',
             testPassed: '测试通过',
             testFailed: '测试失败',
             neverTested: '未测试',

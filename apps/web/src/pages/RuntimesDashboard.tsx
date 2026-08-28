@@ -5,13 +5,12 @@ import type {
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DaemonFrameworkTags, DaemonStatusDot } from '@/components/DaemonShared'
 import { Ghost } from '@/components/Loading'
-import { relative } from '@/components/RuntimeDetailPanel'
+import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
 import {
-    ChevronRightIcon,
     CloudComputerIcon,
     GridViewIcon,
     ListViewIcon,
@@ -114,9 +113,6 @@ const providerTestTag = (
         </span>
     )
 }
-
-const agentCountLabel = (count: number, t: TFn): string =>
-    `${count} ${count === 1 ? t('web.agentRuntimesList.agent') : t('web.agentRuntimesList.agents')}`
 
 const MetaRow: FC<{ label: string; children: ReactNode }> = ({
     label,
@@ -325,56 +321,263 @@ const VMCard: FC<VMItemProps> = ({
     )
 }
 
-const VMRow: FC<VMItemProps> = ({
-    vm,
+const headCell = 'px-4 py-3 font-medium'
+const headCellRight = 'px-4 py-3 text-right font-medium'
+const bodyCell = 'text-ui text-muted px-4 py-3'
+const bodyCellRight = 'text-ui text-muted px-4 py-3 text-right tabular-nums'
+
+// Whole-row activation (Enter/Space included) — the table is a navigation
+// surface like the grid cards, not a data-only report.
+const ClickableRow: FC<{ onSelect: () => void; children: ReactNode }> = ({
+    onSelect,
+    children
+}): ReactNode => (
+    <tr
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                onSelect()
+            }
+        }}
+        className='border-divider/60 hover:bg-surface-hover cursor-pointer border-t transition-colors'
+    >
+        {children}
+    </tr>
+)
+
+const nameCell = (vm: RuntimeVM): ReactNode => (
+    <td className='px-4 py-3'>
+        <span className='flex items-center gap-2'>
+            {vmLead(vm)}
+            <span className='text-ui text-fg min-w-0 truncate font-mono'>
+                {vm.label}
+            </span>
+        </span>
+    </td>
+)
+
+const VMTable: FC<{
+    kind: RuntimeKind
+    vms: RuntimeVM[]
+    usage: SandboxUsageBreakdown | null
+    usageLoading: boolean
+    providers: UserExternalAgentProviderSummary[] | null
+    idleProviders: UserExternalAgentProviderSummary[]
+    onSelectHost: (key: string) => void
+}> = ({
+    kind,
+    vms,
     usage,
-    provider,
-    onSelect
+    usageLoading,
+    providers,
+    idleProviders,
+    onSelectHost
 }): ReactNode => {
     const { t } = useI18n()
-    let meta: ReactNode
-    if (vm.kind === 'sprites') {
-        const usageHost =
-            usage?.hosts.find((h) => h.hostId === vm.sandbox?.id) ?? null
-        meta = [
-            formatBytesDecimal(usageHost?.storageBytes ?? null),
-            activeValue(vm),
-            agentCountLabel(vm.agentsCount, t)
-        ].join(' · ')
-    } else if (vm.kind === 'daemon')
-        meta = [
-            vm.host?.os ? `${vm.host.os}/${vm.host.arch ?? '?'}` : null,
-            vm.host?.cliVersion
-                ? `${t('web.agentRuntimesList.cliLabel')} v${vm.host.cliVersion}`
-                : null,
-            agentCountLabel(vm.agentsCount, t),
-            vm.host && !vm.host.online
-                ? `${t('web.agentRuntimesList.lastSeen')} ${relative(vm.host.lastSeenAt)}`
-                : null
-        ]
-            .filter(Boolean)
-            .join(' · ')
-    else if (vm.kind === 'k8s')
-        meta = `${vm.location} · ${agentCountLabel(vm.agentsCount, t)}`
-    else meta = vm.runtimes[0]?.endpointUrl ?? '—'
+    const navigate = useNavigate()
+    const head = (): ReactNode => {
+        if (kind === 'sprites')
+            return (
+                <tr>
+                    <th className={headCell}>
+                        {t('web.runtimesDashboard.colName')}
+                    </th>
+                    <th className={headCell}>{t('web.sandboxUsage.colStatus')}</th>
+                    <th className={headCellRight}>
+                        {t('web.runtimesDashboard.storage')}
+                    </th>
+                    <th className={headCellRight}>
+                        {t('web.runtimesDashboard.activeThisPeriod')}
+                    </th>
+                    <th className={headCellRight}>
+                        {t('web.runtimesDashboard.agents')}
+                    </th>
+                </tr>
+            )
+        if (kind === 'daemon')
+            return (
+                <tr>
+                    <th className={headCell}>
+                        {t('web.runtimesDashboard.colName')}
+                    </th>
+                    <th className={headCell}>{t('web.sandboxUsage.colStatus')}</th>
+                    <th className={headCell}>{t('web.agentRuntimesList.os')}</th>
+                    <th className={headCell}>
+                        {t('web.agentRuntimesList.cliLabel')}
+                    </th>
+                    <th className={headCellRight}>
+                        {t('web.runtimesDashboard.agents')}
+                    </th>
+                    <th className={headCell}>
+                        {t('web.agentRuntimesList.lastSeen')}
+                    </th>
+                </tr>
+            )
+        if (kind === 'k8s')
+            return (
+                <tr>
+                    <th className={headCell}>
+                        {t('web.runtimesDashboard.colName')}
+                    </th>
+                    <th className={headCell}>{t('web.sandboxUsage.colStatus')}</th>
+                    <th className={headCell}>
+                        {t('web.agentRuntimesList.location')}
+                    </th>
+                    <th className={headCellRight}>
+                        {t('web.agentRuntimesList.runtimesTitle')}
+                    </th>
+                    <th className={headCellRight}>
+                        {t('web.runtimesDashboard.agents')}
+                    </th>
+                </tr>
+            )
+        return (
+            <tr>
+                <th className={headCell}>{t('web.runtimesDashboard.colName')}</th>
+                <th className={headCell}>{t('web.runtimeDetail.endpoint')}</th>
+                <th className={headCell}>
+                    {t('web.runtimesDashboard.colLastTest')}
+                </th>
+                <th className={headCellRight}>
+                    {t('web.runtimesDashboard.agents')}
+                </th>
+            </tr>
+        )
+    }
+
+    const row = (vm: RuntimeVM): ReactNode => {
+        if (vm.kind === 'sprites') {
+            const usageHost =
+                usage?.hosts.find((h) => h.hostId === vm.sandbox?.id) ?? null
+            return (
+                <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
+                    {nameCell(vm)}
+                    <td className={bodyCell}>
+                        {spriteStatusLabel(vm.sandbox?.spriteStatus ?? null)}
+                    </td>
+                    <td className={bodyCellRight}>
+                        {usageLoading && !usage ? (
+                            <Ghost variant='cap' className='ml-auto w-12' />
+                        ) : (
+                            formatBytesDecimal(usageHost?.storageBytes ?? null)
+                        )}
+                    </td>
+                    <td className={bodyCellRight}>{activeValue(vm)}</td>
+                    <td className={bodyCellRight}>{vm.agentsCount}</td>
+                </ClickableRow>
+            )
+        }
+        if (vm.kind === 'daemon')
+            return (
+                <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
+                    {nameCell(vm)}
+                    <td className={bodyCell}>
+                        {t(
+                            vm.host?.online
+                                ? 'web.connectDaemon.online'
+                                : 'web.connectDaemon.offline'
+                        )}
+                    </td>
+                    <td className={bodyCell}>
+                        {vm.host?.os
+                            ? `${vm.host.os}/${vm.host.arch ?? '?'}`
+                            : '—'}
+                    </td>
+                    <td className={`${bodyCell} whitespace-nowrap`}>
+                        {vm.host?.cliVersion ? `v${vm.host.cliVersion}` : '—'}
+                        {vm.host?.updateAvailable &&
+                            vm.host.latestCliVersion && (
+                                <span className='text-link'>
+                                    {' '}
+                                    ↑ v{vm.host.latestCliVersion}
+                                </span>
+                            )}
+                    </td>
+                    <td className={bodyCellRight}>{vm.agentsCount}</td>
+                    <td className={`${bodyCell} whitespace-nowrap`}>
+                        {relative(vm.host?.lastSeenAt ?? null)}
+                    </td>
+                </ClickableRow>
+            )
+        if (vm.kind === 'k8s')
+            return (
+                <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
+                    {nameCell(vm)}
+                    <td className={bodyCell}>
+                        {vm.status ? runtimeStatusTag(vm.status) : '—'}
+                    </td>
+                    <td className={`${bodyCell} max-w-56 truncate font-mono`}>
+                        {vm.location}
+                    </td>
+                    <td className={bodyCellRight}>{vm.runtimes.length}</td>
+                    <td className={bodyCellRight}>{vm.agentsCount}</td>
+                </ClickableRow>
+            )
+        const provider = providers
+            ? matchProviderByEndpoint(providers, vm.runtimes[0]?.endpointUrl)
+            : null
+        return (
+            <ClickableRow key={vm.key} onSelect={() => onSelectHost(vm.key)}>
+                {nameCell(vm)}
+                <td className={`${bodyCell} max-w-64 truncate font-mono`}>
+                    {vm.runtimes[0]?.endpointUrl ?? '—'}
+                </td>
+                <td className={bodyCell}>
+                    {provider ? providerTestTag(provider, t) : '—'}
+                </td>
+                <td className={bodyCellRight}>{vm.agentsCount}</td>
+            </ClickableRow>
+        )
+    }
+
     return (
-        <button
-            type='button'
-            onClick={onSelect}
-            className='border-divider/60 hover:bg-surface-hover flex w-full items-center gap-3 border-t px-4 py-3 text-left transition-colors first:border-t-0'
-        >
-            {vmLead(vm)}
-            <span className='min-w-0 flex-1'>
-                <span className='text-ui text-fg block truncate font-mono'>
-                    {vm.label}
-                </span>
-                <span className='text-caption text-muted block truncate'>
-                    {meta}
-                </span>
-            </span>
-            {vm.kind === 'external' && provider && providerTestTag(provider, t)}
-            <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
-        </button>
+        <div className='settings-card overflow-x-auto'>
+            <table className='w-full min-w-[36rem] text-left'>
+                <thead className='workbench-table-head'>{head()}</thead>
+                <tbody>
+                    {vms.map(row)}
+                    {kind === 'external' &&
+                        idleProviders.map((p) => (
+                            <ClickableRow
+                                key={p.id}
+                                onSelect={() =>
+                                    navigate(
+                                        '/settings/runtimes/external-agent-providers'
+                                    )
+                                }
+                            >
+                                <td className='px-4 py-3'>
+                                    <span className='flex items-center gap-2'>
+                                        <FrameworkLogo
+                                            framework={p.provider}
+                                            size={18}
+                                        />
+                                        <span className='text-ui text-fg min-w-0 truncate'>
+                                            {p.label}
+                                        </span>
+                                        <span className='tag tag-neutral shrink-0'>
+                                            {t(
+                                                'web.runtimesDashboard.notUsedYet'
+                                            )}
+                                        </span>
+                                    </span>
+                                </td>
+                                <td
+                                    className={`${bodyCell} max-w-64 truncate font-mono`}
+                                >
+                                    {p.endpointUrl}
+                                </td>
+                                <td className={bodyCell}>
+                                    {providerTestTag(p, t)}
+                                </td>
+                                <td className={bodyCellRight}>—</td>
+                            </ClickableRow>
+                        ))}
+                </tbody>
+            </table>
+        </div>
     )
 }
 
@@ -489,29 +692,21 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
                         ))}
                     </div>
                 ) : (
-                    sectionVms.length > 0 && (
-                        <div className='settings-card'>
-                            {sectionVms.map((vm) => (
-                                <VMRow
-                                    key={vm.key}
-                                    vm={vm}
-                                    usage={usage}
-                                    usageLoading={usageLoading}
-                                    provider={
-                                        kind === 'external' && providers
-                                            ? matchProviderByEndpoint(
-                                                  providers,
-                                                  vm.runtimes[0]?.endpointUrl
-                                              )
-                                            : null
-                                    }
-                                    onSelect={() => onSelectHost(vm.key)}
-                                />
-                            ))}
-                        </div>
-                    )
+                    <VMTable
+                        kind={kind}
+                        vms={sectionVms}
+                        usage={usage}
+                        usageLoading={usageLoading}
+                        providers={providers}
+                        idleProviders={
+                            kind === 'external' ? idleProviders : []
+                        }
+                        onSelectHost={onSelectHost}
+                    />
                 )}
-                {kind === 'external' && idleProviders.length > 0 && (
+                {view === 'grid' &&
+                    kind === 'external' &&
+                    idleProviders.length > 0 && (
                     <div className='mt-3'>
                         <div className='text-caption text-subtle mb-1.5 font-medium'>
                             {t('web.runtimesDashboard.configuredProviders')}

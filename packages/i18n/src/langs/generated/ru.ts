@@ -3905,6 +3905,8 @@ const ru: Record<string, string> = {
     'web.runtimesDashboard.storage': 'Хранилище',
     'web.runtimesDashboard.activeThisPeriod': 'Активность за период',
     'web.runtimesDashboard.agents': 'Агенты',
+    'web.runtimesDashboard.colName': 'Имя',
+    'web.runtimesDashboard.colLastTest': 'Последний тест',
     'web.runtimesDashboard.testPassed': 'Тест пройден',
     'web.runtimesDashboard.testFailed': 'Тест не пройден',
     'web.runtimesDashboard.neverTested': 'Не тестировался',

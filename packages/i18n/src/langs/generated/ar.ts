@@ -3904,6 +3904,8 @@ const ar: Record<string, string> = {
     'web.runtimesDashboard.storage': 'التخزين',
     'web.runtimesDashboard.activeThisPeriod': 'نشط في هذه الفترة',
     'web.runtimesDashboard.agents': 'الوكلاء',
+    'web.runtimesDashboard.colName': 'الاسم',
+    'web.runtimesDashboard.colLastTest': 'آخر اختبار',
     'web.runtimesDashboard.testPassed': 'نجح الاختبار',
     'web.runtimesDashboard.testFailed': 'فشل الاختبار',
     'web.runtimesDashboard.neverTested': 'لم يُختبر بعد',

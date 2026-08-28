@@ -18,7 +18,10 @@ frameworks; external runtimes show their endpoint and the last connection
 test of the matching provider, and providers not yet bound to any runtime are
 listed alongside. Each section carries a direct create entry for its kind,
 and the rail's New-runtime affordances (a plus in the header and the bottom
-button) open a quick dropdown menu instead of the old modal chooser. Cards
+button) open a quick dropdown menu instead of the old modal chooser. The
+list view renders each section as a proper table — per-kind columns
+(status, storage, active time, platform, mf CLI, endpoint, last test,
+agents) instead of a single compressed meta line. Cards
 click through to the existing host detail; the kind
 breadcrumb links back to the dashboard. The dashboard also has an explicit
 address — /settings/runtimes/dashboard, reachable from a new rail entry — so

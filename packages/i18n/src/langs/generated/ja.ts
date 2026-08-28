@@ -3904,6 +3904,8 @@ const ja: Record<string, string> = {
     'web.runtimesDashboard.storage': 'ストレージ',
     'web.runtimesDashboard.activeThisPeriod': '今期のアクティブ時間',
     'web.runtimesDashboard.agents': 'エージェント',
+    'web.runtimesDashboard.colName': '名前',
+    'web.runtimesDashboard.colLastTest': '最終テスト',
     'web.runtimesDashboard.testPassed': 'テスト成功',
     'web.runtimesDashboard.testFailed': 'テスト失敗',
     'web.runtimesDashboard.neverTested': '未テスト',

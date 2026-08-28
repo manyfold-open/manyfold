@@ -3905,6 +3905,8 @@ const hi: Record<string, string> = {
     'web.runtimesDashboard.storage': 'भंडारण',
     'web.runtimesDashboard.activeThisPeriod': 'इस अवधि में सक्रिय',
     'web.runtimesDashboard.agents': 'एजेंट',
+    'web.runtimesDashboard.colName': 'नाम',
+    'web.runtimesDashboard.colLastTest': 'अंतिम परीक्षण',
     'web.runtimesDashboard.testPassed': 'परीक्षण सफल',
     'web.runtimesDashboard.testFailed': 'परीक्षण विफल',
     'web.runtimesDashboard.neverTested': 'कभी परीक्षण नहीं हुआ',

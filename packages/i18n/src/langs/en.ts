@@ -4718,6 +4718,8 @@ const en = {
             storage: 'Storage',
             activeThisPeriod: 'Active this period',
             agents: 'Agents',
+            colName: 'Name',
+            colLastTest: 'Last test',
             testPassed: 'Test passed',
             testFailed: 'Test failed',
             neverTested: 'Never tested',

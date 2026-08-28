@@ -3905,6 +3905,8 @@ const fr: Record<string, string> = {
     'web.runtimesDashboard.storage': 'Stockage',
     'web.runtimesDashboard.activeThisPeriod': 'Actif cette période',
     'web.runtimesDashboard.agents': 'Agents',
+    'web.runtimesDashboard.colName': 'Nom',
+    'web.runtimesDashboard.colLastTest': 'Dernier test',
     'web.runtimesDashboard.testPassed': 'Test réussi',
     'web.runtimesDashboard.testFailed': 'Test échoué',
     'web.runtimesDashboard.neverTested': 'Jamais testé',

@@ -3905,6 +3905,8 @@ const ko: Record<string, string> = {
     "web.runtimesDashboard.storage": "스토리지",
     "web.runtimesDashboard.activeThisPeriod": "이번 기간 활성",
     "web.runtimesDashboard.agents": "에이전트",
+    "web.runtimesDashboard.colName": "이름",
+    "web.runtimesDashboard.colLastTest": "마지막 테스트",
     "web.runtimesDashboard.testPassed": "테스트 통과",
     "web.runtimesDashboard.testFailed": "테스트 실패",
     "web.runtimesDashboard.neverTested": "테스트한 적 없음",

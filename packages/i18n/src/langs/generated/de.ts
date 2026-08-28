@@ -3904,6 +3904,8 @@ const de: Record<string, string> = {
     'web.runtimesDashboard.storage': 'Speicher',
     'web.runtimesDashboard.activeThisPeriod': 'Aktiv in diesem Zeitraum',
     'web.runtimesDashboard.agents': 'Agenten',
+    'web.runtimesDashboard.colName': 'Name',
+    'web.runtimesDashboard.colLastTest': 'Letzter Test',
     'web.runtimesDashboard.testPassed': 'Test bestanden',
     'web.runtimesDashboard.testFailed': 'Test fehlgeschlagen',
     'web.runtimesDashboard.neverTested': 'Nie getestet',
