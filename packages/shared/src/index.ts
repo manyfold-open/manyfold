@@ -88,7 +88,8 @@ export {
     NARRANEXUS_K8S_BASE_WORKING_PATH,
     NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     narraNexusBaseWorkingPath,
-    runtimeKindLabel
+    runtimeKindLabel,
+    DEFAULT_PLAN_ID
 } from './constants'
 export {
     BUILT_IN_PROVIDERS,
@@ -223,6 +224,7 @@ export type {
     RuntimeAccessSummary,
     UsagePeriodSummary,
     UpdateUserRuntimeAccessBody,
+    UpdateUserPlanBody,
     UserDeletionStatusView,
     RequestUserDeletionBody,
     MeDeletionAwaitingView,
@@ -570,6 +572,22 @@ export {
     claudeCliModel,
     claudeModelMapEnv
 } from './model-config'
+export {
+    runtimeLocalCredentialStatuses,
+    runtimeLocalCredentialStatus,
+    isRuntimeLocalCredentialUsable,
+    parseRuntimeLocalCredentialFacts
+} from './runtime-local-credentials'
+export type {
+    ClaudeCredentialFacts,
+    CodexCredentialFacts,
+    CodexCustomProviderFact,
+    GeminiCredentialFacts,
+    RuntimeLocalCredentialEvaluation,
+    RuntimeLocalCredentialFacts,
+    RuntimeLocalCredentialReason,
+    RuntimeLocalCredentialStatus
+} from './runtime-local-credentials'
 export type {
     AgentModelConfig,
     AgentModelConfigSource,
@@ -592,6 +610,7 @@ export type {
     GeminiCliAgentModelConfig,
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
+    RuntimeLocalTuning,
     UpdateAgentModelConfigBody
 } from './model-config'
 export {

@@ -116,12 +116,20 @@ export class CodexAdapter implements ApiChatAdapter {
         const usageFallbackModel = selectedUsageModel ?? runtimeLocalUsageModel
         const usageFallbackModelIsAssumed =
             !selectedUsageModel && !!runtimeLocalUsageModel
-        if (modelConfig?.intelligence)
-            cmd.push(
-                '-c',
-                `model_reasoning_effort="${modelConfig.intelligence}"`
-            )
-        if (modelConfig?.speed === 'fast') cmd.push('-c', 'service_tier="fast"')
+        // Runtime-local turns carry no modelConfig — that field doubles as the
+        // platform-credential switch — so their tuning arrives separately.
+        // Neither flag touches credentials, so `env` below stays unset.
+        const intelligence =
+            modelConfig?.intelligence ??
+            (modelConfig ? null : ctx.runtimeLocalTuning?.intelligence) ??
+            null
+        const speed =
+            modelConfig?.speed ??
+            (modelConfig ? null : ctx.runtimeLocalTuning?.speed) ??
+            null
+        if (intelligence)
+            cmd.push('-c', `model_reasoning_effort="${intelligence}"`)
+        if (speed === 'fast') cmd.push('-c', 'service_tier="fast"')
         const env =
             runtime === 'daemon' && modelConfig && codexCreds
                 ? platformCodexEnvAndArgs(cmd, codexCreds)

@@ -130,9 +130,17 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             ctx.modelConfig?.framework === 'claude-code'
                 ? (ctx.modelConfig as ClaudeCodeAgentModelConfig)
                 : null
-        const cliModel = claudeCliModel(modelConfig, ctx.model)
+        // Runtime-local turns carry no modelConfig (that flag doubles as the
+        // platform-credential switch), and claudeCliModel collapses a concrete
+        // id onto its family alias — which would silently downgrade the model
+        // the user picked from their own CLI's list. Pass it through verbatim.
+        const cliModel = modelConfig
+            ? claudeCliModel(modelConfig, ctx.model)
+            : (ctx.model?.trim() ?? null) || null
         if (cliModel) cmd.push('--model', cliModel)
-        const requestedCliEffort = claudeCliEffort(modelConfig)
+        const requestedCliEffort = modelConfig
+            ? claudeCliEffort(modelConfig)
+            : (ctx.runtimeLocalTuning?.effort ?? null)
         const cliEffort = await this.effortForRuntime(
             driver,
             requestedCliEffort,

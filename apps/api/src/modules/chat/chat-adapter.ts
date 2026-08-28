@@ -8,7 +8,8 @@ import type {
     ChatMessage,
     ChatUsage,
     ClaudeCodePermissionMode,
-    CodexPermissionMode
+    CodexPermissionMode,
+    RuntimeLocalTuning
 } from '@manyfold/shared'
 import { eq } from 'drizzle-orm'
 import { DaemonRpcResponseError } from '@/modules/daemon/daemon-registry.service'
@@ -90,6 +91,10 @@ export interface ApiChatAdapterContext {
     modelProviderId?: string | null
     modelProviderBuiltInId?: string | null
     modelConfig: AgentModelConfig | null
+    // Runtime-local turns keep modelConfig null (adapters read a set
+    // modelConfig as "inject platform credentials"), so the CLI flags that
+    // carry no credential arrive here instead.
+    runtimeLocalTuning?: RuntimeLocalTuning | null
     claudeCodePermissionMode: ClaudeCodePermissionMode | null
     codexPermissionMode: CodexPermissionMode | null
     frameworkSessionRef: string | null

@@ -17,7 +17,10 @@ import {
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     claudeCodeModelAliasMapKey,
+    claudeCodeEfforts,
     codexCanonicalModelId,
+    codexIntelligenceLevels,
+    codexSpeeds,
     isAllowedChatAttachment,
     isClaudeCodeModelAlias,
     isClaudeCodeOneMillionModelAlias,
@@ -71,6 +74,8 @@ import {
     formatClaudeEffortLabel,
     modelConfigDisplayLabel,
     normalizeClaudeModelConfigDraft,
+    patchRuntimeLocalDraft,
+    runtimeLocalModelOptions,
     validateModelConfigDraft,
     withClaudeEffort,
     withClaudeModel,
@@ -1774,7 +1779,15 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                 />
             )}
             {runtimeLocal && runtimeLocalReady && (
-                <RuntimeLocalModelSummary view={view} />
+                <>
+                    <RuntimeLocalModelMenu
+                        view={view}
+                        draft={draft}
+                        onChange={onChange}
+                        onRequestClose={onRequestClose}
+                    />
+                    <RuntimeLocalModelSummary view={view} />
+                </>
             )}
             {!runtimeLocal && (
                 <>
@@ -1846,6 +1859,175 @@ const ModelInlineNotice: FC<{
             ))}
     </div>
 )
+
+// The local list is flat strings — no alias/modelMap cascade and no provider
+// options to intersect — so it gets its own menu rather than bending the three
+// platform ones. Every knob offers "CLI default", which clears it so the local
+// CLI keeps deciding.
+const RuntimeLocalModelMenu: FC<{
+    view: AgentModelConfigView
+    draft: AgentModelConfig | null
+    onChange?: (config: AgentModelConfig) => void
+    onRequestClose?: () => void
+}> = ({ view, draft, onChange, onRequestClose }): ReactNode => {
+    const { t } = useI18n()
+    const [submenu, setSubmenu] = useState<
+        'model' | 'effort' | 'speed' | 'intelligence' | null
+    >(null)
+    const options = runtimeLocalModelOptions(view)
+    if (options.length === 0) return null
+
+    const cliDefault = t('web.credentials.runtimeLocal.cliDefault')
+    const selectedModel = draft?.model?.trim() || null
+    const patch = (
+        next: Parameters<typeof patchRuntimeLocalDraft>[2],
+        close = true
+    ): void => {
+        onChange?.(patchRuntimeLocalDraft(view.framework, draft, next))
+        if (close) onRequestClose?.()
+    }
+    const branch = (
+        key: typeof submenu,
+        label: string,
+        value: string
+    ): ReactNode => (
+        <button
+            type='button'
+            className='chat-composer-model-option'
+            onClick={() =>
+                setSubmenu((current) => (current === key ? null : key))
+            }
+        >
+            <span className='chat-composer-codex-branch-copy'>
+                <span className='chat-composer-codex-branch-label'>
+                    {label}
+                </span>
+                <span className='chat-composer-codex-branch-value'>
+                    {value}
+                </span>
+            </span>
+            <ChevronRightIcon className='text-muted h-4 w-4 shrink-0' />
+        </button>
+    )
+    const codexDraft = draft?.framework === 'codex' ? draft : null
+    const claudeDraft = draft?.framework === 'claude-code' ? draft : null
+
+    return (
+        <>
+            <div className='popover-separator' />
+            <div className='chat-composer-model-section-heading pb-0'>
+                <span className='min-w-0 flex-1 truncate'>
+                    {t('web.credentials.runtimeLocal.modelsFrom')}
+                </span>
+            </div>
+            <div className='chat-composer-claude-menu'>
+                {branch(
+                    'model',
+                    t('web.composer.model'),
+                    selectedModel ?? cliDefault
+                )}
+                {view.framework === 'claude-code' &&
+                    branch(
+                        'effort',
+                        t('web.composer.effort'),
+                        claudeDraft?.effort
+                            ? formatClaudeEffortLabel(claudeDraft.effort, t)
+                            : cliDefault
+                    )}
+                {view.framework === 'codex' &&
+                    branch(
+                        'speed',
+                        t('web.composer.speed'),
+                        codexDraft?.speed
+                            ? formatCodexSpeedLabel(codexDraft.speed, t)
+                            : cliDefault
+                    )}
+                {view.framework === 'codex' &&
+                    branch(
+                        'intelligence',
+                        t('web.composer.reasoning'),
+                        codexDraft?.intelligence
+                            ? formatCodexIntelligenceLabel(
+                                  codexDraft.intelligence,
+                                  t
+                              )
+                            : cliDefault
+                    )}
+                {submenu === 'model' && (
+                    <SubmenuPanel
+                        title={t('web.credentials.runtimeLocal.pickModel')}
+                        count={options.length}
+                    >
+                        <ModelMenuItem
+                            label={cliDefault}
+                            active={!selectedModel}
+                            onSelect={() => patch({ model: null })}
+                        />
+                        {options.map((option) => (
+                            <ModelMenuItem
+                                key={option}
+                                label={option}
+                                active={selectedModel === option}
+                                onSelect={() => patch({ model: option })}
+                            />
+                        ))}
+                    </SubmenuPanel>
+                )}
+                {submenu === 'effort' && (
+                    <SubmenuPanel title={t('web.composer.effort')}>
+                        <ModelMenuItem
+                            label={cliDefault}
+                            active={!claudeDraft?.effort}
+                            onSelect={() => patch({ effort: null })}
+                        />
+                        {claudeCodeEfforts.map((effort) => (
+                            <ModelMenuItem
+                                key={effort}
+                                label={formatClaudeEffortLabel(effort, t)}
+                                active={claudeDraft?.effort === effort}
+                                onSelect={() => patch({ effort })}
+                            />
+                        ))}
+                    </SubmenuPanel>
+                )}
+                {submenu === 'speed' && (
+                    <SubmenuPanel title={t('web.composer.speed')}>
+                        <ModelMenuItem
+                            label={cliDefault}
+                            active={!codexDraft?.speed}
+                            onSelect={() => patch({ speed: null })}
+                        />
+                        {codexSpeeds.map((speed) => (
+                            <ModelMenuItem
+                                key={speed}
+                                label={formatCodexSpeedLabel(speed, t)}
+                                active={codexDraft?.speed === speed}
+                                onSelect={() => patch({ speed })}
+                            />
+                        ))}
+                    </SubmenuPanel>
+                )}
+                {submenu === 'intelligence' && (
+                    <SubmenuPanel title={t('web.composer.reasoning')}>
+                        <ModelMenuItem
+                            label={cliDefault}
+                            active={!codexDraft?.intelligence}
+                            onSelect={() => patch({ intelligence: null })}
+                        />
+                        {codexIntelligenceLevels.map((level) => (
+                            <ModelMenuItem
+                                key={level}
+                                label={formatCodexIntelligenceLabel(level, t)}
+                                active={codexDraft?.intelligence === level}
+                                onSelect={() => patch({ intelligence: level })}
+                            />
+                        ))}
+                    </SubmenuPanel>
+                )}
+            </div>
+        </>
+    )
+}
 
 const RuntimeLocalModelSummary: FC<{
     view: AgentModelConfigView

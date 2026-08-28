@@ -35,6 +35,7 @@ import type {
     CreateMessageUploadInput,
     InferenceProtocol,
     RegenerateMessageResponse,
+    RuntimeLocalTuning,
     UserModelProvider,
     UserModelProviderSource
 } from '@manyfold/shared'
@@ -467,6 +468,7 @@ export class InflightTurnConflictError extends ConflictException {
 interface ChatTurnConfig {
     model: string | null
     modelConfig: AgentModelConfig | null
+    runtimeLocalTuning?: RuntimeLocalTuning
 }
 
 // Highest already-persisted source-event ordinal per dedup key. An adopted
@@ -2520,6 +2522,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 history,
                 turnConfig.model,
                 turnConfig.modelConfig,
+                turnConfig.runtimeLocalTuning ?? null,
                 framework === 'claude-code'
                     ? (claudeCodePermissionMode ??
                           DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
@@ -4993,6 +4996,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         history: ChatMessage[],
         modelOverride: string | null,
         modelConfig: AgentModelConfig | null,
+        runtimeLocalTuning: RuntimeLocalTuning | null,
         claudeCodePermissionMode: ClaudeCodePermissionMode | null,
         codexPermissionMode: CodexPermissionMode | null,
         abortSignal: AbortSignal,
@@ -5487,6 +5491,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         runtimeKind: agentCtx.runtime,
                         model: modelOverride ?? agentCtx.model,
                         modelOverride,
+                        runtimeLocalTuning,
                         modelProviderId: agentCtx.modelProviderId,
                         modelProviderBuiltInId: agentCtx.modelProviderBuiltInId,
                         modelConfig,

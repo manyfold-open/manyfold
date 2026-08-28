@@ -65,8 +65,9 @@ services:
             # instead of requiring S3.
             CHAT_UPLOAD_ALLOW_DISK: 'true'
             # New accounts land on the seeded unlimited plan instead of the
-            # cloud 'free' tier.
-            MF_DEFAULT_PLAN_ID: self_hosted
+            # cloud 'free' tier. Applies at account creation only; accounts
+            # that predate it are moved once on the next API start.
+            MF_DEFAULT_PLAN_ID: ${MF_SELFHOST_DEFAULT_PLAN_ID:-self_hosted}
         ports:
             - '${MF_SELFHOST_API_PORT:-2222}:2222'
         depends_on:
