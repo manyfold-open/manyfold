@@ -4636,19 +4636,10 @@ const en = {
             location: 'Location',
             renameHost: 'Rename host',
             newSandboxHost: 'New sandbox host',
-            newSandboxHostDescription:
-                'Private stateful sandbox — fast to boot. Add coding agents after.',
             rentCloudComputer: 'Rent a cloud computer',
-            rentCloudComputerDescription:
-                'Always-online managed runtime for long-running, multi-agent work.',
             connectComputer: 'Connect a self-owned computer',
-            connectComputerDescription:
-                'Run agents on a machine you own via the local daemon.',
             configureExternal: 'Configure external agent service',
-            configureExternalDescription:
-                'Bring an external Dify, Langflow, or A2A agent endpoint.',
             newRuntime: 'New runtime',
-            newRuntimeDescription: 'Choose where this runtime should run.',
             runtimesAria: 'Runtimes',
             collapseAll: 'Collapse all',
             expandAll: 'Expand all',

@@ -16,9 +16,10 @@ sprite status, storage, active time this period and agents; self-owned
 computers show online state, platform, mf CLI version and detected
 frameworks; external runtimes show their endpoint and the last connection
 test of the matching provider, and providers not yet bound to any runtime are
-listed alongside. Each section carries a direct create entry for its kind, so
-adding a runtime no longer requires the chooser dialog (which stays on the
-rail button). Cards click through to the existing host detail; the kind
+listed alongside. Each section carries a direct create entry for its kind,
+and the rail's New-runtime affordances (a plus in the header and the bottom
+button) open a quick dropdown menu instead of the old modal chooser. Cards
+click through to the existing host detail; the kind
 breadcrumb links back to the dashboard. The dashboard also has an explicit
 address — /settings/runtimes/dashboard, reachable from a new rail entry — so
 on narrow screens, where the bare URL still opens the rail, it remains one

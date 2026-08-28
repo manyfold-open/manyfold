@@ -2044,44 +2044,120 @@ const HostDetailPanel: FC<{
     )
 }
 
-const NewRuntimeDialog: FC<{
+// Quick create menu (desktop anchored panel + mobile bottom sheet, same
+// pattern as GroupByControl) — one line per destination, no modal round trip.
+const NewRuntimeMenu: FC<{
     cloudComputerEnabled: boolean
-    onClose: () => void
-}> = ({ cloudComputerEnabled, onClose }): ReactNode => {
+    variant: 'header' | 'footer'
+}> = ({ cloudComputerEnabled, variant }): ReactNode => {
     const { t } = useI18n()
+    const [open, setOpen] = useState(false)
+    const rootRef = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        if (!open) return
+        const handlePointerDown = (event: PointerEvent): void => {
+            if (!rootRef.current?.contains(event.target as Node))
+                setOpen(false)
+        }
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') setOpen(false)
+        }
+        document.addEventListener('pointerdown', handlePointerDown)
+        document.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown)
+            document.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [open])
+
     const options = NEW_RUNTIME_OPTIONS.filter(
         (option) => !option.requiresCloudComputer || cloudComputerEnabled
     )
+    const item = (
+        option: (typeof options)[number],
+        mobile: boolean
+    ): ReactNode => {
+        const Icon = option.icon
+        return (
+            <Link
+                key={option.to}
+                to={option.to}
+                onClick={() => setOpen(false)}
+                className={
+                    mobile
+                        ? 'text-body active:bg-soft flex w-full items-center gap-3 rounded-md px-3 py-3 text-left'
+                        : 'text-ui hover:bg-soft flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left'
+                }
+            >
+                <Icon
+                    className={
+                        mobile
+                            ? 'text-muted h-5 w-5 shrink-0'
+                            : 'text-muted h-4 w-4 shrink-0'
+                    }
+                />
+                <span className='min-w-0 flex-1 truncate'>
+                    {t(option.labelKey)}
+                </span>
+            </Link>
+        )
+    }
+
     return (
-        <ProductDialog
-            title={t('web.agentRuntimesList.newRuntime')}
-            description={t('web.agentRuntimesList.newRuntimeDescription')}
-            size='md'
-            onClose={onClose}
-            bodyClassName='pb-5'
-        >
-            <div className='space-y-2.5'>
-                {options.map(({ to, icon: Icon, labelKey, descriptionKey }) => (
-                    <Link
-                        key={to}
-                        to={to}
-                        onClick={onClose}
-                        className='shadow-ring-light bg-surface hover:bg-surface-hover flex items-center gap-3.5 rounded-md px-4 py-3.5 text-left transition-colors'
+        <div ref={rootRef} className='relative'>
+            {variant === 'header' ? (
+                <button
+                    type='button'
+                    onClick={() => setOpen((prev) => !prev)}
+                    aria-haspopup='menu'
+                    aria-expanded={open}
+                    aria-label={t('web.agentRuntimesList.newRuntimeButton')}
+                    className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors'
+                >
+                    <PlusIcon className='h-4 w-4' />
+                </button>
+            ) : (
+                <button
+                    type='button'
+                    onClick={() => setOpen((prev) => !prev)}
+                    aria-haspopup='menu'
+                    aria-expanded={open}
+                    className='workbench-button-primary h-9 w-full justify-center'
+                >
+                    {t('web.agentRuntimesList.newRuntimeButton')}
+                </button>
+            )}
+            {open && (
+                <>
+                    <div
+                        className={[
+                            'popover-panel bg-surface-elevated shadow-elevated absolute z-30 hidden rounded-md p-1 lg:block',
+                            variant === 'header'
+                                ? 'right-0 top-full mt-1 w-64'
+                                : 'bottom-full left-0 mb-1 w-full'
+                        ].join(' ')}
                     >
-                        <Icon className='text-muted h-5 w-5 shrink-0' />
-                        <span className='min-w-0 flex-1'>
-                            <span className='text-ui text-fg block'>
-                                {t(labelKey)}
-                            </span>
-                            <span className='text-caption text-muted mt-0.5 block'>
-                                {t(descriptionKey)}
-                            </span>
-                        </span>
-                        <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
-                    </Link>
-                ))}
-            </div>
-        </ProductDialog>
+                        {options.map((option) => item(option, false))}
+                    </div>
+                    <div className='fixed inset-0 z-40 lg:hidden'>
+                        <button
+                            type='button'
+                            aria-label={t('web.cascade.close')}
+                            onClick={() => setOpen(false)}
+                            className='absolute inset-0 bg-black/40'
+                        />
+                        <div className='bg-surface-elevated shadow-elevated absolute inset-x-0 bottom-0 rounded-t-2xl p-2 pb-6'>
+                            <div className='bg-divider mx-auto mt-1 mb-2 h-1 w-9 rounded-full' />
+                            <div className='text-caption text-subtle px-3 py-1.5'>
+                                {t('web.agentRuntimesList.newRuntime')}
+                            </div>
+                            {options.map((option) => item(option, true))}
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -2118,7 +2194,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
     const [error, setError] = useState<string | null>(null)
     const [message, setMessage] = useState<string | null>(null)
-    const [chooserOpen, setChooserOpen] = useState(false)
     const [cloudComputerEnabled, setCloudComputerEnabled] = useState(false)
     const [sandboxUsage, setSandboxUsage] =
         useState<SandboxUsageBreakdown | null>(null)
@@ -2829,16 +2904,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                 {totalCount}
                             </span>
                         </div>
-                        <button
-                            type='button'
-                            onClick={() => setChooserOpen(true)}
-                            aria-label={t(
-                                'web.agentRuntimesList.newRuntimeButton'
-                            )}
-                            className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors'
-                        >
-                            <PlusIcon className='h-4 w-4' />
-                        </button>
+                        <NewRuntimeMenu
+                            cloudComputerEnabled={cloudComputerEnabled}
+                            variant='header'
+                        />
                     </div>
 
                     <Link
@@ -2909,13 +2978,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 </div>
 
                 <div className='shrink-0 p-2'>
-                    <button
-                        type='button'
-                        onClick={() => setChooserOpen(true)}
-                        className='workbench-button-primary h-9 w-full justify-center'
-                    >
-                        {t('web.agentRuntimesList.newRuntimeButton')}
-                    </button>
+                    <NewRuntimeMenu
+                        cloudComputerEnabled={cloudComputerEnabled}
+                        variant='footer'
+                    />
                 </div>
             </aside>
 
@@ -2939,13 +3005,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     {renderDetail()}
                 </div>
             </main>
-
-            {chooserOpen && (
-                <NewRuntimeDialog
-                    cloudComputerEnabled={cloudComputerEnabled}
-                    onClose={() => setChooserOpen(false)}
-                />
-            )}
         </div>
     )
 }

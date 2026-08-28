@@ -4417,19 +4417,10 @@ const zh: Translations = {
             location: '位置',
             renameHost: '重命名主机',
             newSandboxHost: '新建沙箱主机',
-            newSandboxHostDescription:
-                '私有有状态沙箱，启动快速。之后可添加编码 Agent。',
             rentCloudComputer: '租用云电脑',
-            rentCloudComputerDescription:
-                '适合长期多 Agent 工作的常驻托管运行时。',
             connectComputer: '连接自有电脑',
-            connectComputerDescription:
-                '通过本地守护进程在你拥有的机器上运行 Agent。',
             configureExternal: '配置外部 Agent 服务',
-            configureExternalDescription:
-                '接入 Dify、Langflow 或 A2A Agent 端点。',
             newRuntime: '新建运行时',
-            newRuntimeDescription: '选择此运行时的运行位置。',
             runtimesAria: '运行时',
             collapseAll: '全部收起',
             expandAll: '全部展开',
