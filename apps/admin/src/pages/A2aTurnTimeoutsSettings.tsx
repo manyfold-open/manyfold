@@ -62,8 +62,7 @@ const A2aTurnTimeoutsSettingsPage: FC<{ embedded?: boolean }> = ({
                     short cap; async sends (blocking:false / mf a2a send
                     --async) are polled later via tasks/get and get the longer
                     cap. Past its cap a task fails with turn_timeout and the
-                    target turn is cancelled. Saving here supersedes the legacy
-                    A2A_TURN_TIMEOUT_MS env fallback.
+                    target turn is cancelled.
                 </p>
             </div>
 

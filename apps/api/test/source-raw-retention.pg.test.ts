@@ -3,7 +3,6 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import { existsSync } from 'node:fs'
 import path from 'node:path'
 import test from 'node:test'
 import { asc, eq, sql } from 'drizzle-orm'
@@ -80,21 +79,12 @@ const buildHarness = async (): Promise<Harness> => {
     const target = new URL(url.toString())
     target.pathname = `/${dbName}`
     const migrationClient = postgres(target.toString(), { max: 1 })
+    // The core journal is all this scratch database needs: the tables this
+    // suite touches live in ./drizzle, and the OSS tree carries no contract
+    // journal (oauth_states/plans are cloud tables in apps/api-cloud).
     await migrate(drizzle(migrationClient), {
         migrationsFolder: path.resolve(process.cwd(), 'drizzle')
     })
-    // §4.2 contract journal: this scratch database runs the current code,
-    // which is switch-side by definition. The journal rides the private tree
-    // (apps/api-cloud); a tree without it has nothing to apply (its baseline
-    // never had the switched columns).
-    const contractFolder = ['drizzle-contract', '../api-cloud/drizzle-contract']
-        .map((candidate) => path.resolve(process.cwd(), candidate))
-        .find((candidate) => existsSync(candidate))
-    if (contractFolder)
-        await migrate(drizzle(migrationClient), {
-            migrationsFolder: contractFolder,
-            migrationsTable: '__drizzle_migrations_contract'
-        })
     await migrationClient.end()
 
     const db = createDb(target.toString())

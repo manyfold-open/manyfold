@@ -1,4 +1,5 @@
 import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
+import { configString } from '@/common/config-alias'
 import { createObjectId } from '@manyfold/shared'
 import type {
     ChannelConfig,
@@ -77,10 +78,11 @@ export class ChannelsService {
             config.get<string>('PUBLIC_API_BASE_URL') ?? fallback
         ).replace(/\/$/, '')
         this.webBaseUrl = (
-            config.get<string>('MF_WEB_URL') ??
-            config.get<string>('NCA_WEB_URL') ??
-            config.get<string>('WEB_BASE_URL') ??
-            DEFAULT_WEB_BASE_URL
+            configString(config, [
+                'MF_WEB_URL',
+                'NCA_WEB_URL',
+                'WEB_BASE_URL'
+            ]) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 

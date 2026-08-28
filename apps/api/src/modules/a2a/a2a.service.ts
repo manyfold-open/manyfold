@@ -168,16 +168,11 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    private envTurnTimeoutMs(): number | null {
-        const raw = this.config?.get<string>('A2A_TURN_TIMEOUT_MS')?.trim()
-        const parsed = raw ? Number(raw) : NaN
-        return Number.isFinite(parsed) && parsed > 0 ? parsed : null
-    }
-
-    // Precedence: admin setting 'a2a_turn_timeouts' (row saved) > legacy env
-    // A2A_TURN_TIMEOUT_MS (one cap for BOTH modes, backward compat) > shared
-    // defaults. A settings/DB hiccup falls through to env/defaults so turns
-    // and the sweep never fail on a settings read.
+    // Precedence: admin setting 'a2a_turn_timeouts' (row saved) > shared
+    // defaults. A settings/DB hiccup falls through to defaults so turns and
+    // the sweep never fail on a settings read. (The legacy single-cap
+    // A2A_TURN_TIMEOUT_MS env var is migrated into the setting at startup by
+    // A2aTimeoutEnvMigrationService and no longer read here.)
     private async resolveTurnTimeouts(): Promise<{
         blockingMs: number
         asyncMs: number
@@ -192,8 +187,6 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 blockingMs: override.blockingTimeoutSeconds * 1000,
                 asyncMs: override.asyncTimeoutSeconds * 1000
             }
-        const env = this.envTurnTimeoutMs()
-        if (env !== null) return { blockingMs: env, asyncMs: env }
         return {
             blockingMs:
                 DEFAULT_A2A_TURN_TIMEOUTS.blockingTimeoutSeconds * 1000,

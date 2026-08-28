@@ -65,6 +65,10 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
             ),
             'the client declares that absence would mean enumeration failure'
         )
+        assert.ok(
+            (hello.clientFeatures as string[]).includes('turn.budgets'),
+            'the client declares it parses the split turn budgets (#513/#556)'
+        )
     } finally {
         client.stop()
         wss.close()
