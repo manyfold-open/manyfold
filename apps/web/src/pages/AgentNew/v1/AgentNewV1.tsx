@@ -243,7 +243,7 @@ const ExternalAgentSection: FC<ExternalAgentSectionProps> = ({
                             })}
                         </p>
                         <Link
-                            to='/settings/external-agent-providers'
+                            to='/settings/runtimes/external-agent-providers'
                             className='text-caption text-link hover:text-fg font-medium'
                         >
                             {t('web.agentNew.manageExternalProviders')}
@@ -271,7 +271,7 @@ const ExternalAgentSection: FC<ExternalAgentSectionProps> = ({
                 <p className='workbench-hint mt-2'>
                     {t('web.agentNew.externalProviderHint')}{' '}
                     <Link
-                        to='/settings/external-agent-providers'
+                        to='/settings/runtimes/external-agent-providers'
                         className='text-link hover:text-fg'
                     >
                         {t('web.agentNew.externalAgentsSettings')}
@@ -1543,7 +1543,7 @@ const AgentNew: FC = (): ReactNode => {
         return (
             <div className='text-caption text-muted font-medium'>
                 <Link
-                    to='/settings/local-daemons'
+                    to='/settings/runtimes/local-daemons'
                     className='text-link hover:underline'
                 >
                     {t('web.agentNew.localDaemonRegister')}

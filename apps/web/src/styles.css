@@ -5823,14 +5823,28 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     flex-wrap: wrap;
 }
 
-.landing-root .lp-foot-links a {
+.landing-root .lp-foot-links a,
+.landing-root .lp-foot-links button {
     font-size: 14px;
     color: var(--lp-ink-soft);
     letter-spacing: -0.005em;
     transition: color 120ms ease;
 }
 
-.landing-root .lp-foot-links a:hover {
+/* "Cookie settings" re-opens the consent banner rather than going anywhere,
+   so it is a button — and preflight left it at the body's size and full ink,
+   which is what made the one control in the row read a step larger and darker
+   than the six links beside it. */
+.landing-root .lp-foot-links button {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.landing-root .lp-foot-links a:hover,
+.landing-root .lp-foot-links button:hover {
     color: var(--lp-ink);
 }
 
@@ -5874,7 +5888,8 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     .landing-root .lp-foot-left .lp-copy {
         font-size: 11px;
     }
-    .landing-root .lp-foot-links a {
+    .landing-root .lp-foot-links a,
+    .landing-root .lp-foot-links button {
         font-size: 13.5px;
     }
 }

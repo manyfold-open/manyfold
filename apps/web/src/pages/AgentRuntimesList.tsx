@@ -15,6 +15,8 @@ import type {
     SandboxServiceSummary,
     SandboxSummary,
     SandboxTaskSummary,
+    SandboxUsageBreakdown,
+    UserExternalAgentProviderSummary,
     VersionedFramework
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
@@ -49,14 +51,14 @@ import {
     ChevronDownIcon,
     ChevronRightIcon,
     ChevronUpIcon,
-    CloseIcon,
     CloudComputerIcon,
     CodeIcon,
+    DashboardIcon,
     GlobeIcon,
+    ListViewIcon,
     LocalDaemonIcon,
     type LucideIcon,
-    RuntimeIcon,
-    SearchIcon,
+    PlusIcon,
     ZapIcon
 } from '@/components/icons'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
@@ -69,21 +71,46 @@ import {
     type GroupByOption,
     GroupHeader,
     type Health,
-    Highlight,
     useCascadeState
 } from '@/lib/cascade'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
+import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { spriteStatusDotClass } from '@/lib/spriteStatus'
+import RuntimesDashboard from '@/pages/RuntimesDashboard'
+import SandboxNew from '@/pages/SandboxNew'
+import ExternalAgentProviders from '@/pages/Settings/ExternalAgentProviders'
+import LocalDaemons from '@/pages/Settings/LocalDaemons'
 import { SpriteStatusRefresh } from '@/components/SpriteStatusRefresh'
 
 type RuntimeKind = AgentRuntimeSummary['kind']
 type RuntimeStatus = AgentRuntimeSummary['status']
 type RuntimeFramework = AgentRuntimeSummary['framework']
 type EffStatus = RuntimeStatus | 'offline'
-type GroupBy = 'kind' | 'status' | 'framework'
-type StatusFilter = 'all' | 'ready' | 'issues'
+type GroupBy = 'none' | 'kind' | 'status' | 'framework'
 
-type Selection = { kind: 'host'; key: string } | { kind: 'runtime'; id: string }
+type Selection =
+    | { kind: 'dashboard' }
+    | { kind: 'page'; page: RuntimePageSegment }
+    | { kind: 'host'; key: string }
+    | { kind: 'runtime'; id: string }
+
+// Reserved path segments under runtimes/*: runtime ids are prefixed
+// ObjectIds, so a bare word never collides with one. The create/manage
+// pages render in the detail pane so the rail stays alongside them.
+const DASHBOARD_SEGMENT = 'dashboard'
+
+const RUNTIME_PAGES = {
+    sandbox: SandboxNew,
+    'local-daemons': LocalDaemons,
+    'external-agent-providers': ExternalAgentProviders
+} as const
+
+type RuntimePageSegment = keyof typeof RUNTIME_PAGES
+
+const isRuntimePage = (
+    value: string | undefined
+): value is RuntimePageSegment =>
+    value !== undefined && value in RUNTIME_PAGES
 
 const KIND_ORDER: RuntimeKind[] = ['sprites', 'k8s', 'daemon', 'external']
 
@@ -110,21 +137,16 @@ const EFF_DOT: Record<EffStatus, string> = {
     stopped: 'bg-idle'
 }
 
-const RUNTIME_DIMS = ['kind', 'status', 'framework'] as const
+const RUNTIME_DIMS = ['none', 'kind', 'status', 'framework'] as const
 
 const GROUP_BY_OPTIONS: ReadonlyArray<GroupByOption<GroupBy>> = [
+    { value: 'none', label: '', icon: ListViewIcon },
     { value: 'kind', label: '', icon: BoxIcon },
     { value: 'status', label: '', icon: ZapIcon },
     { value: 'framework', label: '', icon: CodeIcon }
 ]
 
-const STATUS_FILTERS: Array<{ value: StatusFilter }> = [
-    { value: 'all' },
-    { value: 'ready' },
-    { value: 'issues' }
-]
-
-interface RuntimeVM {
+export interface RuntimeVM {
     key: string
     kind: RuntimeKind
     label: string
@@ -144,6 +166,13 @@ interface HostBucket {
 }
 
 type Group =
+    | {
+          mode: 'none'
+          key: string
+          count: number
+          health: Health
+          hosts: HostBucket[]
+      }
     | {
           mode: 'kind'
           key: string
@@ -387,7 +416,6 @@ const HostRow: FC<{
 const RuntimeLeaf: FC<{
     runtime: AgentRuntimeSummary
     selected: boolean
-    q: string
     subLabel?: string
     indentClass: string
     showStatusDot?: boolean
@@ -395,7 +423,6 @@ const RuntimeLeaf: FC<{
 }> = ({
     runtime: r,
     selected,
-    q,
     subLabel,
     indentClass,
     showStatusDot = true,
@@ -414,7 +441,7 @@ const RuntimeLeaf: FC<{
         <FrameworkLogo framework={r.framework} size={18} />
         <span className='min-w-0 flex-1'>
             <span className='text-ui text-fg block truncate font-mono'>
-                <Highlight text={r.name} q={q} />
+                {r.name}
             </span>
             {subLabel && (
                 <span className='text-caption text-subtle block truncate'>
@@ -2017,96 +2044,120 @@ const HostDetailPanel: FC<{
     )
 }
 
-interface NewRuntimeOption {
-    to: string
-    icon: LucideIcon
-    requiresCloudComputer?: boolean
-}
-
-const NEW_RUNTIME_OPTIONS: NewRuntimeOption[] = [
-    {
-        to: '/settings/runtimes/sandbox',
-        icon: BoxIcon
-    },
-    {
-        to: '/settings/cloud-computers',
-        icon: CloudComputerIcon,
-        requiresCloudComputer: true
-    },
-    {
-        to: '/settings/local-daemons',
-        icon: LocalDaemonIcon
-    },
-    {
-        to: '/settings/external-agent-providers',
-        icon: GlobeIcon
-    }
-]
-
-const NewRuntimeDialog: FC<{
+// Quick create menu (desktop anchored panel + mobile bottom sheet, same
+// pattern as GroupByControl) — one line per destination, no modal round trip.
+const NewRuntimeMenu: FC<{
     cloudComputerEnabled: boolean
-    onClose: () => void
-}> = ({ cloudComputerEnabled, onClose }): ReactNode => {
+    variant: 'header' | 'footer'
+}> = ({ cloudComputerEnabled, variant }): ReactNode => {
     const { t } = useI18n()
+    const [open, setOpen] = useState(false)
+    const rootRef = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        if (!open) return
+        const handlePointerDown = (event: PointerEvent): void => {
+            if (!rootRef.current?.contains(event.target as Node))
+                setOpen(false)
+        }
+        const handleKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') setOpen(false)
+        }
+        document.addEventListener('pointerdown', handlePointerDown)
+        document.addEventListener('keydown', handleKeyDown)
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown)
+            document.removeEventListener('keydown', handleKeyDown)
+        }
+    }, [open])
+
     const options = NEW_RUNTIME_OPTIONS.filter(
         (option) => !option.requiresCloudComputer || cloudComputerEnabled
     )
+    const item = (
+        option: (typeof options)[number],
+        mobile: boolean
+    ): ReactNode => {
+        const Icon = option.icon
+        return (
+            <Link
+                key={option.to}
+                to={option.to}
+                onClick={() => setOpen(false)}
+                className={
+                    mobile
+                        ? 'text-body active:bg-soft flex w-full items-center gap-3 rounded-md px-3 py-3 text-left'
+                        : 'text-ui hover:bg-soft flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left'
+                }
+            >
+                <Icon
+                    className={
+                        mobile
+                            ? 'text-muted h-5 w-5 shrink-0'
+                            : 'text-muted h-4 w-4 shrink-0'
+                    }
+                />
+                <span className='min-w-0 flex-1 truncate'>
+                    {t(option.labelKey)}
+                </span>
+            </Link>
+        )
+    }
+
     return (
-        <ProductDialog
-            title={t('web.agentRuntimesList.newRuntime')}
-            description={t('web.agentRuntimesList.newRuntimeDescription')}
-            size='md'
-            onClose={onClose}
-            bodyClassName='pb-5'
-        >
-            <div className='space-y-2.5'>
-                {options.map(({ to, icon: Icon }) => (
-                    <Link
-                        key={to}
-                        to={to}
-                        onClick={onClose}
-                        className='shadow-ring-light bg-surface hover:bg-surface-hover flex items-center gap-3.5 rounded-md px-4 py-3.5 text-left transition-colors'
+        <div ref={rootRef} className='relative'>
+            {variant === 'header' ? (
+                <button
+                    type='button'
+                    onClick={() => setOpen((prev) => !prev)}
+                    aria-haspopup='menu'
+                    aria-expanded={open}
+                    aria-label={t('web.agentRuntimesList.newRuntimeButton')}
+                    className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors'
+                >
+                    <PlusIcon className='h-4 w-4' />
+                </button>
+            ) : (
+                <button
+                    type='button'
+                    onClick={() => setOpen((prev) => !prev)}
+                    aria-haspopup='menu'
+                    aria-expanded={open}
+                    className='workbench-button-primary h-9 w-full justify-center'
+                >
+                    {t('web.agentRuntimesList.newRuntimeButton')}
+                </button>
+            )}
+            {open && (
+                <>
+                    <div
+                        className={[
+                            'popover-panel bg-surface-elevated shadow-elevated absolute z-30 hidden rounded-md p-1 lg:block',
+                            variant === 'header'
+                                ? 'right-0 top-full mt-1 w-64'
+                                : 'bottom-full left-0 mb-1 w-full'
+                        ].join(' ')}
                     >
-                        <Icon className='text-muted h-5 w-5 shrink-0' />
-                        <span className='min-w-0 flex-1'>
-                            <span className='text-ui text-fg block'>
-                                {to.endsWith('/sandbox')
-                                    ? t('web.agentRuntimesList.newSandboxHost')
-                                    : to === '/settings/cloud-computers'
-                                      ? t(
-                                            'web.agentRuntimesList.rentCloudComputer'
-                                        )
-                                      : to === '/settings/local-daemons'
-                                        ? t(
-                                              'web.agentRuntimesList.connectComputer'
-                                          )
-                                        : t(
-                                              'web.agentRuntimesList.configureExternal'
-                                          )}
-                            </span>
-                            <span className='text-caption text-muted mt-0.5 block'>
-                                {to.endsWith('/sandbox')
-                                    ? t(
-                                          'web.agentRuntimesList.newSandboxHostDescription'
-                                      )
-                                    : to === '/settings/cloud-computers'
-                                      ? t(
-                                            'web.agentRuntimesList.rentCloudComputerDescription'
-                                        )
-                                      : to === '/settings/local-daemons'
-                                        ? t(
-                                              'web.agentRuntimesList.connectComputerDescription'
-                                          )
-                                        : t(
-                                              'web.agentRuntimesList.configureExternalDescription'
-                                          )}
-                            </span>
-                        </span>
-                        <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
-                    </Link>
-                ))}
-            </div>
-        </ProductDialog>
+                        {options.map((option) => item(option, false))}
+                    </div>
+                    <div className='fixed inset-0 z-40 lg:hidden'>
+                        <button
+                            type='button'
+                            aria-label={t('web.cascade.close')}
+                            onClick={() => setOpen(false)}
+                            className='absolute inset-0 bg-black/40'
+                        />
+                        <div className='bg-surface-elevated shadow-elevated absolute inset-x-0 bottom-0 rounded-t-2xl p-2 pb-6'>
+                            <div className='bg-divider mx-auto mt-1 mb-2 h-1 w-9 rounded-full' />
+                            <div className='text-caption text-subtle px-3 py-1.5'>
+                                {t('web.agentRuntimesList.newRuntime')}
+                            </div>
+                            {options.map((option) => item(option, true))}
+                        </div>
+                    </div>
+                </>
+            )}
+        </div>
     )
 }
 
@@ -2143,8 +2194,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
     const [error, setError] = useState<string | null>(null)
     const [message, setMessage] = useState<string | null>(null)
-    const [chooserOpen, setChooserOpen] = useState(false)
     const [cloudComputerEnabled, setCloudComputerEnabled] = useState(false)
+    const [sandboxUsage, setSandboxUsage] =
+        useState<SandboxUsageBreakdown | null>(null)
+    const [usageLoading, setUsageLoading] = useState(true)
+    const [providerRows, setProviderRows] = useState<
+        UserExternalAgentProviderSummary[] | null
+    >(null)
 
     const {
         groupBy,
@@ -2154,12 +2210,11 @@ const AgentRuntimesList: FC = (): ReactNode => {
         collapseAll,
         expandAll,
         reveal
-    } = useCascadeState('mf.runtimes.cascade.v1', RUNTIME_DIMS, 'kind')
-    const [query, setQuery] = useState('')
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+        // v2: the store persists groupBy on first mount, so changing the
+        // fallback alone never reaches a browser that has opened the page
+        // before — the key bump is what makes None the default for everyone.
+    } = useCascadeState('mf.runtimes.cascade.v2', RUNTIME_DIMS, 'none')
     const lastRevealed = useRef<string | null>(null)
-
-    const q = query.trim().toLowerCase()
 
     const refresh = useCallback((): void => {
         setError(null)
@@ -2253,56 +2308,47 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     const groups = useMemo<Group[]>(() => {
         if (!vms || !runtimeRows) return []
-        const filterActive = q !== '' || statusFilter !== 'all'
-        const matchesQuery = (r: AgentRuntimeSummary): boolean => {
-            if (!q) return true
-            return `${frameworkLabel(r.framework)} ${r.name} ${vmLabelOf(r, t)} ${vmLocationOf(r)}`
-                .toLowerCase()
-                .includes(q)
-        }
-        const passStatus = (r: AgentRuntimeSummary): boolean => {
-            if (statusFilter === 'all') return true
-            const s = effStatus(r)
-            if (statusFilter === 'ready') return s === 'ready'
-            return s === 'failed' || s === 'pending' || s === 'offline'
-        }
-        const pred = (r: AgentRuntimeSummary): boolean =>
-            passStatus(r) && matchesQuery(r)
+        const hosts: HostBucket[] = vms.map((vm) => ({
+            key: vm.key,
+            vm,
+            runtimes: vm.runtimes
+        }))
+
+        if (groupBy === 'none')
+            return hosts.length === 0
+                ? []
+                : [
+                      {
+                          mode: 'none',
+                          key: 'all',
+                          count: runtimeRows.length,
+                          health: groupHealth(runtimeRows),
+                          hosts
+                      }
+                  ]
 
         if (groupBy === 'kind') {
-            const kept = vms
-                .map((vm) => ({ vm, runtimes: vm.runtimes.filter(pred) }))
-                .filter(
-                    (x) =>
-                        x.runtimes.length > 0 ||
-                        (!filterActive && x.vm.runtimes.length === 0)
-                )
             const out: Group[] = []
             for (const kind of KIND_ORDER) {
-                const hosts = kept.filter((x) => x.vm.kind === kind)
-                if (hosts.length === 0) continue
-                const all = hosts.flatMap((h) => h.runtimes)
+                const kindHosts = hosts.filter((h) => h.vm.kind === kind)
+                if (kindHosts.length === 0) continue
+                const all = kindHosts.flatMap((h) => h.runtimes)
                 out.push({
                     mode: 'kind',
                     key: `kind:${kind}`,
                     label: runtimeKindLabel(kind),
                     count: all.length,
                     health: groupHealth(all),
-                    hosts: hosts.map((h) => ({
-                        key: h.vm.key,
-                        vm: h.vm,
-                        runtimes: h.runtimes
-                    }))
+                    hosts: kindHosts
                 })
             }
             return out
         }
 
-        const flat = runtimeRows.filter(pred)
         if (groupBy === 'status') {
             const out: Group[] = []
             for (const s of STATUS_ORDER) {
-                const leaves = flat.filter((r) => effStatus(r) === s)
+                const leaves = runtimeRows.filter((r) => effStatus(r) === s)
                 if (leaves.length === 0) continue
                 out.push({
                     mode: 'flat',
@@ -2317,7 +2363,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
         }
 
         const byFw = new Map<RuntimeFramework, AgentRuntimeSummary[]>()
-        for (const r of flat) {
+        for (const r of runtimeRows) {
             const arr = byFw.get(r.framework) ?? []
             arr.push(r)
             byFw.set(r.framework, arr)
@@ -2337,7 +2383,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 health: groupHealth(leaves),
                 leaves
             }))
-    }, [vms, runtimeRows, groupBy, q, statusFilter])
+    }, [vms, runtimeRows, groupBy])
 
     const totalCount = useMemo(
         () => groups.reduce((n, g) => n + g.count, 0),
@@ -2345,22 +2391,68 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
 
     const selection = useMemo<Selection | null>(() => {
+        if (id === DASHBOARD_SEGMENT) return { kind: 'dashboard' }
+        if (isRuntimePage(id)) return { kind: 'page', page: id }
         if (!vms) return null
         if (id) return { kind: 'runtime', id }
         if (hostParam && vms.some((v) => v.key === hostParam))
             return { kind: 'host', key: hostParam }
-        if (vms[0]) return { kind: 'host', key: vms[0].key }
         return null
     }, [vms, id, hostParam])
 
     const hasSelection = Boolean(id) || Boolean(hostParam)
+    // Desktop shows the dashboard whenever nothing is selected; mobile only on
+    // the explicit /dashboard segment (the bare URL keeps the rail there).
+    const dashboardVisible =
+        id === DASHBOARD_SEGMENT ||
+        (!id && !hostParam) ||
+        (vms !== null && selection === null)
+
+    // Dashboard-only data: sandbox usage (storage + per-agent breakdown) and
+    // external providers. Failures degrade to missing columns on the cards —
+    // they never feed the page error banner.
+    useEffect(() => {
+        if (!dashboardVisible) return
+        let cancelled = false
+        setUsageLoading(true)
+        client.runtimeAccess
+            .sandboxUsage()
+            .then((u) => {
+                if (!cancelled) setSandboxUsage(u)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) setUsageLoading(false)
+            })
+        client.externalAgentProviders
+            .list()
+            .then((rows) => {
+                if (!cancelled) setProviderRows(rows)
+            })
+            .catch(() => undefined)
+        return () => {
+            cancelled = true
+        }
+    }, [client, dashboardVisible])
+
+    // The embedded create/manage pages mutate the hosts and providers the
+    // rail and dashboard read; refetch on leaving one so a fresh sandbox or a
+    // revoked machine shows up without a reload.
+    const onRuntimePage = isRuntimePage(id)
+    const wasOnRuntimePage = useRef(false)
+    useEffect(() => {
+        if (wasOnRuntimePage.current && !onRuntimePage) refresh()
+        wasOnRuntimePage.current = onRuntimePage
+    }, [onRuntimePage, refresh])
 
     const keysForSelection = useCallback(
         (sel: Selection): string[] => {
-            if (!vms) return []
+            if (!vms || sel.kind === 'dashboard' || sel.kind === 'page')
+                return []
             if (sel.kind === 'host') {
                 const vm = vms.find((v) => v.key === sel.key)
                 if (!vm) return []
+                if (groupBy === 'none') return [vm.key]
                 if (groupBy === 'kind') return [`kind:${vm.kind}`, vm.key]
                 return []
             }
@@ -2369,6 +2461,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 runtimeRows?.find((r) => r.id === sel.id) ??
                 vm?.runtimes.find((r) => r.id === sel.id) ??
                 null
+            if (groupBy === 'none') return vm ? [vm.key] : []
             if (groupBy === 'kind') return vm ? [`kind:${vm.kind}`, vm.key] : []
             if (groupBy === 'status' && runtime)
                 return [`status:${effStatus(runtime)}`]
@@ -2380,7 +2473,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
 
     useEffect(() => {
-        if (!vms || !selection) return
+        if (
+            !vms ||
+            !selection ||
+            selection.kind === 'dashboard' ||
+            selection.kind === 'page'
+        )
+            return
         const selKey =
             selection.kind === 'runtime'
                 ? `r:${selection.id}`
@@ -2392,13 +2491,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
         if (keys.length > 0) reveal(keys)
     }, [vms, selection, groupBy, keysForSelection, reveal])
 
-    const isOpen = (key: string): boolean => q !== '' || expanded.has(key)
+    const isOpen = (key: string): boolean => expanded.has(key)
 
     const allKeys = useMemo(() => {
         const keys: string[] = []
         for (const g of groups) {
-            keys.push(g.key)
-            if (g.mode === 'kind') for (const h of g.hosts) keys.push(h.key)
+            if (g.mode !== 'none') keys.push(g.key)
+            if (g.mode !== 'flat') for (const h of g.hosts) keys.push(h.key)
         }
         return keys
     }, [groups])
@@ -2592,11 +2691,23 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
 
     const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
-        if (!vms || !selection) return []
+        if (
+            !vms ||
+            !selection ||
+            selection.kind === 'dashboard' ||
+            selection.kind === 'page'
+        )
+            return []
         if (selection.kind === 'host') {
             const vm = vms.find((v) => v.key === selection.key)
             return vm
-                ? [{ label: runtimeKindLabel(vm.kind) }, { label: vm.label }]
+                ? [
+                      {
+                          label: runtimeKindLabel(vm.kind),
+                          to: '/settings/runtimes'
+                      },
+                      { label: vm.label }
+                  ]
                 : []
         }
         const vm = vmContaining(vms, selection.id)
@@ -2604,7 +2715,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
         const parts: BreadcrumbItem[] = []
         if (vm)
             parts.push(
-                { label: runtimeKindLabel(vm.kind) },
+                {
+                    label: runtimeKindLabel(vm.kind),
+                    to: '/settings/runtimes'
+                },
                 {
                     label: vm.label,
                     to: `/settings/runtimes?host=${encodeURIComponent(vm.key)}`
@@ -2636,17 +2750,32 @@ const AgentRuntimesList: FC = (): ReactNode => {
             )
         return groups.map((g) => (
             <div key={g.key}>
-                <GroupHeader
-                    label={g.label}
-                    count={g.count}
-                    open={isOpen(g.key)}
-                    health={g.health}
-                    logo={g.mode === 'flat' ? g.logo : undefined}
-                    onToggle={() => toggle(g.key)}
-                />
-                {isOpen(g.key) &&
-                    (g.mode === 'kind'
-                        ? g.hosts.map((h) => (
+                {g.mode !== 'none' && (
+                    <GroupHeader
+                        label={g.label}
+                        count={g.count}
+                        open={isOpen(g.key)}
+                        health={g.health}
+                        logo={g.mode === 'flat' ? g.logo : undefined}
+                        onToggle={() => toggle(g.key)}
+                    />
+                )}
+                {(g.mode === 'none' || isOpen(g.key)) &&
+                    (g.mode === 'flat'
+                        ? g.leaves.map((r) => (
+                              <RuntimeLeaf
+                                  key={r.id}
+                                  runtime={r}
+                                  subLabel={vmLabelOf(r, t)}
+                                  indentClass='pl-8'
+                                  selected={
+                                      selection?.kind === 'runtime' &&
+                                      selection.id === r.id
+                                  }
+                                  onSelect={() => selectRuntime(r.id)}
+                              />
+                          ))
+                        : g.hosts.map((h) => (
                               <div key={h.key}>
                                   <HostRow
                                       vm={h.vm}
@@ -2664,7 +2793,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                           <RuntimeLeaf
                                               key={r.id}
                                               runtime={r}
-                                              q={q}
                                               indentClass='pl-10'
                                               showStatusDot={false}
                                               selected={
@@ -2678,41 +2806,17 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                           />
                                       ))}
                               </div>
-                          ))
-                        : g.leaves.map((r) => (
-                              <RuntimeLeaf
-                                  key={r.id}
-                                  runtime={r}
-                                  q={q}
-                                  subLabel={vmLabelOf(r, t)}
-                                  indentClass='pl-8'
-                                  selected={
-                                      selection?.kind === 'runtime' &&
-                                      selection.id === r.id
-                                  }
-                                  onSelect={() => selectRuntime(r.id)}
-                              />
                           )))}
             </div>
         ))
     }
 
     const renderDetail = (): ReactNode => {
+        if (selection?.kind === 'page') {
+            const Page = RUNTIME_PAGES[selection.page]
+            return <Page />
+        }
         if (loading) return null
-        if (vms && vms.length === 0)
-            return (
-                <EmptyState
-                    kind='first-use'
-                    tier='stack'
-                    icon={RuntimeIcon}
-                    title={t('web.emptyState.runtimesTitle')}
-                    body={t('web.emptyState.runtimesOverviewBody')}
-                    action={{
-                        label: t('web.emptyState.createRuntimeAction'),
-                        onClick: () => navigate('/settings/runtimes/sandbox')
-                    }}
-                />
-            )
         if (selection?.kind === 'runtime')
             return (
                 <>
@@ -2769,14 +2873,17 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     />
                 </>
             )
-        return null
+        return (
+            <RuntimesDashboard
+                vms={vms ?? []}
+                usage={sandboxUsage}
+                usageLoading={usageLoading}
+                providers={providerRows}
+                cloudComputerEnabled={cloudComputerEnabled}
+                onSelectHost={selectHost}
+            />
+        )
     }
-
-    const chipClass = (active: boolean): string =>
-        [
-            'text-caption rounded-full px-2.5 py-1 font-medium transition-colors',
-            active ? 'bg-rail-hover text-fg' : 'text-muted hover:bg-rail-hover'
-        ].join(' ')
 
     return (
         <div className='flex h-full min-h-0 flex-col lg:flex-row'>
@@ -2788,57 +2895,40 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 ].join(' ')}
             >
                 <div className='shrink-0 space-y-2.5 p-3'>
-                    <div className='flex items-center gap-2'>
-                        <h2 className='text-h3 text-fg tracking-tight'>
-                            {t('web.agentRuntimesList.runtimesTitle')}
-                        </h2>
-                        <span className='tag tag-neutral tabular-nums'>
-                            {totalCount}
-                        </span>
-                    </div>
-
-                    <div className='relative'>
-                        <SearchIcon className='text-subtle pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2' />
-                        <input
-                            type='text'
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            placeholder={t(
-                                'web.agentRuntimesList.searchPlaceholder'
-                            )}
-                            aria-label={t('web.agentRuntimesList.searchAria')}
-                            className='text-ui bg-surface text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-subtle focus-visible:shadow-focus h-9 w-full rounded-sm pl-9 pr-8 transition-shadow focus:outline-none'
+                    <div className='flex items-center justify-between'>
+                        <div className='flex items-center gap-2'>
+                            <h2 className='text-h3 text-fg tracking-tight'>
+                                {t('web.agentRuntimesList.runtimesTitle')}
+                            </h2>
+                            <span className='tag tag-neutral tabular-nums'>
+                                {totalCount}
+                            </span>
+                        </div>
+                        <NewRuntimeMenu
+                            cloudComputerEnabled={cloudComputerEnabled}
+                            variant='header'
                         />
-                        {query && (
-                            <button
-                                type='button'
-                                onClick={() => setQuery('')}
-                                aria-label={t(
-                                    'web.agentRuntimesList.clearSearch'
-                                )}
-                                className='text-subtle hover:text-fg hover:bg-rail-hover absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full transition-colors'
-                            >
-                                <CloseIcon className='h-4 w-4' />
-                            </button>
-                        )}
                     </div>
 
-                    <div className='flex gap-1.5'>
-                        {STATUS_FILTERS.map((f) => (
-                            <button
-                                key={f.value}
-                                type='button'
-                                onClick={() => setStatusFilter(f.value)}
-                                className={chipClass(statusFilter === f.value)}
-                            >
-                                {f.value === 'all'
-                                    ? t('web.agentRuntimesList.all')
-                                    : f.value === 'ready'
-                                      ? t('web.agentRuntimesList.ready')
-                                      : t('web.agentRuntimesList.issues')}
-                            </button>
-                        ))}
-                    </div>
+                    <Link
+                        to={`/settings/runtimes/${DASHBOARD_SEGMENT}`}
+                        aria-current={
+                            selection === null ||
+                            selection.kind === 'dashboard'
+                                ? 'page'
+                                : undefined
+                        }
+                        className={[
+                            'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
+                            selection === null ||
+                            selection.kind === 'dashboard'
+                                ? 'bg-active-session text-fg'
+                                : 'text-fg hover:bg-rail-hover'
+                        ].join(' ')}
+                    >
+                        <DashboardIcon className='text-muted h-4 w-4 shrink-0' />
+                        {t('web.runtimesDashboard.railEntry')}
+                    </Link>
 
                     <div className='flex items-center justify-between gap-2'>
                         <GroupByControl
@@ -2847,37 +2937,39 @@ const AgentRuntimesList: FC = (): ReactNode => {
                             options={GROUP_BY_OPTIONS.map((option) => ({
                                 ...option,
                                 label:
-                                    option.value === 'kind'
-                                        ? t('web.agentRuntimesList.statusKind')
-                                        : option.value === 'status'
+                                    option.value === 'none'
+                                        ? t('web.agentRuntimesList.statusNone')
+                                        : option.value === 'kind'
                                           ? t(
-                                                'web.agentRuntimesList.statusStatus'
+                                                'web.agentRuntimesList.statusKind'
                                             )
-                                          : t(
-                                                'web.agentRuntimesList.statusFramework'
-                                            )
+                                          : option.value === 'status'
+                                            ? t(
+                                                  'web.agentRuntimesList.statusStatus'
+                                              )
+                                            : t(
+                                                  'web.agentRuntimesList.statusFramework'
+                                              )
                             }))}
                         />
-                        {!q && (
-                            <button
-                                type='button'
-                                onClick={
-                                    anyExpanded
-                                        ? collapseAll
-                                        : () => expandAll(allKeys)
-                                }
-                                className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
-                            >
-                                {anyExpanded ? (
-                                    <ChevronUpIcon className='h-3.5 w-3.5' />
-                                ) : (
-                                    <ChevronDownIcon className='h-3.5 w-3.5' />
-                                )}
-                                {anyExpanded
-                                    ? t('web.agentRuntimesList.collapseAll')
-                                    : t('web.agentRuntimesList.expandAll')}
-                            </button>
-                        )}
+                        <button
+                            type='button'
+                            onClick={
+                                anyExpanded
+                                    ? collapseAll
+                                    : () => expandAll(allKeys)
+                            }
+                            className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
+                        >
+                            {anyExpanded ? (
+                                <ChevronUpIcon className='h-3.5 w-3.5' />
+                            ) : (
+                                <ChevronDownIcon className='h-3.5 w-3.5' />
+                            )}
+                            {anyExpanded
+                                ? t('web.agentRuntimesList.collapseAll')
+                                : t('web.agentRuntimesList.expandAll')}
+                        </button>
                     </div>
                 </div>
 
@@ -2886,13 +2978,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 </div>
 
                 <div className='shrink-0 p-2'>
-                    <button
-                        type='button'
-                        onClick={() => setChooserOpen(true)}
-                        className='workbench-button-primary h-9 w-full justify-center'
-                    >
-                        {t('web.agentRuntimesList.newRuntimeButton')}
-                    </button>
+                    <NewRuntimeMenu
+                        cloudComputerEnabled={cloudComputerEnabled}
+                        variant='footer'
+                    />
                 </div>
             </aside>
 
@@ -2916,13 +3005,6 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     {renderDetail()}
                 </div>
             </main>
-
-            {chooserOpen && (
-                <NewRuntimeDialog
-                    cloudComputerEnabled={cloudComputerEnabled}
-                    onClose={() => setChooserOpen(false)}
-                />
-            )}
         </div>
     )
 }

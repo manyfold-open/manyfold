@@ -124,8 +124,7 @@ const SettingsLayout: FC = (): ReactNode => {
     }, [drawerOpen])
 
     const isCascade =
-        (pathname.startsWith('/settings/runtimes') &&
-            !pathname.startsWith('/settings/runtimes/sandbox')) ||
+        pathname.startsWith('/settings/runtimes') ||
         pathname.startsWith('/settings/channels') ||
         pathname === '/settings/model-providers'
 
