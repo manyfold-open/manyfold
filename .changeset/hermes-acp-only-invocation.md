@@ -1,6 +1,5 @@
 ---
 '@manyfold/api': minor
-'@manyfold/shared': patch
 ---
 
 Every hermes chat turn now speaks ACP. A daemon-runtime turn requires a daemon
