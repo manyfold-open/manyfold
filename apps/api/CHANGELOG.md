@@ -1,5 +1,80 @@
 # @manyfold/api
 
+## 0.55.0
+
+### Minor Changes
+
+- [#54](https://github.com/manyfold-open/manyfold/pull/54) [`f5b6347`](https://github.com/manyfold-open/manyfold/commit/f5b634742aa4bf76ebea6df73c7f52a6fcd8c311) Thanks [@yingca1](https://github.com/yingca1)! - Local config is now checked before it is trusted, and you can pick a model from
+  it.
+
+    The "Local config" model source used to treat the presence of a config
+    directory as proof of a working login. Claude Code needed only `~/.claude` to
+    exist; Codex accepted an `auth.json` it could not even parse; Gemini read
+    `oauth_creds.json` without ever looking at the `expiry_date` inside it. On top
+    of that the source skipped model validation entirely, so a signed-out machine
+    advertised itself as ready and the failure only surfaced when a message was
+    already on its way.
+
+    Both inspect paths now report what they actually found — whether a token is
+    present, when it expires, whether a refresh token can renew it, which
+    third-party gateways `~/.codex/config.toml` configures — and the verdict is
+    computed from those facts. Because the facts carry timestamps rather than a
+    yes/no, a snapshot taken an hour ago stops claiming a live token without
+    needing to be re-inspected. A sign-in that has expired with no way to renew is
+    now reported in the composer and refused at send time; the refusal re-inspects
+    the runtime first, so signing in again on that machine is enough to clear it.
+
+    Two situations deliberately stay permissive. A daemon older than this change
+    reports no facts, and a macOS host keeps its Claude token in the keychain,
+    which a background daemon must not prompt for — neither can be judged, so
+    both keep working exactly as before.
+
+    Picking a model under "Local config" works now. The models your CLI reported
+    are listed in the composer, alongside Claude's effort and Codex's speed and
+    reasoning level, each with a "CLI default" entry that hands the decision back
+    to the local CLI. Nothing is filled in on your behalf: a knob you never set
+    sends no flag at all. `/model` in a channel and `mf model-config update
+--model` set the model too — until now they reported success and silently
+    discarded it.
+
+    The concrete model id you pick is passed through as-is. The hosted path maps a
+    version onto its family alias (`claude-sonnet-4-5` became `--model sonnet`)
+    because it repoints that alias through the environment; a local CLI has no
+    such indirection, so an agent whose stored model was a full id now runs that
+    exact version.
+
+    Also fixes the sandbox copy of the inspector, where an over-escaped pattern
+    made `requires_openai_auth = true` unmatchable, letting a hosted runtime treat
+    `OPENAI_API_KEY` as usable even when the local config required a ChatGPT
+    sign-in.
+
+### Patch Changes
+
+- [#55](https://github.com/manyfold-open/manyfold/pull/55) [`d01d06b`](https://github.com/manyfold-open/manyfold/commit/d01d06b3454d99a0a5d156535fc50b0c1c0df400) Thanks [@yingca1](https://github.com/yingca1)! - Self-hosted accounts created before the deployment set `MF_DEFAULT_PLAN_ID`
+  no longer keep cloud `free` limits forever. That variable only ever applied to
+  the `users` INSERT, so an account created by an older self-host stack landed
+  on `free` and nothing — not upgrades, not migrations, not logging back in —
+  ever moved it. The symptom was a quota error naming a plan the operator never
+  chose, such as `External API limit reached (3 for Free plan)` when adding a
+  fourth Dify / Langflow / A2A agent. On the first start after upgrading, a
+  deployment with no billing module and `MF_DEFAULT_PLAN_ID` set to something
+  other than `free` moves every remaining `free` account to that plan. It runs
+  once, claims its marker in the same transaction as the update, and records the
+  move in the audit log — so a later deliberate assignment is never overwritten,
+  and a cloud deployment is never touched.
+
+    The admin console gains a **Plan** card on user detail, backed by
+    `GET /admin/plans` and `PATCH /admin/users/:id/plan`. Until now the
+    open-source composition root had no way to change a user's plan at all, since
+    plan changes lived only in the cloud billing module; recovery meant editing
+    the database by hand. The route refuses on deployments where billing owns the
+    assignment, so a subscription can't be silently desynced from what a user pays
+    for.
+
+    `MF_SELFHOST_DEFAULT_PLAN_ID` now overrides the compose stack's default tier
+    for new accounts, and self-hosting docs cover how to read and change a user's
+    plan.
+
 ## 0.54.0
 
 ### Minor Changes
