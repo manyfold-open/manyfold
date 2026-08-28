@@ -34,7 +34,12 @@ Linking runs through WhatsApp Web, which Meta does not officially support for au
 2. Create a channel and choose **WhatsApp**.
 3. Select the agent and enter a label.
 4. Select **Generate QR code**.
+
+   ![The Manyfold New channel dialog for WhatsApp showing a linking QR code and a waiting-for-scan state](../../../assets/docs/channels/whatsapp-02-manyfold-qr.webp)
+
 5. On your phone, open WhatsApp, go to **Linked devices -> Link a device**, and scan the code.
+
+   ![The WhatsApp Linked devices screen with the Link a device button](../../../assets/docs/channels/whatsapp-03-linked-devices-demo.webp)
 
 Manyfold creates the channel and activates it as soon as the phone confirms the link; there is no token to copy and no inbound URL to register. The QR code rotates every few seconds while you wait and the whole attempt expires after eight minutes — generate a new one if it lapses.
 

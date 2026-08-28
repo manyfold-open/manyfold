@@ -466,11 +466,30 @@ const defaultDocsGroups: DocsGroup[] = [
         ids: [
             {
                 title: 'Agents',
-                ids: ['workspace', 'profiles', 'model-providers']
+                ids: [
+                    'workspace',
+                    'profiles',
+                    'model-providers',
+                    'agent-tools'
+                ]
             },
             {
                 title: 'Runtimes',
-                ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
+                ids: [
+                    'choose-a-runtime',
+                    'run-agents-on-your-computer',
+                    'local-daemons',
+                    'self-hosting',
+                    'self-hosting-cli'
+                ]
+            },
+            {
+                title: 'Deployment',
+                ids: [
+                    'deployment',
+                    'deployment/cloudflare-worker',
+                    'deployment/cloudflare-app'
+                ]
             },
             {
                 title: 'CLI',
@@ -510,6 +529,14 @@ const defaultDocsGroups: DocsGroup[] = [
                     'channels/session-switching',
                     'channels/agent-send'
                 ]
+            },
+            {
+                title: 'Automations',
+                ids: ['automations', 'automations/create']
+            },
+            {
+                title: 'A2A',
+                ids: ['a2a', 'a2a/permissions', 'a2a/workflows']
             },
             {
                 title: 'API',
@@ -569,11 +596,30 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
             ids: [
                 {
                     title: 'Agent',
-                    ids: ['workspace', 'profiles', 'model-providers']
+                    ids: [
+                        'workspace',
+                        'profiles',
+                        'model-providers',
+                        'agent-tools'
+                    ]
                 },
                 {
                     title: 'Runtime',
-                    ids: ['local-daemons', 'self-hosting', 'self-hosting-cli']
+                    ids: [
+                        'choose-a-runtime',
+                        'run-agents-on-your-computer',
+                        'local-daemons',
+                        'self-hosting',
+                        'self-hosting-cli'
+                    ]
+                },
+                {
+                    title: '部署',
+                    ids: [
+                        'deployment',
+                        'deployment/cloudflare-worker',
+                        'deployment/cloudflare-app'
+                    ]
                 },
                 {
                     title: 'CLI',
@@ -612,6 +658,14 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                         'channels/session-switching',
                         'channels/agent-send'
                     ]
+                },
+                {
+                    title: '自动化',
+                    ids: ['automations', 'automations/create']
+                },
+                {
+                    title: 'A2A',
+                    ids: ['a2a', 'a2a/permissions', 'a2a/workflows']
                 },
                 {
                     title: 'API',

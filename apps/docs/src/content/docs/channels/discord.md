@@ -26,9 +26,18 @@ Connect Discord when you want an agent in direct messages, server channels, or t
 ## Create the Discord application
 
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications).
+
+   ![The Discord Developer Portal Applications list](../../../assets/docs/channels/discord-01-applications.webp)
+
 2. Create an application.
 3. Open **Bot**, create the bot user, and copy or reset its token. Treat the token like a password.
+
+   ![The Discord application Bot settings page with the token redacted](../../../assets/docs/channels/discord-02-bot-token-redacted.webp)
+
 4. Under **Privileged Gateway Intents**, enable **Message Content Intent**.
+
+   ![Discord Privileged Gateway Intents with Message Content Intent enabled](../../../assets/docs/channels/discord-06-gateway-intents.webp)
+
 
 Message Content Intent is required because Manyfold handles normal messages as well as slash commands. Without it, the Gateway can connect but user prompts and attachment metadata may be empty. Verified applications in 100 or more servers may also need Discord approval for this privileged intent.
 
@@ -37,6 +46,9 @@ Message Content Intent is required because Manyfold handles normal messages as w
 In **OAuth2 -> URL Generator**:
 
 1. Select the `bot` and `applications.commands` scopes.
+
+   ![The Discord OAuth2 URL Generator with the bot scope selected](../../../assets/docs/channels/discord-03-oauth2-scopes.webp)
+
 2. Select only the bot permissions needed for your settings:
 
 | Bot permission | Required for |
@@ -48,16 +60,30 @@ In **OAuth2 -> URL Generator**:
 | Create Public Threads | **Auto-thread** in server text channels. |
 | Attach Files | Sending files linked by the agent. |
 
+![Discord bot permissions with View Channels, Send Messages, and Read Message History selected](../../../assets/docs/channels/discord-04-bot-permissions.webp)
+
 Open the generated URL and invite the bot. Channel-level permission overrides still apply even if the server role grants a permission.
+
+![The generated Discord invite URL, redacted](../../../assets/docs/channels/discord-05-invite-url-redacted.webp)
+
+**Installation -> Install Link** is an alternative route to the same invite: choosing **Discord Provided Link** there generates an install URL without building one in the URL Generator. Either link invites the same application.
+
+![The Discord Installation page with Discord Provided Link selected and a generated URL](../../../assets/docs/channels/discord-09-installation-link.webp)
 
 ## Connect it to Manyfold
 
 1. Open **Settings -> Channels**.
 2. Create a channel and choose **Discord**.
 3. Select the agent, enter a label, and paste the bot token.
+
+   ![The Manyfold New channel panel for a Discord channel with the bot token redacted](../../../assets/docs/channels/discord-07-new-channel.webp)
+
 4. Optionally enter one or more **Allowed guild IDs**.
 5. Create the channel.
 6. Run **Register**, then **Test**.
+
+   ![Manyfold Discord channel details showing bot identity, Message Content intent, and Gateway status](../../../assets/docs/channels/discord-08-channel-details.webp)
+
 
 Discord does not use the Manyfold inbound URL. Registration reads the bot/application identity, checks Message Content Intent, and registers the supported global slash commands. The Gateway connection starts automatically and reconnects after transient disconnects.
 

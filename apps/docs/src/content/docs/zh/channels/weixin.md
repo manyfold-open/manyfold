@@ -23,7 +23,7 @@ WeChat 只支持**私聊**。扫码授权得到的是一个 bot 身份（`…@im
 
 - 一个已有的 Manyfold Agent。
 - 一个用于扫码授权的个人微信账号。
-- 扫码成功后签发的 iLink bot token。
+- 一个 iLink bot token；仅当你选择 **Paste token**、而不是在 Manyfold 内扫码时才需要。
 
 bot token 绑定的是授权得到的会话，而不是来源 IP，因此你用手机授权后，Manyfold 可以在服务器上持续保持这个连接。若会话之后过期，微信会返回错误码 `-14`，重新扫码即可签发新 token。
 
@@ -32,7 +32,13 @@ bot token 绑定的是授权得到的会话，而不是来源 IP，因此你用�
 1. 打开 **设置 -> 渠道**。
 2. 新建渠道，选择 **WeChat**。
 3. 选择 Agent 并填写标签。
-4. 粘贴 iLink bot token。网关 base URL 留空即使用默认网关。
+4. 选择授权方式。**Scan to connect** 是推荐路径，不需要你自己准备 token。
+
+   - **Scan to connect**：用微信扫描对话框中的二维码，为 bot 授权。
+   - **Paste token**：粘贴你已经持有的 iLink bot token。网关 base URL 留空即使用默认网关。
+
+   ![Manyfold 新建 WeChat 渠道的对话框，已选择 Scan to connect 并显示授权二维码](../../../../assets/docs/channels/weixin-01-scan-to-connect.webp)
+
 5. 可选：用 **Allowed user IDs** 限制谁能使用该 bot，用 **Operator user IDs** 限制谁能运行 Agent 级命令。
 6. 创建渠道并运行 **Register**。
 7. 在微信里给 bot 发消息。
@@ -81,7 +87,7 @@ mf channels send <channelId> --user-id 'wxid_xxx@im.wechat' --text '你的构建
 
 ## 排查
 
-- **token 被拒或渠道报告会话过期（`-14`）**：iLink 会话已过期。重新扫码，然后更新渠道上的 bot token。
+- **token 被拒或渠道报告会话过期（`-14`）**：iLink 会话已过期。在渠道上重新生成二维码并再次扫码即可重连。如果该渠道当初是用 **Paste token** 连接的，则改为签发新 token 并更新到渠道上。
 - **渠道一直 connecting 或报告网关错误**：确认 Manyfold 能访问 iLink 网关，且 token 仍然有效。
 - **bot 不响应**：确认发送者在 **Allowed user IDs** 中（或将其留空），且渠道状态为 active。
 - **Agent 级命令被拒绝**：把发送者的 iLink 用户 ID 加入 **Operator user IDs**。

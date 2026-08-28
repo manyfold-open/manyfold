@@ -51,8 +51,14 @@ const { grouped } = docsNavGroups(entries, locale)
 // rather than a slug means a generated page that is not a collection entry.
 const CURATED: Record<string, readonly string[]> = {
     'group-start': ['getting-started', 'install', 'create-agent'],
-    'group-build': ['workspace', 'model-providers', 'local-daemons', 'cli'],
-    'group-connect': ['channels', 'api-chat', 'api-conversations', 'api-a2a'],
+    'group-build': [
+        'choose-a-runtime',
+        'workspace',
+        'model-providers',
+        'deployment',
+        'cli'
+    ],
+    'group-connect': ['channels', 'automations', 'a2a', 'api-chat'],
     'group-reference': ['cli/reference', '/api-reference', 'faq']
 }
 
@@ -163,7 +169,7 @@ const browseGroups = grouped
                     {copy.ctaPrimary}
                 </a>
                 <a
-                    href={localePath(locale, '/docs/create-agent/')}
+                    href={localePath(locale, '/docs/choose-a-runtime/')}
                     class="docs-button-secondary"
                 >
                     {copy.ctaSecondary}
@@ -227,7 +233,7 @@ const browseGroups = grouped
             </div>
             <p class="mt-3">
                 <a
-                    href={localePath(locale, '/docs/create-agent/')}
+                    href={localePath(locale, '/docs/choose-a-runtime/')}
                     class="dash-more text-ui font-medium"
                 >
                     {copy.runtimeMore} <span aria-hidden="true">&#8594;</span>

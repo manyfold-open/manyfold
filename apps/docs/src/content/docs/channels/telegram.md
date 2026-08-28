@@ -28,10 +28,21 @@ Connect Telegram when you want an agent available in direct messages, groups, su
 ## Create the bot
 
 1. Open Telegram and start a chat with `@BotFather`.
+
+   ![Telegram search results with the verified @BotFather account](../../../assets/docs/channels/telegram-01-search-botfather.webp)
+
 2. Send `/newbot` and follow the prompts.
+
+   ![The BotFather /newbot exchange asking for a bot name and username](../../../assets/docs/channels/telegram-02-newbot-flow.webp)
+
 3. Choose a display name and a globally unique username ending in `bot`.
 4. Copy the bot token. Treat it like a password.
+
+   ![The BotFather confirmation message with the bot token redacted](../../../assets/docs/channels/telegram-03-bot-created-redacted.webp)
+
 5. If the bot should receive ordinary group messages without an @mention, open **Bot Settings -> Group Privacy** in BotFather and disable privacy mode. Re-add the bot to an existing group if Telegram does not apply the change there.
+
+BotFather also has optional commands for how the bot presents itself: `/setdescription` for the long description, `/setabouttext` for the short bio, `/setuserpic` for the avatar, and `/setcommands` to populate Telegram's own command menu.
 
 Keep privacy mode enabled when **Mention only** is on. Telegram will still deliver commands, direct replies to the bot, and messages that mention it, while hiding unrelated group traffic. A delivered reply is not automatically a Manyfold mention: ordinary reply text must still include `@BotUsername`, unless **Mention only** is off.
 
@@ -41,8 +52,14 @@ Keep privacy mode enabled when **Mention only** is on. Telegram will still deliv
 2. Create a channel and choose **Telegram**.
 3. Select the agent that should receive messages.
 4. Enter a label and paste the bot token.
+
+   ![The Manyfold New channel form for a Telegram channel](../../../assets/docs/channels/telegram-04-manyfold-new-channel.webp)
+
 5. Create the channel.
 6. Open the channel detail page and run **Test**.
+
+   ![Manyfold Telegram channel details showing bot identity, webhook state, and recent deliveries](../../../assets/docs/channels/telegram-05-channel-details-demo.webp)
+
 
 Manyfold automatically:
 
@@ -90,6 +107,8 @@ Then test both paths you intend to use:
 1. Send a direct text message to the bot.
 2. For group use, add the bot and send `@BotUsername hello`.
 3. Run `/help` to confirm the command menu and command handler.
+
+![A first Telegram conversation with the demo bot replying](../../../assets/docs/channels/telegram-06-first-conversation-demo.webp)
 
 ## Troubleshooting
 
