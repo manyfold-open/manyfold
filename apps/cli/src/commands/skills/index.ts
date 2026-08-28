@@ -25,6 +25,9 @@ interface DiscoverOpts {
     agentId?: string
     q?: string
     repoId?: string
+    sort?: string
+    cursor?: string
+    limit?: string
     json?: boolean
 }
 
@@ -232,24 +235,47 @@ export const registerSkills = (program: Command): void => {
         .option('--agent-id <id>', 'filter to this agent context')
         .option('--q <query>', 'search query')
         .option('--repo-id <id>', 'filter to a specific repo')
+        .option('--sort <order>', "'featured' (default) or 'latest'")
+        .option('--cursor <cursor>', 'opaque cursor from previous page')
+        .option('--limit <n>', 'page size (1-100, default 100)')
         .option('--json', 'emit raw JSON', false)
         .action(async (opts: DiscoverOpts) => {
             const global = program.opts<RootOpts>()
             const { client } = await buildClient(global)
-            const list = await client.skills.discover({
+            const sort =
+                opts.sort === 'featured' || opts.sort === 'latest'
+                    ? opts.sort
+                    : undefined
+            if (opts.sort !== undefined && sort === undefined)
+                throw new Error("--sort must be 'featured' or 'latest'")
+            // Max page size on purpose: the pre-envelope command returned the
+            // whole result set in one response, so defaulting to the server
+            // cap keeps single-page parity at today's catalog sizes; beyond
+            // it the cursor is the honest contract (the offset cursor is not
+            // stable across concurrent re-ranks, so no client-side looping).
+            const page = await client.skills.discoverPage({
                 agentId: resolveOptionalAgentId(opts.agentId, program),
                 q: opts.q,
-                repoId: opts.repoId
+                repoId: opts.repoId,
+                sort,
+                cursor: opts.cursor,
+                limit: opts.limit ? Number(opts.limit) : 100
             })
             if (opts.json) {
-                console.log(JSON.stringify(list, null, 2))
+                console.log(JSON.stringify(page, null, 2))
                 return
             }
-            for (const s of list) {
+            for (const s of page.items) {
                 console.log(
                     `${s.skillId}  ${kleur.cyan(s.name)}  ${kleur.dim(s.description ?? '')}`
                 )
             }
+            if (page.nextCursor)
+                console.error(
+                    kleur.dim(
+                        `(more — continue with --cursor ${page.nextCursor})`
+                    )
+                )
         })
 
     cmd.command('install')

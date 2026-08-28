@@ -7,6 +7,10 @@ Channel 让用户可以在日常使用的聊天工具中调用 Manyfold Agent。
 
 建议先在 [Manyfold Web workspace](/zh/docs/workspace/) 中确认 Agent 行为符合预期，再根据对话形式、文件、访问控制和托管方式选择渠道。
 
+![Manyfold 渠道页面选中一个 Telegram 渠道，显示入站 webhook 网址、连接状态与最近交付记录](../../../assets/docs/channels/channels-overview-demo.webp)
+
+*每个渠道都有详情页，可以查看入站 webhook 网址、连接状态和最近交付记录。*
+
 ## 能力概览
 
 | 渠道                  | 投递方式                     | 对话范围                                       | 文件           | 特色能力                                                                                                                            |
@@ -16,6 +20,8 @@ Channel 让用户可以在日常使用的聊天工具中调用 Manyfold Agent。
 | [Lark 和飞书](/zh/docs/channels/lark/)  | Webhook 或长连接             | 私聊、群聊、消息 thread                        | 收发文件       | 富文本/卡片渲染、CardKit streaming、历史回填、session 卡片按钮、用户/operator policy。                                              |
 | [Discord](/zh/docs/channels/discord/)   | Gateway 连接                 | DM、server channel、thread                     | 收发文件       | 原生命令/回复、auto-thread、历史回填、可选 usage footer 和 fresh-final 通知。                                                       |
 | [Matrix](/zh/docs/channels/matrix/)     | Client `/sync`               | 私聊、房间、thread                             | 收发文件       | 自托管 homeserver、actor/operator policy、原生回复、历史回填、Agent 主动发送和媒体；不支持 E2EE。                                   |
+| [LINE](/zh/docs/channels/line/)         | secret 校验的托管 webhook     | 一对一聊天、群组与多人房间                     | 可接收文本、图片、视频、音频和文件；不支持外发文件 | 原生 mention 标记、群内引用回复、一对一加载动画；每条回复都计入套餐的推送消息额度。 |
+| [WhatsApp](/zh/docs/channels/whatsapp/) | 链接设备会话                  | 一对一聊天与群组                               | 收发文件       | 把已有的 WhatsApp 账号作为设备链接，不需要申请 Business API。 |
 | [WeChat](/zh/docs/channels/weixin/)     | iLink 长轮询                 | 仅个人私聊                                     | 收发文件       | 扫码授权个人 bot、sender/operator policy、typing 状态、引用上下文，以及向已给 bot 发过消息的用户主动发送。                            |
 | [Linear](/zh/docs/channels/linear/)     | 签名 webhook                 | 每个 agent session 一个会话，挂在 issue 上     | 不支持         | Agent 作为工作区成员，可被 mention 或委派 issue；思考过程、工具调用与任务清单展示在 session 上；支持 stop request、用户 allowlist。 |
 | [GitHub](/zh/docs/channels/github/)     | 签名 webhook                 | 每个 issue / PR 一个会话                       | 不支持         | 通过 manifest 流程自动创建专属 GitHub App；在 issue/PR 上 mention 或用标签委派；实时编辑的进展评论；表情回执；association 把关与 login 允许列表。 |
@@ -86,6 +92,8 @@ Telegram 目前只传递 inbound 文本/caption，但 Agent 可以通过 `mf cha
 - [Lark 和飞书](/zh/docs/channels/lark/)
 - [Discord](/zh/docs/channels/discord/)
 - [Matrix](/zh/docs/channels/matrix/)
+- [LINE](/zh/docs/channels/line/)
+- [WhatsApp](/zh/docs/channels/whatsapp/)
 - [WeChat](/zh/docs/channels/weixin/)
 - [Linear](/zh/docs/channels/linear/)
 - [GitHub](/zh/docs/channels/github/)

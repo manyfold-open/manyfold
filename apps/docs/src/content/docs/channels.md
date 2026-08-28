@@ -7,6 +7,10 @@ Channels let people use a Manyfold agent from the chat tools where work already 
 
 Start by testing the agent in the [Manyfold web workspace](/docs/workspace/). Then choose a channel based on the conversations, files, access controls, and hosting model you need.
 
+![The Manyfold Channels page with a Telegram channel selected, showing its inbound webhook URL, status, and recent deliveries](../../assets/docs/channels/channels-overview-demo.webp)
+
+*Each channel has a detail page with its inbound webhook URL, connection status, and recent deliveries.*
+
 ## Capability overview
 
 | Channel                  | Delivery                        | Conversations                                       | Files              | Distinctive capabilities                                                                                                                                |
@@ -16,6 +20,8 @@ Start by testing the agent in the [Manyfold web workspace](/docs/workspace/). Th
 | [Lark and Feishu](/docs/channels/lark/) | Webhook or long connection      | Private chats, groups, message threads              | Receive and send   | Rich-text/card rendering, CardKit streaming, history backfill, session-card buttons, user/operator policy.                                              |
 | [Discord](/docs/channels/discord/)      | Gateway connection              | DMs, server channels, threads                       | Receive and send   | Native commands/replies, auto-thread, history backfill, optional usage footer and fresh-final notification.                                             |
 | [Matrix](/docs/channels/matrix/)        | Client `/sync`                  | DMs, rooms, threads                                 | Receive and send   | Self-managed homeservers, actor/operator policy, native replies, history backfill, agent-initiated sends, and media. No E2EE.                           |
+| [LINE](/docs/channels/line/)            | Secret-verified managed webhook  | One-on-one chats, groups, and multi-person rooms | Inbound text, images, video, audio and files; no outbound files | Native mention marking, quoted replies in groups, one-on-one loading animation; every reply counts against the plan's push-message quota. |
+| [WhatsApp](/docs/channels/whatsapp/)    | Linked-device session            | One-on-one chats and groups                     | Receive and send   | Links an existing WhatsApp account as a device; no Business API application required. |
 | [WeChat](/docs/channels/weixin/)        | iLink long poll                 | Personal DMs only                                   | Receive and send   | QR-authorized personal bot, sender/operator policy, typing state, quoted context, and agent-initiated sends to users who already messaged the bot.       |
 | [Linear](/docs/channels/linear/)        | Signed webhook                  | One conversation per agent session on an issue      | None               | Agent is a workspace member you mention or delegate issues to; thinking, tool calls and a task list show on the session; stop requests; user allowlist. |
 | [GitHub](/docs/channels/github/)        | Signed webhook                  | One conversation per issue or pull request          | None               | Dedicated GitHub App created for you via the manifest flow; mention it on issues/PRs or delegate with a label; live-edited progress comment; reaction acknowledgements; association gate and login allowlists. |
@@ -86,6 +92,8 @@ Telegram currently passes only inbound text/captions, although an Agent can expl
 - [Lark and Feishu](/docs/channels/lark/)
 - [Discord](/docs/channels/discord/)
 - [Matrix](/docs/channels/matrix/)
+- [LINE](/docs/channels/line/)
+- [WhatsApp](/docs/channels/whatsapp/)
 - [WeChat](/docs/channels/weixin/)
 - [Linear](/docs/channels/linear/)
 - [GitHub](/docs/channels/github/)

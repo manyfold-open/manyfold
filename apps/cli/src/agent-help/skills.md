@@ -60,6 +60,10 @@ mf skills install --skill-id <skill-id> --agent-ids <id1>,<id2>
 `install` returns a user-skill id — use that for `update` / `delete`, not
 the catalog `<skill-id>` from `discover`. `delete` has alias `rm`.
 
+`discover --json` prints a page object `{items, nextCursor}` (max 100 per
+page, `--sort featured|latest`); pass `nextCursor` back as `--cursor` until
+it is `null`.
+
 Library skills install with the same `mf skills install`, passing the
 `skl_…` library id as `--skill-id`. `install` takes exactly one of
 `--agent-id` or `--agent-ids` (comma-separated batch; per-agent results,

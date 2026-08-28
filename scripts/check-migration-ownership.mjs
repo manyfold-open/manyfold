@@ -4,7 +4,7 @@
 // on cloud-owned tables (data-only statements may additionally touch the
 // shared-config allowlist — cloud seeds its own app_settings keys). FK
 // direction is one-way: cloud SQL may REFERENCE core tables, core SQL must
-// never reference cloud tables. The frozen legacy chain is exempt (history).
+// never reference cloud tables.
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { CLOUD_TABLE_CONTRACT } from './editions-cloud-tables.mjs'

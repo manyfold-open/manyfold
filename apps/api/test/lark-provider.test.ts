@@ -252,7 +252,18 @@ test('lark websocket dispatches SDK-flattened receive_v1 events', async () => {
 })
 
 test('lark websocket dispatches legacy message events', async () => {
-    const provider = makeProvider()
+    const telemetryEvents: Array<{
+        name: string
+        attrs: Record<string, unknown>
+    }> = []
+    const provider = new LarkChannelProvider(
+        { get: () => 'https://open.feishu.cn' } as never,
+        {
+            event: (name: string, attrs: Record<string, unknown>) => {
+                telemetryEvents.push({ name, attrs })
+            }
+        } as never
+    )
     const received: NormalizedInboundEvent[] = []
     let dispatcher: {
         invoke: (
@@ -314,6 +325,16 @@ test('lark websocket dispatches legacy message events', async () => {
     assert.equal(received[0]?.senderId, 'ou_sender')
     assert.equal(received[0]?.text, 'hello')
     assert.equal(received[0]?.isMention, true)
+    assert.deepEqual(
+        telemetryEvents,
+        [
+            {
+                name: 'channel.lark.legacy_event',
+                attrs: { source: 'ws', channelId: 'chn-1', messageType: 'text' }
+            }
+        ],
+        'a legacy-schema hit must be observable (legacy-inventory §4.3)'
+    )
     await handle.stop()
 })
 

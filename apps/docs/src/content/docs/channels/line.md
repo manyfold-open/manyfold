@@ -4,7 +4,7 @@ description: Connect a LINE Official Account to a Manyfold agent.
 order: 15
 ---
 
-Connect LINE when you want an agent reachable from a LINE Official Account — in one-on-one chats with users, and in group chats or multi-person rooms the account has been invited to. Manyfold sets the webhook URL for you; the rest of the setup happens in the LINE Developers console.
+Connect LINE when you want an agent reachable from a LINE Official Account — in one-on-one chats with users, and in group chats or multi-person rooms the account has been invited to. Setup runs in both places: you collect the credentials in the LINE Developers console, and Manyfold writes its inbound webhook URL back there for you when the channel registers.
 
 ## What the channel supports
 
@@ -30,16 +30,44 @@ Connect LINE when you want an agent reachable from a LINE Official Account — i
 
 ## Create the Messaging API channel
 
-1. Sign in to the LINE Developers console and open (or create) a provider.
-2. Create a **Messaging API** channel, or enable the Messaging API on an existing LINE Official Account.
-3. On the **Basic settings** tab, copy the **Channel secret**.
-4. On the **Messaging API** tab, issue a **Channel access token (long-lived)** and copy it. Treat both values like passwords.
-5. Still on the **Messaging API** tab, turn on **Allow bot to join group chats** if the agent should work in groups.
+A Messaging API channel can no longer be created directly in the LINE Developers console. Create a LINE Official Account first, then enable the Messaging API on it from the LINE Official Account Manager.
 
-Two console settings decide whether messages actually reach Manyfold, and neither can be changed through the API:
+### Create a LINE Official Account
 
-- **Use webhook** must be on. Manyfold sets the webhook URL, but it cannot flip this switch — the channel's **Test** action reports when it is off.
-- **Auto-reply messages** and **Greeting messages** should be off. Left on, LINE answers first and the user sees two replies. These live under **Response settings**, which the console links out to the LINE Official Account Manager.
+1. Sign in at [account.line.biz](https://account.line.biz/login) with a personal LINE account, an email address, or the QR code.
+2. Choose to create an account, then fill in the account name, contact email, and industry.
+3. For a first test you can defer verification. An unverified account can still enable the Messaging API.
+4. After creation, open the LINE Official Account Manager and confirm that the account selected in the sidebar is the one you just made.
+
+![The Create a LINE Official Account form with the account name, email, and industry fields](../../../assets/docs/channels/line-20-oa-create-form-demo.webp)
+
+### Enable the Messaging API
+
+1. In the LINE Official Account Manager, open **Settings**.
+2. Find **Messaging API** in the settings menu and enable it.
+3. Select an existing provider or create a new one. A provider name is usually a company, project, or brand name.
+4. Accept the prompts to finish enabling it.
+
+![The Messaging API page in LINE Official Account Manager with the enable button](../../../assets/docs/channels/line-21-oa-enable-messaging-api-demo.webp)
+
+### Copy the channel secret and the access token
+
+- **Channel ID** identifies this Messaging API channel.
+- **Channel secret** verifies that an inbound LINE webhook request really came from LINE.
+- **Channel access token** lets an external system call the Messaging API on behalf of the official account.
+
+The **Messaging API** page in the LINE Official Account Manager carries the Channel ID and the Channel secret, and it is the page the webhook URL goes on later. Copy the Channel secret from here.
+
+The access token is issued in the LINE Developers console instead:
+
+1. Open the LINE Developers console from the Messaging API settings page, or go to `developers.line.biz`.
+2. Select the provider you used, then the matching Messaging API channel.
+3. Open the **Messaging API** tab and scroll to **Channel access token (long-lived)**.
+4. Click **Issue** and copy the token into a private credential store. The button reads *Reissue* once a token already exists. Treat both values like passwords.
+
+![The Channel access token (long-lived) section on the Messaging API tab of the LINE Developers console](../../../assets/docs/channels/line-26-messaging-api-token-demo.webp)
+
+On the same tab, turn on **Allow bot to join group chats** if the agent should work in groups.
 
 ## Connect it to Manyfold
 
@@ -47,10 +75,32 @@ Two console settings decide whether messages actually reach Manyfold, and neithe
 2. Create a channel and choose **LINE**.
 3. Select the agent that should receive messages.
 4. Enter a label and paste the channel secret and the channel access token.
-5. Create the channel.
-6. Open the channel detail page and run **Test**.
 
-On registration Manyfold reads the bot identity (`/v2/bot/info`), sets this channel's inbound URL as the webhook endpoint, and activates the channel. Every inbound request is verified against the channel secret with LINE's `x-line-signature` header. Rotating credentials replaces both values at once, so enter the channel secret and the access token together.
+   ![The Manyfold New channel form with the agent, provider, label, channel secret and access token fields](../../../assets/docs/channels/line-22-manyfold-new-channel.webp)
+
+5. Create the channel. Manyfold registers it with LINE in the same step and sets the webhook URL on the Messaging API channel.
+6. Open the channel detail page. It shows the **Inbound webhook URL** that was registered.
+
+   ![The Manyfold LINE channel detail page showing its inbound webhook URL](../../../assets/docs/channels/line-23-manyfold-webhook-demo.webp)
+
+7. Back in the LINE Official Account Manager, open the **Messaging API** page and check its **Webhook URL** field. Manyfold will have filled it in; if the field is empty, paste the inbound URL there and save.
+
+   ![The Messaging API page in LINE Official Account Manager with the webhook URL filled in](../../../assets/docs/channels/line-24-messaging-api-webhook-demo.webp)
+
+On registration Manyfold reads the bot identity (`/v2/bot/info`), sets the webhook URL, and activates the channel. Identity is read first, so a bad access token stops registration before the webhook is set. If the channel reports `line bot.info failed: 401`, correct the access token and register again, or paste the inbound webhook URL into **Webhook settings** yourself.
+
+Every inbound request is verified against the channel secret with LINE's `x-line-signature` header. Rotating credentials replaces both values at once, so enter the channel secret and the access token together.
+
+## Turn on the webhook and turn off LINE's built-in replies
+
+Do this last, once the webhook URL is in place. Two settings decide whether messages actually reach Manyfold, and neither can be changed through the API. Both live under **Response settings** in the LINE Official Account Manager.
+
+- **Use webhook** must be on. The Response settings page labels this row simply *Webhook*. Manyfold sets the webhook URL, but it cannot flip this switch — the channel's **Test** action reports when it is off.
+- **Auto-reply messages** and **Greeting messages** should be off. Left on, LINE answers first and the user sees two replies. Some console languages label these *Automatic response messages* and *Welcome message for adding friends*.
+
+![The Response settings page with the chat, greeting, webhook, and auto-reply toggles](../../../assets/docs/channels/line-25-response-settings.webp)
+
+With both settings done, run **Test** on the channel detail page in Manyfold.
 
 ## Conversation behavior
 
@@ -95,7 +145,8 @@ Then test the paths you intend to use:
 
 ## Troubleshooting
 
-- **Test says "Use webhook" is off**: turn it on in the LINE Developers console under **Messaging API**. Manyfold cannot set it through the API.
+- **Test fails on the bot identity check**: `line bot.info failed: 401` means the channel access token is wrong or was revoked. Issue a new long-lived token, save it, and register again. Registration stops at that point, so the webhook URL will not have been set yet.
+- **Test says "Use webhook" is off**: turn it on in the LINE Official Account Manager under **Response settings**, where the row is labelled simply *Webhook*. Manyfold cannot set it through the API.
 - **Every message gets two answers**: turn off **Auto-reply messages** and **Greeting messages** in the LINE Official Account Manager.
 - **Nothing arrives at all**: run the channel's registration action again, then confirm the webhook URL in the console matches this channel's inbound URL.
 - **Group messages are ignored**: mention the account explicitly, or turn off **Mention only**. Also confirm **Allow bot to join group chats** is enabled, and that the group ID passes the allowed-group list if you set one.

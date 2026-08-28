@@ -10,6 +10,8 @@ import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.mod
 import { AdminSandboxQuotasModule } from '@/modules/admin-sandbox-quotas/admin-sandbox-quotas.module'
 import { UsersModule } from '@/modules/users/users.module'
 import { SelfHostPlanBackfillModule } from '@/modules/self-host-plan-backfill/self-host-plan-backfill.module'
+import { LegacyEnvAuditModule } from '@/modules/legacy-env-audit/legacy-env-audit.module'
+import { A2aTimeoutEnvMigrationModule } from '@/modules/a2a-timeout-env-migration/a2a-timeout-env-migration.module'
 import { UserDeletionModule } from '@/modules/user-deletion/user-deletion.module'
 import { UserExportModule } from '@/modules/user-export/user-export.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
@@ -67,6 +69,8 @@ export const CORE_MODULES = [
     AdminSandboxQuotasModule,
     UsersModule,
     SelfHostPlanBackfillModule,
+    LegacyEnvAuditModule,
+    A2aTimeoutEnvMigrationModule,
     UserDeletionModule,
     UserExportModule,
     SpritesAccountsModule,

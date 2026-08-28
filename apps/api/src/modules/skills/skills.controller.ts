@@ -13,12 +13,14 @@ import {
     Delete,
     Get,
     HttpCode,
+    Optional,
     Param,
     Patch,
     Post,
     Query,
     UseGuards
 } from '@nestjs/common'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     parseCatalogLimit,
     parseCatalogSort
@@ -46,7 +48,10 @@ import { SkillsService } from './skills.service'
 @Controller('skills')
 @UseGuards(AuthGuard)
 export class SkillsController {
-    constructor(private readonly service: SkillsService) {}
+    constructor(
+        private readonly service: SkillsService,
+        @Optional() private readonly telemetry?: TelemetryService
+    ) {}
 
     @Get('installed')
     @RequireApiTokenScope('skills:read')
@@ -90,6 +95,13 @@ export class SkillsController {
             sort !== undefined ||
             cursor !== undefined ||
             limit !== undefined
+        // The shape split is the removal gate for the bare-array branch: it
+        // can only go once this event reports zero shape=bare over a window
+        // covering the released binaries still calling without params
+        // (legacy-inventory §4.7).
+        this.telemetry?.event('skills.discover.shape', {
+            shape: paged ? 'paged' : 'bare'
+        })
         if (!paged) return this.service.discover(base)
         return this.service.discoverPage({
             ...base,

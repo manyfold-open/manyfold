@@ -34,8 +34,9 @@ export const sandboxActiveDurationDays = pgTable(
     },
     (table) => ({
         pk: primaryKey({ columns: [table.hostId, table.day] }),
-        // Historical hand-written CHECK, kept under its legacy name (see the
-        // editions core baseline parity requirement).
+        // Historical hand-written CHECK, kept under its legacy name: deployed
+        // databases hold it under that name; renaming buys nothing but
+        // schema/DB drift.
         dayShape: check(
             'sandbox_active_duration_days_day_shape',
             sql`${table.day} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'`

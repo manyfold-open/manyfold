@@ -4,7 +4,7 @@ description: 把 LINE 官方账号连接到 Manyfold Agent。
 order: 15
 ---
 
-当你希望 Agent 可以通过 LINE 官方账号被找到时，就连接 LINE —— 既支持与用户的一对一聊天，也支持账号被邀请加入的群组和多人房间。Manyfold 会代你设置 Webhook URL，其余配置在 LINE Developers 控制台完成。
+当你希望 Agent 可以通过 LINE 官方账号被找到时，就连接 LINE —— 既支持与用户的一对一聊天，也支持账号被邀请加入的群组和多人房间。配置会在两边进行：先在 LINE Developers 控制台取得凭据，频道注册时 Manyfold 会自动把入站 Webhook URL 写回控制台。
 
 ## 该频道支持什么
 
@@ -30,16 +30,44 @@ order: 15
 
 ## 创建 Messaging API 频道
 
-1. 登录 LINE Developers 控制台，打开（或创建）一个 provider。
-2. 创建 **Messaging API** 频道，或在已有的 LINE 官方账号上启用 Messaging API。
-3. 在 **Basic settings** 标签页复制 **Channel secret**。
-4. 在 **Messaging API** 标签页签发 **Channel access token（长期）** 并复制。这两个值都要当作密码对待。
-5. 仍在 **Messaging API** 标签页，如果 Agent 需要在群里工作，请打开 **Allow bot to join group chats**。
+Messaging API 频道已经不能直接在 LINE Developers 控制台创建。请先建立 LINE 官方账号，再从 LINE 官方账号管理后台在它上面启用 Messaging API。
 
-有两个控制台设置决定消息能否真正到达 Manyfold，而且都无法通过 API 修改：
+### 建立 LINE 官方账号
 
-- **Use webhook** 必须打开。Manyfold 会设置 Webhook URL，但无法切换这个开关 —— 频道的 **Test** 操作会在它关闭时报告出来。
-- **自动回复消息** 和 **欢迎消息** 应该关闭。如果保持开启，LINE 会先回复，用户会看到两条回复。这些设置在 **Response settings** 中，控制台会跳转到 LINE 官方账号管理后台。
+1. 前往 [account.line.biz](https://account.line.biz/login)，用个人 LINE 账号、Email 或 QR code 登录。
+2. 选择建立账号，填写账号名称、联络 Email 与业态等基本资料。
+3. 如果只是先测试，可以选择稍后认证；未认证账号也能继续设置 Messaging API。
+4. 建立完成后进入官方账号管理后台，确认左侧目前选到的是刚建立的账号。
+
+![建立 LINE 官方账号的表单，包含账号名称、Email 与业态栏位](../../../../assets/docs/channels/line-20-oa-create-form-demo.webp)
+
+### 启用 Messaging API
+
+1. 在 LINE 官方账号管理后台开启 **设置**。
+2. 在设置选单找到 **Messaging API**，进入后点击启用。
+3. 依画面选择既有 Provider，或建立新的 Provider。Provider 名称可使用公司、项目或品牌名称。
+4. 依页面提示同意并完成启用。
+
+![LINE 官方账号管理后台的 Messaging API 页面与启用按钮](../../../../assets/docs/channels/line-21-oa-enable-messaging-api-demo.webp)
+
+### 保存 Channel secret 与 access token
+
+- **Channel ID**：识别这个 Messaging API 频道的数字。
+- **Channel secret**：用来验证 LINE Webhook 请求来源的机密值。
+- **Channel access token**：让外部系统代表官方账号呼叫 Messaging API 的凭证。
+
+LINE 官方账号管理后台的 **Messaging API** 页面上有 Channel ID 与 Channel secret，稍后 Webhook URL 也填在这一页。Channel secret 从这里复制。
+
+access token 则要在 LINE Developers 控制台签发：
+
+1. 从 Messaging API 设置页面开启 LINE Developers 控制台，或前往 `developers.line.biz`。
+2. 选择刚才使用的 Provider，再选择对应的 Messaging API 频道。
+3. 开启 **Messaging API** 分页，卷到页面下方的 **Channel access token（长期）**。
+4. 点击 **Issue**，把产生的 token 复制到私密的凭证保存位置。如果之前已经签发过，按钮会显示 *Reissue*。这两个值都要当作密码对待。
+
+![LINE Developers 控制台 Messaging API 分页上的 Channel access token（长期）区块](../../../../assets/docs/channels/line-26-messaging-api-token-demo.webp)
+
+在同一分页，如果 Agent 需要在群里工作，请打开 **Allow bot to join group chats**。
 
 ## 连接到 Manyfold
 
@@ -47,10 +75,32 @@ order: 15
 2. 创建频道并选择 **LINE**。
 3. 选择接收消息的 Agent。
 4. 填写标签，粘贴 channel secret 和 channel access token。
-5. 创建频道。
-6. 打开频道详情页并运行 **Test**。
 
-注册时 Manyfold 会读取机器人身份（`/v2/bot/info`）、把该频道的入站 URL 设为 Webhook endpoint 并激活频道。每个入站请求都会用 channel secret 校验 LINE 的 `x-line-signature` 头。轮换凭据会一次性替换两个值，因此需要同时填写 channel secret 和 access token。
+   ![Manyfold 创建 LINE 渠道的 New channel 表单，包含 Agent、Provider、标签与凭据栏位](../../../../assets/docs/channels/line-22-manyfold-new-channel.webp)
+
+5. 创建频道。Manyfold 会在同一步向 LINE 注册，并把 Webhook URL 设置到 Messaging API 频道上。
+6. 打开频道详情页，上面会显示已注册的 **Inbound webhook URL**。
+
+   ![Manyfold LINE 渠道详情页，显示入站 Webhook URL](../../../../assets/docs/channels/line-23-manyfold-webhook-demo.webp)
+
+7. 回到 LINE 官方账号管理后台，打开 **Messaging API** 页面，检查 **Webhook URL** 栏位。Manyfold 应该已经填好；如果是空的，就把入站 URL 贴上去并保存。
+
+   ![LINE 官方账号管理后台的 Messaging API 页面，Webhook URL 已填入](../../../../assets/docs/channels/line-24-messaging-api-webhook-demo.webp)
+
+注册时 Manyfold 会读取机器人身份（`/v2/bot/info`）、设置 Webhook URL 并激活频道。身份读取排在前面，所以 access token 不对时，注册会在设置 Webhook 之前就中断。如果频道报出 `line bot.info failed: 401`，请更正 access token 后重新注册，或者自己把入站 Webhook URL 粘贴到 **Webhook settings**。
+
+每个入站请求都会用 channel secret 校验 LINE 的 `x-line-signature` 头。轮换凭据会一次性替换两个值，因此需要同时填写 channel secret 和 access token。
+
+## 开启 Webhook 并关闭 LINE 内建回复
+
+这一步放在最后，等 Webhook URL 就位之后再做。有两个设置决定消息能否真正到达 Manyfold，而且都无法通过 API 修改，两者都在 LINE 官方账号管理后台的 **Response settings** 里。
+
+- **Use webhook** 必须打开。Response settings 页面上这一行只写 *Webhook*。Manyfold 会设置 Webhook URL，但无法切换这个开关 —— 频道的 **Test** 操作会在它关闭时报告出来。
+- **自动回复消息** 和 **欢迎消息** 应该关闭。如果保持开启，LINE 会先回复，用户会看到两条回复。截图里的英文界面把这两项写作 *Automatic response messages* 和 *Welcome message for adding friends*。
+
+![回应设置页面，显示聊天、欢迎讯息、Webhook 与自动回复开关](../../../../assets/docs/channels/line-25-response-settings.webp)
+
+两个设置都完成后，回到 Manyfold 的频道详情页运行 **Test**。
 
 ## 会话行为
 
@@ -95,7 +145,8 @@ Agent 可以用 `mf channels send` 给 LINE 用户或账号所在的群发消息
 
 ## 排查
 
-- **Test 提示「Use webhook」已关闭**：在 LINE Developers 控制台的 **Messaging API** 中打开它。Manyfold 无法通过 API 设置。
+- **Test 在机器人身份检查上失败**：`line bot.info failed: 401` 表示 channel access token 不对或已被撤销。重新签发一个长期 token 并保存，然后再次注册。注册在这一步就会中断，因此 Webhook URL 还没有被设置。
+- **Test 提示「Use webhook」已关闭**：在 LINE 官方账号管理后台的 **Response settings** 里打开它，那一行只写 *Webhook*。Manyfold 无法通过 API 设置。
 - **每条消息收到两个回复**：在 LINE 官方账号管理后台关闭 **自动回复消息** 和 **欢迎消息**。
 - **完全收不到消息**：重新运行频道的注册操作，然后确认控制台里的 Webhook URL 与该频道的入站 URL 一致。
 - **群消息被忽略**：显式提及该账号，或关闭 **仅提及**。同时确认已启用 **Allow bot to join group chats**，并且群 ID 能通过你设置的允许列表。
