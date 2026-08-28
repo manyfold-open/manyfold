@@ -9,6 +9,7 @@ import { Link } from 'react-router-dom'
 import { DaemonFrameworkTags, DaemonStatusDot } from '@/components/DaemonShared'
 import { Ghost } from '@/components/Loading'
 import { relative } from '@/components/RuntimeDetailPanel'
+import SettingsPageHeader from '@/components/SettingsPageHeader'
 import {
     ChevronRightIcon,
     CloudComputerIcon,
@@ -468,7 +469,7 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
                         {t(SECTION_EMPTY_KEY[kind])}
                     </p>
                 ) : view === 'grid' ? (
-                    <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-3'>
+                    <div className='grid gap-3 sm:grid-cols-2'>
                         {sectionVms.map((vm) => (
                             <VMCard
                                 key={vm.key}
@@ -548,14 +549,12 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
     }
 
     return (
-        <div className='space-y-8'>
-            <div className='flex items-center justify-between gap-3'>
-                <h1 className='text-h3 text-fg tracking-tight'>
-                    {t('web.runtimesDashboard.heading')}
-                </h1>
-                <ViewToggle value={view} onChange={changeView} />
-            </div>
-            {SECTION_KINDS.map(renderSection)}
+        <div className='settings-page'>
+            <SettingsPageHeader
+                title={t('web.runtimesDashboard.heading')}
+                actions={<ViewToggle value={view} onChange={changeView} />}
+            />
+            <div className='space-y-8'>{SECTION_KINDS.map(renderSection)}</div>
         </div>
     )
 }

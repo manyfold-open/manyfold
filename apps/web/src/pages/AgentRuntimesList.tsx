@@ -2914,14 +2914,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         : 'hidden lg:flex lg:flex-col'
                 ].join(' ')}
             >
-                <div
-                    className={[
-                        'mx-auto w-full px-5 py-6 md:px-6 md:py-7',
-                        selection === null || selection.kind === 'dashboard'
-                            ? 'max-w-5xl'
-                            : 'max-w-3xl'
-                    ].join(' ')}
-                >
+                <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
                     {message && (
                         <div className='workbench-note mb-6'>{message}</div>
                     )}
