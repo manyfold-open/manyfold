@@ -70,8 +70,6 @@ import type {
     CliLoginApproveResponse,
     CliLoginExchangeBody,
     CliLoginExchangeResponse,
-    CliLoginPollBody,
-    CliLoginPollResponse,
     CliLoginSessionResponse,
     CliLoginStartBody,
     CliLoginStartResponse,
@@ -904,7 +902,6 @@ export interface AuthClient {
     exchangeCliLogin: (
         body: CliLoginExchangeBody
     ) => Promise<CliLoginExchangeResponse>
-    pollCliLogin: (body: CliLoginPollBody) => Promise<CliLoginPollResponse>
     getCliLoginSession: (
         requestId: string,
         userCode: string
@@ -2279,11 +2276,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 }),
             exchangeCliLogin: (body) =>
                 request<CliLoginExchangeResponse>(apiPaths.AUTH_CLI_EXCHANGE, {
-                    method: 'POST',
-                    body: JSON.stringify(body)
-                }),
-            pollCliLogin: (body) =>
-                request<CliLoginPollResponse>(apiPaths.AUTH_CLI_POLL, {
                     method: 'POST',
                     body: JSON.stringify(body)
                 }),

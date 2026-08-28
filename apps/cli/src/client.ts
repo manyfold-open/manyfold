@@ -1,8 +1,6 @@
-import kleur from 'kleur'
 import type { NcaClient } from '@manyfold/sdk'
 import { DEFAULT_API_URL } from '@/channel'
 import { loadConfig } from '@/config'
-import { resumePendingLogin } from '@/pending-login'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliClient } from '@/transport'
 
@@ -21,15 +19,10 @@ export const buildClient = async (opts: {
     const stored = await loadConfig()
     const apiUrl = opts.apiUrl ?? stored.apiUrl ?? DEFAULT_API_URL
     // MF_API_TOKEN is the platform-injected agent identity (sprite shell-env /
-    // k8s Secret). It sits above pending-login so hosted runtimes resolve their
-    // token without ever touching the `mf login` machinery, and below an
-    // explicit --token (opts.token) so a human override still wins.
+    // k8s Secret). It sits below an explicit --token (opts.token) so a human
+    // override still wins.
     const envToken = process.env.MF_API_TOKEN?.trim() || undefined
-    const token =
-        resolveSecretInput(opts.token) ??
-        envToken ??
-        (await redeemPendingLogin(apiUrl)) ??
-        stored.token
+    const token = resolveSecretInput(opts.token) ?? envToken ?? stored.token
     const client = createCliClient({
         baseUrl: apiUrl,
         token,
@@ -73,22 +66,3 @@ export const resolveAccountScopeDenial = async (
     }
 }
 
-// A poll-mode login may have been approved after its CLI process died;
-// redeem it before the command runs so the fresh grant takes effect.
-// Failures here must never break the actual command.
-const redeemPendingLogin = async (
-    apiUrl: string
-): Promise<string | undefined> => {
-    try {
-        const resumed = await resumePendingLogin(apiUrl)
-        if (resumed.status !== 'completed') return undefined
-        console.error(
-            kleur.dim(
-                `completed pending Manyfold login (scopes: ${resumed.scopes.join(', ')})`
-            )
-        )
-        return resumed.token
-    } catch {
-        return undefined
-    }
-}

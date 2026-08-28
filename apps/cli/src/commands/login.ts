@@ -4,20 +4,8 @@ import { createInterface } from 'node:readline/promises'
 import type { AddressInfo } from 'node:net'
 import type { Command } from 'commander'
 import kleur from 'kleur'
-import {
-    grantableScopes,
-    isGrantableScope,
-    type CliLoginPollResponse,
-    type GrantableScope
-} from '@manyfold/shared'
 import { DEFAULT_API_URL } from '@/client'
-import {
-    clearPendingLogin,
-    loadConfig,
-    saveConfig,
-    savePendingLogin
-} from '@/config'
-import { resumePendingLogin } from '@/pending-login'
+import { clearPendingLogin, loadConfig, saveConfig } from '@/config'
 import { printJson } from '@/output'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliClient } from '@/transport'
@@ -29,12 +17,6 @@ interface LoginOptions {
     // negated name never reaches us.
     launchBrowser?: boolean
     authCode?: string
-    poll?: boolean
-    wait?: boolean
-    resume?: boolean
-    scopes?: string
-    forAgent?: string
-    limitToAgent?: boolean
     json?: boolean
 }
 
@@ -44,36 +26,13 @@ interface RootOptions {
     agentId?: string
 }
 
-export type LoginMode =
-    | 'token'
-    | 'auth-code'
-    | 'browser'
-    | 'headless'
-    | 'poll'
-    | 'resume'
+export type LoginMode = 'token' | 'auth-code' | 'browser' | 'headless'
 
 export const resolveLoginMode = (
     opts: LoginOptions,
     stdinIsTTY = Boolean(process.stdin.isTTY),
     agentContext = false
 ): LoginMode => {
-    if (opts.resume) {
-        if (opts.poll) throw new Error('--resume cannot combine with --poll')
-        if (opts.token) throw new Error('--resume cannot combine with --token')
-        if (opts.authCode)
-            throw new Error('--resume cannot combine with --auth-code')
-        return 'resume'
-    }
-    if (opts.wait && !opts.poll) throw new Error('--wait requires --poll')
-    if (opts.poll) {
-        if (opts.token) throw new Error('--poll cannot combine with --token')
-        if (!opts.scopes) throw new Error('--poll requires --scopes <list>')
-        return 'poll'
-    }
-    if (opts.scopes)
-        throw new Error(
-            'capability scopes are managed with `mf auth ensure --scopes <list>`; `mf login` only authenticates this machine'
-        )
     if (opts.authCode) return 'auth-code'
     if (opts.token) return 'token'
     if (opts.launchBrowser === false) {
@@ -83,77 +42,11 @@ export const resolveLoginMode = (
             )
         return 'headless'
     }
-    if (agentContext) {
-        if (opts.scopes) return 'poll'
+    if (agentContext)
         throw new Error(
             'agent runtimes are already authenticated; run `mf auth ensure --scopes <list>` to add capabilities'
         )
-    }
     return 'browser'
-}
-
-export const shouldWaitForPollApproval = (
-    opts: { wait?: boolean },
-    agentContext: boolean
-): boolean => opts.wait === true || !agentContext
-
-export const parseScopes = (csv: string): GrantableScope[] => {
-    const seen = new Set<GrantableScope>()
-    const out: GrantableScope[] = []
-    for (const part of csv.split(',')) {
-        const trimmed = part.trim()
-        if (!trimmed) continue
-        if (!isGrantableScope(trimmed))
-            throw new Error(
-                `unknown grant scope: ${trimmed}\n` +
-                    `valid scopes: ${grantableScopes.join(', ')}`
-            )
-        if (seen.has(trimmed)) continue
-        seen.add(trimmed)
-        out.push(trimmed)
-    }
-    if (out.length === 0)
-        throw new Error('--scopes must list at least one grant scope')
-    return out
-}
-
-export interface PollResult {
-    token: string
-    scopes: GrantableScope[]
-    userEmail: string | null
-}
-
-export const pollUntilApproved = async (
-    apiUrl: string,
-    deviceCode: string,
-    opts: { intervalMs: number; timeoutMs: number },
-    pollFn?: (deviceCode: string) => Promise<CliLoginPollResponse>,
-    nowFn: () => number = () => Date.now(),
-    sleepFn: (ms: number) => Promise<void> = (ms) =>
-        new Promise((r) => setTimeout(r, ms))
-): Promise<PollResult> => {
-    const poll =
-        pollFn ??
-        ((deviceCode: string) => {
-            const client = createCliClient({ baseUrl: apiUrl })
-            return client.auth.pollCliLogin({ deviceCode })
-        })
-    const deadline = nowFn() + opts.timeoutMs
-    while (nowFn() < deadline) {
-        const res = await poll(deviceCode)
-        if (res.status === 'approved') {
-            const scopes = res.scopes.filter(isGrantableScope)
-            return {
-                token: res.token,
-                scopes,
-                userEmail: res.userEmail
-            }
-        }
-        if (res.status === 'expired')
-            throw new Error('login session expired before approval')
-        await sleepFn(opts.intervalMs)
-    }
-    throw new Error('login timed out')
 }
 
 export const parseCallbackRequestUrl = (
@@ -183,30 +76,6 @@ export const registerLogin = (program: Command): void => {
             'print the auth URL instead of launching a browser'
         )
         .option('--auth-code <code>', 'auth code copied from the browser')
-        .option(
-            '--poll',
-            'use the legacy device-code grant flow (requires --scopes)'
-        )
-        .option(
-            '--wait',
-            'with --poll, wait for approval before exiting'
-        )
-        .option(
-            '--resume',
-            'complete a pending poll-mode login whose process exited before approval'
-        )
-        .option(
-            '--scopes <list>',
-            'legacy --poll grant scopes (e.g. channels:read,channels:edit)'
-        )
-        .option(
-            '--for-agent <id>',
-            'legacy --poll grant target (defaults to --agent-id / $MF_AGENT_ID)'
-        )
-        .option(
-            '--limit-to-agent',
-            'request that the user limit the token to a single agent (sets the consent-page toggle default)'
-        )
         .option('--json', 'output the result as JSON (token is never echoed)', false)
         .action(async (opts: LoginOptions) => {
             const current = await loadConfig()
@@ -218,12 +87,6 @@ export const registerLogin = (program: Command): void => {
                 token: resolveSecretInput(opts.token ?? root.token)
             }
             const json = opts.json === true
-            // In --json mode stdout is reserved for the final result object, so
-            // human progress lines are routed to stderr instead.
-            const out = (line: string): void => {
-                if (json) console.error(line)
-                else console.log(line)
-            }
             const mode = resolveLoginMode(
                 loginOpts,
                 Boolean(process.stdin.isTTY),
@@ -241,104 +104,6 @@ export const registerLogin = (program: Command): void => {
                     loginOpts.authCode!
                 )
                 await saveAndConfirm(apiUrl, token, json)
-                return
-            }
-
-            if (mode === 'resume') {
-                await runResume(apiUrl, json)
-                return
-            }
-
-            if (mode === 'poll') {
-                const scopes = parseScopes(loginOpts.scopes!)
-                const forAgent = loginOpts.forAgent ?? root.agentId
-                if (!forAgent)
-                    throw new Error(
-                        '--for-agent or MF_AGENT_ID is required for --poll'
-                    )
-                const started = await startCliLogin(apiUrl, undefined, {
-                    requestedScopes: scopes,
-                    requestedAgentId: forAgent
-                })
-                if (!started.deviceCode)
-                    throw new Error(
-                        'API did not return a deviceCode; the API may be out of date'
-                    )
-                await savePendingLogin({
-                    requestId: started.requestId,
-                    deviceCode: started.deviceCode,
-                    authUrl: started.authUrl,
-                    userCode: started.userCode,
-                    scopes,
-                    forAgent,
-                    apiUrl,
-                    expiresAt: started.expiresAt
-                })
-                printLoginStart(started.authUrl, started.userCode, json)
-                out(
-                    kleur.dim(
-                        'If this process exits before approval, the next mf command ' +
-                            '(or `mf login --resume`) completes the login automatically.'
-                    )
-                )
-                if (loginOpts.limitToAgent) {
-                    out(
-                        kleur.yellow(
-                            "When approving, check 'Limit to this agent only'"
-                        ) +
-                            kleur.dim(
-                                ` (binds the token to ${forAgent} so it cannot act on other agents)`
-                            )
-                    )
-                }
-                if (
-                    !shouldWaitForPollApproval(loginOpts, Boolean(root.agentId))
-                ) {
-                    if (json)
-                        printJson({
-                            ok: false,
-                            status: 'pending',
-                            authUrl: started.authUrl,
-                            userCode: started.userCode
-                        })
-                    return
-                }
-                const timeoutMs = Math.max(
-                    1_000,
-                    new Date(started.expiresAt).getTime() - Date.now()
-                )
-                let grant: PollResult
-                try {
-                    grant = await pollUntilApproved(
-                        apiUrl,
-                        started.deviceCode,
-                        {
-                            intervalMs: 2_000,
-                            timeoutMs
-                        }
-                    )
-                } catch (error) {
-                    // Only a definitively dead session invalidates the pending
-                    // file; transient poll failures keep it resumable.
-                    if (isTerminalLoginError(error)) await clearPendingLogin()
-                    throw error
-                }
-                await saveConfig({ apiUrl, token: grant.token })
-                await clearPendingLogin()
-                if (json)
-                    printJson({
-                        ok: true,
-                        userEmail: grant.userEmail,
-                        scopes: grant.scopes
-                    })
-                else
-                    console.log(
-                        kleur.green(
-                            `Logged in as ${grant.userEmail ?? 'agent'} ` +
-                                `(scopes: ${grant.scopes.join(', ')}). ` +
-                                'Credentials saved locally.'
-                        )
-                    )
                 return
             }
 
@@ -391,22 +156,16 @@ export const runHeadlessLogin = async (
 
 const startCliLogin = async (
     apiUrl: string,
-    redirectUri?: string,
-    grant?: { requestedScopes: GrantableScope[]; requestedAgentId: string }
+    redirectUri?: string
 ): Promise<{
     requestId: string
     authUrl: string
     userCode: string
     expiresAt: string
-    deviceCode?: string
 }> => {
     const client = createCliClient({ baseUrl: apiUrl })
     try {
-        return await client.auth.startCliLogin({
-            redirectUri,
-            requestedScopes: grant?.requestedScopes,
-            requestedAgentId: grant?.requestedAgentId
-        })
+        return await client.auth.startCliLogin({ redirectUri })
     } catch (error) {
         throw withCliAuthEndpointHint(error, apiUrl, '/auth/cli/start')
     }
@@ -434,8 +193,8 @@ const saveAndConfirm = async (
     const client = createCliClient({ baseUrl: apiUrl, token })
     const user = await client.auth.me()
     await saveConfig({ apiUrl, token })
-    // A fresh interactive login supersedes any dangling poll-mode request;
-    // drop it so auto-resume cannot later overwrite this token.
+    // Wipe any pending poll-mode file a pre-removal binary left behind so
+    // nothing can later mistake it for state worth resuming.
     await clearPendingLogin()
     if (json) {
         printJson({ ok: true, userEmail: user.email || user.id })
@@ -447,45 +206,6 @@ const saveAndConfirm = async (
         )
     )
 }
-
-const runResume = async (apiUrl: string, json: boolean): Promise<void> => {
-    const resumed = await resumePendingLogin(apiUrl)
-    if (resumed.status === 'completed') {
-        if (json) {
-            printJson({
-                ok: true,
-                userEmail: resumed.userEmail,
-                scopes: resumed.scopes
-            })
-            return
-        }
-        console.log(
-            kleur.green(
-                `Logged in as ${resumed.userEmail ?? 'agent'} ` +
-                    `(scopes: ${resumed.scopes.join(', ')}). ` +
-                    'Credentials saved locally.'
-            )
-        )
-        return
-    }
-    if (resumed.status === 'pending') {
-        printLoginStart(resumed.pending.authUrl, resumed.pending.userCode, json)
-        throw new Error(
-            'pending login is not approved yet; ask the user to open the URL above, then run `mf login --resume` again'
-        )
-    }
-    if (resumed.status === 'expired')
-        throw new Error(
-            'pending login expired before approval; use `mf auth ensure --scopes <list>` to request capabilities'
-        )
-    throw new Error(
-        'no pending login to resume; use `mf auth ensure --scopes <list>` to request capabilities'
-    )
-}
-
-const isTerminalLoginError = (error: unknown): boolean =>
-    error instanceof Error &&
-    /login session expired|login timed out/.test(error.message)
 
 const printLoginStart = (
     authUrl: string,
