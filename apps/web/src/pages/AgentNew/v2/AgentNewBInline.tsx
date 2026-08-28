@@ -1020,7 +1020,7 @@ const AgentNewBInline: FC = (): ReactNode => {
                                             'daemon'
                                         ) && (
                                             <Link
-                                                to='/settings/local-daemons'
+                                                to='/settings/runtimes/local-daemons'
                                                 className='text-link font-medium hover:underline'
                                             >
                                                 {t(
@@ -1278,7 +1278,7 @@ const AgentNewBInline: FC = (): ReactNode => {
                                                     'web.agentNew.noExternalProviders'
                                                 )}{' '}
                                                 <Link
-                                                    to='/settings/external-agent-providers'
+                                                    to='/settings/runtimes/external-agent-providers'
                                                     className='text-link hover:text-fg font-medium'
                                                 >
                                                     {t(

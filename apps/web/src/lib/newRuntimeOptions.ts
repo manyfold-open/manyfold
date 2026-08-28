@@ -40,7 +40,7 @@ export const NEW_RUNTIME_OPTIONS: NewRuntimeOption[] = [
     },
     {
         kind: 'daemon',
-        to: '/settings/local-daemons',
+        to: '/settings/runtimes/local-daemons',
         icon: LocalDaemonIcon,
         labelKey: 'web.agentRuntimesList.connectComputer',
         descriptionKey: 'web.agentRuntimesList.connectComputerDescription',
@@ -48,7 +48,7 @@ export const NEW_RUNTIME_OPTIONS: NewRuntimeOption[] = [
     },
     {
         kind: 'external',
-        to: '/settings/external-agent-providers',
+        to: '/settings/runtimes/external-agent-providers',
         icon: GlobeIcon,
         labelKey: 'web.agentRuntimesList.configureExternal',
         descriptionKey: 'web.agentRuntimesList.configureExternalDescription',

@@ -35,3 +35,12 @@ moves to a fresh key (`mf.runtimes.cascade.v2`) because the old one had
 auto-persisted "Kind" for every returning browser, so a fallback change
 alone would never land. The search box and the All/Ready/Issues filter
 chips are gone — the dashboard is now the place to survey and triage.
+
+The three create/manage surfaces move under the runtimes namespace and
+render beside the rail instead of replacing it: /settings/local-daemons
+and /settings/external-agent-providers become
+/settings/runtimes/local-daemons and
+/settings/runtimes/external-agent-providers (old URLs redirect), and
+/settings/runtimes/sandbox now keeps the rail too. Leaving one of these
+pages refetches hosts and providers, so a sandbox you just created or a
+machine you just revoked is reflected in the rail without a reload.

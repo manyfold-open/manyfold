@@ -40,7 +40,6 @@ const LegacyAgentDetailRedirect = lazyChunk(
     () => import('@/pages/AgentSettings/LegacyAgentDetailRedirect')
 )
 const AgentRuntimesList = lazyChunk(() => import('@/pages/AgentRuntimesList'))
-const SandboxNew = lazyChunk(() => import('@/pages/SandboxNew'))
 const Usage = lazyChunk(() => import('@/pages/Usage'))
 const UsageEvents = lazyChunk(() => import('@/pages/UsageEvents'))
 const CustomizeLayout = lazyChunk(importCustomizeLayout)
@@ -72,14 +71,10 @@ const CloudComputers = lazyChunk(
 )
 const General = lazyChunk(() => import('@/pages/Settings/General'))
 const ApiTokens = lazyChunk(() => import('@/pages/Settings/ApiTokens'))
-const LocalDaemons = lazyChunk(() => import('@/pages/Settings/LocalDaemons'))
 const ModelProviders = lazyChunk(
     () => import('@/pages/Settings/ModelProviders')
 )
 const Account = lazyChunk(() => import('@/pages/Settings/Account'))
-const ExternalAgentProviders = lazyChunk(
-    () => import('@/pages/Settings/ExternalAgentProviders')
-)
 const ManagedModelProviderNew = lazyChunk(
     () => import('@/pages/Settings/ManagedModelProviderNew')
 )
@@ -277,13 +272,20 @@ const App: FC = (): ReactNode => {
                 >
                     <Route index element={<Navigate to='general' replace />} />
                     <Route path='general' element={<General />} />
-                    <Route path='runtimes/sandbox' element={<SandboxNew />} />
                     <Route path='runtimes/*' element={<AgentRuntimesList />} />
                     <Route
                         path='cloud-computers'
                         element={<CloudComputers />}
                     />
-                    <Route path='local-daemons' element={<LocalDaemons />} />
+                    <Route
+                        path='local-daemons'
+                        element={
+                            <Navigate
+                                to='/settings/runtimes/local-daemons'
+                                replace
+                            />
+                        }
+                    />
                     <Route path='api-tokens' element={<ApiTokens />} />
                     <Route
                         path='plan-and-billing'
@@ -326,7 +328,12 @@ const App: FC = (): ReactNode => {
                     />
                     <Route
                         path='external-agent-providers'
-                        element={<ExternalAgentProviders />}
+                        element={
+                            <Navigate
+                                to='/settings/runtimes/external-agent-providers'
+                                replace
+                            />
+                        }
                     />
                     <Route path='channels' element={<ChannelsList />}>
                         <Route path=':id' element={<ChannelDetail />} />

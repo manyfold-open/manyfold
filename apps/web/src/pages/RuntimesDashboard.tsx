@@ -519,7 +519,7 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
                             {idleProviders.map((p) => (
                                 <Link
                                     key={p.id}
-                                    to='/settings/external-agent-providers'
+                                    to='/settings/runtimes/external-agent-providers'
                                     className='border-divider/60 hover:bg-surface-hover flex items-center gap-3 border-t px-4 py-3 transition-colors first:border-t-0'
                                 >
                                     <FrameworkLogo

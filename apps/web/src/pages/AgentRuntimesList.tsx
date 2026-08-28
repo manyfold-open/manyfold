@@ -76,6 +76,9 @@ import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { spriteStatusDotClass } from '@/lib/spriteStatus'
 import RuntimesDashboard from '@/pages/RuntimesDashboard'
+import SandboxNew from '@/pages/SandboxNew'
+import ExternalAgentProviders from '@/pages/Settings/ExternalAgentProviders'
+import LocalDaemons from '@/pages/Settings/LocalDaemons'
 import { SpriteStatusRefresh } from '@/components/SpriteStatusRefresh'
 
 type RuntimeKind = AgentRuntimeSummary['kind']
@@ -86,12 +89,27 @@ type GroupBy = 'none' | 'kind' | 'status' | 'framework'
 
 type Selection =
     | { kind: 'dashboard' }
+    | { kind: 'page'; page: RuntimePageSegment }
     | { kind: 'host'; key: string }
     | { kind: 'runtime'; id: string }
 
-// Reserved path segment under runtimes/* (like runtimes/sandbox): runtime ids
-// are prefixed ObjectIds, so a bare word never collides with one.
+// Reserved path segments under runtimes/*: runtime ids are prefixed
+// ObjectIds, so a bare word never collides with one. The create/manage
+// pages render in the detail pane so the rail stays alongside them.
 const DASHBOARD_SEGMENT = 'dashboard'
+
+const RUNTIME_PAGES = {
+    sandbox: SandboxNew,
+    'local-daemons': LocalDaemons,
+    'external-agent-providers': ExternalAgentProviders
+} as const
+
+type RuntimePageSegment = keyof typeof RUNTIME_PAGES
+
+const isRuntimePage = (
+    value: string | undefined
+): value is RuntimePageSegment =>
+    value !== undefined && value in RUNTIME_PAGES
 
 const KIND_ORDER: RuntimeKind[] = ['sprites', 'k8s', 'daemon', 'external']
 
@@ -2298,6 +2316,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     const selection = useMemo<Selection | null>(() => {
         if (id === DASHBOARD_SEGMENT) return { kind: 'dashboard' }
+        if (isRuntimePage(id)) return { kind: 'page', page: id }
         if (!vms) return null
         if (id) return { kind: 'runtime', id }
         if (hostParam && vms.some((v) => v.key === hostParam))
@@ -2340,9 +2359,20 @@ const AgentRuntimesList: FC = (): ReactNode => {
         }
     }, [client, dashboardVisible])
 
+    // The embedded create/manage pages mutate the hosts and providers the
+    // rail and dashboard read; refetch on leaving one so a fresh sandbox or a
+    // revoked machine shows up without a reload.
+    const onRuntimePage = isRuntimePage(id)
+    const wasOnRuntimePage = useRef(false)
+    useEffect(() => {
+        if (wasOnRuntimePage.current && !onRuntimePage) refresh()
+        wasOnRuntimePage.current = onRuntimePage
+    }, [onRuntimePage, refresh])
+
     const keysForSelection = useCallback(
         (sel: Selection): string[] => {
-            if (!vms || sel.kind === 'dashboard') return []
+            if (!vms || sel.kind === 'dashboard' || sel.kind === 'page')
+                return []
             if (sel.kind === 'host') {
                 const vm = vms.find((v) => v.key === sel.key)
                 if (!vm) return []
@@ -2367,7 +2397,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
 
     useEffect(() => {
-        if (!vms || !selection || selection.kind === 'dashboard') return
+        if (
+            !vms ||
+            !selection ||
+            selection.kind === 'dashboard' ||
+            selection.kind === 'page'
+        )
+            return
         const selKey =
             selection.kind === 'runtime'
                 ? `r:${selection.id}`
@@ -2579,7 +2615,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
     )
 
     const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
-        if (!vms || !selection || selection.kind === 'dashboard') return []
+        if (
+            !vms ||
+            !selection ||
+            selection.kind === 'dashboard' ||
+            selection.kind === 'page'
+        )
+            return []
         if (selection.kind === 'host') {
             const vm = vms.find((v) => v.key === selection.key)
             return vm
@@ -2694,6 +2736,10 @@ const AgentRuntimesList: FC = (): ReactNode => {
     }
 
     const renderDetail = (): ReactNode => {
+        if (selection?.kind === 'page') {
+            const Page = RUNTIME_PAGES[selection.page]
+            return <Page />
+        }
         if (loading) return null
         if (selection?.kind === 'runtime')
             return (
@@ -2871,9 +2917,9 @@ const AgentRuntimesList: FC = (): ReactNode => {
                 <div
                     className={[
                         'mx-auto w-full px-5 py-6 md:px-6 md:py-7',
-                        selection?.kind === 'runtime' || selectedVM
-                            ? 'max-w-3xl'
-                            : 'max-w-5xl'
+                        selection === null || selection.kind === 'dashboard'
+                            ? 'max-w-5xl'
+                            : 'max-w-3xl'
                     ].join(' ')}
                 >
                     {message && (
