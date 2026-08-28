@@ -207,6 +207,12 @@ export class SpritesExecDriver implements ExecDriver {
                 // abort()/timeout, so a cancelled turn dies promptly and a
                 // transient drop leaks at most 10s of compute.
                 maxRunAfterDisconnectSeconds: 10,
+                ...(req.keepAliveMs !== undefined
+                    ? { keepAliveMs: req.keepAliveMs }
+                    : {}),
+                ...(req.livenessTimeoutMs !== undefined
+                    ? { livenessTimeoutMs: req.livenessTimeoutMs }
+                    : {}),
                 ...(req.onExecSession
                     ? { onSessionId: req.onExecSession }
                     : {})

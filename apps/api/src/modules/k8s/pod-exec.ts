@@ -68,113 +68,38 @@ export class PodExec {
     }
 
     stream(req: PodExecStreamRequest): PodExecStreamHandle {
-        const stdoutStream = new PassThrough()
-        const stderrStream = new PassThrough()
-        const stdinStream = new PassThrough()
-        if (req.stdin !== undefined) stdinStream.end(req.stdin)
-        else stdinStream.end()
-
-        let exitCode: number | null = null
-        let settled = false
-        let timedOut = false
-        let upstream: WebSocket | undefined
-
-        let resolveResult!: (v: PodExecRunResult) => void
-        let rejectResult!: (e: Error) => void
-        const result = new Promise<PodExecRunResult>((resolve, reject) => {
-            resolveResult = resolve
-            rejectResult = reject
-        })
-
-        const timeoutMs = Math.max(1_000, req.timeoutMs)
-        const timer = setTimeout(() => {
-            if (settled) return
-            timedOut = true
-            try {
-                upstream?.close()
-            } catch {}
-            settleFail(new Error(`pod exec timed out after ${timeoutMs}ms`))
-        }, timeoutMs)
-
-        const finalize = (): void => {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            try {
-                stdoutStream.end()
-            } catch {}
-            try {
-                stderrStream.end()
-            } catch {}
-            if (exitCode === null) {
-                rejectResult(
-                    new Error(
-                        timedOut
-                            ? `pod exec timed out after ${timeoutMs}ms`
-                            : 'pod exec closed without status'
-                    )
-                )
-                return
-            }
-            resolveResult({ exitCode, stdout: '', stderr: '' })
-        }
-
-        const settleFail = (err: Error): void => {
-            if (settled) return
-            settled = true
-            clearTimeout(timer)
-            try {
-                stdoutStream.destroy()
-            } catch {}
-            try {
-                stderrStream.destroy()
-            } catch {}
-            rejectResult(err)
-        }
-
-        const onStatus = (status: V1Status): void => {
-            exitCode = parseExitCode(status)
-            // socket close handler runs finalize
-        }
-
-        this.exec
-            .exec(
-                this.namespace,
-                this.podName,
-                this.containerName,
-                req.cmd,
-                stdoutStream,
-                stderrStream,
-                stdinStream,
-                false,
-                onStatus
-            )
-            .then((ws) => {
-                upstream = ws
-                ws.on('close', finalize)
-                ws.on('error', (err: Error) => settleFail(err))
-            })
-            .catch((err: unknown) => settleFail(toError(err)))
-
+        const core = this.streamCore(req.cmd, req.timeoutMs)
+        if (req.stdin !== undefined) core.stdinWrite(req.stdin)
+        core.stdinEnd()
         return {
-            stdout: readableToAsyncStrings(stdoutStream),
-            stderr: readableToAsyncStrings(stderrStream),
-            result,
-            abort: () => {
-                try {
-                    upstream?.close()
-                } catch {}
-                settleFail(new Error('pod exec aborted'))
-            }
+            stdout: core.stdout,
+            stderr: core.stderr,
+            result: core.result,
+            abort: core.abort
         }
     }
 
     // Interactive stdio for client-driven protocols (ACP): stdin stays open
     // and is written per frame. Goes through the direct Exec websocket, never
-    // the gateway — the gateway's POST /exec takes stdin as one up-front
+    // the gateway - the gateway's POST /exec takes stdin as one up-front
     // string. Same open-PassThrough shape as terminal/k8s-terminal.ts, minus
     // the tty (channels must stay split for JSON-RPC).
     streamInteractive(req: PodExecInteractiveRequest): PodExecInteractiveHandle {
+        const core = this.streamCore(req.cmd, req.timeoutMs)
+        return {
+            stdout: core.stdout,
+            stderr: core.stderr,
+            stdin: { write: core.stdinWrite, end: core.stdinEnd },
+            result: core.result,
+            abort: core.abort
+        }
+    }
+
+    // One socket/settle lifecycle for both entry points - the state machine
+    // is subtle enough that two copies would drift on the next fix. Only the
+    // stdin discipline differs: stream() delivers its payload and EOFs before
+    // output starts, streamInteractive keeps the pipe open for JSON-RPC.
+    private streamCore(cmd: string[], timeoutMsRaw: number) {
         const stdoutStream = new PassThrough()
         const stderrStream = new PassThrough()
         const stdinStream = new PassThrough()
@@ -192,7 +117,7 @@ export class PodExec {
             rejectResult = reject
         })
 
-        const timeoutMs = Math.max(1_000, req.timeoutMs)
+        const timeoutMs = Math.max(1_000, timeoutMsRaw)
         const timer = setTimeout(() => {
             if (settled) return
             timedOut = true
@@ -258,7 +183,7 @@ export class PodExec {
                 this.namespace,
                 this.podName,
                 this.containerName,
-                req.cmd,
+                cmd,
                 stdoutStream,
                 stderrStream,
                 stdinStream,
@@ -267,6 +192,16 @@ export class PodExec {
             )
             .then((ws) => {
                 upstream = ws
+                // An abort or timeout that raced the exec handshake has
+                // already settled - nothing else will ever close this socket,
+                // so close it here or the exec session leaks until the
+                // in-container timeout.
+                if (settled) {
+                    try {
+                        ws.close()
+                    } catch {}
+                    return
+                }
                 ws.on('close', finalize)
                 ws.on('error', (err: Error) => settleFail(err))
             })
@@ -275,24 +210,22 @@ export class PodExec {
         return {
             stdout: readableToAsyncStrings(stdoutStream),
             stderr: readableToAsyncStrings(stderrStream),
-            stdin: {
-                write: (data: Buffer | string) => {
-                    if (settled || stdinEnded) return
-                    try {
-                        stdinStream.write(data)
-                    } catch {}
-                },
-                end: endStdin
+            stdinWrite: (data: Buffer | string): void => {
+                if (settled || stdinEnded) return
+                try {
+                    stdinStream.write(data)
+                } catch {}
             },
+            stdinEnd: endStdin,
             result,
             // stdin EOF first: closing the websocket alone does not reliably
             // kill the remote child, while `hermes acp` (like any stdio
-            // JSON-RPC server) exits on EOF. Settle before close — a close
+            // JSON-RPC server) exits on EOF. Settle before close - a close
             // event that beats settleFail would finalize as 'closed without
             // status' and lose the abort. The close itself waits one tick:
             // the EOF frame flushes through the stream pipeline
             // asynchronously, and a same-tick close drops it.
-            abort: () => {
+            abort: (): void => {
                 endStdin()
                 settleFail(new Error('pod exec aborted'))
                 setImmediate(() => {
@@ -303,6 +236,7 @@ export class PodExec {
             }
         }
     }
+
 }
 
 @Injectable()

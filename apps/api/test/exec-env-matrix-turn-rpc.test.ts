@@ -157,14 +157,15 @@ for (const surface of execEnvSurfaces.filter(
         }
     })
 
-    test(`${key} never dispatches turn.start when the daemon does not advertise the capability`, async () => {
-        const seam = await dispatch(surface, { features: [] })
-        assert.equal(
-            seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,
-            0,
-            `${key}: a daemon that never advertised the feature must not be sent turn.start`
-        )
-    })
+    if (surface.capabilityCheckedAt !== 'resolution')
+        test(`${key} never dispatches turn.start when the daemon does not advertise the capability`, async () => {
+            const seam = await dispatch(surface, { features: [] })
+            assert.equal(
+                seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,
+                0,
+                `${key}: a daemon that never advertised the feature must not be sent turn.start`
+            )
+        })
 
     if (surface.resume === 'attach-no-env')
         test(`${key} resumes by re-attaching, carrying no env`, async () => {

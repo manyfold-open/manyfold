@@ -65,7 +65,6 @@ const buildHarness = (opts: { runtime: 'sprites' | 'daemon' }) => {
         yield { type: 'done', finalMessageId: 'msg_1' }
     }
     a.requireTurnHermes = async () => true
-    a.daemonSupportsTurnRpc = async () => true
     return { adapter, acpCalls, interactiveCalls }
 }
 
@@ -131,23 +130,6 @@ test('a sprite hermes turn with no runner falls to the interactive ACP transport
 
     const out = await drain(
         h.adapter.sendMessage(ctx(), {
-            role: 'user',
-            contentBlocks: [{ type: 'text', text: 'hi' }]
-        } as never)
-    )
-
-    assert.ok(out.ok, out.error)
-    assert.deepEqual(h.interactiveCalls, ['agt_1'])
-    assert.deepEqual(h.acpCalls, [])
-})
-
-test('a runner whose daemon lost turn.hermes falls to interactive ACP, not a dead RPC', async () => {
-    const h = buildHarness({ runtime: 'sprites' })
-    ;(h.adapter as unknown as Record<string, unknown>).daemonSupportsTurnRpc =
-        async () => false
-
-    const out = await drain(
-        h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), {
             role: 'user',
             contentBlocks: [{ type: 'text', text: 'hi' }]
         } as never)

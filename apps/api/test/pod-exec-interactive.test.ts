@@ -175,3 +175,19 @@ test('streamInteractive close without status rejects instead of fabricating succ
     sessions[0].ws.close()
     await assert.rejects(handle.result, /pod exec closed without status/)
 })
+
+test('an abort that races the exec handshake still closes the late websocket', async () => {
+    const { podExec, sessions } = makePodExec()
+    const handle = podExec.streamInteractive({
+        cmd: ['hermes', 'acp'],
+        timeoutMs: 5_000
+    })
+    // Abort synchronously, before the exec promise's then-handler has run:
+    // nothing else will ever close that socket once the result is settled.
+    const rejected = assert.rejects(handle.result, /pod exec aborted/)
+    handle.abort()
+    await rejected
+    await nextTick()
+    assert.equal(sessions.length, 1)
+    assert.equal(sessions[0].ws.closed, true)
+})

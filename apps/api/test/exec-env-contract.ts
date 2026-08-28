@@ -95,6 +95,11 @@ export interface ExecEnvSurface {
     // by the per-adapter transport tests. `daemon:<feature>` is a client
     // feature the carrying daemon must advertise.
     gatedBy?: readonly string[]
+    // Where a `daemon:` gate is enforced. 'dispatch' (default): the adapter
+    // checks before sending the RPC. 'resolution': the carrier is only handed
+    // to the adapter after the check (runner resolution), so the adapter seam
+    // deliberately trusts it — pinned by runner-transport-routing.test.ts.
+    capabilityCheckedAt?: 'dispatch' | 'resolution'
     // MF_API_TOKEN / MF_AGENT_ID / MF_API_URL / MF_DEPLOY_ENV.
     identity: EnvInjection
     // Connection-derived env (GH_TOKEN, GIT_CONFIG_*, CLOUDFLARE_*).
@@ -323,6 +328,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         runtime: 'sprites',
         transport: 'turn-rpc',
         gatedBy: ['daemon:turn.hermes'],
+        capabilityCheckedAt: 'resolution',
         identity: 'none',
         connections: 'none',
         extras: 'per-exec',

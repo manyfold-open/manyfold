@@ -18,7 +18,11 @@ export type AcpEvent =
           usage: Record<string, unknown>
       }
     | { type: 'turn_end'; usage: Record<string, unknown> | null }
-    | { type: 'error'; message: string }
+    // `message` is the fatal line for display; `detail` adds the stderr tail
+    // for classifiers that need context the single line may not carry (the
+    // managed 503 body can print on a different line than the Aborting
+    // marker).
+    | { type: 'error'; message: string; detail?: string }
 
 interface PendingRequest {
     resolve: (result: unknown) => void
@@ -139,6 +143,7 @@ export class HermesAcpTurn {
     private readonly transport: InteractiveExecHandle
     private readonly onEvent: (ev: AcpEvent) => void
     private readonly pending = new Map<number, PendingRequest>()
+    private readonly closeGraceMs: number
     private stdoutBuffer = ''
     private stderrTail: string[] = []
     private nextId = 1
@@ -150,10 +155,12 @@ export class HermesAcpTurn {
         transport: InteractiveExecHandle
         onEvent: (ev: AcpEvent) => void
         logger?: Logger
+        closeGraceMs?: number
     }) {
         this.transport = opts.transport
         this.onEvent = opts.onEvent
         this.log = opts.logger ?? new Logger(HermesAcpTurn.name)
+        this.closeGraceMs = opts.closeGraceMs ?? 5_000
         void this.pumpStdout()
         void this.pumpStderr()
         // #561's lesson, moved to the transport boundary: ANY transport
@@ -214,7 +221,7 @@ export class HermesAcpTurn {
                     ? `${line}\n--- hermes stderr (tail) ---\n${tail}`
                     : line
                 this.exitError = new Error(detail)
-                this.onEvent({ type: 'error', message: line })
+                this.onEvent({ type: 'error', message: line, detail })
                 for (const [, p] of this.pending) p.reject(this.exitError)
                 this.pending.clear()
             }
@@ -465,16 +472,39 @@ export class HermesAcpTurn {
         if (this.closed) return
         this.closed = true
         this.transport.endInput()
-        await this.transport.result.catch(() => {})
+        // A child that ignores stdin EOF must not park the caller (and its
+        // terminal event) for the whole transport budget: give it a short
+        // grace, then tear the transport down.
+        let graceTimer: NodeJS.Timeout | null = null
+        const settled = await Promise.race([
+            this.transport.result.then(
+                () => true,
+                () => true
+            ),
+            new Promise<boolean>((resolve) => {
+                graceTimer = setTimeout(
+                    () => resolve(false),
+                    this.closeGraceMs
+                )
+            })
+        ])
+        if (graceTimer) clearTimeout(graceTimer)
+        if (!settled) {
+            this.transport.abort()
+            await this.transport.result.catch(() => {})
+        }
         for (const [, p] of this.pending)
             p.reject(new Error('hermes acp turn closed'))
         this.pending.clear()
     }
 
+    // Deliberately effective even after close(): a cancel that lands while
+    // close() is inside its grace window must still reach the transport, or
+    // the turn is uncancellable for the rest of the wait.
     abort(): void {
+        this.transport.abort()
         if (this.closed) return
         this.closed = true
-        this.transport.abort()
         for (const [, p] of this.pending)
             p.reject(new Error('hermes acp turn aborted'))
         this.pending.clear()

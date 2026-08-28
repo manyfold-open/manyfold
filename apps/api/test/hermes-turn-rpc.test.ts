@@ -234,7 +234,6 @@ test('a capability lookup failure is retryable, not an upgrade demand', async ()
 // provider has no API key at all.
 test('a runner-carried sprite turn injects the provider alias env', async () => {
     const h = routingHarness({ runtime: 'sprites', daemonId: null })
-    h.a.daemonSupportsTurnRpc = async () => true
     h.a.providerAliasEnv = async () => ({ OPENROUTER_API_KEY: 'sk-1' })
     const events = await drain(
         h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)

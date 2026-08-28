@@ -298,6 +298,10 @@ test('a no-runner sprite turn runs the full ACP conversation over the interactiv
     assert.equal(req.dir, '/home/sprite/ws')
     // The ceiling bounds the child's whole lifetime.
     assert.equal(req.timeoutMs, 60_000)
+    // The idle-drop heartbeat rides the request: with reattach off, a
+    // silently dropped WSS kills the child unrecoverably.
+    assert.equal(req.keepAliveMs, 1_000)
+    assert.equal(req.livenessTimeoutMs, 1_000)
     // The alias is what makes a non-custom provider usable from an exec'd
     // child; YOLO is what keeps a headless turn from deadlocking on approval.
     assert.equal(req.env?.OPENROUTER_API_KEY, 'sk-or-test')
@@ -408,4 +412,24 @@ test('a transport failure is a retryable error, never suspended', async () => {
     assert.equal(last.type, 'error')
     assert.equal(last.error.code, 'hermes_acp_failed')
     assert.equal(last.error.retryable, true)
+})
+
+// The guarantee the retired gateway path provided by handing its signal to
+// fetch: a turn cancelled before dispatch must never spawn the child.
+// addEventListener never fires for an already-aborted signal, so only an
+// explicit recheck can hold it.
+test('a turn cancelled before dispatch never spawns the child', async () => {
+    const rig = buildRig()
+    const controller = new AbortController()
+    controller.abort()
+    const events = await drain(
+        rig.adapter.sendMessage(
+            ctx({ abortSignal: controller.signal } as never),
+            USER_MSG
+        )
+    )
+    assert.equal(rig.requests.length, 0, 'nothing may be dispatched')
+    const last = events.at(-1) as { type: string; error: { code: string } }
+    assert.equal(last.type, 'error')
+    assert.equal(last.error.code, 'hermes_aborted')
 })

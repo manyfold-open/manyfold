@@ -278,9 +278,16 @@ test('fatal stderr rejects in-flight requests and fails later ones fast', async 
     await nextTick()
     fake.stderr.push('Aborting due to non-retryable error\n')
     await assert.rejects(inflight, /Aborting due to non-retryable error/)
-    assert.deepEqual(events, [
-        { type: 'error', message: 'Aborting due to non-retryable error' }
-    ])
+    assert.equal(events.length, 1)
+    const fatalEv = events[0] as {
+        type: string
+        message: string
+        detail?: string
+    }
+    assert.equal(fatalEv.type, 'error')
+    assert.equal(fatalEv.message, 'Aborting due to non-retryable error')
+    // detail carries the tail so classifiers see context beyond the one line
+    assert.match(fatalEv.detail ?? '', /Retrying \(attempt 1\/3\)/)
     await assert.rejects(
         turn.request('initialize', {}, 5_000),
         /Aborting due to non-retryable error/
@@ -311,4 +318,26 @@ test('abort tears the transport down and rejects pending requests', async () => 
         turn.request('initialize', {}, 5_000),
         /already closed/
     )
+})
+
+test('close gives an EOF-deaf child a bounded grace, then tears it down', async () => {
+    const fake = makeFakeTransport()
+    // A transport whose endInput does NOT settle the result: the child
+    // ignores EOF. close() must not park for the transport budget.
+    const stubborn: InteractiveExecHandle = {
+        ...fake.handle,
+        endInput: () => {}
+    }
+    const turn = new HermesAcpTurn({
+        transport: stubborn,
+        onEvent: () => {},
+        closeGraceMs: 50
+    })
+    const started = Date.now()
+    await turn.close()
+    assert.ok(
+        Date.now() - started < 3_000,
+        'close must return within the grace window'
+    )
+    assert.equal(fake.aborted(), true, 'the transport must be torn down')
 })

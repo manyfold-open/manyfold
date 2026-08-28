@@ -54,6 +54,9 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     'gemini_error',
     'hermes_daemon_acp_failed',
     'hermes_acp_failed',
+    // The fatal stderr line on the interactive path carries the upstream
+    // auth/pool/balance text that used to arrive as `hermes_upstream`.
+    'hermes_acp_event',
     'langflow_error'
 ])
 

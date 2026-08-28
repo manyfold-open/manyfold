@@ -78,6 +78,11 @@ export interface InteractiveExecRequest {
     env?: Record<string, string>
     dir?: string
     timeoutMs: number
+    // Connection-liveness heartbeat (sprite transport): without it an idle
+    // tool call sends zero frames either way and an idle LB drop kills the
+    // child — unrecoverably, since an open stdin forfeits reattach.
+    keepAliveMs?: number
+    livenessTimeoutMs?: number
     onExecSession?: (execSessionId: string) => void
 }
 
