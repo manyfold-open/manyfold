@@ -94,7 +94,9 @@ export class ApiTokenService {
             expiresInSeconds?: number
             // Tags ephemeral/session tokens (e.g. 'terminal') so the reaper and
             // the personal-token list can target them. Defaults to 'user-grant'.
-            tokenKind?: 'user-grant' | 'a2a-grant' | 'a2a-ephemeral' | 'terminal'
+            // 'a2a-ephemeral' is mint-retired (stateless tickets replaced it);
+            // the column enum keeps the value only for pre-existing rows.
+            tokenKind?: 'user-grant' | 'a2a-grant' | 'terminal'
         },
         db: ApiTokenWriter = this.db
     ): Promise<MintedApiToken> {
@@ -905,6 +907,12 @@ export class ApiTokenService {
             throw new UnauthorizedException(
                 'bound token has enforce_agent_binding=true but no agent_id'
             )
+        // Same class of invariant: the kind is mint-retired and every real
+        // a2a-ephemeral row carried a 15-minute expiry, so one that passes
+        // the expiry gate above can only be a hand-written row. Fail loud
+        // instead of widening the principal union back around a retired kind.
+        if (apiRow.tokenKind === 'a2a-ephemeral')
+            throw new UnauthorizedException('a2a-ephemeral tokens are retired')
 
         const scopes = normalizeStoredScopes(apiRow.scopes)
         const createdVia = isTokenCreatedVia(apiRow.createdVia)
@@ -941,9 +949,11 @@ export class ApiTokenService {
         userId: string,
         opts: { agentId?: string; includeGrants?: boolean } = {}
     ): Promise<ApiTokenSummary[]> {
-        // a2a-ephemeral tokens are per-turn delegation bearers and terminal
-        // tokens are ephemeral session credentials — both are internal
-        // machinery, never surfaced in any user-facing token list.
+        // Internal machinery, never surfaced in any user-facing token list:
+        // terminal tokens are ephemeral session credentials, and
+        // 'a2a-ephemeral' rows are retired per-turn delegation bearers that
+        // may still sit expired in databases whose deploys predate the
+        // stateless-ticket switch (the reaper below deletes them hourly).
         const filters = [
             eq(apiTokens.userId, userId),
             notInArray(apiTokens.tokenKind, ['a2a-ephemeral', 'terminal'])
@@ -1109,6 +1119,15 @@ export class ApiTokenService {
                 or(
                     and(
                         eq(apiTokens.tokenKind, 'terminal'),
+                        isNotNull(apiTokens.expiresAt),
+                        lt(apiTokens.expiresAt, now)
+                    ),
+                    // Retired kind: every a2a-ephemeral was minted with a
+                    // 15-minute TTL and minting is gone, so expired-only
+                    // deletion drains any pre-switch residue without ever
+                    // touching a usable credential.
+                    and(
+                        eq(apiTokens.tokenKind, 'a2a-ephemeral'),
                         isNotNull(apiTokens.expiresAt),
                         lt(apiTokens.expiresAt, now)
                     ),

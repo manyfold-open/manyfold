@@ -9,10 +9,7 @@ import {
 } from '@manyfold/db'
 import { ApiTokenService } from '../src/modules/auth/api-token.service'
 import { CliAuthRateLimitService } from '../src/modules/auth/cli-auth-rate-limit.service'
-import {
-    CliAuthService,
-    hashSecret
-} from '../src/modules/auth/cli-auth.service'
+import { CliAuthService } from '../src/modules/auth/cli-auth.service'
 
 interface SessionRow {
     id: string
@@ -344,26 +341,114 @@ const newCliAuth = (db: FakeDb): CliAuthService => {
     )
 }
 
-test('start in grant mode persists requestedScopes/agentId and returns deviceCode', async () => {
+// The device-code grant flow retired with the auth-model refactor: the CLI
+// flag is gone and `mf auth ensure --scopes <list>` is the only capability
+// path. Pre-removal binaries still hit these endpoints, so every refusal
+// below must carry the fix (mf update) instead of reading like an outage.
+test('start rejects the retired grant mode with upgrade guidance', async () => {
     const db = new FakeDb()
     const cliAuth = newCliAuth(db)
+    await assert.rejects(
+        () =>
+            cliAuth.start({
+                requestedScopes: ['channels:read'],
+                requestedAgentId: 'agt_A'
+            }),
+        /retired.*mf update.*mf auth ensure/s
+    )
+    await assert.rejects(
+        () => cliAuth.start({ requestedAgentId: 'agt_A' }),
+        /retired/
+    )
+    assert.equal(db.sessionRows.length, 0)
+})
 
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
+test('approve refuses a legacy grant-mode session left by a pre-removal deploy', async () => {
+    const db = new FakeDb()
+    const cliAuth = newCliAuth(db)
+    db.sessionRows.push({
+        id: 'cli_legacy',
+        userCode: 'ABCD-EFGH',
+        redirectUri: null,
+        userId: null,
+        authCodeHash: null,
+        status: 'pending',
+        tokenId: null,
+        requestedScopes: ['channels:read'],
+        approvedScopes: null,
+        requestedAgentId: 'agt_A',
+        deviceCodeHash: 'legacy-hash',
+        polledAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        approvedAt: null,
+        exchangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
     })
+    await assert.rejects(
+        () =>
+            cliAuth.approve({
+                requestId: 'cli_legacy',
+                userCode: 'ABCD-EFGH',
+                userId: 'user-1',
+                approvedScopes: ['channels:read']
+            }),
+        /retired.*mf update/s
+    )
+    assert.equal(db.sessionRows[0].status, 'pending')
+    assert.equal(db.tokenRows.length, 0)
+})
 
-    assert.match(started.deviceCode ?? '', /^mf_dvc_/)
-    assert.equal(db.sessionRows.length, 1)
-    assert.deepEqual(db.sessionRows[0].requestedScopes, [
+test('poll is a tombstone: always refuses with upgrade guidance', async () => {
+    const db = new FakeDb()
+    const cliAuth = newCliAuth(db)
+    await assert.rejects(
+        () => cliAuth.poll({ deviceCode: 'mf_dvc_anything' }),
+        /retired.*mf update.*mf auth ensure/s
+    )
+    await assert.rejects(
+        () => cliAuth.poll({ deviceCode: 'nca_dvc_anything' }),
+        /retired/
+    )
+})
+
+test('getSession still reports a legacy grant session for the drain window', async () => {
+    const db = new FakeDb()
+    const cliAuth = newCliAuth(db)
+    const agentA = db.agentRows.find((a) => a.id === 'agt_A')
+    if (agentA) agentA.name = 'Workshop'
+    db.sessionRows.push({
+        id: 'cli_legacy2',
+        userCode: 'JKLM-NPQR',
+        redirectUri: null,
+        userId: null,
+        authCodeHash: null,
+        status: 'pending',
+        tokenId: null,
+        requestedScopes: ['channels:read', 'channels:edit'],
+        approvedScopes: null,
+        requestedAgentId: 'agt_A',
+        deviceCodeHash: 'legacy-hash-2',
+        polledAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        approvedAt: null,
+        exchangedAt: null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+    })
+    const session = await cliAuth.getSession({
+        requestId: 'cli_legacy2',
+        userCode: 'JKLM-NPQR'
+    })
+    assert.equal(session.isGrantMode, true)
+    assert.deepEqual(session.requestedScopes, [
         'channels:read',
         'channels:edit'
     ])
-    assert.equal(db.sessionRows[0].requestedAgentId, 'agt_A')
-    assert.equal(
-        db.sessionRows[0].deviceCodeHash,
-        hashSecret(started.deviceCode!)
-    )
+    assert.equal(session.requestedAgent?.id, 'agt_A')
+    assert.equal(session.requestedAgent?.name, 'Workshop')
+    assert.equal(session.status, 'pending')
+    assert.equal(session.hasRedirect, false)
 })
 
 test('start in browser mode does NOT generate deviceCode', async () => {
@@ -377,116 +462,6 @@ test('start in browser mode does NOT generate deviceCode', async () => {
     assert.equal(started.deviceCode, undefined)
     assert.equal(db.sessionRows[0].deviceCodeHash, null)
     assert.equal(db.sessionRows[0].requestedScopes, null)
-})
-
-test('start rejects unknown requestedAgentId with 404', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-
-    await assert.rejects(
-        () =>
-            cliAuth.start({
-                requestedScopes: ['channels:read'],
-                requestedAgentId: 'agt_nonexistent'
-            }),
-        /requested agent not found/
-    )
-    assert.equal(db.sessionRows.length, 0)
-})
-
-test('start rejects non-grantable scope', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    await assert.rejects(
-        () =>
-            cliAuth.start({
-                requestedScopes: ['api.full' as string],
-                requestedAgentId: 'agt_A'
-            }),
-        /unsupported grantable scope/
-    )
-})
-
-test('approve grant mode requires approvedScopes', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-
-    await assert.rejects(
-        () =>
-            cliAuth.approve({
-                requestId: started.requestId,
-                userCode: started.userCode,
-                userId: 'user-1'
-            }),
-        /approvedScopes is required/
-    )
-})
-
-test('approve grant rejects scope outside requested set', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
-
-    await assert.rejects(
-        () =>
-            cliAuth.approve({
-                requestId: started.requestId,
-                userCode: started.userCode,
-                userId: 'user-1',
-                approvedScopes: ['channels:edit']
-            }),
-        /not in requested set/
-    )
-})
-
-test('approve grant rejects cross-user agent ownership', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:edit'],
-        requestedAgentId: 'agt_other'
-    })
-
-    await assert.rejects(
-        () =>
-            cliAuth.approve({
-                requestId: started.requestId,
-                userCode: started.userCode,
-                userId: 'user-1',
-                approvedScopes: ['channels:edit']
-            }),
-        /not owned by approving user/
-    )
-})
-
-test('approve grant persists approvedScopes, no authCode, mode=grant', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-
-    const approved = await cliAuth.approve({
-        requestId: started.requestId,
-        userCode: started.userCode,
-        userId: 'user-1',
-        approvedScopes: ['channels:read']
-    })
-
-    assert.equal(approved.authCode, null)
-    assert.equal(approved.redirectUrl, null)
-    assert.equal(approved.mode, 'grant')
-    assert.deepEqual(db.sessionRows[0].approvedScopes, ['channels:read'])
-    assert.equal(db.sessionRows[0].authCodeHash, null)
-    assert.equal(db.sessionRows[0].status, 'approved')
 })
 
 test('approve browser mode returns mode=browser', async () => {
@@ -507,130 +482,15 @@ test('approve browser mode returns mode=browser', async () => {
     assert.match(approved.redirectUrl ?? '', /^http:\/\/127\.0\.0\.1:49152/)
 })
 
-test('exchange rejects grant-mode sessions', async () => {
+test('exchange rejects the retired nca_auth_ prefix at the shape gate', async () => {
     const db = new FakeDb()
     const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started.requestId,
-        userCode: started.userCode,
-        userId: 'user-1',
-        approvedScopes: ['channels:edit']
-    })
-
-    // grant sessions never produce an authCode; fake one with the right prefix
-    await assert.rejects(() => cliAuth.exchange('mf_auth_fake'), /not found/)
-})
-
-test('exchange accepts legacy auth code prefix during migration', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    await assert.rejects(() => cliAuth.exchange('nca_auth_fake'), /not found/)
-})
-
-test('poll: deviceCode not found → 404', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
+    // No live legacy code can exist: minting went mf_-only at the rename and
+    // login codes expire after 15 minutes (legacy-inventory §2).
     await assert.rejects(
-        () => cliAuth.poll({ deviceCode: 'mf_dvc_missing' }),
-        /not found/
+        () => cliAuth.exchange('nca_auth_fake'),
+        /invalid auth code/
     )
-})
-
-test('poll accepts legacy device code prefix during migration', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    await assert.rejects(
-        () => cliAuth.poll({ deviceCode: 'nca_dvc_missing' }),
-        /not found/
-    )
-})
-
-test('poll: pending session → status pending and polledAt updated', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
-
-    const result = await cliAuth.poll({ deviceCode: started.deviceCode! })
-
-    assert.deepEqual(result, { status: 'pending' })
-    assert.ok(db.sessionRows[0].polledAt instanceof Date)
-})
-
-test('poll: expired session → status expired and not minted', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
-    db.sessionRows[0].expiresAt = new Date(Date.now() - 1_000)
-
-    const result = await cliAuth.poll({ deviceCode: started.deviceCode! })
-
-    assert.deepEqual(result, { status: 'expired' })
-    assert.equal(db.tokenRows.length, 0)
-})
-
-test('poll: approved → mints grant token, marks exchanged, returns token+scopes+email', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started.requestId,
-        userCode: started.userCode,
-        userId: 'user-1',
-        approvedScopes: ['channels:read', 'channels:edit']
-    })
-
-    const result = await cliAuth.poll({ deviceCode: started.deviceCode! })
-
-    assert.equal(result.status, 'approved')
-    if (result.status !== 'approved') return
-    assert.match(result.token, /^nca_/)
-    assert.deepEqual(result.scopes, ['channels:read', 'channels:edit'])
-    assert.equal(result.userEmail, 'user@example.com')
-
-    assert.equal(db.tokenRows.length, 1)
-    assert.equal(db.tokenRows[0].agentId, 'agt_A')
-    assert.deepEqual(db.tokenRows[0].scopes, ['channels:read', 'channels:edit'])
-    assert.equal(db.sessionRows[0].status, 'exchanged')
-    assert.equal(db.sessionRows[0].tokenId, db.tokenRows[0].id)
-})
-
-test('getSession: pending grant session returns metadata', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const agentA = db.agentRows.find((a) => a.id === 'agt_A')
-    if (agentA) agentA.name = 'Workshop'
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read', 'channels:edit'],
-        requestedAgentId: 'agt_A'
-    })
-
-    const session = await cliAuth.getSession({
-        requestId: started.requestId,
-        userCode: started.userCode
-    })
-
-    assert.equal(session.isGrantMode, true)
-    assert.deepEqual(session.requestedScopes, [
-        'channels:read',
-        'channels:edit'
-    ])
-    assert.equal(session.requestedAgent?.id, 'agt_A')
-    assert.equal(session.requestedAgent?.name, 'Workshop')
-    assert.equal(session.status, 'pending')
-    assert.equal(session.hasRedirect, false)
 })
 
 test('getSession: pending browser session returns isGrantMode=false', async () => {
@@ -654,10 +514,7 @@ test('getSession: pending browser session returns isGrantMode=false', async () =
 test('getSession: expired session reports status=expired', async () => {
     const db = new FakeDb()
     const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
+    const started = await cliAuth.start({})
     db.sessionRows[0].expiresAt = new Date(Date.now() - 1_000)
 
     const session = await cliAuth.getSession({
@@ -695,25 +552,4 @@ test('getSession: wrong userCode → 404', async () => {
             }),
         /not found/
     )
-})
-
-test('poll: subsequent poll after approval → status expired (single-use)', async () => {
-    const db = new FakeDb()
-    const cliAuth = newCliAuth(db)
-    const started = await cliAuth.start({
-        requestedScopes: ['channels:read'],
-        requestedAgentId: 'agt_A'
-    })
-    await cliAuth.approve({
-        requestId: started.requestId,
-        userCode: started.userCode,
-        userId: 'user-1',
-        approvedScopes: ['channels:read']
-    })
-    await cliAuth.poll({ deviceCode: started.deviceCode! })
-
-    const second = await cliAuth.poll({ deviceCode: started.deviceCode! })
-
-    assert.deepEqual(second, { status: 'expired' })
-    assert.equal(db.tokenRows.length, 1)
 })

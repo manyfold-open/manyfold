@@ -662,9 +662,12 @@ void test('cli poll rejects connect device codes before any lookup (cross-flow)'
         new CliAuthRateLimitService()
     )
 
+    // The cli-auth poll endpoint is a retirement tombstone now, so a connect
+    // device code leaking across flows is refused like everything else —
+    // before any lookup, same as the shape gate it replaces.
     await assert.rejects(
         () => cliAuth.poll({ deviceCode: 'mf_cnx_from_connect_flow' }),
-        /invalid deviceCode/
+        /retired/
     )
 })
 

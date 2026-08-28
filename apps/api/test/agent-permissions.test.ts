@@ -217,21 +217,6 @@ test('previewConsent rejects a tampered token', async () => {
     )
 })
 
-test('previewConsent rejects an expired token that is still pending', async () => {
-    const config = consentConfig()
-    const crypto = new CryptoService(config)
-    const svc = new AgentPermissionsService(
-        new PermDb() as never,
-        crypto,
-        config
-    )
-    const enc = crypto.encrypt(
-        JSON.stringify({ agentId: 'agt_A', scopes: ['channels:read'], exp: 1 })
-    )
-    const expired = Buffer.from(JSON.stringify(enc)).toString('base64url')
-    await assert.rejects(() => svc.previewConsent(expired, 'user-1'), /expired/)
-})
-
 test('a stateful pending request takes expiry from its durable row', async () => {
     const db = new PermDb()
     const svc = buildService(db)
@@ -413,9 +398,10 @@ test('denyConsent rejects a request the caller does not own (NotFound)', async (
     assert.equal(db.consentRows[0].status, 'pending')
 })
 
-// Tokens minted before the table existed carry no request id. They must keep
-// working (statelessly) for the rest of their hour instead of hard-failing.
-test('a legacy token without a request id still previews and grants', async () => {
+// The stateless v1 claims shape retired with LegacyConsentToken: v1 tokens
+// expired within their hour (CONSENT_TTL_MS) long ago, so a claims-carrying
+// payload is now malformed input, not a supported fallback.
+test('a claims-carrying v1 token is rejected, not granted statelessly', async () => {
     const db = new PermDb()
     const config = consentConfig()
     const crypto = new CryptoService(config)
@@ -428,14 +414,20 @@ test('a legacy token without a request id still previews and grants', async () =
         })
     )
     const legacy = Buffer.from(JSON.stringify(enc)).toString('base64url')
-    const preview = await svc.previewConsent(legacy, 'user-1')
-    assert.equal(preview.status, 'pending')
-    const res = await svc.grantConsent({
-        token: legacy,
-        approverUserId: 'user-1',
-        approvedScopes: ['channels:read']
-    })
-    assert.deepEqual(res.scopes, ['channels:read'])
+    await assert.rejects(
+        () => svc.previewConsent(legacy, 'user-1'),
+        /invalid consent token payload/
+    )
+    await assert.rejects(
+        () =>
+            svc.grantConsent({
+                token: legacy,
+                approverUserId: 'user-1',
+                approvedScopes: ['channels:read']
+            }),
+        /invalid consent token payload/
+    )
+    assert.equal(db.consentRows.length, 0)
 })
 
 // ---- owner-direct CRUD (listForOwner / addForOwner / removeForOwner) ----

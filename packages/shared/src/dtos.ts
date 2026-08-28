@@ -32,7 +32,13 @@ export interface SdkUserSummary {
 
 export interface CliLoginStartBody {
     redirectUri?: string
+    /**
+     * @deprecated The device-code grant flow is retired: the API answers 410
+     * with upgrade guidance whenever either field is present. Kept so
+     * pre-removal CLI binaries parse cleanly; Phase 8 removes both.
+     */
     requestedScopes?: string[]
+    /** @deprecated See requestedScopes. */
     requestedAgentId?: string
 }
 
@@ -41,6 +47,10 @@ export interface CliLoginStartResponse {
     userCode: string
     authUrl: string
     expiresAt: string
+    /**
+     * @deprecated Only the retired grant flow ever set it; the API no longer
+     * does. Phase 8 removes it.
+     */
     deviceCode?: string
 }
 
@@ -68,10 +78,16 @@ export interface CliLoginExchangeResponse {
     expiresAt: string | null
 }
 
+/**
+ * @deprecated The device-code grant flow is retired: /auth/cli/poll is a
+ * tombstone that always answers 410 with upgrade guidance. Both types stay
+ * only for that tombstone's signature; Phase 8 removes route and types.
+ */
 export interface CliLoginPollBody {
     deviceCode: string
 }
 
+/** @deprecated See CliLoginPollBody. */
 export type CliLoginPollResponse =
     | { status: 'pending' }
     | {
@@ -2310,17 +2326,11 @@ export interface SandboxStopResponse {
     warnings: string[]
 }
 
-// Installable mf CLI versions for the update pickers. `staging` is only
+// Installable mf CLI versions for the update pickers. `dev` is only
 // populated in non-prod deploy envs (local/staging); prod returns it empty.
 export interface CliVersionCatalog {
     stable: string[]
     dev: string[]
-    /**
-     * @deprecated Wire compatibility for web bundles predating the dev rename;
-     * the API fills it with the same list as `dev`. Drop one release after the
-     * GitHub-Releases cutover.
-     */
-    staging?: string[]
 }
 
 export interface CliUpgradeBody {

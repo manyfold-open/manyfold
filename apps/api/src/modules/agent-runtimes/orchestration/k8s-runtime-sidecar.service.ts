@@ -366,29 +366,23 @@ export class K8sRuntimeSidecarService {
         cookieHeader: string,
         runtimeId: string
     ): Promise<boolean> {
-        // Try the apex-scoped dashboard cookie first (set by /dashboard-ticket),
-        // then fall back to the legacy cookie name.
+        // The apex-scoped dashboard cookie set by /dashboard-ticket. Its
+        // pre-rename `nca_dashboard` twin is gone: the cookie's Max-Age is one
+        // hour, so nothing planted before the rename can still exist.
         const mfMatch = cookieHeader.match(/(?:^|;\s*)mf_dashboard=([^;]+)/)
-        const legacyMatch = cookieHeader.match(
-            /(?:^|;\s*)nca_dashboard=([^;]+)/
-        )
-        const candidates: string[] = []
-        if (mfMatch) candidates.push(decodeURIComponent(mfMatch[1]))
-        if (legacyMatch) candidates.push(decodeURIComponent(legacyMatch[1]))
-        if (candidates.length === 0) return false
+        if (!mfMatch) return false
         const runtime = await this.runtimes.findById(runtimeId)
         if (!runtime) return false
         if (runtime.framework !== 'hermes' || !runtime.dashboardEnabled)
             return false
-        for (const token of candidates) {
-            try {
-                const auth = await this.bearerAuth.verifyBearerToken(token)
-                if (auth.userId === runtime.userId) return true
-            } catch {
-                /* try next candidate */
-            }
+        try {
+            const auth = await this.bearerAuth.verifyBearerToken(
+                decodeURIComponent(mfMatch[1])
+            )
+            return auth.userId === runtime.userId
+        } catch {
+            return false
         }
-        return false
     }
 
     // Validate that a dashboard URL points at a Hermes runtime the user

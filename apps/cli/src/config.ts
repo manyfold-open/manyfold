@@ -1,4 +1,4 @@
-import { readFile, rm } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -85,38 +85,11 @@ export const loadConfig = async (): Promise<CliConfig> =>
 export const saveConfig = async (cfg: CliConfig): Promise<void> =>
     writeProtectedJson(resolveConfigPath(), cfg)
 
-// A poll-mode login that dies before the user approves (e.g. the hosting
-// chat turn ends) must stay resumable: the deviceCode below is the only
-// way to redeem the approved session, so it is persisted next to the
-// config and redeemed by the next CLI invocation.
-export interface PendingLogin {
-    requestId: string
-    deviceCode: string
-    authUrl: string
-    userCode: string
-    scopes: string[]
-    forAgent: string
-    apiUrl: string
-    expiresAt: string
-}
-
-export const resolvePendingLoginPath = (): string =>
+// Poll-mode logins persisted a pending file here so an approval could be
+// redeemed after the process died. The flow is removed; this cleanup keeps
+// deleting whatever a pre-removal binary may have written.
+const resolvePendingLoginPath = (): string =>
     currentProfilePaths().pendingLoginPath
-
-export const loadPendingLogin = async (): Promise<PendingLogin | null> => {
-    try {
-        const raw = await readFile(resolvePendingLoginPath(), 'utf8')
-        const parsed = JSON.parse(raw) as PendingLogin
-        if (!parsed.deviceCode || !parsed.apiUrl || !parsed.expiresAt)
-            return null
-        return parsed
-    } catch {
-        return null
-    }
-}
-
-export const savePendingLogin = async (pending: PendingLogin): Promise<void> =>
-    writeProtectedJson(resolvePendingLoginPath(), pending)
 
 export const clearPendingLogin = async (): Promise<void> => {
     await rm(resolvePendingLoginPath(), { force: true }).catch(() => {})

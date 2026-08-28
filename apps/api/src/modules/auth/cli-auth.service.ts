@@ -4,9 +4,7 @@ import {
     CliLoginExchangeResponse,
     CliLoginPollResponse,
     CliLoginSessionResponse,
-    CliLoginStartResponse,
-    GrantableScope,
-    grantableScopes
+    CliLoginStartResponse
 } from '@manyfold/shared'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
@@ -23,7 +21,6 @@ import { and, eq, gt, inArray, isNotNull, lt } from 'drizzle-orm'
 import {
     agents,
     cliAuthSessions,
-    users,
     type CliAuthSession,
     type Database
 } from '@manyfold/db'
@@ -37,9 +34,6 @@ import { CliAuthRateLimitService } from './cli-auth-rate-limit.service'
 const LOGIN_TTL_MS = 15 * 60_000
 const CLI_TOKEN_EXPIRES_DAYS = 90
 const AUTH_CODE_PREFIX = 'mf_auth_'
-const LEGACY_AUTH_CODE_PREFIX = 'nca_auth_'
-const DEVICE_CODE_PREFIX = 'mf_dvc_'
-const LEGACY_DEVICE_CODE_PREFIX = 'nca_dvc_'
 const USER_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const CLEANUP_INTERVAL_MS = 60_000
 const CLEANUP_RETENTION_MS = 60 * 60_000
@@ -81,64 +75,35 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         requestedScopes?: string[]
         requestedAgentId?: string
     }): Promise<CliLoginStartResponse> {
+        // The device-code grant flow is retired: only pre-removal CLI
+        // binaries still send these fields, and the actionable refusal here
+        // is what stops new unbound grants from being minted (Phase 8).
+        if (input.requestedScopes || input.requestedAgentId)
+            throw new GoneException(
+                'the device-code grant flow (mf login --poll) is retired; ' +
+                    'run `mf update`, then `mf auth ensure --scopes <list>`'
+            )
         const redirectUri = input.redirectUri?.trim() || null
         if (redirectUri && !isLoopbackRedirectUri(redirectUri))
             throw new BadRequestException('redirectUri must be a loopback URL')
-
-        const requestedScopes = input.requestedScopes
-            ? validateGrantableScopes(input.requestedScopes)
-            : null
-        const requestedAgentId = input.requestedAgentId?.trim() || null
-
-        if (requestedAgentId) {
-            const [agent] = await this.db
-                .select({ id: agents.id })
-                .from(agents)
-                .where(eq(agents.id, requestedAgentId))
-                .limit(1)
-            if (!agent)
-                throw new NotFoundException('requested agent not found')
-        }
 
         const id = `cli_${randomUUID()}`
         const userCode = generateUserCode()
         const expiresAt = new Date(Date.now() + LOGIN_TTL_MS)
         const authUrl = buildAuthUrl(this.webUrl(), id, userCode)
 
-        let deviceCode: string | undefined
-        let deviceCodeHash: string | null = null
-        if (requestedScopes) {
-            deviceCode = `${DEVICE_CODE_PREFIX}${randomBytes(32).toString(
-                'base64url'
-            )}`
-            deviceCodeHash = hashSecret(deviceCode)
-        }
-
-        try {
-            await this.db.insert(cliAuthSessions).values({
-                id,
-                userCode,
-                redirectUri,
-                expiresAt,
-                requestedScopes: requestedScopes ?? null,
-                requestedAgentId,
-                deviceCodeHash
-            })
-        } catch (err) {
-            if (
-                requestedAgentId &&
-                (err as { code?: string } | null)?.code === '23503'
-            )
-                throw new NotFoundException('requested agent not found')
-            throw err
-        }
+        await this.db.insert(cliAuthSessions).values({
+            id,
+            userCode,
+            redirectUri,
+            expiresAt
+        })
 
         return {
             requestId: id,
             userCode,
             authUrl,
-            expiresAt: expiresAt.toISOString(),
-            ...(deviceCode ? { deviceCode } : {})
+            expiresAt: expiresAt.toISOString()
         }
     }
 
@@ -159,8 +124,14 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         ensurePending(session)
         await this.ensureNotExpired(session, this.db, now)
 
-        const isGrant = session.requestedScopes != null
-        if (isGrant) return this.approveGrant({ session, input, now })
+        // A grant-mode session can only come from a pre-retirement deploy
+        // (they live 15 minutes); approving it as a browser login would mint
+        // the wrong credential, so refuse with the fix in hand.
+        if (session.requestedScopes != null)
+            throw new GoneException(
+                'the device-code grant flow (mf login --poll) is retired; ' +
+                    'run `mf update`, then `mf auth ensure --scopes <list>`'
+            )
         return this.approveBrowser({ session, input, userCode, now })
     }
 
@@ -203,73 +174,9 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    private async approveGrant(args: {
-        session: CliAuthSession
-        input: { requestId: string; userId: string; approvedScopes?: string[] }
-        now: Date
-    }): Promise<CliLoginApproveResponse> {
-        const { session, input, now } = args
-        const requested = (session.requestedScopes ?? []) as string[]
-        const approvedRaw = input.approvedScopes
-        if (!approvedRaw || approvedRaw.length === 0)
-            throw new BadRequestException(
-                'approvedScopes is required for grant flow'
-            )
-        const approved = validateGrantableScopes(approvedRaw)
-        for (const s of approved) {
-            if (!requested.includes(s))
-                throw new BadRequestException(
-                    `approved scope ${s} not in requested set`
-                )
-        }
-
-        if (session.requestedAgentId) {
-            const [owned] = await this.db
-                .select({ id: agents.id })
-                .from(agents)
-                .where(
-                    and(
-                        eq(agents.id, session.requestedAgentId),
-                        eq(agents.userId, input.userId)
-                    )
-                )
-                .limit(1)
-            if (!owned)
-                throw new BadRequestException(
-                    'requestedAgentId not owned by approving user'
-                )
-        }
-
-        const [row] = await this.db
-            .update(cliAuthSessions)
-            .set({
-                userId: input.userId,
-                approvedScopes: approved,
-                status: 'approved',
-                approvedAt: now,
-                updatedAt: now
-            })
-            .where(
-                and(
-                    eq(cliAuthSessions.id, input.requestId),
-                    eq(cliAuthSessions.status, 'pending'),
-                    gt(cliAuthSessions.expiresAt, now)
-                )
-            )
-            .returning()
-        if (!row) await this.rejectApproveConflict(input.requestId, undefined)
-
-        return {
-            authCode: null,
-            redirectUrl: null,
-            expiresAt: row.expiresAt.toISOString(),
-            mode: 'grant'
-        }
-    }
-
     async exchange(authCode: string): Promise<CliLoginExchangeResponse> {
         const code = authCode.trim()
-        if (!hasPrefix(code, [AUTH_CODE_PREFIX, LEGACY_AUTH_CODE_PREFIX]))
+        if (!code.startsWith(AUTH_CODE_PREFIX))
             throw new BadRequestException('invalid auth code')
 
         const codeHash = hashSecret(code)
@@ -292,9 +199,12 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
                 )
                 .returning()
             if (!row) await this.rejectExchangeConflict(tx, codeHash, now)
+            // Only a pre-retirement deploy could have written this (grant
+            // sessions are no longer creatable and live 15 minutes).
             if (row.requestedScopes != null)
-                throw new BadRequestException(
-                    'use /auth/cli/poll for grant flow sessions'
+                throw new GoneException(
+                    'the device-code grant flow (mf login --poll) is retired; ' +
+                        'run `mf update`, then `mf auth ensure --scopes <list>`'
                 )
             if (!row.userId)
                 throw new BadRequestException('auth code already used')
@@ -323,86 +233,15 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         })
     }
 
+    // Tombstone for the retired device-code grant flow: pre-removal CLI
+    // binaries poll this in a loop, so the refusal must carry the fix
+    // instead of reading like an outage.
     async poll(input: { deviceCode: string }): Promise<CliLoginPollResponse> {
-        const deviceCode = input.deviceCode?.trim()
-        if (
-            !deviceCode ||
-            !hasPrefix(deviceCode, [
-                DEVICE_CODE_PREFIX,
-                LEGACY_DEVICE_CODE_PREFIX
-            ])
+        void input
+        throw new GoneException(
+            'the device-code grant flow (mf login --poll) is retired; ' +
+                'run `mf update`, then `mf auth ensure --scopes <list>`'
         )
-            throw new BadRequestException('invalid deviceCode')
-
-        const hash = hashSecret(deviceCode)
-        const now = new Date()
-
-        return this.db.transaction(async (tx) => {
-            const [row] = await tx
-                .select()
-                .from(cliAuthSessions)
-                .where(eq(cliAuthSessions.deviceCodeHash, hash))
-                .limit(1)
-            if (!row) throw new NotFoundException('deviceCode not found')
-
-            if (row.expiresAt < now) {
-                if (row.status !== 'expired') {
-                    await tx
-                        .update(cliAuthSessions)
-                        .set({ status: 'expired', updatedAt: now })
-                        .where(eq(cliAuthSessions.id, row.id))
-                }
-                return { status: 'expired' }
-            }
-
-            if (row.status === 'pending') {
-                await tx
-                    .update(cliAuthSessions)
-                    .set({ polledAt: now })
-                    .where(eq(cliAuthSessions.id, row.id))
-                return { status: 'pending' }
-            }
-
-            if (row.status === 'approved') {
-                if (!row.userId || !row.approvedScopes || !row.requestedAgentId)
-                    throw new BadRequestException('grant session is incomplete')
-
-                const approvedScopes = row.approvedScopes as GrantableScope[]
-                const minted = await this.apiTokens.mintGrantInTx(tx, {
-                    userId: row.userId,
-                    agentId: row.requestedAgentId,
-                    scopes: approvedScopes,
-                    createdVia: 'cli-poll',
-                    enforceAgentBinding: false,
-                    replaceExisting: true
-                })
-
-                await tx
-                    .update(cliAuthSessions)
-                    .set({
-                        status: 'exchanged',
-                        exchangedAt: now,
-                        tokenId: minted.tokenId,
-                        updatedAt: now
-                    })
-                    .where(eq(cliAuthSessions.id, row.id))
-
-                const [userRow] = await tx
-                    .select({ email: users.email })
-                    .from(users)
-                    .where(eq(users.id, row.userId))
-                    .limit(1)
-
-                return {
-                    status: 'approved',
-                    token: minted.plaintext,
-                    scopes: approvedScopes,
-                    userEmail: userRow?.email ?? null
-                }
-            }
-
-            return { status: 'expired' }
-        })
     }
 
     async getSession(args: {
@@ -585,19 +424,6 @@ export const isLoopbackRedirectUri = (value: string): boolean => {
 export const hashSecret = (secret: string): string =>
     createHash('sha256').update(secret).digest('hex')
 
-const validateGrantableScopes = (raw: string[]): GrantableScope[] => {
-    if (raw.length === 0)
-        throw new BadRequestException('scopes must be non-empty')
-    const unique: GrantableScope[] = []
-    const allowed = grantableScopes as readonly string[]
-    for (const s of raw) {
-        if (typeof s !== 'string' || !allowed.includes(s))
-            throw new BadRequestException(`unsupported grantable scope: ${s}`)
-        const scope = s as GrantableScope
-        if (!unique.includes(scope)) unique.push(scope)
-    }
-    return unique
-}
 
 const ensurePending = (row: CliAuthSession): void => {
     if (row.status !== 'pending')
@@ -647,9 +473,6 @@ export const generateUserCode = (): string => {
     )
     return `${chars.slice(0, 4).join('')}-${chars.slice(4).join('')}`
 }
-
-const hasPrefix = (value: string, prefixes: readonly string[]): boolean =>
-    prefixes.some((prefix) => value.startsWith(prefix))
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '')
 
