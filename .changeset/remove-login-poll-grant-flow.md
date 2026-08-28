@@ -1,5 +1,5 @@
 ---
-'@manyfold/cli': major
+'@manyfold/cli': minor
 '@manyfold/api': minor
 ---
 
