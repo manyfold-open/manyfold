@@ -85,8 +85,7 @@ export class CliVersionCatalogService {
         const dev = this.includeDev()
             ? atLeastMin(await this.fetchDev())
             : []
-        // `staging` mirrors `dev` for web bundles predating the rename.
-        return { stable, dev, staging: dev }
+        return { stable, dev }
     }
 
     private async fetchStable(): Promise<string[]> {

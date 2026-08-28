@@ -8,13 +8,7 @@ const setup = async (overrides: {
         req: unknown
     ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
 } = {}) => {
-    // Patch execOnce by re-importing with mock: use a module-level injection point
-    // by monkey-patching the handler's import. Simpler: pass a stub kubeConfig and
-    // monkey-patch via require cache. Here we go a different route — wrap via DI.
     const app = Fastify()
-    // We need to intercept execOnce. Quickest: replace the kubeConfig with a sentinel
-    // and rely on the test to set process.env.MOCK_EXEC. We instead bypass by
-    // injecting a thin wrapper.
     type Handler = (
         req: unknown
     ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
