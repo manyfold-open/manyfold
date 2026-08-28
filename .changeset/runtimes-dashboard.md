@@ -1,0 +1,51 @@
+---
+'@manyfold/web': patch
+---
+
+The runtimes page opens on a dashboard instead of silently picking a host.
+
+Landing on Settings -> Runtimes used to auto-select the first VM in the list
+and render its detail panel — which also fired a framework-detection round
+trip into that sandbox as a side effect of merely opening the page. There was
+no place to see all runtimes at once: connected machines, sandbox usage and
+external providers each lived on their own sub-page.
+
+The bare URL now shows a dashboard summarizing every runtime kind in one
+place, with a grid/list toggle (persisted per device). Sandboxes show their
+sprite status, storage, active time this period and agents; self-owned
+computers show online state, platform, mf CLI version and detected
+frameworks; the External API section lists the configured providers
+themselves — endpoint, last connection test and how many runtimes use
+each — linking to the providers page, rather than runtime rows. Each
+section carries a direct create entry for its kind,
+and the rail's New-runtime affordances (a plus in the header and the bottom
+button) open a quick dropdown menu instead of the old modal chooser. The
+list view renders each section as a proper table — per-kind columns
+(status, storage, active time, platform, mf CLI, endpoint, last test,
+agents) instead of a single compressed meta line. Cards and rows click
+through to the existing host detail, and the kind
+breadcrumb links back to the dashboard. The dashboard also has an explicit
+address — /settings/runtimes/dashboard, reachable from a new rail entry — so
+on narrow screens, where the bare URL still opens the rail, it remains one
+tap away.
+
+Framework detection now runs only when a sandbox is explicitly selected, so
+opening the page no longer pokes the alphabetically-first sandbox. If sandbox
+usage or the provider list fails to load, the affected columns degrade to
+placeholders instead of failing the page.
+
+The rail itself gets simpler: grouping gains a None option (a plain host
+tree, no group headers) and None becomes the default — the cascade store
+moves to a fresh key (`mf.runtimes.cascade.v2`) because the old one had
+auto-persisted "Kind" for every returning browser, so a fallback change
+alone would never land. The search box and the All/Ready/Issues filter
+chips are gone — the dashboard is now the place to survey and triage.
+
+The three create/manage surfaces move under the runtimes namespace and
+render beside the rail instead of replacing it: /settings/local-daemons
+and /settings/external-agent-providers become
+/settings/runtimes/local-daemons and
+/settings/runtimes/external-agent-providers (old URLs redirect), and
+/settings/runtimes/sandbox now keeps the rail too. Leaving one of these
+pages refetches hosts and providers, so a sandbox you just created or a
+machine you just revoked is reflected in the rail without a reload.

@@ -68,11 +68,11 @@ const TITLE_ROUTES: TitleRoute[] = [
         labelKey: 'web.settingsLayout.cloudComputers'
     },
     {
-        path: '/settings/local-daemons',
+        path: '/settings/runtimes/local-daemons',
         labelKey: 'web.settingsLayout.localDaemons'
     },
     {
-        path: '/settings/external-agent-providers',
+        path: '/settings/runtimes/external-agent-providers',
         labelKey: 'web.settingsLayout.externalAgentProviders'
     },
     {
