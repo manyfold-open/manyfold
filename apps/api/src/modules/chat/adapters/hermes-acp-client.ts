@@ -1,5 +1,8 @@
 import { Logger } from '@nestjs/common'
-import type { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import type {
+    ExecStreamResult,
+    InteractiveExecHandle
+} from './exec-driver'
 
 export type AcpEvent =
     | { type: 'text'; text: string }
@@ -15,7 +18,11 @@ export type AcpEvent =
           usage: Record<string, unknown>
       }
     | { type: 'turn_end'; usage: Record<string, unknown> | null }
-    | { type: 'error'; message: string }
+    // `message` is the fatal line for display; `detail` adds the stderr tail
+    // for classifiers that need context the single line may not carry (the
+    // managed 503 body can print on a different line than the Aborting
+    // marker).
+    | { type: 'error'; message: string; detail?: string }
 
 interface PendingRequest {
     resolve: (result: unknown) => void
@@ -66,6 +73,7 @@ interface JsonRpcAgentRequest {
 
 const PROTOCOL_VERSION = 1
 const ACP_DEFAULT_CMD = ['hermes', 'acp', '--accept-hooks']
+export const HERMES_ACP_CMD = ACP_DEFAULT_CMD
 
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered
 // ACP stream is decoded by exactly this code rather than a second copy that can
@@ -124,16 +132,18 @@ export const acpEventsFromNotification = (
     }
 }
 
-export class HermesAcpClient {
+
+// The same ACP JSON-RPC core over any InteractiveExecHandle (sprite exec,
+// pod exec). The daemon runtime keeps its client inside the CLI
+// (turn.start/acp-turn.ts) so the turn survives an API restart; this class is
+// the API-side client for runtimes where no daemon can own the turn — those
+// turns are non-resumable by construction, exactly like the transport.
+export class HermesAcpTurn {
     private readonly log: Logger
-    private readonly registry: DaemonRegistryService
-    private readonly daemonId: string
+    private readonly transport: InteractiveExecHandle
     private readonly onEvent: (ev: AcpEvent) => void
     private readonly pending = new Map<number, PendingRequest>()
-    private execRefId: string | null = null
-    private execResult: Promise<Record<string, unknown> | undefined> | null =
-        null
-    private execCancel: (() => void) | null = null
+    private readonly closeGraceMs: number
     private stdoutBuffer = ''
     private stderrTail: string[] = []
     private nextId = 1
@@ -141,64 +151,56 @@ export class HermesAcpClient {
     private closed = false
     private exitError: Error | null = null
 
-    constructor(opts: { registry: DaemonRegistryService; daemonId: string; onEvent: (ev: AcpEvent) => void; logger?: Logger }) {
-        this.registry = opts.registry
-        this.daemonId = opts.daemonId
+    constructor(opts: {
+        transport: InteractiveExecHandle
+        onEvent: (ev: AcpEvent) => void
+        logger?: Logger
+        closeGraceMs?: number
+    }) {
+        this.transport = opts.transport
         this.onEvent = opts.onEvent
-        this.log = opts.logger ?? new Logger(HermesAcpClient.name)
+        this.log = opts.logger ?? new Logger(HermesAcpTurn.name)
+        this.closeGraceMs = opts.closeGraceMs ?? 5_000
+        void this.pumpStdout()
+        void this.pumpStderr()
+        // #561's lesson, moved to the transport boundary: ANY transport
+        // failure must settle every pending request through its reject (which
+        // clears both timers), never leave a timer armed against a promise
+        // nobody holds.
+        this.transport.result
+            .then((r) => this.handleExecExit(r))
+            .catch((err: unknown) =>
+                this.handleExecExit(undefined, err as Error)
+            )
     }
 
     get currentSessionId(): string | null {
         return this.sessionId
     }
 
-    async start(opts: {
-        cmd?: string[]
-        env?: Record<string, string>
-        cwd?: string
-        timeoutMs: number
-        refIdOverride?: string
-    }): Promise<void> {
-        const cmd = opts.cmd ?? ACP_DEFAULT_CMD
-        const env: Record<string, string> = {
-            HERMES_YOLO_MODE: '1',
-            ...(opts.env ?? {})
+    private async pumpStdout(): Promise<void> {
+        try {
+            for await (const chunk of this.transport.stdout)
+                this.ingestStdout(chunk)
+        } catch {
+            // transport.result carries the failure
         }
-        const payload: Record<string, unknown> = {
-            cmd,
-            env,
-            keepStdinOpen: true,
-            timeoutMs: opts.timeoutMs
+    }
+
+    private async pumpStderr(): Promise<void> {
+        try {
+            for await (const chunk of this.transport.stderr)
+                this.ingestStderr(chunk)
+        } catch {
+            // transport.result carries the failure
         }
-        if (opts.cwd) payload.dir = opts.cwd
-        const stream = this.registry.streamRpc({
-            daemonId: this.daemonId,
-            method: 'exec.start',
-            payload,
-            timeoutMs: opts.timeoutMs + 10_000,
-            onEvent: (kind, data) => {
-                if (kind === 'stdout') this.ingestStdout(data)
-                else if (kind === 'stderr') this.ingestStderr(data)
-            },
-            ...(opts.refIdOverride ? { refIdOverride: opts.refIdOverride } : {})
-        })
-        this.execRefId = stream.refId
-        this.execResult = stream.result
-        this.execCancel = stream.cancel
-        // If the child exits while we're still mid-conversation, the JSON-RPC
-        // pending requests will never get a response. Surface that as a hard
-        // failure on every pending request (with the stderr tail) so callers
-        // see why `session/prompt` didn't return instead of timing out.
-        stream.result
-            .then((ack) => this.handleExecExit(ack))
-            .catch((err) => this.handleExecExit(undefined, err))
     }
 
     private ingestStderr(chunk: string): void {
         const trimmed = chunk.trim()
         if (!trimmed) return
-        // Counts as activity too: a long silent tool call may produce nothing on
-        // stdout while hermes still logs progress here. A chatty-but-wedged
+        // Counts as activity too: a long silent tool call may produce nothing
+        // on stdout while hermes still logs progress here. A chatty-but-wedged
         // child is caught by the max-duration budget instead.
         this.touchPending()
         this.log.debug(`[hermes:stderr] ${trimmed}`)
@@ -219,7 +221,7 @@ export class HermesAcpClient {
                     ? `${line}\n--- hermes stderr (tail) ---\n${tail}`
                     : line
                 this.exitError = new Error(detail)
-                this.onEvent({ type: 'error', message: line })
+                this.onEvent({ type: 'error', message: line, detail })
                 for (const [, p] of this.pending) p.reject(this.exitError)
                 this.pending.clear()
             }
@@ -227,12 +229,11 @@ export class HermesAcpClient {
     }
 
     private handleExecExit(
-        ack: Record<string, unknown> | undefined,
+        result: ExecStreamResult | undefined,
         err?: Error
     ): void {
         if (this.closed) return
-        const exitCode =
-            typeof ack?.exitCode === 'number' ? ack.exitCode : null
+        const exitCode = typeof result?.exitCode === 'number' ? result.exitCode : null
         const tail = this.stderrTail.slice(-12).join('\n').trim()
         const summary = pickStderrErrorLine(this.stderrTail)
         const reason =
@@ -260,9 +261,10 @@ export class HermesAcpClient {
         }
     }
 
-    // Every frame the child produces is proof the turn is alive — session/update
-    // notifications ARE the answer streaming in. Rearming here is what turns the
-    // pending request's budget into an INACTIVITY budget instead of a deadline.
+    // Every frame the child produces is proof the turn is alive —
+    // session/update notifications ARE the answer streaming in. Rearming here
+    // is what turns the pending request's budget into an INACTIVITY budget
+    // instead of a deadline.
     private touchPending(): void {
         for (const [, p] of this.pending) p.touch()
     }
@@ -280,9 +282,7 @@ export class HermesAcpClient {
             return
         }
         if ('id' in frame && 'method' in frame) {
-            void this.handleAgentRequest(
-                frame as unknown as JsonRpcAgentRequest
-            )
+            this.handleAgentRequest(frame as unknown as JsonRpcAgentRequest)
             return
         }
         if ('method' in frame) {
@@ -297,8 +297,7 @@ export class HermesAcpClient {
         if (!pending) return
         this.pending.delete(id)
         if (resp.error) {
-            const msg =
-                resp.error.message ?? `hermes ${pending.method} failed`
+            const msg = resp.error.message ?? `hermes ${pending.method} failed`
             pending.reject(new Error(msg))
             return
         }
@@ -309,11 +308,9 @@ export class HermesAcpClient {
         for (const ev of acpEventsFromNotification(note)) this.onEvent(ev)
     }
 
-    private async handleAgentRequest(
-        req: JsonRpcAgentRequest
-    ): Promise<void> {
-        // Headless daemon — auto-approve permission asks; reply
-        // method-not-found for anything else so the agent doesn't block.
+    private handleAgentRequest(req: JsonRpcAgentRequest): void {
+        // Headless — auto-approve permission asks; reply method-not-found for
+        // anything else so the agent doesn't block.
         const response: Record<string, unknown> = {
             jsonrpc: '2.0',
             id: req.id
@@ -331,28 +328,14 @@ export class HermesAcpClient {
                 message: `method not found: ${req.method}`
             }
         }
-        await this.writeLine(JSON.stringify(response)).catch((err) =>
-            this.log.warn(
-                `reply to agent request ${req.method} failed: ${(err as Error).message}`
-            )
-        )
+        this.writeLine(JSON.stringify(response))
     }
 
-    private async writeLine(line: string): Promise<void> {
-        if (!this.execRefId) throw new Error('hermes acp child not started')
-        const data = Buffer.from(`${line}\n`, 'utf8').toString('base64')
-        const res = await this.registry.rpc({
-            daemonId: this.daemonId,
-            method: 'exec.input',
-            payload: {
-                refId: this.execRefId,
-                data,
-                encoding: 'base64'
-            },
-            timeoutMs: 10_000
-        })
-        if (res && typeof res === 'object' && 'error' in res && res.error)
-            throw new Error(String(res.error))
+    // Enqueue-only: a dead transport surfaces via `result` rejecting, which
+    // handleExecExit routes through every pending entry's reject. That is the
+    // whole #561 contract with none of the per-write failure plumbing.
+    private writeLine(line: string): void {
+        this.transport.write(Buffer.from(`${line}\n`, 'utf8'))
     }
 
     async request<T = unknown>(
@@ -360,8 +343,8 @@ export class HermesAcpClient {
         params: Record<string, unknown>,
         timeouts: number | AcpRequestTimeouts
     ): Promise<T> {
-        if (this.closed)
-            throw new Error('hermes acp client already closed')
+        if (this.closed) throw new Error('hermes acp turn already closed')
+        if (this.exitError) throw this.exitError
         const { idleTimeoutMs, maxDurationMs } = asTimeouts(timeouts)
         const id = this.nextId++
         const frame = JSON.stringify({ jsonrpc: '2.0', id, method, params })
@@ -408,38 +391,23 @@ export class HermesAcpClient {
                 }
             })
         })
-        try {
-            await this.writeLine(frame)
-        } catch (err) {
-            // #561: route the write error through the entry's reject — it
-            // clears both timers and settles the SAME promise we return.
-            // Deleting the map entry alone left the timers armed against a
-            // promise request() never returned, and their late reject became
-            // an unhandledRejection that main.ts escalates to a fatal exit.
-            // A missing entry means the promise already settled (child exit,
-            // fatal stderr or abort raced the write), so returning it still
-            // surfaces that original failure instead of a second bare one.
-            const entry = this.pending.get(id)
-            this.pending.delete(id)
-            entry?.reject(err as Error)
-        }
+        this.writeLine(frame)
         return promise
     }
 
     async initialize(timeoutMs: number): Promise<Record<string, unknown>> {
-        const result = await this.request<Record<string, unknown>>(
+        return this.request<Record<string, unknown>>(
             'initialize',
             {
                 protocolVersion: PROTOCOL_VERSION,
                 clientInfo: {
-                    name: 'manyfold-daemon-adapter',
+                    name: 'manyfold-acp-adapter',
                     version: '0.1.0'
                 },
                 clientCapabilities: {}
             },
             timeoutMs
         )
-        return result
     }
 
     async newSession(args: {
@@ -503,34 +471,43 @@ export class HermesAcpClient {
     async close(): Promise<void> {
         if (this.closed) return
         this.closed = true
-        if (this.execRefId) {
-            await this.registry
-                .rpc({
-                    daemonId: this.daemonId,
-                    method: 'exec.eof',
-                    payload: { refId: this.execRefId },
-                    timeoutMs: 5_000
-                })
-                .catch(() => {})
-        }
-        if (this.execResult) {
-            await this.execResult.catch(() => {})
+        this.transport.endInput()
+        // A child that ignores stdin EOF must not park the caller (and its
+        // terminal event) for the whole transport budget: give it a short
+        // grace, then tear the transport down.
+        let graceTimer: NodeJS.Timeout | null = null
+        const settled = await Promise.race([
+            this.transport.result.then(
+                () => true,
+                () => true
+            ),
+            new Promise<boolean>((resolve) => {
+                graceTimer = setTimeout(
+                    () => resolve(false),
+                    this.closeGraceMs
+                )
+            })
+        ])
+        if (graceTimer) clearTimeout(graceTimer)
+        if (!settled) {
+            this.transport.abort()
+            await this.transport.result.catch(() => {})
         }
         for (const [, p] of this.pending)
-            p.reject(new Error('hermes acp client closed'))
+            p.reject(new Error('hermes acp turn closed'))
         this.pending.clear()
     }
 
+    // Deliberately effective even after close(): a cancel that lands while
+    // close() is inside its grace window must still reach the transport, or
+    // the turn is uncancellable for the rest of the wait.
     abort(): void {
-        if (this.execCancel) {
-            try {
-                this.execCancel()
-            } catch {}
-        }
-        for (const [, p] of this.pending)
-            p.reject(new Error('hermes acp client aborted'))
-        this.pending.clear()
+        this.transport.abort()
+        if (this.closed) return
         this.closed = true
+        for (const [, p] of this.pending)
+            p.reject(new Error('hermes acp turn aborted'))
+        this.pending.clear()
     }
 }
 

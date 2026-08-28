@@ -2,7 +2,9 @@ import type { PodExec } from '@/modules/k8s/pod-exec'
 import type {
     ExecDriver,
     ExecStreamHandle,
-    ExecStreamRequest
+    ExecStreamRequest,
+    InteractiveExecHandle,
+    InteractiveExecRequest
 } from './exec-driver'
 import { observedResult } from './exec-driver'
 
@@ -56,6 +58,25 @@ export class K8sExecDriver implements ExecDriver {
         return {
             stdout: handle.stdout,
             stderr: handle.stderr,
+            result: observedResult(handle.result),
+            abort: handle.abort
+        }
+    }
+
+    streamInteractive(req: InteractiveExecRequest): InteractiveExecHandle {
+        // Same wrapper as stream(): env inlined into the shell (pod exec has
+        // no env channel) and GNU `timeout` as the in-container backstop for
+        // a child that survives websocket teardown.
+        const wrapped = wrapCommand(req.cmd, req.env, req.dir, req.timeoutMs)
+        const handle = this.podExec.streamInteractive({
+            cmd: wrapped,
+            timeoutMs: req.timeoutMs + 5_000
+        })
+        return {
+            stdout: handle.stdout,
+            stderr: handle.stderr,
+            write: (data: Buffer) => handle.stdin.write(data),
+            endInput: () => handle.stdin.end(),
             result: observedResult(handle.result),
             abort: handle.abort
         }

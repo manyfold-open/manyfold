@@ -5,6 +5,7 @@ import {
     CHAT_UPLOAD_MAX_COUNT,
     CHAT_UPLOAD_MAX_FILE_BYTES,
     CHAT_UPLOAD_MAX_TOTAL_BYTES,
+    DAEMON_FEATURE_TURN_HERMES,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     createObjectId,
@@ -83,6 +84,7 @@ import {
     type PersistedStreamEventType
 } from '@/modules/chat/sse-broadcaster'
 import { ChatAdapterRegistry } from '@/modules/chat/adapters/adapter-registry.service'
+import { daemonAdvertisesFeature } from '@/modules/chat/chat-adapter'
 import type {
     ChannelSource,
     ChatTurnTimings,
@@ -443,6 +445,15 @@ const spriteRunnerEnabledFor = (agentId: string): boolean => {
         .filter(Boolean)
         .includes(agentId)
 }
+
+// hermes turns are ACP-only and the runner-owned client is the resumable
+// variant, so the attempt is always worth making: the allowlist does not
+// apply. Dispatch policy, deliberately not a frameworkCapabilities field —
+// the same layering argument ADR-0021 makes for the exec-env surfaces.
+const spriteRunnerAttemptedFor = (
+    framework: AgentFramework,
+    agentId: string
+): boolean => framework === 'hermes' || spriteRunnerEnabledFor(agentId)
 
 // Thrown when a turn cannot start because the session already has one running.
 // Extends ConflictException so HTTP callers get a 409; the channel bridge catches
@@ -4016,9 +4027,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         return seq
     }
 
-    // Bring this agent's sprite-side runner up, if it is opted in. Returns no
-    // handle for every other case (flag off, not a sprite, no runner manager,
-    // bring-up failed) so the turn silently keeps using the direct sprite exec —
+    // Bring this agent's sprite-side runner up, if this framework attempts it
+    // (hermes always; others via the allowlist). Returns no handle for every
+    // other case (not attempted, not a sprite, no runner manager, bring-up
+    // failed) so the turn silently keeps using its direct transport —
     // a runner is an optimisation and must never be the reason a turn cannot
     // start.
     //
@@ -4029,6 +4041,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     private async resolveSpriteRunner(args: {
         agentId: string
         userId: string
+        framework: AgentFramework
         runtime: AgentRuntime
         spriteName: string | null
         workspacePath?: string | null
@@ -4040,7 +4053,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!this.runnerManager) return { runner: null }
         if (args.runtime !== 'sprites' || !args.spriteName)
             return { runner: null }
-        if (!spriteRunnerEnabledFor(agentId)) return { runner: null }
+        if (!spriteRunnerAttemptedFor(args.framework, agentId))
+            return { runner: null }
         const startedAt = Date.now()
         try {
             const exec = await this.spriteExecFor(agentId, args.spriteName)
@@ -4057,7 +4071,28 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // budget rather than by a command budget (#730).
                 firstExecTimeoutMs: spriteExecHealthConfig().firstExecTimeoutMs
             })
-            const runner = resolution.handle
+            let runner = resolution.handle
+            // A hermes runner is only usable when its daemon can OWN the ACP
+            // client (turn.hermes): the caller stamps daemonId/daemonExecRef
+            // from this handle, and a stamp against a daemon that cannot
+            // serve turn.start would advertise a resume path that does not
+            // exist. Decided at resolution time so the stamps stay truthful
+            // and the turn falls to the interactive transport instead.
+            let missingTurnRpc = false
+            if (runner && args.framework === 'hermes') {
+                const capable = await daemonAdvertisesFeature(
+                    this.db,
+                    runner.daemonId,
+                    DAEMON_FEATURE_TURN_HERMES
+                ).catch(() => false)
+                if (!capable) {
+                    runner = null
+                    missingTurnRpc = true
+                }
+            }
+            const fallbackReason =
+                resolution.fallbackReason ??
+                (missingTurnRpc ? 'runner_missing_turn_rpc' : undefined)
             // The question this answers, which cost hours of log archaeology to
             // answer once: how often does a turn actually GET a runner, and what
             // did waiting for one cost it? A cold bring-up can exceed its budget
@@ -4078,9 +4113,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 // (#619): lets a later dispatch-recovery event say whether
                 // the generation changed between resolve and turn dispatch.
                 resolvedGeneration: runner?.generation ?? null,
-                ...(resolution.fallbackReason
-                    ? { fallbackReason: resolution.fallbackReason }
-                    : {}),
+                ...(fallbackReason ? { fallbackReason } : {}),
                 ...(resolution.workspace.ensureMs !== undefined
                     ? { workspaceEnsureMs: resolution.workspace.ensureMs }
                     : {})
@@ -5194,6 +5227,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 : await this.resolveSpriteRunner({
                       agentId: session.agentId,
                       userId: session.userId,
+                      framework: agentCtx.framework,
                       runtime: agentCtx.runtime,
                       spriteName: agentCtx.spriteName,
                       workspacePath: agentCtx.workspacePath

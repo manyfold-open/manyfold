@@ -31,6 +31,9 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     codex_resume_unsupported: 'unsupported_capability',
     gemini_resume_unsupported: 'unsupported_capability',
     hermes_resume_unsupported: 'unsupported_capability',
+    // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
+    // the daemon host, not a retry here.
+    hermes_daemon_upgrade_required: 'unsupported_capability',
     openclaw_resume_unsupported: 'unsupported_capability',
     resume_unsupported: 'unsupported_capability',
     dify_session_not_found: 'stale_resume_ref',
@@ -50,6 +53,10 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     'dify_upstream_failed',
     'gemini_error',
     'hermes_daemon_acp_failed',
+    'hermes_acp_failed',
+    // The fatal stderr line on the interactive path carries the upstream
+    // auth/pool/balance text that used to arrive as `hermes_upstream`.
+    'hermes_acp_event',
     'langflow_error'
 ])
 

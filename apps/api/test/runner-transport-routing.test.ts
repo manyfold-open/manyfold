@@ -281,6 +281,110 @@ test('the runner resolver is called with the ids it needs, not the agent context
     }
 })
 
+// hermes is ACP-only: the no-runner path is the API-owned interactive client,
+// so the runner attempt is always worth making and the allowlist does not
+// apply. The capability check runs at RESOLUTION time because the caller
+// stamps daemonId/daemonExecRef from the handle — a runner whose daemon
+// cannot own the ACP client (no turn.hermes) would advertise a resume path
+// that does not exist.
+test('hermes attempts the runner without any allowlist and requires turn.hermes', async () => {
+    const { ChatService } = await import('../src/modules/chat/chat.service')
+    const telemetryEvents: Array<{
+        name: string
+        payload: Record<string, unknown>
+    }> = []
+    const clientFeaturesRef: { current: string[] } = {
+        current: ['turn.hermes']
+    }
+    const ensureCalls: string[] = []
+    const service = Object.create(ChatService.prototype) as {
+        resolveSpriteRunner: (a: {
+            agentId: string
+            userId: string
+            framework: string
+            runtime: string
+            spriteName: string | null
+        }) => Promise<{
+            runner: { daemonId: string; exec: unknown } | null
+            execFailure?: unknown
+        }>
+        runnerManager?: unknown
+        execDrivers?: unknown
+        telemetry?: unknown
+        db?: unknown
+    }
+    service.runnerManager = {
+        ensureRunner: async (a: { agentId: string }) => {
+            ensureCalls.push(a.agentId)
+            return {
+                handle: { daemonId: 'dh_runner', started: false },
+                workspace: { outcome: 'ensured' }
+            }
+        }
+    }
+    service.telemetry = {
+        event: (name: string, payload: Record<string, unknown>) =>
+            telemetryEvents.push({ name, payload })
+    }
+    service.execDrivers = {
+        recoveryFsForAgent: async () => ({
+            spritesClient: {},
+            agent: { userId: 'user-1' }
+        })
+    }
+    service.db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () => [
+                        { clientFeatures: clientFeaturesRef.current }
+                    ]
+                })
+            })
+        })
+    }
+
+    assert.equal(process.env.MF_SPRITE_RUNNER_AGENTS, undefined)
+    const resolved = await service.resolveSpriteRunner({
+        agentId: 'agt_hermes',
+        userId: 'user-1',
+        framework: 'hermes',
+        runtime: 'sprites',
+        spriteName: 'art-abc'
+    })
+    assert.equal(resolved.runner?.daemonId, 'dh_runner')
+    assert.deepEqual(ensureCalls, ['agt_hermes'])
+
+    // The same runner without the capability is rejected at resolution, with
+    // its own fallback reason so the rollout dashboards can see it.
+    clientFeaturesRef.current = []
+    const rejected = await service.resolveSpriteRunner({
+        agentId: 'agt_hermes',
+        userId: 'user-1',
+        framework: 'hermes',
+        runtime: 'sprites',
+        spriteName: 'art-abc'
+    })
+    assert.equal(rejected.runner, null)
+    const fallback = telemetryEvents.at(-1)
+    assert.equal(fallback?.name, 'chat.runner.resolve')
+    assert.equal(fallback?.payload.outcome, 'fallback')
+    assert.equal(fallback?.payload.fallbackReason, 'runner_missing_turn_rpc')
+
+    // Other frameworks keep the allowlist: with none set, the sprite must not
+    // be touched at all.
+    ensureCalls.length = 0
+    const gated = await service.resolveSpriteRunner({
+        agentId: 'agt_claude',
+        userId: 'user-1',
+        framework: 'claude-code',
+        runtime: 'sprites',
+        spriteName: 'art-abc'
+    })
+    assert.equal(gated.runner, null)
+    assert.deepEqual(ensureCalls, [])
+})
+
 // '*' is the full-rollout switch: after the restart drills proved the runner
 // path for every framework, prod flips one value instead of enumerating every
 // agent id ever created. Only the exact single '*' widens the gate — a '*'

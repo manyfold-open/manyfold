@@ -37,8 +37,6 @@ export type ExecTransport =
     | 'pod-exec'
     // daemon `turn.start`: the runner spawns and drives the framework itself.
     | 'turn-rpc'
-    // hermes `exec.start` ACP pipe, for runners whose CLI predates turn.start.
-    | 'acp-pipe'
     // HTTP to a resident service (the framework's own gateway).
     | 'gateway-http'
     // HTTP to an external provider; never reaches ExecDriverFactory.
@@ -97,6 +95,11 @@ export interface ExecEnvSurface {
     // by the per-adapter transport tests. `daemon:<feature>` is a client
     // feature the carrying daemon must advertise.
     gatedBy?: readonly string[]
+    // Where a `daemon:` gate is enforced. 'dispatch' (default): the adapter
+    // checks before sending the RPC. 'resolution': the carrier is only handed
+    // to the adapter after the check (runner resolution), so the adapter seam
+    // deliberately trusts it — pinned by runner-transport-routing.test.ts.
+    capabilityCheckedAt?: 'dispatch' | 'resolution'
     // MF_API_TOKEN / MF_AGENT_ID / MF_API_URL / MF_DEPLOY_ENV.
     identity: EnvInjection
     // Connection-derived env (GH_TOKEN, GIT_CONFIG_*, CLOUDFLARE_*).
@@ -107,7 +110,7 @@ export interface ExecEnvSurface {
     providerCreds: EnvInjection
     path: PathStrategy
     resume: ResumeSemantics
-    // turn-rpc / acp-pipe only: the exact env keys the RPC payload carries.
+    // turn-rpc only: the exact env keys the RPC payload carries.
     payloadEnvKeys?: readonly string[]
     // Why an intentional absence or asymmetry is what it is.
     note?: string
@@ -323,62 +326,47 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
     {
         framework: 'hermes',
         runtime: 'sprites',
-        transport: 'gateway-http',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'not-applicable',
-        resume: 'none'
-    },
-    {
-        framework: 'hermes',
-        runtime: 'sprites',
         transport: 'turn-rpc',
-        gatedBy: [
-            'MF_SPRITE_RUNNER_AGENTS',
-            'MF_HERMES_TURN_RPC',
-            'daemon:turn.hermes'
-        ],
+        gatedBy: ['daemon:turn.hermes'],
+        capabilityCheckedAt: 'resolution',
         identity: 'none',
         connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
         path: 'not-applicable',
         resume: 'attach-no-env',
-        payloadEnvKeys: ['HERMES_YOLO_MODE'],
-        note: 'Resume is behind its own flag (MF_HERMES_ACP_RESUME), separate from the transport gate.'
+        payloadEnvKeys: ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY'],
+        note: 'The preferred sprite transport (unconditional since the ACP unification). The runner daemon was started detached from a plain exec session, so the resident gateway service env never reaches the child it spawns: agent extras and the provider alias key must ride the payload. The alias key follows the primary provider; OPENROUTER_API_KEY is the harness marker shape.'
     },
     {
         framework: 'hermes',
         runtime: 'sprites',
-        transport: 'acp-pipe',
-        gatedBy: ['MF_SPRITE_RUNNER_AGENTS'],
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'daemon-ambient',
+        transport: 'sprite-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        path: 'wrapper-prepend',
         resume: 'none',
-        payloadEnvKeys: ['HERMES_YOLO_MODE'],
-        note: 'Reached when the carrying runner predates turn.start. The API drives the ACP pipe, so the turn is not resumable.'
+        note: 'The no-runner fallback since gateway-http chat was retired: the API drives `hermes acp` over the duplex sprite exec channel. Same protocol as every other hermes turn; the API owning the client is exactly why it is not resumable.'
     },
     {
         framework: 'hermes',
         runtime: 'k8s',
-        transport: 'gateway-http',
-        identity: 'none',
+        transport: 'pod-exec',
+        identity: 'pod-secret',
         connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'not-applicable',
-        resume: 'none'
+        extras: 'none',
+        providerCreds: 'per-exec',
+        path: 'image-env',
+        resume: 'none',
+        note: 'The only k8s hermes transport since gateway-http chat was retired. The pod Secret carries HERMES_* but the alias key hermes actually reads is re-exported only inside the container entrypoint, which an exec session never runs — so the alias rides each exec. Extras are not in the Secret at all (#782 owns k8s Environment delivery).'
     },
     {
         framework: 'hermes',
         runtime: 'daemon',
         transport: 'turn-rpc',
-        gatedBy: ['MF_HERMES_TURN_RPC', 'daemon:turn.hermes'],
+        gatedBy: ['daemon:turn.hermes'],
         identity: 'daemon-local',
         connections: 'none',
         extras: 'per-exec',
@@ -386,19 +374,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: ['HERMES_YOLO_MODE'],
-        note: 'Unlike openclaw, a daemon hermes turn is carried by the same turn.start transport as a runner turn — and its payload env channel is what carries the agent extras on a BYOD daemon (#781).'
-    },
-    {
-        framework: 'hermes',
-        runtime: 'daemon',
-        transport: 'acp-pipe',
-        identity: 'daemon-local',
-        connections: 'none',
-        extras: 'per-exec',
-        providerCreds: 'daemon-local',
-        path: 'daemon-ambient',
-        resume: 'none',
-        payloadEnvKeys: ['HERMES_YOLO_MODE']
+        note: 'Unlike openclaw, a daemon hermes turn is carried by the same turn.start transport as a runner turn — and its payload env channel is what carries the agent extras on a BYOD daemon (#781). A daemon without turn.hermes is refused with a typed upgrade error: the in-API pipe fallback was retired with the ACP unification (#427).'
     },
     {
         framework: 'narranexus',

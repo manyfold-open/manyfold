@@ -1,7 +1,8 @@
 import type { ChatMessage } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { HermesAcpClient } from '../src/modules/chat/adapters/hermes-acp-client'
+import { HermesAcpTurn } from '../src/modules/chat/adapters/hermes-acp-client'
+import type { InteractiveExecHandle } from '../src/modules/chat/adapters/exec-driver'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import type {
     ApiChatAdapterContext,
@@ -15,7 +16,7 @@ import type {
 // detector — every turn longer than the budget was truncated while it was
 // still emitting.
 //
-// These drive the real HermesAcpClient over a fake daemon registry so the
+// These drive the real HermesAcpTurn over a fake interactive transport so the
 // rearming happens through the actual stdout/stderr ingest path. Real timers
 // with small budgets: mocked time cannot prove that a watchdog rearms against
 // a child that is genuinely trickling.
@@ -29,54 +30,64 @@ interface FakeChild {
     waitFor: (method: string) => Promise<Record<string, unknown>>
 }
 
-const buildClient = (): { client: HermesAcpClient; child: FakeChild } => {
+const pushQueue = (): {
+    iterable: AsyncIterable<string>
+    push: (item: string) => void
+} => {
+    const items: string[] = []
+    let notify: (() => void) | null = null
+    return {
+        iterable: {
+            [Symbol.asyncIterator]: async function* () {
+                while (true) {
+                    while (items.length > 0) yield items.shift()!
+                    await new Promise<void>((resolve) => {
+                        notify = resolve
+                    })
+                    notify = null
+                }
+            }
+        },
+        push: (item: string) => {
+            items.push(item)
+            const n = notify
+            notify = null
+            n?.()
+        }
+    }
+}
+
+const buildClient = (): { client: HermesAcpTurn; child: FakeChild } => {
     const sent: Array<Record<string, unknown>> = []
     const waiters: Array<{
         method: string
         resolve: (f: Record<string, unknown>) => void
     }> = []
-    let onEvent: ((kind: string, data: string) => void) | null = null
-    const registry = {
-        streamRpc: (args: {
-            onEvent: (kind: string, data: string) => void
-        }) => {
-            onEvent = args.onEvent
-            return {
-                refId: 'ref_fake',
-                // Never settles: a settled exec result means the child exited,
-                // which rejects every pending request.
-                result: new Promise<Record<string, unknown> | undefined>(
-                    () => {}
-                ),
-                cancel: () => {}
-            }
-        },
-        rpc: async (args: {
-            method: string
-            payload: Record<string, unknown>
-        }) => {
-            if (args.method !== 'exec.input') return {}
-            const text = Buffer.from(
-                String(args.payload.data),
-                'base64'
-            ).toString('utf8')
-            for (const raw of text.split('\n')) {
+    const stdout = pushQueue()
+    const stderr = pushQueue()
+    const transport: InteractiveExecHandle = {
+        stdout: stdout.iterable,
+        stderr: stderr.iterable,
+        write: (data: Buffer) => {
+            for (const raw of data.toString('utf8').split('\n')) {
                 if (!raw.trim()) continue
                 const frame = JSON.parse(raw) as Record<string, unknown>
                 sent.push(frame)
                 const idx = waiters.findIndex((w) => w.method === frame.method)
                 if (idx !== -1) waiters.splice(idx, 1)[0].resolve(frame)
             }
-            return {}
-        }
+        },
+        endInput: () => {},
+        // Never settles: a settled result means the child exited, which
+        // rejects every pending request.
+        result: new Promise(() => {}),
+        abort: () => {}
     }
-    const client = new HermesAcpClient({
-        registry: registry as never,
-        daemonId: 'dh_fake',
-        onEvent: () => {}
-    })
-    const emit = (kind: 'stdout' | 'stderr', data: string): void =>
-        onEvent?.(kind, data)
+    const client = new HermesAcpTurn({ transport, onEvent: () => {} })
+    const emit = (kind: 'stdout' | 'stderr', data: string): void => {
+        if (kind === 'stdout') stdout.push(data)
+        else stderr.push(data)
+    }
     const child: FakeChild = {
         sent,
         emit,
@@ -104,10 +115,9 @@ const buildClient = (): { client: HermesAcpClient; child: FakeChild } => {
 // Brings the client to the point where prompt() is legal, using the same
 // handshake the adapter performs.
 const handshake = async (
-    client: HermesAcpClient,
+    client: HermesAcpTurn,
     child: FakeChild
 ): Promise<void> => {
-    await client.start({ timeoutMs: 10_000, cwd: '/tmp' })
     const init = client.initialize(5_000)
     const initFrame = await child.waitFor('initialize')
     child.line({ jsonrpc: '2.0', id: initFrame.id, result: {} })
