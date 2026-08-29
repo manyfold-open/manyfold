@@ -70,7 +70,9 @@ const CloudComputers = lazyChunk(
     () => import('@/pages/Settings/CloudComputers')
 )
 const General = lazyChunk(() => import('@/pages/Settings/General'))
-const ApiTokens = lazyChunk(() => import('@/pages/Settings/ApiTokens'))
+const ApiTokens = lazyChunk(
+    () => import('@/pages/Settings/ApiTokens/ApiTokensList')
+)
 const ModelProviders = lazyChunk(
     () => import('@/pages/Settings/ModelProviders')
 )
@@ -292,7 +294,7 @@ const App: FC = (): ReactNode => {
                             />
                         }
                     />
-                    <Route path='api-tokens' element={<ApiTokens />} />
+                    <Route path='api-tokens/*' element={<ApiTokens />} />
                     <Route
                         path='plan-and-billing'
                         element={<PlanAndBilling />}

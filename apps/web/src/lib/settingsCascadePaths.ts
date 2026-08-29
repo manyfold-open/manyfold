@@ -8,5 +8,6 @@
 export const isCascadePath = (pathname: string): boolean =>
     pathname.startsWith('/settings/runtimes') ||
     pathname.startsWith('/settings/channels') ||
+    pathname.startsWith('/settings/api-tokens') ||
     pathname === '/settings/model-providers' ||
     pathname === '/settings/model-providers/dashboard'

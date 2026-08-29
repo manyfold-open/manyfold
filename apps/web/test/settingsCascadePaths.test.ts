@@ -13,7 +13,11 @@ test('cascade pages own their own layout', () => {
         '/settings/channels/chn_abc',
         '/settings/channels/new/lark',
         '/settings/model-providers',
-        '/settings/model-providers/dashboard'
+        '/settings/model-providers/dashboard',
+        '/settings/api-tokens',
+        '/settings/api-tokens/dashboard',
+        '/settings/api-tokens/new',
+        '/settings/api-tokens/tok_abc'
     ])
         assert.equal(isCascadePath(pathname), true, pathname)
 })
@@ -34,7 +38,6 @@ test('unrelated settings pages are not cascade', () => {
         '/settings/general',
         '/settings/usage',
         '/settings/plan-and-billing',
-        '/settings/api-tokens',
         '/agents'
     ])
         assert.equal(isCascadePath(pathname), false, pathname)

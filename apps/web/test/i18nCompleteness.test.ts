@@ -707,6 +707,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     ],
     'lib/agentSidebarView.ts': ['month', 'older', 'today', 'week', 'yesterday'],
     'lib/analyticsConsent.ts': ['unset'],
+    'lib/apiTokenStatus.ts': ['active', 'expired', 'revoked'],
     'lib/challengeStage.ts': ['approved'],
     'lib/channelMeta.tsx': [
         'Discord',

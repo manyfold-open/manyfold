@@ -6,6 +6,7 @@ export const RUNTIMES_DASHBOARD_VIEW_KEY = 'mf.runtimes.dashboardView.v1'
 export const MODEL_PROVIDERS_DASHBOARD_VIEW_KEY =
     'mf.modelProviders.dashboardView.v1'
 export const CHANNELS_DASHBOARD_VIEW_KEY = 'mf.channels.dashboardView.v1'
+export const API_TOKENS_DASHBOARD_VIEW_KEY = 'mf.apiTokens.dashboardView.v1'
 
 const defaultView: DashboardView = 'grid'
 
