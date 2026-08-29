@@ -52,7 +52,7 @@ test('ChatService rejects unsupported model override before inserting messages',
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [{ framework: 'hermes' }]
+                    limit: async () => [{ framework: 'openclaw' }]
                 })
             })
         })
@@ -95,6 +95,54 @@ test('ChatService rejects unsupported model override before inserting messages',
         BadRequestException
     )
     assert.equal(inserted, 0)
+})
+
+// The gate half of hermes model switching: an override now passes
+// assertTurnOptions for hermes (the harness lacks the resolver, so the send
+// fails LATER with something that is not the gate's BadRequestException).
+test('ChatService accepts a hermes model override at the gate', async () => {
+    const db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () => [{ framework: 'hermes' }]
+                })
+            })
+        })
+    }
+    const repo = {
+        getSession: async () => ({
+            id: 'session-1',
+            userId: 'user-1',
+            agentId: 'agent-1'
+        }),
+        insertMessage: async () => userMessage
+    }
+    const service = new ChatService(
+        db as never,
+        repo as never,
+        {} as never,
+        { get: () => ({}) } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        { event: () => {} } as never,
+        undefined as never,
+        undefined as never,
+        undefined as never
+    )
+    await assert.rejects(
+        () =>
+            service.sendMessage(
+                'user-1',
+                'agent-1',
+                'session-1',
+                'hello',
+                [],
+                'z-ai/glm-5.1'
+            ),
+        (err) => !(err instanceof BadRequestException)
+    )
 })
 
 test('ChatService rejects Claude permission mode for non-Claude agents before inserting messages', async () => {

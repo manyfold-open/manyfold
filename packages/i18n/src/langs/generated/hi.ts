@@ -1607,6 +1607,8 @@ const hi: Record<string, string> = {
     'web.composer.sendHint': 'भेजें (Cmd/Ctrl+Enter)',
     'web.composer.streaming': 'स्ट्रीमिंग',
     'web.composer.modelMenuLabel': 'मॉडल बदलें',
+    'web.composer.modelFilterPlaceholder': 'मॉडल फ़िल्टर करें…',
+    'web.composer.modelNoMatches': 'कोई मॉडल मेल नहीं खाता',
     'web.composer.modelDefaultLabel': 'डिफ़ॉल्ट ({{model}})',
     'web.composer.modelSettings': 'मॉडल सेटिंग्स',
     'web.composer.modelSelectedTitle': '{{model}} (इस चैट के लिए चयनित)',

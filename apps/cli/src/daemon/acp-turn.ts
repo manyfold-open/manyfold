@@ -399,6 +399,52 @@ export const runAcpTurn = (args: {
             ? result.sessionId
             : null
 
+    // Ported from the API's hermes-acp-client (decodeAcpSessionState /
+    // acpModelMatches): the models/modes state hermes attaches to its
+    // session/new|resume responses, and the `provider:model` vs bare-id
+    // comparison (endsWith, not a prefix strip — model ids can contain
+    // colons themselves).
+    interface SessionState {
+        currentModelId: string | null
+        modelIds: string[]
+        currentModeId: string | null
+        modeIds: string[]
+    }
+    const decodeSessionState = (
+        result: Record<string, unknown> | undefined
+    ): SessionState | null => {
+        if (!result) return null
+        const models = result.models as Record<string, unknown> | undefined
+        const modes = result.modes as Record<string, unknown> | undefined
+        if (!models && !modes) return null
+        const ids = (value: unknown, key: string): string[] =>
+            Array.isArray(value)
+                ? value
+                      .map((item) =>
+                          item && typeof item === 'object'
+                              ? (item as Record<string, unknown>)[key]
+                              : null
+                      )
+                      .filter((v): v is string => typeof v === 'string' && !!v)
+                : []
+        return {
+            currentModelId:
+                typeof models?.currentModelId === 'string'
+                    ? models.currentModelId
+                    : null,
+            modelIds: ids(models?.availableModels, 'modelId'),
+            currentModeId:
+                typeof modes?.currentModeId === 'string'
+                    ? modes.currentModeId
+                    : null,
+            modeIds: ids(modes?.availableModes, 'id')
+        }
+    }
+    const modelMatches = (current: string | null, bare: string): boolean =>
+        current !== null && (current === bare || current.endsWith(`:${bare}`))
+
+    let sessionState: SessionState | null = null
+
     const drive = async (): Promise<void> => {
         try {
             await request(
@@ -425,6 +471,7 @@ export const runAcpTurn = (args: {
                         handshakeTimeoutMs
                     )
                     sessionId = sessionIdFrom(res) ?? payload.sessionId
+                    sessionState = decodeSessionState(res)
                 } catch {
                     const res = await request(
                         'session/new',
@@ -432,6 +479,7 @@ export const runAcpTurn = (args: {
                         handshakeTimeoutMs
                     )
                     sessionId = sessionIdFrom(res)
+                    sessionState = decodeSessionState(res)
                 }
             } else {
                 const res = await request(
@@ -440,9 +488,45 @@ export const runAcpTurn = (args: {
                     handshakeTimeoutMs
                 )
                 sessionId = sessionIdFrom(res)
+                sessionState = decodeSessionState(res)
             }
             if (!sessionId)
                 throw new Error('hermes session/new returned no sessionId')
+            // Reconcile the session's persisted model with the payload's
+            // choice. State known -> diff (an untouched session costs no
+            // RPC). State unknown (old hermes build) -> only a REQUIRED
+            // switch attempts it, where failing loudly beats answering with
+            // a model the user did not pick; a reconcile-only target is the
+            // agent default, which such a build already runs.
+            if (payload.modelOverride) {
+                const shouldSet = sessionState
+                    ? !modelMatches(
+                          sessionState.currentModelId,
+                          payload.modelOverride
+                      )
+                    : payload.modelOverrideRequired === true
+                if (shouldSet) {
+                    try {
+                        await request(
+                            'session/set_model',
+                            {
+                                sessionId,
+                                modelId: payload.modelOverride
+                            },
+                            handshakeTimeoutMs
+                        )
+                    } catch (err) {
+                        throw new Error(
+                            `hermes session/set_model failed: ${(err as Error).message}`
+                        )
+                    }
+                    if (sessionState)
+                        sessionState = {
+                            ...sessionState,
+                            currentModelId: payload.modelOverride
+                        }
+                }
+            }
             const result = await request(
                 'session/prompt',
                 {
@@ -460,7 +544,19 @@ export const runAcpTurn = (args: {
                         ? result.stopReason
                         : 'completed',
                 sessionId,
-                ...(result ? { result } : {})
+                ...(result ? { result } : {}),
+                ...(sessionState
+                    ? {
+                          models: {
+                              currentModelId: sessionState.currentModelId,
+                              modelIds: sessionState.modelIds
+                          },
+                          modes: {
+                              currentModeId: sessionState.currentModeId,
+                              modeIds: sessionState.modeIds
+                          }
+                      }
+                    : {})
             }
             stream.complete(
                 { ok: true, payload: final as unknown as Record<string, unknown> },

@@ -1607,6 +1607,8 @@ const ja: Record<string, string> = {
     'web.composer.sendHint': '送信 (Cmd/Ctrl+Enter)',
     'web.composer.streaming': 'ストリーミング',
     'web.composer.modelMenuLabel': 'モデルを変更',
+    'web.composer.modelFilterPlaceholder': 'モデルを絞り込む…',
+    'web.composer.modelNoMatches': '一致するモデルがありません',
     'web.composer.modelDefaultLabel': 'デフォルト ({{model}})',
     'web.composer.modelSettings': 'モデル設定',
     'web.composer.modelSelectedTitle': '{{model}} (このチャット用に選択)',

@@ -2016,3 +2016,38 @@ class FakeQuery implements PromiseLike<unknown[]> {
         return Promise.resolve(value).then(onfulfilled, onrejected)
     }
 }
+
+// PR: hermes model switching — providerDetail grew a hermes branch, so the
+// model-config view can feed the chat page's picker from the provider-models
+// cache. config/options stay empty: hermes has no config drawer.
+test('AgentModelConfigService serves hermes provider models from the agent cache', async () => {
+    const db = new FakeDb({
+        ...baseAgent,
+        framework: 'hermes',
+        model: 'old-model',
+        extras: {
+            modelProviderModels: {
+                provider: 'openrouter',
+                baseUrl: null,
+                models: ['z-ai/glm-5.1', 'nous/hermes-4'],
+                testedAt: date.toISOString(),
+                source: 'agent-refresh'
+            }
+        }
+    })
+    db.credentialPayload = {
+        primaryModelProvider: 'openrouter',
+        primaryModelApiKey: 'sk-or-test',
+        primaryModelName: 'old-model'
+    }
+    const service = makeService(db, null)
+
+    const view = await service.getForAgent('user-1', 'agent-1', false)
+
+    assert.equal(view.framework, 'hermes')
+    assert.equal(view.provider, 'openrouter')
+    assert.equal(view.config, null)
+    assert.deepEqual(view.options, [])
+    assert.deepEqual(view.providerModels, ['z-ai/glm-5.1', 'nous/hermes-4'])
+    assert.equal(view.providerModelsStatus, 'ready')
+})

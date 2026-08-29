@@ -332,13 +332,22 @@ const AgentChat: FC = (): ReactNode => {
     const modelSwitchingSupported = supportsModelOverride(currentAgent)
     const currentAgentId = currentAgent?.id ?? null
     const currentAgentFramework = currentAgent?.framework ?? null
+    const hermesModelSwitching = currentAgentFramework === 'hermes'
     const frameworkModelConfigSupported = frameworkUsesModelConfig(
         currentAgentFramework,
         currentAgent?.runtime
     )
     const modelOptions = useMemo(
-        () => modelOptionsForAgent(currentAgent, [modelOverride]),
-        [currentAgent, modelOverride]
+        () =>
+            modelOptionsForAgent(currentAgent, [
+                modelOverride,
+                // hermes options come from the provider-models cache the
+                // model-config view carries; presets stay empty.
+                ...(hermesModelSwitching
+                    ? (modelConfigView?.providerModels ?? [])
+                    : [])
+            ]),
+        [currentAgent, modelOverride, hermesModelSwitching, modelConfigView]
     )
     const effectiveModelConfigView = useMemo(
         () =>
@@ -501,7 +510,9 @@ const AgentChat: FC = (): ReactNode => {
         if (
             !agentId ||
             currentAgentId !== agentId ||
-            !frameworkModelConfigSupported
+            // hermes has no config drawer, but the view's providerModels feed
+            // its model picker, so the fetch runs for it too.
+            !(frameworkModelConfigSupported || hermesModelSwitching)
         ) {
             setModelConfigView(null)
             setModelConfigDraft(null)
@@ -567,11 +578,19 @@ const AgentChat: FC = (): ReactNode => {
 
     const handleModelOverrideChange = useCallback(
         (next: string | null): void => {
-            const normalized = normalizeModelOverride(next)
+            // hermes sessions PERSIST their model, so picking "default" must
+            // re-send the default's id — a null override sends nothing and
+            // would leave the session on the previous pick while the UI
+            // claims the default.
+            const normalized =
+                normalizeModelOverride(next) ??
+                (hermesModelSwitching
+                    ? normalizeModelOverride(currentAgent?.model ?? null)
+                    : null)
             setModelOverride(normalized)
             if (agentId) writeStoredModelOverride(agentId, normalized)
         },
-        [agentId]
+        [agentId, hermesModelSwitching, currentAgent]
     )
 
     const handleRefreshModelConfig = useCallback(

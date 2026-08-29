@@ -6410,7 +6410,10 @@ const TITLE_MAX_LENGTH = 100
 const MESSAGE_MODEL_OVERRIDE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    // Applied via ACP session/set_model — the session persists its model in
+    // hermes's state.db, so this is the only lever that moves a live session.
+    'hermes'
 ])
 
 const deriveTitleFromText = (text: string): string | null => {

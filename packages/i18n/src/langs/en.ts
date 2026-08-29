@@ -2879,6 +2879,8 @@ const en = {
             sendHint: 'Send (Cmd/Ctrl+Enter)',
             streaming: 'Streaming',
             modelMenuLabel: 'Change model',
+            modelFilterPlaceholder: 'Filter models…',
+            modelNoMatches: 'No models match',
             modelDefaultLabel: 'Default ({{model}})',
             modelSettings: 'Model settings',
             modelSelectedTitle: '{{model}} (selected for this chat)',
