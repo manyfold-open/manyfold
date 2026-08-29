@@ -10,7 +10,7 @@ import {
 import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import { relative } from '@/components/RuntimeDetailPanel'
-import SettingsPageHeader from '@/components/SettingsPageHeader'
+import Breadcrumb from '@/components/Breadcrumb'
 import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import {
     MODEL_PROVIDERS_DASHBOARD_VIEW_KEY,
@@ -247,16 +247,25 @@ const ModelProvidersDashboard: FC<{
 
     return (
         <div className='settings-page'>
-            <SettingsPageHeader
-                title={t('web.modelProvidersDashboard.heading')}
-                actions={
-                    <DashboardViewToggle
-                        value={view}
-                        onChange={changeView}
-                        ariaLabel={t('web.modelProvidersDashboard.heading')}
-                    />
-                }
-            />
+            {/* Breadcrumb, not a page title: on mobile the rail is a
+                separate screen, so the first crumb is how you get back to
+                it. */}
+            <div className='mb-4 flex flex-wrap items-center justify-between gap-2'>
+                <Breadcrumb
+                    items={[
+                        {
+                            label: t('web.settingsLayout.providers'),
+                            to: '/settings/model-providers'
+                        },
+                        { label: t('web.modelProvidersDashboard.heading') }
+                    ]}
+                />
+                <DashboardViewToggle
+                    value={view}
+                    onChange={changeView}
+                    ariaLabel={t('web.modelProvidersDashboard.heading')}
+                />
+            </div>
             <div className='mb-4 flex flex-wrap items-center gap-2'>
                 {WINDOWS.map((value) => (
                     <button

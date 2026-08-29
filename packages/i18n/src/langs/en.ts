@@ -4338,7 +4338,6 @@ const en = {
             upgradedMessage: 'mf CLI upgraded to v{{version}}'
         },
         runtimesDashboard: {
-            railEntry: 'Dashboard',
             heading: 'Dashboard',
             viewGrid: 'Grid view',
             viewList: 'List view',
@@ -4361,7 +4360,6 @@ const en = {
             noProviders: 'No external providers yet.'
         },
         modelProvidersDashboard: {
-            railEntry: 'Dashboard',
             heading: 'Dashboard',
             spend: 'Spend',
             tokens: 'Tokens',

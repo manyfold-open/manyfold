@@ -4128,7 +4128,6 @@ const zh: Translations = {
             upgradedMessage: 'mf CLI 已升级到 v{{version}}'
         },
         runtimesDashboard: {
-            railEntry: '仪表盘',
             heading: '仪表盘',
             viewGrid: '网格视图',
             viewList: '列表视图',
@@ -4151,7 +4150,6 @@ const zh: Translations = {
             noProviders: '还没有外部 Provider。'
         },
         modelProvidersDashboard: {
-            railEntry: '仪表盘',
             heading: '仪表盘',
             spend: '开销',
             tokens: 'Token 数',

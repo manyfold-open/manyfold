@@ -14,7 +14,7 @@ import {
 } from '@/components/DashboardCard'
 import { Ghost } from '@/components/Loading'
 import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
-import SettingsPageHeader from '@/components/SettingsPageHeader'
+import Breadcrumb from '@/components/Breadcrumb'
 import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
@@ -628,16 +628,25 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
 
     return (
         <div className='settings-page'>
-            <SettingsPageHeader
-                title={t('web.runtimesDashboard.heading')}
-                actions={
-                    <DashboardViewToggle
-                        value={view}
-                        onChange={changeView}
-                        ariaLabel={t('web.runtimesDashboard.heading')}
-                    />
-                }
-            />
+            {/* Breadcrumb, not a page title: on mobile the rail is a
+                separate screen, so the first crumb is how you get back to
+                it. */}
+            <div className='mb-4 flex flex-wrap items-center justify-between gap-2'>
+                <Breadcrumb
+                    items={[
+                        {
+                            label: t('web.agentRuntimesList.runtimesTitle'),
+                            to: '/settings/runtimes'
+                        },
+                        { label: t('web.runtimesDashboard.heading') }
+                    ]}
+                />
+                <DashboardViewToggle
+                    value={view}
+                    onChange={changeView}
+                    ariaLabel={t('web.runtimesDashboard.heading')}
+                />
+            </div>
             <div className='space-y-8'>{SECTION_KINDS.map(renderSection)}</div>
         </div>
     )

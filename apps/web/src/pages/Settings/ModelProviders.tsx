@@ -21,7 +21,7 @@ import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
-import { DashboardIcon, PlusIcon } from '@/components/icons'
+import { PlusIcon } from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
@@ -425,14 +425,18 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
         >
             <div className='shrink-0 space-y-2.5 p-3'>
                 <div className='flex items-center justify-between'>
-                    <div className='flex items-center gap-2'>
+                    <Link
+                        to='/settings/model-providers/dashboard'
+                        aria-current={selected === null ? 'page' : undefined}
+                        className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
+                    >
                         <h2 className='text-h3 text-fg tracking-tight'>
                             {t('web.settingsLayout.providers')}
                         </h2>
                         <span className='tag tag-neutral tabular-nums'>
                             {total}
                         </span>
-                    </div>
+                    </Link>
                     <CreateMenu
                         options={options}
                         variant='header'
@@ -440,19 +444,6 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                         sheetTitle={t('web.modelProviders.newProvider')}
                     />
                 </div>
-                <Link
-                    to='/settings/model-providers/dashboard'
-                    aria-current={selected === null ? 'page' : undefined}
-                    className={[
-                        'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
-                        selected === null
-                            ? 'bg-active-session text-fg'
-                            : 'text-fg hover:bg-rail-hover'
-                    ].join(' ')}
-                >
-                    <DashboardIcon className='text-muted h-4 w-4 shrink-0' />
-                    {t('web.modelProvidersDashboard.railEntry')}
-                </Link>
             </div>
 
             <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
