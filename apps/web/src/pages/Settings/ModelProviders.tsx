@@ -6,11 +6,12 @@ import {
     ProtocolModelMap,
     UserModelProvider,
     UserModelProviderSummary,
+    UserModelProviderUsageReport,
     lookupBuiltIn
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import anthropicIcon from '@lobehub/icons-static-svg/icons/anthropic.svg'
 import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg'
 import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
@@ -20,13 +21,15 @@ import ProductDialog from '@/components/ProductDialog'
 import { useI18n } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
-import { PlusIcon } from '@/components/icons'
+import { DashboardIcon, PlusIcon } from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
 import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { NetmindMark } from '@/lib/brandMarks'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import ModelProvidersDashboard from '@/pages/Settings/ModelProvidersDashboard'
+import { spendWindowFrom, type SpendWindow } from '@/lib/modelProviderSpend'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 import {
     ManagedView,
@@ -43,6 +46,10 @@ import ModelProviderFields, {
 } from '@/pages/Settings/ModelProviderFields'
 
 export const ALL_TAB_KEY = '__all'
+
+// Reserved path segment under model-providers/*. Provider selection lives in
+// a query param, so the path never carries an id to collide with.
+const DASHBOARD_SEGMENT = 'dashboard'
 
 type Selection =
     | { kind: 'configured'; id: string }
@@ -97,6 +104,16 @@ const ModelProviders: FC = (): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
     const [searchParams, setSearchParams] = useSearchParams()
+    const navigate = useNavigate()
+    // Reserved segment under model-providers/*: provider ids never reach the
+    // path (selection is a query param), so a bare word cannot collide.
+    const segment = useParams()['*'] ?? ''
+    const onDashboard = segment === DASHBOARD_SEGMENT
+    const [spendWindow, setSpendWindow] = useState<SpendWindow>('30d')
+    const [spend, setSpend] = useState<UserModelProviderUsageReport | null>(
+        null
+    )
+    const [spendLoading, setSpendLoading] = useState(false)
     const [items, setItems] = useState<UserModelProviderSummary[]>([])
     const managed = useManagedProviderAccount()
     const [error, setError] = useState<string | null>(null)
@@ -143,6 +160,9 @@ const ModelProviders: FC = (): ReactNode => {
 
     const selectedParam = searchParams.get('selected')
     useEffect(() => {
+        // The dashboard is a selection of its own; letting the fallback below
+        // run would light up a provider in the rail beside it.
+        if (onDashboard) return
         const fromUrl = selectionFromParam(selectedParam, items, hasManaged)
         if (fromUrl) {
             setSelected((prev) =>
@@ -150,22 +170,26 @@ const ModelProviders: FC = (): ReactNode => {
             )
             return
         }
-        setSelected((prev) => {
-            if (prev) return prev
-            if (hasManaged) return { kind: 'managed' }
-            if (nonManagedRows.length > 0)
-                return { kind: 'configured', id: nonManagedRows[0].id }
-            return null
-        })
-    }, [items, hasManaged, nonManagedRows, selectedParam])
+        // No fallback selection: the bare URL shows the dashboard, the same
+        // way /settings/runtimes does, instead of opening whichever provider
+        // happens to sort first.
+        setSelected(null)
+    }, [items, hasManaged, nonManagedRows, selectedParam, onDashboard])
 
     const selectAndPersist = (next: Selection): void => {
         setSelected(next)
         const param = selectionToParam(next)
-        if (param) {
-            searchParams.set('selected', param)
-            setSearchParams(searchParams, { replace: true })
-        }
+        if (!param) return
+        // navigate(), not setSearchParams(): from /dashboard the latter would
+        // keep the segment and produce /dashboard?selected=... Pushing (not
+        // replacing) when leaving the dashboard keeps Back going there.
+        navigate(
+            {
+                pathname: '/settings/model-providers',
+                search: `?selected=${param}`
+            },
+            { replace: !onDashboard }
+        )
     }
 
     const onCreated = async (id: string): Promise<void> => {
@@ -186,7 +210,27 @@ const ModelProviders: FC = (): ReactNode => {
         }
     }
 
-    const hasSelection = Boolean(selectedParam)
+    const hasSelection = Boolean(selectedParam) || onDashboard
+
+    // Dashboard-only fetch: a failure degrades to em-dashes on the cards and
+    // never reaches the page error banner.
+    useEffect(() => {
+        if (hasSelection && !onDashboard) return
+        let cancelled = false
+        setSpendLoading(true)
+        client.modelProviders
+            .usage({ from: spendWindowFrom(spendWindow) })
+            .then((r) => {
+                if (!cancelled) setSpend(r)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) setSpendLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [client, hasSelection, onDashboard, spendWindow])
 
     return (
         <div className='flex h-full min-h-0 flex-col lg:flex-row'>
@@ -211,6 +255,19 @@ const ModelProviders: FC = (): ReactNode => {
                 ].join(' ')}
             >
                 <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
+                    {!selected && loaded && (
+                        <ModelProvidersDashboard
+                            providers={items}
+                            report={spend}
+                            loading={spendLoading}
+                            window={spendWindow}
+                            onWindowChange={setSpendWindow}
+                            onSelect={(id) =>
+                                selectAndPersist({ kind: 'configured', id })
+                            }
+                            onNewProvider={() => setNewOpen(true)}
+                        />
+                    )}
                     {error && (
                         <div className='workbench-alert-error mb-6'>
                             <pre className='text-caption whitespace-pre-wrap font-mono'>
@@ -286,18 +343,6 @@ const ModelProviders: FC = (): ReactNode => {
                                     />
                                 )
                             })()}
-                        {!selected && loaded && (
-                            <EmptyState
-                                kind='first-use'
-                                tier='stack'
-                                title={t('web.modelProviders.emptyTitle')}
-                                body={t('web.modelProviders.emptyBody')}
-                                action={{
-                                    label: t('web.modelProviders.newProvider'),
-                                    onClick: () => setNewOpen(true)
-                                }}
-                            />
-                        )}
                     </div>
                 </div>
             </main>
@@ -376,6 +421,19 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                         {total}
                     </span>
                 </div>
+                <Link
+                    to='/settings/model-providers/dashboard'
+                    aria-current={selected === null ? 'page' : undefined}
+                    className={[
+                        'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
+                        selected === null
+                            ? 'bg-active-session text-fg'
+                            : 'text-fg hover:bg-rail-hover'
+                    ].join(' ')}
+                >
+                    <DashboardIcon className='text-muted h-4 w-4 shrink-0' />
+                    {t('web.modelProvidersDashboard.railEntry')}
+                </Link>
             </div>
 
             <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
@@ -1822,7 +1880,7 @@ const ProviderLogo: FC<{ provider: UserModelProvider }> = ({
     />
 )
 
-const BuiltInLogo: FC<{ entry: BuiltInProviderEntry }> = ({
+export const BuiltInLogo: FC<{ entry: BuiltInProviderEntry }> = ({
     entry
 }): ReactNode => {
     const Icon = builtInIcons[entry.id]

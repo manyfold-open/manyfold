@@ -306,7 +306,7 @@ const App: FC = (): ReactNode => {
                     <Route path='usage' element={<Usage />} />
                     <Route path='usage/events' element={<UsageEvents />} />
                     <Route
-                        path='model-providers'
+                        path='model-providers/*'
                         element={<ModelProviders />}
                     />
                     <Route

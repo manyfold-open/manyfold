@@ -795,8 +795,6 @@ const zh: Translations = {
             channelsTitle: '还没有频道',
             channelsBody: '把 agent 接入聊天平台。',
             channelsCreateAction: '创建频道',
-            channelNoSelectionTitle: '未选择频道',
-            channelNoSelectionBody: '从列表中选择一个频道查看设置。',
             channelDeliveriesEmpty: '暂无最近投递。',
             creditHistoryTitle: '暂无额度记录',
             sandboxUsageTitle: '本账期暂无沙箱用量',
@@ -4155,6 +4153,33 @@ const zh: Translations = {
             noMachines: '还没有连接自有电脑。',
             noClusters: '还没有云电脑。',
             noProviders: '还没有外部 Provider。'
+        },
+        modelProvidersDashboard: {
+            railEntry: '仪表盘',
+            heading: '仪表盘',
+            spend: '开销',
+            tokens: 'Token 数',
+            requests: '请求数',
+            lastUsed: '最近使用',
+            total: '合计',
+            windowAll: '全部时间',
+            colProvider: 'Provider',
+            unattributed: '未归属',
+            unattributedHint:
+                '来自未绑定模型 Provider 的 Agent，或 Provider 已被删除的对话轮次。',
+            unpriced: '{{count}} 条无价格',
+            unpricedHint: '部分轮次没有记录成本，因此这里是实际开销的下限。'
+        },
+        channelsDashboard: {
+            railEntry: '仪表盘',
+            heading: '仪表盘',
+            colChannel: '频道',
+            messagesWindow: '消息数（{{days}} 天）',
+            messagesWindowHint:
+                '投递记录保留 {{days}} 天，所以这里只统计最近 {{days}} 天。',
+            inOut: '收 {{inbound}} · 发 {{outbound}}',
+            lastMessage: '最近消息',
+            noMessages: '还没有消息'
         },
         agentRuntimesListExtras: {
             upgradeHostDescription:

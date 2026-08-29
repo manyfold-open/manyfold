@@ -1,4 +1,5 @@
 import type {
+    ChannelActivityReport,
     ChannelCredentials,
     ChannelProviderName,
     ChannelSummary,
@@ -18,6 +19,7 @@ import type {
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+    Link,
     Outlet,
     useMatch,
     useNavigate,
@@ -29,6 +31,7 @@ import {
     AgentIcon,
     ChannelIcon,
     ChevronDownIcon,
+    DashboardIcon,
     ChevronRightIcon,
     ChevronUpIcon,
     CloseIcon,
@@ -36,6 +39,7 @@ import {
     PlusIcon,
     ZapIcon
 } from '@/components/icons'
+import ChannelsDashboard from '@/pages/Settings/Channels/ChannelsDashboard'
 import EmptyState from '@/components/EmptyState'
 import { GhostRailRows } from '@/components/Loading'
 import ProductDialog from '@/components/ProductDialog'
@@ -49,7 +53,11 @@ import {
     type Health,
     useCascadeState
 } from '@/lib/cascade'
-import { ChannelProviderIcon, channelLabel } from '@/lib/channelMeta'
+import {
+    CHANNEL_DOT,
+    ChannelProviderIcon,
+    channelLabel
+} from '@/lib/channelMeta'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import ChannelDocsLink from './ChannelDocsLink'
 import LarkQuickCreate, { type LarkQuickCreateState } from './LarkQuickCreate'
@@ -75,6 +83,10 @@ type GroupBy = 'none' | 'provider' | 'agent' | 'status'
 
 const CHANNEL_DIMS = ['none', 'provider', 'agent', 'status'] as const
 
+// Reserved segment under the :id route. Channel ids are prefixed ObjectIds
+// (chn_...), so a bare word can never collide with one.
+const DASHBOARD_SEGMENT = 'dashboard'
+
 const PROVIDER_ORDER: ChannelProviderName[] = [
     'lark',
     'telegram',
@@ -90,13 +102,6 @@ const PROVIDER_ORDER: ChannelProviderName[] = [
 ]
 
 const STATUS_ORDER: ChannelStatus[] = ['active', 'paused', 'error', 'draft']
-
-const CHANNEL_DOT: Record<ChannelStatus, string> = {
-    active: 'bg-success',
-    paused: 'bg-warning',
-    error: 'bg-error',
-    draft: 'bg-idle'
-}
 
 interface ChannelGroup {
     key: string
@@ -157,14 +162,20 @@ const ChannelsList: FC = (): ReactNode => {
     const client = useApiClient()
     const navigate = useNavigate()
     const match = useMatch('/settings/channels/:id')
-    const selectedId = match?.params.id ?? null
-    const hasSelection = Boolean(selectedId)
+    const segment = match?.params.id ?? null
+    const onDashboard = segment === DASHBOARD_SEGMENT
+    const selectedId = onDashboard ? null : segment
+    // Unchanged semantics: the explicit /dashboard URL hides the rail on
+    // mobile, the bare URL keeps it, exactly as the runtimes rail behaves.
+    const hasSelection = Boolean(segment)
 
     const [channels, setChannels] = useState<ChannelSummary[]>([])
     const [agents, setAgents] = useState<SdkAgent[]>([])
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [createOpen, setCreateOpen] = useState(false)
+    const [activity, setActivity] = useState<ChannelActivityReport | null>(null)
+    const [activityLoading, setActivityLoading] = useState(false)
     const [searchParams, setSearchParams] = useSearchParams()
     const lastRevealed = useRef<string | null>(null)
 
@@ -194,6 +205,26 @@ const ChannelsList: FC = (): ReactNode => {
             { replace: true }
         )
     }
+
+    // Dashboard-only fetch: a failure degrades to em-dashes on the cards and
+    // never reaches the rail's error banner.
+    useEffect(() => {
+        if (selectedId) return
+        let cancelled = false
+        setActivityLoading(true)
+        client.channels
+            .activity()
+            .then((r) => {
+                if (!cancelled) setActivity(r)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) setActivityLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [client, selectedId])
 
     const refresh = useCallback(async (): Promise<void> => {
         try {
@@ -446,6 +477,20 @@ const ChannelsList: FC = (): ReactNode => {
                             </button>
                         </div>
 
+                        <Link
+                            to={`/settings/channels/${DASHBOARD_SEGMENT}`}
+                            aria-current={!selectedId ? 'page' : undefined}
+                            className={[
+                                'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
+                                !selectedId
+                                    ? 'bg-active-session text-fg'
+                                    : 'text-fg hover:bg-rail-hover'
+                            ].join(' ')}
+                        >
+                            <DashboardIcon className='text-muted h-4 w-4 shrink-0' />
+                            {t('web.channelsDashboard.railEntry')}
+                        </Link>
+
                         {filterAgent && (
                             <div className='flex items-center'>
                                 <span className='text-caption text-muted bg-soft inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1'>
@@ -527,30 +572,16 @@ const ChannelsList: FC = (): ReactNode => {
                         <Outlet />
                     ) : (
                         <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
-                            {loading ? null : channels.length === 0 ? (
-                                <EmptyState
-                                    kind='first-use'
-                                    tier='stack'
-                                    icon={ChannelIcon}
-                                    title={t('web.emptyState.channelsTitle')}
-                                    body={t('web.emptyState.channelsBody')}
-                                    action={{
-                                        label: t(
-                                            'web.emptyState.channelsCreateAction'
-                                        ),
-                                        onClick: () => setCreateOpen(true)
-                                    }}
-                                />
-                            ) : (
-                                <EmptyState
-                                    kind='no-selection'
-                                    tier='stack'
-                                    title={t(
-                                        'web.emptyState.channelNoSelectionTitle'
-                                    )}
-                                    body={t(
-                                        'web.emptyState.channelNoSelectionBody'
-                                    )}
+                            {loading ? null : (
+                                <ChannelsDashboard
+                                    channels={channels}
+                                    report={activity}
+                                    loading={activityLoading}
+                                    canCreate={canCreate}
+                                    onSelect={(id) =>
+                                        navigate(`/settings/channels/${id}`)
+                                    }
+                                    onCreate={() => setCreateOpen(true)}
                                 />
                             )}
                         </div>

@@ -813,8 +813,6 @@ const en = {
             channelsTitle: 'No channels yet',
             channelsBody: 'Bridge an agent into a chat platform.',
             channelsCreateAction: 'Create channel',
-            channelNoSelectionTitle: 'No channel selected',
-            channelNoSelectionBody: 'Select a channel to see its settings.',
             channelDeliveriesEmpty: 'No recent deliveries.',
             creditHistoryTitle: 'No credit history',
             sandboxUsageTitle: 'No sandbox usage this period',
@@ -4367,6 +4365,34 @@ const en = {
             noMachines: 'No self-owned computers connected yet.',
             noClusters: 'No cloud computers yet.',
             noProviders: 'No external providers yet.'
+        },
+        modelProvidersDashboard: {
+            railEntry: 'Dashboard',
+            heading: 'Dashboard',
+            spend: 'Spend',
+            tokens: 'Tokens',
+            requests: 'Requests',
+            lastUsed: 'Last used',
+            total: 'Total',
+            windowAll: 'All time',
+            colProvider: 'Provider',
+            unattributed: 'Unattributed',
+            unattributedHint:
+                'Turns whose agent had no model provider bound, or whose provider has since been deleted.',
+            unpriced: '{{count}} unpriced',
+            unpricedHint:
+                'Some turns have no recorded cost, so this is a lower bound on the real spend.'
+        },
+        channelsDashboard: {
+            railEntry: 'Dashboard',
+            heading: 'Dashboard',
+            colChannel: 'Channel',
+            messagesWindow: 'Messages ({{days}}d)',
+            messagesWindowHint:
+                'Delivery history is kept for {{days}} days, so this counts the last {{days}} days only.',
+            inOut: '{{inbound}} in · {{outbound}} out',
+            lastMessage: 'Last message',
+            noMessages: 'No messages yet'
         },
         agentRuntimesListExtras: {
             upgradeHostDescription:
