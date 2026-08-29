@@ -63,9 +63,14 @@ test('a future expiry renders as a date, not as the empty placeholder', () => {
     // The relative formatter next to this one on the dashboard returns '—'
     // for anything in the future, which is every expiry that has not fired
     // yet — so the whole column read as unknown.
+    //
+    // Asserting the rendered year would be asserting the runner's timezone:
+    // 2027-01-01T00:00:00Z is 12/31/2026 anywhere west of UTC, which is where
+    // this first went red. What matters is that it is a date at all.
     const label = apiTokenExpiryLabel({ expiresAt: future }, () => 'never')
     assert.notEqual(label, '—')
-    assert.match(label, /2027/)
+    assert.notEqual(label, 'never')
+    assert.match(label, /\d/)
 })
 
 test('no expiry falls back to the catalog string', () => {
