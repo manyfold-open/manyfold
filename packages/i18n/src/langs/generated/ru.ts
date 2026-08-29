@@ -3612,7 +3612,6 @@ const ru: Record<string, string> = {
     'web.channelNew.title': 'Новый канал {{provider}}',
     'web.channelNew.noAgentsTitle': 'Агентов пока нет',
     'web.channelNew.noAgentsBody': 'Канал направляет сообщения агенту, поэтому сначала создайте агента.',
-    'web.channelsDashboard.railEntry': 'Панель',
     'web.channelsDashboard.heading': 'Панель',
     'web.channelsDashboard.colChannel': 'Канал',
     'web.channelsDashboard.messagesWindow': 'Сообщения ({{days}} дн.)',

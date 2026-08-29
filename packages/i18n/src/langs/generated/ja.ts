@@ -3611,7 +3611,6 @@ const ja: Record<string, string> = {
     'web.channelNew.title': '新しい {{provider}} チャンネル',
     'web.channelNew.noAgentsTitle': 'エージェントがまだありません',
     'web.channelNew.noAgentsBody': 'チャンネルはメッセージをエージェントに振り分けるため、先にエージェントを作成してください。',
-    'web.channelsDashboard.railEntry': 'ダッシュボード',
     'web.channelsDashboard.heading': 'ダッシュボード',
     'web.channelsDashboard.colChannel': 'チャンネル',
     'web.channelsDashboard.messagesWindow': 'メッセージ（{{days}}日）',

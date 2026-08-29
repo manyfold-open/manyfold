@@ -3612,7 +3612,6 @@ const pt: Record<string, string> = {
     'web.channelNew.title': 'Novo canal do {{provider}}',
     'web.channelNew.noAgentsTitle': 'Ainda sem agentes',
     'web.channelNew.noAgentsBody': 'Um canal encaminha mensagens para um agente, então crie um agente primeiro.',
-    'web.channelsDashboard.railEntry': 'Painel',
     'web.channelsDashboard.heading': 'Painel',
     'web.channelsDashboard.colChannel': 'Canal',
     'web.channelsDashboard.messagesWindow': 'Mensagens ({{days}} d)',

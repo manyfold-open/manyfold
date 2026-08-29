@@ -3612,7 +3612,6 @@ const hi: Record<string, string> = {
     'web.channelNew.title': 'नया {{provider}} चैनल',
     'web.channelNew.noAgentsTitle': 'अभी तक कोई एजेंट नहीं',
     'web.channelNew.noAgentsBody': 'चैनल संदेशों को किसी एजेंट तक पहुँचाता है, इसलिए पहले एक एजेंट बनाएँ।',
-    'web.channelsDashboard.railEntry': 'डैशबोर्ड',
     'web.channelsDashboard.heading': 'डैशबोर्ड',
     'web.channelsDashboard.colChannel': 'चैनल',
     'web.channelsDashboard.messagesWindow': 'संदेश ({{days}} दिन)',

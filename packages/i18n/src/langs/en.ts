@@ -4384,7 +4384,6 @@ const en = {
                 'A channel routes messages to an agent, so create an agent first.'
         },
         channelsDashboard: {
-            railEntry: 'Dashboard',
             heading: 'Dashboard',
             colChannel: 'Channel',
             messagesWindow: 'Messages ({{days}}d)',

@@ -9,7 +9,7 @@ import {
 import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import { relative } from '@/components/RuntimeDetailPanel'
-import SettingsPageHeader from '@/components/SettingsPageHeader'
+import Breadcrumb from '@/components/Breadcrumb'
 import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import {
     buildChannelActivityRows,
@@ -194,16 +194,33 @@ const ChannelsDashboard: FC<{
 
     return (
         <div className='settings-page'>
-            <SettingsPageHeader
-                title={t('web.channelsDashboard.heading')}
-                actions={
+            {/* Breadcrumb, not a page title: on mobile the rail is a
+                separate screen, so the first crumb is how you get back to
+                it. */}
+            <div className='mb-4 flex flex-wrap items-center justify-between gap-2'>
+                <Breadcrumb
+                    items={[
+                        {
+                            label: t('web.channels.settings.channels'),
+                            to: '/settings/channels'
+                        },
+                        { label: t('web.channelsDashboard.heading') }
+                    ]}
+                />
+                <div className='flex items-center gap-2'>
                     <DashboardViewToggle
                         value={view}
                         onChange={changeView}
                         ariaLabel={t('web.channelsDashboard.heading')}
                     />
-                }
-            />
+                    <CreateMenu
+                        options={createOptions}
+                        variant='inline'
+                        triggerLabel={t('web.channels.settings.newChannel')}
+                        sheetTitle={t('web.channels.settings.newChannel')}
+                    />
+                </div>
+            </div>
             {rows.length === 0 ? (
                 <EmptyState
                     kind='first-use'
@@ -213,14 +230,6 @@ const ChannelsDashboard: FC<{
                 />
             ) : (
                 <>
-                    <div className='mb-4 flex items-center justify-end'>
-                        <CreateMenu
-                            options={createOptions}
-                            variant='inline'
-                            triggerLabel={t('web.channels.settings.newChannel')}
-                            sheetTitle={t('web.channels.settings.newChannel')}
-                        />
-                    </div>
                     {view === 'grid' ? (
                         <div className='grid gap-3 sm:grid-cols-2'>
                             {rows.map(renderCard)}

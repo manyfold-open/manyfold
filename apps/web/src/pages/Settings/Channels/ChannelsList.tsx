@@ -17,7 +17,6 @@ import {
     AgentIcon,
     ChannelIcon,
     ChevronDownIcon,
-    DashboardIcon,
     ChevronRightIcon,
     ChevronUpIcon,
     CloseIcon,
@@ -444,14 +443,20 @@ const ChannelsList: FC = (): ReactNode => {
                 >
                     <div className='shrink-0 space-y-2.5 p-3'>
                         <div className='flex items-center justify-between'>
-                            <div className='flex items-center gap-2'>
+                            <Link
+                                to={`/settings/channels/${DASHBOARD_SEGMENT}`}
+                                aria-current={
+                                    !hasSelection ? 'page' : undefined
+                                }
+                                className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
+                            >
                                 <h2 className='text-h3 text-fg tracking-tight'>
                                     {t('web.channels.settings.channels')}
                                 </h2>
                                 <span className='tag tag-neutral tabular-nums'>
                                     {totalCount}
                                 </span>
-                            </div>
+                            </Link>
                             <CreateMenu
                                 options={createOptions}
                                 variant='header'
@@ -464,20 +469,6 @@ const ChannelsList: FC = (): ReactNode => {
                                 )}
                             />
                         </div>
-
-                        <Link
-                            to={`/settings/channels/${DASHBOARD_SEGMENT}`}
-                            aria-current={!hasSelection ? 'page' : undefined}
-                            className={[
-                                'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
-                                !hasSelection
-                                    ? 'bg-active-session text-fg'
-                                    : 'text-fg hover:bg-rail-hover'
-                            ].join(' ')}
-                        >
-                            <DashboardIcon className='text-muted h-4 w-4 shrink-0' />
-                            {t('web.channelsDashboard.railEntry')}
-                        </Link>
 
                         {filterAgent && (
                             <div className='flex items-center'>

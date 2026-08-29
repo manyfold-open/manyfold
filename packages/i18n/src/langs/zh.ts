@@ -4172,7 +4172,6 @@ const zh: Translations = {
             noAgentsBody: '频道会把消息路由给智能体，所以请先创建一个智能体。'
         },
         channelsDashboard: {
-            railEntry: '仪表盘',
             heading: '仪表盘',
             colChannel: '频道',
             messagesWindow: '消息数（{{days}} 天）',

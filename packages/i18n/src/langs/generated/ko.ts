@@ -3612,7 +3612,6 @@ const ko: Record<string, string> = {
     "web.channelNew.title": "새 {{provider}} 채널",
     "web.channelNew.noAgentsTitle": "아직 에이전트가 없습니다",
     "web.channelNew.noAgentsBody": "채널은 메시지를 에이전트로 전달하므로 먼저 에이전트를 만드세요.",
-    "web.channelsDashboard.railEntry": "대시보드",
     "web.channelsDashboard.heading": "대시보드",
     "web.channelsDashboard.colChannel": "채널",
     "web.channelsDashboard.messagesWindow": "메시지 ({{days}}일)",

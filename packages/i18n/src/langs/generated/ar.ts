@@ -3611,7 +3611,6 @@ const ar: Record<string, string> = {
     'web.channelNew.title': 'قناة {{provider}} جديدة',
     'web.channelNew.noAgentsTitle': 'لا يوجد وكلاء بعد',
     'web.channelNew.noAgentsBody': 'توجّه القناة الرسائل إلى وكيل، لذا أنشئ وكيلاً أولاً.',
-    'web.channelsDashboard.railEntry': 'لوحة المعلومات',
     'web.channelsDashboard.heading': 'لوحة المعلومات',
     'web.channelsDashboard.colChannel': 'القناة',
     'web.channelsDashboard.messagesWindow': 'الرسائل ({{days}} يومًا)',
