@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
     API_TOKEN_STATUS_DOT,
+    apiTokenExpiryLabel,
     apiTokenStatus,
     apiTokenStatusLabelKey
 } from '../src/lib/apiTokenStatus'
@@ -56,4 +57,20 @@ test('every status has a dot class and a label key', () => {
         assert.ok(API_TOKEN_STATUS_DOT[status])
         assert.match(apiTokenStatusLabelKey(status), /^web\.apiTokens\.status/)
     }
+})
+
+test('a future expiry renders as a date, not as the empty placeholder', () => {
+    // The relative formatter next to this one on the dashboard returns '—'
+    // for anything in the future, which is every expiry that has not fired
+    // yet — so the whole column read as unknown.
+    const label = apiTokenExpiryLabel({ expiresAt: future }, () => 'never')
+    assert.notEqual(label, '—')
+    assert.match(label, /2027/)
+})
+
+test('no expiry falls back to the catalog string', () => {
+    assert.equal(
+        apiTokenExpiryLabel({ expiresAt: null }, (key) => `t:${key}`),
+        't:web.apiTokens.neverExpires'
+    )
 })

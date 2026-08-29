@@ -3275,6 +3275,7 @@ const fr: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'Imposée',
     'web.apiTokens.tokenId': 'ID du jeton',
     'web.apiTokens.scopesTitle': 'Portées',
+    'web.apiTokens.scopesMultiple': 'Portées multiples',
     'web.apiTokens.scopesDescription': 'Ce que ce jeton est autorisé à faire.',
     'web.apiTokens.usageTitle': 'Utilisation',
     'web.apiTokens.usageNoHistory': 'Seule la date de dernière utilisation d’un jeton est enregistrée, pas les requêtes individuelles ; aucun journal par requête ne peut donc être affiché ici.',

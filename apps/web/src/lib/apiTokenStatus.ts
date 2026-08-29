@@ -1,4 +1,6 @@
 import type { ApiTokenSummary } from '@manyfold/shared'
+import { formatDate } from '@/lib/dateFormat'
+import type { TFn } from '@/lib/i18n'
 
 export type ApiTokenStatus = 'active' | 'expired' | 'revoked'
 
@@ -25,3 +27,15 @@ export const apiTokenStatusLabelKey = (status: ApiTokenStatus): string =>
         : status === 'expired'
           ? 'web.apiTokens.statusExpired'
           : 'web.apiTokens.statusActive'
+
+// An expiry is a date on the calendar, not an interval. The relative
+// formatter the surrounding dashboards use for "last used" only speaks about
+// the past and collapses every future timestamp to an em-dash — which is
+// every expiry that has not fired yet, i.e. exactly the ones worth reading.
+export const apiTokenExpiryLabel = (
+    token: Pick<ApiTokenSummary, 'expiresAt'>,
+    t: TFn
+): string =>
+    token.expiresAt
+        ? formatDate(token.expiresAt)
+        : t('web.apiTokens.neverExpires')

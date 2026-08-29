@@ -3275,6 +3275,7 @@ const ko: Record<string, string> = {
     "web.apiTokens.bindingEnforced": "강제 적용",
     "web.apiTokens.tokenId": "토큰 ID",
     "web.apiTokens.scopesTitle": "범위",
+    "web.apiTokens.scopesMultiple": "여러 범위",
     "web.apiTokens.scopesDescription": "이 토큰에 허용된 작업입니다.",
     "web.apiTokens.usageTitle": "사용",
     "web.apiTokens.usageNoHistory": "토큰이 마지막으로 사용된 시각만 기록되며 개별 요청은 기록되지 않으므로, 여기에 표시할 요청별 로그가 없습니다.",

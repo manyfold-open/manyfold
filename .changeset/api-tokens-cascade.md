@@ -10,6 +10,12 @@ lines, with nowhere to click through to. It now uses the same two-pane shape as
 Runtimes, Channels and Model providers — a rail of tokens on the left, a
 dashboard when nothing is selected, and the selected token in the pane.
 
+**Rail.** A flat list by default, with Group by offering Status, Scopes and
+Expires — the same control the other three rails have, remembered per device,
+with expand/collapse all and the selected token's group revealed on a deep
+link. Grouping by Expires answers the question this list exists for: which
+tokens never die.
+
 **Dashboard.** Counts by status across the top, then every token as a card or a
 table row (grid/list toggle remembered per device): status, how many scopes, when
 it was last used, when it expires.

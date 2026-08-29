@@ -3275,6 +3275,7 @@ const pt: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'Obrigatório',
     'web.apiTokens.tokenId': 'ID do token',
     'web.apiTokens.scopesTitle': 'Escopos',
+    'web.apiTokens.scopesMultiple': 'Vários escopos',
     'web.apiTokens.scopesDescription': 'O que este token tem permissão para fazer.',
     'web.apiTokens.usageTitle': 'Uso',
     'web.apiTokens.usageNoHistory': 'Só é registrado quando um token foi usado pela última vez, não cada solicitação individual, por isso não há um registro por solicitação para mostrar aqui.',

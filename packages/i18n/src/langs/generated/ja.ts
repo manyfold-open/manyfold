@@ -3274,6 +3274,7 @@ const ja: Record<string, string> = {
     'web.apiTokens.bindingEnforced': '強制',
     'web.apiTokens.tokenId': 'トークン ID',
     'web.apiTokens.scopesTitle': 'スコープ',
+    'web.apiTokens.scopesMultiple': '複数のスコープ',
     'web.apiTokens.scopesDescription': 'このトークンに許可されている操作です。',
     'web.apiTokens.usageTitle': '利用状況',
     'web.apiTokens.usageNoHistory': '記録されるのはトークンの最終利用時刻のみで、個々のリクエストは記録されないため、ここに表示できるリクエスト単位のログはありません。',

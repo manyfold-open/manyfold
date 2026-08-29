@@ -3274,6 +3274,7 @@ const ar: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'مفروض',
     'web.apiTokens.tokenId': 'معرّف الرمز',
     'web.apiTokens.scopesTitle': 'النطاقات',
+    'web.apiTokens.scopesMultiple': 'نطاقات متعددة',
     'web.apiTokens.scopesDescription': 'ما يُسمح لهذا الرمز بفعله.',
     'web.apiTokens.usageTitle': 'الاستخدام',
     'web.apiTokens.usageNoHistory': 'يُسجَّل وقت آخر استخدام للرمز فقط، وليس كل طلب على حدة، لذلك لا يوجد سجل لكل طلب لعرضه هنا.',

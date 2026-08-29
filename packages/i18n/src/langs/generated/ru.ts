@@ -3275,6 +3275,7 @@ const ru: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'Обязательна',
     'web.apiTokens.tokenId': 'ID токена',
     'web.apiTokens.scopesTitle': 'Области доступа',
+    'web.apiTokens.scopesMultiple': 'Несколько областей',
     'web.apiTokens.scopesDescription': 'Что разрешено делать этому токену.',
     'web.apiTokens.usageTitle': 'Использование',
     'web.apiTokens.usageNoHistory': 'Записывается только время последнего использования токена, а не отдельные запросы, поэтому показать журнал по каждому запросу здесь невозможно.',

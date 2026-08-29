@@ -3275,6 +3275,7 @@ const es: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'Obligatorio',
     'web.apiTokens.tokenId': 'ID del token',
     'web.apiTokens.scopesTitle': 'Ámbitos',
+    'web.apiTokens.scopesMultiple': 'Varios ámbitos',
     'web.apiTokens.scopesDescription': 'Lo que este token tiene permitido hacer.',
     'web.apiTokens.usageTitle': 'Uso',
     'web.apiTokens.usageNoHistory': 'Solo se registra cuándo se usó un token por última vez, no cada solicitud, por lo que aquí no hay un registro por solicitud que mostrar.',

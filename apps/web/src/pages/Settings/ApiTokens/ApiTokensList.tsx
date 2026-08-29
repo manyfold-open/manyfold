@@ -1,9 +1,17 @@
 import type { ApiTokenSummary } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { CascadeShell } from '@/components/CascadeShell'
-import { PlusIcon } from '@/components/icons'
+import {
+    ChevronDownIcon,
+    ChevronUpIcon,
+    HistoryIcon,
+    ListViewIcon,
+    PlusIcon,
+    ShieldCheckIcon,
+    ZapIcon
+} from '@/components/icons'
 import { GhostRailRows } from '@/components/Loading'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { useLoadingGate } from '@/components/useLoadingGate'
@@ -11,10 +19,18 @@ import { useApiClient } from '@/lib/apiClient'
 import {
     API_TOKEN_STATUS_DOT,
     apiTokenStatus,
-    apiTokenStatusLabelKey
+    apiTokenStatusLabelKey,
+    type ApiTokenStatus
 } from '@/lib/apiTokenStatus'
+import {
+    GroupByControl,
+    type GroupByOption,
+    GroupHeader,
+    type Health,
+    useCascadeState
+} from '@/lib/cascade'
 import { apiErrorMessage } from '@/lib/errorMessage'
-import { useI18n } from '@/lib/i18n'
+import { useI18n, type TFn } from '@/lib/i18n'
 import ApiTokenDetail from '@/pages/Settings/ApiTokens/ApiTokenDetail'
 import ApiTokenNew from '@/pages/Settings/ApiTokens/ApiTokenNew'
 import ApiTokensDashboard from '@/pages/Settings/ApiTokens/ApiTokensDashboard'
@@ -25,11 +41,63 @@ import ApiTokensDashboard from '@/pages/Settings/ApiTokens/ApiTokensDashboard'
 const DASHBOARD_SEGMENT = 'dashboard'
 const NEW_SEGMENT = 'new'
 
+type GroupBy = 'none' | 'status' | 'scope' | 'expiry'
+
+const TOKEN_DIMS = ['none', 'status', 'scope', 'expiry'] as const
+
+const STATUS_ORDER: ApiTokenStatus[] = ['active', 'expired', 'revoked']
+
+interface TokenGroup {
+    key: string
+    label: string
+    count: number
+    health: Health
+    items: ApiTokenSummary[]
+}
+
+// Expiry is the only end state nobody chose: a revoked token stopped working
+// because you said so, an expired one stopped on its own. Only the second is
+// worth flagging on a collapsed header.
+const groupHealth = (items: ApiTokenSummary[]): Health =>
+    items.some((token) => apiTokenStatus(token) === 'expired') ? 'warn' : null
+
+// A token normally carries exactly one scope — the create form issues one, and
+// the multi-scope agent grants are hidden from this list. The bucket keeps the
+// grouping honest for the ones that do arrive with several.
+const scopeBucket = (
+    token: ApiTokenSummary,
+    t: TFn
+): { key: string; label: string } => {
+    if (token.scopes.length !== 1)
+        return { key: 'sc:*', label: t('web.apiTokens.scopesMultiple') }
+    const scope = token.scopes[0]
+    const label =
+        scope === 'chat.completions'
+            ? t('web.apiTokens.scopeChat')
+            : scope === 'api.full'
+              ? t('web.apiTokens.scopeFull')
+              : scope
+    return { key: `sc:${scope}`, label }
+}
+
+// Deliberately not grouping by createdVia: the plain create path leaves it
+// null (only the CLI and grant flows set it), so on most accounts that
+// dimension is a single "Unknown" bucket. Expiry always splits meaningfully,
+// and "which of these never die?" is the question this rail exists to answer.
+const expiryBucket = (
+    token: ApiTokenSummary,
+    t: TFn
+): { key: string; label: string } =>
+    token.expiresAt
+        ? { key: 'ex:dated', label: t('web.apiTokens.expires') }
+        : { key: 'ex:never', label: t('web.apiTokens.expiryNever') }
+
 const TokenLeaf: FC<{
     token: ApiTokenSummary
     selected: boolean
+    indentClass: string
     onSelect: () => void
-}> = ({ token, selected, onSelect }): ReactNode => {
+}> = ({ token, selected, indentClass, onSelect }): ReactNode => {
     const { t } = useI18n()
     const status = apiTokenStatus(token)
     return (
@@ -38,7 +106,8 @@ const TokenLeaf: FC<{
             onClick={onSelect}
             aria-current={selected ? 'true' : undefined}
             className={[
-                'flex w-full items-center gap-2.5 rounded-sm py-2 pl-2 pr-2.5 text-left transition-colors',
+                'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 text-left transition-colors',
+                indentClass,
                 selected ? 'bg-active-session' : 'hover:bg-rail-hover'
             ].join(' ')}
         >
@@ -80,6 +149,17 @@ const ApiTokensList: FC = (): ReactNode => {
     // before we know it is true — that reads as "your tokens are gone".
     const [loading, setLoading] = useState(true)
     const gate = useLoadingGate(loading)
+    const lastRevealed = useRef<string | null>(null)
+
+    const {
+        groupBy,
+        setGroupBy,
+        expanded,
+        toggle,
+        collapseAll,
+        expandAll,
+        reveal
+    } = useCascadeState('mf.apiTokens.cascade.v1', TOKEN_DIMS, 'none')
 
     const refresh = useCallback(async (): Promise<void> => {
         try {
@@ -119,6 +199,111 @@ const ApiTokensList: FC = (): ReactNode => {
         }
     }
 
+    const groups = useMemo<TokenGroup[]>(() => {
+        // None renders one unheadered group, so the header-only fields stay
+        // empty: the rail lists every token flat, in the API's own order.
+        if (groupBy === 'none')
+            return tokens.length === 0
+                ? []
+                : [
+                      {
+                          key: 'all',
+                          label: '',
+                          count: tokens.length,
+                          health: null,
+                          items: tokens
+                      }
+                  ]
+
+        if (groupBy === 'status') {
+            const out: TokenGroup[] = []
+            for (const status of STATUS_ORDER) {
+                const items = tokens.filter(
+                    (token) => apiTokenStatus(token) === status
+                )
+                if (items.length === 0) continue
+                out.push({
+                    key: `st:${status}`,
+                    label: t(apiTokenStatusLabelKey(status)),
+                    count: items.length,
+                    health: groupHealth(items),
+                    items
+                })
+            }
+            return out
+        }
+
+        // Insertion order preserved, so scope and expiry groups follow the
+        // same most-recent-first order the flat list already uses.
+        const bucket = groupBy === 'scope' ? scopeBucket : expiryBucket
+        const out: TokenGroup[] = []
+        const byKey = new Map<string, TokenGroup>()
+        for (const token of tokens) {
+            const { key, label } = bucket(token, t)
+            let group = byKey.get(key)
+            if (!group) {
+                group = { key, label, count: 0, health: null, items: [] }
+                byKey.set(key, group)
+                out.push(group)
+            }
+            group.items.push(token)
+        }
+        for (const group of out) {
+            group.count = group.items.length
+            group.health = groupHealth(group.items)
+        }
+        return out
+    }, [tokens, groupBy, t])
+
+    const allKeys = useMemo(() => groups.map((g) => g.key), [groups])
+
+    const keysForSelection = useCallback(
+        (id: string): string[] => {
+            if (groupBy === 'none') return []
+            const token = tokens.find((row) => row.id === id)
+            if (!token) return []
+            if (groupBy === 'status') return [`st:${apiTokenStatus(token)}`]
+            if (groupBy === 'scope') return [scopeBucket(token, t).key]
+            return [expiryBucket(token, t).key]
+        },
+        [tokens, groupBy, t]
+    )
+
+    useEffect(() => {
+        if (tokens.length === 0 || !selectedId) return
+        const token = `${groupBy}|${selectedId}`
+        if (lastRevealed.current === token) return
+        lastRevealed.current = token
+        const keys = keysForSelection(selectedId)
+        if (keys.length > 0) reveal(keys)
+    }, [tokens, selectedId, groupBy, keysForSelection, reveal])
+
+    const isOpen = (key: string): boolean => expanded.has(key)
+    const anyExpanded = expanded.size > 0
+
+    const groupByOptions: ReadonlyArray<GroupByOption<GroupBy>> = [
+        {
+            value: 'none',
+            label: t('web.channels.settings.groupBy.none'),
+            icon: ListViewIcon
+        },
+        {
+            value: 'status',
+            label: t('web.channels.settings.groupBy.status'),
+            icon: ZapIcon
+        },
+        {
+            value: 'scope',
+            label: t('web.apiTokens.scopesTitle'),
+            icon: ShieldCheckIcon
+        },
+        {
+            value: 'expiry',
+            label: t('web.apiTokens.expires'),
+            icon: HistoryIcon
+        }
+    ]
+
     const renderRail = (): ReactNode => {
         if (gate.showLoading) return <GhostRailRows rows={3} />
         if (loading) return null
@@ -132,13 +317,30 @@ const ApiTokensList: FC = (): ReactNode => {
                     {t('web.apiTokens.empty')}
                 </div>
             )
-        return tokens.map((token) => (
-            <TokenLeaf
-                key={token.id}
-                token={token}
-                selected={token.id === selectedId}
-                onSelect={() => navigate(`/settings/api-tokens/${token.id}`)}
-            />
+        return groups.map((group) => (
+            <div key={group.key}>
+                {groupBy !== 'none' && (
+                    <GroupHeader
+                        label={group.label}
+                        count={group.count}
+                        open={isOpen(group.key)}
+                        health={group.health}
+                        onToggle={() => toggle(group.key)}
+                    />
+                )}
+                {(groupBy === 'none' || isOpen(group.key)) &&
+                    group.items.map((token) => (
+                        <TokenLeaf
+                            key={token.id}
+                            token={token}
+                            indentClass={groupBy === 'none' ? 'pl-2' : 'pl-8'}
+                            selected={token.id === selectedId}
+                            onSelect={() =>
+                                navigate(`/settings/api-tokens/${token.id}`)
+                            }
+                        />
+                    ))}
+            </div>
         ))
     }
 
@@ -149,7 +351,7 @@ const ApiTokensList: FC = (): ReactNode => {
                 hasSelection={hasSelection}
                 rail={
                     <>
-                        <div className='shrink-0 p-3'>
+                        <div className='shrink-0 space-y-2.5 p-3'>
                             <div className='flex items-center justify-between'>
                                 <Link
                                     to={`/settings/api-tokens/${DASHBOARD_SEGMENT}`}
@@ -172,6 +374,38 @@ const ApiTokensList: FC = (): ReactNode => {
                                 >
                                     <PlusIcon className='h-4 w-4' />
                                 </Link>
+                            </div>
+
+                            <div className='flex items-center justify-between gap-2'>
+                                <GroupByControl
+                                    value={groupBy}
+                                    onChange={setGroupBy}
+                                    options={groupByOptions}
+                                />
+                                {groupBy !== 'none' && (
+                                    <button
+                                        type='button'
+                                        onClick={
+                                            anyExpanded
+                                                ? collapseAll
+                                                : () => expandAll(allKeys)
+                                        }
+                                        className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
+                                    >
+                                        {anyExpanded ? (
+                                            <ChevronUpIcon className='h-3.5 w-3.5' />
+                                        ) : (
+                                            <ChevronDownIcon className='h-3.5 w-3.5' />
+                                        )}
+                                        {anyExpanded
+                                            ? t(
+                                                  'web.channels.settings.collapseAll'
+                                              )
+                                            : t(
+                                                  'web.channels.settings.expandAll'
+                                              )}
+                                    </button>
+                                )}
                             </div>
                         </div>
 

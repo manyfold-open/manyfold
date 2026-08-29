@@ -3967,6 +3967,7 @@ const en = {
             bindingEnforced: 'Enforced',
             tokenId: 'Token ID',
             scopesTitle: 'Scopes',
+            scopesMultiple: 'Multiple scopes',
             scopesDescription: 'What this token is allowed to do.',
             usageTitle: 'Usage',
             usageNoHistory:

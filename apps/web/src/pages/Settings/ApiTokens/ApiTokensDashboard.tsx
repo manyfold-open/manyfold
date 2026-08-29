@@ -13,6 +13,7 @@ import { PlusIcon } from '@/components/icons'
 import { relative } from '@/components/RuntimeDetailPanel'
 import {
     API_TOKEN_STATUS_DOT,
+    apiTokenExpiryLabel,
     apiTokenStatus,
     apiTokenStatusLabelKey
 } from '@/lib/apiTokenStatus'
@@ -71,10 +72,10 @@ const ApiTokensDashboard: FC<{
             ? relative(row.token.lastUsedAt)
             : t('web.apiTokens.never')
 
+    // relative() only speaks about the past — it returns an em-dash for any
+    // future timestamp, which is every expiry that has not fired yet.
     const expiry = (row: (typeof rows)[number]): string =>
-        row.token.expiresAt
-            ? relative(row.token.expiresAt)
-            : t('web.apiTokens.neverExpires')
+        apiTokenExpiryLabel(row.token, t)
 
     const renderCard = (row: (typeof rows)[number]): ReactNode => (
         <button

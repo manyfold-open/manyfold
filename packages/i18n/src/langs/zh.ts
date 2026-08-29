@@ -3769,6 +3769,7 @@ const zh: Translations = {
             bindingEnforced: '强制绑定',
             tokenId: '令牌 ID',
             scopesTitle: '权限范围',
+            scopesMultiple: '多个权限范围',
             scopesDescription: '此令牌被允许执行的操作。',
             usageTitle: '使用情况',
             usageNoHistory:

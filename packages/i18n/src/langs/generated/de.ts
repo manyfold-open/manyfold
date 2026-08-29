@@ -3274,6 +3274,7 @@ const de: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'Erzwungen',
     'web.apiTokens.tokenId': 'Token-ID',
     'web.apiTokens.scopesTitle': 'Scopes',
+    'web.apiTokens.scopesMultiple': 'Mehrere Scopes',
     'web.apiTokens.scopesDescription': 'Was dieses Token tun darf.',
     'web.apiTokens.usageTitle': 'Nutzung',
     'web.apiTokens.usageNoHistory': 'Erfasst wird nur der Zeitpunkt der letzten Verwendung eines Tokens, nicht einzelne Anfragen – ein Protokoll pro Anfrage lässt sich hier deshalb nicht anzeigen.',

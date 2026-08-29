@@ -3275,6 +3275,7 @@ const hi: Record<string, string> = {
     'web.apiTokens.bindingEnforced': 'अनिवार्य',
     'web.apiTokens.tokenId': 'टोकन ID',
     'web.apiTokens.scopesTitle': 'स्कोप',
+    'web.apiTokens.scopesMultiple': 'कई स्कोप',
     'web.apiTokens.scopesDescription': 'यह टोकन क्या कर सकता है।',
     'web.apiTokens.usageTitle': 'उपयोग',
     'web.apiTokens.usageNoHistory': 'केवल यह दर्ज होता है कि टोकन का आख़िरी बार कब उपयोग हुआ, अलग-अलग अनुरोध नहीं, इसलिए यहाँ प्रति-अनुरोध लॉग दिखाने के लिए कुछ नहीं है।',
