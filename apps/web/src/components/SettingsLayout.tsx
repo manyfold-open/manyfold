@@ -3,7 +3,6 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
     AccountIcon,
-    BillingIcon,
     ChannelIcon,
     CodeIcon,
     GeneralIcon,
@@ -17,6 +16,7 @@ import { readLastChatLocationRecord } from '@/lib/chatNavigation'
 import { useI18n } from '@/lib/i18n'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import { isCascadePath } from '@/lib/settingsCascadePaths'
+import { extraSettingsNavItems } from '@/settings-nav-extra'
 import { GhostPageContent } from '@/components/Loading'
 import AreaBackLink from '@/components/AreaBackLink'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -24,14 +24,15 @@ import { useSidebarResize } from '@/lib/useSidebarResize'
 
 const iconClass = 'h-4 w-4 shrink-0'
 
-interface SettingsNavItem {
+export interface SettingsNavItem {
     labelKey: string
     to: string
     icon: LucideIcon
 }
 
-// Ordered personal → workspace resources → developer → billing, so identity
-// pages sit together at the top instead of splitting the resource group.
+// Ordered personal → workspace resources → developer, so identity pages sit
+// together at the top instead of splitting the resource group. Billing comes
+// last, from the editions slot, and only in the cloud build.
 const SETTINGS_ITEMS: SettingsNavItem[] = [
     {
         labelKey: 'web.settingsLayout.general',
@@ -67,12 +68,14 @@ const SETTINGS_ITEMS: SettingsNavItem[] = [
         labelKey: 'web.settingsLayout.usage',
         to: '/settings/usage',
         icon: UsageIcon
-    },
-    {
-        labelKey: 'web.settingsLayout.planAndBilling',
-        to: '/settings/plan-and-billing',
-        icon: BillingIcon
     }
+]
+
+// Editions composition (§3.4): the overlay's slot appends the commercial
+// entries; the open-source module contributes nothing.
+const NAV_ITEMS: SettingsNavItem[] = [
+    ...SETTINGS_ITEMS,
+    ...extraSettingsNavItems
 ]
 
 const navItemClass = ({ isActive }: { isActive: boolean }): string =>
@@ -126,9 +129,7 @@ const SettingsLayout: FC = (): ReactNode => {
 
     const isCascade = isCascadePath(pathname)
 
-    const activeItem = SETTINGS_ITEMS.find((item) =>
-        pathname.startsWith(item.to)
-    )
+    const activeItem = NAV_ITEMS.find((item) => pathname.startsWith(item.to))
     const currentLabel = activeItem
         ? t(activeItem.labelKey)
         : t('web.settingsLayout.kicker')
@@ -142,7 +143,7 @@ const SettingsLayout: FC = (): ReactNode => {
             />
 
             <nav className='settings-nav-list'>
-                {SETTINGS_ITEMS.map((item) => {
+                {NAV_ITEMS.map((item) => {
                     const Icon = item.icon
                     return (
                         <NavLink
