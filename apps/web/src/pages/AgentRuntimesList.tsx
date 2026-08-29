@@ -2794,7 +2794,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     return (
         <CascadeShell
-            railLabel={t('web.agentRuntimesList.runtimesTitle')}
+            railLabel={t('web.agentRuntimesList.runtimesAria')}
             hasSelection={hasSelection}
             rail={
                 <>
