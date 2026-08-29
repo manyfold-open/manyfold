@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 0.46.0
+
+### Minor Changes
+
+- [#82](https://github.com/manyfold-open/manyfold/pull/82) [`95c70a4`](https://github.com/manyfold-open/manyfold/commit/95c70a46389e4725272ee3e484196defcaa565f1) Thanks [@yingca1](https://github.com/yingca1)! - Login no longer mints dashboard cookies or follows absolute redirect URLs — the `rd` parameter and the `*.manyfold.ai` absolute-URL allowance existed only for the removed k8s hermes dashboard bounce, and `redirect_url` now accepts internal paths only. The hermes dashboard toggle is shown only for sprite runtimes.
+
 ## 0.45.0
 
 ### Minor Changes

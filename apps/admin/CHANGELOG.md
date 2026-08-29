@@ -1,5 +1,11 @@
 # @manyfold/admin
 
+## 0.28.0
+
+### Minor Changes
+
+- [#82](https://github.com/manyfold-open/manyfold/pull/82) [`95c70a4`](https://github.com/manyfold-open/manyfold/commit/95c70a46389e4725272ee3e484196defcaa565f1) Thanks [@yingca1](https://github.com/yingca1)! - The hermes dashboard Enable/Disable and Open controls are shown only for sprite runtimes; k8s runtime rows keep showing the (always disabled) dashboard fact, since k8s dashboard hosting was removed.
+
 ## 0.27.6
 
 ### Patch Changes
