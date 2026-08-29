@@ -108,7 +108,10 @@ import {
     type ChatFailureRuntimeKind,
     type ChatTurnPhase
 } from '@/common/telemetry/chat-failure-taxonomy'
-import { classifyChatFailureCause } from '@/modules/chat/chat-failure-cause'
+import {
+    classifyChatFailureCause,
+    explainChatFailureCause
+} from '@/modules/chat/chat-failure-cause'
 import {
     MANAGED_CHANNEL_GUARD_PORT,
     MANAGED_CHANNEL_UNAVAILABLE_CODE,
@@ -5932,8 +5935,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // `cause` is the closed classification, absent when nothing in the
     // evidence identifies one — an absent cause means Sentry's default
     // grouping, which is the honest answer for a failure mode we have not met.
-    // The message is used to classify and otherwise stays on the existing
-    // exception value: no tag, no fingerprint, nothing persisted.
+    // `causeVia` names the classifier branch that answered; the counts of
+    // `message` (legacy string table hit) and `code_unmapped` (specific code
+    // with no durable mapping) are the removal gate for that table
+    // (legacy-inventory §4.4). The message is used to classify and otherwise
+    // stays on the existing exception value: no tag, no fingerprint, nothing
+    // persisted.
     private reportStreamError(args: {
         err: Error
         detail: string
@@ -5948,6 +5955,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         durationMs?: number
         resumed?: boolean
     }): void {
+        const { cause, via } = explainChatFailureCause({
+            errorCode: args.errorCode,
+            message: args.detail
+        })
         this.telemetry.error(CHAT_STREAM_ERROR_EVENT, args.err, {
             userId: args.userId,
             sessionId: args.session.id,
@@ -5957,11 +5968,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             durationMs: args.durationMs,
             resumed: args.resumed,
             errorCode: args.errorCode ?? undefined,
-            cause:
-                classifyChatFailureCause({
-                    errorCode: args.errorCode,
-                    message: args.detail
-                }) ?? undefined,
+            cause: cause ?? undefined,
+            causeVia: via,
             runtimeKind: args.runtimeKind,
             retryable: args.retryable ?? undefined,
             turnPhase: args.turnPhase

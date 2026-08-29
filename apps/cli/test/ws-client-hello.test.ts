@@ -69,6 +69,12 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
             (hello.clientFeatures as string[]).includes('turn.budgets'),
             'the client declares it parses the split turn budgets (#513/#556)'
         )
+        assert.ok(
+            (hello.clientFeatures as string[]).includes(
+                'model.credential-facts'
+            ),
+            'the client declares model.inspect responses carry credentialFacts'
+        )
     } finally {
         client.stop()
         wss.close()

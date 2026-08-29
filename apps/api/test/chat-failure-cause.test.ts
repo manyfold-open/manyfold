@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { MANAGED_CHANNEL_UNAVAILABLE_CODE } from '../src/common/ports/managed-models.ports'
 import { chatFailureCauses } from '../src/common/telemetry/chat-failure-taxonomy'
-import { classifyChatFailureCause } from '../src/modules/chat/chat-failure-cause'
+import {
+    classifyChatFailureCause,
+    explainChatFailureCause,
+    type ChatFailureCauseVia
+} from '../src/modules/chat/chat-failure-cause'
 import { classifyManagedChannelFailureSignal } from '../src/modules/chat/managed-channel-failure-signal'
 
 // #786. Every positive message-fallback fixture below is a shape the adapters,
@@ -515,6 +519,45 @@ test('the classifier only ever answers with a member of the closed taxonomy', ()
         assert.ok(
             (chatFailureCauses as readonly string[]).includes(result),
             `${result} is not in the taxonomy`
+        )
+    }
+})
+
+// `via` exists to tell the two null exits apart: 'code_unmapped' (a specific
+// code the durable table has no entry for — the message is deliberately never
+// read) sizes the durable-code backlog, while 'none' means the legacy fallback
+// ran and matched nothing. Zero `message` and zero `code_unmapped` over an
+// observation window is the removal gate for CAUSE_BY_MESSAGE
+// (legacy-inventory §4.4).
+test('explain names the branch that answered and never disagrees with classify', () => {
+    const fixtures: readonly [string | null, string, ChatFailureCauseVia][] = [
+        ['turn_idle_timeout', 'went silent for 400ms', 'code'],
+        [
+            'service_restarting',
+            'invalid api key; insufficient account balance',
+            'code_unmapped'
+        ],
+        [
+            'adapter_error',
+            'Failed to authenticate. API Error: 403 Insufficient account balance',
+            'message'
+        ],
+        ['claude_exec_failed', '', 'none'],
+        ['codex_exec_failed', 'connection replaced', 'daemon_transport'],
+        ['claude_exec_failed', 'sprite exec exited 137', 'none'],
+        [null, '', 'none']
+    ]
+    for (const [errorCode, message, via] of fixtures) {
+        const explained = explainChatFailureCause({ errorCode, message })
+        assert.equal(
+            explained.via,
+            via,
+            `${errorCode ?? 'null'} / '${message}'`
+        )
+        assert.equal(
+            explained.cause,
+            classifyChatFailureCause({ errorCode, message }),
+            'the wrapper and the detailed form must answer identically'
         )
     }
 })

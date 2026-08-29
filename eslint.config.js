@@ -61,11 +61,14 @@ export default tseslint.config(
     {
         files: ['**/*.{ts,tsx}'],
         rules: {
+            // 'error', not 'warn': `pnpm lint` has no --max-warnings, so a
+            // warning can never redden CI. Measured zero hits for both rules
+            // before the flip (the api override below keeps its any exemption).
             '@typescript-eslint/no-unused-vars': [
-                'warn',
+                'error',
                 { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
             ],
-            '@typescript-eslint/no-explicit-any': 'warn',
+            '@typescript-eslint/no-explicit-any': 'error',
             '@typescript-eslint/consistent-type-imports': [
                 'warn',
                 { prefer: 'type-imports', fixStyle: 'separate-type-imports' }
