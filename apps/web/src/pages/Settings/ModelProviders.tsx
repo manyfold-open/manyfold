@@ -17,6 +17,7 @@ import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg'
 import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
 import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter.svg'
 import EmptyState from '@/components/EmptyState'
+import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import {
     GroupByControl,
@@ -284,122 +285,111 @@ const ModelProviders: FC = (): ReactNode => {
     }, [client, hasSelection, onDashboard, spendWindow])
 
     return (
-        <div className='flex h-full min-h-0 flex-col lg:flex-row'>
-            <ProviderSidebar
-                managedRows={managedRows}
-                hasManaged={hasManaged}
-                managedState={managed.state}
-                nonManagedRows={nonManagedRows}
-                selected={selected}
-                onSelect={selectAndPersist}
-                hasSelection={hasSelection}
-                loaded={loaded}
-                showLoading={gate.showLoading}
-            />
-            <main
-                className={[
-                    'min-w-0 lg:h-full lg:flex-1 lg:overflow-y-auto',
-                    hasSelection
-                        ? 'flex flex-col'
-                        : 'hidden lg:flex lg:flex-col'
-                ].join(' ')}
-            >
-                <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
-                    {!selected && loaded && (
-                        <ModelProvidersDashboard
-                            providers={items}
-                            report={spend}
-                            loading={spendLoading}
-                            window={spendWindow}
-                            onWindowChange={setSpendWindow}
-                            onSelect={(id) =>
-                                selectAndPersist({ kind: 'configured', id })
+        <CascadeShell
+            railLabel={t('web.settingsLayout.providers')}
+            hasSelection={hasSelection}
+            rail={
+                <ProviderSidebar
+                    managedRows={managedRows}
+                    hasManaged={hasManaged}
+                    managedState={managed.state}
+                    nonManagedRows={nonManagedRows}
+                    selected={selected}
+                    onSelect={selectAndPersist}
+                    loaded={loaded}
+                    showLoading={gate.showLoading}
+                />
+            }
+        >
+            <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
+                {!selected && loaded && (
+                    <ModelProvidersDashboard
+                        providers={items}
+                        report={spend}
+                        loading={spendLoading}
+                        window={spendWindow}
+                        onWindowChange={setSpendWindow}
+                        onSelect={(id) =>
+                            selectAndPersist({ kind: 'configured', id })
+                        }
+                        createOptions={newProviderOptions(t, selectAndPersist)}
+                    />
+                )}
+                {error && (
+                    <div className='workbench-alert-error mb-6'>
+                        <pre className='text-caption whitespace-pre-wrap font-mono'>
+                            {error}
+                        </pre>
+                    </div>
+                )}
+                {selected &&
+                    (() => {
+                        let crumb = t('web.credentials.provider')
+                        if (selected.kind === 'custom-new')
+                            crumb = t('web.modelProviders.newProvider')
+                        else if (selected.kind === 'builtin')
+                            crumb =
+                                lookupBuiltIn(selected.builtInId)?.label ??
+                                t('web.credentials.provider')
+                        else if (selected.kind === 'managed')
+                            crumb = t('web.modelProviders.managed')
+                        else if (selected.kind === 'configured')
+                            crumb =
+                                nonManagedRows.find((r) => r.id === selected.id)
+                                    ?.providerName ??
+                                t('web.credentials.provider')
+                        return (
+                            <Breadcrumb
+                                items={[
+                                    {
+                                        label: t(
+                                            'web.settingsLayout.providers'
+                                        ),
+                                        to: '/settings/model-providers'
+                                    },
+                                    { label: crumb }
+                                ]}
+                            />
+                        )
+                    })()}
+                <div className='space-y-6'>
+                    {selected?.kind === 'custom-new' && (
+                        <CustomNewView onCreated={(id) => void onCreated(id)} />
+                    )}
+                    {selected?.kind === 'builtin' && (
+                        <BuiltInSetupView
+                            entry={
+                                lookupBuiltIn(selected.builtInId) ??
+                                BUILT_IN_PROVIDERS[0]
                             }
-                            createOptions={newProviderOptions(
-                                t,
-                                selectAndPersist
-                            )}
+                            onCreated={(id) => void onCreated(id)}
                         />
                     )}
-                    {error && (
-                        <div className='workbench-alert-error mb-6'>
-                            <pre className='text-caption whitespace-pre-wrap font-mono'>
-                                {error}
-                            </pre>
-                        </div>
+                    {selected?.kind === 'managed' && (
+                        <ManagedView
+                            rows={managedRows}
+                            state={managed.state}
+                            onChanged={() => void refresh()}
+                        />
                     )}
-                    {selected &&
+                    {selected?.kind === 'configured' &&
                         (() => {
-                            let crumb = t('web.credentials.provider')
-                            if (selected.kind === 'custom-new')
-                                crumb = t('web.modelProviders.newProvider')
-                            else if (selected.kind === 'builtin')
-                                crumb =
-                                    lookupBuiltIn(selected.builtInId)?.label ??
-                                    t('web.credentials.provider')
-                            else if (selected.kind === 'managed')
-                                crumb = t('web.modelProviders.managed')
-                            else if (selected.kind === 'configured')
-                                crumb =
-                                    nonManagedRows.find(
-                                        (r) => r.id === selected.id
-                                    )?.providerName ??
-                                    t('web.credentials.provider')
+                            const row = nonManagedRows.find(
+                                (r) => r.id === selected.id
+                            )
+                            if (!row) return null
                             return (
-                                <Breadcrumb
-                                    items={[
-                                        {
-                                            label: t(
-                                                'web.settingsLayout.providers'
-                                            ),
-                                            to: '/settings/model-providers'
-                                        },
-                                        { label: crumb }
-                                    ]}
+                                <ConfiguredView
+                                    key={row.id}
+                                    row={row}
+                                    onChanged={() => void refresh()}
+                                    onDeleted={() => void onDeleted(row.id)}
                                 />
                             )
                         })()}
-                    <div className='space-y-6'>
-                        {selected?.kind === 'custom-new' && (
-                            <CustomNewView
-                                onCreated={(id) => void onCreated(id)}
-                            />
-                        )}
-                        {selected?.kind === 'builtin' && (
-                            <BuiltInSetupView
-                                entry={
-                                    lookupBuiltIn(selected.builtInId) ??
-                                    BUILT_IN_PROVIDERS[0]
-                                }
-                                onCreated={(id) => void onCreated(id)}
-                            />
-                        )}
-                        {selected?.kind === 'managed' && (
-                            <ManagedView
-                                rows={managedRows}
-                                state={managed.state}
-                                onChanged={() => void refresh()}
-                            />
-                        )}
-                        {selected?.kind === 'configured' &&
-                            (() => {
-                                const row = nonManagedRows.find(
-                                    (r) => r.id === selected.id
-                                )
-                                if (!row) return null
-                                return (
-                                    <ConfiguredView
-                                        key={row.id}
-                                        row={row}
-                                        onChanged={() => void refresh()}
-                                        onDeleted={() => void onDeleted(row.id)}
-                                    />
-                                )
-                            })()}
-                    </div>
                 </div>
-            </main>
-        </div>
+            </div>
+        </CascadeShell>
     )
 }
 
@@ -410,7 +400,6 @@ interface ProviderSidebarProps {
     nonManagedRows: UserModelProviderSummary[]
     selected: Selection | null
     onSelect: (next: Selection) => void
-    hasSelection: boolean
     loaded: boolean
     showLoading: boolean
 }
@@ -446,7 +435,6 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
     nonManagedRows,
     selected,
     onSelect,
-    hasSelection,
     loaded,
     showLoading
 }): ReactNode => {
@@ -556,13 +544,7 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
     ]
 
     return (
-        <aside
-            aria-label={t('web.settingsLayout.providers')}
-            className={[
-                'bg-rail border-divider/70 flex w-full flex-col lg:h-full lg:w-72 lg:shrink-0 lg:overflow-hidden lg:border-r',
-                hasSelection ? 'hidden lg:flex' : 'flex'
-            ].join(' ')}
-        >
+        <>
             <div className='shrink-0 space-y-2.5 p-3'>
                 <div className='flex items-center justify-between'>
                     <Link
@@ -694,7 +676,7 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                     sheetTitle={t('web.modelProviders.newProvider')}
                 />
             </div>
-        </aside>
+        </>
     )
 }
 

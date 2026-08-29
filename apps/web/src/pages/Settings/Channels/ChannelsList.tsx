@@ -23,6 +23,7 @@ import {
     ListViewIcon,
     ZapIcon
 } from '@/components/icons'
+import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu } from '@/components/CreateMenu'
 import ChannelsDashboard from '@/pages/Settings/Channels/ChannelsDashboard'
 import EmptyState from '@/components/EmptyState'
@@ -433,33 +434,104 @@ const ChannelsList: FC = (): ReactNode => {
 
     return (
         <>
-            <div className='flex h-full min-h-0 flex-col lg:flex-row'>
-                <aside
-                    aria-label={t('web.channels.settings.channels')}
-                    className={[
-                        'bg-rail border-divider/70 flex w-full flex-col lg:h-full lg:w-72 lg:shrink-0 lg:overflow-hidden lg:border-r',
-                        hasSelection ? 'hidden lg:flex' : 'flex'
-                    ].join(' ')}
-                >
-                    <div className='shrink-0 space-y-2.5 p-3'>
-                        <div className='flex items-center justify-between'>
-                            <Link
-                                to={`/settings/channels/${DASHBOARD_SEGMENT}`}
-                                aria-current={
-                                    !hasSelection ? 'page' : undefined
-                                }
-                                className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
-                            >
-                                <h2 className='text-h3 text-fg tracking-tight'>
-                                    {t('web.channels.settings.channels')}
-                                </h2>
-                                <span className='tag tag-neutral tabular-nums'>
-                                    {totalCount}
-                                </span>
-                            </Link>
+            <CascadeShell
+                railLabel={t('web.channels.settings.channels')}
+                hasSelection={hasSelection}
+                rail={
+                    <>
+                        <div className='shrink-0 space-y-2.5 p-3'>
+                            <div className='flex items-center justify-between'>
+                                <Link
+                                    to={`/settings/channels/${DASHBOARD_SEGMENT}`}
+                                    aria-current={
+                                        !hasSelection ? 'page' : undefined
+                                    }
+                                    className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
+                                >
+                                    <h2 className='text-h3 text-fg tracking-tight'>
+                                        {t('web.channels.settings.channels')}
+                                    </h2>
+                                    <span className='tag tag-neutral tabular-nums'>
+                                        {totalCount}
+                                    </span>
+                                </Link>
+                                <CreateMenu
+                                    options={createOptions}
+                                    variant='header'
+                                    disabled={!canCreate}
+                                    triggerLabel={t(
+                                        'web.channels.settings.newChannel'
+                                    )}
+                                    sheetTitle={t(
+                                        'web.channels.settings.newChannel'
+                                    )}
+                                />
+                            </div>
+
+                            {filterAgent && (
+                                <div className='flex items-center'>
+                                    <span className='text-caption text-muted bg-soft inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1'>
+                                        {t(
+                                            'web.channels.settings.agentFilter',
+                                            {
+                                                name: filterAgent.name
+                                            }
+                                        )}
+                                        <button
+                                            type='button'
+                                            onClick={() => setAgentFilter('')}
+                                            aria-label={t(
+                                                'web.channels.settings.clearAgentFilter'
+                                            )}
+                                            className='hover:text-fg flex h-4 w-4 items-center justify-center'
+                                        >
+                                            <CloseIcon className='h-3 w-3' />
+                                        </button>
+                                    </span>
+                                </div>
+                            )}
+
+                            <div className='flex items-center justify-between gap-2'>
+                                <GroupByControl
+                                    value={groupBy}
+                                    onChange={setGroupBy}
+                                    options={groupByOptions}
+                                />
+                                {groupBy !== 'none' && (
+                                    <button
+                                        type='button'
+                                        onClick={
+                                            anyExpanded
+                                                ? collapseAll
+                                                : () => expandAll(allKeys)
+                                        }
+                                        className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
+                                    >
+                                        {anyExpanded ? (
+                                            <ChevronUpIcon className='h-3.5 w-3.5' />
+                                        ) : (
+                                            <ChevronDownIcon className='h-3.5 w-3.5' />
+                                        )}
+                                        {anyExpanded
+                                            ? t(
+                                                  'web.channels.settings.collapseAll'
+                                              )
+                                            : t(
+                                                  'web.channels.settings.expandAll'
+                                              )}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
+                            {renderTree()}
+                        </div>
+
+                        <div className='shrink-0 p-2'>
                             <CreateMenu
                                 options={createOptions}
-                                variant='header'
+                                variant='footer'
                                 disabled={!canCreate}
                                 triggerLabel={t(
                                     'web.channels.settings.newChannel'
@@ -469,98 +541,27 @@ const ChannelsList: FC = (): ReactNode => {
                                 )}
                             />
                         </div>
-
-                        {filterAgent && (
-                            <div className='flex items-center'>
-                                <span className='text-caption text-muted bg-soft inline-flex items-center gap-1 rounded-full py-0.5 pl-2.5 pr-1'>
-                                    {t('web.channels.settings.agentFilter', {
-                                        name: filterAgent.name
-                                    })}
-                                    <button
-                                        type='button'
-                                        onClick={() => setAgentFilter('')}
-                                        aria-label={t(
-                                            'web.channels.settings.clearAgentFilter'
-                                        )}
-                                        className='hover:text-fg flex h-4 w-4 items-center justify-center'
-                                    >
-                                        <CloseIcon className='h-3 w-3' />
-                                    </button>
-                                </span>
-                            </div>
-                        )}
-
-                        <div className='flex items-center justify-between gap-2'>
-                            <GroupByControl
-                                value={groupBy}
-                                onChange={setGroupBy}
-                                options={groupByOptions}
+                    </>
+                }
+            >
+                {selectedId || createProvider ? (
+                    <Outlet />
+                ) : (
+                    <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
+                        {loading ? null : (
+                            <ChannelsDashboard
+                                channels={channels}
+                                report={activity}
+                                loading={activityLoading}
+                                createOptions={createOptions}
+                                onSelect={(id) =>
+                                    navigate(`/settings/channels/${id}`)
+                                }
                             />
-                            {groupBy !== 'none' && (
-                                <button
-                                    type='button'
-                                    onClick={
-                                        anyExpanded
-                                            ? collapseAll
-                                            : () => expandAll(allKeys)
-                                    }
-                                    className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
-                                >
-                                    {anyExpanded ? (
-                                        <ChevronUpIcon className='h-3.5 w-3.5' />
-                                    ) : (
-                                        <ChevronDownIcon className='h-3.5 w-3.5' />
-                                    )}
-                                    {anyExpanded
-                                        ? t('web.channels.settings.collapseAll')
-                                        : t('web.channels.settings.expandAll')}
-                                </button>
-                            )}
-                        </div>
+                        )}
                     </div>
-
-                    <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
-                        {renderTree()}
-                    </div>
-
-                    <div className='shrink-0 p-2'>
-                        <CreateMenu
-                            options={createOptions}
-                            variant='footer'
-                            disabled={!canCreate}
-                            triggerLabel={t('web.channels.settings.newChannel')}
-                            sheetTitle={t('web.channels.settings.newChannel')}
-                        />
-                    </div>
-                </aside>
-
-                <main
-                    className={[
-                        'min-w-0 lg:h-full lg:flex-1 lg:overflow-y-auto',
-                        hasSelection
-                            ? 'flex flex-col'
-                            : 'hidden lg:flex lg:flex-col'
-                    ].join(' ')}
-                >
-                    {selectedId || createProvider ? (
-                        <Outlet />
-                    ) : (
-                        <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
-                            {loading ? null : (
-                                <ChannelsDashboard
-                                    channels={channels}
-                                    report={activity}
-                                    loading={activityLoading}
-                                    createOptions={createOptions}
-                                    onSelect={(id) =>
-                                        navigate(`/settings/channels/${id}`)
-                                    }
-                                />
-                            )}
-                        </div>
-                    )}
-                </main>
-            </div>
+                )}
+            </CascadeShell>
         </>
     )
 }

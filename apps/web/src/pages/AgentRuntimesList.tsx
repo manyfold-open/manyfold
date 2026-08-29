@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Breadcrumb, { type BreadcrumbItem } from '@/components/Breadcrumb'
 import EmptyState from '@/components/EmptyState'
+import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu } from '@/components/CreateMenu'
 import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
@@ -2792,115 +2793,104 @@ const AgentRuntimesList: FC = (): ReactNode => {
     }
 
     return (
-        <div className='flex h-full min-h-0 flex-col lg:flex-row'>
-            <aside
-                aria-label={t('web.agentRuntimesList.runtimesAria')}
-                className={[
-                    'bg-rail border-divider/70 flex w-full flex-col lg:h-full lg:w-72 lg:shrink-0 lg:overflow-hidden lg:border-r',
-                    hasSelection ? 'hidden lg:flex' : 'flex'
-                ].join(' ')}
-            >
-                <div className='shrink-0 space-y-2.5 p-3'>
-                    <div className='flex items-center justify-between'>
-                        <Link
-                            to={`/settings/runtimes/${DASHBOARD_SEGMENT}`}
-                            aria-current={
-                                selection === null ||
-                                selection.kind === 'dashboard'
-                                    ? 'page'
-                                    : undefined
-                            }
-                            className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
-                        >
-                            <h2 className='text-h3 text-fg tracking-tight'>
-                                {t('web.agentRuntimesList.runtimesTitle')}
-                            </h2>
-                            <span className='tag tag-neutral tabular-nums'>
-                                {totalCount}
-                            </span>
-                        </Link>
+        <CascadeShell
+            railLabel={t('web.agentRuntimesList.runtimesTitle')}
+            hasSelection={hasSelection}
+            rail={
+                <>
+                    <div className='shrink-0 space-y-2.5 p-3'>
+                        <div className='flex items-center justify-between'>
+                            <Link
+                                to={`/settings/runtimes/${DASHBOARD_SEGMENT}`}
+                                aria-current={
+                                    selection === null ||
+                                    selection.kind === 'dashboard'
+                                        ? 'page'
+                                        : undefined
+                                }
+                                className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
+                            >
+                                <h2 className='text-h3 text-fg tracking-tight'>
+                                    {t('web.agentRuntimesList.runtimesTitle')}
+                                </h2>
+                                <span className='tag tag-neutral tabular-nums'>
+                                    {totalCount}
+                                </span>
+                            </Link>
+                            <NewRuntimeMenu
+                                cloudComputerEnabled={cloudComputerEnabled}
+                                variant='header'
+                            />
+                        </div>
+
+                        <div className='flex items-center justify-between gap-2'>
+                            <GroupByControl
+                                value={groupBy}
+                                onChange={setGroupBy}
+                                options={GROUP_BY_OPTIONS.map((option) => ({
+                                    ...option,
+                                    label:
+                                        option.value === 'none'
+                                            ? t(
+                                                  'web.agentRuntimesList.statusNone'
+                                              )
+                                            : option.value === 'kind'
+                                              ? t(
+                                                    'web.agentRuntimesList.statusKind'
+                                                )
+                                              : option.value === 'status'
+                                                ? t(
+                                                      'web.agentRuntimesList.statusStatus'
+                                                  )
+                                                : t(
+                                                      'web.agentRuntimesList.statusFramework'
+                                                  )
+                                }))}
+                            />
+                            <button
+                                type='button'
+                                onClick={
+                                    anyExpanded
+                                        ? collapseAll
+                                        : () => expandAll(allKeys)
+                                }
+                                className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
+                            >
+                                {anyExpanded ? (
+                                    <ChevronUpIcon className='h-3.5 w-3.5' />
+                                ) : (
+                                    <ChevronDownIcon className='h-3.5 w-3.5' />
+                                )}
+                                {anyExpanded
+                                    ? t('web.agentRuntimesList.collapseAll')
+                                    : t('web.agentRuntimesList.expandAll')}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
+                        {renderTree()}
+                    </div>
+
+                    <div className='shrink-0 p-2'>
                         <NewRuntimeMenu
                             cloudComputerEnabled={cloudComputerEnabled}
-                            variant='header'
+                            variant='footer'
                         />
                     </div>
-
-                    <div className='flex items-center justify-between gap-2'>
-                        <GroupByControl
-                            value={groupBy}
-                            onChange={setGroupBy}
-                            options={GROUP_BY_OPTIONS.map((option) => ({
-                                ...option,
-                                label:
-                                    option.value === 'none'
-                                        ? t('web.agentRuntimesList.statusNone')
-                                        : option.value === 'kind'
-                                          ? t(
-                                                'web.agentRuntimesList.statusKind'
-                                            )
-                                          : option.value === 'status'
-                                            ? t(
-                                                  'web.agentRuntimesList.statusStatus'
-                                              )
-                                            : t(
-                                                  'web.agentRuntimesList.statusFramework'
-                                              )
-                            }))}
-                        />
-                        <button
-                            type='button'
-                            onClick={
-                                anyExpanded
-                                    ? collapseAll
-                                    : () => expandAll(allKeys)
-                            }
-                            className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
-                        >
-                            {anyExpanded ? (
-                                <ChevronUpIcon className='h-3.5 w-3.5' />
-                            ) : (
-                                <ChevronDownIcon className='h-3.5 w-3.5' />
-                            )}
-                            {anyExpanded
-                                ? t('web.agentRuntimesList.collapseAll')
-                                : t('web.agentRuntimesList.expandAll')}
-                        </button>
-                    </div>
-                </div>
-
-                <div className='min-h-0 flex-1 overflow-y-auto px-2 pb-2'>
-                    {renderTree()}
-                </div>
-
-                <div className='shrink-0 p-2'>
-                    <NewRuntimeMenu
-                        cloudComputerEnabled={cloudComputerEnabled}
-                        variant='footer'
-                    />
-                </div>
-            </aside>
-
-            <main
-                className={[
-                    'min-w-0 lg:h-full lg:flex-1 lg:overflow-y-auto',
-                    hasSelection
-                        ? 'flex flex-col'
-                        : 'hidden lg:flex lg:flex-col'
-                ].join(' ')}
-            >
-                <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
-                    {message && (
-                        <div className='workbench-note mb-6'>{message}</div>
-                    )}
-                    {error && (
-                        <div className='workbench-alert-error mb-6'>
-                            {error}
-                        </div>
-                    )}
-                    {renderDetail()}
-                </div>
-            </main>
-        </div>
+                </>
+            }
+        >
+            <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
+                {message && (
+                    <div className='workbench-note mb-6'>{message}</div>
+                )}
+                {error && (
+                    <div className='workbench-alert-error mb-6'>{error}</div>
+                )}
+                {renderDetail()}
+            </div>
+        </CascadeShell>
     )
 }
 
