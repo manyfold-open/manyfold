@@ -32,8 +32,8 @@ import {
     ChevronRightIcon,
     ChevronUpIcon,
     CloseIcon,
+    ListViewIcon,
     PlusIcon,
-    SearchIcon,
     ZapIcon
 } from '@/components/icons'
 import EmptyState from '@/components/EmptyState'
@@ -47,7 +47,6 @@ import {
     type GroupByOption,
     GroupHeader,
     type Health,
-    Highlight,
     useCascadeState
 } from '@/lib/cascade'
 import { ChannelProviderIcon, channelLabel } from '@/lib/channelMeta'
@@ -72,10 +71,9 @@ const docsProviderForChoice = (
 ): ChannelProviderName => (isLarkProviderChoice(provider) ? 'lark' : provider)
 
 type ChannelStatus = ChannelSummary['status']
-type GroupBy = 'provider' | 'agent' | 'status'
-type StatusFilter = 'all' | 'active' | 'issues'
+type GroupBy = 'none' | 'provider' | 'agent' | 'status'
 
-const CHANNEL_DIMS = ['provider', 'agent', 'status'] as const
+const CHANNEL_DIMS = ['none', 'provider', 'agent', 'status'] as const
 
 const PROVIDER_ORDER: ChannelProviderName[] = [
     'lark',
@@ -120,16 +118,17 @@ const groupHealth = (items: ChannelSummary[]): Health => {
 const ChannelLeaf: FC<{
     channel: ChannelSummary
     selected: boolean
-    q: string
+    indentClass: string
     subLabel: string
     onSelect: () => void
-}> = ({ channel: c, selected, q, subLabel, onSelect }): ReactNode => (
+}> = ({ channel: c, selected, indentClass, subLabel, onSelect }): ReactNode => (
     <button
         type='button'
         onClick={onSelect}
         aria-current={selected ? 'true' : undefined}
         className={[
-            'flex w-full items-center gap-2.5 rounded-sm py-2 pl-8 pr-2.5 text-left transition-colors',
+            'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 text-left transition-colors',
+            indentClass,
             selected ? 'bg-active-session' : 'hover:bg-rail-hover'
         ].join(' ')}
     >
@@ -138,9 +137,7 @@ const ChannelLeaf: FC<{
             className='h-5 w-5 shrink-0'
         />
         <span className='min-w-0 flex-1'>
-            <span className='text-ui text-fg block truncate'>
-                <Highlight text={c.label} q={q} />
-            </span>
+            <span className='text-ui text-fg block truncate'>{c.label}</span>
             <span className='text-caption text-subtle block truncate'>
                 {subLabel}
             </span>
@@ -169,8 +166,6 @@ const ChannelsList: FC = (): ReactNode => {
     const [error, setError] = useState<string | null>(null)
     const [createOpen, setCreateOpen] = useState(false)
     const [searchParams, setSearchParams] = useSearchParams()
-    const [query, setQuery] = useState('')
-    const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
     const lastRevealed = useRef<string | null>(null)
 
     const {
@@ -181,10 +176,12 @@ const ChannelsList: FC = (): ReactNode => {
         collapseAll,
         expandAll,
         reveal
-    } = useCascadeState('mf.channels.cascade.v1', CHANNEL_DIMS, 'provider')
+        // v2: the store persists groupBy on first mount, so changing the
+        // fallback alone never reaches a browser that has opened the page
+        // before — the key bump is what makes None the default for everyone.
+    } = useCascadeState('mf.channels.cascade.v2', CHANNEL_DIMS, 'none')
 
     const agentFilter = searchParams.get('agent') ?? ''
-    const q = query.trim().toLowerCase()
 
     const setAgentFilter = (value: string): void => {
         setSearchParams(
@@ -237,24 +234,27 @@ const ChannelsList: FC = (): ReactNode => {
     )
 
     const groups = useMemo<ChannelGroup[]>(() => {
-        const matchesQuery = (c: ChannelSummary): boolean =>
-            !q ||
-            `${c.label} ${channelLabel(c.provider)} ${c.agent.name}`
-                .toLowerCase()
-                .includes(q)
-        const passStatus = (c: ChannelSummary): boolean => {
-            if (statusFilter === 'all') return true
-            if (statusFilter === 'active') return c.status === 'active'
-            return c.status === 'error' || c.status === 'paused'
-        }
-        const filtered = baseChannels.filter(
-            (c) => passStatus(c) && matchesQuery(c)
-        )
+        // None is one unheadered group, so the header-only fields stay empty:
+        // the rail lists every channel flat, in the API's most-recent order.
+        if (groupBy === 'none')
+            return baseChannels.length === 0
+                ? []
+                : [
+                      {
+                          key: 'all',
+                          label: '',
+                          count: baseChannels.length,
+                          health: null,
+                          items: baseChannels
+                      }
+                  ]
 
         if (groupBy === 'provider') {
             const out: ChannelGroup[] = []
             for (const provider of PROVIDER_ORDER) {
-                const items = filtered.filter((c) => c.provider === provider)
+                const items = baseChannels.filter(
+                    (c) => c.provider === provider
+                )
                 if (items.length === 0) continue
                 out.push({
                     key: `pv:${provider}`,
@@ -269,7 +269,7 @@ const ChannelsList: FC = (): ReactNode => {
         if (groupBy === 'status') {
             const out: ChannelGroup[] = []
             for (const s of STATUS_ORDER) {
-                const items = filtered.filter((c) => c.status === s)
+                const items = baseChannels.filter((c) => c.status === s)
                 if (items.length === 0) continue
                 out.push({
                     key: `st:${s}`,
@@ -282,7 +282,7 @@ const ChannelsList: FC = (): ReactNode => {
             return out
         }
         const byAgent = new Map<string, ChannelSummary[]>()
-        for (const c of filtered) {
+        for (const c of baseChannels) {
             const arr = byAgent.get(c.agentId) ?? []
             arr.push(c)
             byAgent.set(c.agentId, arr)
@@ -299,7 +299,7 @@ const ChannelsList: FC = (): ReactNode => {
                 items
             }))
             .sort((a, b) => a.label.localeCompare(b.label))
-    }, [baseChannels, groupBy, q, statusFilter, agentById])
+    }, [baseChannels, groupBy, agentById])
 
     const totalCount = useMemo(
         () => groups.reduce((n, g) => n + g.count, 0),
@@ -309,6 +309,7 @@ const ChannelsList: FC = (): ReactNode => {
 
     const keysForSelection = useCallback(
         (id: string): string[] => {
+            if (groupBy === 'none') return []
             const c = channels.find((x) => x.id === id)
             if (!c) return []
             if (groupBy === 'provider') return [`pv:${c.provider}`]
@@ -327,10 +328,15 @@ const ChannelsList: FC = (): ReactNode => {
         if (keys.length > 0) reveal(keys)
     }, [channels, selectedId, groupBy, keysForSelection, reveal])
 
-    const isOpen = (key: string): boolean => q !== '' || expanded.has(key)
+    const isOpen = (key: string): boolean => expanded.has(key)
     const anyExpanded = expanded.size > 0
     const canCreate = agents.length > 0
     const groupByOptions: ReadonlyArray<GroupByOption<GroupBy>> = [
+        {
+            value: 'none',
+            label: t('web.channels.settings.groupBy.none'),
+            icon: ListViewIcon
+        },
         {
             value: 'provider',
             label: t('web.channels.settings.groupBy.platform'),
@@ -347,29 +353,12 @@ const ChannelsList: FC = (): ReactNode => {
             icon: ZapIcon
         }
     ]
-    const statusFilters: Array<{ value: StatusFilter; label: string }> = [
-        { value: 'all', label: t('web.channels.settings.filters.all') },
-        {
-            value: 'active',
-            label: t('web.channels.settings.filters.active')
-        },
-        {
-            value: 'issues',
-            label: t('web.channels.settings.filters.issues')
-        }
-    ]
 
     const subLabelFor = (c: ChannelSummary): string => {
         if (groupBy === 'provider') return c.agent.name
         if (groupBy === 'agent') return channelLabel(c.provider)
         return `${channelLabel(c.provider)} · ${c.agent.name}`
     }
-
-    const chipClass = (active: boolean): string =>
-        [
-            'text-caption rounded-full px-2.5 py-1 font-medium transition-colors',
-            active ? 'bg-rail-hover text-fg' : 'text-muted hover:bg-rail-hover'
-        ].join(' ')
 
     const filterAgent = agentFilter ? agentById.get(agentFilter) : null
 
@@ -400,19 +389,21 @@ const ChannelsList: FC = (): ReactNode => {
             )
         return groups.map((g) => (
             <div key={g.key}>
-                <GroupHeader
-                    label={g.label}
-                    count={g.count}
-                    open={isOpen(g.key)}
-                    health={g.health}
-                    onToggle={() => toggle(g.key)}
-                />
-                {isOpen(g.key) &&
+                {groupBy !== 'none' && (
+                    <GroupHeader
+                        label={g.label}
+                        count={g.count}
+                        open={isOpen(g.key)}
+                        health={g.health}
+                        onToggle={() => toggle(g.key)}
+                    />
+                )}
+                {(groupBy === 'none' || isOpen(g.key)) &&
                     g.items.map((c) => (
                         <ChannelLeaf
                             key={c.id}
                             channel={c}
-                            q={q}
+                            indentClass={groupBy === 'none' ? 'pl-2' : 'pl-8'}
                             subLabel={subLabelFor(c)}
                             selected={c.id === selectedId}
                             onSelect={() =>
@@ -475,56 +466,13 @@ const ChannelsList: FC = (): ReactNode => {
                             </div>
                         )}
 
-                        <div className='relative'>
-                            <SearchIcon className='text-subtle pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2' />
-                            <input
-                                type='text'
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder={t(
-                                    'web.channels.settings.searchChannels'
-                                )}
-                                aria-label={t(
-                                    'web.channels.settings.searchChannels'
-                                )}
-                                className='text-ui bg-surface text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-subtle focus-visible:shadow-focus h-9 w-full rounded-sm pl-9 pr-8 transition-shadow focus:outline-none'
-                            />
-                            {query && (
-                                <button
-                                    type='button'
-                                    onClick={() => setQuery('')}
-                                    aria-label={t(
-                                        'web.channels.settings.clearSearch'
-                                    )}
-                                    className='text-subtle hover:text-fg hover:bg-rail-hover absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full transition-colors'
-                                >
-                                    <CloseIcon className='h-4 w-4' />
-                                </button>
-                            )}
-                        </div>
-
-                        <div className='flex gap-1.5'>
-                            {statusFilters.map((f) => (
-                                <button
-                                    key={f.value}
-                                    type='button'
-                                    onClick={() => setStatusFilter(f.value)}
-                                    className={chipClass(
-                                        statusFilter === f.value
-                                    )}
-                                >
-                                    {f.label}
-                                </button>
-                            ))}
-                        </div>
-
                         <div className='flex items-center justify-between gap-2'>
                             <GroupByControl
                                 value={groupBy}
                                 onChange={setGroupBy}
                                 options={groupByOptions}
                             />
-                            {!q && (
+                            {groupBy !== 'none' && (
                                 <button
                                     type='button'
                                     onClick={
