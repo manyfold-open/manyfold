@@ -12,6 +12,10 @@ import {
     users,
     type Database
 } from '@manyfold/db'
+import type {
+    UserModelProviderUsageReport,
+    UserModelProviderUsageRow
+} from '@manyfold/shared'
 import { ModelProvidersService } from '../src/modules/model-providers/model-providers.service'
 
 // Real-Postgres proof for the per-provider spend aggregate. The api unit
@@ -109,9 +113,9 @@ const event = async (
 const day = (n: number): Date => new Date(Date.now() - n * 86_400_000)
 
 const rowFor = (
-    report: { rows: Array<{ modelProviderId: string | null }> },
+    report: UserModelProviderUsageReport,
     id: string | null
-): (typeof report.rows)[number] | undefined =>
+): UserModelProviderUsageRow | undefined =>
     report.rows.find((r) => r.modelProviderId === id)
 
 test('spend is scoped to the caller and keeps the unattributed group', async (t) => {
