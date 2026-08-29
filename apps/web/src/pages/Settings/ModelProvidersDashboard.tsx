@@ -11,7 +11,7 @@ import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import { relative } from '@/components/RuntimeDetailPanel'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
-import { PlusIcon } from '@/components/icons'
+import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import {
     MODEL_PROVIDERS_DASHBOARD_VIEW_KEY,
     readDashboardView,
@@ -70,7 +70,7 @@ const ModelProvidersDashboard: FC<{
     window: SpendWindow
     onWindowChange: (next: SpendWindow) => void
     onSelect: (id: string) => void
-    onNewProvider: () => void
+    createOptions: readonly CreateMenuOption[]
 }> = ({
     providers,
     report,
@@ -78,7 +78,7 @@ const ModelProvidersDashboard: FC<{
     window: spendWindow,
     onWindowChange,
     onSelect,
-    onNewProvider
+    createOptions
 }): ReactNode => {
     const { t } = useI18n()
     const [view, setView] = useState<DashboardView>(() =>
@@ -286,14 +286,12 @@ const ModelProvidersDashboard: FC<{
                         })}
                     </span>
                 )}
-                <button
-                    type='button'
-                    onClick={onNewProvider}
-                    className='workbench-button-secondary h-8 gap-1.5 px-3'
-                >
-                    <PlusIcon className='h-3.5 w-3.5' />
-                    {t('web.modelProviders.newProviderButton')}
-                </button>
+                <CreateMenu
+                    options={createOptions}
+                    variant='inline'
+                    triggerLabel={t('web.modelProviders.newProviderButton')}
+                    sheetTitle={t('web.modelProviders.newProvider')}
+                />
             </div>
             {rows.length === 0 ? (
                 <EmptyState
@@ -301,10 +299,6 @@ const ModelProvidersDashboard: FC<{
                     tier='stack'
                     title={t('web.modelProviders.emptyTitle')}
                     body={t('web.modelProviders.emptyBody')}
-                    action={{
-                        label: t('web.modelProviders.newProvider'),
-                        onClick: onNewProvider
-                    }}
                 />
             ) : view === 'grid' ? (
                 <div className='grid gap-3 sm:grid-cols-2'>

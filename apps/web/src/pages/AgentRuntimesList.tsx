@@ -24,6 +24,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import Breadcrumb, { type BreadcrumbItem } from '@/components/Breadcrumb'
 import EmptyState from '@/components/EmptyState'
+import { CreateMenu } from '@/components/CreateMenu'
 import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -58,7 +59,6 @@ import {
     ListViewIcon,
     LocalDaemonIcon,
     type LucideIcon,
-    PlusIcon,
     ZapIcon
 } from '@/components/icons'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
@@ -109,8 +109,7 @@ type RuntimePageSegment = keyof typeof RUNTIME_PAGES
 
 const isRuntimePage = (
     value: string | undefined
-): value is RuntimePageSegment =>
-    value !== undefined && value in RUNTIME_PAGES
+): value is RuntimePageSegment => value !== undefined && value in RUNTIME_PAGES
 
 const KIND_ORDER: RuntimeKind[] = ['sprites', 'k8s', 'daemon', 'external']
 
@@ -2044,120 +2043,28 @@ const HostDetailPanel: FC<{
     )
 }
 
-// Quick create menu (desktop anchored panel + mobile bottom sheet, same
-// pattern as GroupByControl) — one line per destination, no modal round trip.
+// The rail's two create affordances, both driven by NEW_RUNTIME_OPTIONS so
+// destinations and gating cannot drift between them.
 const NewRuntimeMenu: FC<{
     cloudComputerEnabled: boolean
     variant: 'header' | 'footer'
 }> = ({ cloudComputerEnabled, variant }): ReactNode => {
     const { t } = useI18n()
-    const [open, setOpen] = useState(false)
-    const rootRef = useRef<HTMLDivElement | null>(null)
-
-    useEffect(() => {
-        if (!open) return
-        const handlePointerDown = (event: PointerEvent): void => {
-            if (!rootRef.current?.contains(event.target as Node))
-                setOpen(false)
-        }
-        const handleKeyDown = (event: KeyboardEvent): void => {
-            if (event.key === 'Escape') setOpen(false)
-        }
-        document.addEventListener('pointerdown', handlePointerDown)
-        document.addEventListener('keydown', handleKeyDown)
-        return () => {
-            document.removeEventListener('pointerdown', handlePointerDown)
-            document.removeEventListener('keydown', handleKeyDown)
-        }
-    }, [open])
-
     const options = NEW_RUNTIME_OPTIONS.filter(
         (option) => !option.requiresCloudComputer || cloudComputerEnabled
-    )
-    const item = (
-        option: (typeof options)[number],
-        mobile: boolean
-    ): ReactNode => {
-        const Icon = option.icon
-        return (
-            <Link
-                key={option.to}
-                to={option.to}
-                onClick={() => setOpen(false)}
-                className={
-                    mobile
-                        ? 'text-body active:bg-soft flex w-full items-center gap-3 rounded-md px-3 py-3 text-left'
-                        : 'text-ui hover:bg-soft flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left'
-                }
-            >
-                <Icon
-                    className={
-                        mobile
-                            ? 'text-muted h-5 w-5 shrink-0'
-                            : 'text-muted h-4 w-4 shrink-0'
-                    }
-                />
-                <span className='min-w-0 flex-1 truncate'>
-                    {t(option.labelKey)}
-                </span>
-            </Link>
-        )
-    }
-
+    ).map((option) => ({
+        key: option.to,
+        icon: option.icon,
+        label: t(option.labelKey),
+        to: option.to
+    }))
     return (
-        <div ref={rootRef} className='relative'>
-            {variant === 'header' ? (
-                <button
-                    type='button'
-                    onClick={() => setOpen((prev) => !prev)}
-                    aria-haspopup='menu'
-                    aria-expanded={open}
-                    aria-label={t('web.agentRuntimesList.newRuntimeButton')}
-                    className='text-muted hover:text-fg hover:bg-rail-hover flex h-7 w-7 items-center justify-center rounded-full transition-colors'
-                >
-                    <PlusIcon className='h-4 w-4' />
-                </button>
-            ) : (
-                <button
-                    type='button'
-                    onClick={() => setOpen((prev) => !prev)}
-                    aria-haspopup='menu'
-                    aria-expanded={open}
-                    className='workbench-button-primary h-9 w-full justify-center'
-                >
-                    {t('web.agentRuntimesList.newRuntimeButton')}
-                </button>
-            )}
-            {open && (
-                <>
-                    <div
-                        className={[
-                            'popover-panel bg-surface-elevated shadow-elevated absolute z-30 hidden rounded-md p-1 lg:block',
-                            variant === 'header'
-                                ? 'right-0 top-full mt-1 w-64'
-                                : 'bottom-full left-0 mb-1 w-full'
-                        ].join(' ')}
-                    >
-                        {options.map((option) => item(option, false))}
-                    </div>
-                    <div className='fixed inset-0 z-40 lg:hidden'>
-                        <button
-                            type='button'
-                            aria-label={t('web.cascade.close')}
-                            onClick={() => setOpen(false)}
-                            className='absolute inset-0 bg-black/40'
-                        />
-                        <div className='bg-surface-elevated shadow-elevated absolute inset-x-0 bottom-0 rounded-t-2xl p-2 pb-6'>
-                            <div className='bg-divider mx-auto mt-1 mb-2 h-1 w-9 rounded-full' />
-                            <div className='text-caption text-subtle px-3 py-1.5'>
-                                {t('web.agentRuntimesList.newRuntime')}
-                            </div>
-                            {options.map((option) => item(option, true))}
-                        </div>
-                    </div>
-                </>
-            )}
-        </div>
+        <CreateMenu
+            options={options}
+            variant={variant}
+            triggerLabel={t('web.agentRuntimesList.newRuntimeButton')}
+            sheetTitle={t('web.agentRuntimesList.newRuntime')}
+        />
     )
 }
 
@@ -2913,15 +2820,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     <Link
                         to={`/settings/runtimes/${DASHBOARD_SEGMENT}`}
                         aria-current={
-                            selection === null ||
-                            selection.kind === 'dashboard'
+                            selection === null || selection.kind === 'dashboard'
                                 ? 'page'
                                 : undefined
                         }
                         className={[
                             'text-ui flex items-center gap-2 rounded-sm px-2 py-2 font-medium transition-colors',
-                            selection === null ||
-                            selection.kind === 'dashboard'
+                            selection === null || selection.kind === 'dashboard'
                                 ? 'bg-active-session text-fg'
                                 : 'text-fg hover:bg-rail-hover'
                         ].join(' ')}

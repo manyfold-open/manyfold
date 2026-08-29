@@ -17,8 +17,8 @@ import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg'
 import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
 import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter.svg'
 import EmptyState from '@/components/EmptyState'
-import ProductDialog from '@/components/ProductDialog'
-import { useI18n } from '@/lib/i18n'
+import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
+import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
 import { DashboardIcon, PlusIcon } from '@/components/icons'
@@ -46,6 +46,26 @@ import ModelProviderFields, {
 } from '@/pages/Settings/ModelProviderFields'
 
 export const ALL_TAB_KEY = '__all'
+
+// The create menu's rows, shared by the rail header, the rail footer and the
+// dashboard so the three affordances cannot offer different providers.
+const newProviderOptions = (
+    t: TFn,
+    onPick: (next: Selection) => void
+): CreateMenuOption[] => [
+    ...BUILT_IN_PROVIDERS.map((entry) => ({
+        key: entry.id,
+        lead: <BuiltInLogo entry={entry} />,
+        label: entry.label,
+        onSelect: () => onPick({ kind: 'builtin', builtInId: entry.id })
+    })),
+    {
+        key: 'custom-new',
+        icon: PlusIcon,
+        label: t('web.modelProviders.customProvider'),
+        onSelect: () => onPick({ kind: 'custom-new' })
+    }
+]
 
 // Reserved path segment under model-providers/*. Provider selection lives in
 // a query param, so the path never carries an id to collide with.
@@ -119,7 +139,6 @@ const ModelProviders: FC = (): ReactNode => {
     const [error, setError] = useState<string | null>(null)
     const [selected, setSelected] = useState<Selection | null>(null)
     const [loaded, setLoaded] = useState(false)
-    const [newOpen, setNewOpen] = useState(false)
     // §10.8: the rail ghosts on the cold load so the "No providers yet"
     // first-use state never appears before we know it is true.
     const gate = useLoadingGate(!loaded)
@@ -241,7 +260,6 @@ const ModelProviders: FC = (): ReactNode => {
                 nonManagedRows={nonManagedRows}
                 selected={selected}
                 onSelect={selectAndPersist}
-                onNewProvider={() => setNewOpen(true)}
                 hasSelection={hasSelection}
                 loaded={loaded}
                 showLoading={gate.showLoading}
@@ -265,7 +283,10 @@ const ModelProviders: FC = (): ReactNode => {
                             onSelect={(id) =>
                                 selectAndPersist({ kind: 'configured', id })
                             }
-                            onNewProvider={() => setNewOpen(true)}
+                            createOptions={newProviderOptions(
+                                t,
+                                selectAndPersist
+                            )}
                         />
                     )}
                     {error && (
@@ -346,15 +367,6 @@ const ModelProviders: FC = (): ReactNode => {
                     </div>
                 </div>
             </main>
-            {newOpen && (
-                <NewProviderDialog
-                    onPick={(next) => {
-                        setNewOpen(false)
-                        selectAndPersist(next)
-                    }}
-                    onClose={() => setNewOpen(false)}
-                />
-            )}
         </div>
     )
 }
@@ -366,7 +378,6 @@ interface ProviderSidebarProps {
     nonManagedRows: UserModelProviderSummary[]
     selected: Selection | null
     onSelect: (next: Selection) => void
-    onNewProvider: () => void
     hasSelection: boolean
     loaded: boolean
     showLoading: boolean
@@ -395,12 +406,12 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
     nonManagedRows,
     selected,
     onSelect,
-    onNewProvider,
     hasSelection,
     loaded,
     showLoading
 }): ReactNode => {
     const { t } = useI18n()
+    const options = newProviderOptions(t, onSelect)
 
     const total = (hasManaged ? 1 : 0) + nonManagedRows.length
 
@@ -413,13 +424,21 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
             ].join(' ')}
         >
             <div className='shrink-0 space-y-2.5 p-3'>
-                <div className='flex items-center gap-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
-                        {t('web.settingsLayout.providers')}
-                    </h2>
-                    <span className='tag tag-neutral tabular-nums'>
-                        {total}
-                    </span>
+                <div className='flex items-center justify-between'>
+                    <div className='flex items-center gap-2'>
+                        <h2 className='text-h3 text-fg tracking-tight'>
+                            {t('web.settingsLayout.providers')}
+                        </h2>
+                        <span className='tag tag-neutral tabular-nums'>
+                            {total}
+                        </span>
+                    </div>
+                    <CreateMenu
+                        options={options}
+                        variant='header'
+                        triggerLabel={t('web.modelProviders.newProviderButton')}
+                        sheetTitle={t('web.modelProviders.newProvider')}
+                    />
                 </div>
                 <Link
                     to='/settings/model-providers/dashboard'
@@ -490,78 +509,14 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
             </div>
 
             <div className='shrink-0 p-2'>
-                <button
-                    type='button'
-                    onClick={onNewProvider}
-                    className='workbench-button-primary h-9 w-full justify-center'
-                >
-                    {t('web.modelProviders.newProviderButton')}
-                </button>
+                <CreateMenu
+                    options={options}
+                    variant='footer'
+                    triggerLabel={t('web.modelProviders.newProviderButton')}
+                    sheetTitle={t('web.modelProviders.newProvider')}
+                />
             </div>
         </aside>
-    )
-}
-
-const NewProviderDialog: FC<{
-    onPick: (next: Selection) => void
-    onClose: () => void
-}> = ({ onPick, onClose }): ReactNode => {
-    const { t } = useI18n()
-    return (
-        <ProductDialog
-            title={t('web.modelProviders.newProvider')}
-            description={t('web.modelProviders.newProviderDescription')}
-            size='md'
-            onClose={onClose}
-            bodyClassName='pb-5'
-        >
-            <div className='grid gap-2 sm:grid-cols-2'>
-                {BUILT_IN_PROVIDERS.map((entry) => (
-                    <button
-                        key={entry.id}
-                        type='button'
-                        onClick={() =>
-                            onPick({ kind: 'builtin', builtInId: entry.id })
-                        }
-                        className='shadow-ring-light bg-surface hover:bg-surface-hover flex w-full items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors'
-                    >
-                        <span className='flex h-5 w-5 shrink-0 items-center justify-center pt-0.5'>
-                            <BuiltInLogo entry={entry} />
-                        </span>
-                        <span className='min-w-0'>
-                            <span className='text-ui text-fg block font-medium'>
-                                {entry.label}
-                            </span>
-                            <span className='text-caption text-subtle block'>
-                                {entry.protocols
-                                    .map(
-                                        (p) =>
-                                            inferenceProtocolLabel[p.protocol]
-                                    )
-                                    .join(' · ')}
-                            </span>
-                        </span>
-                    </button>
-                ))}
-                <button
-                    type='button'
-                    onClick={() => onPick({ kind: 'custom-new' })}
-                    className='shadow-ring-light bg-surface hover:bg-surface-hover flex w-full items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors'
-                >
-                    <span className='flex h-5 w-5 shrink-0 items-center justify-center pt-0.5'>
-                        <PlusIcon className='text-subtle h-4 w-4' />
-                    </span>
-                    <span className='min-w-0'>
-                        <span className='text-ui text-fg block font-medium'>
-                            {t('web.modelProviders.customProvider')}
-                        </span>
-                        <span className='text-caption text-subtle block'>
-                            {t('web.modelProviders.customProviderDescription')}
-                        </span>
-                    </span>
-                </button>
-            </div>
-        </ProductDialog>
     )
 }
 

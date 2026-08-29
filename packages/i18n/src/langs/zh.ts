@@ -3890,14 +3890,11 @@ const zh: Translations = {
             searchPricing: '搜索两张表…',
             useAutomatic: '使用自动匹配',
             newProvider: '新建模型 Provider',
-            newProviderDescription:
-                '内置 Provider 可以添加多次，例如为不同账户分别保存密钥。',
             managed: 'Manyfold 托管',
             emptyTitle: '还没有模型 Provider',
             emptyBody: '添加一个带 API 密钥的内置 Provider，或配置自定义端点。',
             noProviders: '还没有 Provider。',
             customProvider: '自定义 Provider',
-            customProviderDescription: '任意兼容 OpenAI / Anthropic 的端点',
             connectNetmind: '连接 NetMind 账户',
             netmindHint:
                 '使用 NetMind 账户登录，我们会为你创建 Manyfold API 密钥，模型用量计入 NetMind 余额。',

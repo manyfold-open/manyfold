@@ -4095,16 +4095,12 @@ const en = {
             searchPricing: 'search both tables…',
             useAutomatic: 'Use automatic match',
             newProvider: 'New model provider',
-            newProviderDescription:
-                'Built-in providers can be added more than once — e.g. separate keys for different accounts.',
             managed: 'Manyfold managed',
             emptyTitle: 'No model providers yet',
             emptyBody:
                 'Add a built-in provider with your API key, or configure a custom endpoint.',
             noProviders: 'No providers yet.',
             customProvider: 'Custom provider',
-            customProviderDescription:
-                'Any OpenAI / Anthropic-compatible endpoint',
             connectNetmind: 'Connect with NetMind account',
             netmindHint:
                 'Sign in with your NetMind account and we create a Manyfold API key there for you — model usage bills your NetMind balance.',
