@@ -585,6 +585,26 @@ export interface ChannelDetail extends ChannelSummary {
     recentDeliveries: ChannelDeliverySummary[]
 }
 
+// Counts come from channel_deliveries, which is pruned, so they only ever
+// cover a window. The stamps come from channel_sessions, which is never
+// pruned — a channel can therefore show zero messages in the window and
+// still have a last message time.
+export interface ChannelActivityRow {
+    channelId: string
+    inboundCount: number
+    outboundCount: number
+    lastInboundAt: string | null
+    lastOutboundAt: string | null
+}
+
+export interface ChannelActivityReport {
+    // The window the counts ACTUALLY cover — clamped to delivery retention, so
+    // a deployment that keeps 7 days never gets a count labelled 30 days.
+    windowDays: number
+    since: string
+    rows: ChannelActivityRow[]
+}
+
 export interface CreateChannelBody {
     agentId: string
     provider: ChannelProviderName

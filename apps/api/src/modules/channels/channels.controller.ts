@@ -1,4 +1,5 @@
 import type {
+    ChannelActivityReport,
     ChannelDeliverySummary,
     ChannelDetail,
     ChannelScopeSummary,
@@ -74,6 +75,23 @@ export class ChannelsController {
     list(@CurrentUser() user: AuthPrincipal): Promise<ChannelSummary[]> {
         this.assertEnabled()
         return this.channels.list(user.userId, {
+            boundAgentId: boundAgentIdFromUser(user)
+        })
+    }
+
+    // MUST stay above @Get(':id') — Nest matches in declaration order, so a
+    // later position would make this route unreachable behind the id param.
+    @Get('activity')
+    @RequireApiTokenScope('channels:read')
+    @ListFilteredByBoundAgent()
+    activity(
+        @CurrentUser() user: AuthPrincipal,
+        @Query('windowDays') windowDays?: string
+    ): Promise<ChannelActivityReport> {
+        this.assertEnabled()
+        return this.channels.activity(user.userId, {
+            windowDays:
+                windowDays === undefined ? undefined : Number(windowDays),
             boundAgentId: boundAgentIdFromUser(user)
         })
     }

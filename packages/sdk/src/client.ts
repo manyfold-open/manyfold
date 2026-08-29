@@ -52,6 +52,7 @@ import type {
     AutomationDetail,
     AutomationRunSummary,
     AutomationSummary,
+    ChannelActivityReport,
     ChannelDeliverySummary,
     ChannelDetail,
     ChannelScopeSummary,
@@ -270,6 +271,7 @@ import type {
     UpsertK8sClusterBody,
     UserExternalAgentProviderSummary,
     UserModelProviderSummary,
+    UserModelProviderUsageReport,
     UserRole,
     ConfigurableFramework,
     CreateFrameworkEnumBody,
@@ -619,6 +621,10 @@ export interface ApiTokensClient {
 
 export interface ModelProvidersClient {
     list: () => Promise<UserModelProviderSummary[]>
+    usage: (opts?: {
+        from?: string
+        to?: string
+    }) => Promise<UserModelProviderUsageReport>
     create: (
         body: CreateUserModelProviderBody
     ) => Promise<UserModelProviderSummary>
@@ -848,6 +854,7 @@ export interface ChannelsClient {
         id: string,
         opts?: { limit?: number }
     ) => Promise<ChannelDeliverySummary[]>
+    activity: (opts?: { windowDays?: number }) => Promise<ChannelActivityReport>
     slackManifest: (id: string) => Promise<Record<string, unknown>>
     githubAppManifest: (
         id: string,
@@ -2462,6 +2469,15 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<UserModelProviderSummary[]>(
                     apiPaths.ME_MODEL_PROVIDERS
                 ),
+            usage: (opts) => {
+                const q = new URLSearchParams()
+                if (opts?.from) q.set('from', opts.from)
+                if (opts?.to) q.set('to', opts.to)
+                const query = q.toString()
+                return request<UserModelProviderUsageReport>(
+                    `${apiPaths.ME_MODEL_PROVIDERS_USAGE}${query ? `?${query}` : ''}`
+                )
+            },
             create: (body) =>
                 request<UserModelProviderSummary>(apiPaths.ME_MODEL_PROVIDERS, {
                     method: 'POST',
@@ -3029,6 +3045,15 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 const query = q.toString()
                 return request<ChannelDeliverySummary[]>(
                     `${apiPaths.CHANNEL_DELIVERIES(id)}${query ? `?${query}` : ''}`
+                )
+            },
+            activity: (opts) => {
+                const q = new URLSearchParams()
+                if (opts?.windowDays)
+                    q.set('windowDays', String(opts.windowDays))
+                const query = q.toString()
+                return request<ChannelActivityReport>(
+                    `${apiPaths.CHANNELS_ACTIVITY}${query ? `?${query}` : ''}`
                 )
             },
             slackManifest: (id) =>

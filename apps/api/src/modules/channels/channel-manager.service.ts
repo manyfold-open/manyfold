@@ -90,6 +90,15 @@ export class ChannelManagerService implements OnModuleInit, OnModuleDestroy {
         return this.enabled
     }
 
+    // The activity report clamps its window to this: counting over a window
+    // longer than retention would label a partial count with the full span.
+    // null means pruning is disabled, so no clamp applies.
+    deliveryRetentionDays(): number | null {
+        return this.deliveryRetentionMs === null
+            ? null
+            : Math.floor(this.deliveryRetentionMs / 86_400_000)
+    }
+
     onModuleInit(): void {
         if (!this.enabled) {
             this.logger.log('channels disabled by CHANNELS_ENABLED=false')

@@ -135,6 +135,7 @@ export const apiPaths = {
     AUTOMATION_BY_ID: (id: string) => `/automations/${id}`,
     AUTOMATION_RUN: (id: string) => `/automations/${id}/run`,
     CHANNELS: '/channels',
+    CHANNELS_ACTIVITY: '/channels/activity',
     CHANNEL_LARK_REGISTRATIONS: '/channels/lark-registrations',
     CHANNEL_LARK_REGISTRATION_BY_ID: (id: string) =>
         `/channels/lark-registrations/${id}`,
@@ -366,6 +367,7 @@ export const apiPaths = {
     A2A_AGENT_CARD: (agentId: string) =>
         `/a2a/agents/${agentId}/agent-card.json`,
     ME_MODEL_PROVIDERS_BUILT_IN: '/me/model-providers/built-in',
+    ME_MODEL_PROVIDERS_USAGE: '/me/model-providers/usage',
     ME_MODEL_PROVIDERS_NETMIND: '/me/model-providers/netmind',
     ME_MODEL_PROVIDER_BY_ID: (id: string) => `/me/model-providers/${id}`,
     ME_MODEL_PROVIDER_REVEAL: (id: string) =>
