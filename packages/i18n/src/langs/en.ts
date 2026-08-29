@@ -4103,12 +4103,7 @@ const en = {
             emptyTitle: 'No model providers yet',
             emptyBody:
                 'Add a built-in provider with your API key, or configure a custom endpoint.',
-            searchPlaceholder: 'Search providers…',
-            searchAria: 'Search providers',
-            clearSearch: 'Clear search',
-            noMatches: 'No matches.',
             noProviders: 'No providers yet.',
-            yourProviders: 'Your providers',
             customProvider: 'Custom provider',
             customProviderDescription:
                 'Any OpenAI / Anthropic-compatible endpoint',

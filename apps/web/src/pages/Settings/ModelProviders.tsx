@@ -20,13 +20,12 @@ import ProductDialog from '@/components/ProductDialog'
 import { useI18n } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
-import { CloseIcon, PlusIcon, SearchIcon } from '@/components/icons'
+import { PlusIcon } from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
 import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { NetmindMark } from '@/lib/brandMarks'
-import { GroupHeader, Highlight } from '@/lib/cascade'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 import {
@@ -330,7 +329,7 @@ interface ProviderSidebarProps {
 
 export const providerLeafClass = (selected: boolean, muted: boolean): string =>
     [
-        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 pl-8 text-left transition-colors',
+        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 pl-2 text-left transition-colors',
         selected
             ? 'bg-active-session'
             : muted
@@ -357,39 +356,8 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
     showLoading
 }): ReactNode => {
     const { t } = useI18n()
-    const [query, setQuery] = useState('')
-    const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-    const q = query.trim().toLowerCase()
-
-    const rowMatches = (row: UserModelProviderSummary): boolean => {
-        if (!q) return true
-        const builtInLabel = row.builtInId
-            ? (lookupBuiltIn(row.builtInId)?.label ?? '')
-            : ''
-        const protocol = row.inferenceProtocol
-            ? inferenceProtocolLabel[row.inferenceProtocol]
-            : 'custom'
-        return `${row.providerName} ${builtInLabel} ${protocol}`
-            .toLowerCase()
-            .includes(q)
-    }
-
-    const managedVisible = hasManaged && (!q || 'managed'.includes(q))
-    const configured = nonManagedRows.filter(rowMatches)
 
     const total = (hasManaged ? 1 : 0) + nonManagedRows.length
-    const yourCount = (managedVisible ? 1 : 0) + configured.length
-    const hasYours = managedVisible || configured.length > 0
-    const nothing = !hasYours
-
-    const isOpen = (key: string): boolean => q !== '' || !collapsed.has(key)
-    const toggle = (key: string): void =>
-        setCollapsed((prev) => {
-            const next = new Set(prev)
-            if (next.has(key)) next.delete(key)
-            else next.add(key)
-            return next
-        })
 
     return (
         <aside
@@ -407,27 +375,6 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                     <span className='tag tag-neutral tabular-nums'>
                         {total}
                     </span>
-                </div>
-                <div className='relative'>
-                    <SearchIcon className='text-subtle pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2' />
-                    <input
-                        type='text'
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={t('web.modelProviders.searchPlaceholder')}
-                        aria-label={t('web.modelProviders.searchAria')}
-                        className='text-ui bg-surface text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-subtle focus-visible:shadow-focus h-9 w-full rounded-sm pl-9 pr-8 transition-shadow focus:outline-none'
-                    />
-                    {query && (
-                        <button
-                            type='button'
-                            onClick={() => setQuery('')}
-                            aria-label={t('web.modelProviders.clearSearch')}
-                            className='text-subtle hover:text-fg hover:bg-rail-hover absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full transition-colors'
-                        >
-                            <CloseIcon className='h-4 w-4' />
-                        </button>
-                    )}
                 </div>
             </div>
 
@@ -450,64 +397,36 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                             </div>
                         ))}
                     </div>
-                ) : !loaded ? null : nothing ? (
+                ) : !loaded ? null : total === 0 ? (
                     <div className='text-caption text-subtle px-3 py-4'>
-                        {q
-                            ? t('web.modelProviders.noMatches')
-                            : t('web.modelProviders.noProviders')}
+                        {t('web.modelProviders.noProviders')}
                     </div>
                 ) : (
                     <>
-                        {hasYours && (
-                            <div>
-                                <GroupHeader
-                                    label={t(
-                                        'web.modelProviders.yourProviders'
-                                    )}
-                                    count={yourCount}
-                                    open={isOpen('active')}
-                                    health={null}
-                                    onToggle={() => toggle('active')}
-                                />
-                                {isOpen('active') && (
-                                    <>
-                                        {managedVisible && (
-                                            <SidebarManagedRow
-                                                rows={managedRows}
-                                                state={managedState}
-                                                q={q}
-                                                selected={
-                                                    selected?.kind === 'managed'
-                                                }
-                                                onClick={() =>
-                                                    onSelect({
-                                                        kind: 'managed'
-                                                    })
-                                                }
-                                            />
-                                        )}
-                                        {configured.map((row) => (
-                                            <SidebarRow
-                                                key={row.id}
-                                                row={row}
-                                                q={q}
-                                                selected={
-                                                    selected?.kind ===
-                                                        'configured' &&
-                                                    selected.id === row.id
-                                                }
-                                                onClick={() =>
-                                                    onSelect({
-                                                        kind: 'configured',
-                                                        id: row.id
-                                                    })
-                                                }
-                                            />
-                                        ))}
-                                    </>
-                                )}
-                            </div>
+                        {hasManaged && (
+                            <SidebarManagedRow
+                                rows={managedRows}
+                                state={managedState}
+                                selected={selected?.kind === 'managed'}
+                                onClick={() => onSelect({ kind: 'managed' })}
+                            />
                         )}
+                        {nonManagedRows.map((row) => (
+                            <SidebarRow
+                                key={row.id}
+                                row={row}
+                                selected={
+                                    selected?.kind === 'configured' &&
+                                    selected.id === row.id
+                                }
+                                onClick={() =>
+                                    onSelect({
+                                        kind: 'configured',
+                                        id: row.id
+                                    })
+                                }
+                            />
+                        ))}
                     </>
                 )}
             </div>
@@ -590,10 +509,9 @@ const NewProviderDialog: FC<{
 
 const SidebarRow: FC<{
     row: UserModelProviderSummary
-    q: string
     selected: boolean
     onClick: () => void
-}> = ({ row, q, selected, onClick }): ReactNode => {
+}> = ({ row, selected, onClick }): ReactNode => {
     const { t } = useI18n()
     const builtInEntry = row.builtInId ? lookupBuiltIn(row.builtInId) : null
     const counts = totalModelCounts(row)
@@ -623,7 +541,7 @@ const SidebarRow: FC<{
             </span>
             <span className='min-w-0 flex-1'>
                 <span className='text-ui text-fg block truncate'>
-                    <Highlight text={row.providerName} q={q} />
+                    {row.providerName}
                 </span>
                 <span className='text-caption text-subtle block truncate'>
                     {protocol}
