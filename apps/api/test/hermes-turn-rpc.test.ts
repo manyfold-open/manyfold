@@ -424,3 +424,124 @@ const adapterAsAny = (
         a: unknown
     ) => AsyncIterable<EmittedChatEvent>
 } => adapter as never
+
+// PR: tool outputs + context usage over the runner transport.
+test('tool_call_update becomes tool_result in its own ordinal namespace', async () => {
+    const toolResultLine = (
+        toolCallId: string,
+        status: string,
+        rawOutput: string
+    ): string =>
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+                update: {
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId,
+                    status,
+                    rawOutput
+                }
+            }
+        })}\n`
+    const usageUpdateLine = (used: number): string =>
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+                update: { sessionUpdate: 'usage_update', size: 256000, used }
+            }
+        })}\n`
+    const h = buildHarness({
+        lines: [
+            noteLine('a'),
+            toolCallLine('call-1', 'Bash'),
+            usageUpdateLine(1000),
+            // interleaved between legacy events on purpose: it must NOT shift
+            // their hermes-acp-<n> numbering, or a cross-deploy resume re-keys
+            // rows the old decoder already wrote and dedup stops matching.
+            toolResultLine('call-1', 'completed', 'total 4'),
+            noteLine('b'),
+            toolResultLine('call-1', 'in_progress', 'not yet'),
+            usageUpdateLine(2000)
+        ],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/home/sprite/ws'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+
+    const results = events.filter((e) => e.type === 'tool_result') as Array<{
+        toolCallId: string
+        result: unknown
+    }>
+    assert.deepEqual(
+        results.map((r) => [r.toolCallId, r.result]),
+        [['call-1', 'total 4']]
+    )
+
+    const sourceIds = events
+        .filter((e) => e.type === 'raw_source')
+        .map(
+            (e) =>
+                (e as { source: { externalId: string | null } }).source
+                    .externalId
+        )
+    // legacy kinds keep the head-counted hermes-acp-<n> ordinals; the new kind
+    // counts in hermes-acp-x-<m>
+    assert.deepEqual(sourceIds, [
+        'hermes-acp-1',
+        'hermes-acp-2',
+        'hermes-acp-x-1',
+        'hermes-acp-3'
+    ])
+
+    // the LAST context pressure wins and it must precede the terminal, as
+    // metadata input — never as billing
+    const contextIdx = events.findIndex((e) => e.type === 'context_usage')
+    const doneIdx = events.findIndex((e) => e.type === 'done')
+    assert.ok(contextIdx !== -1, 'context_usage must be emitted')
+    assert.ok(contextIdx < doneIdx, 'context_usage precedes done')
+    assert.deepEqual(
+        (events[contextIdx] as { context: unknown }).context,
+        { size: 256000, used: 2000 }
+    )
+})
+
+// Seen on hermes-agent 0.20.6 [2026-08-29]: the acp 0.9.0 prompt ack spells
+// the cache fields cachedReadTokens/cachedWriteTokens (with the d); the
+// d-less aliases never matched and cache tokens fell out of billing.
+test('ack usage decodes the cachedReadTokens spelling', async () => {
+    const h = buildHarness({
+        lines: [noteLine('ok'), turnEndLine()],
+        result: {
+            ok: {
+                stopReason: 'end_turn',
+                sessionId: 'sess_new',
+                result: {
+                    usage: {
+                        inputTokens: 100,
+                        outputTokens: 20,
+                        totalTokens: 184,
+                        cachedReadTokens: 64
+                    }
+                }
+            }
+        }
+    })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/home/sprite/ws'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+    const usage = events.find((e) => e.type === 'usage') as
+        | { usage: { inputTokens: number; cacheReadTokens: number } }
+        | undefined
+    assert.ok(usage, 'usage event expected')
+    assert.equal(usage.usage.inputTokens, 100)
+    assert.equal(usage.usage.cacheReadTokens, 64)
+})

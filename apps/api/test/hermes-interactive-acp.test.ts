@@ -433,3 +433,61 @@ test('a turn cancelled before dispatch never spawns the child', async () => {
     assert.equal(last.type, 'error')
     assert.equal(last.error.code, 'hermes_aborted')
 })
+
+// PR: tool outputs + context usage over the interactive transport — the same
+// decode rules the runner drain has, proven against this path's own queue.
+test('interactive turns emit tool_result in the x namespace and context usage as metadata input', async () => {
+    const rig = buildRig()
+    script(rig, {
+        answer: () => {
+            rig.note({ sessionUpdate: 'usage_update', size: 256000, used: 900 })
+            rig.note({
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: 'running' }
+            })
+            rig.note({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tc-1',
+                title: 'write: a.txt',
+                rawInput: { path: 'a.txt' }
+            })
+            rig.note({
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'tc-1',
+                status: 'completed',
+                rawOutput: 'wrote a.txt'
+            })
+            rig.note({ sessionUpdate: 'usage_update', size: 256000, used: 1800 })
+        }
+    })
+    const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+
+    const toolResult = events.find((e) => e.type === 'tool_result') as
+        | { toolCallId: string; result: unknown }
+        | undefined
+    assert.ok(toolResult, 'tool_result expected')
+    assert.equal(toolResult.toolCallId, 'tc-1')
+    assert.equal(toolResult.result, 'wrote a.txt')
+
+    const sourceIds = events
+        .filter((e) => e.type === 'raw_source')
+        .map(
+            (e) =>
+                (e as { source: { externalId: string | null } }).source
+                    .externalId
+        )
+    assert.deepEqual(sourceIds, [
+        'hermes-acp-1',
+        'hermes-acp-2',
+        'hermes-acp-x-1'
+    ])
+
+    const contextIdx = events.findIndex((e) => e.type === 'context_usage')
+    const doneIdx = events.findIndex((e) => e.type === 'done')
+    assert.ok(contextIdx !== -1, 'context_usage must be emitted')
+    assert.ok(contextIdx < doneIdx, 'context_usage precedes done')
+    assert.deepEqual(
+        (events[contextIdx] as { context: unknown }).context,
+        { size: 256000, used: 1800 }
+    )
+})

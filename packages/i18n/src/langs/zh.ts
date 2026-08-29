@@ -2388,6 +2388,8 @@ const zh: Translations = {
             latencyTotal: '总耗时 {{seconds}}s',
             model: '模型',
             time: '时间',
+            contextUsage: '上下文',
+            contextUsageValue: '{{used}} / {{size}}（{{percent}}%）',
             copyText: '复制文本',
             copiedText: '已复制文本',
             copyMarkdown: '复制 markdown',

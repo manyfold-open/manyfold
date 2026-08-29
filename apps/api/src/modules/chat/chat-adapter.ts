@@ -158,6 +158,13 @@ export type EmittedReplaceEvent = {
     reason: string
 }
 export type EmittedUsageEvent = { type: 'usage'; usage: ChatUsage }
+// Context-window pressure ({used} of {size} tokens), not billing. Adapter-
+// internal: runAdapter folds the last one into the message metadata instead
+// of persisting it as a stream event.
+export type EmittedContextUsageEvent = {
+    type: 'context_usage'
+    context: { size: number; used: number }
+}
 export type { ManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 export type EmittedErrorEvent = {
     type: 'error'
@@ -201,6 +208,7 @@ export type EmittedChatEvent =
     | EmittedThinkingEvent
     | EmittedReplaceEvent
     | EmittedUsageEvent
+    | EmittedContextUsageEvent
     | EmittedErrorEvent
     | EmittedDoneEvent
     | EmittedRawSourceEvent

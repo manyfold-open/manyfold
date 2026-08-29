@@ -1467,6 +1467,8 @@ const ja: Record<string, string> = {
     'web.chatStream.latencyTotal': '合計 {{seconds}} 秒',
     'web.chatStream.model': 'モデル',
     'web.chatStream.time': '時間',
+    'web.chatStream.contextUsage': 'コンテキスト',
+    'web.chatStream.contextUsageValue': '{{used}} / {{size}} ({{percent}}%)',
     'web.chatStream.copyText': 'テキストをコピーする',
     'web.chatStream.copiedText': 'コピーされたテキスト',
     'web.chatStream.copyMarkdown': 'マークダウンテキストをコピーする',

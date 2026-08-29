@@ -14,6 +14,12 @@ export type AcpEvent =
           input: Record<string, unknown> | null
       }
     | {
+          type: 'tool_result'
+          toolCallId: string
+          status: 'completed' | 'failed'
+          result: string | null
+      }
+    | {
           type: 'usage_update'
           usage: Record<string, unknown>
       }
@@ -75,6 +81,51 @@ const PROTOCOL_VERSION = 1
 const ACP_DEFAULT_CMD = ['hermes', 'acp', '--accept-hooks']
 export const HERMES_ACP_CMD = ACP_DEFAULT_CMD
 
+// Pick the auto-approve answer from the request's OWN options. The previous
+// hardcoded 'approve_for_session' matches no option id current hermes builds
+// advertise, and an unknown id maps to DENY on both of its approval bridges —
+// so the headless auto-approve was silently rejecting every file edit.
+// Broadest grant first: with the ask suppressed, re-asking per call is noise.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: terminal-command asks offer
+// allow_once / allow_session / allow_always / deny / deny_always; edit asks
+// offer only allow_once / deny, and approval is the literal comparison
+// option_id == "allow_once".
+export const pickAutoApproveOptionId = (
+    params: Record<string, unknown> | undefined
+): string => {
+    const options = params?.['options']
+    if (Array.isArray(options)) {
+        const rows = options.filter(
+            (o): o is Record<string, unknown> => !!o && typeof o === 'object'
+        )
+        const byKind = (kind: string): string | null => {
+            for (const o of rows) {
+                if (o['kind'] === kind && typeof o['optionId'] === 'string')
+                    return o['optionId']
+            }
+            return null
+        }
+        const allowAny = (): string | null => {
+            for (const o of rows) {
+                const kind = o['kind']
+                if (
+                    typeof kind === 'string' &&
+                    kind.startsWith('allow') &&
+                    typeof o['optionId'] === 'string'
+                )
+                    return o['optionId']
+            }
+            return null
+        }
+        const picked =
+            byKind('allow_always') ?? byKind('allow_once') ?? allowAny()
+        if (picked) return picked
+    }
+    // No parseable options: keep the legacy id so builds that predate the
+    // options array behave as before.
+    return 'approve_for_session'
+}
+
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered
 // ACP stream is decoded by exactly this code rather than a second copy that can
 // drift. A resumed turn must produce the same events the live turn did, or
@@ -113,6 +164,22 @@ export const acpEventsFromNotification = (
                         data['input'] ??
                         data['parameters'] ??
                         null) as Record<string, unknown> | null
+                }
+            ]
+        }
+        case 'tool_call_update': {
+            const toolCallId = String(data['toolCallId'] ?? '')
+            const status = String(data['status'] ?? '')
+            // Only terminal statuses become tool results; pending/in_progress
+            // progress frames carry no outcome yet.
+            if (!toolCallId || (status !== 'completed' && status !== 'failed'))
+                return []
+            return [
+                {
+                    type: 'tool_result',
+                    toolCallId,
+                    status,
+                    result: extractToolResultText(data)
                 }
             ]
         }
@@ -319,7 +386,7 @@ export class HermesAcpTurn {
             response.result = {
                 outcome: {
                     outcome: 'selected',
-                    optionId: 'approve_for_session'
+                    optionId: pickAutoApproveOptionId(req.params)
                 }
             }
         } else {
@@ -564,6 +631,39 @@ const extractContentText = (data: Record<string, unknown>): string => {
     const c = content as Record<string, unknown>
     const text = c['text']
     return typeof text === 'string' ? text : ''
+}
+
+// A tool_call_update carries its outcome twice: `rawOutput` (the verbatim
+// tool result, omitted for tools hermes renders itself) and `content[]`
+// blocks. Prefer rawOutput; fall back to the blocks' text. Diff blocks (file
+// edits) reduce to the touched path — the new file body is already in the
+// tool_call's input.
+// Measured on hermes-agent 0.20.6 [2026-08-29]: content items are
+// {type:'content', content:{type:'text', text}} and {type:'diff', path,
+// newText}; rawOutput is a plain string when present.
+const extractToolResultText = (
+    data: Record<string, unknown>
+): string | null => {
+    const raw = data['rawOutput']
+    if (typeof raw === 'string' && raw.length > 0) return raw
+    const content = data['content']
+    if (!Array.isArray(content)) return null
+    const parts: string[] = []
+    for (const item of content) {
+        if (!item || typeof item !== 'object') continue
+        const rec = item as Record<string, unknown>
+        if (rec['type'] === 'content') {
+            const inner = rec['content']
+            if (inner && typeof inner === 'object') {
+                const text = (inner as Record<string, unknown>)['text']
+                if (typeof text === 'string' && text) parts.push(text)
+            }
+        } else if (rec['type'] === 'diff') {
+            const path = rec['path']
+            if (typeof path === 'string' && path) parts.push(`edited ${path}`)
+        }
+    }
+    return parts.length > 0 ? parts.join('\n') : null
 }
 
 // Find the most informative stderr line — hermes writes a mix of "✓ booted"

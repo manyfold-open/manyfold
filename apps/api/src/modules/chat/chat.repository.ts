@@ -37,6 +37,7 @@ import {
     chatSessions,
     chatSessionShares,
     chatStreamEvents,
+    jsonbMerge,
     runtimeHosts,
     turnExecutions,
     users,
@@ -411,6 +412,38 @@ export class ChatRepository {
             .update(chatSessions)
             .set({ frameworkSessionRef: ref, updatedAt: new Date() })
             .where(eq(chatSessions.id, sessionId))
+    }
+
+    // Shallow-merges a patch into the message's capability metadata (the jsonb
+    // that already carries {model}). jsonbMerge runs against the LIVE row in
+    // SQL, so it cannot resurrect fields a concurrent writer just set.
+    async mergeMessageMetadata(
+        messageId: string,
+        sessionId: string,
+        patch: Record<string, unknown>,
+        fence?: TurnExecutionFence
+    ): Promise<void> {
+        const merged = sanitizeForJsonb(patch) as Record<string, unknown>
+        const apply = async (tx: Database | DatabaseTx): Promise<void> => {
+            await tx
+                .update(chatMessages)
+                .set({
+                    capabilityEventsJson: jsonbMerge(
+                        chatMessages.capabilityEventsJson,
+                        merged
+                    )
+                })
+                .where(eq(chatMessages.id, messageId))
+        }
+        if (fence) {
+            await this.db.transaction(async (tx) => {
+                if (!(await lockTurnSessionFence(tx, fence, sessionId)))
+                    throw new TurnFenceLostError(fence.messageId)
+                await apply(tx)
+            })
+            return
+        }
+        await apply(this.db)
     }
 
     // Drop a resume ref a framework can no longer load, but only while it is

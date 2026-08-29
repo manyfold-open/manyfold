@@ -59,6 +59,22 @@ export const modelFromMessageMetadata = (
     return normalizeMessageModel((metadata as { model?: unknown }).model)
 }
 
+export const contextUsageFromMessageMetadata = (
+    row: DbChatMessage
+): { size: number; used: number } | null => {
+    const metadata = row.capabilityEventsJson
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata))
+        return null
+    const raw = (metadata as { contextUsage?: unknown }).contextUsage
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+    const size = (raw as { size?: unknown }).size
+    const used = (raw as { used?: unknown }).used
+    if (typeof size !== 'number' || typeof used !== 'number') return null
+    if (!Number.isFinite(size) || !Number.isFinite(used) || size <= 0)
+        return null
+    return { size, used: Math.max(0, used) }
+}
+
 export const normalizeMessageModel = (value: unknown): string | null => {
     if (typeof value !== 'string') return null
     const trimmed = value.trim()

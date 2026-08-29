@@ -2455,6 +2455,8 @@ const en = {
             latencyTotal: 'total {{seconds}}s',
             model: 'model',
             time: 'time',
+            contextUsage: 'context',
+            contextUsageValue: '{{used}} / {{size}} ({{percent}}%)',
             copyText: 'Copy text',
             copiedText: 'Copied text',
             copyMarkdown: 'Copy markdown text',

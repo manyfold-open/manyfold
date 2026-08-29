@@ -78,12 +78,21 @@ const acpEventToChatEvents = (
     // forced claude to block-level output came from the BROADCASTER merging
     // rows, while exec.resume replays byte-identical stdout — so the Nth ACP
     // event is the same event in both runs.
+    //
+    // tool_result lives in its own `-x-` ordinal namespace with its own
+    // counter: the legacy kinds' numbering (and therefore their
+    // sourceEventKeys) must not shift when a decoder deploy starts emitting
+    // new kinds mid-turn, or a cross-deploy resume re-keys rows it already
+    // wrote and the dedup index stops matching them.
     const source: EmittedChatEvent = {
         type: 'raw_source',
         source: {
             sourceRef: null,
             sourceSeq,
-            externalId: `hermes-acp-${sourceSeq}`,
+            externalId:
+                ev.type === 'tool_result'
+                    ? `hermes-acp-x-${sourceSeq}`
+                    : `hermes-acp-${sourceSeq}`,
             parentExternalId: null,
             rawFormat: 'json',
             rawJson: ev as unknown as Record<string, unknown>,
@@ -106,9 +115,36 @@ const acpEventToChatEvents = (
                     args: ev.input ?? {}
                 }
             ]
+        case 'tool_result':
+            return [
+                source,
+                {
+                    type: 'tool_result',
+                    toolCallId: ev.toolCallId,
+                    // {error: …} is the shape the web's status derivation
+                    // already recognizes as a failure.
+                    result:
+                        ev.status === 'failed'
+                            ? { error: ev.result ?? 'tool failed' }
+                            : (ev.result ?? '')
+                }
+            ]
         default:
             return []
     }
+}
+
+// Hermes streams {size, used} context-window pressure as usage_update — not
+// billing tokens, so it must never reach the usage pipeline.
+const contextUsageFromUpdate = (
+    usage: Record<string, unknown>
+): { size: number; used: number } | null => {
+    const size = usage['size']
+    const used = usage['used']
+    if (typeof size !== 'number' || typeof used !== 'number') return null
+    if (!Number.isFinite(size) || !Number.isFinite(used) || size <= 0)
+        return null
+    return { size, used: Math.max(0, used) }
 }
 
 @Injectable()
@@ -468,7 +504,9 @@ export class HermesAdapter implements ApiChatAdapter {
 
         let lineBuf = ''
         let acpSeq = 0
+        let acpXSeq = 0
         let sawTurnEnd = false
+        let lastContextUsage: { size: number; used: number } | null = null
         // The stream carries the child's stdout verbatim: JSON-RPC, one frame
         // per line. Responses and agent requests decode to no events; only
         // session/update notifications become content.
@@ -489,6 +527,16 @@ export class HermesAdapter implements ApiChatAdapter {
                     }
                     for (const ev of acpEventsFromNotification(note)) {
                         if (ev.type === 'turn_end') sawTurnEnd = true
+                        if (ev.type === 'usage_update') {
+                            const cu = contextUsageFromUpdate(ev.usage)
+                            if (cu) lastContextUsage = cu
+                            continue
+                        }
+                        if (ev.type === 'tool_result') {
+                            acpXSeq += 1
+                            yield* acpEventToChatEvents(ev, acpXSeq)
+                            continue
+                        }
                         if (
                             ev.type !== 'text' &&
                             ev.type !== 'thinking' &&
@@ -593,6 +641,8 @@ export class HermesAdapter implements ApiChatAdapter {
             return
         }
         const rawResult = ackPayload?.['result']
+        if (lastContextUsage)
+            yield { type: 'context_usage', context: lastContextUsage }
         const usage = extractAcpUsage(
             rawResult && typeof rawResult === 'object'
                 ? (rawResult as Record<string, unknown>)
@@ -793,6 +843,10 @@ export class HermesAdapter implements ApiChatAdapter {
         // them, and a replay would have appended the whole answer a second
         // time.
         const acpSeq = { current: 0 }
+        const acpXSeq = { current: 0 }
+        const contextRef: {
+            current: { size: number; used: number } | null
+        } = { current: null }
         const drainQueue = function* (): IterableIterator<EmittedChatEvent> {
             while (queue.length > 0) {
                 const ev = queue.shift()!
@@ -806,9 +860,16 @@ export class HermesAdapter implements ApiChatAdapter {
                         yield* acpEventToChatEvents(ev, acpSeq.current)
                         break
                     }
-                    case 'usage_update':
-                        // pass through — final usage event handled at end
+                    case 'tool_result': {
+                        acpXSeq.current += 1
+                        yield* acpEventToChatEvents(ev, acpXSeq.current)
                         break
+                    }
+                    case 'usage_update': {
+                        const cu = contextUsageFromUpdate(ev.usage)
+                        if (cu) contextRef.current = cu
+                        break
+                    }
                     case 'turn_end':
                         break
                     case 'error': {
@@ -951,6 +1012,8 @@ export class HermesAdapter implements ApiChatAdapter {
                 )
         }
 
+        if (contextRef.current)
+            yield { type: 'context_usage', context: contextRef.current }
         const usage = extractAcpUsage(resultRef.current)
         if (usage) {
             yield {
@@ -1002,8 +1065,20 @@ const extractAcpUsage = (
     }
     const prompt = num('inputTokens', 'prompt_tokens')
     const completion = num('outputTokens', 'completion_tokens')
-    const cacheRead = num('cacheReadTokens', 'cache_read_input_tokens')
-    const cacheCreate = num('cacheWriteTokens', 'cache_creation_input_tokens')
+    // Seen on hermes-agent 0.20.6 [2026-08-29]: the acp 0.9.0 wire aliases
+    // are cachedReadTokens/cachedWriteTokens (with the d). The d-less pair
+    // never matched, so cache token counts were silently dropped from
+    // billing; kept for builds that predate the rename.
+    const cacheRead = num(
+        'cachedReadTokens',
+        'cacheReadTokens',
+        'cache_read_input_tokens'
+    )
+    const cacheCreate = num(
+        'cachedWriteTokens',
+        'cacheWriteTokens',
+        'cache_creation_input_tokens'
+    )
     if (
         prompt === undefined &&
         completion === undefined &&

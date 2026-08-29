@@ -1097,6 +1097,8 @@ const ar: Record<string, string> = {
     'web.chatStream.stalled': 'لا يوجد إخراج منذ فترة، وما زال الانتظار مستمرًا…',
     'web.chatStream.thinking': 'جارٍ التفكير…',
     'web.chatStream.time': 'الوقت',
+    'web.chatStream.contextUsage': 'السياق',
+    'web.chatStream.contextUsageValue': '{{used}} / {{size}} ({{percent}}%)',
     'web.chatStream.tokensIn': 'إدخال {{count}}',
     'web.chatStream.tokensNotReported': 'لم يتم الإبلاغ عن الرموز بواسطة هذا الوكيل',
     'web.chatStream.tokensOut': 'إخراج {{count}}',

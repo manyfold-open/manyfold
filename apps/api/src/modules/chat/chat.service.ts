@@ -71,6 +71,7 @@ import {
     decodeMessageCursor,
     encodeMessageCursor,
     modelFromMessageMetadata,
+    contextUsageFromMessageMetadata,
     normalizeMessageModel,
     normalizeMessagePageLimit
 } from '@/modules/chat/message-page'
@@ -4530,6 +4531,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let fenceLost = false
         let totalTokensIn = 0
         let totalTokensOut = 0
+        let latestContextUsage: { size: number; used: number } | null = null
         let currentSourceEventKey: string | null = null
         let currentSourceEventOrdinal = 0
         // Advances only on a NEW raw_source line — see runnerSeq on
@@ -4724,6 +4726,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         })
                         continue
                     }
+                    // Same rule as runAdapter: metadata, not a stream event.
+                    if (event.type === 'context_usage') {
+                        latestContextUsage = event.context
+                        continue
+                    }
                     if (event.type === 'done') {
                         completed = true
                         const terminalContent = await prepareTerminalContent()
@@ -4872,6 +4879,19 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // emit only when THIS invocation's row actually landed, so a replay
             // deduped away on sourceEventKey does not report a second terminal
             // for a turn it did not terminalize.
+            if (!suspended && latestContextUsage)
+                await this.repo
+                    .mergeMessageMetadata(
+                        assistantMessageId,
+                        session.id,
+                        { contextUsage: latestContextUsage },
+                        opts.fence
+                    )
+                    .catch((err) =>
+                        this.logger.warn(
+                            `context usage persist failed for ${assistantMessageId}: ${(err as Error).message}`
+                        )
+                    )
             if (!suspended && terminalPersisted) {
                 if (completed) {
                     this.telemetry.event('chat.stream.complete', {
@@ -5016,6 +5036,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let firstTokenAt: number | null = null
         let totalTokensIn = 0
         let totalTokensOut = 0
+        let latestContextUsage: { size: number; used: number } | null = null
         let terminalContentPrepared = false
         let completed = false
         let suspended = false
@@ -5611,6 +5632,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     })
                     continue
                 }
+                // Adapter-internal: folded into the message metadata at the
+                // terminal, never persisted as a stream event (it is not in
+                // the ChatStreamEvent union).
+                if (event.type === 'context_usage') {
+                    latestContextUsage = event.context
+                    continue
+                }
                 if (event.type === 'done') {
                     completed = true
                     const terminalContent = await prepareTerminalContent()
@@ -5763,6 +5791,22 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 ).persisted
                 if (terminalPersisted) notifyObserver(observer, event)
             }
+            // After the terminal so the merge cannot race the turn's own
+            // writes; suspended turns returned above — their continuation
+            // re-derives context usage from the replayed stream.
+            if (latestContextUsage)
+                await this.repo
+                    .mergeMessageMetadata(
+                        assistantMessageId,
+                        session.id,
+                        { contextUsage: latestContextUsage },
+                        turnFence ?? undefined
+                    )
+                    .catch((err) =>
+                        this.logger.warn(
+                            `context usage persist failed for ${assistantMessageId}: ${(err as Error).message}`
+                        )
+                    )
             if (terminalPersisted && completed) {
                 this.telemetry.event('chat.stream.complete', {
                     userId: session.userId,
@@ -6433,7 +6477,8 @@ const toApiMessage = (
         createdAt: row.createdAt.toISOString(),
         model: usage?.model ?? modelFromMessageMetadata(row),
         usage,
-        error
+        error,
+        contextUsage: contextUsageFromMessageMetadata(row)
     }
 }
 

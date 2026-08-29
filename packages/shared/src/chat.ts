@@ -75,6 +75,15 @@ export interface ChatMessage {
     model?: string | null
     usage?: ChatUsage | null
     error?: ChatError | null
+    // Context-window pressure at the end of the turn ({used} of {size}
+    // tokens), reported by frameworks that stream it (hermes ACP
+    // usage_update). Distinct from `usage`, which is billing.
+    contextUsage?: ChatContextUsage | null
+}
+
+export interface ChatContextUsage {
+    size: number
+    used: number
 }
 
 export interface ChatMessagesPage {

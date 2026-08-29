@@ -1467,6 +1467,8 @@ const ko: Record<string, string> = {
     "web.chatStream.latencyTotal": "총 {{seconds}}초",
     "web.chatStream.model": "모델",
     "web.chatStream.time": "시간",
+    "web.chatStream.contextUsage": "컨텍스트",
+    "web.chatStream.contextUsageValue": "{{used}} / {{size}} ({{percent}}%)",
     "web.chatStream.copyText": "텍스트 복사",
     "web.chatStream.copiedText": "복사된 텍스트",
     "web.chatStream.copyMarkdown": "마크다운 텍스트 복사",
