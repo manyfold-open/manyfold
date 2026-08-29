@@ -5,7 +5,7 @@ order: 12
 ---
 This page is generated from the same Commander tree as the mf binary. It documents the current public command surface; the installed binary remains authoritative for its own version.
 
-**Generated from:** `mf 0.27.0`
+**Generated from:** `mf 0.27.1`
 
 Run `mf <command> --help` to confirm syntax for the version installed on your machine.
 
