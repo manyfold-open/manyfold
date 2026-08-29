@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
     AccountIcon,
+    BillingIcon,
     ChannelIcon,
     CodeIcon,
     GeneralIcon,
@@ -16,7 +17,7 @@ import { readLastChatLocationRecord } from '@/lib/chatNavigation'
 import { useI18n } from '@/lib/i18n'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import { isCascadePath } from '@/lib/settingsCascadePaths'
-import { extraSettingsNavItems } from '@/settings-nav-extra'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 import { GhostPageContent } from '@/components/Loading'
 import AreaBackLink from '@/components/AreaBackLink'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -30,9 +31,16 @@ export interface SettingsNavItem {
     icon: LucideIcon
 }
 
-// Ordered personal → workspace resources → developer, so identity pages sit
-// together at the top instead of splitting the resource group. Billing comes
-// last, from the editions slot, and only in the cloud build.
+// Billing is a cloud surface: on a self-hosted build the page behind this
+// entry only redirects to /settings, so the rail must not offer it.
+const BILLING_ITEM: SettingsNavItem = {
+    labelKey: 'web.settingsLayout.planAndBilling',
+    to: '/settings/plan-and-billing',
+    icon: BillingIcon
+}
+
+// Ordered personal → workspace resources → developer → billing, so identity
+// pages sit together at the top instead of splitting the resource group.
 const SETTINGS_ITEMS: SettingsNavItem[] = [
     {
         labelKey: 'web.settingsLayout.general',
@@ -71,11 +79,9 @@ const SETTINGS_ITEMS: SettingsNavItem[] = [
     }
 ]
 
-// Editions composition (§3.4): the overlay's slot appends the commercial
-// entries; the open-source module contributes nothing.
 const NAV_ITEMS: SettingsNavItem[] = [
     ...SETTINGS_ITEMS,
-    ...extraSettingsNavItems
+    ...(BILLING_SURFACE ? [BILLING_ITEM] : [])
 ]
 
 const navItemClass = ({ isActive }: { isActive: boolean }): string =>

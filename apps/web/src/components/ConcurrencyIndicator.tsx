@@ -24,6 +24,7 @@ import { groupActiveSandboxes } from '@/lib/concurrencySlots'
 import { activeHoursSeverity, activeHoursStatus } from '@/lib/activeHoursStatus'
 import { formatDuration, formatShortDate } from '@/lib/usageFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const SPRITES_RELEASE_SEC = 35
 const PANEL_WIDTH = 300
@@ -488,14 +489,21 @@ const ConcurrencyIndicator: FC<Props> = ({
                           >
                               {hours.status === 'exhausted'
                                   ? t('web.shell.activeHoursExhaustedWarning')
-                                  : t('web.shell.activeHoursLowWarning')}{' '}
-                              <Link
-                                  to='/settings/plan-and-billing/pricing'
-                                  onClick={() => setOpen(false)}
-                                  className='font-medium underline hover:no-underline'
-                              >
-                                  {t('web.shell.activeHoursUpgrade')}
-                              </Link>
+                                  : t('web.shell.activeHoursLowWarning')}
+                              {/* The warning still stands without a plan to
+                                  upgrade to; only the call to action goes. */}
+                              {BILLING_SURFACE && (
+                                  <>
+                                      {' '}
+                                      <Link
+                                          to='/settings/plan-and-billing/pricing'
+                                          onClick={() => setOpen(false)}
+                                          className='font-medium underline hover:no-underline'
+                                      >
+                                          {t('web.shell.activeHoursUpgrade')}
+                                      </Link>
+                                  </>
+                              )}
                           </div>
                       )}
                   </div>
