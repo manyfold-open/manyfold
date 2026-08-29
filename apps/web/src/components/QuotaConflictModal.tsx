@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useApiClient } from '@/lib/apiClient'
 import { useI18n } from '@/lib/i18n'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 export type QuotaConflictRetry = () => Promise<void>
 
@@ -76,16 +77,18 @@ const UpgradeQuotaDialog: FC<{
                     >
                         {t('web.quotaConflict.close')}
                     </button>
-                    <button
-                        type='button'
-                        onClick={() => {
-                            dismiss()
-                            navigate('/settings/plan-and-billing/pricing')
-                        }}
-                        className='workbench-button-primary'
-                    >
-                        {t('web.quotaConflict.viewPlans')}
-                    </button>
+                    {BILLING_SURFACE && (
+                        <button
+                            type='button'
+                            onClick={() => {
+                                dismiss()
+                                navigate('/settings/plan-and-billing/pricing')
+                            }}
+                            className='workbench-button-primary'
+                        >
+                            {t('web.quotaConflict.viewPlans')}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>,

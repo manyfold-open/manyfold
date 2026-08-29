@@ -16,6 +16,8 @@ import {
 import { readLastChatLocationRecord } from '@/lib/chatNavigation'
 import { useI18n } from '@/lib/i18n'
 import { navigateWithRailTransition } from '@/lib/railTransition'
+import { isCascadePath } from '@/lib/settingsCascadePaths'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 import { GhostPageContent } from '@/components/Loading'
 import AreaBackLink from '@/components/AreaBackLink'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -23,10 +25,18 @@ import { useSidebarResize } from '@/lib/useSidebarResize'
 
 const iconClass = 'h-4 w-4 shrink-0'
 
-interface SettingsNavItem {
+export interface SettingsNavItem {
     labelKey: string
     to: string
     icon: LucideIcon
+}
+
+// Billing is a cloud surface: on a self-hosted build the page behind this
+// entry only redirects to /settings, so the rail must not offer it.
+const BILLING_ITEM: SettingsNavItem = {
+    labelKey: 'web.settingsLayout.planAndBilling',
+    to: '/settings/plan-and-billing',
+    icon: BillingIcon
 }
 
 // Ordered personal → workspace resources → developer → billing, so identity
@@ -66,12 +76,12 @@ const SETTINGS_ITEMS: SettingsNavItem[] = [
         labelKey: 'web.settingsLayout.usage',
         to: '/settings/usage',
         icon: UsageIcon
-    },
-    {
-        labelKey: 'web.settingsLayout.planAndBilling',
-        to: '/settings/plan-and-billing',
-        icon: BillingIcon
     }
+]
+
+const NAV_ITEMS: SettingsNavItem[] = [
+    ...SETTINGS_ITEMS,
+    ...(BILLING_SURFACE ? [BILLING_ITEM] : [])
 ]
 
 const navItemClass = ({ isActive }: { isActive: boolean }): string =>
@@ -123,14 +133,9 @@ const SettingsLayout: FC = (): ReactNode => {
         }
     }, [drawerOpen])
 
-    const isCascade =
-        pathname.startsWith('/settings/runtimes') ||
-        pathname.startsWith('/settings/channels') ||
-        pathname === '/settings/model-providers'
+    const isCascade = isCascadePath(pathname)
 
-    const activeItem = SETTINGS_ITEMS.find((item) =>
-        pathname.startsWith(item.to)
-    )
+    const activeItem = NAV_ITEMS.find((item) => pathname.startsWith(item.to))
     const currentLabel = activeItem
         ? t(activeItem.labelKey)
         : t('web.settingsLayout.kicker')
@@ -144,7 +149,7 @@ const SettingsLayout: FC = (): ReactNode => {
             />
 
             <nav className='settings-nav-list'>
-                {SETTINGS_ITEMS.map((item) => {
+                {NAV_ITEMS.map((item) => {
                     const Icon = item.icon
                     return (
                         <NavLink

@@ -835,21 +835,40 @@ export interface UserModelProviderSummary {
     updatedAt: string
 }
 
-export interface AdminUserModelProviderUsage {
+export interface UserModelProviderUsage {
     inputTokens: number
     outputTokens: number
     cacheReadTokens: number
     cacheCreationTokens: number
+    // null means NO event in the window carried a price — the cost is unknown,
+    // not zero (sum() over an all-NULL group returns NULL). Never render 0.
     costUsd: number | null
+    // Events whose cost_usd is null. Non-zero alongside a non-null costUsd
+    // means the amount is a lower bound on the real spend.
+    unpricedEventCount: number
     eventCount: number
     lastUsedAt: string | null
+}
+
+// One aggregate group. A null modelProviderId is spend the turn could not
+// attribute: the agent had no provider bound, or the provider row was deleted
+// (agent_usage_events.model_provider_id is ON DELETE SET NULL).
+export interface UserModelProviderUsageRow {
+    modelProviderId: string | null
+    usage: UserModelProviderUsage
+}
+
+export interface UserModelProviderUsageReport {
+    from: string | null
+    to: string | null
+    rows: UserModelProviderUsageRow[]
 }
 
 export interface AdminUserModelProviderSummary extends UserModelProviderSummary {
     userId: string
     userEmail: string | null
     boundAgentCount: number
-    usage: AdminUserModelProviderUsage
+    usage: UserModelProviderUsage
 }
 
 export interface CreateUserModelProviderBody {

@@ -64,6 +64,10 @@ const TITLE_ROUTES: TitleRoute[] = [
     { path: '/settings/account', labelKey: 'web.settingsLayout.account' },
     { path: '/settings/api-tokens', labelKey: 'web.settingsLayout.apiTokens' },
     {
+        path: '/settings/api-tokens/*',
+        labelKey: 'web.settingsLayout.apiTokens'
+    },
+    {
         path: '/settings/cloud-computers',
         labelKey: 'web.settingsLayout.cloudComputers'
     },

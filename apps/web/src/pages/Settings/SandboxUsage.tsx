@@ -22,6 +22,7 @@ import {
     sharePct,
     type SandboxStorageRow
 } from '@/lib/sandboxUsageRows'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const BYTES_PER_GB = 1_000_000_000
 
@@ -192,10 +193,19 @@ const SandboxUsage: FC = (): ReactNode => {
         <div className='settings-page'>
             <SettingsPageHeader
                 breadcrumb={[
-                    {
-                        label: t('web.settingsLayout.planAndBilling'),
-                        to: '/settings/plan-and-billing'
-                    },
+                    // Two ways in: the billing page (cloud only) and the
+                    // runtimes dashboard. The crumb names whichever parent
+                    // this edition actually has — pointing at billing on a
+                    // self-hosted build would land on a redirect.
+                    BILLING_SURFACE
+                        ? {
+                              label: t('web.settingsLayout.planAndBilling'),
+                              to: '/settings/plan-and-billing'
+                          }
+                        : {
+                              label: t('web.settingsLayout.runtimes'),
+                              to: '/settings/runtimes'
+                          },
                     { label: t('web.sandboxUsage.title') }
                 ]}
                 title={t('web.sandboxUsage.title')}

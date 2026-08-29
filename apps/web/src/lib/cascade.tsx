@@ -15,24 +15,6 @@ export type Health = 'error' | 'warn' | null
 export const healthDotClass = (health: Exclude<Health, null>): string =>
     health === 'error' ? 'bg-error' : 'bg-warning'
 
-export const Highlight: FC<{ text: string; q: string }> = ({
-    text,
-    q
-}): ReactNode => {
-    if (!q) return <>{text}</>
-    const idx = text.toLowerCase().indexOf(q)
-    if (idx < 0) return <>{text}</>
-    return (
-        <>
-            {text.slice(0, idx)}
-            <mark className='rounded-[3px] bg-[rgb(var(--color-info-bg))] px-0.5 text-[rgb(var(--color-info-strong))]'>
-                {text.slice(idx, idx + q.length)}
-            </mark>
-            {text.slice(idx + q.length)}
-        </>
-    )
-}
-
 export interface GroupByOption<T extends string> {
     value: T
     label: string

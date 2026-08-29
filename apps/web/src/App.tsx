@@ -70,7 +70,9 @@ const CloudComputers = lazyChunk(
     () => import('@/pages/Settings/CloudComputers')
 )
 const General = lazyChunk(() => import('@/pages/Settings/General'))
-const ApiTokens = lazyChunk(() => import('@/pages/Settings/ApiTokens'))
+const ApiTokens = lazyChunk(
+    () => import('@/pages/Settings/ApiTokens/ApiTokensList')
+)
 const ModelProviders = lazyChunk(
     () => import('@/pages/Settings/ModelProviders')
 )
@@ -88,6 +90,12 @@ const Pricing = lazyChunk(() => import('@/pages/Settings/Pricing'))
 const SandboxUsage = lazyChunk(() => import('@/pages/Settings/SandboxUsage'))
 const ChannelsList = lazyChunk(
     () => import('@/pages/Settings/Channels/ChannelsList')
+)
+const ChannelEdit = lazyChunk(
+    () => import('@/pages/Settings/Channels/ChannelEdit')
+)
+const ChannelNew = lazyChunk(
+    () => import('@/pages/Settings/Channels/ChannelNew')
 )
 const ChannelDetail = lazyChunk(
     () => import('@/pages/Settings/Channels/ChannelDetail')
@@ -286,7 +294,7 @@ const App: FC = (): ReactNode => {
                             />
                         }
                     />
-                    <Route path='api-tokens' element={<ApiTokens />} />
+                    <Route path='api-tokens/*' element={<ApiTokens />} />
                     <Route
                         path='plan-and-billing'
                         element={<PlanAndBilling />}
@@ -306,7 +314,7 @@ const App: FC = (): ReactNode => {
                     <Route path='usage' element={<Usage />} />
                     <Route path='usage/events' element={<UsageEvents />} />
                     <Route
-                        path='model-providers'
+                        path='model-providers/*'
                         element={<ModelProviders />}
                     />
                     <Route
@@ -337,6 +345,8 @@ const App: FC = (): ReactNode => {
                     />
                     <Route path='channels' element={<ChannelsList />}>
                         <Route path=':id' element={<ChannelDetail />} />
+                        <Route path='new/:provider' element={<ChannelNew />} />
+                        <Route path=':id/edit' element={<ChannelEdit />} />
                     </Route>
                     <Route
                         path='skills'

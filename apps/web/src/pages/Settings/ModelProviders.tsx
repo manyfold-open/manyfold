@@ -6,28 +6,46 @@ import {
     ProtocolModelMap,
     UserModelProvider,
     UserModelProviderSummary,
+    UserModelProviderUsageReport,
     lookupBuiltIn
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import anthropicIcon from '@lobehub/icons-static-svg/icons/anthropic.svg'
 import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg'
 import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
 import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter.svg'
 import EmptyState from '@/components/EmptyState'
-import ProductDialog from '@/components/ProductDialog'
-import { useI18n } from '@/lib/i18n'
+import { CascadeShell } from '@/components/CascadeShell'
+import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
+import {
+    GroupByControl,
+    type GroupByOption,
+    GroupHeader,
+    type Health,
+    useCascadeState
+} from '@/lib/cascade'
+import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
-import { CloseIcon, PlusIcon, SearchIcon } from '@/components/icons'
+import {
+    BoxIcon,
+    ChevronDownIcon,
+    ChevronUpIcon,
+    ListViewIcon,
+    PlugIcon,
+    PlusIcon,
+    ZapIcon
+} from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
 import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
 import { NetmindMark } from '@/lib/brandMarks'
-import { GroupHeader, Highlight } from '@/lib/cascade'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import ModelProvidersDashboard from '@/pages/Settings/ModelProvidersDashboard'
+import { spendWindowFrom, type SpendWindow } from '@/lib/modelProviderSpend'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 import {
     ManagedView,
@@ -44,6 +62,47 @@ import ModelProviderFields, {
 } from '@/pages/Settings/ModelProviderFields'
 
 export const ALL_TAB_KEY = '__all'
+
+// The create menu's rows, shared by the rail header, the rail footer and the
+// dashboard so the three affordances cannot offer different providers.
+const newProviderOptions = (
+    t: TFn,
+    onPick: (next: Selection) => void
+): CreateMenuOption[] => [
+    ...BUILT_IN_PROVIDERS.map((entry) => ({
+        key: entry.id,
+        lead: <BuiltInLogo entry={entry} />,
+        label: entry.label,
+        onSelect: () => onPick({ kind: 'builtin', builtInId: entry.id })
+    })),
+    {
+        key: 'custom-new',
+        icon: PlusIcon,
+        label: t('web.modelProviders.customProvider'),
+        onSelect: () => onPick({ kind: 'custom-new' })
+    }
+]
+
+type ProviderGroupBy = 'none' | 'provider' | 'protocol' | 'status'
+
+const PROVIDER_DIMS = ['none', 'provider', 'protocol', 'status'] as const
+
+interface ProviderGroup {
+    key: string
+    label: string
+    count: number
+    health: Health
+    items: UserModelProviderSummary[]
+}
+
+// A group is only as healthy as its worst key: one failed connection test is
+// worth surfacing on a collapsed header.
+const providerGroupHealth = (items: UserModelProviderSummary[]): Health =>
+    items.some((r) => r.lastTestStatus === 'error') ? 'error' : null
+
+// Reserved path segment under model-providers/*. Provider selection lives in
+// a query param, so the path never carries an id to collide with.
+const DASHBOARD_SEGMENT = 'dashboard'
 
 type Selection =
     | { kind: 'configured'; id: string }
@@ -98,12 +157,21 @@ const ModelProviders: FC = (): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
     const [searchParams, setSearchParams] = useSearchParams()
+    const navigate = useNavigate()
+    // Reserved segment under model-providers/*: provider ids never reach the
+    // path (selection is a query param), so a bare word cannot collide.
+    const segment = useParams()['*'] ?? ''
+    const onDashboard = segment === DASHBOARD_SEGMENT
+    const [spendWindow, setSpendWindow] = useState<SpendWindow>('30d')
+    const [spend, setSpend] = useState<UserModelProviderUsageReport | null>(
+        null
+    )
+    const [spendLoading, setSpendLoading] = useState(false)
     const [items, setItems] = useState<UserModelProviderSummary[]>([])
     const managed = useManagedProviderAccount()
     const [error, setError] = useState<string | null>(null)
     const [selected, setSelected] = useState<Selection | null>(null)
     const [loaded, setLoaded] = useState(false)
-    const [newOpen, setNewOpen] = useState(false)
     // §10.8: the rail ghosts on the cold load so the "No providers yet"
     // first-use state never appears before we know it is true.
     const gate = useLoadingGate(!loaded)
@@ -144,6 +212,9 @@ const ModelProviders: FC = (): ReactNode => {
 
     const selectedParam = searchParams.get('selected')
     useEffect(() => {
+        // The dashboard is a selection of its own; letting the fallback below
+        // run would light up a provider in the rail beside it.
+        if (onDashboard) return
         const fromUrl = selectionFromParam(selectedParam, items, hasManaged)
         if (fromUrl) {
             setSelected((prev) =>
@@ -151,22 +222,26 @@ const ModelProviders: FC = (): ReactNode => {
             )
             return
         }
-        setSelected((prev) => {
-            if (prev) return prev
-            if (hasManaged) return { kind: 'managed' }
-            if (nonManagedRows.length > 0)
-                return { kind: 'configured', id: nonManagedRows[0].id }
-            return null
-        })
-    }, [items, hasManaged, nonManagedRows, selectedParam])
+        // No fallback selection: the bare URL shows the dashboard, the same
+        // way /settings/runtimes does, instead of opening whichever provider
+        // happens to sort first.
+        setSelected(null)
+    }, [items, hasManaged, nonManagedRows, selectedParam, onDashboard])
 
     const selectAndPersist = (next: Selection): void => {
         setSelected(next)
         const param = selectionToParam(next)
-        if (param) {
-            searchParams.set('selected', param)
-            setSearchParams(searchParams, { replace: true })
-        }
+        if (!param) return
+        // navigate(), not setSearchParams(): from /dashboard the latter would
+        // keep the segment and produce /dashboard?selected=... Pushing (not
+        // replacing) when leaving the dashboard keeps Back going there.
+        navigate(
+            {
+                pathname: '/settings/model-providers',
+                search: `?selected=${param}`
+            },
+            { replace: !onDashboard }
+        )
     }
 
     const onCreated = async (id: string): Promise<void> => {
@@ -187,131 +262,134 @@ const ModelProviders: FC = (): ReactNode => {
         }
     }
 
-    const hasSelection = Boolean(selectedParam)
+    const hasSelection = Boolean(selectedParam) || onDashboard
+
+    // Dashboard-only fetch: a failure degrades to em-dashes on the cards and
+    // never reaches the page error banner.
+    useEffect(() => {
+        if (hasSelection && !onDashboard) return
+        let cancelled = false
+        setSpendLoading(true)
+        client.modelProviders
+            .usage({ from: spendWindowFrom(spendWindow) })
+            .then((r) => {
+                if (!cancelled) setSpend(r)
+            })
+            .catch(() => undefined)
+            .finally(() => {
+                if (!cancelled) setSpendLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [client, hasSelection, onDashboard, spendWindow])
 
     return (
-        <div className='flex h-full min-h-0 flex-col lg:flex-row'>
-            <ProviderSidebar
-                managedRows={managedRows}
-                hasManaged={hasManaged}
-                managedState={managed.state}
-                nonManagedRows={nonManagedRows}
-                selected={selected}
-                onSelect={selectAndPersist}
-                onNewProvider={() => setNewOpen(true)}
-                hasSelection={hasSelection}
-                loaded={loaded}
-                showLoading={gate.showLoading}
-            />
-            <main
-                className={[
-                    'min-w-0 lg:h-full lg:flex-1 lg:overflow-y-auto',
-                    hasSelection
-                        ? 'flex flex-col'
-                        : 'hidden lg:flex lg:flex-col'
-                ].join(' ')}
-            >
-                <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
-                    {error && (
-                        <div className='workbench-alert-error mb-6'>
-                            <pre className='text-caption whitespace-pre-wrap font-mono'>
-                                {error}
-                            </pre>
-                        </div>
+        <CascadeShell
+            railLabel={t('web.settingsLayout.providers')}
+            hasSelection={hasSelection}
+            rail={
+                <ProviderSidebar
+                    managedRows={managedRows}
+                    hasManaged={hasManaged}
+                    managedState={managed.state}
+                    nonManagedRows={nonManagedRows}
+                    selected={selected}
+                    onSelect={selectAndPersist}
+                    loaded={loaded}
+                    showLoading={gate.showLoading}
+                />
+            }
+        >
+            <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
+                {!selected && loaded && (
+                    <ModelProvidersDashboard
+                        providers={items}
+                        report={spend}
+                        loading={spendLoading}
+                        window={spendWindow}
+                        onWindowChange={setSpendWindow}
+                        onSelect={(id) =>
+                            selectAndPersist({ kind: 'configured', id })
+                        }
+                        createOptions={newProviderOptions(t, selectAndPersist)}
+                    />
+                )}
+                {error && (
+                    <div className='workbench-alert-error mb-6'>
+                        <pre className='text-caption whitespace-pre-wrap font-mono'>
+                            {error}
+                        </pre>
+                    </div>
+                )}
+                {selected &&
+                    (() => {
+                        let crumb = t('web.credentials.provider')
+                        if (selected.kind === 'custom-new')
+                            crumb = t('web.modelProviders.newProvider')
+                        else if (selected.kind === 'builtin')
+                            crumb =
+                                lookupBuiltIn(selected.builtInId)?.label ??
+                                t('web.credentials.provider')
+                        else if (selected.kind === 'managed')
+                            crumb = t('web.modelProviders.managed')
+                        else if (selected.kind === 'configured')
+                            crumb =
+                                nonManagedRows.find((r) => r.id === selected.id)
+                                    ?.providerName ??
+                                t('web.credentials.provider')
+                        return (
+                            <Breadcrumb
+                                items={[
+                                    {
+                                        label: t(
+                                            'web.settingsLayout.providers'
+                                        ),
+                                        to: '/settings/model-providers'
+                                    },
+                                    { label: crumb }
+                                ]}
+                            />
+                        )
+                    })()}
+                <div className='space-y-6'>
+                    {selected?.kind === 'custom-new' && (
+                        <CustomNewView onCreated={(id) => void onCreated(id)} />
                     )}
-                    {selected &&
+                    {selected?.kind === 'builtin' && (
+                        <BuiltInSetupView
+                            entry={
+                                lookupBuiltIn(selected.builtInId) ??
+                                BUILT_IN_PROVIDERS[0]
+                            }
+                            onCreated={(id) => void onCreated(id)}
+                        />
+                    )}
+                    {selected?.kind === 'managed' && (
+                        <ManagedView
+                            rows={managedRows}
+                            state={managed.state}
+                            onChanged={() => void refresh()}
+                        />
+                    )}
+                    {selected?.kind === 'configured' &&
                         (() => {
-                            let crumb = t('web.credentials.provider')
-                            if (selected.kind === 'custom-new')
-                                crumb = t('web.modelProviders.newProvider')
-                            else if (selected.kind === 'builtin')
-                                crumb =
-                                    lookupBuiltIn(selected.builtInId)?.label ??
-                                    t('web.credentials.provider')
-                            else if (selected.kind === 'managed')
-                                crumb = t('web.modelProviders.managed')
-                            else if (selected.kind === 'configured')
-                                crumb =
-                                    nonManagedRows.find(
-                                        (r) => r.id === selected.id
-                                    )?.providerName ??
-                                    t('web.credentials.provider')
+                            const row = nonManagedRows.find(
+                                (r) => r.id === selected.id
+                            )
+                            if (!row) return null
                             return (
-                                <Breadcrumb
-                                    items={[
-                                        {
-                                            label: t(
-                                                'web.settingsLayout.providers'
-                                            ),
-                                            to: '/settings/model-providers'
-                                        },
-                                        { label: crumb }
-                                    ]}
+                                <ConfiguredView
+                                    key={row.id}
+                                    row={row}
+                                    onChanged={() => void refresh()}
+                                    onDeleted={() => void onDeleted(row.id)}
                                 />
                             )
                         })()}
-                    <div className='space-y-6'>
-                        {selected?.kind === 'custom-new' && (
-                            <CustomNewView
-                                onCreated={(id) => void onCreated(id)}
-                            />
-                        )}
-                        {selected?.kind === 'builtin' && (
-                            <BuiltInSetupView
-                                entry={
-                                    lookupBuiltIn(selected.builtInId) ??
-                                    BUILT_IN_PROVIDERS[0]
-                                }
-                                onCreated={(id) => void onCreated(id)}
-                            />
-                        )}
-                        {selected?.kind === 'managed' && (
-                            <ManagedView
-                                rows={managedRows}
-                                state={managed.state}
-                                onChanged={() => void refresh()}
-                            />
-                        )}
-                        {selected?.kind === 'configured' &&
-                            (() => {
-                                const row = nonManagedRows.find(
-                                    (r) => r.id === selected.id
-                                )
-                                if (!row) return null
-                                return (
-                                    <ConfiguredView
-                                        key={row.id}
-                                        row={row}
-                                        onChanged={() => void refresh()}
-                                        onDeleted={() => void onDeleted(row.id)}
-                                    />
-                                )
-                            })()}
-                        {!selected && loaded && (
-                            <EmptyState
-                                kind='first-use'
-                                tier='stack'
-                                title={t('web.modelProviders.emptyTitle')}
-                                body={t('web.modelProviders.emptyBody')}
-                                action={{
-                                    label: t('web.modelProviders.newProvider'),
-                                    onClick: () => setNewOpen(true)
-                                }}
-                            />
-                        )}
-                    </div>
                 </div>
-            </main>
-            {newOpen && (
-                <NewProviderDialog
-                    onPick={(next) => {
-                        setNewOpen(false)
-                        selectAndPersist(next)
-                    }}
-                    onClose={() => setNewOpen(false)}
-                />
-            )}
-        </div>
+            </div>
+        </CascadeShell>
     )
 }
 
@@ -322,15 +400,21 @@ interface ProviderSidebarProps {
     nonManagedRows: UserModelProviderSummary[]
     selected: Selection | null
     onSelect: (next: Selection) => void
-    onNewProvider: () => void
-    hasSelection: boolean
     loaded: boolean
     showLoading: boolean
 }
 
-export const providerLeafClass = (selected: boolean, muted: boolean): string =>
+export const providerLeafClass = (
+    selected: boolean,
+    muted: boolean,
+    // Grouped rows sit under a header's chevron column; ungrouped ones sit at
+    // the rail's own left edge. The cloud managed row passes nothing and keeps
+    // the ungrouped indent, because it is never inside a group.
+    indentClass = 'pl-2'
+): string =>
     [
-        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 pl-8 text-left transition-colors',
+        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 text-left transition-colors',
+        indentClass,
         selected
             ? 'bg-active-session'
             : muted
@@ -351,81 +435,161 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
     nonManagedRows,
     selected,
     onSelect,
-    onNewProvider,
-    hasSelection,
     loaded,
     showLoading
 }): ReactNode => {
     const { t } = useI18n()
-    const [query, setQuery] = useState('')
-    const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
-    const q = query.trim().toLowerCase()
-
-    const rowMatches = (row: UserModelProviderSummary): boolean => {
-        if (!q) return true
-        const builtInLabel = row.builtInId
-            ? (lookupBuiltIn(row.builtInId)?.label ?? '')
-            : ''
-        const protocol = row.inferenceProtocol
-            ? inferenceProtocolLabel[row.inferenceProtocol]
-            : 'custom'
-        return `${row.providerName} ${builtInLabel} ${protocol}`
-            .toLowerCase()
-            .includes(q)
-    }
-
-    const managedVisible = hasManaged && (!q || 'managed'.includes(q))
-    const configured = nonManagedRows.filter(rowMatches)
+    const options = newProviderOptions(t, onSelect)
+    const { groupBy, setGroupBy, expanded, toggle, collapseAll, expandAll } =
+        useCascadeState('mf.modelProviders.cascade.v1', PROVIDER_DIMS, 'none')
 
     const total = (hasManaged ? 1 : 0) + nonManagedRows.length
-    const yourCount = (managedVisible ? 1 : 0) + configured.length
-    const hasYours = managedVisible || configured.length > 0
-    const nothing = !hasYours
 
-    const isOpen = (key: string): boolean => q !== '' || !collapsed.has(key)
-    const toggle = (key: string): void =>
-        setCollapsed((prev) => {
-            const next = new Set(prev)
-            if (next.has(key)) next.delete(key)
-            else next.add(key)
-            return next
-        })
+    const groups = useMemo<ProviderGroup[]>(() => {
+        // None renders one unheadered group, so the header-only fields stay
+        // empty — the rail lists every provider flat, in its existing order.
+        if (groupBy === 'none')
+            return nonManagedRows.length === 0
+                ? []
+                : [
+                      {
+                          key: 'all',
+                          label: '',
+                          count: nonManagedRows.length,
+                          health: null,
+                          items: nonManagedRows
+                      }
+                  ]
+
+        const bucket = (
+            row: UserModelProviderSummary
+        ): { key: string; label: string } => {
+            if (groupBy === 'provider') {
+                const entry = row.builtInId
+                    ? lookupBuiltIn(row.builtInId)
+                    : null
+                return entry
+                    ? { key: `bi:${entry.id}`, label: entry.label }
+                    : { key: 'bi:custom', label: t('web.credentials.custom') }
+            }
+            if (groupBy === 'protocol')
+                return row.inferenceProtocol
+                    ? {
+                          key: `pr:${row.inferenceProtocol}`,
+                          label: inferenceProtocolLabel[row.inferenceProtocol]
+                      }
+                    : { key: 'pr:none', label: t('web.credentials.custom') }
+            if (row.lastTestStatus === 'ok')
+                return {
+                    key: 'st:ok',
+                    label: t('web.runtimesDashboard.testPassed')
+                }
+            if (row.lastTestStatus === 'error')
+                return {
+                    key: 'st:error',
+                    label: t('web.runtimesDashboard.testFailed')
+                }
+            return {
+                key: 'st:none',
+                label: t('web.runtimesDashboard.neverTested')
+            }
+        }
+
+        // Insertion order preserved, so groups follow the same built-in-first
+        // ordering the flat list already uses.
+        const out: ProviderGroup[] = []
+        const byKey = new Map<string, ProviderGroup>()
+        for (const row of nonManagedRows) {
+            const { key, label } = bucket(row)
+            let group = byKey.get(key)
+            if (!group) {
+                group = { key, label, count: 0, health: null, items: [] }
+                byKey.set(key, group)
+                out.push(group)
+            }
+            group.items.push(row)
+        }
+        for (const group of out) {
+            group.count = group.items.length
+            group.health = providerGroupHealth(group.items)
+        }
+        return out
+    }, [nonManagedRows, groupBy, t])
+
+    const allKeys = useMemo(() => groups.map((g) => g.key), [groups])
+    const isOpen = (key: string): boolean => expanded.has(key)
+    const anyExpanded = expanded.size > 0
+
+    const groupByOptions: ReadonlyArray<GroupByOption<ProviderGroupBy>> = [
+        {
+            value: 'none',
+            label: t('web.modelProviders.groupBy.none'),
+            icon: ListViewIcon
+        },
+        {
+            value: 'provider',
+            label: t('web.modelProviders.groupBy.provider'),
+            icon: BoxIcon
+        },
+        {
+            value: 'protocol',
+            label: t('web.modelProviders.groupBy.protocol'),
+            icon: PlugIcon
+        },
+        {
+            value: 'status',
+            label: t('web.modelProviders.groupBy.status'),
+            icon: ZapIcon
+        }
+    ]
 
     return (
-        <aside
-            aria-label={t('web.settingsLayout.providers')}
-            className={[
-                'bg-rail border-divider/70 flex w-full flex-col lg:h-full lg:w-72 lg:shrink-0 lg:overflow-hidden lg:border-r',
-                hasSelection ? 'hidden lg:flex' : 'flex'
-            ].join(' ')}
-        >
+        <>
             <div className='shrink-0 space-y-2.5 p-3'>
-                <div className='flex items-center gap-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
-                        {t('web.settingsLayout.providers')}
-                    </h2>
-                    <span className='tag tag-neutral tabular-nums'>
-                        {total}
-                    </span>
-                </div>
-                <div className='relative'>
-                    <SearchIcon className='text-subtle pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2' />
-                    <input
-                        type='text'
-                        value={query}
-                        onChange={(e) => setQuery(e.target.value)}
-                        placeholder={t('web.modelProviders.searchPlaceholder')}
-                        aria-label={t('web.modelProviders.searchAria')}
-                        className='text-ui bg-surface text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-subtle focus-visible:shadow-focus h-9 w-full rounded-sm pl-9 pr-8 transition-shadow focus:outline-none'
+                <div className='flex items-center justify-between'>
+                    <Link
+                        to='/settings/model-providers/dashboard'
+                        aria-current={selected === null ? 'page' : undefined}
+                        className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
+                    >
+                        <h2 className='text-h3 text-fg tracking-tight'>
+                            {t('web.settingsLayout.providers')}
+                        </h2>
+                        <span className='tag tag-neutral tabular-nums'>
+                            {total}
+                        </span>
+                    </Link>
+                    <CreateMenu
+                        options={options}
+                        variant='header'
+                        triggerLabel={t('web.modelProviders.newProviderButton')}
+                        sheetTitle={t('web.modelProviders.newProvider')}
                     />
-                    {query && (
+                </div>
+                <div className='flex items-center justify-between gap-2'>
+                    <GroupByControl
+                        value={groupBy}
+                        onChange={setGroupBy}
+                        options={groupByOptions}
+                    />
+                    {groupBy !== 'none' && (
                         <button
                             type='button'
-                            onClick={() => setQuery('')}
-                            aria-label={t('web.modelProviders.clearSearch')}
-                            className='text-subtle hover:text-fg hover:bg-rail-hover absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full transition-colors'
+                            onClick={
+                                anyExpanded
+                                    ? collapseAll
+                                    : () => expandAll(allKeys)
+                            }
+                            className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
                         >
-                            <CloseIcon className='h-4 w-4' />
+                            {anyExpanded ? (
+                                <ChevronUpIcon className='h-3.5 w-3.5' />
+                            ) : (
+                                <ChevronDownIcon className='h-3.5 w-3.5' />
+                            )}
+                            {anyExpanded
+                                ? t('web.channels.settings.collapseAll')
+                                : t('web.channels.settings.expandAll')}
                         </button>
                     )}
                 </div>
@@ -450,150 +614,78 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                             </div>
                         ))}
                     </div>
-                ) : !loaded ? null : nothing ? (
+                ) : !loaded ? null : total === 0 ? (
                     <div className='text-caption text-subtle px-3 py-4'>
-                        {q
-                            ? t('web.modelProviders.noMatches')
-                            : t('web.modelProviders.noProviders')}
+                        {t('web.modelProviders.noProviders')}
                     </div>
                 ) : (
                     <>
-                        {hasYours && (
-                            <div>
-                                <GroupHeader
-                                    label={t(
-                                        'web.modelProviders.yourProviders'
-                                    )}
-                                    count={yourCount}
-                                    open={isOpen('active')}
-                                    health={null}
-                                    onToggle={() => toggle('active')}
-                                />
-                                {isOpen('active') && (
-                                    <>
-                                        {managedVisible && (
-                                            <SidebarManagedRow
-                                                rows={managedRows}
-                                                state={managedState}
-                                                q={q}
-                                                selected={
-                                                    selected?.kind === 'managed'
-                                                }
-                                                onClick={() =>
-                                                    onSelect({
-                                                        kind: 'managed'
-                                                    })
-                                                }
-                                            />
-                                        )}
-                                        {configured.map((row) => (
-                                            <SidebarRow
-                                                key={row.id}
-                                                row={row}
-                                                q={q}
-                                                selected={
-                                                    selected?.kind ===
-                                                        'configured' &&
-                                                    selected.id === row.id
-                                                }
-                                                onClick={() =>
-                                                    onSelect({
-                                                        kind: 'configured',
-                                                        id: row.id
-                                                    })
-                                                }
-                                            />
-                                        ))}
-                                    </>
-                                )}
-                            </div>
+                        {hasManaged && (
+                            <SidebarManagedRow
+                                rows={managedRows}
+                                state={managedState}
+                                selected={selected?.kind === 'managed'}
+                                onClick={() => onSelect({ kind: 'managed' })}
+                            />
                         )}
+                        {groups.map((group) => (
+                            <div key={group.key}>
+                                {groupBy !== 'none' && (
+                                    <GroupHeader
+                                        label={group.label}
+                                        count={group.count}
+                                        open={isOpen(group.key)}
+                                        health={group.health}
+                                        onToggle={() => toggle(group.key)}
+                                    />
+                                )}
+                                {(groupBy === 'none' || isOpen(group.key)) &&
+                                    group.items.map((row) => (
+                                        <SidebarRow
+                                            key={row.id}
+                                            row={row}
+                                            indentClass={
+                                                groupBy === 'none'
+                                                    ? 'pl-2'
+                                                    : 'pl-8'
+                                            }
+                                            selected={
+                                                selected?.kind ===
+                                                    'configured' &&
+                                                selected.id === row.id
+                                            }
+                                            onClick={() =>
+                                                onSelect({
+                                                    kind: 'configured',
+                                                    id: row.id
+                                                })
+                                            }
+                                        />
+                                    ))}
+                            </div>
+                        ))}
                     </>
                 )}
             </div>
 
             <div className='shrink-0 p-2'>
-                <button
-                    type='button'
-                    onClick={onNewProvider}
-                    className='workbench-button-primary h-9 w-full justify-center'
-                >
-                    {t('web.modelProviders.newProviderButton')}
-                </button>
+                <CreateMenu
+                    options={options}
+                    variant='footer'
+                    triggerLabel={t('web.modelProviders.newProviderButton')}
+                    sheetTitle={t('web.modelProviders.newProvider')}
+                />
             </div>
-        </aside>
-    )
-}
-
-const NewProviderDialog: FC<{
-    onPick: (next: Selection) => void
-    onClose: () => void
-}> = ({ onPick, onClose }): ReactNode => {
-    const { t } = useI18n()
-    return (
-        <ProductDialog
-            title={t('web.modelProviders.newProvider')}
-            description={t('web.modelProviders.newProviderDescription')}
-            size='md'
-            onClose={onClose}
-            bodyClassName='pb-5'
-        >
-            <div className='grid gap-2 sm:grid-cols-2'>
-                {BUILT_IN_PROVIDERS.map((entry) => (
-                    <button
-                        key={entry.id}
-                        type='button'
-                        onClick={() =>
-                            onPick({ kind: 'builtin', builtInId: entry.id })
-                        }
-                        className='shadow-ring-light bg-surface hover:bg-surface-hover flex w-full items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors'
-                    >
-                        <span className='flex h-5 w-5 shrink-0 items-center justify-center pt-0.5'>
-                            <BuiltInLogo entry={entry} />
-                        </span>
-                        <span className='min-w-0'>
-                            <span className='text-ui text-fg block font-medium'>
-                                {entry.label}
-                            </span>
-                            <span className='text-caption text-subtle block'>
-                                {entry.protocols
-                                    .map(
-                                        (p) =>
-                                            inferenceProtocolLabel[p.protocol]
-                                    )
-                                    .join(' · ')}
-                            </span>
-                        </span>
-                    </button>
-                ))}
-                <button
-                    type='button'
-                    onClick={() => onPick({ kind: 'custom-new' })}
-                    className='shadow-ring-light bg-surface hover:bg-surface-hover flex w-full items-start gap-3 rounded-lg px-3.5 py-3 text-left transition-colors'
-                >
-                    <span className='flex h-5 w-5 shrink-0 items-center justify-center pt-0.5'>
-                        <PlusIcon className='text-subtle h-4 w-4' />
-                    </span>
-                    <span className='min-w-0'>
-                        <span className='text-ui text-fg block font-medium'>
-                            {t('web.modelProviders.customProvider')}
-                        </span>
-                        <span className='text-caption text-subtle block'>
-                            {t('web.modelProviders.customProviderDescription')}
-                        </span>
-                    </span>
-                </button>
-            </div>
-        </ProductDialog>
+        </>
     )
 }
 
 const SidebarRow: FC<{
     row: UserModelProviderSummary
-    q: string
+    indentClass: string
     selected: boolean
     onClick: () => void
-}> = ({ row, q, selected, onClick }): ReactNode => {
+}> = ({ row, indentClass, selected, onClick }): ReactNode => {
     const { t } = useI18n()
     const builtInEntry = row.builtInId ? lookupBuiltIn(row.builtInId) : null
     const counts = totalModelCounts(row)
@@ -610,7 +702,7 @@ const SidebarRow: FC<{
             type='button'
             onClick={onClick}
             aria-current={selected ? 'true' : undefined}
-            className={providerLeafClass(selected, false)}
+            className={providerLeafClass(selected, false, indentClass)}
         >
             <span className='flex h-5 w-5 shrink-0 items-center justify-center'>
                 {builtInEntry ? (
@@ -623,7 +715,7 @@ const SidebarRow: FC<{
             </span>
             <span className='min-w-0 flex-1'>
                 <span className='text-ui text-fg block truncate'>
-                    <Highlight text={row.providerName} q={q} />
+                    {row.providerName}
                 </span>
                 <span className='text-caption text-subtle block truncate'>
                     {protocol}
@@ -1904,7 +1996,7 @@ const ProviderLogo: FC<{ provider: UserModelProvider }> = ({
     />
 )
 
-const BuiltInLogo: FC<{ entry: BuiltInProviderEntry }> = ({
+export const BuiltInLogo: FC<{ entry: BuiltInProviderEntry }> = ({
     entry
 }): ReactNode => {
     const Icon = builtInIcons[entry.id]
