@@ -129,9 +129,12 @@ const ChannelsList: FC = (): ReactNode => {
     const client = useApiClient()
     const navigate = useNavigate()
     const match = useMatch('/settings/channels/:id')
+    // The edit page is a sub-route of a channel, so the rail must still read
+    // the id out of it or the selected row would lose its highlight.
+    const editMatch = useMatch('/settings/channels/:id/edit')
     const createMatch = useMatch('/settings/channels/new/:provider')
     const createProvider = createMatch?.params.provider ?? null
-    const segment = match?.params.id ?? null
+    const segment = match?.params.id ?? editMatch?.params.id ?? null
     const onDashboard = segment === DASHBOARD_SEGMENT
     const selectedId = onDashboard ? null : segment
     // Unchanged semantics: the explicit /dashboard URL hides the rail on

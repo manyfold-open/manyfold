@@ -31,6 +31,7 @@ import {
     type CreateProviderChoice
 } from '@/lib/newChannelOptions'
 import ChannelDocsLink from './ChannelDocsLink'
+import { Field } from './ChannelFormField'
 import LarkQuickCreate, { type LarkQuickCreateState } from './LarkQuickCreate'
 import WeixinQuickCreate, {
     type WeixinQuickCreateState
@@ -318,7 +319,7 @@ const ChannelNew: FC = (): ReactNode => {
 
     if (agentsLoaded && agents.length === 0)
         return (
-            <div className='settings-page'>
+            <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
                 {header}
                 <EmptyState
                     kind='first-use'
@@ -330,7 +331,7 @@ const ChannelNew: FC = (): ReactNode => {
         )
 
     return (
-        <div className='settings-page'>
+        <div className='mx-auto w-full max-w-3xl px-5 py-6 md:px-6 md:py-7'>
             {header}
             <div className='workbench-panel p-6 md:p-7'>
                 <form onSubmit={handleSubmit} className='space-y-4'>
@@ -1161,16 +1162,6 @@ const larkModeButtonClass = (active: boolean): string =>
             ? 'bg-surface text-fg shadow-ring-light'
             : 'text-muted hover:bg-surface-hover'
     ].join(' ')
-
-const Field: FC<{ label: string; children: ReactNode }> = ({
-    label,
-    children
-}) => (
-    <label className='block'>
-        <span className='text-ui text-fg mb-1 block font-medium'>{label}</span>
-        {children}
-    </label>
-)
 
 const buildBody = (input: {
     agentId: string
