@@ -794,7 +794,6 @@ const zh: Translations = {
                 '关联 GitHub、Cloudflare 或 Composio，agent 即可自动完成认证。',
             channelsTitle: '还没有频道',
             channelsBody: '把 agent 接入聊天平台。',
-            channelsCreateAction: '创建频道',
             channelDeliveriesEmpty: '暂无最近投递。',
             creditHistoryTitle: '暂无额度记录',
             sandboxUsageTitle: '本账期暂无沙箱用量',
@@ -2675,7 +2674,7 @@ const zh: Translations = {
                 unavailable: '扫码连接暂时不可用，请稍后重试。'
             },
             settings: {
-                channels: '频道', newChannel: '新建频道', create: '创建', createDescription: '将智能体接入外部聊天平台。', backToChannels: '返回频道', more: '更多', docs: '文档', refresh: '刷新', edit: '编辑', changeAgent: '更换智能体', changingAgent: '更换中…', activate: '启用', pause: '暂停', test: '测试', delete: '删除', registerTelegram: '重新注册 Webhook', refreshBotIdentity: '刷新机器人身份', registerApp: '注册应用', registerToken: '注册令牌', inboundWebhookUrl: '入站 Webhook URL', statusLabel: '状态', lastConnected: '上次连接', lastError: '上次错误', recentDeliveries: '最近投递', lastDeliveries: '最近 {{count}} 条', setupDocs: '配置文档', loadingAgents: '正在加载智能体…', currentAgent: '{{name}}（当前）', collapseAll: '全部收起', expandAll: '全部展开', clearAgentFilter: '清除智能体筛选', agentFilter: '智能体：{{name}}', deleteConfirmTitle: '删除频道', deleteConfirmDescription: '该频道的入站消息将停止。', changeAgentDescription: '将此频道的新消息路由到其他智能体。', changeAgentWarning: '更换智能体后，每次聊天都会开始新的会话。现有会话将归档，历史记录保留在 {{name}} 下；其他智能体通过此频道投递的自动化也会停止。', editChannel: '编辑频道', editDescription: '更改会热加载连接。',
+                channels: '频道', newChannel: '新建频道', create: '创建', backToChannels: '返回频道', more: '更多', docs: '文档', refresh: '刷新', edit: '编辑', changeAgent: '更换智能体', changingAgent: '更换中…', activate: '启用', pause: '暂停', test: '测试', delete: '删除', registerTelegram: '重新注册 Webhook', refreshBotIdentity: '刷新机器人身份', registerApp: '注册应用', registerToken: '注册令牌', inboundWebhookUrl: '入站 Webhook URL', statusLabel: '状态', lastConnected: '上次连接', lastError: '上次错误', recentDeliveries: '最近投递', lastDeliveries: '最近 {{count}} 条', setupDocs: '配置文档', loadingAgents: '正在加载智能体…', currentAgent: '{{name}}（当前）', collapseAll: '全部收起', expandAll: '全部展开', clearAgentFilter: '清除智能体筛选', agentFilter: '智能体：{{name}}', deleteConfirmTitle: '删除频道', deleteConfirmDescription: '该频道的入站消息将停止。', changeAgentDescription: '将此频道的新消息路由到其他智能体。', changeAgentWarning: '更换智能体后，每次聊天都会开始新的会话。现有会话将归档，历史记录保留在 {{name}} 下；其他智能体通过此频道投递的自动化也会停止。', editChannel: '编辑频道', editDescription: '更改会热加载连接。',
                 status: { active: '活跃', paused: '已暂停', error: '错误', draft: '草稿' }, groupBy: { none: '无', platform: '平台', agent: '智能体', status: '状态' },
                 fields: {
                     agent: '智能体', provider: '服务商', label: '标签', botToken: '机器人令牌', botTokenKeep: '机器人令牌（留空以保留现有值）', signingSecret: '签名密钥', signingSecretKeep: '签名密钥（留空以保留现有值）', subscriptionMode: '订阅模式', appId: 'App ID', appIdKeep: 'App ID（留空以保留现有值）', appSecret: 'App Secret', appSecretKeep: 'App Secret（留空以保留现有值）', verificationToken: '验证令牌', encryptKey: '加密密钥', botName: '机器人名称', botNameMention: '机器人名称（用于 @ 提及检测）', allowedUserIds: '允许的用户 ID（逗号分隔）', allowedUserIdsOptional: '允许的用户 ID（逗号分隔，可选）', operatorUserIds: '操作员用户 ID（逗号分隔）', operatorUserIdsOptional: '操作员用户 ID（逗号分隔，可选）', allowedOpenIdsOptional: '允许的用户 ID（open_id，逗号分隔，可选）', operatorOpenIdsOptional: '操作员用户 ID（open_id，逗号分隔，可选）', allowedGroupChatIdsOptional: '允许的群聊 ID（逗号分隔，可选）', allowedGuildIds: '允许的 Guild ID（逗号分隔）', allowedGuildIdsOptional: '允许的 Guild ID（逗号分隔，可选）', clientId: 'Client ID', clientSecret: 'Client secret', webhookSigningSecret: 'Webhook 签名密钥', accessToken: '访问令牌', accessTokenOptional: '访问令牌（可选）', clientIdKeep: 'Client ID（留空以保留现有值）', clientSecretKeep: 'Client secret（留空以保留现有值）', webhookSigningSecretKeep: 'Webhook 签名密钥（留空以保留现有值）', accessTokenKeep: '访问令牌（留空以保留现有值）', accessTokenOverride: '访问令牌（可选，会覆盖客户端凭据）', allowedLinearUserIdsOptional: '允许的 Linear 用户 ID（逗号分隔，可选）', repositoriesOptional: '仓库（逗号分隔，可选）', allowedRoomIds: '允许的房间 ID（逗号分隔）', allowedRoomIdsOptional: '允许的房间 ID（逗号分隔，可选）', freeResponseRoomIds: '自由回复房间 ID（逗号分隔）', freeResponseRoomIdsOptional: '自由回复房间 ID（逗号分隔，可选）', homeserverUrl: 'Homeserver URL', ilinkBotToken: 'iLink 机器人令牌', ilinkBotTokenKeep: 'iLink 机器人令牌（留空以保留现有值）', gatewayBaseUrlOptional: '网关基础 URL（可选）', progress: '进度', progressMode: '进度模式', replyRendering: '回复渲染', streamingUpdates: '流式更新', historyBackfillLimit: '历史回填上限（1-100 条消息）', privateKeyKeep: '私钥 PEM（留空以保留现有值）', webhookSecretKeep: 'Webhook 密钥（留空以保留现有值）', allowedGithubLoginsOptional: '允许的 GitHub 登录名（逗号分隔，可选）', operatorGithubLoginsOptional: '操作员 GitHub 登录名（逗号分隔，可选）', allowedAssociations: '允许的作者关联（逗号分隔）', delegationLabelOptional: '委派标签（可选）', channelSecret: 'Channel secret', channelSecretKeep: 'Channel secret（留空以保留现有值）', channelAccessToken: 'Channel access token', channelAccessTokenKeep: 'Channel access token（留空以保留现有值）', allowedLineChatIdsOptional: '允许的群组 / 房间 ID（逗号分隔，可选）'
@@ -4166,6 +4165,11 @@ const zh: Translations = {
                 '来自未绑定模型 Provider 的 Agent，或 Provider 已被删除的对话轮次。',
             unpriced: '{{count}} 条无价格',
             unpricedHint: '部分轮次没有记录成本，因此这里是实际开销的下限。'
+        },
+        channelNew: {
+            title: '新建 {{provider}} 频道',
+            noAgentsTitle: '还没有智能体',
+            noAgentsBody: '频道会把消息路由给智能体，所以请先创建一个智能体。'
         },
         channelsDashboard: {
             railEntry: '仪表盘',

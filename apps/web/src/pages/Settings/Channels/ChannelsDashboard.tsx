@@ -10,7 +10,7 @@ import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import { relative } from '@/components/RuntimeDetailPanel'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
-import { PlusIcon } from '@/components/icons'
+import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
 import {
     buildChannelActivityRows,
     type ChannelActivityVM
@@ -38,17 +38,9 @@ const ChannelsDashboard: FC<{
     channels: ChannelSummary[]
     report: ChannelActivityReport | null
     loading: boolean
-    canCreate: boolean
+    createOptions: readonly CreateMenuOption[]
     onSelect: (id: string) => void
-    onCreate: () => void
-}> = ({
-    channels,
-    report,
-    loading,
-    canCreate,
-    onSelect,
-    onCreate
-}): ReactNode => {
+}> = ({ channels, report, loading, createOptions, onSelect }): ReactNode => {
     const { t } = useI18n()
     const [view, setView] = useState<DashboardView>(() =>
         readDashboardView(CHANNELS_DASHBOARD_VIEW_KEY)
@@ -218,23 +210,16 @@ const ChannelsDashboard: FC<{
                     tier='stack'
                     title={t('web.emptyState.channelsTitle')}
                     body={t('web.emptyState.channelsBody')}
-                    action={{
-                        label: t('web.emptyState.channelsCreateAction'),
-                        onClick: onCreate
-                    }}
                 />
             ) : (
                 <>
                     <div className='mb-4 flex items-center justify-end'>
-                        <button
-                            type='button'
-                            onClick={onCreate}
-                            disabled={!canCreate}
-                            className='workbench-button-secondary h-8 gap-1.5 px-3 disabled:opacity-40'
-                        >
-                            <PlusIcon className='h-3.5 w-3.5' />
-                            {t('web.channels.settings.newChannel')}
-                        </button>
+                        <CreateMenu
+                            options={createOptions}
+                            variant='inline'
+                            triggerLabel={t('web.channels.settings.newChannel')}
+                            sheetTitle={t('web.channels.settings.newChannel')}
+                        />
                     </div>
                     {view === 'grid' ? (
                         <div className='grid gap-3 sm:grid-cols-2'>

@@ -89,6 +89,9 @@ const SandboxUsage = lazyChunk(() => import('@/pages/Settings/SandboxUsage'))
 const ChannelsList = lazyChunk(
     () => import('@/pages/Settings/Channels/ChannelsList')
 )
+const ChannelNew = lazyChunk(
+    () => import('@/pages/Settings/Channels/ChannelNew')
+)
 const ChannelDetail = lazyChunk(
     () => import('@/pages/Settings/Channels/ChannelDetail')
 )
@@ -337,6 +340,7 @@ const App: FC = (): ReactNode => {
                     />
                     <Route path='channels' element={<ChannelsList />}>
                         <Route path=':id' element={<ChannelDetail />} />
+                        <Route path='new/:provider' element={<ChannelNew />} />
                     </Route>
                     <Route
                         path='skills'

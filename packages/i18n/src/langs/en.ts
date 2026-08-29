@@ -812,7 +812,6 @@ const en = {
                 'Link GitHub, Cloudflare or Composio so agents authenticate automatically.',
             channelsTitle: 'No channels yet',
             channelsBody: 'Bridge an agent into a chat platform.',
-            channelsCreateAction: 'Create channel',
             channelDeliveriesEmpty: 'No recent deliveries.',
             creditHistoryTitle: 'No credit history',
             sandboxUsageTitle: 'No sandbox usage this period',
@@ -2760,7 +2759,6 @@ const en = {
             },
             settings: {
                 channels: 'Channels', newChannel: 'New channel', create: 'Create',
-                createDescription: 'Bridge an agent to an external chat platform.',
                 backToChannels: 'Back to channels', more: 'More', docs: 'Docs', refresh: 'Refresh', edit: 'Edit',
                 changeAgent: 'Change agent', changingAgent: 'Changing…', activate: 'Activate', pause: 'Pause', test: 'Test', delete: 'Delete',
                 registerTelegram: 'Re-register webhook', refreshBotIdentity: 'Refresh bot identity', registerApp: 'Register app', registerToken: 'Register token',
@@ -4378,6 +4376,12 @@ const en = {
             unpriced: '{{count}} unpriced',
             unpricedHint:
                 'Some turns have no recorded cost, so this is a lower bound on the real spend.'
+        },
+        channelNew: {
+            title: 'New {{provider}} channel',
+            noAgentsTitle: 'No agents yet',
+            noAgentsBody:
+                'A channel routes messages to an agent, so create an agent first.'
         },
         channelsDashboard: {
             railEntry: 'Dashboard',

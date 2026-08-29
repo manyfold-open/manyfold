@@ -11,6 +11,7 @@ test('cascade pages own their own layout', () => {
         '/settings/channels',
         '/settings/channels/dashboard',
         '/settings/channels/chn_abc',
+        '/settings/channels/new/lark',
         '/settings/model-providers',
         '/settings/model-providers/dashboard'
     ])
