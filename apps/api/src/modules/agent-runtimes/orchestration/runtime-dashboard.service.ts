@@ -35,7 +35,6 @@ import { K8sRuntimeSidecarService } from '@/modules/agent-runtimes/orchestration
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { buildNarraNexusDeepLink } from '@/modules/narranexus/narranexus-deep-link'
-import { dashboardHostFor } from '@/modules/agents/bootstrap/hermes'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
 import type { BootstrapContext } from '@/modules/agents/bootstrap/framework-bootstrap'
@@ -57,10 +56,13 @@ interface SpriteToggleTarget {
     creds: Record<string, unknown>
 }
 
-// Runtime-kind dispatcher for the dashboard/control-UI surface: k8s rows
-// keep the legacy sidecar orchestration, sprite rows get the sprite service
-// choreography. Deliberately does NOT depend on AgentsService — AgentsModule
-// imports this module, so that edge would be a cycle.
+// Runtime-kind dispatcher for the dashboard/control-UI surface: sprite rows
+// get the sprite service choreography; openclaw control-UI on k8s still
+// delegates to the sidecar service. The hermes dashboard is sprite-only —
+// the k8s host shape (cookie-authed `-dashboard` ingress sidecar) was
+// retired with zero enabled rows measured on prod and staging [2026-08-28].
+// Deliberately does NOT depend on AgentsService — AgentsModule imports this
+// module, so that edge would be a cycle.
 @Injectable()
 export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     private readonly log = new Logger(RuntimeDashboardService.name)
@@ -170,11 +172,8 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 'dashboard toggle only supported for hermes runtimes'
             )
         if (runtime.kind !== 'sprites')
-            return this.k8sSidecar.setDashboard(
-                callerUserId,
-                runtimeId,
-                enabled,
-                isAdmin
+            throw new BadRequestException(
+                'dashboard toggle only supported for sprites runtimes'
             )
         // Disable on an already-disabled runtime is a no-op; enable when the
         // flag is already true still re-runs the (idempotent) choreography as
@@ -219,6 +218,15 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
             throw new BadRequestException(
                 'dashboard is disabled for this runtime'
             )
+        if (runtime.framework === 'hermes' && runtime.kind !== 'sprites')
+            // The legacy k8s dashboard host (cookie-authed `-dashboard`
+            // ingress sidecar) was removed; only a pre-removal row could
+            // still carry dashboardEnabled here, and falling through would
+            // 500 on the missing dashboardToken. Before the audit write, so
+            // a refusal never records a mint.
+            throw new BadRequestException(
+                'the hermes dashboard is sprite-only; k8s dashboard hosting was removed'
+            )
         if (!runtime.ingressHost)
             throw new BadRequestException('runtime has no ingress host')
 
@@ -243,14 +251,6 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
                 agentId: resolvedAgentId
             }
         )
-
-        if (runtime.framework === 'hermes' && runtime.kind === 'k8s') {
-            // Legacy k8s rows: dashboard sidecar behind the `-dashboard`
-            // ingress subdomain, cookie-authed — no credentials to mint.
-            return {
-                url: agentBaseUrl(dashboardHostFor(runtime.ingressHost), '/')
-            }
-        }
 
         const credsPlain = await this.decryptCreds(runtime.id)
 

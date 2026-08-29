@@ -75,7 +75,7 @@ test('getControlUiUrl rejects hermes runtime when dashboard disabled', async () 
     assert.deepEqual(audits, [])
 })
 
-test('getControlUiUrl returns k8s hermes dashboard host URL and audits the mint', async () => {
+test('getControlUiUrl refuses the removed k8s hermes dashboard host without auditing a mint', async () => {
     const audits: Array<Record<string, unknown>> = []
     const service = serviceFor({
         runtimes: runtimesFor([
@@ -87,16 +87,17 @@ test('getControlUiUrl returns k8s hermes dashboard host URL and audits the mint'
         ]),
         db: dbFor({ audits })
     })
-    const { url } = await service.getControlUiUrl('runtime-1', 'user-1', false)
-    assert.equal(url, 'https://agent-1-dashboard.example.test/')
-    assert.equal(audits.length, 1)
-    const audit = audits[0]
-    assert.equal(audit.action, 'agent_runtime.control_ui.url_minted')
-    // For runtime-scoped frameworks (hermes/openclaw), agentId in the audit
-    // log is whatever the caller passed (here: nothing) since the URL
-    // itself is not per-agent.
-    const details = audit.meta as Record<string, unknown>
-    assert.equal(details.agentId, null)
+    await assert.rejects(
+        () => service.getControlUiUrl('runtime-1', 'user-1', false),
+        (err: unknown) => {
+            assert.ok(err instanceof BadRequestException)
+            assert.match((err as Error).message, /sprite-only/)
+            return true
+        }
+    )
+    // A refusal must not record a mint, and the removed `-dashboard` host
+    // URL must never be handed out again.
+    assert.deepEqual(audits, [])
 })
 
 test('getControlUiUrl mints sprite hermes URL with the dashboard token', async () => {
@@ -265,7 +266,7 @@ test('setControlUi delegates k8s runtimes to the k8s sidecar unchanged', async (
     assert.deepEqual(res, { id: 'runtime-1' })
 })
 
-test('setDashboard delegates k8s runtimes to the k8s sidecar unchanged', async () => {
+test('setDashboard refuses k8s runtimes and never touches the sidecar', async () => {
     const delegated: unknown[] = []
     const service = serviceFor({
         runtimes: runtimesFor([runtime({ framework: 'hermes', kind: 'k8s' })]),
@@ -276,8 +277,21 @@ test('setDashboard delegates k8s runtimes to the k8s sidecar unchanged', async (
             }
         }
     })
-    await service.setDashboard('user-1', 'runtime-1', true, false)
-    assert.deepEqual(delegated, [['user-1', 'runtime-1', true, false]])
+    await assert.rejects(
+        () => service.setDashboard('user-1', 'runtime-1', true, false),
+        (err: unknown) => {
+            assert.ok(err instanceof BadRequestException)
+            assert.match(
+                (err as Error).message,
+                /only supported for sprites runtimes/
+            )
+            return true
+        }
+    )
+    // The producer is closed, not delegated: the k8s dashboard host was
+    // removed (legacy-inventory §4.8, zero enabled rows measured on prod and
+    // staging [2026-08-28]).
+    assert.deepEqual(delegated, [])
 })
 
 test('sprite openclaw toggle rewrites config, patches flag, releases state and audits', async () => {

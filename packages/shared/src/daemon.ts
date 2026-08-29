@@ -387,6 +387,13 @@ export const DAEMON_FEATURE_FS_WRITE_MODE = 'fs.write.mode'
 // alongside the split budgets until the fleet reports no daemon without it,
 // which is the removal gate for that legacy field.
 export const DAEMON_FEATURE_TURN_BUDGETS = 'turn.budgets'
+// The model.inspect response carries credentialFacts (see
+// DaemonFrameworkModelCapability). A retroactive advertisement of behavior the
+// daemon already ships: the API keeps deciding from the field's presence on
+// the RPC itself (absence fails open as "cannot judge"), so nothing reads this
+// flag at decision time — it exists so fleet coverage is queryable from
+// `runtime_hosts.client_features`, which the heartbeat persists.
+export const DAEMON_FEATURE_CREDENTIAL_FACTS = 'model.credential-facts'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -399,5 +406,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
-    DAEMON_FEATURE_TURN_BUDGETS
+    DAEMON_FEATURE_TURN_BUDGETS,
+    DAEMON_FEATURE_CREDENTIAL_FACTS
 ]

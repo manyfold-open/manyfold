@@ -167,8 +167,6 @@ export const apiPaths = {
     AGENT_RUNTIME_CONTROL_UI_URL: (id: string) =>
         `/agent-runtimes/${id}/control-ui-url`,
     AGENT_RUNTIME_DASHBOARD: (id: string) => `/agent-runtimes/${id}/dashboard`,
-    AGENT_RUNTIME_DASHBOARD_AUTH_CHECK: (id: string) =>
-        `/agent-runtimes/${id}/dashboard-auth-check`,
     AGENT_RUNTIME_KEEP_ALIVE: (id: string) =>
         `/agent-runtimes/${id}/keep-alive`,
     AGENT_RUNTIME_RENAME: (id: string) => `/agent-runtimes/${id}/name`,

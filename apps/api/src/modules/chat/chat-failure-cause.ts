@@ -163,22 +163,37 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
 // Sentry's default grouping instead of pouring every unrecognised failure into
 // one bucket, which is the bug being fixed.
 //
+// `via` names the branch that answered. Its job is to make the legacy message
+// table's removal gate countable (legacy-inventory §4.4): `message` is a hit
+// on CAUSE_BY_MESSAGE, and `code_unmapped` is a specific code this table has
+// no entry for — on that exit the message is deliberately never read, because
+// a specific code must not be second-guessed by prose (the adversarial tests
+// pin this). Both counters must reach zero before the string table can go.
+//
 // Takes only the durable code and the message; returns only a member of the
-// taxonomy. The message is read here and never travels any further — no caller
-// tags, persists or fingerprints the raw detail.
-export const classifyChatFailureCause = (signal: {
+// taxonomy plus the branch token. The message is read here and never travels
+// any further — no caller tags, persists or fingerprints the raw detail.
+export type ChatFailureCauseVia =
+    | 'code'
+    | 'message'
+    | 'daemon_transport'
+    | 'code_unmapped'
+    | 'none'
+
+export const explainChatFailureCause = (signal: {
     errorCode?: string | null
     message?: string | null
-}): ChatFailureCause | null => {
+}): { cause: ChatFailureCause | null; via: ChatFailureCauseVia } => {
     const coded = signal.errorCode ? CAUSE_BY_CODE[signal.errorCode] : undefined
-    if (coded) return coded
+    if (coded) return { cause: coded, via: 'code' }
 
-    if (signal.errorCode && !isBroadMessageCode(signal.errorCode)) return null
+    if (signal.errorCode && !isBroadMessageCode(signal.errorCode))
+        return { cause: null, via: 'code_unmapped' }
 
     const message = (signal.message ?? '').toLowerCase()
-    if (!message) return null
+    if (!message) return { cause: null, via: 'none' }
     for (const [anchor, cause] of CAUSE_BY_MESSAGE)
-        if (anchor.test(message)) return cause
+        if (anchor.test(message)) return { cause, via: 'message' }
     // chat-adapter already owns what "the daemon transport is gone" means, and
     // it is the half of that decision that terminalizes rather than suspends.
     // Two lists of the same literals would drift, so this asks it.
@@ -186,6 +201,11 @@ export const classifyChatFailureCause = (signal: {
         isDaemonOfflineTransportError(message) ||
         isDaemonNotDispatchedError(message)
     )
-        return 'daemon_offline'
-    return null
+        return { cause: 'daemon_offline', via: 'daemon_transport' }
+    return { cause: null, via: 'none' }
 }
+
+export const classifyChatFailureCause = (signal: {
+    errorCode?: string | null
+    message?: string | null
+}): ChatFailureCause | null => explainChatFailureCause(signal).cause

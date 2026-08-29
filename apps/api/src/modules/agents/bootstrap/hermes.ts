@@ -5,61 +5,16 @@ import type {
     K8sBootstrapContext,
     K8sBootstrapPlan,
     K8sFrameworkBootstrap,
-    K8sPostProvisionContext,
-    K8sSidecarSpec
+    K8sPostProvisionContext
 } from '@/modules/agents/bootstrap/k8s-framework-bootstrap'
 import {
     buildHermesEnv,
     generateHermesApiServerKey,
-    HERMES_DASHBOARD_PORT,
-    HERMES_DASHBOARD_SERVICE_PORT,
     HERMES_PORT
 } from '@/modules/agents/bootstrap/hermes-shared'
 import { SkillMaterializerService } from '@/modules/skills/skill-materializer.service'
 
 const MOUNT = `${K8S_HOME_BASE}/.hermes`
-
-// Inject "-dashboard" before the first dot so the result stays at the same
-// DNS depth as the agent host (so it's covered by the same wildcard cert).
-// Example: agent-foo.manyfold.ai → agent-foo-dashboard.manyfold.ai
-export const dashboardHostFor = (agentHost: string): string => {
-    const idx = agentHost.indexOf('.')
-    if (idx < 0) return `${agentHost}-dashboard`
-    return `${agentHost.slice(0, idx)}-dashboard${agentHost.slice(idx)}`
-}
-
-export const hermesDashboardSidecar = (
-    image: string,
-    agentHost: string,
-    authUrl: string | null,
-    authSignin: string | null = null
-): K8sSidecarSpec => ({
-    name: 'hermes-dashboard',
-    image,
-    command: ['hermes'],
-    args: [
-        'dashboard',
-        '--host',
-        '0.0.0.0',
-        '--port',
-        String(HERMES_DASHBOARD_PORT),
-        '--insecure'
-    ],
-    envFromMainSecret: true,
-    containerPort: HERMES_DASHBOARD_PORT,
-    servicePortName: 'dashboard',
-    servicePort: HERMES_DASHBOARD_SERVICE_PORT,
-    ingressHost: dashboardHostFor(agentHost),
-    ingressPath: '/',
-    ingressPathType: 'Prefix',
-    authUrlAnnotation: authUrl,
-    authSigninAnnotation: authSignin,
-    resources: {
-        requests: { cpu: '50m', memory: '128Mi' },
-        limits: { cpu: '300m', memory: '256Mi' }
-    },
-    mountPvc: true
-})
 
 @Injectable()
 export class HermesBootstrap implements K8sFrameworkBootstrap {

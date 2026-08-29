@@ -32,21 +32,15 @@ export const envString = (keys: readonly string[]): string | undefined => {
 //   / NCA_TASK_NAME sprite exports, NCA_SHELL_ENV_START block markers,
 //   __NCA_MISSING__ / __NCA_STORAGE_SEP__ sentinels) — sprite-fleet
 //   compatibility contracts, tracked as legacy-inventory §9.
+// - MF_AUTH_URL / MF_DASHBOARD_COOKIE_DOMAIN / MF_DASHBOARD_SIGNIN_URL (and
+//   their NCA_ twins) — retired with the k8s dashboard host: no reader is
+//   left, so a set value is inert and there is nothing to migrate to.
 export const LEGACY_CONFIG_ALIASES: ReadonlyArray<{
     canonical: string
     aliases: readonly string[]
 }> = [
     { canonical: 'MF_WEB_URL', aliases: ['NCA_WEB_URL', 'WEB_BASE_URL'] },
     { canonical: 'MF_ADMIN_URL', aliases: ['NCA_ADMIN_URL'] },
-    { canonical: 'MF_AUTH_URL', aliases: ['NCA_AUTH_URL'] },
-    {
-        canonical: 'MF_DASHBOARD_COOKIE_DOMAIN',
-        aliases: ['NCA_DASHBOARD_COOKIE_DOMAIN']
-    },
-    {
-        canonical: 'MF_DASHBOARD_SIGNIN_URL',
-        aliases: ['NCA_DASHBOARD_SIGNIN_URL']
-    },
     { canonical: 'MF_API_INSTANCE_ID', aliases: ['NCA_API_INSTANCE_ID'] },
     { canonical: 'MF_FILES_DEBUG', aliases: ['NCA_FILES_DEBUG'] },
     { canonical: 'MF_VERSION', aliases: ['NCA_VERSION'] },
