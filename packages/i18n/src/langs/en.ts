@@ -4093,6 +4093,12 @@ const en = {
             searchPricing: 'search both tables…',
             useAutomatic: 'Use automatic match',
             newProvider: 'New model provider',
+            groupBy: {
+                none: 'None',
+                provider: 'Provider',
+                protocol: 'Protocol',
+                status: 'Status'
+            },
             managed: 'Manyfold managed',
             emptyTitle: 'No model providers yet',
             emptyBody:

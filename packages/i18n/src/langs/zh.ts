@@ -3889,6 +3889,12 @@ const zh: Translations = {
             searchPricing: '搜索两张表…',
             useAutomatic: '使用自动匹配',
             newProvider: '新建模型 Provider',
+            groupBy: {
+                none: '无',
+                provider: 'Provider',
+                protocol: '协议',
+                status: '状态'
+            },
             managed: 'Manyfold 托管',
             emptyTitle: '还没有模型 Provider',
             emptyBody: '添加一个带 API 密钥的内置 Provider，或配置自定义端点。',

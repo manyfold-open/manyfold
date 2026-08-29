@@ -18,10 +18,25 @@ import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
 import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter.svg'
 import EmptyState from '@/components/EmptyState'
 import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
+import {
+    GroupByControl,
+    type GroupByOption,
+    GroupHeader,
+    type Health,
+    useCascadeState
+} from '@/lib/cascade'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
-import { PlusIcon } from '@/components/icons'
+import {
+    BoxIcon,
+    ChevronDownIcon,
+    ChevronUpIcon,
+    ListViewIcon,
+    PlugIcon,
+    PlusIcon,
+    ZapIcon
+} from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
@@ -66,6 +81,23 @@ const newProviderOptions = (
         onSelect: () => onPick({ kind: 'custom-new' })
     }
 ]
+
+type ProviderGroupBy = 'none' | 'provider' | 'protocol' | 'status'
+
+const PROVIDER_DIMS = ['none', 'provider', 'protocol', 'status'] as const
+
+interface ProviderGroup {
+    key: string
+    label: string
+    count: number
+    health: Health
+    items: UserModelProviderSummary[]
+}
+
+// A group is only as healthy as its worst key: one failed connection test is
+// worth surfacing on a collapsed header.
+const providerGroupHealth = (items: UserModelProviderSummary[]): Health =>
+    items.some((r) => r.lastTestStatus === 'error') ? 'error' : null
 
 // Reserved path segment under model-providers/*. Provider selection lives in
 // a query param, so the path never carries an id to collide with.
@@ -383,9 +415,17 @@ interface ProviderSidebarProps {
     showLoading: boolean
 }
 
-export const providerLeafClass = (selected: boolean, muted: boolean): string =>
+export const providerLeafClass = (
+    selected: boolean,
+    muted: boolean,
+    // Grouped rows sit under a header's chevron column; ungrouped ones sit at
+    // the rail's own left edge. The cloud managed row passes nothing and keeps
+    // the ungrouped indent, because it is never inside a group.
+    indentClass = 'pl-2'
+): string =>
     [
-        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 pl-2 text-left transition-colors',
+        'flex w-full items-center gap-2.5 rounded-sm py-2 pr-2.5 text-left transition-colors',
+        indentClass,
         selected
             ? 'bg-active-session'
             : muted
@@ -412,8 +452,108 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
 }): ReactNode => {
     const { t } = useI18n()
     const options = newProviderOptions(t, onSelect)
+    const { groupBy, setGroupBy, expanded, toggle, collapseAll, expandAll } =
+        useCascadeState('mf.modelProviders.cascade.v1', PROVIDER_DIMS, 'none')
 
     const total = (hasManaged ? 1 : 0) + nonManagedRows.length
+
+    const groups = useMemo<ProviderGroup[]>(() => {
+        // None renders one unheadered group, so the header-only fields stay
+        // empty — the rail lists every provider flat, in its existing order.
+        if (groupBy === 'none')
+            return nonManagedRows.length === 0
+                ? []
+                : [
+                      {
+                          key: 'all',
+                          label: '',
+                          count: nonManagedRows.length,
+                          health: null,
+                          items: nonManagedRows
+                      }
+                  ]
+
+        const bucket = (
+            row: UserModelProviderSummary
+        ): { key: string; label: string } => {
+            if (groupBy === 'provider') {
+                const entry = row.builtInId
+                    ? lookupBuiltIn(row.builtInId)
+                    : null
+                return entry
+                    ? { key: `bi:${entry.id}`, label: entry.label }
+                    : { key: 'bi:custom', label: t('web.credentials.custom') }
+            }
+            if (groupBy === 'protocol')
+                return row.inferenceProtocol
+                    ? {
+                          key: `pr:${row.inferenceProtocol}`,
+                          label: inferenceProtocolLabel[row.inferenceProtocol]
+                      }
+                    : { key: 'pr:none', label: t('web.credentials.custom') }
+            if (row.lastTestStatus === 'ok')
+                return {
+                    key: 'st:ok',
+                    label: t('web.runtimesDashboard.testPassed')
+                }
+            if (row.lastTestStatus === 'error')
+                return {
+                    key: 'st:error',
+                    label: t('web.runtimesDashboard.testFailed')
+                }
+            return {
+                key: 'st:none',
+                label: t('web.runtimesDashboard.neverTested')
+            }
+        }
+
+        // Insertion order preserved, so groups follow the same built-in-first
+        // ordering the flat list already uses.
+        const out: ProviderGroup[] = []
+        const byKey = new Map<string, ProviderGroup>()
+        for (const row of nonManagedRows) {
+            const { key, label } = bucket(row)
+            let group = byKey.get(key)
+            if (!group) {
+                group = { key, label, count: 0, health: null, items: [] }
+                byKey.set(key, group)
+                out.push(group)
+            }
+            group.items.push(row)
+        }
+        for (const group of out) {
+            group.count = group.items.length
+            group.health = providerGroupHealth(group.items)
+        }
+        return out
+    }, [nonManagedRows, groupBy, t])
+
+    const allKeys = useMemo(() => groups.map((g) => g.key), [groups])
+    const isOpen = (key: string): boolean => expanded.has(key)
+    const anyExpanded = expanded.size > 0
+
+    const groupByOptions: ReadonlyArray<GroupByOption<ProviderGroupBy>> = [
+        {
+            value: 'none',
+            label: t('web.modelProviders.groupBy.none'),
+            icon: ListViewIcon
+        },
+        {
+            value: 'provider',
+            label: t('web.modelProviders.groupBy.provider'),
+            icon: BoxIcon
+        },
+        {
+            value: 'protocol',
+            label: t('web.modelProviders.groupBy.protocol'),
+            icon: PlugIcon
+        },
+        {
+            value: 'status',
+            label: t('web.modelProviders.groupBy.status'),
+            icon: ZapIcon
+        }
+    ]
 
     return (
         <aside
@@ -443,6 +583,33 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                         triggerLabel={t('web.modelProviders.newProviderButton')}
                         sheetTitle={t('web.modelProviders.newProvider')}
                     />
+                </div>
+                <div className='flex items-center justify-between gap-2'>
+                    <GroupByControl
+                        value={groupBy}
+                        onChange={setGroupBy}
+                        options={groupByOptions}
+                    />
+                    {groupBy !== 'none' && (
+                        <button
+                            type='button'
+                            onClick={
+                                anyExpanded
+                                    ? collapseAll
+                                    : () => expandAll(allKeys)
+                            }
+                            className='text-caption text-muted hover:text-fg inline-flex items-center gap-1 transition-colors'
+                        >
+                            {anyExpanded ? (
+                                <ChevronUpIcon className='h-3.5 w-3.5' />
+                            ) : (
+                                <ChevronDownIcon className='h-3.5 w-3.5' />
+                            )}
+                            {anyExpanded
+                                ? t('web.channels.settings.collapseAll')
+                                : t('web.channels.settings.expandAll')}
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -479,21 +646,41 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                                 onClick={() => onSelect({ kind: 'managed' })}
                             />
                         )}
-                        {nonManagedRows.map((row) => (
-                            <SidebarRow
-                                key={row.id}
-                                row={row}
-                                selected={
-                                    selected?.kind === 'configured' &&
-                                    selected.id === row.id
-                                }
-                                onClick={() =>
-                                    onSelect({
-                                        kind: 'configured',
-                                        id: row.id
-                                    })
-                                }
-                            />
+                        {groups.map((group) => (
+                            <div key={group.key}>
+                                {groupBy !== 'none' && (
+                                    <GroupHeader
+                                        label={group.label}
+                                        count={group.count}
+                                        open={isOpen(group.key)}
+                                        health={group.health}
+                                        onToggle={() => toggle(group.key)}
+                                    />
+                                )}
+                                {(groupBy === 'none' || isOpen(group.key)) &&
+                                    group.items.map((row) => (
+                                        <SidebarRow
+                                            key={row.id}
+                                            row={row}
+                                            indentClass={
+                                                groupBy === 'none'
+                                                    ? 'pl-2'
+                                                    : 'pl-8'
+                                            }
+                                            selected={
+                                                selected?.kind ===
+                                                    'configured' &&
+                                                selected.id === row.id
+                                            }
+                                            onClick={() =>
+                                                onSelect({
+                                                    kind: 'configured',
+                                                    id: row.id
+                                                })
+                                            }
+                                        />
+                                    ))}
+                            </div>
                         ))}
                     </>
                 )}
@@ -513,9 +700,10 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
 
 const SidebarRow: FC<{
     row: UserModelProviderSummary
+    indentClass: string
     selected: boolean
     onClick: () => void
-}> = ({ row, selected, onClick }): ReactNode => {
+}> = ({ row, indentClass, selected, onClick }): ReactNode => {
     const { t } = useI18n()
     const builtInEntry = row.builtInId ? lookupBuiltIn(row.builtInId) : null
     const counts = totalModelCounts(row)
@@ -532,7 +720,7 @@ const SidebarRow: FC<{
             type='button'
             onClick={onClick}
             aria-current={selected ? 'true' : undefined}
-            className={providerLeafClass(selected, false)}
+            className={providerLeafClass(selected, false, indentClass)}
         >
             <span className='flex h-5 w-5 shrink-0 items-center justify-center'>
                 {builtInEntry ? (
