@@ -1,5 +1,11 @@
 # @manyfold/cli
 
+## 0.27.1
+
+### Patch Changes
+
+- [#81](https://github.com/manyfold-open/manyfold/pull/81) [`1e5d661`](https://github.com/manyfold-open/manyfold/commit/1e5d661d7adc4a06e984e742f965a81e70c841bf) Thanks [@yingca1](https://github.com/yingca1)! - The daemon's hello and heartbeat now advertise `model.credential-facts`, a retroactive capability flag for the credentialFacts field its model.inspect responses already carry. No behavior change — the flag makes fleet coverage queryable from `runtime_hosts.client_features`.
+
 ## 0.27.0
 
 ### Minor Changes
