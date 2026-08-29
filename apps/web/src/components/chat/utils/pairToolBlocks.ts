@@ -2,6 +2,8 @@ import type {
     ChatAttachmentBlock,
     ChatContentBlock,
     ChatContextRefBlock,
+    ChatPermissionRequestBlock,
+    ChatPermissionResolutionBlock,
     ChatTextBlock,
     ChatThinkingBlock,
     ChatToolCallBlock,
@@ -32,6 +34,14 @@ export interface OrphanResultBlock {
     status: ToolStatus
 }
 
+// A hermes ask and (once answered / expired / cancelled) its settlement,
+// paired by requestId the same way tool calls pair with their results.
+export interface PermissionCardBlock {
+    kind: 'permission_card'
+    request: ChatPermissionRequestBlock
+    resolution: ChatPermissionResolutionBlock | null
+}
+
 export type RenderableBlock =
     | { kind: 'text'; block: ChatTextBlock }
     | { kind: 'attachment'; block: ChatAttachmentBlock }
@@ -41,6 +51,7 @@ export type RenderableBlock =
     | PairedToolBlock
     | SubagentBlock
     | OrphanResultBlock
+    | PermissionCardBlock
 
 const DENIED_PATTERNS = [
     'user denied tool use',
@@ -112,6 +123,7 @@ export const pairToolBlocks = (
 ): RenderableBlock[] => {
     const { streaming = false, nestSubagents = false } = options
     const slotById = new Map<string, Slot>()
+    const permissionCardIdxByRequest = new Map<string, number>()
     const out: RenderableBlock[] = []
     let activeSubagentIdx: number | null = null
 
@@ -134,6 +146,23 @@ export const pairToolBlocks = (
         }
         if (block.type === 'thinking') {
             out.push({ kind: 'thinking', block })
+            continue
+        }
+        if (block.type === 'permission_request') {
+            permissionCardIdxByRequest.set(block.requestId, out.length)
+            out.push({
+                kind: 'permission_card',
+                request: block,
+                resolution: null
+            })
+            continue
+        }
+        if (block.type === 'permission_resolution') {
+            const idx = permissionCardIdxByRequest.get(block.requestId)
+            if (idx === undefined) continue
+            const existing = out[idx]
+            if (existing.kind === 'permission_card')
+                out[idx] = { ...existing, resolution: block }
             continue
         }
         if (block.type === 'tool_call') {

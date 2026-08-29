@@ -786,6 +786,7 @@ export class ChannelBridgeService {
                     undefined,
                     undefined,
                     undefined,
+                    undefined,
                     outbound.observer,
                     [],
                     files.uploads,

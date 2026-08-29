@@ -41,7 +41,7 @@ import {
     type DaemonTurnStartPayload,
     type GeminiCredentialFacts
 } from '@manyfold/shared'
-import { runAcpTurn } from './acp-turn'
+import { permissionResponders, runAcpTurn } from './acp-turn'
 import { runOpenclawTurn } from './openclaw-turn'
 import type { RpcContext, RpcHandler } from './ws-client'
 import { encodePtyChunk, resolvePtyBackend } from './pty-backend'
@@ -1275,6 +1275,24 @@ const handlers: Partial<
         }
     },
     'exec.abort': async (payload) => execAbort(payload),
+    // Answer a pending interactive hermes ask. refId names the turn (it is
+    // the turn.start refId == assistantMessageId); 'unknown_request' = never
+    // seen, already answered, or expired — the API maps it to 409.
+    'turn.permission': async (payload) => {
+        const p = payload as {
+            refId?: string
+            requestId?: string
+            optionId?: string
+        }
+        if (!p.refId || !p.requestId || !p.optionId)
+            return { ok: false, error: 'refId, requestId and optionId required' }
+        const responder = permissionResponders.get(p.refId)
+        if (!responder) return { ok: false, error: 'unknown_request' }
+        const outcome = responder(p.requestId, p.optionId)
+        if (outcome !== 'delivered')
+            return { ok: false, error: 'unknown_request' }
+        return { ok: true }
+    },
     'exec.input': async (payload) => execInput(payload),
     'exec.eof': async (payload) => execEof(payload),
     'fs.list': async (payload) => {

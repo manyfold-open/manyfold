@@ -35,6 +35,7 @@ const notify = (update) =>
     send({ jsonrpc: '2.0', method: 'session/update', params: { update } })
 let promptId = null
 let switchedTo = null
+let modeSet = null
 rl.on('line', (line) => {
     let frame
     try { frame = JSON.parse(line) } catch { return }
@@ -55,6 +56,10 @@ rl.on('line', (line) => {
                 ] }
             } })
         return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: 'sess_fake_1' } })
+    }
+    if (frame.method === 'session/set_mode') {
+        modeSet = frame.params.modeId
+        return send({ jsonrpc: '2.0', id: frame.id, result: {} })
     }
     if (frame.method === 'session/set_model') {
         if (mode === 'model-unsupported')
@@ -86,6 +91,13 @@ rl.on('line', (line) => {
             return
         }
         promptId = frame.id
+        if (mode === 'interactive') {
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'yolo=' + (process.env.HERMES_YOLO_MODE || 'unset') + ' ' } })
+            return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: { options: [
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            ] } })
+        }
         if (mode === 'model')
             notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'model=' + (switchedTo || 'none') + ' ' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } })
@@ -103,6 +115,8 @@ rl.on('line', (line) => {
         return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: {} })
     }
     if (frame.id === 999 && frame.result) {
+        if (mode === 'interactive')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'perm=' + (frame.result.outcome.optionId || frame.result.outcome.outcome) + ' mode=' + modeSet } })
         if (mode === 'options')
             notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' perm=' + frame.result.outcome.optionId } })
         notify({ sessionUpdate: 'turn_end', usage: { inputTokens: 3, outputTokens: 5 } })
@@ -489,4 +503,87 @@ test('a reconcile-only override on a stateless build is skipped', async () => {
     assert.equal(ack.ok, true, ack.error)
     const final = ack.payload as { models?: unknown }
     assert.equal(final.models, undefined)
+})
+
+// PR: interactive permissions. An ask-mode payload drops YOLO from the child
+// env, aligns hermes's session mode, forwards the ask instead of
+// auto-answering (answered via the turn.permission responder), and publishes
+// a synthetic _manyfold/permission_resolution line into the buffer BEFORE the
+// child's reply — so a replayed stream shows the settlement in live order.
+test('an ask-mode turn takes the user answer via the responder', async () => {
+    const { permissionResponders } = await import('../src/daemon/acp-turn')
+    const h = makeCtx('turn-perm-1')
+    const ackPromise = runAcpTurn({
+        payload: payloadFor('interactive', {
+            permissionMode: 'acceptEdits',
+            permissionTimeoutMs: 30_000
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    // wait for the ask to reach the buffer, then answer like the API would
+    const deadline = Date.now() + 5_000
+    for (;;) {
+        if (
+            h.events.some((e) =>
+                e.data.includes('session/request_permission')
+            ) &&
+            permissionResponders.has('turn-perm-1')
+        )
+            break
+        if (Date.now() > deadline) throw new Error('ask never surfaced')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const responder = permissionResponders.get('turn-perm-1')!
+    assert.equal(responder('999', 'allow_once'), 'delivered')
+    assert.equal(responder('999', 'allow_once'), 'unknown')
+    const ack = await ackPromise
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('yolo=unset')),
+        'ask modes must not freeze YOLO into the child'
+    )
+    assert.ok(
+        stdout.some((e) => e.data.includes('perm=allow_once mode=accept_edits')),
+        'the child must see the picked option after set_mode aligned the session'
+    )
+    const resolutionIdx = stdout.findIndex((e) =>
+        e.data.includes('_manyfold/permission_resolution')
+    )
+    const answeredIdx = stdout.findIndex((e) => e.data.includes('perm=allow_once'))
+    assert.ok(resolutionIdx !== -1, 'synthetic resolution line expected')
+    assert.ok(
+        resolutionIdx < answeredIdx,
+        'the settlement must precede post-approval output in the buffer'
+    )
+    assert.equal(permissionResponders.has('turn-perm-1'), false)
+})
+
+test('an unanswered ask denies on the payload timeout with the reject option', async () => {
+    const h = makeCtx('turn-perm-2')
+    const ack = await runAcpTurn({
+        payload: payloadFor('interactive', {
+            permissionMode: 'default',
+            permissionTimeoutMs: 200
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some(
+            (e) =>
+                e.data.includes('_manyfold/permission_resolution') &&
+                e.data.includes('"timeout"') &&
+                e.data.includes('deny')
+        ),
+        'the timeout must settle with the reject option'
+    )
+    assert.ok(stdout.some((e) => e.data.includes('perm=deny mode=default')))
 })

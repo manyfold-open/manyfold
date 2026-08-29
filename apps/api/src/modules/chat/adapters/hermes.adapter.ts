@@ -1,6 +1,7 @@
 import {
     DAEMON_FEATURE_TURN_HERMES,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
+    DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
     envTextFromExtras,
     envTextToRecord,
@@ -11,7 +12,8 @@ import type {
     ChatCapabilities,
     ChatMessage,
     DaemonTurnStartPayload,
-    HermesCredentialsInput
+    HermesCredentialsInput,
+    HermesPermissionMode
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
@@ -44,16 +46,16 @@ import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { hermesProviderAliasEnv } from '@/modules/agents/bootstrap/hermes-shared'
+import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { ExecDriverFactory, type ExecDriverHandle } from './exec-driver-factory'
 import {
-    acpEventsFromNotification,
+    acpEventsFromFrame,
     acpModelMatches,
     HermesAcpTurn,
     HERMES_ACP_CMD,
     type AcpEvent,
     type AcpRequestTimeouts,
-    type AcpSessionState,
-    type JsonRpcNotification
+    type AcpSessionState
 } from './hermes-acp-client'
 
 // #556: this was a hard-coded 240s over the whole turn, and the streamed
@@ -72,6 +74,24 @@ const HERMES_TURN_IDLE_TIMEOUT_MS = Math.max(
 
 const HERMES_ACP_PARSER_NAME = 'hermes-acp'
 const HERMES_ACP_PARSER_VERSION = '1'
+
+// Deny-on-timeout deadline for an unanswered interactive ask. Long by design
+// — a human is deciding — while maxDurationMs stays the only wall clock; the
+// pending ask itself keeps the idle budget alive.
+const HERMES_PERMISSION_TIMEOUT_MS = Math.max(
+    10_000,
+    Number(process.env.HERMES_PERMISSION_TIMEOUT_MS ?? 300_000)
+)
+
+// hermesPermissionModes -> hermes's own ACP session mode ids.
+const hermesAcpModeId = (
+    mode: 'default' | 'acceptEdits' | 'dontAsk'
+): string =>
+    mode === 'acceptEdits'
+        ? 'accept_edits'
+        : mode === 'dontAsk'
+          ? 'dont_ask'
+          : 'default'
 
 // Content mapping for one ACP event, shared by the live drain and the resume
 // replay so a recovered turn cannot decode differently from the turn it is
@@ -98,7 +118,9 @@ const acpEventToChatEvents = (
             sourceRef: null,
             sourceSeq,
             externalId:
-                ev.type === 'tool_result'
+                ev.type === 'tool_result' ||
+                ev.type === 'permission_request' ||
+                ev.type === 'permission_resolution'
                     ? `hermes-acp-x-${sourceSeq}`
                     : `hermes-acp-${sourceSeq}`,
             parentExternalId: null,
@@ -135,6 +157,28 @@ const acpEventToChatEvents = (
                         ev.status === 'failed'
                             ? { error: ev.result ?? 'tool failed' }
                             : (ev.result ?? '')
+                }
+            ]
+        case 'permission_request':
+            return [
+                source,
+                {
+                    type: 'permission_request',
+                    requestId: ev.requestId,
+                    toolCallId: ev.toolCallId,
+                    title: ev.title,
+                    detail: ev.detail,
+                    options: ev.options
+                }
+            ]
+        case 'permission_resolution':
+            return [
+                source,
+                {
+                    type: 'permission_resolution',
+                    requestId: ev.requestId,
+                    outcome: ev.outcome,
+                    optionId: ev.optionId
                 }
             ]
         default:
@@ -176,7 +220,12 @@ export class HermesAdapter implements ApiChatAdapter {
         // Same rule. Carries the interactive exec transports (sprite WSS /
         // pod exec) for the runtimes where no daemon can own the ACP client.
         @Optional()
-        private readonly execDrivers?: ExecDriverFactory
+        private readonly execDrivers?: ExecDriverFactory,
+        // Same rule. Routes user answers to a blocked interactive ask; absent
+        // (tests), ask-mode turns still run — answers just cannot be
+        // delivered from the HTTP endpoint.
+        @Optional()
+        private readonly permissionCoordinator?: HermesPermissionCoordinator
     ) {}
 
     private async chatExecTimeouts(): Promise<{
@@ -236,6 +285,13 @@ export class HermesAdapter implements ApiChatAdapter {
         const modelTarget = ctx.modelOverride ?? null
         const explicitModelSwitch =
             modelTarget !== null && modelTarget !== (agentRow.model ?? null)
+        // Only the ask modes ride the payload: explicit dontAsk IS the daemon
+        // default, and attaching it would gate every legacy flow on the new
+        // capability for nothing.
+        const askMode: HermesPermissionMode | null =
+            ctx.hermesPermissionMode && ctx.hermesPermissionMode !== 'dontAsk'
+                ? ctx.hermesPermissionMode
+                : null
 
         if (agentRow.runtime === 'daemon') {
             if (!agentRow.daemonId)
@@ -280,6 +336,14 @@ export class HermesAdapter implements ApiChatAdapter {
                 yield override.refusal
                 return
             }
+            const permission = await this.daemonPermissionMode({
+                daemonId: agentRow.daemonId,
+                askMode
+            })
+            if (permission.refusal) {
+                yield permission.refusal
+                return
+            }
             yield* this.sendViaTurnRpc(ctx, userMessage, {
                 daemonId: agentRow.daemonId,
                 cwd: agentRow.workspacePath ?? null,
@@ -287,7 +351,8 @@ export class HermesAdapter implements ApiChatAdapter {
                 // agent's env text rides the payload (#781).
                 env: envTextToRecord(envTextFromExtras(agentRow.extras)),
                 modelOverride: override.value,
-                modelOverrideRequired: explicitModelSwitch
+                modelOverrideRequired: explicitModelSwitch,
+                permissionMode: permission.value
             })
             return
         }
@@ -330,6 +395,14 @@ export class HermesAdapter implements ApiChatAdapter {
                 yield override.refusal
                 return
             }
+            const permission = await this.daemonPermissionMode({
+                daemonId: ctx.runnerDaemonId,
+                askMode
+            })
+            if (permission.refusal) {
+                yield permission.refusal
+                return
+            }
             yield* this.sendViaTurnRpc(ctx, userMessage, {
                 daemonId: ctx.runnerDaemonId,
                 cwd: agentRow.workspacePath ?? null,
@@ -345,7 +418,8 @@ export class HermesAdapter implements ApiChatAdapter {
                     ...aliasEnv
                 },
                 modelOverride: override.value,
-                modelOverrideRequired: explicitModelSwitch
+                modelOverrideRequired: explicitModelSwitch,
+                permissionMode: permission.value
             })
             return
         }
@@ -407,12 +481,14 @@ export class HermesAdapter implements ApiChatAdapter {
             env?: Record<string, string>
             modelOverride?: string | null
             modelOverrideRequired?: boolean
+            permissionMode?: 'default' | 'acceptEdits' | null
         }
     ): AsyncIterable<EmittedChatEvent> {
         this.logger.log(
             `hermes turn.start daemon=${args.daemonId} agent=${ctx.agentId} message=${ctx.messageId}`
         )
         const budgets = await this.turnBudgets()
+        const interactive = args.permissionMode != null
         const payload: DaemonTurnStartPayload = {
             framework: 'hermes',
             prompt: messageToPromptText(userMessage),
@@ -424,9 +500,19 @@ export class HermesAdapter implements ApiChatAdapter {
                       modelOverrideRequired: args.modelOverrideRequired ?? false
                   }
                 : {}),
+            ...(interactive
+                ? {
+                      permissionMode: args.permissionMode ?? undefined,
+                      permissionTimeoutMs: HERMES_PERMISSION_TIMEOUT_MS
+                  }
+                : {}),
             // Platform key last; the HERMES_ prefix is reserved, so the agent
-            // extras can never shadow it anyway.
-            env: { ...(args.env ?? {}), HERMES_YOLO_MODE: '1' },
+            // extras can never shadow it anyway. Ask modes drop YOLO so the
+            // asks reach the user instead of hermes's import-time bypass.
+            env: {
+                ...(args.env ?? {}),
+                ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
+            },
             // Deliberately still the legacy value: a runner that predates the
             // split reads ONLY this and must keep its old 240s absolute cap
             // rather than silently inherit the multi-hour maxDurationMs. A
@@ -570,20 +656,24 @@ export class HermesAdapter implements ApiChatAdapter {
                     lineBuf = lineBuf.slice(nl + 1)
                     nl = lineBuf.indexOf('\n')
                     if (!line) continue
-                    let note: JsonRpcNotification | null = null
+                    let frame: Record<string, unknown> | null = null
                     try {
-                        note = JSON.parse(line) as JsonRpcNotification
+                        frame = JSON.parse(line) as Record<string, unknown>
                     } catch {
                         continue
                     }
-                    for (const ev of acpEventsFromNotification(note)) {
+                    for (const ev of acpEventsFromFrame(frame)) {
                         if (ev.type === 'turn_end') sawTurnEnd = true
                         if (ev.type === 'usage_update') {
                             const cu = contextUsageFromUpdate(ev.usage)
                             if (cu) lastContextUsage = cu
                             continue
                         }
-                        if (ev.type === 'tool_result') {
+                        if (
+                            ev.type === 'tool_result' ||
+                            ev.type === 'permission_request' ||
+                            ev.type === 'permission_resolution'
+                        ) {
                             acpXSeq += 1
                             yield* acpEventToChatEvents(ev, acpXSeq)
                             continue
@@ -780,6 +870,52 @@ export class HermesAdapter implements ApiChatAdapter {
         }
     }
 
+    // Whether an ask mode may ride the payload. Mirrors daemonModelOverride's
+    // honesty rule: silently running YOLO under a UI that claims "ask" is
+    // worse than refusing, so an old daemon is refused with the fix in hand.
+    private async daemonPermissionMode(args: {
+        daemonId: string
+        askMode: HermesPermissionMode | null
+    }): Promise<{
+        value: 'default' | 'acceptEdits' | null
+        refusal?: EmittedErrorEvent
+    }> {
+        if (!args.askMode || args.askMode === 'dontAsk') return { value: null }
+        let supported: boolean
+        try {
+            supported = await daemonAdvertisesFeature(
+                this.db,
+                args.daemonId,
+                DAEMON_FEATURE_TURN_HERMES_PERMISSIONS
+            )
+        } catch (err) {
+            return {
+                value: null,
+                refusal: {
+                    type: 'error',
+                    error: {
+                        code: 'hermes_daemon_acp_failed',
+                        message: `turn.hermes.permissions capability lookup failed: ${(err as Error).message}`,
+                        retryable: true
+                    }
+                }
+            }
+        }
+        if (supported) return { value: args.askMode }
+        return {
+            value: null,
+            refusal: {
+                type: 'error',
+                error: {
+                    code: 'hermes_daemon_permissions_upgrade_required',
+                    message:
+                        'this daemon\'s mf CLI predates hermes interactive permissions; run `mf update` on the daemon host and restart the daemon, or switch the permission mode back to "Don\'t ask"',
+                    retryable: false
+                }
+            }
+        }
+    }
+
     // Best-effort capture of the session state hermes reported, for
     // diagnostics — the picker's source of truth stays the provider-models
     // cache, so absence (old daemons, old hermes builds) degrades to nothing.
@@ -915,6 +1051,8 @@ export class HermesAdapter implements ApiChatAdapter {
             idleTimeoutMs: HERMES_TURN_IDLE_TIMEOUT_MS,
             maxDurationMs: execTimeouts.timeoutMs
         }
+        const permissionMode = ctx.hermesPermissionMode ?? 'dontAsk'
+        const interactive = permissionMode !== 'dontAsk'
         const cwd = handle.agent.workspacePath ?? null
         const prompt = messageToPromptText(userMessage)
         const tStart = Date.now()
@@ -950,7 +1088,10 @@ export class HermesAdapter implements ApiChatAdapter {
                         'openai',
                     creds.primaryModelApiKey ?? ''
                 ),
-                HERMES_YOLO_MODE: '1'
+                // YOLO bypasses hermes's terminal-approval layer at import
+                // time; the ask modes need it OFF so dangerous commands route
+                // to session/request_permission and reach the user's card.
+                ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
             },
             ...(cwd ? { dir: cwd } : {}),
             // Bounds the ACP child's whole lifetime, so it has to be the
@@ -964,8 +1105,18 @@ export class HermesAdapter implements ApiChatAdapter {
         const turn = new HermesAcpTurn({
             transport,
             onEvent: enqueue,
-            logger: this.logger
+            logger: this.logger,
+            permissionPolicy: interactive ? 'interactive' : 'auto',
+            permissionTimeoutMs: HERMES_PERMISSION_TIMEOUT_MS
         })
+        const unregisterPermissions =
+            interactive && this.permissionCoordinator
+                ? this.permissionCoordinator.register(ctx.messageId, {
+                      respond: (requestId, optionId) =>
+                          turn.respondPermission(requestId, optionId),
+                      pendingIds: () => turn.pendingPermissionIds
+                  })
+                : null
         const state: { finished: boolean; aborted: boolean } = {
             finished: false,
             aborted: false
@@ -1003,6 +1154,12 @@ export class HermesAdapter implements ApiChatAdapter {
                         break
                     }
                     case 'tool_result': {
+                        acpXSeq.current += 1
+                        yield* acpEventToChatEvents(ev, acpXSeq.current)
+                        break
+                    }
+                    case 'permission_request':
+                    case 'permission_resolution': {
                         acpXSeq.current += 1
                         yield* acpEventToChatEvents(ev, acpXSeq.current)
                         break
@@ -1081,6 +1238,15 @@ export class HermesAdapter implements ApiChatAdapter {
                         timeoutMs: 30_000
                     })
                 }
+                // Best-effort: aligns hermes's own edit-approval policy with
+                // the chosen mode so accept_edits/dont_ask stop asking for
+                // what they auto-allow. A failure only means hermes asks
+                // MORE, and the interactive bridge (or auto-approve) absorbs
+                // that.
+                await turn.setMode({
+                    modeId: hermesAcpModeId(permissionMode),
+                    timeoutMs: 30_000
+                })
                 // Reconcile the session's persisted model with what this turn
                 // claims to run (override ?? agent default). Diff against the
                 // reported state so an untouched session costs no RPC; a build
@@ -1126,6 +1292,7 @@ export class HermesAdapter implements ApiChatAdapter {
             // bounded grace for the child to exit on EOF, and a cancel that
             // lands inside that window must still reach the transport.
             await turn.close().catch(() => {})
+            unregisterPermissions?.()
             ctx.abortSignal?.removeEventListener('abort', onAbort)
         }
 

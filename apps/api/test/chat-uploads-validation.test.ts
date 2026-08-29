@@ -110,6 +110,7 @@ test('normalizeUploads builds an upload block for a dify agent', async () => {
         undefined,
         undefined,
         undefined,
+        undefined,
         [],
         [{ uploadId }]
     )
@@ -142,6 +143,7 @@ test('normalizeUploads rejects an unknown upload id', async () => {
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 [],
                 [{ uploadId: createObjectId('chatUpload') }]
             ),
@@ -159,6 +161,7 @@ test('normalizeUploads rejects a malformed upload id', async () => {
                 'session-1',
                 'hi',
                 [],
+                undefined,
                 undefined,
                 undefined,
                 undefined,
@@ -184,6 +187,7 @@ test('normalizeUploads rejects uploads for a non-dify framework', async () => {
                 'session-1',
                 'hi',
                 [],
+                undefined,
                 undefined,
                 undefined,
                 undefined,

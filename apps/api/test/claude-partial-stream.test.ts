@@ -32,6 +32,7 @@ const baseCtx: ApiChatAdapterContext = {
     modelConfig: null,
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
+    hermesPermissionMode: null,
     frameworkSessionRef: null,
     history: []
 }

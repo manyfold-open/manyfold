@@ -443,6 +443,7 @@ const adapterCtx = (
         modelConfig: null,
         claudeCodePermissionMode: null,
         codexPermissionMode: null,
+        hermesPermissionMode: null,
         frameworkSessionRef: null,
         history: [],
         abortSignal,

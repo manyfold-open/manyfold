@@ -44,6 +44,13 @@ export const sanitizeSharedBlock = (
     if (base.type === 'upload') return { ...base, uploadId: '' }
     if (base.type === 'tool_call' || base.type === 'tool_result')
         return scrubJsonStrings(base)
+    // A permission ask's title/detail carry command lines and paths, which
+    // can embed grant URLs like any tool payload.
+    if (
+        base.type === 'permission_request' ||
+        base.type === 'permission_resolution'
+    )
+        return scrubJsonStrings(base)
     return base
 }
 

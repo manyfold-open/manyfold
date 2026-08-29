@@ -806,6 +806,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
                     undefined,
                     undefined,
                     undefined,
+                    undefined,
                     () => {}
                 )
                 // Waits on the run itself rather than on the released claim: the

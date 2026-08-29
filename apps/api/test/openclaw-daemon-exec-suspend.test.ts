@@ -96,6 +96,7 @@ const ctx = {
     modelConfig: null,
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
+    hermesPermissionMode: null,
     frameworkSessionRef: 'fsr-1',
     history: []
 } as ApiChatAdapterContext

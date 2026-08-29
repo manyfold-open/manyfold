@@ -57,6 +57,24 @@ export interface ChatUploadBlock {
     size: number
 }
 
+// Durable transcript halves of the permission events below: the card must
+// survive into message history exactly like tool_call/tool_result do.
+export interface ChatPermissionRequestBlock {
+    type: 'permission_request'
+    requestId: string
+    toolCallId: string | null
+    title: string
+    detail: string | null
+    options: ChatPermissionOption[]
+}
+
+export interface ChatPermissionResolutionBlock {
+    type: 'permission_resolution'
+    requestId: string
+    outcome: ChatPermissionOutcome
+    optionId: string | null
+}
+
 export type ChatContentBlock =
     | ChatTextBlock
     | ChatAttachmentBlock
@@ -65,6 +83,8 @@ export type ChatContentBlock =
     | ChatToolCallBlock
     | ChatToolResultBlock
     | ChatThinkingBlock
+    | ChatPermissionRequestBlock
+    | ChatPermissionResolutionBlock
 
 export interface ChatMessage {
     id: string
@@ -164,6 +184,26 @@ export const isCodexPermissionMode = (
     typeof value === 'string' &&
     codexPermissionModes.includes(value as CodexPermissionMode)
 
+// Mirrors hermes's own edit-approval trio (ACP session modes default /
+// accept_edits / dont_ask). dontAsk is the default because it is exactly the
+// pre-existing behavior: HERMES_YOLO_MODE=1 plus auto-approved permission
+// asks — callers that send no mode (channels, A2A, OpenAI-compat,
+// automations) keep it byte-for-byte. The ask modes drop YOLO and surface
+// session/request_permission as interactive cards in the chat.
+export const hermesPermissionModes = [
+    'default',
+    'acceptEdits',
+    'dontAsk'
+] as const
+export type HermesPermissionMode = (typeof hermesPermissionModes)[number]
+export const DEFAULT_HERMES_PERMISSION_MODE: HermesPermissionMode = 'dontAsk'
+
+export const isHermesPermissionMode = (
+    value: unknown
+): value is HermesPermissionMode =>
+    typeof value === 'string' &&
+    hermesPermissionModes.includes(value as HermesPermissionMode)
+
 // This table, not the adapter's own getCapabilities(), is what the Web
 // renderer gates thinking and tool blocks on, and nothing in production reads
 // an adapter's declaration at all — so a row that disagrees with its adapter
@@ -258,6 +298,8 @@ export type ChatStreamEventType =
     | 'done'
     | 'suspended'
     | 'turn_status'
+    | 'permission_request'
+    | 'permission_resolution'
 
 interface BaseEvent {
     eventId: string
@@ -338,6 +380,41 @@ export interface ChatTurnStatusEvent extends BaseEvent {
     phase: ChatTurnStatusPhase
 }
 
+// One choice the agent offered on a permission ask, in the agent's own
+// vocabulary (ACP PermissionOption). kind is open-ended by design: the UI
+// styles the known kinds (allow_* / reject_*) and renders unknown ones as
+// plain buttons rather than dropping them.
+export interface ChatPermissionOption {
+    optionId: string
+    name: string
+    kind: string
+}
+
+export type ChatPermissionOutcome =
+    | 'selected'
+    | 'timeout'
+    | 'cancelled'
+
+// The agent asked the user for permission (hermes ask modes). NOT terminal —
+// the turn is blocked on the answer; a request whose turn reaches a terminal
+// without a resolution event was never answered (crash, cancel) and renders
+// inert.
+export interface ChatPermissionRequestEvent extends BaseEvent {
+    type: 'permission_request'
+    requestId: string
+    toolCallId: string | null
+    title: string
+    detail: string | null
+    options: ChatPermissionOption[]
+}
+
+export interface ChatPermissionResolutionEvent extends BaseEvent {
+    type: 'permission_resolution'
+    requestId: string
+    outcome: ChatPermissionOutcome
+    optionId: string | null
+}
+
 export type ChatStreamEvent =
     | ChatTokenEvent
     | ChatToolCallEvent
@@ -349,6 +426,8 @@ export type ChatStreamEvent =
     | ChatDoneEvent
     | ChatSuspendedEvent
     | ChatTurnStatusEvent
+    | ChatPermissionRequestEvent
+    | ChatPermissionResolutionEvent
 
 export interface CreateSessionRequest {
     title?: string
@@ -394,9 +473,16 @@ export interface CreateMessageRequest {
     saveAsDefault?: boolean
     claudeCodePermissionMode?: ClaudeCodePermissionMode
     codexPermissionMode?: CodexPermissionMode
+    hermesPermissionMode?: HermesPermissionMode
     attachments?: CreateMessageAttachmentInput[]
     contextRefs?: CreateMessageContextRefInput[]
     uploads?: CreateMessageUploadInput[]
+}
+
+// The user's answer to a permission_request card. optionId must be one the
+// request offered; the turn holder validates and 409s otherwise.
+export interface AnswerPermissionRequest {
+    optionId: string
 }
 
 export interface RegenerateMessageRequest {

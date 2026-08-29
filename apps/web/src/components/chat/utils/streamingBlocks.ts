@@ -1,6 +1,8 @@
 import type {
     ChatContentBlock,
-    ChatError
+    ChatError,
+    ChatPermissionOption,
+    ChatPermissionOutcome
 } from '@manyfold/shared'
 
 export interface StreamError {
@@ -24,6 +26,20 @@ export type StreamingBlock =
           toolCallId: string
           result: unknown
           elapsedMs?: number
+      }
+    | {
+          kind: 'permission_request'
+          requestId: string
+          toolCallId: string | null
+          title: string
+          detail: string | null
+          options: ChatPermissionOption[]
+      }
+    | {
+          kind: 'permission_resolution'
+          requestId: string
+          outcome: ChatPermissionOutcome
+          optionId: string | null
       }
 
 // The typewriter calls this once per animation frame, so it must not grow
@@ -66,6 +82,26 @@ export const streamingBlocksToContentBlocks = (
                 toolName: block.toolName,
                 args: block.args,
                 elapsedMs: block.elapsedMs
+            })
+            continue
+        }
+        if (block.kind === 'permission_request') {
+            out.push({
+                type: 'permission_request',
+                requestId: block.requestId,
+                toolCallId: block.toolCallId,
+                title: block.title,
+                detail: block.detail,
+                options: block.options
+            })
+            continue
+        }
+        if (block.kind === 'permission_resolution') {
+            out.push({
+                type: 'permission_resolution',
+                requestId: block.requestId,
+                outcome: block.outcome,
+                optionId: block.optionId
             })
             continue
         }
@@ -117,6 +153,22 @@ export const contentBlocksToStreamingBlocks = (
                 toolCallId: block.toolCallId,
                 result: block.result,
                 elapsedMs: block.elapsedMs
+            })
+        else if (block.type === 'permission_request')
+            out.push({
+                kind: 'permission_request',
+                requestId: block.requestId,
+                toolCallId: block.toolCallId,
+                title: block.title,
+                detail: block.detail,
+                options: block.options
+            })
+        else if (block.type === 'permission_resolution')
+            out.push({
+                kind: 'permission_resolution',
+                requestId: block.requestId,
+                outcome: block.outcome,
+                optionId: block.optionId
             })
     }
     return out

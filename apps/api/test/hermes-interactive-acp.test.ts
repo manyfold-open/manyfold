@@ -59,6 +59,10 @@ const pushQueue = <T>(): PushQueue<T> => {
 
 interface Rig {
     adapter: HermesAdapter
+    db: unknown
+    chatRepo: unknown
+    adminSettings: unknown
+    execDrivers: unknown
     requests: InteractiveExecRequest[]
     writes: Array<Record<string, unknown>>
     stdout: PushQueue<string>
@@ -171,24 +175,29 @@ const buildRig = (): Rig => {
             sessionRefs.push({ sessionId, ref })
         }
     }
+    const adminSettings = {
+        getCachedChatExecTimeoutMs: async () => ({
+            keepAliveMs: 1_000,
+            livenessTimeoutMs: 1_000,
+            timeoutMs: 60_000
+        })
+    }
     const adapter = new HermesAdapter(
         db as never,
         {} as never,
         { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
         {} as never,
         chatRepo as never,
-        {
-            getCachedChatExecTimeoutMs: async () => ({
-                keepAliveMs: 1_000,
-                livenessTimeoutMs: 1_000,
-                timeoutMs: 60_000
-            })
-        } as never,
+        adminSettings as never,
         undefined as never,
         execDrivers as never
     )
     return {
         adapter,
+        db,
+        chatRepo,
+        adminSettings,
+        execDrivers,
         requests,
         writes,
         stdout,
@@ -607,4 +616,154 @@ test('set_model on a build that cannot switch fails the turn as unsupported', as
     }
     assert.equal(err.error.code, 'hermes_set_model_unsupported')
     assert.equal(err.error.retryable, false)
+})
+
+// PR: interactive permissions over the interactive transport — the full round
+// trip: ask mode drops YOLO, the child's ask surfaces as a permission_request
+// event, the coordinator delivers the user's answer to the blocked turn, and
+// the resolution event follows before the answer continues.
+test('an ask-mode turn surfaces the ask, takes the answer via the coordinator, and continues', async () => {
+    const rig = buildRig()
+    const holders = new Map<
+        string,
+        {
+            respond: (r: string, o: string) => 'delivered' | 'unknown'
+            pendingIds: () => string[]
+        }
+    >()
+    const coordinator = {
+        register: (
+            messageId: string,
+            holder: {
+                respond: (r: string, o: string) => 'delivered' | 'unknown'
+                pendingIds: () => string[]
+            }
+        ) => {
+            holders.set(messageId, holder)
+            return () => holders.delete(messageId)
+        }
+    }
+    const adapter = new HermesAdapter(
+        rig.db as never,
+        {} as never,
+        { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
+        {} as never,
+        rig.chatRepo as never,
+        rig.adminSettings as never,
+        undefined as never,
+        rig.execDrivers as never,
+        coordinator as never
+    )
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: { sessionId: 'sess_live' }
+        })
+        const setMode = await rig.waitFor('session/set_mode')
+        assert.equal(
+            (setMode.params as { modeId: string }).modeId,
+            'accept_edits'
+        )
+        rig.reply({ jsonrpc: '2.0', id: setMode.id, result: {} })
+        await rig.waitFor('session/prompt')
+        // the child asks and blocks
+        rig.reply({
+            jsonrpc: '2.0',
+            id: 41,
+            method: 'session/request_permission',
+            params: {
+                options: [
+                    { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                    { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+                ],
+                toolCall: { toolCallId: 'tc-9', title: 'Run command', kind: 'execute', status: 'pending', rawInput: { command: 'rm -rf /tmp/x' } }
+            }
+        })
+    })()
+
+    const events: EmittedChatEvent[] = []
+    const answered: { done: boolean } = { done: false }
+    for await (const ev of adapter.sendMessage(
+        ctx({ hermesPermissionMode: 'acceptEdits' }),
+        USER_MSG
+    )) {
+        events.push(ev)
+        if (ev.type === 'permission_request' && !answered.done) {
+            answered.done = true
+            const holder = holders.get('msg_1')
+            assert.ok(holder, 'the turn must register with the coordinator')
+            assert.deepEqual(holder.pendingIds(), ['41'])
+            assert.equal(holder.respond('41', 'allow_once'), 'delivered')
+            // the child sees the reply and finishes the turn
+            void (async () => {
+                const reply = rig.writes.find(
+                    (f) => f.id === 41 && 'result' in f
+                ) as { result: { outcome: { optionId: string } } } | undefined
+                assert.equal(reply?.result.outcome.optionId, 'allow_once')
+                rig.note({
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: 'done' }
+                })
+                const prompt = rig.writes.find(
+                    (f) => f.method === 'session/prompt'
+                ) as { id: number }
+                rig.reply({
+                    jsonrpc: '2.0',
+                    id: prompt.id,
+                    result: { stopReason: 'end_turn' }
+                })
+            })()
+        }
+    }
+
+    // YOLO must be absent from the spawn env in ask modes
+    assert.equal(rig.requests[0]?.env?.HERMES_YOLO_MODE, undefined)
+    const request = events.find((e) => e.type === 'permission_request') as {
+        requestId: string
+        detail: string | null
+    }
+    assert.equal(request.requestId, '41')
+    assert.equal(request.detail, 'rm -rf /tmp/x')
+    const resolution = events.find(
+        (e) => e.type === 'permission_resolution'
+    ) as { outcome: string; optionId: string | null }
+    assert.deepEqual(
+        [resolution.outcome, resolution.optionId],
+        ['selected', 'allow_once']
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(holders.size, 0, 'the holder must unregister at turn end')
+})
+
+test('a dontAsk turn keeps YOLO and aligns the session mode', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: { sessionId: 'sess_live' }
+        })
+        const setMode = await rig.waitFor('session/set_mode')
+        assert.equal(
+            (setMode.params as { modeId: string }).modeId,
+            'dont_ask'
+        )
+        rig.reply({ jsonrpc: '2.0', id: setMode.id, result: {} })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(rig.requests[0]?.env?.HERMES_YOLO_MODE, '1')
 })
