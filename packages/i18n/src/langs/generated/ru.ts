@@ -1607,6 +1607,8 @@ const ru: Record<string, string> = {
     'web.composer.sendHint': 'Отправить (Cmd/Ctrl+Enter)',
     'web.composer.streaming': 'Потоковая передача',
     'web.composer.modelMenuLabel': 'Изменить модель',
+    'web.composer.modelFilterPlaceholder': 'Фильтр моделей…',
+    'web.composer.modelNoMatches': 'Нет подходящих моделей',
     'web.composer.modelDefaultLabel': 'По умолчанию ({{model}})',
     'web.composer.modelSettings': 'Настройки модели',
     'web.composer.modelSelectedTitle': '{{model}} (выбрано для этого чата)',

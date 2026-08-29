@@ -1157,6 +1157,8 @@ const ar: Record<string, string> = {
     'web.composer.modelDefaultTitle': 'الافتراضي: {{model}}',
     'web.composer.modelManagedBy': '{{base}}؛ تتم إدارة تبديل النموذج بواسطة {{framework}}',
     'web.composer.modelMenuLabel': 'تغيير النموذج',
+    'web.composer.modelFilterPlaceholder': 'تصفية النماذج…',
+    'web.composer.modelNoMatches': 'لا توجد نماذج مطابقة',
     'web.composer.modelSelectedTitle': '{{model}} (محدد لهذه الدردشة)',
     'web.composer.modelSettings': 'إعدادات النموذج',
     'web.composer.openActions': 'فتح إجراءات أداة الإنشاء',

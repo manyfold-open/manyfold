@@ -1607,6 +1607,8 @@ const de: Record<string, string> = {
     'web.composer.sendHint': 'Senden (Befehl/Strg+Eingabe)',
     'web.composer.streaming': 'Streaming',
     'web.composer.modelMenuLabel': 'Modell wechseln',
+    'web.composer.modelFilterPlaceholder': 'Modelle filtern…',
+    'web.composer.modelNoMatches': 'Keine passenden Modelle',
     'web.composer.modelDefaultLabel': 'Standard ({{model}})',
     'web.composer.modelSettings': 'Modelleinstellungen',
     'web.composer.modelSelectedTitle': '{{model}} (für diesen Chat ausgewählt)',

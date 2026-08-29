@@ -126,6 +126,73 @@ export const pickAutoApproveOptionId = (
     return 'approve_for_session'
 }
 
+// Session state hermes attaches to its session/new|load|resume responses:
+// model ids are `provider:model` in hermes's own provider naming, mode ids are
+// its edit-approval policies (default / accept_edits / dont_ask).
+export interface AcpSessionState {
+    currentModelId: string | null
+    modelIds: string[]
+    currentModeId: string | null
+    modeIds: string[]
+}
+
+export const decodeAcpSessionState = (
+    result: Record<string, unknown> | undefined
+): AcpSessionState | null => {
+    if (!result) return null
+    const models = result['models']
+    const modes = result['modes']
+    const state: AcpSessionState = {
+        currentModelId: null,
+        modelIds: [],
+        currentModeId: null,
+        modeIds: []
+    }
+    let any = false
+    if (models && typeof models === 'object') {
+        const m = models as Record<string, unknown>
+        if (typeof m['currentModelId'] === 'string') {
+            state.currentModelId = m['currentModelId']
+            any = true
+        }
+        const available = m['availableModels']
+        if (Array.isArray(available)) {
+            for (const item of available) {
+                const id = (item as Record<string, unknown> | null)?.['modelId']
+                if (typeof id === 'string' && id) state.modelIds.push(id)
+            }
+            any = true
+        }
+    }
+    if (modes && typeof modes === 'object') {
+        const m = modes as Record<string, unknown>
+        if (typeof m['currentModeId'] === 'string') {
+            state.currentModeId = m['currentModeId']
+            any = true
+        }
+        const available = m['availableModes']
+        if (Array.isArray(available)) {
+            for (const item of available) {
+                const id = (item as Record<string, unknown> | null)?.['id']
+                if (typeof id === 'string' && id) state.modeIds.push(id)
+            }
+            any = true
+        }
+    }
+    return any ? state : null
+}
+
+// `provider:model` vs a bare model id. endsWith rather than a prefix strip:
+// model ids themselves can contain colons (ollama tags), so splitting on the
+// first colon would mangle them.
+export const acpModelMatches = (
+    currentModelId: string | null,
+    bareModel: string
+): boolean =>
+    currentModelId !== null &&
+    (currentModelId === bareModel ||
+        currentModelId.endsWith(`:${bareModel}`))
+
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered
 // ACP stream is decoded by exactly this code rather than a second copy that can
 // drift. A resumed turn must produce the same events the live turn did, or
@@ -215,6 +282,7 @@ export class HermesAcpTurn {
     private stderrTail: string[] = []
     private nextId = 1
     private sessionId: string | null = null
+    private lastSessionState: AcpSessionState | null = null
     private closed = false
     private exitError: Error | null = null
 
@@ -243,6 +311,12 @@ export class HermesAcpTurn {
 
     get currentSessionId(): string | null {
         return this.sessionId
+    }
+
+    // The models/modes state from the last session/new|resume response, or
+    // null on hermes builds that predate it.
+    get sessionState(): AcpSessionState | null {
+        return this.lastSessionState
     }
 
     private async pumpStdout(): Promise<void> {
@@ -493,6 +567,7 @@ export class HermesAcpTurn {
         if (!sid || typeof sid !== 'string')
             throw new Error('hermes session/new returned no sessionId')
         this.sessionId = sid
+        this.lastSessionState = decodeAcpSessionState(result)
         return sid
     }
 
@@ -514,7 +589,33 @@ export class HermesAcpTurn {
             (typeof result?.sessionId === 'string' && result.sessionId) ||
             args.sessionId
         this.sessionId = resolvedId
+        this.lastSessionState = decodeAcpSessionState(result)
         return resolvedId
+    }
+
+    // Switches the persisted session model. hermes accepts anything here and
+    // fails at inference instead — the only real failures are -32601 (a build
+    // that predates model switching) and transport death. Wrapped so the
+    // method name survives into the error: hermes's own -32601 message does
+    // not carry it, and the adapter classifies on it.
+    async setModel(args: { modelId: string; timeoutMs: number }): Promise<void> {
+        if (!this.sessionId)
+            throw new Error('hermes session/set_model called without sessionId')
+        try {
+            await this.request('session/set_model', {
+                sessionId: this.sessionId,
+                modelId: args.modelId
+            }, args.timeoutMs)
+        } catch (err) {
+            throw new Error(
+                `hermes session/set_model failed: ${(err as Error).message}`
+            )
+        }
+        if (this.lastSessionState)
+            this.lastSessionState = {
+                ...this.lastSessionState,
+                currentModelId: args.modelId
+            }
     }
 
     // The only streaming call, so it takes the split budgets rather than a

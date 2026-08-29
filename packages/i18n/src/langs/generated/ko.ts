@@ -1607,6 +1607,8 @@ const ko: Record<string, string> = {
     "web.composer.sendHint": "보내기(Cmd/Ctrl+Enter)",
     "web.composer.streaming": "스트리밍",
     "web.composer.modelMenuLabel": "모델 변경",
+    "web.composer.modelFilterPlaceholder": "모델 필터링…",
+    "web.composer.modelNoMatches": "일치하는 모델이 없습니다",
     "web.composer.modelDefaultLabel": "기본값({{model}})",
     "web.composer.modelSettings": "모델 설정",
     "web.composer.modelSelectedTitle": "{{model}} (이 채팅을 위해 선택됨)",

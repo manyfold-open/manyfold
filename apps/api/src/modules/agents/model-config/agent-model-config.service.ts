@@ -1488,7 +1488,8 @@ export class AgentModelConfigService {
         if (
             agent.framework !== 'claude-code' &&
             agent.framework !== 'codex' &&
-            agent.framework !== 'gemini-cli'
+            agent.framework !== 'gemini-cli' &&
+            agent.framework !== 'hermes'
         )
             return {
                 provider: null,
@@ -1530,6 +1531,22 @@ export class AgentModelConfigService {
                 inferenceProtocol: storedProtocol ?? 'openai_responses',
                 apiKey: normalizeNullable(parsed.openaiApiKey),
                 baseUrl: normalizeNullable(parsed.openaiBaseUrl)
+            }
+        }
+        if (agent.framework === 'hermes') {
+            // HermesModelProvider is a subset of UserModelProvider, so the
+            // stored value routes directly into the provider-models test and
+            // the OFFICIAL_PROVIDER_BASE_URL fallback.
+            const provider = normalizeNullable(
+                parsed.primaryModelProvider
+            ) as UserModelProvider | null
+            return {
+                provider,
+                inferenceProtocol:
+                    storedProtocol ??
+                    (provider ? defaultProtocolForProvider(provider) : null),
+                apiKey: normalizeNullable(parsed.primaryModelApiKey),
+                baseUrl: normalizeNullable(parsed.primaryModelBaseUrl)
             }
         }
         return {
