@@ -4,7 +4,6 @@ import type { ResolvedHermesCredentials } from '@/modules/agents/credentials/res
 
 export const HERMES_PORT = 8642
 export const HERMES_DASHBOARD_PORT = 9119
-export const HERMES_DASHBOARD_SERVICE_PORT = 8082
 // Sprite front proxy (mf-front-proxy.mjs) — owns the sprite's public
 // http_port while the dashboard is enabled, splitting /v1 (gateway) from the
 // dashboard web server.

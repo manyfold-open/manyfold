@@ -818,8 +818,7 @@ const RuntimeDetailPanel: FC<{
             </Section>
 
             {(runtime.kind === 'sprites' ||
-                runtime.framework === 'openclaw' ||
-                runtime.framework === 'hermes') && (
+                runtime.framework === 'openclaw') && (
                 <Section title={translate('web.runtimeDetails.controls')}>
                     <div className='settings-card'>
                         {runtime.framework === 'openclaw' && (
@@ -845,7 +844,8 @@ const RuntimeDetailPanel: FC<{
                                 }
                             />
                         )}
-                        {runtime.framework === 'hermes' && (
+                        {runtime.framework === 'hermes' &&
+                            runtime.kind === 'sprites' && (
                             <ControlRow
                                 label={translate('web.runtimeDetails.dashboard')}
                                 description={translate('web.runtimeDetails.dashboardDescription')}

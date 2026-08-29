@@ -643,29 +643,34 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                                             ? 'enabled'
                                                             : 'disabled'}
                                                     </span>
-                                                    <Button
-                                                        variant='neutral'
-                                                        size='sm'
-                                                        onClick={(): void => {
-                                                            void handleToggleDashboard()
-                                                        }}
-                                                        disabled={
-                                                            dashboardPending ||
+                                                    {runtime.kind ===
+                                                        'sprites' && (
+                                                        <Button
+                                                            variant='neutral'
+                                                            size='sm'
+                                                            onClick={(): void => {
+                                                                void handleToggleDashboard()
+                                                            }}
+                                                            disabled={
+                                                                dashboardPending ||
+                                                                dashboardStatePending(
+                                                                    runtime.dashboardState
+                                                                )
+                                                            }
+                                                        >
+                                                            {dashboardPending ||
                                                             dashboardStatePending(
                                                                 runtime.dashboardState
                                                             )
-                                                        }
-                                                    >
-                                                        {dashboardPending ||
-                                                        dashboardStatePending(
-                                                            runtime.dashboardState
-                                                        )
-                                                            ? 'working…'
-                                                            : runtime.dashboardEnabled
-                                                              ? 'Disable'
-                                                              : 'Enable'}
-                                                    </Button>
-                                                    {runtime.dashboardEnabled && (
+                                                                ? 'working…'
+                                                                : runtime.dashboardEnabled
+                                                                  ? 'Disable'
+                                                                  : 'Enable'}
+                                                        </Button>
+                                                    )}
+                                                    {runtime.kind ===
+                                                        'sprites' &&
+                                                        runtime.dashboardEnabled && (
                                                         <Button
                                                             variant='neutral'
                                                             size='sm'

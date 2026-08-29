@@ -10,20 +10,24 @@ const config = (values: Record<string, string | undefined>): never =>
 
 test('scan reports a set alias and whether the canonical shadows it', () => {
     const service = new LegacyEnvAuditService(
-        config({ NCA_AUTH_URL: 'https://auth.example.test' })
+        config({ NCA_ADMIN_URL: 'https://admin.example.test' })
     )
     assert.deepEqual(service.scan(), [
-        { key: 'NCA_AUTH_URL', canonical: 'MF_AUTH_URL', canonicalSet: false }
+        {
+            key: 'NCA_ADMIN_URL',
+            canonical: 'MF_ADMIN_URL',
+            canonicalSet: false
+        }
     ])
 
     const shadowed = new LegacyEnvAuditService(
         config({
-            NCA_AUTH_URL: 'https://auth.example.test',
-            MF_AUTH_URL: 'https://auth.example.test'
+            NCA_ADMIN_URL: 'https://admin.example.test',
+            MF_ADMIN_URL: 'https://admin.example.test'
         })
     )
     assert.deepEqual(shadowed.scan(), [
-        { key: 'NCA_AUTH_URL', canonical: 'MF_AUTH_URL', canonicalSet: true }
+        { key: 'NCA_ADMIN_URL', canonical: 'MF_ADMIN_URL', canonicalSet: true }
     ])
 })
 

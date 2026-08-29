@@ -40,7 +40,6 @@ import {
     type NewAgentRuntimeRow,
     type RuntimeHostRow
 } from '@manyfold/db'
-import { dashboardHostFor } from '@/modules/agents/bootstrap/hermes'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 
@@ -785,19 +784,11 @@ export class AgentRuntimesService {
                 dashboardEnabled: runtime.dashboardEnabled,
                 dashboardState: runtime.dashboardState,
                 keepAliveEnabled: runtime.keepAliveEnabled,
-                // dashboardHostFor() is the k8s ingress subdomain model; a
-                // sprite host would yield a non-existent domain. Sprite
-                // dashboards are reached via the minted control-ui URL only.
-                dashboardUrl:
-                    runtime.kind === 'k8s' &&
-                    runtime.framework === 'hermes' &&
-                    runtime.dashboardEnabled &&
-                    runtime.ingressHost
-                        ? agentBaseUrl(
-                              dashboardHostFor(runtime.ingressHost),
-                              '/'
-                          )
-                        : null,
+                // Always null since the k8s dashboard host was removed; the
+                // field stays because AgentRuntimeSummary is an exported
+                // shared type (dropping a field is a contract-surface break).
+                // Sprite dashboards are reached via the minted control-ui URL.
+                dashboardUrl: null,
                 currentPhase: runtime.currentPhase,
                 failureReason: runtime.failureReason,
                 primaryAgentId: runtime.primaryAgentId,
