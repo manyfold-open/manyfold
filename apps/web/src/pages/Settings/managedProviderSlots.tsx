@@ -23,7 +23,6 @@ export const ManagedView: FC<{
 export const SidebarManagedRow: FC<{
     rows: UserModelProviderSummary[]
     state: ManagedProviderState
-    q: string
     selected: boolean
     onClick: () => void
 }> = (): ReactNode => null

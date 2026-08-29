@@ -1,4 +1,4 @@
-import type { ChannelProviderName } from '@manyfold/shared'
+import type { ChannelProviderName, ChannelStatus } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { docsHref } from '@/lib/docsLinks'
 
@@ -189,4 +189,13 @@ export const ChannelProviderIcon: FC<{
 }> = ({ provider, className }): ReactNode => {
     const Icon = channelMeta[provider].Icon
     return <Icon className={className} />
+}
+
+// Status colour lives beside the provider icon and label so the rail and the
+// dashboard cannot disagree about what "paused" looks like.
+export const CHANNEL_DOT: Record<ChannelStatus, string> = {
+    active: 'bg-success',
+    paused: 'bg-warning',
+    error: 'bg-error',
+    draft: 'bg-idle'
 }

@@ -110,6 +110,7 @@ import {
 } from '@/lib/agentCreate/spriteTargets'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const PROVIDER_NEW_KEY_OPTION = '__new_key__'
 const PROVIDER_INLINE_OPTION = '__inline__'
@@ -1326,7 +1327,7 @@ const AgentNewV3: FC = (): ReactNode => {
                             </span>
                         </button>
                     )}
-                    {cloudComputerAvailable && (
+                    {cloudComputerAvailable && BILLING_SURFACE && (
                         <Link
                             to='/settings/plan-and-billing/buy-container'
                             className='text-muted hover:text-fg hover:bg-surface-hover border-divider flex w-full items-center gap-2 rounded-md border border-dashed px-3.5 py-3 text-left transition-colors'

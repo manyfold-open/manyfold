@@ -7,24 +7,25 @@ import type { FC, ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DaemonFrameworkTags, DaemonStatusDot } from '@/components/DaemonShared'
+import {
+    CardHeader,
+    DashboardViewToggle,
+    MetaRow
+} from '@/components/DashboardCard'
 import { Ghost } from '@/components/Loading'
 import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
-import SettingsPageHeader from '@/components/SettingsPageHeader'
-import {
-    CloudComputerIcon,
-    GridViewIcon,
-    ListViewIcon,
-    PlusIcon
-} from '@/components/icons'
+import Breadcrumb from '@/components/Breadcrumb'
+import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
 import {
+    RUNTIMES_DASHBOARD_VIEW_KEY,
     readDashboardView,
     writeDashboardView,
-    type RuntimesDashboardView
-} from '@/lib/runtimesDashboardView'
+    type DashboardView
+} from '@/lib/dashboardView'
 import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { spriteStatusDotClass, spriteStatusLabel } from '@/lib/spriteStatus'
 import { formatDuration } from '@/lib/usageFormat'
@@ -39,53 +40,6 @@ const SECTION_EMPTY_KEY: Record<RuntimeKind, string> = {
     k8s: 'web.runtimesDashboard.noClusters',
     daemon: 'web.runtimesDashboard.noMachines',
     external: 'web.runtimesDashboard.noProviders'
-}
-
-const ViewToggle: FC<{
-    value: RuntimesDashboardView
-    onChange: (view: RuntimesDashboardView) => void
-}> = ({ value, onChange }): ReactNode => {
-    const { t } = useI18n()
-    const options = [
-        {
-            key: 'grid' as const,
-            icon: GridViewIcon,
-            label: t('web.runtimesDashboard.viewGrid')
-        },
-        {
-            key: 'list' as const,
-            icon: ListViewIcon,
-            label: t('web.runtimesDashboard.viewList')
-        }
-    ]
-    return (
-        <div
-            role='group'
-            aria-label={t('web.runtimesDashboard.heading')}
-            className='bg-soft shadow-ring-light inline-flex gap-1 rounded-md p-1'
-        >
-            {options.map((option) => {
-                const Icon = option.icon
-                return (
-                    <button
-                        key={option.key}
-                        type='button'
-                        aria-label={option.label}
-                        aria-pressed={value === option.key}
-                        onClick={() => onChange(option.key)}
-                        className={[
-                            'inline-flex h-7 items-center rounded-sm px-2.5 transition-colors',
-                            value === option.key
-                                ? 'bg-surface text-fg shadow-ring-light'
-                                : 'text-muted hover:bg-surface-hover'
-                        ].join(' ')}
-                    >
-                        <Icon className='h-4 w-4' />
-                    </button>
-                )
-            })}
-        </div>
-    )
 }
 
 const providerTestTag = (
@@ -110,32 +64,6 @@ const providerTestTag = (
         </span>
     )
 }
-
-const MetaRow: FC<{ label: string; children: ReactNode }> = ({
-    label,
-    children
-}): ReactNode => (
-    <span className='text-caption flex items-center justify-between gap-2'>
-        <span className='text-muted'>{label}</span>
-        <span className='text-fg flex min-w-0 items-center gap-1.5 tabular-nums'>
-            {children}
-        </span>
-    </span>
-)
-
-const CardHeader: FC<{ lead: ReactNode; label: string; aside?: ReactNode }> = ({
-    lead,
-    label,
-    aside
-}): ReactNode => (
-    <span className='flex w-full items-center gap-2'>
-        {lead}
-        <span className='text-ui text-fg min-w-0 flex-1 truncate font-mono'>
-            {label}
-        </span>
-        {aside}
-    </span>
-)
 
 interface VMItemProps {
     vm: RuntimeVM
@@ -590,10 +518,12 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
     onSelectHost
 }): ReactNode => {
     const { t } = useI18n()
-    const [view, setView] = useState<RuntimesDashboardView>(readDashboardView)
-    const changeView = (next: RuntimesDashboardView): void => {
+    const [view, setView] = useState<DashboardView>(() =>
+        readDashboardView(RUNTIMES_DASHBOARD_VIEW_KEY)
+    )
+    const changeView = (next: DashboardView): void => {
         setView(next)
-        writeDashboardView(next)
+        writeDashboardView(RUNTIMES_DASHBOARD_VIEW_KEY, next)
     }
 
     const byKind = useMemo(() => {
@@ -698,10 +628,25 @@ const RuntimesDashboard: FC<RuntimesDashboardProps> = ({
 
     return (
         <div className='settings-page'>
-            <SettingsPageHeader
-                title={t('web.runtimesDashboard.heading')}
-                actions={<ViewToggle value={view} onChange={changeView} />}
-            />
+            {/* Breadcrumb, not a page title: on mobile the rail is a
+                separate screen, so the first crumb is how you get back to
+                it. */}
+            <div className='mb-4 flex flex-wrap items-center justify-between gap-2'>
+                <Breadcrumb
+                    items={[
+                        {
+                            label: t('web.agentRuntimesList.runtimesTitle'),
+                            to: '/settings/runtimes'
+                        },
+                        { label: t('web.runtimesDashboard.heading') }
+                    ]}
+                />
+                <DashboardViewToggle
+                    value={view}
+                    onChange={changeView}
+                    ariaLabel={t('web.runtimesDashboard.heading')}
+                />
+            </div>
             <div className='space-y-8'>{SECTION_KINDS.map(renderSection)}</div>
         </div>
     )

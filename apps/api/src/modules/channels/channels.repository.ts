@@ -1069,6 +1069,81 @@ export class ChannelsRepository {
             .limit(limit)
     }
 
+    // Per-channel delivery counts over a window, served by
+    // channel_deliveries_channel_created_idx (channel_id, created_at).
+    //
+    // `system` rows are bookkeeping, not messages, so they are excluded. An
+    // outbound row is UPDATED in place through pending -> queued -> sent
+    // rather than re-inserted, so one row is one message; restricting to the
+    // delivered statuses keeps abandoned attempts out of a number the UI
+    // labels "messages".
+    async deliveryCountsByChannel(
+        channelIds: string[],
+        since: Date
+    ): Promise<Map<string, { inbound: number; outbound: number }>> {
+        const out = new Map<string, { inbound: number; outbound: number }>()
+        if (channelIds.length === 0) return out
+        const rows = await this.db
+            .select({
+                channelId: channelDeliveries.channelId,
+                inbound: sql<string>`count(*) filter (where ${channelDeliveries.direction} = 'inbound')`,
+                outbound: sql<string>`count(*) filter (where ${channelDeliveries.direction} = 'outbound' and ${channelDeliveries.status} in ('sent', 'accepted'))`
+            })
+            .from(channelDeliveries)
+            .where(
+                and(
+                    inArray(channelDeliveries.channelId, channelIds),
+                    gte(channelDeliveries.createdAt, since)
+                )
+            )
+            .groupBy(channelDeliveries.channelId)
+        for (const r of rows)
+            out.set(r.channelId, {
+                inbound: Number(r.inbound),
+                outbound: Number(r.outbound)
+            })
+        return out
+    }
+
+    // Last inbound/outbound stamps per channel. channel_sessions rows are
+    // never pruned (archiving only sets archived_at), so archived sessions are
+    // included deliberately — their messages really happened, and this is the
+    // only lifetime activity stamp the schema has.
+    async sessionActivityByChannel(
+        channelIds: string[]
+    ): Promise<
+        Map<string, { lastInboundAt: Date | null; lastOutboundAt: Date | null }>
+    > {
+        const out = new Map<
+            string,
+            { lastInboundAt: Date | null; lastOutboundAt: Date | null }
+        >()
+        if (channelIds.length === 0) return out
+        const rows = await this.db
+            .select({
+                channelId: channelSessions.channelId,
+                lastInboundAt: sql<
+                    Date | null
+                >`max(${channelSessions.lastInboundAt})`,
+                lastOutboundAt: sql<
+                    Date | null
+                >`max(${channelSessions.lastOutboundAt})`
+            })
+            .from(channelSessions)
+            .where(inArray(channelSessions.channelId, channelIds))
+            .groupBy(channelSessions.channelId)
+        for (const r of rows)
+            out.set(r.channelId, {
+                lastInboundAt: r.lastInboundAt
+                    ? new Date(r.lastInboundAt)
+                    : null,
+                lastOutboundAt: r.lastOutboundAt
+                    ? new Date(r.lastOutboundAt)
+                    : null
+            })
+        return out
+    }
+
     // One retention batch: delete the oldest rows (PK order ≈ insertion order
     // for a bigserial log table) that fall behind the cutoff. Walking the PK
     // from the head keeps this O(batch) even when nothing qualifies, without

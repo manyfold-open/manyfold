@@ -4,6 +4,7 @@ import { createObjectId } from '@manyfold/shared'
 import type {
     ChannelConfig,
     ChannelCredentials,
+    ChannelActivityReport,
     ChannelDeliverySummary,
     ChannelDetail,
     ChannelProviderName,
@@ -42,6 +43,7 @@ import {
 } from './channels.repository'
 import { ChannelProviderRegistry } from './channel-provider-registry.service'
 import { ChannelManagerService } from './channel-manager.service'
+import { resolveActivityWindowDays } from './channel-activity-window'
 import { ChannelSessionRouter } from './channel-session-router.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import type { ChannelProvider } from './channel-provider'
@@ -124,6 +126,44 @@ export class ChannelsService {
         return rows.map((row) =>
             this.toSummary(row, agentById.get(row.agentId)?.name ?? null)
         )
+    }
+
+    // Kept out of toSummary/list on purpose: that path is synchronous and runs
+    // on every create, update and manager sweep, and a failing aggregate here
+    // must not be able to blank the channels rail.
+    async activity(
+        userId: string,
+        opts: { windowDays?: number; boundAgentId?: string } = {}
+    ): Promise<ChannelActivityReport> {
+        const rows = await this.repo.listByUser(userId)
+        const scoped = opts.boundAgentId
+            ? rows.filter((r) => r.agentId === opts.boundAgentId)
+            : rows
+        const windowDays = resolveActivityWindowDays(
+            opts.windowDays,
+            this.manager.deliveryRetentionDays()
+        )
+        const since = new Date(Date.now() - windowDays * 86_400_000)
+        const ids = scoped.map((r) => r.id)
+        const [counts, stamps] = await Promise.all([
+            this.repo.deliveryCountsByChannel(ids, since),
+            this.repo.sessionActivityByChannel(ids)
+        ])
+        return {
+            windowDays,
+            since: since.toISOString(),
+            rows: scoped.map((row) => {
+                const c = counts.get(row.id)
+                const s = stamps.get(row.id)
+                return {
+                    channelId: row.id,
+                    inboundCount: c?.inbound ?? 0,
+                    outboundCount: c?.outbound ?? 0,
+                    lastInboundAt: s?.lastInboundAt?.toISOString() ?? null,
+                    lastOutboundAt: s?.lastOutboundAt?.toISOString() ?? null
+                }
+            })
+        }
     }
 
     async get(

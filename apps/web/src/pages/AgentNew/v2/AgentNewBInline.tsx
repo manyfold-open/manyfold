@@ -67,6 +67,7 @@ import {
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useI18n, type TFn } from '@/lib/i18n'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 type StepStatus = 'pending' | 'active' | 'done'
 
@@ -1028,16 +1029,17 @@ const AgentNewBInline: FC = (): ReactNode => {
                                                 )}
                                             </Link>
                                         )}
-                                        {cloudComputerAvailable && (
-                                            <Link
-                                                to='/settings/plan-and-billing/buy-container'
-                                                className='text-link font-medium hover:underline'
-                                            >
-                                                {t(
-                                                    'web.agentNew.persistentRent'
-                                                )}
-                                            </Link>
-                                        )}
+                                        {cloudComputerAvailable &&
+                                            BILLING_SURFACE && (
+                                                <Link
+                                                    to='/settings/plan-and-billing/buy-container'
+                                                    className='text-link font-medium hover:underline'
+                                                >
+                                                    {t(
+                                                        'web.agentNew.persistentRent'
+                                                    )}
+                                                </Link>
+                                            )}
                                     </div>
                                     {(reusableRuntimes.length > 0 ||
                                         spriteAttachTargets.length > 0) && (

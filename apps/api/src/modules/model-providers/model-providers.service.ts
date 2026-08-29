@@ -1,10 +1,12 @@
 import {
     AdminUserModelProviderSummary,
-    AdminUserModelProviderUsage,
     InferenceProtocol,
     ProtocolModelMap,
     ProviderTestResult,
     UserModelProviderSummary,
+    UserModelProviderUsage,
+    UserModelProviderUsageReport,
+    UserModelProviderUsageRow,
     brandFor,
     createObjectId,
     defaultProtocolForProvider,
@@ -195,34 +197,13 @@ export class ModelProvidersService {
         const usageConds: SQL[] = []
         if (from) usageConds.push(gte(agentUsageEvents.createdAt, from))
         if (to) usageConds.push(lt(agentUsageEvents.createdAt, to))
-        const usageRows = await this.db
-            .select({
-                modelProviderId: agentUsageEvents.modelProviderId,
-                inputTokens: sql<string>`coalesce(sum(${agentUsageEvents.inputTokens}), 0)`,
-                outputTokens: sql<string>`coalesce(sum(${agentUsageEvents.outputTokens}), 0)`,
-                cacheReadTokens: sql<string>`coalesce(sum(${agentUsageEvents.cacheReadTokens}), 0)`,
-                cacheCreationTokens: sql<string>`coalesce(sum(${agentUsageEvents.cacheCreationTokens}), 0)`,
-                costUsd: sql<string | null>`sum(${agentUsageEvents.costUsd})`,
-                eventCount: sql<string>`count(*)`,
-                lastUsedAt: sql<Date | null>`max(${agentUsageEvents.createdAt})`
-            })
-            .from(agentUsageEvents)
-            .where(usageConds.length ? and(...usageConds) : undefined)
-            .groupBy(agentUsageEvents.modelProviderId)
-        const usageMap = new Map<string, AdminUserModelProviderUsage>()
+        const usageRows = await this.usageByProvider(usageConds)
+        const usageMap = new Map<string, UserModelProviderUsage>()
         for (const r of usageRows) {
+            // Admin rows are keyed by provider id, so the unattributed group
+            // has nowhere to go here. listUsage keeps it.
             if (!r.modelProviderId) continue
-            usageMap.set(r.modelProviderId, {
-                inputTokens: Number(r.inputTokens),
-                outputTokens: Number(r.outputTokens),
-                cacheReadTokens: Number(r.cacheReadTokens),
-                cacheCreationTokens: Number(r.cacheCreationTokens),
-                costUsd: r.costUsd === null ? null : Number(r.costUsd),
-                eventCount: Number(r.eventCount),
-                lastUsedAt: r.lastUsedAt
-                    ? new Date(r.lastUsedAt).toISOString()
-                    : null
-            })
+            usageMap.set(r.modelProviderId, r.usage)
         }
 
         return providerRows.map((row) => {
@@ -231,7 +212,7 @@ export class ModelProvidersService {
                 keyVersion: row.provider.keyVersion
             })
             const base = toModelProviderSummary(row.provider, maskApiKey(plain))
-            const usage: AdminUserModelProviderUsage = usageMap.get(
+            const usage: UserModelProviderUsage = usageMap.get(
                 row.provider.id
             ) ?? {
                 inputTokens: 0,
@@ -239,6 +220,7 @@ export class ModelProvidersService {
                 cacheReadTokens: 0,
                 cacheCreationTokens: 0,
                 costUsd: null,
+                unpricedEventCount: 0,
                 eventCount: 0,
                 lastUsedAt: null
             }
@@ -250,6 +232,66 @@ export class ModelProvidersService {
                 usage
             }
         })
+    }
+
+    // One GROUP BY over agent_usage_events, shared by the admin table and the
+    // user-facing spend dashboard so the two can never disagree about how a
+    // provider's spend is computed. Served by
+    // agent_usage_events_model_provider_idx / _user_created_idx.
+    private async usageByProvider(
+        conds: SQL[]
+    ): Promise<UserModelProviderUsageRow[]> {
+        const rows = await this.db
+            .select({
+                modelProviderId: agentUsageEvents.modelProviderId,
+                inputTokens: sql<string>`coalesce(sum(${agentUsageEvents.inputTokens}), 0)`,
+                outputTokens: sql<string>`coalesce(sum(${agentUsageEvents.outputTokens}), 0)`,
+                cacheReadTokens: sql<string>`coalesce(sum(${agentUsageEvents.cacheReadTokens}), 0)`,
+                cacheCreationTokens: sql<string>`coalesce(sum(${agentUsageEvents.cacheCreationTokens}), 0)`,
+                // Deliberately not coalesced: an all-NULL group means the cost
+                // is unknown, which is not the same as zero.
+                costUsd: sql<string | null>`sum(${agentUsageEvents.costUsd})`,
+                unpricedEventCount: sql<string>`count(*) filter (where ${agentUsageEvents.costUsd} is null)`,
+                eventCount: sql<string>`count(*)`,
+                lastUsedAt: sql<Date | null>`max(${agentUsageEvents.createdAt})`
+            })
+            .from(agentUsageEvents)
+            .where(conds.length ? and(...conds) : undefined)
+            .groupBy(agentUsageEvents.modelProviderId)
+        return rows.map((r) => ({
+            modelProviderId: r.modelProviderId,
+            usage: {
+                inputTokens: Number(r.inputTokens),
+                outputTokens: Number(r.outputTokens),
+                cacheReadTokens: Number(r.cacheReadTokens),
+                cacheCreationTokens: Number(r.cacheCreationTokens),
+                costUsd: r.costUsd === null ? null : Number(r.costUsd),
+                unpricedEventCount: Number(r.unpricedEventCount),
+                eventCount: Number(r.eventCount),
+                lastUsedAt: r.lastUsedAt
+                    ? new Date(r.lastUsedAt).toISOString()
+                    : null
+            }
+        }))
+    }
+
+    async listUsage(
+        userId: string,
+        opts: { from?: string; to?: string }
+    ): Promise<UserModelProviderUsageReport> {
+        const from = parseBoundDate(opts.from)
+        const to = parseBoundDate(opts.to)
+        const conds: SQL[] = [eq(agentUsageEvents.userId, userId)]
+        if (from) conds.push(gte(agentUsageEvents.createdAt, from))
+        if (to) conds.push(lt(agentUsageEvents.createdAt, to))
+        return {
+            from: from ? from.toISOString() : null,
+            to: to ? to.toISOString() : null,
+            // The null-provider group is kept: it is real spend the turn could
+            // not attribute, and dropping it makes the page's total silently
+            // disagree with the usage page.
+            rows: await this.usageByProvider(conds)
+        }
     }
 
     async create(input: {

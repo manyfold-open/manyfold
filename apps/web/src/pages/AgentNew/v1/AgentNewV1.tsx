@@ -78,6 +78,7 @@ import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConf
 import { CreateFrameworkModelConfig } from '@/pages/AgentNew/components/shared/CreateFrameworkModelConfig'
 import { providerLabel } from '@/pages/Settings/ModelProviderFields'
 import { useI18n, type TFn } from '@/lib/i18n'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const persistentProviderOptions: Array<{
     value: PersistentModelProvider
@@ -1406,8 +1407,14 @@ const AgentNew: FC = (): ReactNode => {
             category === 'sandbox'
                 ? sandboxLimitReached
                 : persistentLimitReached
+        // Containers are a purchased product only where a billing surface
+        // exists. Self-hosted provisions one on the fly (the cloud-computer
+        // port's self-serve spec), so the category stays selectable instead
+        // of turning into a rent link that leads to a redirect.
         const buyCloudComputer =
-            category === 'persistent' && cloudComputerAvailable
+            category === 'persistent' &&
+            cloudComputerAvailable &&
+            BILLING_SURFACE
         const disabled = unsupported || limitReached || buyCloudComputer
         if (disabled) {
             return (

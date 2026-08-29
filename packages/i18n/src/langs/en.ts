@@ -812,9 +812,6 @@ const en = {
                 'Link GitHub, Cloudflare or Composio so agents authenticate automatically.',
             channelsTitle: 'No channels yet',
             channelsBody: 'Bridge an agent into a chat platform.',
-            channelsCreateAction: 'Create channel',
-            channelNoSelectionTitle: 'No channel selected',
-            channelNoSelectionBody: 'Select a channel to see its settings.',
             channelDeliveriesEmpty: 'No recent deliveries.',
             creditHistoryTitle: 'No credit history',
             sandboxUsageTitle: 'No sandbox usage this period',
@@ -2762,20 +2759,18 @@ const en = {
             },
             settings: {
                 channels: 'Channels', newChannel: 'New channel', create: 'Create',
-                createDescription: 'Bridge an agent to an external chat platform.',
                 backToChannels: 'Back to channels', more: 'More', docs: 'Docs', refresh: 'Refresh', edit: 'Edit',
                 changeAgent: 'Change agent', changingAgent: 'Changing…', activate: 'Activate', pause: 'Pause', test: 'Test', delete: 'Delete',
                 registerTelegram: 'Re-register webhook', refreshBotIdentity: 'Refresh bot identity', registerApp: 'Register app', registerToken: 'Register token',
                 inboundWebhookUrl: 'Inbound webhook URL', statusLabel: 'Status', lastConnected: 'Last connected', lastError: 'Last error', recentDeliveries: 'Recent deliveries',
                 lastDeliveries: 'last {{count}}', setupDocs: 'Setup docs', loadingAgents: 'Loading agents…', currentAgent: '{{name}} (current)',
-                collapseAll: 'Collapse all', expandAll: 'Expand all', searchChannels: 'Search channels…', clearSearch: 'Clear search', clearAgentFilter: 'Clear agent filter',
+                collapseAll: 'Collapse all', expandAll: 'Expand all', clearAgentFilter: 'Clear agent filter',
                 agentFilter: 'Agent: {{name}}', deleteConfirmTitle: 'Delete channel', deleteConfirmDescription: 'Inbound traffic for this channel will stop.',
                 changeAgentDescription: 'Route new messages on this channel to a different agent.',
                 changeAgentWarning: 'Every chat starts a fresh conversation with the new agent. Existing sessions are archived — their history stays under {{name}} — and automations of other agents that deliver through this channel stop delivering.',
                 editChannel: 'Edit channel', editDescription: 'Changes hot-reload the connection.',
                 status: { active: 'Active', paused: 'Paused', error: 'Error', draft: 'Draft' },
-                filters: { all: 'All', active: 'Active', issues: 'Issues' },
-                groupBy: { platform: 'Platform', agent: 'Agent', status: 'Status' },
+                groupBy: { none: 'None', platform: 'Platform', agent: 'Agent', status: 'Status' },
                 fields: {
                     agent: 'Agent', provider: 'Provider', label: 'Label', botToken: 'Bot token', botTokenKeep: 'Bot token (leave blank to keep existing)',
                     signingSecret: 'Signing secret', signingSecretKeep: 'Signing secret (leave blank to keep existing)', subscriptionMode: 'Subscription mode',
@@ -3940,23 +3935,45 @@ const en = {
             create: 'Create token',
             copyDescription: 'Copy this token now. It will not be shown again.',
             copy: 'Copy',
-            activeTitle: 'Active tokens',
             empty: 'No API tokens created.',
             revokeTitle: 'Revoke API token',
             revokeDescription:
                 'Connected clients using this token will stop working immediately.',
             revoke: 'Revoke',
-            revoked: 'API token revoked',
             copied: 'Token copied',
             statusRevoked: 'Revoked',
             statusExpired: 'Expired',
             statusActive: 'Active',
-            created: 'created',
-            lastUsed: 'last used',
+            created: 'Created',
+            lastUsed: 'Last used',
             never: '—',
-            expires: 'expires',
-            neverExpires: 'never expires',
-            revokedAt: 'revoked'
+            expires: 'Expires',
+            neverExpires: 'Never',
+            revokedAt: 'Revoked',
+            dashboardHeading: 'Dashboard',
+            nameLabel: 'Name',
+            issuedTitle: 'Token created',
+            done: 'Done',
+            colToken: 'Token',
+            statusLabel: 'Status',
+            emptyTitle: 'No API tokens yet',
+            emptyBody: 'Create a token to call the API from your own code.',
+            countActive: '{{count}} active',
+            countExpired: '{{count}} expired',
+            countRevoked: '{{count}} revoked',
+            countNeverUsed: '{{count}} never used',
+            createdVia: 'Created via',
+            boundAgent: 'Bound agent',
+            bindingEnforced: 'Enforced',
+            tokenId: 'Token ID',
+            scopesTitle: 'Scopes',
+            scopesMultiple: 'Multiple scopes',
+            scopesDescription: 'What this token is allowed to do.',
+            usageTitle: 'Usage',
+            usageNoHistory:
+                'Only the time a token was last used is recorded, not individual requests, so there is no per-request log to show here.',
+            usageLastSeen: 'Last request seen {{when}}.',
+            usageNeverSeen: 'This token has not been used yet.'
         },
         buyContainer: {
             title: 'Buy a container',
@@ -4098,21 +4115,18 @@ const en = {
             searchPricing: 'search both tables…',
             useAutomatic: 'Use automatic match',
             newProvider: 'New model provider',
-            newProviderDescription:
-                'Built-in providers can be added more than once — e.g. separate keys for different accounts.',
+            groupBy: {
+                none: 'None',
+                provider: 'Provider',
+                protocol: 'Protocol',
+                status: 'Status'
+            },
             managed: 'Manyfold managed',
             emptyTitle: 'No model providers yet',
             emptyBody:
                 'Add a built-in provider with your API key, or configure a custom endpoint.',
-            searchPlaceholder: 'Search providers…',
-            searchAria: 'Search providers',
-            clearSearch: 'Clear search',
-            noMatches: 'No matches.',
             noProviders: 'No providers yet.',
-            yourProviders: 'Your providers',
             customProvider: 'Custom provider',
-            customProviderDescription:
-                'Any OpenAI / Anthropic-compatible endpoint',
             connectNetmind: 'Connect with NetMind account',
             netmindHint:
                 'Sign in with your NetMind account and we create a Manyfold API key there for you — model usage bills your NetMind balance.',
@@ -4352,7 +4366,6 @@ const en = {
             upgradedMessage: 'mf CLI upgraded to v{{version}}'
         },
         runtimesDashboard: {
-            railEntry: 'Dashboard',
             heading: 'Dashboard',
             viewGrid: 'Grid view',
             viewList: 'List view',
@@ -4373,6 +4386,38 @@ const en = {
             noMachines: 'No self-owned computers connected yet.',
             noClusters: 'No cloud computers yet.',
             noProviders: 'No external providers yet.'
+        },
+        modelProvidersDashboard: {
+            heading: 'Dashboard',
+            spend: 'Spend',
+            tokens: 'Tokens',
+            requests: 'Requests',
+            lastUsed: 'Last used',
+            total: 'Total',
+            windowAll: 'All time',
+            colProvider: 'Provider',
+            unattributed: 'Unattributed',
+            unattributedHint:
+                'Turns whose agent had no model provider bound, or whose provider has since been deleted.',
+            unpriced: '{{count}} unpriced',
+            unpricedHint:
+                'Some turns have no recorded cost, so this is a lower bound on the real spend.'
+        },
+        channelNew: {
+            title: 'New {{provider}} channel',
+            noAgentsTitle: 'No agents yet',
+            noAgentsBody:
+                'A channel routes messages to an agent, so create an agent first.'
+        },
+        channelsDashboard: {
+            heading: 'Dashboard',
+            colChannel: 'Channel',
+            messagesWindow: 'Messages ({{days}}d)',
+            messagesWindowHint:
+                'Delivery history is kept for {{days}} days, so this counts the last {{days}} days only.',
+            inOut: '{{inbound}} in · {{outbound}} out',
+            lastMessage: 'Last message',
+            noMessages: 'No messages yet'
         },
         agentRuntimesListExtras: {
             upgradeHostDescription:

@@ -4,7 +4,8 @@ import type {
     ProviderModelPricesView,
     ProviderTestResult,
     RevealUserModelProviderResponse,
-    UserModelProviderSummary
+    UserModelProviderSummary,
+    UserModelProviderUsageReport
 } from '@manyfold/shared'
 import {
     Body,
@@ -25,7 +26,10 @@ import {
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
-import { AllowBoundTokenWithoutSubject } from '@/common/decorators/subject-agent.decorator'
+import {
+    AllowBoundTokenWithoutSubject,
+    DenyBoundToken
+} from '@/common/decorators/subject-agent.decorator'
 import { runtimeAgentId } from '@/modules/auth/auth-principal'
 import { AuthService } from '@/modules/auth/auth.service'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
@@ -74,6 +78,22 @@ export class ModelProvidersController {
             email
         })
         return this.service.list(user.userId)
+    }
+
+    // Declared above the `:id` routes: there is no bare @Get(':id') on this
+    // controller today, but adding one later would otherwise swallow `usage`.
+    @Get('usage')
+    @RequireApiTokenScope('model-providers:read')
+    // Unlike list(), which masks keys, this returns the owner's total spend
+    // across every provider — not something a runtime-bound agent token
+    // should be able to read on its owner's behalf.
+    @DenyBoundToken()
+    async usage(
+        @CurrentUser() user: AuthPrincipal,
+        @Query('from') from?: string,
+        @Query('to') to?: string
+    ): Promise<UserModelProviderUsageReport> {
+        return this.service.listUsage(user.userId, { from, to })
     }
 
     @Post()
