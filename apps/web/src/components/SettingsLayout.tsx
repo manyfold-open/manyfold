@@ -16,6 +16,7 @@ import {
 import { readLastChatLocationRecord } from '@/lib/chatNavigation'
 import { useI18n } from '@/lib/i18n'
 import { navigateWithRailTransition } from '@/lib/railTransition'
+import { isCascadePath } from '@/lib/settingsCascadePaths'
 import { GhostPageContent } from '@/components/Loading'
 import AreaBackLink from '@/components/AreaBackLink'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -123,10 +124,7 @@ const SettingsLayout: FC = (): ReactNode => {
         }
     }, [drawerOpen])
 
-    const isCascade =
-        pathname.startsWith('/settings/runtimes') ||
-        pathname.startsWith('/settings/channels') ||
-        pathname === '/settings/model-providers'
+    const isCascade = isCascadePath(pathname)
 
     const activeItem = SETTINGS_ITEMS.find((item) =>
         pathname.startsWith(item.to)
