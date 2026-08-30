@@ -2013,6 +2013,40 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
     --lp-line: rgba(10, 12, 15, 0.18);
     --lp-line-soft: rgba(10, 12, 15, 0.09);
     --lp-line-strong: rgba(10, 12, 15, 0.36);
+
+    /* Isometric hero world (--lp-w-*). The scene is drawn as lit solids,
+       so it needs faces the flat page palette has no name for: a top, a
+       right and a left face per slab and per box, plus the screens, wires
+       and leader lines drawn on them. Everything else in the world reuses
+       the landing tokens above. */
+    --lp-w-slab-top: #f1f4f7;
+    --lp-w-slab-hi: #ffffff;
+    --lp-w-slab-r: #d9dfe6;
+    --lp-w-slab-l: #c8d0d9;
+    --lp-w-slab-edge: rgba(10, 12, 15, 0.24);
+    --lp-w-box-top: #ffffff;
+    --lp-w-box-r: #e2e8ef;
+    --lp-w-box-l: #cfd7e0;
+    --lp-w-box-edge: rgba(10, 12, 15, 0.3);
+    --lp-w-box-accent: #f3f7fb;
+    --lp-w-screen: #eef3f8;
+    --lp-w-socket: #dbe3ec;
+    --lp-w-chip: #10161d;
+    --lp-w-face: #141a21;
+    --lp-w-bar: rgba(10, 12, 15, 0.15);
+    --lp-w-card: rgba(10, 12, 15, 0.05);
+    --lp-w-wire: rgba(10, 12, 15, 0.3);
+    --lp-w-lead: rgba(10, 12, 15, 0.32);
+    --lp-w-lead-dot: rgba(10, 12, 15, 0.55);
+    --lp-w-ghost: rgba(10, 12, 15, 0.26);
+    --lp-w-zone: rgba(10, 12, 15, 0.03);
+    --lp-w-ground-lab: rgba(10, 12, 15, 0.42);
+    --lp-w-led-edge: rgba(47, 143, 214, 0.5);
+    /* Framework marks on the world's agent tiles, in their own brand hues. */
+    --lp-w-c1: #d97757;
+    --lp-w-c2: #10a37f;
+    --lp-w-c3: #7c6ae8;
+    --lp-w-c4: #3370ff;
     /* Status spectrum (DESIGN.md §4.1 / §10.6) — five hues with
        adequate saturation and 55°+ hue gaps so adjacent states
        are instantly distinguishable, while still sitting calmly
@@ -2178,6 +2212,34 @@ html[data-theme='dark'] .landing-root {
     --lp-line: rgba(255, 255, 255, 0.13);
     --lp-line-soft: rgba(255, 255, 255, 0.06);
     --lp-line-strong: rgba(255, 255, 255, 0.28);
+
+    --lp-w-slab-top: #12161c;
+    --lp-w-slab-hi: #1a1f27;
+    --lp-w-slab-r: #0d1116;
+    --lp-w-slab-l: #080b0f;
+    --lp-w-slab-edge: rgba(136, 212, 255, 0.24);
+    --lp-w-box-top: #2c333c;
+    --lp-w-box-r: #1c222a;
+    --lp-w-box-l: #12171d;
+    --lp-w-box-edge: rgba(136, 212, 255, 0.3);
+    --lp-w-box-accent: #333b45;
+    --lp-w-screen: #0f151c;
+    --lp-w-socket: #10161d;
+    --lp-w-chip: #0d131a;
+    --lp-w-face: #0b1016;
+    --lp-w-bar: rgba(255, 255, 255, 0.15);
+    --lp-w-card: rgba(255, 255, 255, 0.06);
+    --lp-w-wire: rgba(136, 212, 255, 0.32);
+    --lp-w-lead: rgba(136, 212, 255, 0.35);
+    --lp-w-lead-dot: rgba(136, 212, 255, 0.7);
+    --lp-w-ghost: rgba(136, 212, 255, 0.3);
+    --lp-w-zone: rgba(136, 212, 255, 0.04);
+    --lp-w-ground-lab: rgba(200, 220, 240, 0.42);
+    --lp-w-led-edge: rgba(136, 212, 255, 0.45);
+    --lp-w-c1: #e8916f;
+    --lp-w-c2: #37c99e;
+    --lp-w-c3: #9d8cff;
+    --lp-w-c4: #6b9aff;
     /* Status spectrum (DESIGN.md §4.2) — same hue family as light
        mode, brightened so perceived saturation matches across themes. */
     --lp-info: #7bb6e8;
@@ -2311,9 +2373,6 @@ html[data-theme='dark'] .landing-root::before {
    a milled aluminium panel lit from above, with the bottom
    slightly darker than the top. The gradient sits on the fill
    (not the shadow) so the lift anatomy from §7 is preserved. --- */
-.landing-root .lp-product-demo,
-.landing-root .lp-machine,
-.landing-root .lp-feat,
 .landing-root .lp-price-card,
 .landing-root .lp-cta-card {
     /* Everything — brushed grain + luminance + corner chamfer washes
@@ -2364,10 +2423,7 @@ html[data-theme='dark'] .landing-root::before {
             );
 }
 
-html[data-theme='dark'] .landing-root .lp-product-demo,
-html[data-theme='dark'] .landing-root .lp-machine,
-html[data-theme='dark'] .landing-root .lp-price-card,
-html[data-theme='dark'] .landing-root .lp-feat {
+html[data-theme='dark'] .landing-root .lp-price-card {
     background-image:
         radial-gradient(
             130% 90% at 0% 0%,
@@ -2402,18 +2458,12 @@ html[data-theme='dark'] .landing-root .lp-feat {
 
 /* The cards need position:relative so the screw pseudo can sit
    inside the card bounds. */
-.landing-root .lp-product-demo,
-.landing-root .lp-machine,
-.landing-root .lp-price-card,
-.landing-root .lp-feat {
+.landing-root .lp-price-card {
     position: relative;
 }
 
 /* Make card content layer above the chamfer wash. */
-.landing-root .lp-product-demo > *,
-.landing-root .lp-machine > *,
-.landing-root .lp-price-card > *,
-.landing-root .lp-feat > * {
+.landing-root .lp-price-card > * {
     position: relative;
     z-index: 1;
 }
@@ -2423,10 +2473,7 @@ html[data-theme='dark'] .landing-root .lp-feat {
    catching light).  Sit at inset 14px from each corner, well
    inside the rounded edge, so no curve geometry is involved —
    nothing to compete with the parent's border-radius. */
-.landing-root .lp-product-demo::after,
-.landing-root .lp-machine::after,
-.landing-root .lp-price-card::after,
-.landing-root .lp-feat::after {
+.landing-root .lp-price-card::after {
     content: '';
     position: absolute;
     inset: 0;
@@ -2475,10 +2522,7 @@ html[data-theme='dark'] .landing-root .lp-feat {
     z-index: 0;
 }
 
-html[data-theme='dark'] .landing-root .lp-product-demo::after,
-html[data-theme='dark'] .landing-root .lp-machine::after,
-html[data-theme='dark'] .landing-root .lp-price-card::after,
-html[data-theme='dark'] .landing-root .lp-feat::after {
+html[data-theme='dark'] .landing-root .lp-price-card::after {
     background-image:
         radial-gradient(
             circle at center,
@@ -2561,16 +2605,12 @@ html[data-theme='dark'] .landing-root .lp-h-accent {
 /* --- Anodized: pills, chips, mcp rows --- pill shape kept (§6.2
    says controls are pills), but each chip gets a fine inset top
    hairline that reads as a milled groove on the chassis. --- */
-.landing-root .lp-int-chip,
-.landing-root .lp-mcp-row,
-.landing-root .lp-pd-scene-result {
+.landing-root .lp-int-chip {
     background: var(--lp-bg-soft);
     box-shadow: inset 0 0 0 1px var(--lp-line);
 }
 
-html[data-theme='dark'] .landing-root .lp-int-chip,
-html[data-theme='dark'] .landing-root .lp-mcp-row,
-html[data-theme='dark'] .landing-root .lp-pd-scene-result {
+html[data-theme='dark'] .landing-root .lp-int-chip {
     box-shadow: inset 0 0 0 1px var(--lp-line);
 }
 
@@ -2625,40 +2665,6 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
         0 0 0 2px var(--lp-paper),
         0 0 0 3px rgba(136, 212, 255, 0.32),
         0 0 14px rgba(136, 212, 255, 0.7);
-}
-
-/* The live-dot in the canvas header carries the same LED reading. */
-.landing-root .lp-pd-canvas-label .lp-live-dot {
-    background: #6cc0f0;
-    box-shadow:
-        0 0 0 2px var(--lp-bg-soft),
-        0 0 0 3px rgba(108, 192, 240, 0.35),
-        0 0 12px rgba(108, 192, 240, 0.8);
-}
-
-html[data-theme='dark'] .landing-root .lp-pd-canvas-label .lp-live-dot {
-    background: #88d4ff;
-    box-shadow:
-        0 0 0 2px var(--lp-bg-soft),
-        0 0 0 3px rgba(136, 212, 255, 0.32),
-        0 0 16px rgba(136, 212, 255, 0.7);
-}
-
-.landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot {
-    background: #6cc0f0;
-    box-shadow:
-        0 0 0 1px rgba(108, 192, 240, 0.5),
-        0 0 10px rgba(108, 192, 240, 0.8);
-}
-
-html[data-theme='dark']
-    .landing-root
-    .lp-pd-agent[data-state='active']
-    .lp-pd-agent-dot {
-    background: #88d4ff;
-    box-shadow:
-        0 0 0 1px rgba(136, 212, 255, 0.5),
-        0 0 12px rgba(136, 212, 255, 0.7);
 }
 
 /* --- Anodized: section-head pre-mark ---
@@ -2856,40 +2862,6 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
 /* --- Anodized: machines-strip ---
    A fine engraved hairline instead of the bunker caution-stripe
    tape.  Reads as a precision mark scored into the chassis. */
-.landing-root .lp-machines-strip {
-    border-top: 0;
-    padding-top: 24px;
-    position: relative;
-}
-
-.landing-root .lp-machines-strip::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(
-        to right,
-        rgba(15, 17, 20, 0) 0%,
-        rgba(15, 17, 20, 0.28) 20%,
-        rgba(15, 17, 20, 0.28) 80%,
-        rgba(15, 17, 20, 0) 100%
-    );
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.6);
-}
-
-html[data-theme='dark'] .landing-root .lp-machines-strip::before {
-    background: linear-gradient(
-        to right,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.22) 20%,
-        rgba(255, 255, 255, 0.22) 80%,
-        rgba(255, 255, 255, 0) 100%
-    );
-    box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.4);
-}
-
 .landing-root .lp-z {
     position: relative;
     z-index: 1;
@@ -2949,10 +2921,13 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
     color: var(--lp-ink);
 }
 
+/* Section headings sit one step under the hero title. They used to run to
+   76px, which put every section h2 above the 62px h1 in the scrolled hero —
+   the ramp read upside down. */
 .landing-root .lp-h2 {
     font-family: 'Geist', sans-serif;
-    font-size: clamp(38px, 5vw, 76px);
-    line-height: 0.98;
+    font-size: clamp(34px, 3.7vw, 54px);
+    line-height: 1.02;
     letter-spacing: -0.04em;
     font-weight: 500;
     color: var(--lp-ink);
@@ -3189,6 +3164,20 @@ html[data-theme='dark'] .landing-root .lp-btn-secondary:hover {
     backdrop-filter: blur(14px);
     background: color-mix(in srgb, var(--lp-bg) 82%, transparent);
     border-bottom: 1px solid var(--lp-line-soft);
+}
+
+/* On the interactive landing the bar floats over the pinned hero instead of
+   standing above it. In flow it pushed .lp-pin down the document by its own
+   height, so the sticky stage started below the fold and hung the same amount
+   past the bottom: measured on local dev [2026-08-28] at 1920x1080, a 67px bar
+   put the first scene's copy 67px below the viewport centre, and only the
+   first 67px of scroll got it back. Still not a following bar — it scrolls
+   away with the hero, so the reasoning above stands. Scoped to .lp-z because
+   StaticChrome renders the same markup without it for the crawler snapshot,
+   which has plain sections instead of a pinned stage and needs the room. */
+.landing-root .lp-z > .lp-nav {
+    position: absolute;
+    inset: 0 0 auto;
 }
 
 .landing-root .lp-nav-inner {
@@ -3615,1648 +3604,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     color: #0f1114;
 }
 
-/* === Hero === */
-.landing-root .lp-hero {
-    position: relative;
-    padding: 48px 0 88px;
-    overflow: hidden;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-hero {
-        padding: 36px 0 64px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-hero {
-        padding: 28px 0 52px;
-    }
-}
-
-.landing-root .lp-hero-content {
-    position: relative;
-    z-index: 2;
-    text-align: center;
-    margin: 0 auto 44px;
-}
-
-.landing-root .lp-hero-content .lp-hero-eyebrow {
-    margin-bottom: 16px;
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-hero-content h1 {
-    text-wrap: balance;
-    max-width: 18ch;
-    margin: 0 auto;
-    font-size: clamp(40px, 6vw, 84px);
-    line-height: 0.92;
-    letter-spacing: -0.045em;
-    font-weight: 500;
-}
-
-.landing-root .lp-hero-content .lp-lead {
-    margin: 18px auto 24px;
-    max-width: none;
-    text-align: center;
-    font-size: clamp(16px, 1.2vw, 19px);
-    line-height: 1.46;
-    color: var(--lp-ink-soft);
-    white-space: nowrap;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-hero-content {
-        margin-bottom: 36px;
-    }
-    .landing-root .lp-hero-content h1 {
-        max-width: 14ch;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-hero-content {
-        margin-bottom: 28px;
-    }
-    .landing-root .lp-hero-content h1 {
-        max-width: none;
-        font-size: clamp(34px, 9vw, 48px);
-        line-height: 0.98;
-        letter-spacing: -0.035em;
-    }
-    .landing-root .lp-hero-content .lp-lead {
-        font-size: 15px;
-        margin: 14px auto 20px;
-        line-height: 1.5;
-        white-space: normal;
-        max-width: 34ch;
-    }
-    .landing-root .lp-hero-content .lp-hero-eyebrow {
-        margin-bottom: 12px;
-        font-size: 10px;
-        letter-spacing: 0.2em;
-    }
-}
-
-/* Hero CTAs scale down on mobile: 52px → 44px height, smaller font,
-   so the dual-CTA row reads as one band rather than two banner-class
-   buttons. Wrap stays in place via the existing .lp-hero-ctas. */
-@media (max-width: 580px) {
-    .landing-root .lp-hero-ctas {
-        gap: 10px;
-    }
-    .landing-root .lp-hero-ctas .lp-btn {
-        height: 44px;
-        padding: 0 20px;
-        font-size: 14px;
-        gap: 8px;
-    }
-    .landing-root .lp-hero-ctas .lp-arr {
-        width: 14px;
-        height: 14px;
-    }
-}
-
-.landing-root .lp-hero-ctas {
-    display: flex;
-    gap: 14px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-hero-ctas .lp-btn {
-    height: 52px;
-    padding: 0 26px;
-    font-size: 15.5px;
-    gap: 10px;
-}
-
-.landing-root .lp-hero-ctas .lp-arr {
-    width: 16px;
-    height: 16px;
-}
-
-/* Two-step CTA: Step 1 request access → Step 2 sign in. The numbered badge
-   on each button reads the flow as an ordered sequence; the connector arrow
-   sits between them on wide layouts and folds away when the buttons wrap. */
-.landing-root .lp-step-ctas {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-step-cta {
-    position: relative;
-    padding-left: 18px;
-}
-
-.landing-root .lp-step-cta-badge {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    padding: 0 9px;
-    border-radius: var(--lp-r-pill);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-/* The numeric-only badge ("1"/"2") is a phone-only space saver; the full
-   "Step 1" label is the default. The mobile breakpoint swaps them. */
-.landing-root .lp-step-cta-badge-num {
-    display: none;
-}
-
-.landing-root .lp-btn-primary .lp-step-cta-badge {
-    background: rgba(255, 255, 255, 0.16);
-    color: #fff;
-}
-
-.landing-root .lp-btn-secondary .lp-step-cta-badge {
-    background: var(--lp-bg-soft);
-    color: var(--lp-muted);
-    box-shadow: inset 0 0 0 1px var(--lp-line);
-}
-
-html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
-    background: rgba(10, 12, 15, 0.16);
-    color: #0a0c0f;
-}
-
-.landing-root .lp-step-cta-arrow {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-subtle);
-    flex: none;
-}
-
-.landing-root .lp-step-cta-arrow svg {
-    width: 18px;
-    height: 18px;
-}
-
-@media (max-width: 560px) {
-    /* Keep the two CTAs on one row; the numeric badges ("1"/"2") keep them
-       narrow enough to fit without wrapping. */
-    .landing-root .lp-step-ctas {
-        flex-wrap: nowrap;
-        gap: 8px;
-    }
-    /* Size each CTA to its own label rather than forcing a 50/50 split — the
-       longer "Request access" needs more room than "Sign in", and an equal
-       basis clips it (the label is white-space: nowrap). flex-grow: 0 lets
-       them hug content; flex-shrink: 1 + min-width: 0 keeps them fitting on
-       the very narrowest phones. */
-    .landing-root .lp-step-cta {
-        flex: 0 1 auto;
-        min-width: 0;
-        justify-content: center;
-        padding: 10px 12px;
-        font-size: 14px;
-    }
-    .landing-root .lp-step-cta-badge {
-        height: 20px;
-        padding: 0 7px;
-    }
-    /* Show just the number on phones; hide the full "Step N" word. */
-    .landing-root .lp-step-cta-badge-full {
-        display: none;
-    }
-    .landing-root .lp-step-cta-badge-num {
-        display: inline-flex;
-    }
-    /* No room for the inter-button arrow on a single narrow row. */
-    .landing-root .lp-step-cta-arrow {
-        display: none;
-    }
-}
-
-.landing-root .lp-hero-content > *,
-.landing-root .lp-product-demo {
-    opacity: 0;
-    transform: translateY(16px);
-    animation: lp-hero-reveal 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.landing-root .lp-hero-content > .lp-eyebrow {
-    animation-delay: 0.05s;
-}
-.landing-root .lp-hero-content > h1 {
-    animation-delay: 0.15s;
-}
-.landing-root .lp-hero-content > .lp-lead {
-    animation-delay: 0.3s;
-}
-.landing-root .lp-hero-content > .lp-hero-ctas {
-    animation-delay: 0.42s;
-}
-.landing-root .lp-product-demo {
-    animation-delay: 0.55s;
-    animation-duration: 0.95s;
-}
-
-@keyframes lp-hero-reveal {
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* === Product demo (state-driven by ProductDemo component) === */
-.landing-root .lp-product-demo {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    max-width: 1040px;
-    margin: 0 auto;
-    background-color: var(--lp-paper);
-    border-radius: var(--lp-r-xl);
-    overflow: hidden;
-    pointer-events: none;
-    user-select: none;
-    box-shadow: var(--lp-shadow-xl);
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-product-demo {
-        max-width: 720px;
-    }
-}
-
-.landing-root .lp-pd-body {
-    display: grid;
-    grid-template-columns: 244px 1fr;
-    min-height: 420px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-body {
-        grid-template-columns: 208px 1fr;
-        min-height: 380px;
-    }
-}
-
-.landing-root .lp-pd-rail {
-    background: var(--lp-bg-soft);
-    border-right: 1px solid var(--lp-line);
-    padding: 24px 14px 22px;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Below the rail's minimum useful width: drop the rail entirely and
-   let the chat canvas occupy the full demo card. The agent list does
-   not collapse to the top — it is simply hidden, because at this
-   width there isn't room to show both surfaces meaningfully. */
-@media (max-width: 640px) {
-    .landing-root .lp-pd-body {
-        grid-template-columns: 1fr;
-        min-height: 0;
-    }
-    .landing-root .lp-pd-rail {
-        display: none;
-    }
-}
-
-.landing-root .lp-pd-rail-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 6px 14px;
-    margin-bottom: 6px;
-    border-bottom: 1px dashed var(--lp-line);
-}
-
-.landing-root .lp-pd-rail-head .lp-label {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 500;
-}
-
-.landing-root .lp-pd-rail-head .lp-count {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-terracotta);
-    background: var(--lp-terracotta-soft);
-    padding: 2px 8px;
-    border-radius: 999px;
-    letter-spacing: 0.04em;
-}
-
-.landing-root .lp-pd-rail-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.landing-root .lp-pd-agent {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 10px 11px;
-    border-radius: 16px;
-    position: relative;
-    background: transparent;
-    box-shadow: transparent 0 0 0 1px;
-    transition:
-        background 240ms ease,
-        box-shadow 240ms ease;
-}
-
-.landing-root .lp-pd-agent[data-state='active'] {
-    background: var(--lp-paper);
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-}
-
-.landing-root .lp-pd-agent-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-agent-avatar svg {
-    width: 17px;
-    height: 17px;
-}
-
-.landing-root .lp-pd-agent-body {
-    min-width: 0;
-    flex: 1;
-}
-
-.landing-root .lp-pd-agent-name {
-    font-size: 13.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--lp-ink);
-    line-height: 1.25;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.landing-root .lp-pd-agent-meta {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.02em;
-    line-height: 1.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-top: 1px;
-}
-
-.landing-root .lp-pd-agent-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    box-shadow: 0 0 0 2px var(--lp-success-soft);
-    flex-shrink: 0;
-    transition:
-        background 360ms ease,
-        box-shadow 360ms ease,
-        transform 360ms ease;
-}
-
-.landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot {
-    background: var(--lp-terracotta);
-    box-shadow: 0 0 0 2px var(--lp-terracotta-soft);
-    animation: lp-agent-dot-pulse 1.6s ease-in-out infinite;
-}
-
-.landing-root .lp-pd-agent[data-state='queued'] .lp-pd-agent-dot {
-    background: var(--lp-ochre);
-    box-shadow: 0 0 0 2px var(--lp-ochre-soft);
-}
-
-@keyframes lp-agent-dot-pulse {
-    0%,
-    100% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.25);
-    }
-}
-
-.landing-root .lp-pd-canvas {
-    position: relative;
-    background: var(--lp-paper);
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    padding: 26px 28px 20px;
-    overflow: hidden;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-canvas {
-        padding: 22px 22px 18px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-pd-canvas {
-        padding: 18px 16px 16px;
-    }
-}
-
-.landing-root .lp-pd-canvas-label {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 500;
-    margin-bottom: 22px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.landing-root .lp-pd-canvas-label .lp-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-terracotta);
-    box-shadow: 0 0 0 3px var(--lp-terracotta-soft);
-    animation: lp-live-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes lp-live-pulse {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.4;
-    }
-}
-
-.landing-root .lp-pd-stage {
-    position: relative;
-    flex: 1;
-    min-height: 220px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-stage {
-        min-height: 200px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-pd-stage {
-        min-height: 180px;
-    }
-}
-
-.landing-root .lp-pd-scene {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    animation: lp-scene-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes lp-scene-enter {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-.landing-root .lp-pd-scene-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.landing-root .lp-pd-scene-head .lp-av {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-scene-head .lp-av svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-pd-scene-head .lp-nm {
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -0.015em;
-    color: var(--lp-ink);
-    line-height: 1.2;
-}
-
-.landing-root .lp-pd-scene-head .lp-fw {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-top: 3px;
-}
-
-.landing-root .lp-pd-scene-head .lp-copy {
-    display: flex;
-    flex-direction: column;
-}
-
-.landing-root .lp-pd-steps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.landing-root .lp-pd-step {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    font-family: var(--lp-mono);
-    font-size: 12.5px;
-    letter-spacing: 0;
-    line-height: 1.5;
-    color: var(--lp-muted);
-    transition: color 220ms ease;
-}
-
-.landing-root .lp-pd-step[data-status='active'] {
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-step[data-status='done'] {
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-pd-step-mark {
-    position: relative;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.landing-root .lp-pd-mark-dot,
-.landing-root .lp-pd-mark-spin,
-.landing-root .lp-pd-mark-check {
-    position: absolute;
-    inset: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 200ms ease;
-}
-
-/* pending state */
-.landing-root .lp-pd-step[data-status='pending'] .lp-pd-mark-dot {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-dot::before {
-    content: '';
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--lp-line-strong);
-}
-
-/* active state */
-.landing-root .lp-pd-step[data-status='active'] .lp-pd-mark-spin {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-spin {
-    background: transparent;
-    box-shadow: var(--lp-line) 0 0 0 1px inset;
-}
-
-.landing-root .lp-pd-mark-spin::before {
-    content: '';
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    border: 1.5px solid var(--lp-terracotta);
-    border-right-color: transparent;
-    box-sizing: border-box;
-    animation: lp-step-spin 0.9s linear infinite;
-}
-
-/* done state */
-.landing-root .lp-pd-step[data-status='done'] .lp-pd-mark-check {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-check {
-    background: var(--lp-success);
-    color: var(--lp-paper);
-}
-
-.landing-root .lp-pd-mark-check svg {
-    width: 9px;
-    height: 9px;
-}
-
-@keyframes lp-step-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.landing-root .lp-pd-step-caret {
-    display: inline-block;
-    width: 1px;
-    height: 11px;
-    background: var(--lp-terracotta);
-    vertical-align: -1px;
-    margin-left: 4px;
-    animation: lp-caret-blink 1.1s steps(2, end) infinite;
-}
-
-@keyframes lp-caret-blink {
-    50% {
-        opacity: 0;
-    }
-}
-
-.landing-root .lp-pd-scene-result {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--lp-ink);
-    line-height: 1.5;
-    letter-spacing: -0.005em;
-    padding: 11px 16px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    align-self: flex-start;
-    max-width: 100%;
-    opacity: 0;
-    transform: translateY(4px);
-    transition:
-        opacity 320ms ease,
-        transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.landing-root .lp-pd-scene-result[data-visible='true'] {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.landing-root .lp-pd-scene-result .lp-check {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    color: var(--lp-paper);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-scene-result .lp-check svg {
-    width: 9px;
-    height: 9px;
-}
-
-.landing-root .lp-pd-scene-result .lp-accent {
-    color: var(--lp-terracotta);
-    font-family: var(--lp-mono);
-    font-size: 12.5px;
-}
-
-.landing-root .lp-pd-composer {
-    margin-top: 22px;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    background: var(--lp-paper-warm);
-    border-radius: var(--lp-r-md);
-    padding: 14px 18px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-pd-composer-stack {
-    position: relative;
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 22px;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-}
-
-/* attach + send are visual anchors of the composer and must never be
-   clipped by the canvas overflow. Pin them as non-shrinking flex
-   items; the stack between them absorbs all remaining width. */
-.landing-root .lp-pd-composer-attach,
-.landing-root .lp-pd-composer-send {
-    flex: 0 0 auto;
-}
-
-.landing-root .lp-pd-composer-empty {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    font-size: 14.5px;
-    color: var(--lp-placeholder);
-    letter-spacing: -0.005em;
-    line-height: 1.4;
-}
-
-.landing-root .lp-pd-composer-caret {
-    display: inline-block;
-    width: 1px;
-    height: 16px;
-    background: var(--lp-ink);
-    animation: lp-caret-blink 1.1s steps(2, end) infinite;
-}
-
-.landing-root .lp-pd-composer-send {
-    width: 36px;
-    height: 36px;
-    border-radius: 999px;
-    background: var(--lp-ink);
-    color: var(--lp-bg);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-composer-send svg {
-    width: 14px;
-    height: 14px;
-}
-
-/* Attach / upload affordance, quiet pill on the left of the composer.
-   Same role as the upload button in the product composer, rendered
-   here as a static cue (the demo is pointer-events: none). */
-.landing-root .lp-pd-composer-attach {
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    background: var(--lp-bg-soft);
-    color: var(--lp-ink-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-composer-attach svg {
-    width: 14px;
-    height: 14px;
-    opacity: 0.7;
-}
-
-/* Narrow-screen composer: tighter padding, smaller send affordance,
-   and a smaller caret font so the input never overruns the demo card. */
-@media (max-width: 580px) {
-    .landing-root .lp-pd-composer {
-        margin-top: 16px;
-        padding: 8px 10px;
-        gap: 8px;
-    }
-    .landing-root .lp-pd-composer-empty {
-        font-size: 13px;
-        height: 20px;
-    }
-    .landing-root .lp-pd-composer-attach {
-        width: 26px;
-        height: 26px;
-    }
-    .landing-root .lp-pd-composer-attach svg {
-        width: 12px;
-        height: 12px;
-    }
-    .landing-root .lp-pd-composer-send {
-        width: 30px;
-        height: 30px;
-    }
-    .landing-root .lp-pd-composer-send svg {
-        width: 12px;
-        height: 12px;
-    }
-}
-
-/* Scale down the active scene + steps on mobile so the canvas fits
-   comfortably and doesn't force the composer below the fold. */
-@media (max-width: 580px) {
-    .landing-root .lp-pd-scene {
-        gap: 12px;
-    }
-    .landing-root .lp-pd-scene-head .lp-av {
-        width: 32px;
-        height: 32px;
-    }
-    .landing-root .lp-pd-scene-head .lp-av svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-pd-scene-head .lp-nm {
-        font-size: 15px;
-    }
-    .landing-root .lp-pd-scene-head .lp-fw {
-        font-size: 9.5px;
-    }
-    .landing-root .lp-pd-steps {
-        gap: 7px;
-    }
-    .landing-root .lp-pd-step {
-        font-size: 11.5px;
-        gap: 9px;
-    }
-    .landing-root .lp-pd-canvas-label {
-        font-size: 9.5px;
-        margin-bottom: 14px;
-    }
-    .landing-root .lp-pd-rail-head .lp-label {
-        font-size: 9.5px;
-    }
-    .landing-root .lp-pd-rail-head .lp-count {
-        font-size: 9.5px;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-hero-content > *,
-    .landing-root .lp-product-demo {
-        animation: none;
-        opacity: 1;
-        transform: none;
-    }
-    .landing-root .lp-pd-scene,
-    .landing-root .lp-pd-mark-spin::before,
-    .landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot,
-    .landing-root .lp-pd-canvas-label .lp-live-dot,
-    .landing-root .lp-pd-composer-caret,
-    .landing-root .lp-pd-step-caret {
-        animation: none;
-    }
-}
-
-/* === Machines section === */
-.landing-root .lp-machines-bg {
-    background: transparent;
-}
-
-.landing-root .lp-machines-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 24px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-machines-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-}
-
-.landing-root .lp-machine {
-    background-color: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-lg);
-    padding: 36px 32px 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-    min-height: 320px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: var(--lp-shadow-lg);
-    transition:
-        transform 220ms ease,
-        box-shadow 220ms ease;
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-machine {
-        padding: 24px 22px 22px;
-        gap: 16px;
-        min-height: 0;
-    }
-    .landing-root .lp-machine .lp-ico {
-        width: 40px;
-        height: 40px;
-    }
-    .landing-root .lp-machine .lp-ico svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-machine .lp-nm {
-        font-size: 19px;
-    }
-    .landing-root .lp-machine .lp-ds {
-        font-size: 14px;
-    }
-    .landing-root .lp-machine .lp-tag {
-        padding-top: 14px;
-    }
-}
-
-.landing-root .lp-machine:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--lp-shadow-lg-hover);
-}
-
-.landing-root .lp-machine .lp-ico {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-machine .lp-ico svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-machine .lp-nm {
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.025em;
-    line-height: 1.1;
-    text-wrap: balance;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-machine .lp-ds {
-    font-size: 14.5px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    letter-spacing: -0.005em;
-    max-width: 28ch;
-    margin-top: 8px;
-}
-
-.landing-root .lp-machine .lp-tag {
-    margin-top: auto;
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding-top: 18px;
-    border-top: 1px dashed var(--lp-line);
-}
-
-.landing-root .lp-machine .lp-tag .lp-v {
-    color: var(--lp-terracotta);
-}
-
-.landing-root .lp-machines-strip {
-    margin-top: 48px;
-    padding-top: 32px;
-    border-top: 1px solid var(--lp-line);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 32px;
-    flex-wrap: wrap;
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-machines-strip {
-        margin-top: 32px;
-        padding-top: 24px;
-        gap: 16px;
-    }
-    .landing-root .lp-machines-strip .lp-marks {
-        gap: 18px 24px;
-    }
-    .landing-root .lp-machines-strip .lp-mark {
-        font-size: 13.5px;
-    }
-}
-
-.landing-root .lp-machines-strip .lp-label {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-machines-strip .lp-marks {
-    display: flex;
-    gap: 32px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-machines-strip .lp-mark {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 14.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-machines-strip .lp-mark svg {
-    width: 20px;
-    height: 20px;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-machines-strip .lp-mark .lp-plus {
-    font-family: 'Geist', sans-serif;
-    font-style: normal;
-    color: var(--lp-terracotta);
-    font-size: 16px;
-}
-
-/* === Flow section === */
-.landing-root .lp-flow {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0;
-    position: relative;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-flow {
-        grid-template-columns: 1fr;
-    }
-}
-
-.landing-root .lp-step {
-    padding: 0 36px;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    position: relative;
-    min-height: 360px;
-}
-
-.landing-root .lp-step + .lp-step {
-    border-left: 1px solid var(--lp-line);
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-step {
-        padding: 0 0 40px;
-        min-height: 0;
-        gap: 16px;
-    }
-    .landing-root .lp-step + .lp-step {
-        border-left: 0;
-        border-top: 1px solid var(--lp-line);
-        padding-top: 40px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-step {
-        padding: 0 0 32px;
-        gap: 14px;
-    }
-    .landing-root .lp-step + .lp-step {
-        padding-top: 32px;
-    }
-    .landing-root .lp-step-num {
-        font-size: 40px;
-    }
-    .landing-root .lp-step-body {
-        font-size: 14px;
-    }
-    .landing-root .lp-step-visual {
-        height: auto;
-        min-height: 80px;
-    }
-}
-
-.landing-root .lp-step:first-child {
-    padding-left: 0;
-}
-.landing-root .lp-step:last-child {
-    padding-right: 0;
-}
-
-.landing-root .lp-step-num {
-    font-family: 'Geist', sans-serif;
-    font-style: normal;
-    font-weight: 600;
-    font-size: 52px;
-    color: var(--lp-terracotta);
-    line-height: 1;
-    letter-spacing: -0.04em;
-}
-
-.landing-root .lp-step h3 {
-    text-wrap: balance;
-    max-width: 18ch;
-}
-
-.landing-root .lp-step-body {
-    font-size: 15px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    max-width: 32ch;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-step-visual {
-    margin-top: 8px;
-    height: 110px;
-    display: flex;
-    align-items: center;
-}
-
-.landing-root .lp-step-logos {
-    display: flex;
-    align-items: center;
-    gap: 0;
-}
-
-.landing-root .lp-step-logos .lp-lg {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--lp-paper);
-    border: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-    flex-shrink: 0;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-step-logos .lp-lg + .lp-lg {
-    margin-left: -10px;
-}
-
-.landing-root .lp-step-logos .lp-lg svg {
-    width: 24px;
-    height: 24px;
-}
-
-.landing-root .lp-step-logos .lp-lg-more {
-    margin-left: 12px;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-    letter-spacing: 0.04em;
-}
-
-.landing-root .lp-step-host {
-    display: flex;
-    gap: 12px;
-    width: 100%;
-}
-
-.landing-root .lp-step-host .lp-tile {
-    flex: 1;
-    background: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-md);
-    padding: 14px 14px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 100px;
-    position: relative;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-h {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12.5px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-h svg {
-    width: 14px;
-    height: 14px;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-l {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-top: auto;
-}
-
-.landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-terracotta);
-}
-
-.landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-sage);
-}
-
-.landing-root .lp-step-chat {
-    width: 100%;
-    background: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-md);
-    padding: 14px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-step-chat .lp-who {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-step-chat .lp-text {
-    font-size: 13.5px;
-    color: var(--lp-ink);
-    line-height: 1.45;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-step-chat .lp-caret {
-    display: inline-block;
-    width: 1px;
-    height: 14px;
-    background: var(--lp-terracotta);
-    vertical-align: -2px;
-    margin-left: 2px;
-    animation: lp-caret 1.05s steps(2, end) infinite;
-}
-
-@keyframes lp-caret {
-    50% {
-        opacity: 0;
-    }
-}
-
-/* === Features section === */
-.landing-root .lp-features-bg {
-    background: transparent;
-}
-
-.landing-root .lp-feat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-feat-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.landing-root .lp-feat {
-    background-color: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-lg);
-    padding: 40px 36px 36px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-height: 320px;
-    overflow: hidden;
-    position: relative;
-    box-shadow: var(--lp-shadow-lg);
-    transition:
-        transform 220ms ease,
-        box-shadow 220ms ease;
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-feat {
-        padding: 26px 22px 24px;
-        gap: 14px;
-        min-height: 0;
-    }
-    .landing-root .lp-feat .lp-ico {
-        width: 38px;
-        height: 38px;
-    }
-    .landing-root .lp-feat .lp-ico svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-feat .lp-ttl {
-        font-size: 19px;
-        line-height: 1.18;
-    }
-    .landing-root .lp-feat .lp-ds {
-        font-size: 14px;
-    }
-    .landing-root .lp-feat .lp-vis {
-        padding-top: 16px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-feat-grid {
-        gap: 14px;
-    }
-    .landing-root .lp-machines-grid {
-        gap: 14px;
-    }
-    .landing-root .lp-auto-stages {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-    .landing-root .lp-auto-stage {
-        flex: 1 1 calc(50% - 4px);
-    }
-    .landing-root .lp-auto-arr {
-        display: none;
-    }
-    .landing-root .lp-int-chip {
-        font-size: 12.5px;
-        padding: 6px 12px 6px 9px;
-    }
-    .landing-root .lp-mcp-row {
-        padding: 8px 14px;
-        font-size: 12.5px;
-    }
-}
-
-.landing-root .lp-feat:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--lp-shadow-lg-hover);
-}
-
-.landing-root .lp-feat .lp-ico {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-feat .lp-ico svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-feat .lp-ttl {
-    font-size: clamp(22px, 1.8vw, 28px);
-    font-weight: 500;
-    letter-spacing: -0.025em;
-    line-height: 1.12;
-    text-wrap: balance;
-    max-width: 18ch;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-feat .lp-ds {
-    font-size: 15px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    max-width: 36ch;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-feat .lp-vis {
-    margin-top: auto;
-    padding-top: 24px;
-}
-
-.landing-root .lp-auto-stages {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.landing-root .lp-auto-stage {
-    background: var(--lp-bg-soft);
-    box-shadow: inset 0 0 0 1px var(--lp-line);
-    border-radius: var(--lp-r-sm);
-    padding: 10px 14px;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.landing-root .lp-auto-stage .lp-lbl {
-    font-family: var(--lp-mono);
-    font-size: 9.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-auto-stage .lp-v {
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-    line-height: 1.3;
-}
-
-.landing-root .lp-auto-arr {
-    color: var(--lp-subtle);
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-auto-arr svg {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-int-chips {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-int-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px 8px 10px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-int-chip svg {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-int-chip img {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-mcp-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 18px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    font-size: 13px;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-mcp-row + .lp-mcp-row {
-    margin-top: 6px;
-}
-
-.landing-root .lp-mcp-row .lp-mn {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-ink);
-    flex: 1;
-}
-
-.landing-root .lp-mcp-row .lp-v {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-mcp-row .lp-d {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    flex-shrink: 0;
-}
-
-.landing-root .lp-mcp-row .lp-d.lp-run {
-    background: var(--lp-terracotta);
-    animation: lp-dot-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes lp-dot-pulse {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.35;
-    }
-}
-
-.landing-root .lp-thread {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    position: relative;
-}
-
-.landing-root .lp-thread::before {
-    content: '';
-    position: absolute;
-    left: 13px;
-    top: 12px;
-    bottom: 12px;
-    width: 1px;
-    background: var(--lp-line-strong);
-    opacity: 0.6;
-}
-
-.landing-root .lp-thr-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    position: relative;
-    z-index: 1;
-}
-
-.landing-root .lp-thr-step .lp-d {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: var(--lp-paper);
-    border: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-thr-step .lp-d svg {
-    width: 15px;
-    height: 15px;
-}
-
-.landing-root .lp-thr-step .lp-tx {
-    font-size: 13px;
-    color: var(--lp-ink-soft);
-    letter-spacing: -0.005em;
-    line-height: 1.4;
-}
-
-.landing-root .lp-thr-step .lp-tx .lp-nm {
-    color: var(--lp-ink);
-    font-weight: 500;
-}
-
 /* === Pricing === */
 .landing-root .lp-price-grid {
     display: grid;
@@ -5276,6 +3623,16 @@ html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
     .landing-root .lp-price-grid {
         grid-template-columns: 1fr;
     }
+}
+
+.landing-root .lp-price-card.lp-price-hot {
+    box-shadow:
+        var(--lp-shadow-lg),
+        inset 0 0 0 1.5px color-mix(in srgb, var(--lp-info) 62%, transparent);
+}
+
+.landing-root .lp-price-badge.lp-price-popular {
+    background: var(--lp-info);
 }
 
 .landing-root .lp-price-card {
@@ -5649,25 +4006,6 @@ html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
     z-index: 1;
 }
 
-.landing-root .lp-cta-eyebrow {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: rgba(236, 228, 208, 0.6);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin-bottom: 28px;
-    display: inline-flex;
-    gap: 9px;
-    align-items: center;
-}
-
-.landing-root .lp-cta-eyebrow .lp-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-ochre);
-}
-
 .landing-root .lp-cta h2 {
     color: var(--lp-bg);
     font-size: clamp(42px, 5.6vw, 88px);
@@ -5894,52 +4232,466 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     }
 }
 
-/* === Hero mockup: tilt on initial view, untilt as user scrolls ===
-   Two-layer motion:
-   1. Scroll-driven progress (--tilt-target) computed in JS from scrollY,
-      mapped linearly across animation-range (0 → 400px).
-   2. Eased follower (--tilt-progress) lerped toward --tilt-target each
-      frame, so card keeps easing toward the target after scroll stops. */
-.landing-root .lp-product-demo-tilt {
-    --tilt-progress: 1;
-    --tilt-translate: 48px;
-    --tilt-scale-delta: 0.08;
-    --tilt-rotate: 28deg;
-    transform-origin: center top;
-    transform: perspective(1600px)
-        translateY(calc((1 - var(--tilt-progress)) * var(--tilt-translate)))
-        scale(calc(1 - (1 - var(--tilt-progress)) * var(--tilt-scale-delta)))
-        rotateX(calc((1 - var(--tilt-progress)) * var(--tilt-rotate)));
+/* === Scrollytelling hero ===
+   A pinned stage the reader scrolls *through*: the copy rail cross-fades
+   between five scenes while the isometric world behind it pans and zooms
+   to the part being described. ScrollyStage owns the numbers; this file
+   owns the frame they move inside. The stage is 100vh and the wrapper is
+   340vh, so each scene gets roughly 60vh of scroll before it hands over. */
+.landing-root .lp-pin {
+    position: relative;
+    height: 340vh;
+    /* The nav bar's own height: 16px padding either side of a 35px brand row.
+       Only the desktop value is ever read — below 900px the bar is back in the
+       flow and the world stops compensating for it. */
+    --lp-nav-h: 67px;
 }
 
-.landing-root[data-tilt-enabled='true'] .lp-product-demo-tilt {
-    --tilt-progress: 0;
+.landing-root .lp-stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Two columns on the page's own grid, so the copy starts on the same left
+   edge as every section below and the world sits inside the container
+   rather than being shoved against the viewport by its aspect ratio.
+   The world is a tall 688x1095 drawing, trimmed to its own ink: painted
+   width is height times 0.63, so the column is sized in vh and capped,
+   which keeps a tall window from squeezing the copy column into a third
+   title line. */
+.landing-root .lp-stage-inner {
+    height: 100%;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(280px, 62vh, 520px);
+    gap: clamp(32px, 4vw, 72px);
+    align-items: center;
+}
+
+.landing-root .lp-rail {
+    position: relative;
+    height: 100%;
+    z-index: 2;
+    /* The rail spans the stage so its cards can sit centred, but only the
+       controls inside a live (non-inert) card should catch the pointer. */
+    pointer-events: none;
+}
+
+.landing-root .lp-scene {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    /* -50%, not -40%: the drift below carries a card up through its resting
+       place, and that place is the centre line. At -40% every scene settled
+       10% of its own height low — 41px for the hero block at 1920x1080. */
+    transform: translateY(-50%);
+    opacity: 0;
+}
+
+.landing-root .lp-scene a,
+.landing-root .lp-scene button {
+    pointer-events: auto;
+}
+
+.landing-root .lp-scene-eyebrow {
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lp-info);
+    margin-bottom: 14px;
+}
+
+.landing-root .lp-scene-title {
+    font-family: 'Geist', sans-serif;
+    font-size: clamp(36px, 4.2vw, 62px);
+    font-weight: 500;
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+    color: var(--lp-ink);
+    margin-bottom: 16px;
+    text-wrap: balance;
+}
+
+/* CJK sets solid: without keep-all the browser breaks mid-word, which in
+   a 46%-wide rail split phrases like 成倍放大 across two lines. The Latin
+   ramp is also too tight for Han glyphs, so zh gets its own step down. */
+html[lang^='zh'] .landing-root .lp-scene-title,
+html[lang^='zh'] .landing-root .lp-h2 {
+    word-break: keep-all;
+}
+
+html[lang^='zh'] .landing-root .lp-scene-title {
+    font-size: clamp(30px, 3.7vw, 54px);
+    letter-spacing: -0.01em;
+}
+
+.landing-root .lp-scene-lead {
+    font-size: 16.5px;
+    color: var(--lp-muted);
+    line-height: 1.6;
+    max-width: 44ch;
+}
+
+.landing-root .lp-scene-list {
+    list-style: none;
+    margin-top: 18px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.landing-root .lp-scene-list li {
+    font-size: 14.5px;
+    color: var(--lp-muted);
+    display: flex;
+    gap: 10px;
+    line-height: 1.5;
+}
+
+.landing-root .lp-scene-list li::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--lp-info);
+    margin-top: 7px;
+    flex: none;
+}
+
+.landing-root .lp-scene-list li b {
+    color: var(--lp-ink-soft);
+    font-weight: 600;
+}
+
+.landing-root .lp-scene-ctas {
+    display: flex;
+    gap: 12px;
+    margin-top: 26px;
+    flex-wrap: wrap;
+}
+
+.landing-root .lp-scene-hint {
+    margin-top: 34px;
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-world-col {
+    position: relative;
+    height: 100%;
+    z-index: 1;
+}
+
+.landing-root .lp-world {
+    position: absolute;
+    inset: 0;
+    /* The bar floats over the stage rather than standing above it, so the
+       drawing takes the bar's height back at the top and gives the same amount
+       away at the bottom: it stays centred in the band under the bar, where it
+       was framed. Without this it slides up by the bar's height and, on a
+       900px-tall window where the drawing is already taller than the stage,
+       loses its top caption behind the bar. */
+    top: var(--lp-nav-h, 0px);
+    width: 100%;
+    height: 100%;
+    font-family: 'Geist', sans-serif;
+    /* The column frames the world at rest. When a scene zooms in, the drawing
+       has to be able to spill past that frame — clipped to the column it lost
+       the left edge of the middle plane — so it overflows and the stage does
+       the clipping instead. The copy rail sits above it. */
+    overflow: visible;
+}
+
+.landing-root .lp-world .lp-mono {
+    font-family: var(--lp-mono);
+}
+
+/* The world's leader-line captions are set in caps; the terminal glyphs
+   drawn on the same mono face are not. */
+.landing-root .lp-world .lp-w-sub {
+    text-transform: uppercase;
+}
+
+.landing-root .lp-worldg {
     will-change: transform;
 }
 
-/* On narrower viewports the steep 28deg tilt + 48px lift can feel
-   excessive on a phone-sized canvas. Keep the interaction visible
-   (don't shrink to nothing) but tone the magnitude down so the card
-   still settles cleanly. */
-@media (max-width: 880px) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-translate: 36px;
-        --tilt-scale-delta: 0.06;
-        --tilt-rotate: 20deg;
-    }
+.landing-root .lp-layer {
+    transition: opacity 0.15s linear;
 }
 
-@media (max-width: 580px) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-translate: 28px;
-        --tilt-scale-delta: 0.05;
-        --tilt-rotate: 16deg;
+.landing-root .lp-progress {
+    position: fixed;
+    right: 22px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 3;
+}
+
+.landing-root .lp-pdot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lp-line);
+    transition: background 0.2s ease;
+}
+
+.landing-root .lp-pdot.lp-on {
+    background: var(--lp-info);
+}
+
+/* Hidden once the stage un-pins — ScrollyStage flips the opacity. */
+.landing-root .lp-progress {
+    transition: opacity 0.2s ease;
+}
+
+@media (max-width: 900px) {
+    /* Portrait: the world takes the top of the stage and the copy rail the
+       bottom, instead of sitting side by side. The art band starts at the top
+       of the stage here, so the bar needs its own room back. */
+    .landing-root .lp-z > .lp-nav {
+        position: relative;
+    }
+    .landing-root .lp-stage-inner {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: 42vh minmax(0, 1fr);
+        gap: 4vh;
+        padding: 0 22px;
+        align-items: stretch;
+    }
+    .landing-root .lp-world-col {
+        /* Drawn first, read second: the copy stays ahead of it in the DOM. */
+        order: -1;
+    }
+    .landing-root .lp-world {
+        top: 0;
+    }
+    .landing-root .lp-rail {
+        border-top: 1px solid var(--lp-line-soft);
+    }
+    .landing-root .lp-scene {
+        top: 46%;
+        transform: translateY(-46%);
+    }
+    .landing-root .lp-scene-title {
+        font-size: clamp(26px, 7.4vw, 34px);
+        margin-bottom: 12px;
+    }
+    .landing-root .lp-scene-lead {
+        font-size: 14px;
+        max-width: none;
+    }
+    .landing-root .lp-scene-list {
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .landing-root .lp-scene-list li {
+        font-size: 12.5px;
+    }
+    .landing-root .lp-scene-eyebrow {
+        margin-bottom: 10px;
+        font-size: 9.5px;
+    }
+    .landing-root .lp-scene-ctas {
+        margin-top: 18px;
+        gap: 10px;
+    }
+    .landing-root .lp-scene-hint {
+        margin-top: 20px;
+        font-size: 9.5px;
+    }
+    .landing-root .lp-progress {
+        top: 22vh;
+        right: 10px;
+        gap: 8px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-progress: 1;
+    .landing-root .lp-world * {
+        animation: none !important;
+    }
+}
+
+/* === Works with === */
+.landing-root .lp-ww {
+    margin-top: 44px;
+}
+
+.landing-root .lp-ww-row {
+    display: grid;
+    grid-template-columns: 116px 1fr;
+    gap: 18px;
+    align-items: start;
+    padding: 22px 0;
+    border-top: 1px solid var(--lp-line-soft);
+}
+
+.landing-root .lp-ww-row:last-child {
+    border-bottom: 1px solid var(--lp-line-soft);
+}
+
+.landing-root .lp-ww-k {
+    font-family: var(--lp-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lp-subtle);
+    padding-top: 7px;
+}
+
+.landing-root .lp-ww-v {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.landing-root .lp-chip {
+    font-size: 13px;
+    color: var(--lp-ink-soft);
+    background: var(--lp-paper);
+    box-shadow: inset 0 0 0 1px var(--lp-line-soft);
+    border-radius: var(--lp-r-pill);
+    padding: 6px 15px;
+}
+
+.landing-root .lp-chip-soft {
+    color: var(--lp-muted);
+    background: transparent;
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-ww-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .landing-root .lp-ww-k {
+        padding-top: 0;
+    }
+}
+
+/* === Metering === */
+.landing-root .lp-meter {
+    display: grid;
+    grid-template-columns: 7fr 5fr;
+    gap: 56px;
+    align-items: center;
+}
+
+.landing-root .lp-usage {
+    background: var(--lp-paper);
+    box-shadow: inset 0 0 0 1px var(--lp-line-soft);
+    border-radius: var(--lp-r-lg);
+    padding: 22px 24px;
+    overflow-x: auto;
+}
+
+.landing-root .lp-usage table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--lp-mono);
+    font-size: 11.5px;
+}
+
+.landing-root .lp-usage th {
+    text-align: left;
+    font-weight: 500;
+    font-size: 9.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lp-subtle);
+    padding: 0 12px 11px 0;
+    border-bottom: 1px solid var(--lp-line-soft);
+}
+
+.landing-root .lp-usage td {
+    padding: 11px 12px 11px 0;
+    border-bottom: 1px solid var(--lp-line-soft);
+    color: var(--lp-muted);
+    white-space: nowrap;
+}
+
+.landing-root .lp-usage td.lp-usage-strong {
+    color: var(--lp-ink-soft);
+}
+
+.landing-root .lp-usage tr:last-child td {
+    border-bottom: none;
+}
+
+.landing-root .lp-usage-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-family: var(--lp-mono);
+    font-size: 11px;
+    color: var(--lp-muted);
+    border-top: 1px solid var(--lp-line);
+    padding-top: 13px;
+    margin-top: 4px;
+}
+
+.landing-root .lp-usage-foot b {
+    color: var(--lp-ink-soft);
+    font-weight: 550;
+}
+
+.landing-root .lp-meter-points {
+    margin-top: 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.landing-root .lp-meter-point {
+    display: flex;
+    gap: 12px;
+    font-size: 14.5px;
+    color: var(--lp-muted);
+    line-height: 1.55;
+}
+
+.landing-root .lp-meter-point i {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lp-info);
+    margin-top: 7px;
+    flex: none;
+}
+
+.landing-root .lp-meter-point b {
+    color: var(--lp-ink-soft);
+    font-weight: 600;
+}
+
+.landing-root .lp-meter-honest {
+    margin-top: 26px;
+    padding-top: 18px;
+    border-top: 1px solid var(--lp-line-soft);
+    font-size: 13.5px;
+    color: var(--lp-subtle);
+    line-height: 1.6;
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-meter {
+        grid-template-columns: 1fr;
+        gap: 34px;
     }
 }
 
@@ -6095,1256 +4847,4 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     .loading-spin {
         animation-duration: 1.6s;
     }
-}
-
-/* ======================================================================
-   Landing — "workspace floor" hero (v3) + page-fold flip.
-
-   A 3D perspective floor where agent standees roam between waypoints,
-   framework cabinets glow along the back, and an mcp-gateway machine sits
-   mid-floor. Ported from the design export and re-themed onto the landing
-   --lp-* system: a single blue accent (--fl-ac → --lp-info) drives every
-   glow, with a tokenised scene palette so light & dark both read cleanly.
-   ====================================================================== */
-
-@keyframes flBelt {
-    to {
-        background-position:
-            40px 0,
-            0 0,
-            0 0;
-    }
-}
-@keyframes flStepA {
-    0%,
-    100% {
-        transform: translateY(0) rotate(0deg);
-    }
-    50% {
-        transform: translateY(-2px) rotate(-20deg);
-    }
-}
-@keyframes flStepB {
-    0%,
-    100% {
-        transform: translateY(-2px) rotate(20deg);
-    }
-    50% {
-        transform: translateY(0) rotate(0deg);
-    }
-}
-@keyframes flPulse {
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 currentColor;
-    }
-    50% {
-        box-shadow: 0 0 0 5px transparent;
-    }
-}
-@keyframes flHum {
-    0%,
-    100% {
-        opacity: 0.55;
-    }
-    50% {
-        opacity: 0.95;
-    }
-}
-@keyframes flBob {
-    0%,
-    100% {
-        transform: translate(-50%, -100%) rotateX(-63deg) translateY(0);
-    }
-    50% {
-        transform: translate(-50%, -100%) rotateX(-63deg) translateY(-7px);
-    }
-}
-@keyframes flHeadBob {
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-    50% {
-        transform: translateY(-3px);
-    }
-}
-@keyframes flScanX {
-    0% {
-        transform: translateX(-120%);
-        opacity: 0;
-    }
-    20%,
-    80% {
-        opacity: 0.9;
-    }
-    100% {
-        transform: translateX(120%);
-        opacity: 0;
-    }
-}
-@keyframes flScan {
-    0% {
-        transform: translateY(-10px);
-        opacity: 0;
-    }
-    14%,
-    86% {
-        opacity: 0.85;
-    }
-    100% {
-        transform: translateY(120px);
-        opacity: 0;
-    }
-}
-@keyframes flRise {
-    from {
-        opacity: 0;
-        transform: translateY(16px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ── Page-fold flip card ────────────────────────────────────────────── */
-.landing-root .lp-hero-flip {
-    /* Fill the viewport below the nav so the animation centres and the footbar
-       sits at the bottom of the screen. Both faces share this height, so the
-       FOLD and UNFOLD bars coincide exactly. */
-    --fl-hero-h: clamp(600px, calc(100vh - 72px), 940px);
-    position: relative;
-    perspective: 2600px;
-    height: var(--fl-hero-h);
-}
-
-.landing-root .lp-hero-flip-inner {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    transform-style: preserve-3d;
-    transition: transform 0.9s cubic-bezier(0.66, 0, 0.2, 1);
-}
-
-.landing-root .lp-hero-flip[data-folded='true'] .lp-hero-flip-inner {
-    transform: rotateY(180deg);
-}
-
-.landing-root .lp-hero-face {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 100%;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    /* backface-visibility is unreliable on mobile when a face contains nested
-       preserve-3d (the floor scene), letting the hidden mirror leak through.
-       Fade the outgoing face out around the flip midpoint (edge-on) so the
-       resting face is alone — a short opacity crossfade delayed to mid-flip. */
-    transition: opacity 0.18s linear 0.36s;
-}
-
-.landing-root .lp-hero-flip[data-folded='false'] .lp-hero-face-back,
-.landing-root .lp-hero-flip[data-folded='true'] .lp-hero-face-front {
-    opacity: 0;
-}
-
-.landing-root .lp-hero-face-back {
-    transform: rotateY(180deg);
-}
-/* Classic hero centres vertically in the viewport-height face. */
-.landing-root .lp-hero-face-back .lp-hero {
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-/* ── Floor hero shell + scene palette ───────────────────────────────── */
-.landing-root .lp-floor {
-    --fl-ac: var(--lp-info);
-    --fl-ac-strong: var(--lp-info-strong);
-    --fl-grid: rgba(28, 42, 66, 0.09);
-    /* Centre glow — a light translucent wash so the middle of the floor reads
-       a touch brighter than the page background. */
-    --fl-glow: rgba(255, 255, 255, 0.6);
-    --fl-panel: #f6f8fb;
-    --fl-panel-2: #e7ecf1;
-    --fl-edge: rgba(22, 32, 48, 0.16);
-    --fl-edge-soft: rgba(22, 32, 48, 0.08);
-    --fl-ink: #1a2331;
-    --fl-muted: #5d6877;
-    --fl-shadow: rgba(22, 32, 48, 0.22);
-    --fl-led-idle: var(--lp-success);
-    --fl-led-work: var(--lp-warning);
-    --fl-leg: #aab4bf;
-    --fl-create-bg: var(--lp-info-strong);
-    --fl-scale: 1;
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-html[data-theme='dark'] .landing-root .lp-floor {
-    --fl-grid: rgba(255, 255, 255, 0.05);
-    --fl-glow: rgba(150, 180, 220, 0.16);
-    --fl-panel: #1a212b;
-    --fl-panel-2: #10151c;
-    --fl-edge: rgba(255, 255, 255, 0.14);
-    --fl-edge-soft: rgba(255, 255, 255, 0.07);
-    --fl-ink: #eef2f6;
-    --fl-muted: #8794a1;
-    --fl-shadow: rgba(0, 0, 0, 0.55);
-    --fl-leg: #2b343e;
-    --fl-create-bg: #2f72b3;
-}
-
-.landing-root .lp-floor-stage {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-}
-
-.landing-root .lp-floor-scene {
-    position: absolute;
-    inset: 0;
-    perspective: 1500px;
-    perspective-origin: 50% 28%;
-    overflow: hidden;
-    /* Fade the grid/agents to transparent at the far (top) edge and the near
-       (bottom) edge with an alpha mask — never a colour overlay — so the page
-       background (grain and all) shows through unchanged and there is no
-       visible boundary between the hero and the section below it. */
-    -webkit-mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        #000 9%,
-        #000 86%,
-        transparent 100%
-    );
-    mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        #000 9%,
-        #000 86%,
-        transparent 100%
-    );
-}
-
-.landing-root .lp-fl-plane {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) rotateX(63deg) scale(var(--fl-scale));
-    transform-style: preserve-3d;
-    border-radius: 8px;
-    /* No solid fill and no inset vignette — those traced the finite plane's
-       rectangular edge. The grid sits directly on the page background (shows
-       straight through), and a soft light glow lifts the centre. */
-    background:
-        radial-gradient(56% 50% at 50% 42%, var(--fl-glow), transparent 70%),
-        linear-gradient(var(--fl-grid) 1px, transparent 1px) 0 0 / 100% 60px,
-        linear-gradient(90deg, var(--fl-grid) 1px, transparent 1px) 0 0 / 60px
-            100%;
-}
-
-/* conveyor belt: a domed rubber track with travelling cleats and end drums */
-.landing-root .lp-fl-belt {
-    position: absolute;
-    left: 300px;
-    top: 686px;
-    width: 1000px;
-    height: 54px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 16%, var(--fl-edge-soft));
-    background-image:
-        repeating-linear-gradient(
-            90deg,
-            transparent 0 18px,
-            color-mix(in srgb, var(--fl-shadow) 16%, transparent) 18px 19px,
-            color-mix(in srgb, var(--fl-ac) 20%, transparent) 19px 21px,
-            transparent 21px 40px
-        ),
-        linear-gradient(
-            180deg,
-            color-mix(in srgb, white 10%, transparent) 0,
-            transparent 32%,
-            transparent 66%,
-            color-mix(in srgb, var(--fl-shadow) 22%, transparent) 100%
-        ),
-        linear-gradient(
-            180deg,
-            color-mix(
-                in srgb,
-                var(--fl-ac) 5%,
-                color-mix(in srgb, white 4%, var(--lp-bg-soft))
-            ),
-            color-mix(in srgb, var(--fl-ac) 3%, var(--lp-bg-soft))
-        );
-    background-size:
-        40px 100%,
-        100% 100%,
-        100% 100%;
-    background-position:
-        0 0,
-        0 0,
-        0 0;
-    box-shadow:
-        inset 0 1px 1px color-mix(in srgb, white 10%, transparent),
-        inset 0 -3px 7px var(--fl-shadow),
-        0 6px 14px var(--fl-shadow);
-    animation: flBelt 1.8s linear infinite;
-}
-
-/* end drums: the rollers the belt wraps around */
-.landing-root .lp-fl-belt::before,
-.landing-root .lp-fl-belt::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    width: 11px;
-    border-radius: 999px;
-    background: linear-gradient(
-        180deg,
-        color-mix(
-            in srgb,
-            white 9%,
-            color-mix(in srgb, var(--fl-ac) 4%, var(--lp-bg))
-        ),
-        var(--lp-bg)
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 16%, var(--fl-edge-soft));
-    box-shadow: 0 3px 8px var(--fl-shadow);
-}
-
-.landing-root .lp-fl-belt::before {
-    left: -6px;
-}
-
-.landing-root .lp-fl-belt::after {
-    right: -6px;
-}
-
-/* framework cabinets (the back-wall armory) */
-.landing-root .lp-fl-cab {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-}
-
-.landing-root .lp-fl-cab-ring {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 104px;
-    height: 104px;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-    background: radial-gradient(
-        closest-side,
-        color-mix(in srgb, var(--fl-ac) 20%, transparent),
-        transparent 70%
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 24%, transparent);
-}
-
-.landing-root .lp-fl-cab-stand {
-    position: absolute;
-    left: 0;
-    top: 0;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg) scale(0.62);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.landing-root .lp-fl-cab-tag {
-    margin-bottom: 8px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 9px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--fl-panel) 70%, transparent);
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 30%, transparent);
-    white-space: nowrap;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    color: var(--fl-ink);
-}
-
-.landing-root .lp-fl-cab-tag-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 999px;
-    background: var(--fl-ac);
-    box-shadow: 0 0 7px var(--fl-ac);
-}
-
-.landing-root .lp-fl-cab-case {
-    position: relative;
-    width: 116px;
-    height: 196px;
-    border-radius: 12px 12px 5px 5px;
-    overflow: hidden;
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--fl-ac) 8%, var(--fl-panel)),
-        var(--fl-panel-2)
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 26%, var(--fl-edge));
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.16),
-        inset 0 0 30px color-mix(in srgb, var(--fl-ac) 12%, transparent),
-        0 0 30px color-mix(in srgb, var(--fl-ac) 18%, transparent),
-        0 20px 34px var(--fl-shadow);
-    animation: flHum 3.4s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-cab-rail {
-    position: absolute;
-    top: 16px;
-    bottom: 30px;
-    width: 2px;
-    border-radius: 2px;
-    background: linear-gradient(
-        180deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 75%, transparent),
-        transparent
-    );
-    box-shadow: 0 0 8px color-mix(in srgb, var(--fl-ac) 60%, transparent);
-}
-.landing-root .lp-fl-cab-rail-l {
-    left: 8px;
-}
-.landing-root .lp-fl-cab-rail-r {
-    right: 8px;
-}
-
-.landing-root .lp-fl-cab-scan {
-    position: absolute;
-    left: 6px;
-    right: 6px;
-    top: 10px;
-    height: 22px;
-    background: linear-gradient(
-        180deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 30%, transparent),
-        transparent
-    );
-    animation: flScan 5s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-cab-icon {
-    position: absolute;
-    left: 50%;
-    top: 46%;
-    transform: translate(-50%, -50%);
-    display: inline-flex;
-    opacity: 0.9;
-}
-.landing-root .lp-fl-cab-icon svg {
-    width: 46px;
-    height: 46px;
-    filter: drop-shadow(
-        0 0 10px color-mix(in srgb, var(--fl-ac) 40%, transparent)
-    );
-}
-
-.landing-root .lp-fl-cab-top {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 12px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border-bottom: 1px solid color-mix(in srgb, var(--fl-ac) 24%, transparent);
-}
-
-.landing-root .lp-fl-cab-base {
-    position: relative;
-    width: 132px;
-    height: 16px;
-    margin-top: -1px;
-    border-radius: 3px 3px 7px 7px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow: 0 14px 22px var(--fl-shadow);
-}
-
-/* roaming agent standees */
-.landing-root .lp-fl-bot {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-    transition:
-        left 3.4s ease-in-out,
-        top 3.4s ease-in-out,
-        transform 3.4s ease-in-out;
-}
-/* While working, the agent stands on top of the raised bench — lift it just
-   above the slab so the legs aren't clipped. Eased so it reads as stepping up
-   / down as the agent walks on and off. */
-.landing-root .lp-fl-bot[data-working='true'] {
-    transform: translateZ(22px);
-}
-
-.landing-root .lp-fl-bot-shadow {
-    position: absolute;
-    left: -28px;
-    top: -8px;
-    width: 56px;
-    height: 15px;
-    border-radius: 999px;
-    background: radial-gradient(closest-side, var(--fl-shadow), transparent);
-    filter: blur(2px);
-}
-
-.landing-root .lp-fl-bot-standee {
-    position: absolute;
-    left: 0;
-    top: 0;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: pointer;
-    pointer-events: auto;
-    transition: filter 0.2s ease;
-}
-.landing-root .lp-fl-bot-standee:hover {
-    filter: brightness(1.08);
-}
-
-.landing-root .lp-fl-bot-plate {
-    margin-bottom: 6px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-    text-align: center;
-    white-space: nowrap;
-    padding: 3px 9px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--fl-panel) 78%, transparent);
-    border: 1px solid var(--fl-edge-soft);
-    transition: border-color 0.3s ease;
-}
-.landing-root .lp-fl-bot-name {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--fl-ink);
-}
-.landing-root .lp-fl-bot-fw {
-    font-family: var(--lp-mono);
-    font-size: 9px;
-    color: var(--fl-muted);
-}
-
-.landing-root .lp-fl-bot-neck {
-    width: 2px;
-    height: 6px;
-    background: var(--fl-muted);
-    opacity: 0.7;
-}
-
-.landing-root .lp-fl-bot-led {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    color: var(--fl-led-idle);
-    background: var(--fl-led-idle);
-    box-shadow: 0 0 9px var(--fl-led-idle);
-    animation: flPulse 1.6s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-led {
-    color: var(--fl-led-work);
-    background: var(--fl-led-work);
-    box-shadow: 0 0 9px var(--fl-led-work);
-}
-
-.landing-root .lp-fl-bot-head {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 38px;
-    border-radius: 11px;
-    margin-top: 1px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 6px 14px var(--fl-shadow);
-    transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
-}
-.landing-root .lp-fl-bot-face {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.landing-root .lp-fl-bot-face svg {
-    width: 22px;
-    height: 22px;
-}
-.landing-root .lp-fl-bot-corner {
-    position: absolute;
-    top: 4px;
-    right: 5px;
-    width: 4px;
-    height: 4px;
-    border-radius: 999px;
-    background: var(--fl-led-idle);
-    box-shadow: 0 0 6px var(--fl-led-idle);
-}
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-corner {
-    background: var(--fl-led-work);
-    box-shadow: 0 0 6px var(--fl-led-work);
-}
-
-.landing-root .lp-fl-bot-body {
-    position: relative;
-    width: 34px;
-    height: 15px;
-    margin-top: 3px;
-    border-radius: 6px 6px 5px 5px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.landing-root .lp-fl-bot-stripe {
-    position: absolute;
-    left: 50%;
-    top: 5px;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 3px;
-    border-radius: 2px;
-    background: color-mix(in srgb, var(--fl-ac) 60%, transparent);
-}
-
-.landing-root .lp-fl-bot-legs {
-    display: flex;
-    gap: 7px;
-    margin-top: 1px;
-}
-.landing-root .lp-fl-bot-leg {
-    width: 5px;
-    height: 10px;
-    border-radius: 0 0 3px 3px;
-    background: var(--fl-leg);
-    transform-origin: top center;
-}
-/* Legs only step while the agent is actually walking somewhere. Idle and
-   stationed agents keep their legs planted. */
-.landing-root .lp-fl-bot[data-moving='true'] .lp-fl-bot-leg-a {
-    animation: flStepA 0.5s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-moving='true'] .lp-fl-bot-leg-b {
-    animation: flStepB 0.5s ease-in-out infinite;
-}
-
-/* Working agents bob gently in place; the bob keeps the billboard transform
-   so the standee stays camera-facing. */
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-standee {
-    animation: flBob 3.4s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-receiving='true'] .lp-fl-bot-head {
-    animation: flHeadBob 0.6s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-bot[data-selected='true'] .lp-fl-bot-plate {
-    border-color: color-mix(in srgb, var(--fl-ac) 55%, transparent);
-}
-.landing-root .lp-fl-bot[data-selected='true'] .lp-fl-bot-head {
-    border-color: var(--fl-ac);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 0 0 3px color-mix(in srgb, var(--fl-ac) 26%, transparent),
-        0 0 24px color-mix(in srgb, var(--fl-ac) 38%, transparent);
-}
-
-/* ── Workbench pads (where stationed agents work) ───────────────────── */
-.landing-root .lp-fl-pad {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-}
-.landing-root .lp-fl-pad-glow {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 210px;
-    height: 132px;
-    transform: translate(-50%, -50%);
-    border-radius: 26px;
-    background: radial-gradient(
-        closest-side,
-        color-mix(in srgb, var(--fl-ac) 14%, transparent),
-        transparent
-    );
-}
-.landing-root .lp-fl-pad-slab {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 176px;
-    height: 106px;
-    transform: translate(-50%, -50%);
-    border-radius: 18px;
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 22%, var(--fl-edge));
-}
-.landing-root .lp-fl-pad-slab {
-    /* One step lighter than the floor (page bg) so the bench reads as a
-       raised platform — lifted further by its border + elevation shadow. */
-    transform: translate(-50%, -50%) translateZ(18px);
-    background: var(--lp-bg-soft);
-    border-color: color-mix(in srgb, var(--fl-ac) 26%, var(--fl-edge));
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        0 16px 26px var(--fl-shadow);
-}
-/* a light sweeping across the bench = work in progress */
-.landing-root .lp-fl-pad-scan {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 46%;
-    background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 26%, transparent),
-        transparent
-    );
-    animation: flScanX 2.6s ease-in-out infinite;
-}
-
-/* ── Hand-off badge ─────────────────────────────────────────────────── */
-.landing-root .lp-fl-handoff {
-    position: absolute;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg) translateZ(118px);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 11px;
-    border-radius: var(--lp-r-pill);
-    white-space: nowrap;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--fl-ac-strong);
-    background: color-mix(in srgb, var(--fl-ac) 16%, var(--lp-paper));
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 55%, transparent);
-    box-shadow: 0 0 16px color-mix(in srgb, var(--fl-ac) 38%, transparent);
-    animation: flPulse 1.3s ease-in-out infinite;
-    z-index: 10;
-}
-
-/* ── Headline overlay ───────────────────────────────────────────────── */
-.landing-root .lp-floor-overlay {
-    position: relative;
-    z-index: 5;
-    flex: 1;
-    display: flex;
-    align-items: flex-start;
-    padding-top: clamp(20px, 3.5vh, 44px);
-    pointer-events: none;
-}
-
-.landing-root .lp-floor-overlay-inner {
-    width: 100%;
-}
-
-.landing-root .lp-floor-copy {
-    position: relative;
-    max-width: 520px;
-    pointer-events: auto;
-}
-.landing-root .lp-floor-copy::before {
-    content: '';
-    position: absolute;
-    inset: -28px -40px -28px -32px;
-    z-index: -1;
-    background: radial-gradient(
-        80% 70% at 22% 40%,
-        var(--lp-bg) 38%,
-        transparent 100%
-    );
-    opacity: 0.78;
-    pointer-events: none;
-}
-
-/* Same eyebrow chip as the classic hero (.lp-eyebrow + .lp-dot); this only
-   adds the floor spacing + entrance animation. */
-.landing-root .lp-floor-eyebrow {
-    margin-bottom: 18px;
-    animation: flRise 0.6s ease both;
-}
-
-.landing-root .lp-floor-h1 {
-    margin: 0;
-    font-weight: 700;
-    font-size: clamp(41px, 5.1vw, 68px);
-    line-height: 1;
-    letter-spacing: -0.04em;
-    color: var(--lp-ink);
-    text-wrap: balance;
-    animation: flRise 0.7s ease 0.04s both;
-}
-/* Brand gradient — same recipe as .lp-h-accent used across the site (light
-   top → info → info-strong), but keeping the hero's own bold sans font. */
-.landing-root .lp-floor-accent {
-    white-space: nowrap;
-    background: linear-gradient(
-        to bottom,
-        #d6e0e8 0%,
-        var(--lp-info) 55%,
-        var(--lp-info-strong) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    filter: drop-shadow(
-        0 0 22px color-mix(in srgb, var(--fl-ac) 32%, transparent)
-    );
-}
-html[data-theme='dark'] .landing-root .lp-floor-accent {
-    background: linear-gradient(
-        to bottom,
-        #e6eef5 0%,
-        var(--lp-info) 55%,
-        var(--lp-info-strong) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-}
-
-.landing-root .lp-floor-lead {
-    margin: 13px 0 0;
-    max-width: none;
-    white-space: nowrap;
-    font-size: clamp(15px, 1.1vw, 17px);
-    line-height: 1.5;
-    color: var(--lp-ink-soft);
-    animation: flRise 0.7s ease 0.1s both;
-}
-
-.landing-root .lp-floor-ctas {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 20px;
-    flex-wrap: wrap;
-    animation: flRise 0.7s ease 0.16s both;
-}
-
-/* ── Foot bar: fold control + claim caption ─────────────────────────── */
-/* Pinned to the bottom of the hero. Both faces share --fl-hero-h, so the
-   FOLD (front) and UNFOLD (back) bars land at the exact same spot. */
-.landing-root .lp-floor-footbar {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 6;
-    padding-bottom: clamp(22px, 4vh, 44px);
-}
-.landing-root .lp-unfold-bar {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-}
-
-.landing-root .lp-floor-footbar-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-/* FOLD / create-agent reuse the landing button system (.lp-btn +
-   -secondary / -primary) so font, shape and weight match the rest of the
-   page; these rules only tune the footbar size and the extras. */
-.landing-root .lp-floor-fold {
-    gap: 11px;
-    padding: 13px 24px;
-    font-size: 15px;
-}
-.landing-root .lp-floor-fold svg {
-    width: 17px;
-    height: 17px;
-    color: var(--fl-ac);
-}
-.landing-root .lp-floor-fold-label {
-    font-weight: 600;
-}
-
-.landing-root .lp-floor-claim {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--lp-subtle);
-}
-
-.landing-root .lp-floor-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
-.landing-root .lp-floor-hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-muted);
-}
-.landing-root .lp-floor-hint-mark {
-    color: var(--fl-ac);
-}
-
-/* supported-agents strip: every framework the platform runs */
-.landing-root .lp-floor-brands {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 10px 20px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-brands-label {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--lp-subtle);
-}
-.landing-root .lp-floor-brands-label::after {
-    content: ' ·';
-    margin-left: 6px;
-}
-.landing-root .lp-floor-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    font-family: var(--lp-mono);
-    font-size: 13px;
-    color: var(--lp-muted);
-}
-.landing-root .lp-floor-brand-ico {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--lp-paper) 55%, transparent);
-    border: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-brand-ico svg {
-    width: 15px;
-    height: 15px;
-}
-
-/* Standalone WORKS WITH strip below the hero — phones only. Hidden on desktop,
-   where the strip lives in the hero footbar instead. */
-.landing-root .lp-floor-brands-mobile {
-    display: none;
-}
-.landing-root .lp-floor-brands-standalone {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-    justify-content: flex-start;
-}
-
-/* selected-agent chip + create CTA */
-.landing-root .lp-floor-select {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    animation: flRise 0.3s ease both;
-}
-.landing-root .lp-floor-select-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 6px 12px 6px 6px;
-    border-radius: var(--lp-r-pill);
-    background: color-mix(in srgb, var(--lp-paper) 80%, transparent);
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 45%, var(--lp-line));
-    box-shadow: 0 0 22px color-mix(in srgb, var(--fl-ac) 14%, transparent);
-}
-.landing-root .lp-floor-select-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
-    background: var(--lp-bg-soft);
-    border: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-select-icon svg {
-    width: 15px;
-    height: 15px;
-}
-.landing-root .lp-floor-select-name {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-ink);
-}
-.landing-root .lp-floor-select-fw {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-floor-create {
-    gap: 7px;
-    padding: 10px 18px;
-    font-size: 13.5px;
-    text-decoration: none;
-}
-.landing-root .lp-floor-create .lp-arr {
-    width: 15px;
-    height: 15px;
-}
-
-/* ── Responsive ─────────────────────────────────────────────────────── */
-/* Narrow viewports: do NOT shrink the scene to fit — that crowds the bots
-   and crushes the labels. Keep the standees at full size and let the floor
-   crop at the edges (the section already clips overflow). Only true phones
-   get a mild reduction so the composition isn't a single zoomed-in bot. */
-@media (max-width: 980px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-scene {
-        perspective-origin: 50% 26%;
-    }
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-overlay {
-        padding-top: clamp(20px, 4vh, 40px);
-    }
-    .landing-root .lp-floor-lead {
-        white-space: normal;
-        max-width: 30ch;
-    }
-    .landing-root .lp-floor-copy {
-        max-width: none;
-    }
-    .landing-root .lp-floor-copy::before {
-        inset: -22px -24px;
-        background: radial-gradient(
-            130% 76% at 28% 34%,
-            var(--lp-bg) 56%,
-            transparent 100%
-        );
-        opacity: 0.9;
-    }
-    .landing-root .lp-floor-claim,
-    .landing-root .lp-floor-hint {
-        display: none;
-    }
-    /* On phones the WORKS WITH strip is not pinned inside the hero (that would
-       squeeze the animation into a sliver). The in-footbar copy is hidden and a
-       standalone strip flows just below the hero instead — see
-       .lp-floor-brands-standalone. */
-    .landing-root .lp-floor-footbar .lp-floor-brands {
-        display: none;
-    }
-    .landing-root .lp-floor-brands-mobile {
-        display: block;
-        padding-top: 20px;
-        padding-bottom: 8px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-h1 {
-        font-size: clamp(38px, 10vw, 52px);
-        line-height: 1.02;
-    }
-    .landing-root .lp-floor-select-fw {
-        display: none;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-hero-flip,
-    .landing-root .lp-hero-flip-inner {
-        transition: none;
-    }
-    .landing-root .lp-hero-face {
-        transition: none;
-    }
-    .landing-root .lp-fl-belt,
-    .landing-root .lp-fl-bot-led,
-    .landing-root .lp-fl-bot-leg,
-    .landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-standee,
-    .landing-root .lp-fl-bot[data-receiving='true'] .lp-fl-bot-head,
-    .landing-root .lp-fl-pad-scan,
-    .landing-root .lp-fl-handoff,
-    .landing-root .lp-fl-cab-case,
-    .landing-root .lp-fl-cab-scan,
-    .landing-root .lp-floor-eyebrow,
-    .landing-root .lp-floor-h1,
-    .landing-root .lp-floor-lead,
-    .landing-root .lp-floor-ctas {
-        animation: none !important;
-    }
-    .landing-root .lp-fl-bot {
-        transition: none;
-    }
-}
-
-/* ── No-JS landing snapshot ──────────────────────────────────────────
-   The crawler/no-JS view of `/` and `/zh/` (LandingSnapshot), which React
-   replaces with the interactive landing once it boots. Uses the landing
-   token system so the two read as the same page. */
-
-.landing-root .seo-hero {
-    padding-top: 96px;
-}
-
-.landing-root .seo-ctas {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 28px;
-}
-
-.landing-root .seo-positioning,
-.landing-root .seo-brands {
-    color: var(--lp-ink-soft);
-    max-width: 64ch;
-    margin-top: 18px;
-    font-size: 15px;
-    line-height: 1.65;
-}
-
-.landing-root .seo-section {
-    padding-top: 40px;
-    padding-bottom: 40px;
-}
-
-.landing-root .seo-bullets {
-    margin: 20px 0 0;
-    padding: 0 0 0 1.2em;
-    max-width: 68ch;
-    display: grid;
-    gap: 10px;
-    color: var(--lp-ink-soft);
-    font-size: 15px;
-    line-height: 1.6;
-}
-
-.landing-root .seo-faq {
-    margin: 24px 0 0;
-    max-width: 68ch;
-    display: grid;
-    gap: 20px;
-}
-
-.landing-root .seo-faq dt {
-    font-weight: 600;
-    color: var(--lp-ink);
-}
-
-.landing-root .seo-faq dd {
-    margin: 6px 0 0;
-    color: var(--lp-ink-soft);
-    line-height: 1.65;
-}
-
-.landing-root .seo-links-label {
-    margin-top: 36px;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--lp-muted);
-}
-
-.landing-root .seo-links {
-    margin: 12px 0 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-}
-
-.landing-root .seo-links a {
-    color: var(--lp-ink-soft);
-    font-size: 14px;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.landing-root .seo-links a:hover {
-    color: var(--lp-ink);
-}
-
-/* The 10px uppercase HOSTED tags failed the contrast audit: --lp-info /
-   --lp-idle are status hues tuned for dots and fills, not small text on
-   --lp-paper. Darker same-hue text in light, brighter in dark. */
-.landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-info-strong);
-}
-
-html[data-theme='dark'] .landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-info);
-}
-
-.landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-muted);
-}
-
-html[data-theme='dark'] .landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-ink-soft);
 }

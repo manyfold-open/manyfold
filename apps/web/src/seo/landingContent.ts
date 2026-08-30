@@ -7,6 +7,8 @@ export interface PricingTier {
     sandboxAgents: number
     alwaysOnlineAgents: number
     featureKeys: string[]
+    // The one tier the pricing grid leans on; carries the POPULAR badge.
+    popular?: boolean
 }
 
 // Mirrors the authenticated billing plans (web.pricing.tier* strings are the
@@ -40,6 +42,7 @@ export const PRICING_TIERS: PricingTier[] = [
     {
         id: 'plus',
         price: 19,
+        popular: true,
         sandboxAgents: 25,
         alwaysOnlineAgents: 18,
         featureKeys: [
@@ -85,13 +88,50 @@ export const FAQ_KEYS: Array<{ q: string; a: string }> = [
     { q: 'web.landing.faqQ5', a: 'web.landing.faqA5' }
 ]
 
-export const FLOOR_BRAND_NAMES: string[] = [
-    'Claude Code',
-    'Codex',
-    'Gemini CLI',
-    'NarraNexus',
-    'Dify',
-    'Langflow',
-    'Hermes',
-    'Openclaw'
+// The "works with" rows. Product names render verbatim; the descriptive
+// entries (runtime postures, the external-service catch-all) go through a
+// translation key instead.
+export interface WorksWithChip {
+    name?: string
+    key?: string
+    soft?: boolean
+}
+
+export const WORKS_WITH_ROWS: ReadonlyArray<{
+    labelKey: string
+    chips: ReadonlyArray<WorksWithChip>
+}> = [
+    {
+        labelKey: 'web.landing.worksWithFrameworks',
+        chips: [
+            { name: 'Claude Code' },
+            { name: 'Codex' },
+            { name: 'Gemini CLI' },
+            { name: 'Openclaw' },
+            { name: 'Hermes' },
+            { name: 'NarraNexus' }
+        ]
+    },
+    {
+        labelKey: 'web.landing.worksWithChannels',
+        chips: [
+            { name: 'Lark' },
+            { name: 'Slack' },
+            { name: 'Discord' },
+            { name: 'Telegram' },
+            { name: 'Matrix' },
+            { name: 'WeChat' },
+            { name: 'Linear' },
+            { name: 'GitHub' }
+        ]
+    },
+    {
+        labelKey: 'web.landing.worksWithRuntimes',
+        chips: [
+            { key: 'web.landing.worksWithSandbox' },
+            { key: 'web.landing.worksWithCloud' },
+            { key: 'web.landing.worksWithOwn' },
+            { key: 'web.landing.worksWithExternal', soft: true }
+        ]
+    }
 ]

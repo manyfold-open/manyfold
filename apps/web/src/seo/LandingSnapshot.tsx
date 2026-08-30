@@ -2,10 +2,10 @@ import type { FC, ReactNode } from 'react'
 import { t } from '@manyfold/i18n'
 import {
     FAQ_KEYS,
-    FLOOR_BRAND_NAMES,
     PRICING_TIERS,
     TIER_LABEL,
-    TIER_TAGLINE_KEY
+    TIER_TAGLINE_KEY,
+    WORKS_WITH_ROWS
 } from '@/seo/landingContent'
 import type { SeoPageEntry } from '@/seo/pages'
 
@@ -14,6 +14,12 @@ import type { SeoPageEntry } from '@/seo/pages'
 // as the interactive page. Only rendered at build time (the hydrated page is
 // the real Landing route); the renderer calls setLanguage() before this, so
 // the module-level t() resolves to the right dictionary.
+
+// The hero's three middle scenes. On the page they arrive one at a time as
+// the reader scrolls the pinned stage; here they are plain sections, in the
+// same order and with the same copy.
+const SCENES = [1, 2, 3]
+const ITEMS = [1, 2, 3]
 
 export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
     entry
@@ -42,94 +48,77 @@ export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
                         </a>
                     </div>
                     <p className='seo-brands'>
-                        {t('web.landing.heroFloorBrands')}{' '}
-                        {FLOOR_BRAND_NAMES.join(' · ')}
+                        {t('web.landing.worksWithEyebrow')}{' '}
+                        {WORKS_WITH_ROWS[0].chips
+                            .map((chip) => chip.name ?? t(chip.key ?? ''))
+                            .join(' · ')}
                     </p>
                 </div>
             </section>
+            {SCENES.map((scene) => (
+                <section key={scene} className='lp-section seo-section'>
+                    <div className='lp-container'>
+                        <h2 className='lp-h2'>
+                            {t(`web.landing.scene${scene}Title`)}{' '}
+                            {t(`web.landing.scene${scene}TitleAccent`)}
+                        </h2>
+                        <p className='lp-lead'>
+                            {t(`web.landing.scene${scene}Lead`)}
+                        </p>
+                        <ul className='seo-bullets'>
+                            {ITEMS.map((item) => (
+                                <li key={item}>
+                                    {t(
+                                        `web.landing.scene${scene}Item${item}Label`
+                                    )}{' '}
+                                    —{' '}
+                                    {t(
+                                        `web.landing.scene${scene}Item${item}Body`
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </section>
+            ))}
             <section className='lp-section seo-section'>
                 <div className='lp-container'>
                     <h2 className='lp-h2'>
-                        {t('web.landing.flowTitleBefore')}{' '}
-                        {t('web.landing.flowTitleAccent')}
+                        {t('web.landing.worksWithTitle')}{' '}
+                        {t('web.landing.worksWithTitleAccent')}
                     </h2>
-                    <p className='lp-lead'>{t('web.landing.flowBody')}</p>
+                    <p className='lp-lead'>{t('web.landing.worksWithLead')}</p>
                     <ul className='seo-bullets'>
-                        <li>
-                            {t('web.landing.flowStep1Title1')}{' '}
-                            {t('web.landing.flowStep1TitleAccent')}{' '}
-                            {t('web.landing.flowStep1Body')}
-                        </li>
-                        <li>
-                            {t('web.landing.flowStep2Title1')}{' '}
-                            {t('web.landing.flowStep2TitleAccent')}{' '}
-                            {t('web.landing.flowStep2Body')}
-                        </li>
-                        <li>
-                            {t('web.landing.flowStep3Title1')}{' '}
-                            {t('web.landing.flowStep3TitleAccent')}{' '}
-                            {t('web.landing.flowStep3Body')}
-                        </li>
+                        {WORKS_WITH_ROWS.map((row) => (
+                            <li key={row.labelKey}>
+                                {t(row.labelKey)} —{' '}
+                                {row.chips
+                                    .map(
+                                        (chip) => chip.name ?? t(chip.key ?? '')
+                                    )
+                                    .join(' · ')}
+                            </li>
+                        ))}
                     </ul>
                 </div>
             </section>
             <section className='lp-section seo-section'>
                 <div className='lp-container'>
                     <h2 className='lp-h2'>
-                        {t('web.landing.machinesTitle1')}{' '}
-                        {t('web.landing.machinesTitleAccent')}
+                        {t('web.landing.meterTitle')}{' '}
+                        {t('web.landing.meterTitleAccent')}
                     </h2>
-                    <p className='lp-lead'>{t('web.landing.machinesBody')}</p>
                     <ul className='seo-bullets'>
-                        <li>
-                            {t('web.landing.machineCloudName1')}{' '}
-                            {t('web.landing.machineCloudName2')} —{' '}
-                            {t('web.landing.machineCloudBody')}
-                        </li>
-                        <li>
-                            {t('web.landing.machineLocalName1')}{' '}
-                            {t('web.landing.machineLocalName2')} —{' '}
-                            {t('web.landing.machineLocalBody')}
-                        </li>
-                        <li>
-                            {t('web.landing.machineByoName1')}{' '}
-                            {t('web.landing.machineByoName2')}{' '}
-                            {t('web.landing.machineByoName3')} —{' '}
-                            {t('web.landing.machineByoBody')}
-                        </li>
+                        {ITEMS.map((point) => (
+                            <li key={point}>
+                                {t(`web.landing.meterPoint${point}Label`)}{' '}
+                                {t(`web.landing.meterPoint${point}Body`)}
+                            </li>
+                        ))}
                     </ul>
-                </div>
-            </section>
-            <section className='lp-section seo-section'>
-                <div className='lp-container'>
-                    <h2 className='lp-h2'>
-                        {t('web.landing.featuresTitle1')}{' '}
-                        {t('web.landing.featuresTitleAccent')}{' '}
-                        {t('web.landing.featuresTitle2')}
-                    </h2>
-                    <p className='lp-lead'>{t('web.landing.featuresBody')}</p>
-                    <ul className='seo-bullets'>
-                        <li>
-                            {t('web.landing.featAutomateTitleAccent')}{' '}
-                            {t('web.landing.featAutomateTitleRest')}{' '}
-                            {t('web.landing.featAutomateBody')}
-                        </li>
-                        <li>
-                            {t('web.landing.featChannelsTitle1')}{' '}
-                            {t('web.landing.featChannelsTitleAccent')}{' '}
-                            {t('web.landing.featChannelsBody')}
-                        </li>
-                        <li>
-                            {t('web.landing.featThreadTitle1')}{' '}
-                            {t('web.landing.featThreadTitleAccent')}{' '}
-                            {t('web.landing.featThreadBody')}
-                        </li>
-                        <li>
-                            {t('web.landing.featMcpTitle1')}{' '}
-                            {t('web.landing.featMcpTitleAccent')}{' '}
-                            {t('web.landing.featMcpBody')}
-                        </li>
-                    </ul>
+                    <p className='seo-positioning'>
+                        {t('web.landing.meterHonest')}
+                    </p>
                 </div>
             </section>
             <section className='lp-section seo-section'>
