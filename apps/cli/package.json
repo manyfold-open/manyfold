@@ -1,6 +1,6 @@
 {
     "name": "@manyfold/cli",
-    "version": "0.27.1",
+    "version": "0.28.0",
     "private": true,
     "description": "Manyfold CLI (mf) — distributed as standalone binaries",
     "license": "Apache-2.0",
