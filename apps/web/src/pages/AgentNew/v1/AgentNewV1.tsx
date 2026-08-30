@@ -38,7 +38,10 @@ import {
     type ProviderPickerValue
 } from '@/pages/AgentNew/components/ProviderPicker'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
-import { FrameworkLogo as FrameworkLogoMark } from '@/lib/frameworkMeta'
+import {
+    frameworkLabel,
+    FrameworkLogo as FrameworkLogoMark
+} from '@/lib/frameworkMeta'
 import {
     apiKeyLabelForProvider,
     buildAddRuntimeAgentBody,
@@ -88,7 +91,6 @@ import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
-import { SandboxSlots } from '@/pages/AgentNew/components/SandboxSlots'
 import { CreateFrameworkModelConfig } from '@/pages/AgentNew/components/shared/CreateFrameworkModelConfig'
 import { useI18n } from '@/lib/i18n'
 import { BILLING_SURFACE } from '@/edition-capabilities'
@@ -129,20 +131,26 @@ interface RuntimeTargetStatus {
     tone: 'ready' | 'offline'
 }
 
+interface RuntimeTargetPopulation {
+    framework: AgentFramework
+    agents: number
+}
+
+// Name, kind, status, agent count: what picking a runtime turns on. Anything
+// else this list used to carry (the framework, the machine behind a daemon, a
+// host's spare slots) is either constant across the list or answered elsewhere
+// in the form.
 interface RuntimeTarget {
     key: string
     kind: RuntimeTargetKind
     group: 'create' | 'existing'
     name: string
-    tag: string | null
-    detail: string
     status: RuntimeTargetStatus | null
-    // Right-hand quantity: the quota a create target spends, or how many agents
-    // an existing one already carries.
-    note: string | null
-    // Frameworks already resident on a sandbox host, rendered as occupancy
-    // slots the way the newer form draws them.
-    slots: AgentFramework[] | null
+    // Who already lives on this machine, per framework — a sandbox host carries
+    // one runtime per framework, so this is the whole VM's population, not just
+    // the runtime that matched the picker. Empty for a runtime this form would
+    // create, and for a host nothing runs on yet.
+    population: RuntimeTargetPopulation[]
     selected: boolean
     disabled: boolean
     disabledReason: string | null
@@ -216,14 +224,40 @@ const RuntimeAgentIcons: FC<{
     </span>
 )
 
-// The newer form's option anatomy — tag chips, ring selection, a check, a
-// status dot, occupancy slots — restacked for a two-column grid: its rows are
-// full width, so name and status share one line there and cannot here.
+// "who is already here", per framework: the logo, then how many agents that
+// framework's runtime carries. A framework with no agents still shows (at
+// zero) — that it is installed at all is what decides whether this machine
+// needs provisioning.
+const RuntimePopulation: FC<{
+    population: RuntimeTargetPopulation[]
+    labelFor: (entry: RuntimeTargetPopulation) => string
+}> = ({ population, labelFor }): ReactNode => {
+    if (population.length === 0) return null
+    return (
+        <span className='flex flex-wrap items-center gap-x-2.5 gap-y-1'>
+            {population.map((entry) => (
+                <span
+                    key={entry.framework}
+                    className='text-subtle text-caption inline-flex shrink-0 items-center gap-1 tabular-nums'
+                    title={labelFor(entry)}
+                    aria-label={labelFor(entry)}
+                >
+                    <FrameworkLogoMark framework={entry.framework} size={14} />×
+                    {entry.agents}
+                </span>
+            ))}
+        </span>
+    )
+}
+
+// The newer form's option anatomy — tag chip, ring selection, a check, a status
+// dot — restacked for a two-column grid: its rows are full width, so name and
+// status share one line there and cannot here.
 const RuntimeTargetCard: FC<{
     target: RuntimeTarget
     kindLabel: string
-    frameworkLabelFor: (framework: AgentFramework) => string
-}> = ({ target, kindLabel, frameworkLabelFor }): ReactNode => (
+    populationLabelFor: (entry: RuntimeTargetPopulation) => string
+}> = ({ target, kindLabel, populationLabelFor }): ReactNode => (
     <button
         type='button'
         disabled={target.disabled}
@@ -232,41 +266,129 @@ const RuntimeTargetCard: FC<{
         className={runtimeTargetClass(target.selected, target.disabled)}
     >
         <span className='flex items-center justify-between gap-2'>
-            <span className='flex min-w-0 items-center gap-1.5'>
+            <span className='flex min-w-0 items-center gap-2'>
                 <span className='tag tag-neutral'>{kindLabel}</span>
-                {target.tag && (
-                    <span className='tag tag-neutral'>{target.tag}</span>
-                )}
+                <span className='text-fg text-ui min-w-0 truncate font-medium'>
+                    {target.name}
+                </span>
             </span>
             <span className='flex shrink-0 items-center gap-2.5'>
-                {target.status && (
-                    <RuntimeTargetStatusTag status={target.status} />
-                )}
-                {target.slots && (
-                    <SandboxSlots
-                        frameworks={target.slots}
-                        frameworkLabelFor={frameworkLabelFor}
-                    />
+                {target.disabled && target.disabledReason ? (
+                    <span className='text-muted text-caption'>
+                        {target.disabledReason}
+                    </span>
+                ) : (
+                    target.status && (
+                        <RuntimeTargetStatusTag status={target.status} />
+                    )
                 )}
                 {target.selected && (
                     <CheckIcon className='text-link h-4 w-4 shrink-0' />
                 )}
             </span>
         </span>
-        <span className='mt-1.5 flex items-baseline justify-between gap-2'>
-            <span className='text-fg text-ui min-w-0 truncate font-medium'>
-                {target.name}
+        {target.population.length > 0 && (
+            <span className='mt-1.5 block'>
+                <RuntimePopulation
+                    population={target.population}
+                    labelFor={populationLabelFor}
+                />
             </span>
-            {target.note && (
-                <span className='text-subtle text-caption shrink-0 font-mono tabular-nums'>
-                    {target.note}
-                </span>
-            )}
-        </span>
-        <span className='text-muted text-caption mt-0.5 block truncate'>
-            {target.disabledReason ?? target.detail}
-        </span>
+        )}
     </button>
+)
+
+const targetHeadCell = 'px-3 py-2 font-medium'
+const targetBodyCell = 'text-caption text-muted px-3 py-2'
+
+const RuntimeTargetTable: FC<{
+    targets: RuntimeTarget[]
+    kindLabelFor: (kind: RuntimeTargetKind) => string
+    populationLabelFor: (entry: RuntimeTargetPopulation) => string
+    columns: { runtime: string; kind: string; status: string; agents: string }
+}> = ({ targets, kindLabelFor, populationLabelFor, columns }): ReactNode => (
+    <div className='settings-card overflow-x-auto'>
+        <table className='w-full min-w-[32rem] text-left'>
+            <thead className='workbench-table-head'>
+                <tr>
+                    <th className={targetHeadCell}>{columns.runtime}</th>
+                    <th className={targetHeadCell}>{columns.kind}</th>
+                    <th className={targetHeadCell}>{columns.status}</th>
+                    <th className={`${targetHeadCell} text-right`}>
+                        {columns.agents}
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {targets.map((target) => (
+                    <tr
+                        key={target.key}
+                        tabIndex={target.disabled ? -1 : 0}
+                        aria-selected={target.selected}
+                        onClick={() => {
+                            if (!target.disabled) target.onSelect()
+                        }}
+                        onKeyDown={(event) => {
+                            if (target.disabled) return
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                target.onSelect()
+                            }
+                        }}
+                        className={[
+                            'border-divider/60 border-t transition-colors',
+                            target.disabled
+                                ? 'cursor-not-allowed opacity-55'
+                                : 'hover:bg-surface-hover cursor-pointer',
+                            target.selected ? 'bg-info-bg' : ''
+                        ].join(' ')}
+                    >
+                        <td className='px-3 py-2'>
+                            <span className='flex min-w-0 items-center gap-2'>
+                                {target.selected ? (
+                                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                                ) : (
+                                    <span
+                                        className='h-4 w-4 shrink-0'
+                                        aria-hidden='true'
+                                    />
+                                )}
+                                <span className='text-caption text-fg min-w-0 truncate font-medium'>
+                                    {target.name}
+                                </span>
+                            </span>
+                        </td>
+                        <td className={targetBodyCell}>
+                            {kindLabelFor(target.kind)}
+                        </td>
+                        <td className={targetBodyCell}>
+                            {target.disabled && target.disabledReason ? (
+                                target.disabledReason
+                            ) : target.status ? (
+                                <RuntimeTargetStatusTag
+                                    status={target.status}
+                                />
+                            ) : (
+                                <span className='text-placeholder'>—</span>
+                            )}
+                        </td>
+                        <td className={`${targetBodyCell} text-right`}>
+                            {target.population.length === 0 ? (
+                                <span className='text-placeholder'>—</span>
+                            ) : (
+                                <span className='inline-flex justify-end'>
+                                    <RuntimePopulation
+                                        population={target.population}
+                                        labelFor={populationLabelFor}
+                                    />
+                                </span>
+                            )}
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    </div>
 )
 
 // One page holds four grid rows; the picker is a step in a form, not a
@@ -352,103 +474,6 @@ const RuntimePager: FC<{
             <ChevronRightIcon className='h-4 w-4' />
         </button>
     </nav>
-)
-
-const targetHeadCell = 'px-3 py-2 font-medium'
-const targetBodyCell = 'text-caption text-muted px-3 py-2'
-
-const RuntimeTargetTable: FC<{
-    targets: RuntimeTarget[]
-    kindLabelFor: (kind: RuntimeTargetKind) => string
-    frameworkLabelFor: (framework: AgentFramework) => string
-    columns: { runtime: string; kind: string; status: string }
-}> = ({ targets, kindLabelFor, frameworkLabelFor, columns }): ReactNode => (
-    <div className='settings-card overflow-x-auto'>
-        <table className='w-full min-w-[32rem] text-left'>
-            <thead className='workbench-table-head'>
-                <tr>
-                    <th className={targetHeadCell}>{columns.runtime}</th>
-                    <th className={targetHeadCell}>{columns.kind}</th>
-                    <th className={targetHeadCell}>{columns.status}</th>
-                    <th className={targetHeadCell} aria-hidden='true' />
-                </tr>
-            </thead>
-            <tbody>
-                {targets.map((target) => (
-                    <tr
-                        key={target.key}
-                        tabIndex={target.disabled ? -1 : 0}
-                        aria-selected={target.selected}
-                        onClick={() => {
-                            if (!target.disabled) target.onSelect()
-                        }}
-                        onKeyDown={(event) => {
-                            if (target.disabled) return
-                            if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault()
-                                target.onSelect()
-                            }
-                        }}
-                        className={[
-                            'border-divider/60 border-t transition-colors',
-                            target.disabled
-                                ? 'cursor-not-allowed opacity-55'
-                                : 'hover:bg-surface-hover cursor-pointer',
-                            target.selected ? 'bg-info-bg' : ''
-                        ].join(' ')}
-                    >
-                        <td className='px-3 py-2'>
-                            <span className='flex min-w-0 items-center gap-2'>
-                                {target.selected ? (
-                                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
-                                ) : (
-                                    <span
-                                        className='h-4 w-4 shrink-0'
-                                        aria-hidden='true'
-                                    />
-                                )}
-                                <span className='text-caption text-fg min-w-0 truncate font-medium'>
-                                    {target.name}
-                                </span>
-                                {target.tag && (
-                                    <span className='tag tag-neutral shrink-0'>
-                                        {target.tag}
-                                    </span>
-                                )}
-                            </span>
-                        </td>
-                        <td className={targetBodyCell}>
-                            {kindLabelFor(target.kind)}
-                        </td>
-                        <td className={targetBodyCell}>
-                            {target.status ? (
-                                <RuntimeTargetStatusTag
-                                    status={target.status}
-                                />
-                            ) : (
-                                <span className='text-placeholder'>—</span>
-                            )}
-                        </td>
-                        <td className={`${targetBodyCell} text-right`}>
-                            <span className='inline-flex items-center justify-end gap-2'>
-                                {target.note && (
-                                    <span className='font-mono tabular-nums'>
-                                        {target.note}
-                                    </span>
-                                )}
-                                {target.slots && (
-                                    <SandboxSlots
-                                        frameworks={target.slots}
-                                        frameworkLabelFor={frameworkLabelFor}
-                                    />
-                                )}
-                            </span>
-                        </td>
-                    </tr>
-                ))}
-            </tbody>
-        </table>
-    </div>
 )
 
 interface ExternalAgentSectionProps {
@@ -1143,9 +1168,38 @@ const AgentNew: FC = (): ReactNode => {
               ? t('web.agentNew.persistent')
               : t('web.agentNew.localDaemon')
 
-    const frameworkLabelFor = (target: AgentFramework): string =>
-        localizedFrameworkOptions.find((opt) => opt.value === target)?.label ??
-        target
+    // A machine's population, keyed by host: a sandbox VM (and a daemon) runs
+    // one runtime per framework, so the picker can say who already lives there
+    // rather than only counting the runtime that matched the framework filter.
+    const populationByHost = useMemo(() => {
+        const out = new Map<string, RuntimeTargetPopulation[]>()
+        for (const r of runtimes) {
+            const key = r.hostId ?? r.id
+            const list = out.get(key) ?? []
+            const existing = list.find(
+                (entry) => entry.framework === r.framework
+            )
+            if (existing) existing.agents += r.agentsCount
+            else list.push({ framework: r.framework, agents: r.agentsCount })
+            out.set(key, list)
+        }
+        for (const list of out.values())
+            list.sort(
+                (a, b) =>
+                    b.agents - a.agents ||
+                    a.framework.localeCompare(b.framework)
+            )
+        return out
+    }, [runtimes])
+
+    const populationLabel = (entry: RuntimeTargetPopulation): string =>
+        `${frameworkLabel(entry.framework)} · ${
+            entry.agents === 1
+                ? t('web.agentNew.agentCountOne')
+                : t('web.agentNew.agentCountMany', {
+                      count: String(entry.agents)
+                  })
+        }`
 
     // Create-new and reuse targets share one list: the picker's job is "where
     // does this agent land", and that question does not split by provenance.
@@ -1161,11 +1215,8 @@ const AgentNew: FC = (): ReactNode => {
                       name: t('web.agentNew.createRuntimeNamed', {
                           runtime: t('web.agentNew.persistent')
                       }),
-                      tag: null,
-                      detail: t('web.agentNew.computerTagline'),
                       status: null,
-                      note: runtimeQuotaLabel('persistent'),
-                      slots: null,
+                      population: [],
                       selected: runtimeMode === 'persistent',
                       disabled: persistentLimitReached,
                       disabledReason: persistentLimitReached
@@ -1184,14 +1235,6 @@ const AgentNew: FC = (): ReactNode => {
             kind: (r.kind ?? 'sprites') as RuntimeTargetKind,
             group: 'existing' as const,
             name: r.name,
-            tag: null,
-            // The machine name is worth a line only when it is not the
-            // runtime's own name, which is what a self-registered daemon
-            // usually reports.
-            detail:
-                r.kind === 'daemon' && r.daemonName && r.daemonName !== r.name
-                    ? r.daemonName
-                    : frameworkLabelFor(r.framework),
             status:
                 r.kind === 'daemon' && !r.daemonOnline
                     ? {
@@ -1202,33 +1245,29 @@ const AgentNew: FC = (): ReactNode => {
                           label: t('web.agentNew.readyTag'),
                           tone: 'ready' as const
                       },
-            note:
-                r.agentsCount === 1
-                    ? t('web.agentNew.agentCountOne')
-                    : t('web.agentNew.agentCountMany', {
-                          count: String(r.agentsCount)
-                      }),
-            slots: null,
+            population:
+                populationByHost.get(r.hostId ?? r.id) ??
+                (r.agentsCount > 0
+                    ? [{ framework: r.framework, agents: r.agentsCount }]
+                    : []),
             selected: runtimeMode === 'existing' && pickedRuntimeId === r.id,
             disabled: false,
             disabledReason: null,
             onSelect: () => selectExistingRuntimeTarget(r)
         })),
+        // A sandbox that does not run this framework yet: the agent lands here
+        // too, so it is the same kind of row. Nothing runs on it for this
+        // framework, hence zero.
         ...spriteAttachTargets.map((target) => ({
             key: `sandbox:${target.hostId}`,
             kind: 'sprites' as const,
             group: 'existing' as const,
             name: target.name ?? target.spriteName ?? target.hostId,
-            tag: null,
-            detail: t('web.agentNew.addFramework', {
-                framework: selectedFramework.label
-            }),
             status: {
                 label: t('web.agentNew.readyTag'),
                 tone: 'ready' as const
             },
-            note: `${target.runtimeCount}/4`,
-            slots: target.frameworks,
+            population: populationByHost.get(target.hostId) ?? [],
             selected:
                 runtimeMode === 'sandbox' &&
                 attachSandboxHostId === target.hostId,
@@ -1270,6 +1309,7 @@ const AgentNew: FC = (): ReactNode => {
             : runtimeTargets.filter(
                   (target) => target.kind === runtimeKindFilter
               )
+
     // Clamped rather than corrected in an effect: a filter that shrinks the
     // list must not leave the picker on a page that no longer exists, and the
     // clamp is a pure function of what is being rendered.
@@ -1964,8 +2004,8 @@ const AgentNew: FC = (): ReactNode => {
                                                         kindLabel={runtimeKindLabel(
                                                             target.kind
                                                         )}
-                                                        frameworkLabelFor={
-                                                            frameworkLabelFor
+                                                        populationLabelFor={
+                                                            populationLabel
                                                         }
                                                     />
                                                 )
@@ -1975,15 +2015,18 @@ const AgentNew: FC = (): ReactNode => {
                                         <RuntimeTargetTable
                                             targets={pagedRuntimeTargets}
                                             kindLabelFor={runtimeKindLabel}
-                                            frameworkLabelFor={
-                                                frameworkLabelFor
-                                            }
+                                            populationLabelFor={populationLabel}
                                             columns={{
                                                 runtime: t(
                                                     'web.agentNew.runtime'
                                                 ),
                                                 kind: t('web.agentNew.kind'),
-                                                status: t('web.agentNew.status')
+                                                status: t(
+                                                    'web.agentNew.status'
+                                                ),
+                                                agents: t(
+                                                    'web.agentNew.agentsColumn'
+                                                )
                                             }}
                                         />
                                     )}

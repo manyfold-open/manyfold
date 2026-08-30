@@ -3553,7 +3553,6 @@ const en = {
             externalBinding: 'External binding',
             available: 'Available',
             runtimeUsed: '{{used}} used',
-            addFramework: 'Add {{framework}}',
             runs: 'runs',
             nameHint:
                 '1–64 characters. You can use any language, emoji, spaces, _ - .',
@@ -3594,8 +3593,8 @@ const en = {
             providerKeyHint: 'Use your provider-compatible key.',
             baseUrlProxyPlaceholder: 'Leave blank to use Netmind proxy default',
             customModel: 'Custom model',
-            computerTagline: 'Always-online or self-owned computers',
             filterAll: 'All',
+            agentsColumn: 'Agents',
             sandboxNameHint: 'Rename it now or keep the generated name — you can rename it later.',
             pagination: 'Pagination',
             previousPage: 'Previous page',
