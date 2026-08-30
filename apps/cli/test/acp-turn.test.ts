@@ -67,9 +67,21 @@ rl.on('line', (line) => {
         promptId = frame.id
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'lo' } })
+        // 'options' asks with the upstream-shaped option list and echoes the
+        // client's choice back into the stream, so a test can prove WHICH
+        // grant the auto-approve burned.
+        if (mode === 'options')
+            return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: { options: [
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow once' },
+                { optionId: 'allow_session', kind: 'allow_always', name: 'Allow for session' },
+                { optionId: 'allow_always', kind: 'allow_always', name: 'Always allow' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            ] } })
         return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: {} })
     }
     if (frame.id === 999 && frame.result) {
+        if (mode === 'options')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' perm=' + frame.result.outcome.optionId } })
         notify({ sessionUpdate: 'turn_end', usage: { inputTokens: 3, outputTokens: 5 } })
         send({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 5 } } })
     }
@@ -340,5 +352,27 @@ test('a payload with only the legacy timeoutMs degenerates to the old single cap
     assert.ok(
         Date.now() - startedAt < 5_000,
         'an actively streaming turn under a legacy payload is still bounded'
+    )
+})
+
+// Seen on hermes-agent 0.20.6 [2026-08-29]: the old hardcoded
+// 'approve_for_session' matches no advertised option id and an unknown id
+// maps to DENY — the headless auto-approve was rejecting every file edit.
+// When the ask carries options, the answer must be one of them, preferring
+// the session-scoped allow_always-kind grant.
+test('auto-approve answers with the session-scoped option from the ask', async () => {
+    const h = makeCtx('turn-options-1')
+    const ack = await runAcpTurn({
+        payload: payloadFor('options'),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('perm=allow_session')),
+        'the fake agent must see allow_session as the chosen option'
     )
 })

@@ -46,6 +46,46 @@ const pickStderrErrorLine = (lines: string[]): string | null => {
     return null
 }
 
+// Ported from the API's hermes-acp-client (pickAutoApproveOptionId): the old
+// hardcoded 'approve_for_session' matches no option id current hermes builds
+// advertise, and an unknown id maps to DENY on both of hermes's approval
+// bridges — the headless auto-approve was silently rejecting every file edit.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: terminal-command asks offer
+// allow_once / allow_session / allow_always / deny / deny_always; edit asks
+// offer only allow_once / deny.
+const pickAutoApproveOptionId = (
+    params: Record<string, unknown> | undefined
+): string => {
+    const options = params?.options
+    if (Array.isArray(options)) {
+        const rows = options.filter(
+            (o): o is Record<string, unknown> => !!o && typeof o === 'object'
+        )
+        const byKind = (kind: string): string | null => {
+            for (const o of rows) {
+                if (o.kind === kind && typeof o.optionId === 'string')
+                    return o.optionId
+            }
+            return null
+        }
+        const allowAny = (): string | null => {
+            for (const o of rows) {
+                if (
+                    typeof o.kind === 'string' &&
+                    o.kind.startsWith('allow') &&
+                    typeof o.optionId === 'string'
+                )
+                    return o.optionId
+            }
+            return null
+        }
+        const picked =
+            byKind('allow_always') ?? byKind('allow_once') ?? allowAny()
+        if (picked) return picked
+    }
+    return 'approve_for_session'
+}
+
 interface PendingRequest {
     method: string
     resolve: (result: Record<string, unknown> | undefined) => void
@@ -215,7 +255,12 @@ export const runAcpTurn = (args: {
         }
         if (frame.method === 'session/request_permission')
             response.result = {
-                outcome: { outcome: 'selected', optionId: 'approve_for_session' }
+                outcome: {
+                    outcome: 'selected',
+                    optionId: pickAutoApproveOptionId(
+                        frame.params as Record<string, unknown> | undefined
+                    )
+                }
             }
         else
             response.error = {

@@ -678,6 +678,7 @@ export type {
     ChatThinkingBlock,
     ChatContentBlock,
     ChatMessage,
+    ChatContextUsage,
     ChatMessagesPage,
     ChatSessionSummary,
     ChatSessionChannelSummary,

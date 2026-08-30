@@ -926,6 +926,7 @@ export const MessageBubble: FC<BubbleProps> = ({
                 <MessageMetaFooter
                     usage={message.usage ?? null}
                     messageModel={message.model ?? null}
+                    contextUsage={message.contextUsage ?? null}
                     createdAt={message.createdAt}
                     copyText={copyTextFromBlocks(message.contentBlocks)}
                     markdownText={markdownTextFromBlocks(message.contentBlocks)}

@@ -1467,6 +1467,8 @@ const fr: Record<string, string> = {
     'web.chatStream.latencyTotal': 'total {{seconds}}s',
     'web.chatStream.model': 'modèle',
     'web.chatStream.time': 'temps',
+    'web.chatStream.contextUsage': 'contexte',
+    'web.chatStream.contextUsageValue': '{{used}} / {{size}} ({{percent}}%)',
     'web.chatStream.copyText': 'Copier le texte',
     'web.chatStream.copiedText': 'Texte copié',
     'web.chatStream.copyMarkdown': 'Copier le texte Markdown',

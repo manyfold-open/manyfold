@@ -1467,6 +1467,8 @@ const ru: Record<string, string> = {
     'web.chatStream.latencyTotal': 'всего {{seconds}}',
     'web.chatStream.model': 'модель',
     'web.chatStream.time': 'время',
+    'web.chatStream.contextUsage': 'контекст',
+    'web.chatStream.contextUsageValue': '{{used}} / {{size}} ({{percent}}%)',
     'web.chatStream.copyText': 'Копировать текст',
     'web.chatStream.copiedText': 'Скопирован текст',
     'web.chatStream.copyMarkdown': 'Копировать Markdown',

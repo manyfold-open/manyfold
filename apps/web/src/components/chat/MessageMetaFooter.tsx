@@ -1,4 +1,4 @@
-import type { ChatUsage } from '@manyfold/shared'
+import type { ChatContextUsage, ChatUsage } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { getLocale } from '@manyfold/i18n'
@@ -17,6 +17,7 @@ import { fmt, fmtCost } from '@/lib/usageFormat'
 interface Props {
     usage: ChatUsage | null
     messageModel?: string | null
+    contextUsage?: ChatContextUsage | null
     createdAt?: string | null
     copyText?: string
     markdownText?: string
@@ -31,6 +32,7 @@ interface Props {
 const MessageMetaFooter: FC<Props> = ({
     usage,
     messageModel,
+    contextUsage,
     createdAt,
     copyText,
     markdownText,
@@ -123,6 +125,7 @@ const MessageMetaFooter: FC<Props> = ({
                         <PopoverBody
                             usage={usage}
                             model={model}
+                            contextUsage={contextUsage ?? null}
                             createdAt={createdAt}
                         />
                     </span>
@@ -182,10 +185,16 @@ const MessageMetaFooter: FC<Props> = ({
 interface BodyProps {
     usage: ChatUsage | null
     model: string | null
+    contextUsage: ChatContextUsage | null
     createdAt?: string | null
 }
 
-const PopoverBody: FC<BodyProps> = ({ usage, model, createdAt }): ReactNode => {
+const PopoverBody: FC<BodyProps> = ({
+    usage,
+    model,
+    contextUsage,
+    createdAt
+}): ReactNode => {
     const { t } = useI18n()
     const fullTime = formatFullMessageTime(createdAt)
     return (
@@ -205,6 +214,27 @@ const PopoverBody: FC<BodyProps> = ({ usage, model, createdAt }): ReactNode => {
                             {t('web.chatStream.time')}
                         </span>
                         <span className='tabular-nums'>{fullTime}</span>
+                    </div>
+                )}
+                {contextUsage && contextUsage.size > 0 && (
+                    <div className='flex items-center justify-between gap-3'>
+                        <span className='text-subtle'>
+                            {t('web.chatStream.contextUsage')}
+                        </span>
+                        <span className='tabular-nums'>
+                            {t('web.chatStream.contextUsageValue', {
+                                used: fmt(contextUsage.used),
+                                size: fmt(contextUsage.size),
+                                percent: Math.min(
+                                    100,
+                                    Math.round(
+                                        (contextUsage.used /
+                                            contextUsage.size) *
+                                            100
+                                    )
+                                ).toString()
+                            })}
+                        </span>
                     </div>
                 )}
                 <div className='bg-divider/60 mt-0.5 h-px' />
