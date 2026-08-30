@@ -3189,6 +3189,7 @@ const ja: Record<string, string> = {
     'web.agentNew.baseUrlProxyPlaceholder': 'Netmind プロキシのデフォルトを使用する場合は空欄のままにしてください',
     'web.agentNew.customModel': 'カスタムモデル',
     'web.agentNew.filterAll': 'すべて',
+    'web.agentNew.modelInheritHint': '空欄のままにすると、その runtime の既定モデルを使います。',
     'web.agentNew.agentsColumn': 'エージェント',
     'web.agentNew.sandboxNameHint': '今すぐ変更するか、生成された名前のままにできます（後から変更可能）。',
     'web.agentNew.pagination': 'ページネーション',

@@ -636,6 +636,7 @@ const AgentNew: FC = (): ReactNode => {
     const [runtimeKindFilter, setRuntimeKindFilter] =
         useState<RuntimeKindFilter>('all')
     const [runtimePage, setRuntimePage] = useState(1)
+    const [existingRuntimeModel, setExistingRuntimeModel] = useState('')
     const [connectDaemonOpen, setConnectDaemonOpen] = useState(false)
     const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
     const [sandboxDraftName, setSandboxDraftName] = useState('')
@@ -917,6 +918,7 @@ const AgentNew: FC = (): ReactNode => {
         setExternalRemoteId('')
         setRuntimeKindFilter('all')
         setRuntimePage(1)
+        setExistingRuntimeModel('')
         if (isK8sOnlyFramework(next)) {
             setRuntimeMode('persistent')
         } else if (runtimeMode === 'existing') {
@@ -944,6 +946,7 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeMode('existing')
         setPickedRuntimeId(runtime.id)
         setAttachSandboxHostId('')
+        setExistingRuntimeModel('')
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -1323,6 +1326,18 @@ const AgentNew: FC = (): ReactNode => {
         runtimePageSafe * RUNTIME_PAGE_SIZE
     )
 
+    // An empty selection makes the first click a guess: the form cannot submit
+    // and does not say what is missing. Whenever the picker has something to
+    // offer and nothing is chosen, the first available target is chosen — after
+    // any deep link has had its say, so it never overrides one.
+    useEffect(() => {
+        if (initialDaemonId && !daemonPreselectedRef.current) return
+        if (initialSandboxId && !sandboxPreselectedRef.current) return
+        if (runtimeTargets.some((target) => target.selected)) return
+        const first = runtimeTargets.find((target) => !target.disabled)
+        first?.onSelect()
+    }, [initialDaemonId, initialSandboxId, runtimeTargets])
+
     // A target selected for the user (the sandbox they just created) has to be
     // on the visible page, or "selected" is a claim they cannot see. Runs only
     // while a reveal is pending, and clears itself once the target lands.
@@ -1603,6 +1618,7 @@ const AgentNew: FC = (): ReactNode => {
                 body: buildAddRuntimeAgentBody({
                     name: normalizedName,
                     workspace: effectiveExistingWorkspace,
+                    model: existingRuntimeModel,
                     cloneFrom:
                         pickedRuntime.framework === 'hermes' && cloneEnabled
                             ? cloneFromProfile || undefined
@@ -1673,6 +1689,38 @@ const AgentNew: FC = (): ReactNode => {
     const retry = (): void => {
         resetProgress()
     }
+
+    // Adding an agent to a runtime inherits that runtime's provider and key —
+    // the attach service reads them off the runtime's primary agent and the
+    // request cannot override them. The model is per agent, so it is the one
+    // thing worth offering here.
+    const renderExistingRuntimeModelSettings = (): ReactNode => (
+        <div className='space-y-4'>
+            <div className='bg-soft shadow-ring-light rounded-md px-3 py-2.5'>
+                <div className='text-caption text-subtle font-medium'>
+                    {t('web.agentNew.usingCredentialsFrom')}
+                </div>
+                <div className='text-caption text-fg mt-0.5 truncate'>
+                    {pickedRuntime?.name ?? t('web.agentNew.runtimeSelect')}
+                </div>
+            </div>
+            <label className='block'>
+                <span className='workbench-field-label'>
+                    {t('web.agentNew.model')}
+                </span>
+                <input
+                    value={existingRuntimeModel}
+                    onChange={(e) => setExistingRuntimeModel(e.target.value)}
+                    placeholder={t('web.agentNew.primaryModelPlaceholder')}
+                    maxLength={255}
+                    className='workbench-input font-mono'
+                />
+                <p className='workbench-hint mt-2'>
+                    {t('web.agentNew.modelInheritHint')}
+                </p>
+            </label>
+        </div>
+    )
 
     const renderCreateRuntimeSettings = (): ReactNode => (
         <div className='space-y-4'>
@@ -2214,17 +2262,16 @@ const AgentNew: FC = (): ReactNode => {
                                 </div>
                             )}
 
-                            {!isExternalFramework(framework) &&
-                                runtimeMode !== 'existing' && (
-                                    <div>
-                                        <span className='workbench-field-label mb-2 block'>
-                                            {t(
-                                                'web.agentNew.modelProviderSection'
-                                            )}
-                                        </span>
-                                        {renderCreateRuntimeSettings()}
-                                    </div>
-                                )}
+                            {!isExternalFramework(framework) && (
+                                <div>
+                                    <span className='workbench-field-label mb-2 block'>
+                                        {t('web.agentNew.modelProviderSection')}
+                                    </span>
+                                    {runtimeMode === 'existing'
+                                        ? renderExistingRuntimeModelSettings()
+                                        : renderCreateRuntimeSettings()}
+                                </div>
+                            )}
 
                             {isExternalFramework(framework) && (
                                 <ExternalAgentSection

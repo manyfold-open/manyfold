@@ -3190,6 +3190,7 @@ const ko: Record<string, string> = {
     "web.agentNew.baseUrlProxyPlaceholder": "Netmind 프록시 기본값을 사용하려면 비워 두세요",
     "web.agentNew.customModel": "사용자 지정 모델",
     "web.agentNew.filterAll": "전체",
+    "web.agentNew.modelInheritHint": "비워 두면 해당 runtime의 기본 모델을 사용합니다.",
     "web.agentNew.agentsColumn": "에이전트",
     "web.agentNew.sandboxNameHint": "지금 이름을 바꾸거나 생성된 이름을 그대로 두세요. 나중에도 변경할 수 있습니다.",
     "web.agentNew.pagination": "페이지 매김",

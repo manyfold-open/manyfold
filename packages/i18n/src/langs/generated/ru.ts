@@ -3190,6 +3190,7 @@ const ru: Record<string, string> = {
     'web.agentNew.baseUrlProxyPlaceholder': 'Оставьте пустым, чтобы использовать прокси Netmind по умолчанию',
     'web.agentNew.customModel': 'Пользовательская модель',
     'web.agentNew.filterAll': 'Все',
+    'web.agentNew.modelInheritHint': 'Оставьте пустым, чтобы использовать модель runtime по умолчанию.',
     'web.agentNew.agentsColumn': 'Агенты',
     'web.agentNew.sandboxNameHint': 'Переименуйте сейчас или оставьте сгенерированное имя — изменить можно позже.',
     'web.agentNew.pagination': 'Пагинация',

@@ -1,7 +1,4 @@
-import {
-    normalizeAgentName,
-    stepsFor
-} from '@manyfold/shared'
+import { normalizeAgentName, stepsFor } from '@manyfold/shared'
 import type {
     AddRuntimeAgentBody,
     AgentCreateStep,
@@ -127,6 +124,7 @@ export const buildAddRuntimeAgentBody = (draft: {
     name: string
     workspace?: string
     cloneFrom?: string
+    model?: string
 }): AddRuntimeAgentBody => {
     const body: AddRuntimeAgentBody = {
         name: normalizeAgentName(draft.name)
@@ -135,6 +133,10 @@ export const buildAddRuntimeAgentBody = (draft: {
     if (workspace) body.workspace = workspace
     const cloneFrom = draft.cloneFrom?.trim()
     if (cloneFrom) body.cloneFrom = cloneFrom
+    // Omitted rather than sent empty: the runtime's own default is what an
+    // absent model means to the attach service.
+    const model = draft.model?.trim()
+    if (model) body.model = model
     return body
 }
 

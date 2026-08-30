@@ -3594,6 +3594,7 @@ const en = {
             baseUrlProxyPlaceholder: 'Leave blank to use Netmind proxy default',
             customModel: 'Custom model',
             filterAll: 'All',
+            modelInheritHint: 'Leave blank to use the runtime\'s default model.',
             agentsColumn: 'Agents',
             sandboxNameHint: 'Rename it now or keep the generated name — you can rename it later.',
             pagination: 'Pagination',
