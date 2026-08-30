@@ -12,7 +12,7 @@ import {
     providerSupportsTarget,
     validateAgentName
 } from '@manyfold/shared'
-import type { AgentFramework } from '@manyfold/shared'
+import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
@@ -25,6 +25,7 @@ import {
     PlusIcon
 } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
+import ConnectDaemonDialog from '@/components/ConnectDaemonDialog'
 import { DashboardViewToggle } from '@/components/DashboardCard'
 import WorkbenchSelect, {
     type WorkbenchSelectOption
@@ -575,6 +576,7 @@ const AgentNew: FC = (): ReactNode => {
         runtimesError,
         refetchRuntimes,
         refetchSandboxes,
+        setRuntimes,
         sandboxes,
         runtimeAccess,
         runtimeAgents,
@@ -609,6 +611,7 @@ const AgentNew: FC = (): ReactNode => {
     const [runtimeKindFilter, setRuntimeKindFilter] =
         useState<RuntimeKindFilter>('all')
     const [runtimePage, setRuntimePage] = useState(1)
+    const [connectDaemonOpen, setConnectDaemonOpen] = useState(false)
     const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
     const [sandboxDraftName, setSandboxDraftName] = useState('')
     const [sandboxCreating, setSandboxCreating] = useState(false)
@@ -970,6 +973,31 @@ const AgentNew: FC = (): ReactNode => {
         } finally {
             setSandboxCreating(false)
         }
+    }
+
+    // The dialog only offers "use this machine" once the host reports the
+    // framework, so a runtime row for it exists (or is moments away) by the
+    // time this runs.
+    const handleDaemonConnected = async (
+        host: DaemonHostSummary
+    ): Promise<void> => {
+        setConnectDaemonOpen(false)
+        const rows = await client.agentRuntimes.list().catch(() => null)
+        if (!rows) return
+        setRuntimes(rows)
+        const connected =
+            rows.find(
+                (r) =>
+                    r.kind === 'daemon' &&
+                    r.daemonId === host.id &&
+                    r.framework === framework
+            ) ?? rows.find((r) => r.kind === 'daemon' && r.daemonId === host.id)
+        if (!connected) return
+        setRuntimeMode('existing')
+        setPickedRuntimeId(connected.id)
+        setAttachSandboxHostId('')
+        setRuntimeKindFilter('all')
+        setRevealTargetKey(`runtime:${connected.id}`)
     }
 
     const changeRuntimeView = (next: DashboardView): void => {
@@ -1992,29 +2020,49 @@ const AgentNew: FC = (): ReactNode => {
                                                 // and selected in place; the
                                                 // other kinds still need their
                                                 // own settings page.
-                                                return option.kind ===
-                                                    'sprites' ? (
-                                                    <button
-                                                        key={option.kind}
-                                                        type='button'
-                                                        disabled={
-                                                            sandboxLimitReached
-                                                        }
-                                                        title={
-                                                            sandboxLimitReached
-                                                                ? t(
-                                                                      'web.agentNew.limitReached'
-                                                                  )
-                                                                : undefined
-                                                        }
-                                                        onClick={
-                                                            openSandboxDialog
-                                                        }
-                                                        className={entryClass}
-                                                    >
-                                                        {body}
-                                                    </button>
-                                                ) : (
+                                                if (option.kind === 'sprites')
+                                                    return (
+                                                        <button
+                                                            key={option.kind}
+                                                            type='button'
+                                                            disabled={
+                                                                sandboxLimitReached
+                                                            }
+                                                            title={
+                                                                sandboxLimitReached
+                                                                    ? t(
+                                                                          'web.agentNew.limitReached'
+                                                                      )
+                                                                    : undefined
+                                                            }
+                                                            onClick={
+                                                                openSandboxDialog
+                                                            }
+                                                            className={
+                                                                entryClass
+                                                            }
+                                                        >
+                                                            {body}
+                                                        </button>
+                                                    )
+                                                if (option.kind === 'daemon')
+                                                    return (
+                                                        <button
+                                                            key={option.kind}
+                                                            type='button'
+                                                            onClick={() =>
+                                                                setConnectDaemonOpen(
+                                                                    true
+                                                                )
+                                                            }
+                                                            className={
+                                                                entryClass
+                                                            }
+                                                        >
+                                                            {body}
+                                                        </button>
+                                                    )
+                                                return (
                                                     <Link
                                                         key={option.kind}
                                                         to={option.to}
@@ -2318,6 +2366,16 @@ const AgentNew: FC = (): ReactNode => {
                         </footer>
                     </div>
                 </div>
+            )}
+            {connectDaemonOpen && (
+                <ConnectDaemonDialog
+                    framework={framework}
+                    onClose={() => {
+                        setConnectDaemonOpen(false)
+                        void refetchRuntimes()
+                    }}
+                    onConnected={handleDaemonConnected}
+                />
             )}
             {sandboxDialogOpen && (
                 <div
