@@ -1027,9 +1027,12 @@ const AgentNew: FC = (): ReactNode => {
             group: 'existing' as const,
             name: r.name,
             tag: null,
+            // The machine name is worth a line only when it is not the
+            // runtime's own name, which is what a self-registered daemon
+            // usually reports.
             detail:
-                r.kind === 'daemon'
-                    ? (r.daemonName ?? frameworkLabelFor(r.framework))
+                r.kind === 'daemon' && r.daemonName && r.daemonName !== r.name
+                    ? r.daemonName
                     : frameworkLabelFor(r.framework),
             status:
                 r.kind === 'daemon' && !r.daemonOnline
