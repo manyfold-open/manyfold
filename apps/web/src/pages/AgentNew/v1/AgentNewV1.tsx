@@ -45,6 +45,7 @@ import {
 import {
     apiKeyLabelForProvider,
     buildAddRuntimeAgentBody,
+    buildAgentCredentialsBody,
     buildCreateAgentBody,
     modelProviderForFramework,
     progressStepsForCreate,
@@ -637,6 +638,7 @@ const AgentNew: FC = (): ReactNode => {
         useState<RuntimeKindFilter>('all')
     const [runtimePage, setRuntimePage] = useState(1)
     const [existingRuntimeModel, setExistingRuntimeModel] = useState('')
+    const [changeProviderOnReuse, setChangeProviderOnReuse] = useState(false)
     const [connectDaemonOpen, setConnectDaemonOpen] = useState(false)
     const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
     const [sandboxDraftName, setSandboxDraftName] = useState('')
@@ -919,6 +921,7 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeKindFilter('all')
         setRuntimePage(1)
         setExistingRuntimeModel('')
+        setChangeProviderOnReuse(false)
         if (isK8sOnlyFramework(next)) {
             setRuntimeMode('persistent')
         } else if (runtimeMode === 'existing') {
@@ -947,6 +950,7 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId(runtime.id)
         setAttachSandboxHostId('')
         setExistingRuntimeModel('')
+        setChangeProviderOnReuse(false)
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -1618,17 +1622,42 @@ const AgentNew: FC = (): ReactNode => {
                 body: buildAddRuntimeAgentBody({
                     name: normalizedName,
                     workspace: effectiveExistingWorkspace,
-                    model: existingRuntimeModel,
+                    // The provider override carries its own model, so the two
+                    // never both set one.
+                    model: changeProviderOnReuse ? '' : existingRuntimeModel,
                     cloneFrom:
                         pickedRuntime.framework === 'hermes' && cloneEnabled
                             ? cloneFromProfile || undefined
                             : undefined
                 })
             })
-            if (created) {
-                await refreshAgents()
-                navigate(`/agents/${created.id}/chat`)
+            if (!created) return
+            if (changeProviderOnReuse && canChangeProviderOnReuse) {
+                try {
+                    await client.agents.credentials.update(
+                        created.id,
+                        buildAgentCredentialsBody({
+                            framework,
+                            picker,
+                            persistentModelProvider,
+                            primaryModelName
+                        })
+                    )
+                } catch (err) {
+                    // The agent exists either way; saying so beats a bare
+                    // failure that hides a created agent.
+                    await refreshAgents()
+                    setError(
+                        t('web.agentNew.providerChangeFailed', {
+                            name: normalizedName,
+                            reason: apiErrorMessage(err)
+                        })
+                    )
+                    return
+                }
             }
+            await refreshAgents()
+            navigate(`/agents/${created.id}/chat`)
             return
         }
         const externalNow = isExternalFramework(framework)
@@ -1694,31 +1723,69 @@ const AgentNew: FC = (): ReactNode => {
     // the attach service reads them off the runtime's primary agent and the
     // request cannot override them. The model is per agent, so it is the one
     // thing worth offering here.
+    // Adding an agent to a runtime inherits that runtime's provider and key.
+    // Changing them is a real operation, not a create-time field: it is the
+    // same PATCH the agent's own credentials dialog issues, and because the
+    // stored credential belongs to the runtime, it lands for every agent on
+    // it. The API rejects it for narranexus and the external frameworks, so
+    // they never get the affordance.
+    const canChangeProviderOnReuse =
+        !isExternalFramework(framework) && framework !== 'narranexus'
+
     const renderExistingRuntimeModelSettings = (): ReactNode => (
         <div className='space-y-4'>
             <div className='bg-soft shadow-ring-light rounded-md px-3 py-2.5'>
-                <div className='text-caption text-subtle font-medium'>
-                    {t('web.agentNew.usingCredentialsFrom')}
+                <div className='flex items-start justify-between gap-3'>
+                    <div className='min-w-0'>
+                        <div className='text-caption text-subtle font-medium'>
+                            {t('web.agentNew.usingCredentialsFrom')}
+                        </div>
+                        <div className='text-caption text-fg mt-0.5 truncate'>
+                            {pickedRuntime?.name ??
+                                t('web.agentNew.runtimeSelect')}
+                        </div>
+                    </div>
+                    {canChangeProviderOnReuse && (
+                        <button
+                            type='button'
+                            onClick={() =>
+                                setChangeProviderOnReuse((open) => !open)
+                            }
+                            className='text-caption text-link hover:text-fg shrink-0 font-medium'
+                        >
+                            {changeProviderOnReuse
+                                ? t('common.cancel')
+                                : t('web.agentNew.change')}
+                        </button>
+                    )}
                 </div>
-                <div className='text-caption text-fg mt-0.5 truncate'>
-                    {pickedRuntime?.name ?? t('web.agentNew.runtimeSelect')}
-                </div>
+                {changeProviderOnReuse && (
+                    <p className='workbench-hint mt-2'>
+                        {t('web.agentNew.providerSharedHint')}
+                    </p>
+                )}
             </div>
-            <label className='block'>
-                <span className='workbench-field-label'>
-                    {t('web.agentNew.model')}
-                </span>
-                <input
-                    value={existingRuntimeModel}
-                    onChange={(e) => setExistingRuntimeModel(e.target.value)}
-                    placeholder={t('web.agentNew.primaryModelPlaceholder')}
-                    maxLength={255}
-                    className='workbench-input font-mono'
-                />
-                <p className='workbench-hint mt-2'>
-                    {t('web.agentNew.modelInheritHint')}
-                </p>
-            </label>
+            {changeProviderOnReuse ? (
+                renderCreateRuntimeSettings()
+            ) : (
+                <label className='block'>
+                    <span className='workbench-field-label'>
+                        {t('web.agentNew.model')}
+                    </span>
+                    <input
+                        value={existingRuntimeModel}
+                        onChange={(e) =>
+                            setExistingRuntimeModel(e.target.value)
+                        }
+                        placeholder={t('web.agentNew.primaryModelPlaceholder')}
+                        maxLength={255}
+                        className='workbench-input font-mono'
+                    />
+                    <p className='workbench-hint mt-2'>
+                        {t('web.agentNew.modelInheritHint')}
+                    </p>
+                </label>
+            )}
         </div>
     )
 

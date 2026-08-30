@@ -3190,6 +3190,8 @@ const es: Record<string, string> = {
     'web.agentNew.baseUrlProxyPlaceholder': 'Déjelo en blanco para usar el proxy predeterminado de Netmind',
     'web.agentNew.customModel': 'Modelo personalizado',
     'web.agentNew.filterAll': 'Todos',
+    'web.agentNew.providerSharedHint': 'Cambiarlo reemplaza las credenciales guardadas para todos los agentes de este runtime.',
+    'web.agentNew.providerChangeFailed': 'Se creó el agente {{name}}, pero el cambio de proveedor falló: {{reason}}',
     'web.agentNew.modelInheritHint': 'Déjalo en blanco para usar el modelo predeterminado del runtime.',
     'web.agentNew.agentsColumn': 'Agentes',
     'web.agentNew.sandboxNameHint': 'Renómbralo ahora o conserva el nombre generado; puedes cambiarlo más tarde.',

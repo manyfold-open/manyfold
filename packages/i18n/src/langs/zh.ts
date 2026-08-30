@@ -3425,6 +3425,8 @@ const zh: Translations = {
             baseUrlProxyPlaceholder: '留空则使用 Netmind 代理默认值',
             customModel: '自定义模型',
             filterAll: '全部',
+            providerSharedHint: '更改会替换该 runtime 上所有 agent 共用的凭据。',
+            providerChangeFailed: 'Agent {{name}} 已创建，但更改 provider 失败：{{reason}}',
             modelInheritHint: '留空则使用该 runtime 的默认模型。',
             agentsColumn: 'Agent 数',
             sandboxNameHint: '现在可以改名，也可以保留生成的名字，之后随时能改。',

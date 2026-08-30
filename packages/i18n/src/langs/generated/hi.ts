@@ -3190,6 +3190,8 @@ const hi: Record<string, string> = {
     'web.agentNew.baseUrlProxyPlaceholder': 'Netmind प्रॉक्सी डिफ़ॉल्ट उपयोग करने के लिए खाली छोड़ें',
     'web.agentNew.customModel': 'कस्टम मॉडल',
     'web.agentNew.filterAll': 'सभी',
+    'web.agentNew.providerSharedHint': 'बदलने पर इस रनटाइम के सभी एजेंट की संग्रहीत क्रेडेंशियल बदल जाएँगी।',
+    'web.agentNew.providerChangeFailed': 'एजेंट {{name}} बन गया, लेकिन प्रदाता बदलना विफल रहा: {{reason}}',
     'web.agentNew.modelInheritHint': 'रनटाइम का डिफ़ॉल्ट मॉडल उपयोग करने के लिए खाली छोड़ें।',
     'web.agentNew.agentsColumn': 'एजेंट',
     'web.agentNew.sandboxNameHint': 'अभी नाम बदलें या जनरेट किया गया नाम रखें — बाद में कभी भी बदल सकते हैं।',

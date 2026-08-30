@@ -7,6 +7,7 @@ import type {
     ClaudeCodeCredentialsInput,
     CodexCredentialsInput,
     CreateAgentBody,
+    UpdateAgentCredentialsBody,
     GeminiCliCredentialsInput,
     UserModelProvider
 } from '@manyfold/shared'
@@ -118,6 +119,64 @@ export const buildCreateAgentBody = (
     const frameworkVersion = draft.frameworkVersion?.trim()
     if (frameworkVersion) base.frameworkVersion = frameworkVersion
     return base
+}
+
+// The same per-framework payloads the create body carries, addressed at an
+// agent that already exists: PATCH /agents/:id/credentials takes them verbatim,
+// resolves the provider, rewrites the runtime's stored credential and rebinds
+// the agent. Narranexus and the external frameworks are rejected there, so
+// callers must not offer this for them.
+export const buildAgentCredentialsBody = (draft: {
+    framework: CreateableFramework
+    picker: ProviderPickerValue
+    persistentModelProvider?: PersistentModelProvider
+    primaryModelName?: string
+}): UpdateAgentCredentialsBody => {
+    const explicitBaseUrl = normalizeProviderBaseUrl(draft.picker.baseUrl)
+    const body: UpdateAgentCredentialsBody = {}
+    if (draft.framework === 'claude-code')
+        body.claudeCodeCredentials = buildClaudePayload(draft.picker)
+    else if (draft.framework === 'codex')
+        body.codexCredentials = buildCodexPayload(draft.picker)
+    else if (draft.framework === 'gemini-cli')
+        body.geminiCliCredentials = buildGeminiPayload(draft.picker)
+    else if (draft.framework === 'openclaw')
+        body.openclawCredentials =
+            draft.picker.mode === 'saved'
+                ? {
+                      providerId: draft.picker.providerId,
+                      primaryModelName: trimOptional(draft.primaryModelName)
+                  }
+                : {
+                      modelProvider:
+                          draft.persistentModelProvider ?? 'anthropic',
+                      apiKey: draft.picker.apiKey,
+                      primaryModelName: trimOptional(draft.primaryModelName),
+                      ...(explicitBaseUrl ? { baseUrl: explicitBaseUrl } : {})
+                  }
+    else
+        body.hermesCredentials =
+            draft.picker.mode === 'saved'
+                ? {
+                      primaryProviderId: draft.picker.providerId,
+                      primaryModelName: trimOptional(draft.primaryModelName)
+                  }
+                : {
+                      primaryModelProvider:
+                          draft.persistentModelProvider ?? 'anthropic',
+                      primaryModelApiKey: draft.picker.apiKey,
+                      primaryModelName: trimOptional(draft.primaryModelName),
+                      ...(explicitBaseUrl
+                          ? { primaryModelBaseUrl: explicitBaseUrl }
+                          : {})
+                  }
+    if (
+        draft.picker.mode === 'inline' &&
+        draft.picker.save &&
+        draft.picker.saveLabel
+    )
+        body.saveCredentialAs = { providerName: draft.picker.saveLabel }
+    return body
 }
 
 export const buildAddRuntimeAgentBody = (draft: {

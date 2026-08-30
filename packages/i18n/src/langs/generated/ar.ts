@@ -3189,6 +3189,8 @@ const ar: Record<string, string> = {
     'web.agentNew.baseUrlProxyPlaceholder': 'اتركه فارغًا لاستخدام وكيل Netmind الافتراضي',
     'web.agentNew.customModel': 'نموذج مخصص',
     'web.agentNew.filterAll': 'الكل',
+    'web.agentNew.providerSharedHint': 'يؤدي التغيير إلى استبدال بيانات الاعتماد المخزنة لكل الوكلاء على بيئة التشغيل هذه.',
+    'web.agentNew.providerChangeFailed': 'تم إنشاء الوكيل {{name}}، لكن تغيير المزود فشل: {{reason}}',
     'web.agentNew.modelInheritHint': 'اتركه فارغًا لاستخدام النموذج الافتراضي لبيئة التشغيل.',
     'web.agentNew.agentsColumn': 'الوكلاء',
     'web.agentNew.sandboxNameHint': 'أعد التسمية الآن أو احتفظ بالاسم المُولَّد — يمكنك تغييره لاحقًا.',

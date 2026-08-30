@@ -3594,6 +3594,8 @@ const en = {
             baseUrlProxyPlaceholder: 'Leave blank to use Netmind proxy default',
             customModel: 'Custom model',
             filterAll: 'All',
+            providerSharedHint: 'Changing it replaces the stored credentials for every agent on this runtime.',
+            providerChangeFailed: 'Agent {{name}} was created, but the provider change failed: {{reason}}',
             modelInheritHint: 'Leave blank to use the runtime\'s default model.',
             agentsColumn: 'Agents',
             sandboxNameHint: 'Rename it now or keep the generated name — you can rename it later.',
