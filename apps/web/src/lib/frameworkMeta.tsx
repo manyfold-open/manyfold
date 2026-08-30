@@ -80,7 +80,9 @@ const frameworkMeta = {
         mono: true,
         iconSrc: null,
         iconSrcDark: null,
-        supportsModelOverride: false,
+        // Options come from the agent's provider-models cache at runtime
+        // (AgentChat feeds them in), so the static presets stay empty.
+        supportsModelOverride: true,
         modelPresets: [],
         defaultProvider: 'openrouter'
     },

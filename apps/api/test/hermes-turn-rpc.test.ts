@@ -154,14 +154,28 @@ const userMsg = {
 const routingHarness = (row: {
     runtime: 'sprites' | 'daemon'
     daemonId: string | null
+    model?: string | null
+    clientFeatures?: string[]
 }) => {
     const db = {
-        select: () => ({
+        select: (projection?: Record<string, unknown>) => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [
-                        { ...row, workspacePath: '/w', extras: null }
-                    ]
+                    // The harness serves two different selects: the agents row
+                    // (runtime/daemonId/model/...) and daemonAdvertisesFeature's
+                    // runtime_hosts clientFeatures lookup, told apart by the
+                    // projection's keys.
+                    limit: async () =>
+                        projection && 'clientFeatures' in projection
+                            ? [{ clientFeatures: row.clientFeatures ?? [] }]
+                            : [
+                                  {
+                                      ...row,
+                                      workspacePath: '/w',
+                                      extras: null,
+                                      model: row.model ?? null
+                                  }
+                              ]
                 })
             })
         })
@@ -173,14 +187,24 @@ const routingHarness = (row: {
         {} as never,
         {} as never
     )
-    const routes: Array<{ via: string; env?: Record<string, string> }> = []
+    const routes: Array<{
+        via: string
+        env?: Record<string, string>
+        modelOverride?: string | null
+    }> = []
     const a = adapter as unknown as Record<string, unknown>
     a.sendViaTurnRpc = async function* (
         _c: unknown,
         _m: unknown,
-        args: { env?: Record<string, string> }
+        args: { env?: Record<string, string>; modelOverride?: string | null }
     ) {
-        routes.push({ via: 'turn', ...(args.env ? { env: args.env } : {}) })
+        routes.push({
+            via: 'turn',
+            ...(args.env ? { env: args.env } : {}),
+            ...(args.modelOverride != null
+                ? { modelOverride: args.modelOverride }
+                : {})
+        })
         yield { type: 'done', finalMessageId: 'msg_1' }
     }
     a.sendViaInteractiveAcp = async function* () {
@@ -544,4 +568,79 @@ test('ack usage decodes the cachedReadTokens spelling', async () => {
     assert.ok(usage, 'usage event expected')
     assert.equal(usage.usage.inputTokens, 100)
     assert.equal(usage.usage.cacheReadTokens, 64)
+})
+
+// PR: hermes model switching. The web auto-defaults its override to the
+// agent's model, so "override present" alone is not user intent — only a
+// value that DIFFERS from the agent default hard-gates on the daemon
+// capability; the auto-default merely reconciles and old daemons skip it.
+test('an explicit model switch on a daemon without turn.hermes.options is refused', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes']
+    })
+    h.a.requireTurnHermes = async () => true
+    const events = await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'picked-model' }), userMsg)
+    )
+    assert.equal(h.routes.length, 0, 'must refuse before dispatch')
+    const err = events.find((e) => e.type === 'error') as {
+        error: { code: string; retryable: boolean; message: string }
+    }
+    assert.equal(err.error.code, 'hermes_daemon_options_upgrade_required')
+    assert.equal(err.error.retryable, false)
+    assert.match(err.error.message, /mf update/)
+})
+
+test('the auto-defaulted override dispatches without a model on an old daemon', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes']
+    })
+    h.a.requireTurnHermes = async () => true
+    await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'default-model' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [{ via: 'turn', env: {} }])
+})
+
+test('a capable daemon carries the override on the turn payload', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes', 'turn.hermes.options']
+    })
+    h.a.requireTurnHermes = async () => true
+    await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'picked-model' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [
+        { via: 'turn', env: {}, modelOverride: 'picked-model' }
+    ])
+})
+
+test('turn.start serializes modelOverride and its required flag', async () => {
+    const h = buildHarness({
+        lines: [noteLine('ok'), turnEndLine()],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(
+            ctx({ modelOverride: 'picked-model' }),
+            userMsg,
+            {
+                daemonId: 'dh_runner',
+                cwd: '/w',
+                modelOverride: 'picked-model',
+                modelOverrideRequired: true
+            }
+        ) as AsyncIterable<EmittedChatEvent>
+    )
+    assert.equal(h.calls[0].payload.modelOverride, 'picked-model')
+    assert.equal(h.calls[0].payload.modelOverrideRequired, true)
 })

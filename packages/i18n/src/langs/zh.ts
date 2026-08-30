@@ -2757,6 +2757,8 @@ const zh: Translations = {
             sendHint: '发送（Cmd/Ctrl+Enter）',
             streaming: '生成中',
             modelMenuLabel: '切换模型',
+            modelFilterPlaceholder: '筛选模型…',
+            modelNoMatches: '没有匹配的模型',
             modelDefaultLabel: '默认（{{model}}）',
             modelSettings: '模型设置',
             modelSelectedTitle: '{{model}}（已为本次对话选择）',

@@ -491,3 +491,120 @@ test('interactive turns emit tool_result in the x namespace and context usage as
         { size: 256000, used: 1800 }
     )
 })
+
+// PR: hermes model switching over the interactive transport. The adapter
+// reconciles the session's persisted model with the turn's claim: diff
+// against the state hermes reports, switch on mismatch, fail the turn when
+// the build cannot switch.
+test('an explicit model pick reconciles the session via set_model', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: [
+                        { modelId: 'openrouter:old-model', name: 'old' },
+                        { modelId: 'openrouter:new-model', name: 'new' }
+                    ]
+                }
+            }
+        })
+        const setModel = await rig.waitFor('session/set_model')
+        rig.reply({ jsonrpc: '2.0', id: setModel.id, result: {} })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.note({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'switched' }
+        })
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'new-model' }), USER_MSG)
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    const setFrame = rig.writes.find((f) => f.method === 'session/set_model')
+    assert.ok(setFrame, 'set_model must be sent')
+    assert.equal(
+        (setFrame.params as { modelId: string }).modelId,
+        'new-model'
+    )
+})
+
+test('a session already on the picked model skips set_model', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: []
+                }
+            }
+        })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'old-model' }), USER_MSG)
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(
+        rig.writes.find((f) => f.method === 'session/set_model'),
+        undefined
+    )
+})
+
+test('set_model on a build that cannot switch fails the turn as unsupported', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: []
+                }
+            }
+        })
+        const setModel = await rig.waitFor('session/set_model')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: setModel.id,
+            error: { code: -32601, message: 'Method not found' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'new-model' }), USER_MSG)
+    )
+    const err = events.find((e) => e.type === 'error') as {
+        error: { code: string; retryable: boolean }
+    }
+    assert.equal(err.error.code, 'hermes_set_model_unsupported')
+    assert.equal(err.error.retryable, false)
+})

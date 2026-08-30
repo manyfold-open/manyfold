@@ -34,13 +34,34 @@ const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\\n')
 const notify = (update) =>
     send({ jsonrpc: '2.0', method: 'session/update', params: { update } })
 let promptId = null
+let switchedTo = null
 rl.on('line', (line) => {
     let frame
     try { frame = JSON.parse(line) } catch { return }
     if (frame.method === 'initialize')
         return send({ jsonrpc: '2.0', id: frame.id, result: { protocolVersion: 1 } })
-    if (frame.method === 'session/new')
+    if (frame.method === 'session/new') {
+        if (mode === 'model')
+            return send({ jsonrpc: '2.0', id: frame.id, result: {
+                sessionId: 'sess_fake_1',
+                models: { currentModelId: 'prov:old-model', availableModels: [
+                    { modelId: 'prov:old-model', name: 'old' },
+                    { modelId: 'prov:new-model', name: 'new' }
+                ] },
+                modes: { currentModeId: 'default', availableModes: [
+                    { id: 'default', name: 'Default' },
+                    { id: 'accept_edits', name: 'Accept Edits' },
+                    { id: 'dont_ask', name: "Don't Ask" }
+                ] }
+            } })
         return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: 'sess_fake_1' } })
+    }
+    if (frame.method === 'session/set_model') {
+        if (mode === 'model-unsupported')
+            return send({ jsonrpc: '2.0', id: frame.id, error: { code: -32601, message: 'Method not found' } })
+        switchedTo = frame.params.modelId
+        return send({ jsonrpc: '2.0', id: frame.id, result: {} })
+    }
     if (frame.method === 'session/resume')
         return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: frame.params.sessionId } })
     if (frame.method === 'session/prompt') {
@@ -65,6 +86,8 @@ rl.on('line', (line) => {
             return
         }
         promptId = frame.id
+        if (mode === 'model')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'model=' + (switchedTo || 'none') + ' ' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'lo' } })
         // 'options' asks with the upstream-shaped option list and echoes the
@@ -375,4 +398,95 @@ test('auto-approve answers with the session-scoped option from the ask', async (
         stdout.some((e) => e.data.includes('perm=allow_session')),
         'the fake agent must see allow_session as the chosen option'
     )
+})
+
+// PR: hermes model switching. The daemon diffs the payload's model against
+// the session state hermes reported: a matching session costs no RPC, a
+// mismatch is switched via session/set_model, and a build that reports no
+// state only attempts the switch when the API marked it REQUIRED — failing
+// loudly beats answering with a model the user did not pick.
+test('a differing modelOverride is applied via set_model and reported on the final', async () => {
+    const h = makeCtx('turn-model-1')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model', { modelOverride: 'new-model' }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('model=new-model')),
+        'the fake agent must run with the switched model'
+    )
+    const final = ack.payload as {
+        models?: { currentModelId: string | null; modelIds: string[] }
+        modes?: { currentModeId: string | null; modeIds: string[] }
+    }
+    assert.equal(final.models?.currentModelId, 'new-model')
+    assert.deepEqual(final.models?.modelIds, [
+        'prov:old-model',
+        'prov:new-model'
+    ])
+    assert.equal(final.modes?.currentModeId, 'default')
+    assert.deepEqual(final.modes?.modeIds, [
+        'default',
+        'accept_edits',
+        'dont_ask'
+    ])
+})
+
+test('a modelOverride matching the session (provider-prefixed) skips set_model', async () => {
+    const h = makeCtx('turn-model-2')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model', { modelOverride: 'old-model' }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('model=none')),
+        'no switch may happen when the session already runs the target'
+    )
+    const final = ack.payload as {
+        models?: { currentModelId: string | null }
+    }
+    assert.equal(final.models?.currentModelId, 'prov:old-model')
+})
+
+test('a REQUIRED override on a stateless build fails the turn on set_model', async () => {
+    const h = makeCtx('turn-model-3')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model-unsupported', {
+            modelOverride: 'new-model',
+            modelOverrideRequired: true
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, false)
+    assert.match(ack.error ?? '', /session\/set_model/)
+})
+
+test('a reconcile-only override on a stateless build is skipped', async () => {
+    const h = makeCtx('turn-model-4')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model-unsupported', {
+            modelOverride: 'new-model',
+            modelOverrideRequired: false
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const final = ack.payload as { models?: unknown }
+    assert.equal(final.models, undefined)
 })

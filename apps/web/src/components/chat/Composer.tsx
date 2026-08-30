@@ -317,6 +317,7 @@ const Composer: FC<Props> = ({
     const dragDepthRef = useRef(0)
     const [agentMenuOpen, setAgentMenuOpen] = useState(false)
     const [modelMenuOpen, setModelMenuOpen] = useState(false)
+    const [modelFilter, setModelFilter] = useState('')
     const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -534,6 +535,7 @@ const Composer: FC<Props> = ({
         setAgentMenuOpen(false)
         setAttachmentMenuOpen(false)
         setPermissionMenuOpen(false)
+        setModelFilter('')
         setModelMenuOpen((prev) => !prev)
     }
 
@@ -793,6 +795,16 @@ const Composer: FC<Props> = ({
     const selectableModels = uniqueModels(modelOptions).filter(
         (option) => option !== modelDefaultLabel
     )
+    // Provider catalogs (openrouter) run to hundreds of entries; a plain list
+    // is unusable past a screenful, so the menu grows a filter box.
+    const modelFilterNeedle = modelFilter.trim().toLowerCase()
+    const showModelFilter = selectableModels.length > 12
+    const filteredModels =
+        showModelFilter && modelFilterNeedle
+            ? selectableModels.filter((option) =>
+                  option.toLowerCase().includes(modelFilterNeedle)
+              )
+            : selectableModels
     const promptTarget = agentName?.trim() || t('web.composer.theAgent')
     const canSwitchAgent =
         showAgentSwitcher && agentOptions.length > 1 && Boolean(onSelectAgent)
@@ -1214,7 +1226,34 @@ const Composer: FC<Props> = ({
                                                     0 && (
                                                     <div className='popover-separator' />
                                                 )}
-                                                {selectableModels.map(
+                                                {showModelFilter && (
+                                                    <input
+                                                        type='text'
+                                                        value={modelFilter}
+                                                        onChange={(e) =>
+                                                            setModelFilter(
+                                                                e.target.value
+                                                            )
+                                                        }
+                                                        placeholder={t(
+                                                            'web.composer.modelFilterPlaceholder'
+                                                        )}
+                                                        aria-label={t(
+                                                            'web.composer.modelFilterPlaceholder'
+                                                        )}
+                                                        className='bg-app text-body-sm placeholder:text-placeholder mx-2 my-1 w-[calc(100%-1rem)] rounded-md px-2 py-1 outline-none'
+                                                    />
+                                                )}
+                                                {showModelFilter &&
+                                                    filteredModels.length ===
+                                                        0 && (
+                                                        <div className='text-caption text-subtle px-3 py-2'>
+                                                            {t(
+                                                                'web.composer.modelNoMatches'
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                {filteredModels.map(
                                                     (option) => (
                                                         <ModelMenuItem
                                                             key={option}
