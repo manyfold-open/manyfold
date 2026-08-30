@@ -1036,12 +1036,31 @@ const AgentNew: FC = (): ReactNode => {
         }))
     ]
 
-    const runtimeKindsPresent = Array.from(
-        new Set(runtimeTargets.map((target) => target.kind))
+    // The quick filter's chips are the kinds this framework can land on, not
+    // the kinds that happen to have a target today: a deployment with one
+    // sandbox and nothing else should still see that computers are a choice,
+    // and filtering to an empty kind is what surfaces its "provision one" link.
+    // Kinds that hold a target are always included, so no target can be
+    // unreachable through the filter.
+    const runtimeKindsWithTargets = new Set(
+        runtimeTargets.map((target) => target.kind)
     )
+    const runtimeKindCount = (kind: RuntimeTargetKind): number =>
+        runtimeTargets.filter((target) => target.kind === kind).length
     const runtimeKindFilterOptions: RuntimeKindFilter[] = [
         'all',
-        ...runtimeKindsPresent
+        ...(
+            [
+                ['sprites', supportsSandbox(framework)],
+                ['k8s', cloudComputerAvailable],
+                ['daemon', daemonSupported]
+            ] as Array<[RuntimeTargetKind, boolean]>
+        )
+            .filter(
+                ([kind, supported]) =>
+                    supported || runtimeKindsWithTargets.has(kind)
+            )
+            .map(([kind]) => kind)
     ]
     const visibleRuntimeTargets =
         runtimeKindFilter === 'all'
@@ -1631,9 +1650,6 @@ const AgentNew: FC = (): ReactNode => {
                                         <span className='workbench-field-label'>
                                             {t('web.agentNew.agentRuntime')}
                                         </span>
-                                        <span className='tag tag-neutral tabular-nums'>
-                                            {runtimeTargets.length}
-                                        </span>
                                         <span className='min-w-2 flex-1' />
                                         <button
                                             type='button'
@@ -1654,13 +1670,13 @@ const AgentNew: FC = (): ReactNode => {
                                             )}
                                         />
                                     </div>
-                                    {runtimeKindFilterOptions.length > 2 && (
+                                    {runtimeKindFilterOptions.length > 1 && (
                                         <div
                                             role='group'
                                             aria-label={t(
                                                 'web.agentNew.runtimeCategory'
                                             )}
-                                            className='bg-soft shadow-ring-light mb-2 inline-flex gap-1 rounded-md p-1'
+                                            className='bg-soft shadow-ring-light mb-2 inline-flex flex-wrap gap-1 rounded-md p-1'
                                         >
                                             {runtimeKindFilterOptions.map(
                                                 (kind) => (
@@ -1677,20 +1693,29 @@ const AgentNew: FC = (): ReactNode => {
                                                             )
                                                         }
                                                         className={[
-                                                            'text-caption inline-flex h-7 items-center rounded-sm px-2.5 transition-colors',
+                                                            'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
                                                             runtimeKindFilter ===
                                                             kind
                                                                 ? 'bg-surface text-fg shadow-ring-light'
                                                                 : 'text-muted hover:bg-surface-hover'
                                                         ].join(' ')}
                                                     >
-                                                        {kind === 'all'
-                                                            ? t(
-                                                                  'web.agentNew.filterAll'
-                                                              )
-                                                            : runtimeKindLabel(
-                                                                  kind
-                                                              )}
+                                                        <span>
+                                                            {kind === 'all'
+                                                                ? t(
+                                                                      'web.agentNew.filterAll'
+                                                                  )
+                                                                : runtimeKindLabel(
+                                                                      kind
+                                                                  )}
+                                                        </span>
+                                                        <span className='text-subtle tabular-nums'>
+                                                            {kind === 'all'
+                                                                ? runtimeTargets.length
+                                                                : runtimeKindCount(
+                                                                      kind
+                                                                  )}
+                                                        </span>
                                                     </button>
                                                 )
                                             )}
