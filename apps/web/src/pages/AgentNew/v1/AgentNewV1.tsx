@@ -83,6 +83,8 @@ import {
     openclawWorkspaceFor,
     preferredSavedProviderFor
 } from '@/lib/agentCreate/providerHelpers'
+import { useApiClient } from '@/lib/apiClient'
+import { apiErrorMessage } from '@/lib/errorMessage'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
 import { SandboxSlots } from '@/pages/AgentNew/components/SandboxSlots'
@@ -554,6 +556,7 @@ const AgentNew: FC = (): ReactNode => {
         description: t(option.descriptionKey)
     }))
     const navigate = useNavigate()
+    const client = useApiClient()
     const { refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
@@ -570,6 +573,8 @@ const AgentNew: FC = (): ReactNode => {
         externalProvidersError,
         runtimes,
         runtimesError,
+        refetchRuntimes,
+        refetchSandboxes,
         sandboxes,
         runtimeAccess,
         runtimeAgents,
@@ -604,6 +609,15 @@ const AgentNew: FC = (): ReactNode => {
     const [runtimeKindFilter, setRuntimeKindFilter] =
         useState<RuntimeKindFilter>('all')
     const [runtimePage, setRuntimePage] = useState(1)
+    const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
+    const [sandboxDraftName, setSandboxDraftName] = useState('')
+    const [sandboxCreating, setSandboxCreating] = useState(false)
+    const [sandboxCreateError, setSandboxCreateError] = useState<string | null>(
+        null
+    )
+    // Set when a target must be brought on screen after the list reloads — the
+    // page it lands on is only knowable once the reloaded list is rendered.
+    const [revealTargetKey, setRevealTargetKey] = useState<string | null>(null)
     const [runtimeCompareDialogOpen, setRuntimeCompareDialogOpen] =
         useState(false)
     const [frameworkCompareDialogOpen, setFrameworkCompareDialogOpen] =
@@ -763,6 +777,9 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeMode('sandbox')
         setAttachSandboxHostId(target.hostId)
         setPickedRuntimeId('')
+        // ?sandboxId= can name a host several pages down; selecting it without
+        // paging to it would leave the picker showing someone else.
+        setRevealTargetKey(`sandbox:${target.hostId}`)
     }, [initialSandboxId, spriteAttachTargets, runtimes, sandboxes])
 
     const pickedRuntime = useMemo(
@@ -919,6 +936,42 @@ const AgentNew: FC = (): ReactNode => {
         setWorkspaceDialogOpen(false)
     }
 
+    const openSandboxDialog = (): void => {
+        // Mirrors the server's auto-name (sandbox-001, sandbox-002, …) so the
+        // prefilled value is the one the user would have got by leaving the
+        // standalone form blank — editable, not decorative.
+        const used = sandboxes
+            .map((sandbox) => /^sandbox-(\d+)$/.exec(sandbox.name ?? '')?.[1])
+            .flatMap((digits) => (digits ? [Number(digits)] : []))
+        const next = Math.max(sandboxes.length, ...used, 0) + 1
+        setSandboxDraftName(`sandbox-${String(next).padStart(3, '0')}`)
+        setSandboxCreateError(null)
+        setSandboxDialogOpen(true)
+    }
+
+    const createSandbox = async (): Promise<void> => {
+        const validation = validateAgentName(sandboxDraftName)
+        if (!validation.valid || sandboxCreating) return
+        setSandboxCreating(true)
+        setSandboxCreateError(null)
+        try {
+            const created = await client.sandboxes.create({
+                name: validation.value
+            })
+            await Promise.all([refetchRuntimes(), refetchSandboxes()])
+            setRuntimeMode('sandbox')
+            setAttachSandboxHostId(created.id)
+            setPickedRuntimeId('')
+            setRuntimeKindFilter('all')
+            setRevealTargetKey(`sandbox:${created.id}`)
+            setSandboxDialogOpen(false)
+        } catch (err) {
+            setSandboxCreateError(apiErrorMessage(err))
+        } finally {
+            setSandboxCreating(false)
+        }
+    }
+
     const changeRuntimeView = (next: DashboardView): void => {
         setRuntimeView(next)
         writeDashboardView(AGENT_NEW_RUNTIME_VIEW_KEY, next)
@@ -927,6 +980,11 @@ const AgentNew: FC = (): ReactNode => {
     const randomizeName = (): void => {
         setName(randomAgentName())
     }
+
+    const sandboxNameValidation = validateAgentName(sandboxDraftName)
+    const sandboxNameValidationMessage = sandboxNameValidation.valid
+        ? null
+        : sandboxNameValidation.message
 
     const nameValidation = validateAgentName(name)
     const normalizedName = nameValidation.valid
@@ -982,8 +1040,10 @@ const AgentNew: FC = (): ReactNode => {
             }
             return true
         }
-        if (runtimeMode === 'sandbox' && !supportsSandbox(framework))
-            return false
+        // A sandbox target is always an existing host now — creating one is a
+        // separate step, so an unattached 'sandbox' mode means nothing is
+        // picked yet.
+        if (runtimeMode === 'sandbox' && !attachSandboxHostId) return false
         if (runtimeMode === 'persistent') return false
         return pickerIsValid(picker)
     })()
@@ -1064,30 +1124,6 @@ const AgentNew: FC = (): ReactNode => {
     // Containers are a purchased product only where a billing surface exists,
     // so on that edition renting stays a link instead of a selectable target.
     const runtimeTargets: RuntimeTarget[] = [
-        ...(supportsSandbox(framework)
-            ? [
-                  {
-                      key: 'create:sandbox',
-                      kind: 'sprites' as const,
-                      group: 'create' as const,
-                      name: t('web.agentNew.createRuntimeNamed', {
-                          runtime: t('web.agentNew.sandbox')
-                      }),
-                      tag: t('web.agentNew.recommended'),
-                      detail: t('web.agentNew.sandboxDesc'),
-                      status: null,
-                      note: runtimeQuotaLabel('sandbox'),
-                      slots: null,
-                      selected:
-                          runtimeMode === 'sandbox' && !attachSandboxHostId,
-                      disabled: sandboxLimitReached,
-                      disabledReason: sandboxLimitReached
-                          ? t('web.agentNew.limitReached')
-                          : null,
-                      onSelect: () => selectRuntimeCategory('sandbox')
-                  }
-              ]
-            : []),
         ...(cloudComputerAvailable && !BILLING_SURFACE
             ? [
                   {
@@ -1218,6 +1254,19 @@ const AgentNew: FC = (): ReactNode => {
         (runtimePageSafe - 1) * RUNTIME_PAGE_SIZE,
         runtimePageSafe * RUNTIME_PAGE_SIZE
     )
+
+    // A target selected for the user (the sandbox they just created) has to be
+    // on the visible page, or "selected" is a claim they cannot see. Runs only
+    // while a reveal is pending, and clears itself once the target lands.
+    useEffect(() => {
+        if (!revealTargetKey) return
+        const index = visibleRuntimeTargets.findIndex(
+            (target) => target.key === revealTargetKey
+        )
+        if (index < 0) return
+        setRuntimePage(Math.floor(index / RUNTIME_PAGE_SIZE) + 1)
+        setRevealTargetKey(null)
+    }, [revealTargetKey, visibleRuntimeTargets])
 
     // Entry points to provision a runtime outside this form. Reuses the
     // dashboard's option table so a new runtime kind appears in both places.
@@ -1930,15 +1979,48 @@ const AgentNew: FC = (): ReactNode => {
                                         <div className='mt-2 flex flex-wrap gap-2'>
                                             {newRuntimeEntries.map((option) => {
                                                 const Icon = option.icon
-                                                return (
-                                                    <Link
-                                                        key={option.kind}
-                                                        to={option.to}
-                                                        className='text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors'
-                                                    >
+                                                const entryClass =
+                                                    'text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors disabled:cursor-not-allowed disabled:opacity-55'
+                                                const body = (
+                                                    <>
                                                         <PlusIcon className='h-3.5 w-3.5 shrink-0' />
                                                         <Icon className='h-3.5 w-3.5 shrink-0' />
                                                         {t(option.labelKey)}
+                                                    </>
+                                                )
+                                                // A sandbox is provisioned here
+                                                // and selected in place; the
+                                                // other kinds still need their
+                                                // own settings page.
+                                                return option.kind ===
+                                                    'sprites' ? (
+                                                    <button
+                                                        key={option.kind}
+                                                        type='button'
+                                                        disabled={
+                                                            sandboxLimitReached
+                                                        }
+                                                        title={
+                                                            sandboxLimitReached
+                                                                ? t(
+                                                                      'web.agentNew.limitReached'
+                                                                  )
+                                                                : undefined
+                                                        }
+                                                        onClick={
+                                                            openSandboxDialog
+                                                        }
+                                                        className={entryClass}
+                                                    >
+                                                        {body}
+                                                    </button>
+                                                ) : (
+                                                    <Link
+                                                        key={option.kind}
+                                                        to={option.to}
+                                                        className={entryClass}
+                                                    >
+                                                        {body}
                                                     </Link>
                                                 )
                                             })}
@@ -2232,6 +2314,107 @@ const AgentNew: FC = (): ReactNode => {
                                 onClick={commitWorkspaceDraft}
                             >
                                 {t('common.done')}
+                            </button>
+                        </footer>
+                    </div>
+                </div>
+            )}
+            {sandboxDialogOpen && (
+                <div
+                    className='fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm'
+                    role='dialog'
+                    aria-modal='true'
+                    aria-label={t('web.sandboxNew.title')}
+                    onClick={(e) => {
+                        if (e.target === e.currentTarget && !sandboxCreating)
+                            setSandboxDialogOpen(false)
+                    }}
+                >
+                    <div className='workbench-panel flex w-full max-w-md flex-col overflow-hidden'>
+                        <header className='border-divider/80 flex items-center justify-between gap-3 border-b px-5 py-3'>
+                            <div className='min-w-0'>
+                                <h2 className='text-ui text-fg truncate font-medium'>
+                                    {t('web.sandboxNew.title')}
+                                </h2>
+                                <p className='text-caption text-muted mt-0.5 truncate'>
+                                    {t('web.agentNew.sandboxDesc')}
+                                </p>
+                            </div>
+                            <button
+                                type='button'
+                                className='text-muted hover:bg-surface-hover shadow-ring-light bg-surface flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors'
+                                aria-label={t('common.close')}
+                                disabled={sandboxCreating}
+                                onClick={() => setSandboxDialogOpen(false)}
+                            >
+                                <CloseIcon className='h-4 w-4' />
+                            </button>
+                        </header>
+                        <div className='space-y-4 px-5 py-4'>
+                            <label className='block'>
+                                <span className='workbench-field-label'>
+                                    {t('web.agentNew.name')}
+                                </span>
+                                <input
+                                    autoFocus
+                                    value={sandboxDraftName}
+                                    onChange={(e) =>
+                                        setSandboxDraftName(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            void createSandbox()
+                                        }
+                                        if (
+                                            e.key === 'Escape' &&
+                                            !sandboxCreating
+                                        ) {
+                                            e.preventDefault()
+                                            setSandboxDialogOpen(false)
+                                        }
+                                    }}
+                                    className='workbench-input font-mono'
+                                    maxLength={64}
+                                />
+                                <p className='workbench-hint mt-2'>
+                                    {t('web.agentNew.sandboxNameHint')}
+                                </p>
+                                {sandboxNameValidationMessage && (
+                                    <p className='text-caption text-accent-ruby mt-1'>
+                                        {sandboxNameValidationMessage}
+                                    </p>
+                                )}
+                            </label>
+                            {sandboxCreateError && (
+                                <div className='workbench-alert-error'>
+                                    <pre className='text-caption whitespace-pre-wrap font-mono'>
+                                        {sandboxCreateError}
+                                    </pre>
+                                </div>
+                            )}
+                        </div>
+                        <footer className='border-divider/80 bg-surface-subtle/60 flex items-center justify-end gap-2 border-t px-5 py-3'>
+                            <button
+                                type='button'
+                                className='workbench-button-secondary'
+                                disabled={sandboxCreating}
+                                onClick={() => setSandboxDialogOpen(false)}
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                type='button'
+                                className='workbench-button-primary'
+                                disabled={
+                                    sandboxCreating ||
+                                    sandboxNameValidationMessage !== null
+                                }
+                                onClick={() => void createSandbox()}
+                            >
+                                {sandboxCreating
+                                    ? t('web.sandboxNew.creating')
+                                    : t('web.sandboxNew.create')}
                             </button>
                         </footer>
                     </div>
