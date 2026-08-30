@@ -33,7 +33,9 @@ export const chatStreamEvents = pgTable(
                 'error',
                 'done',
                 'suspended',
-                'turn_status'
+                'turn_status',
+                'permission_request',
+                'permission_resolution'
             ]
         }).notNull(),
         payloadJson: jsonb('payload_json').notNull(),

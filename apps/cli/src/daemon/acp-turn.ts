@@ -110,6 +110,15 @@ export interface TurnAck {
     error?: string
 }
 
+// Live interactive asks by turn refId, for the turn.permission RPC to answer.
+// 'unknown' = the request was never seen, already answered, or expired.
+export const permissionResponders = new Map<
+    string,
+    (requestId: string, optionId: string) => 'delivered' | 'unknown'
+>()
+
+const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000
+
 export const runAcpTurn = (args: {
     payload: DaemonHermesTurnPayload
     cwd: string
@@ -133,11 +142,17 @@ export const runAcpTurn = (args: {
     execStreams.set(ctx.refId, stream)
 
     const cmd = payload.cmd?.length ? payload.cmd : ACP_DEFAULT_CMD
+    // The ask modes need YOLO OFF so dangerous commands route to
+    // session/request_permission and reach the user's card; YOLO is frozen at
+    // the child's import time, so this is a per-turn decision.
+    const interactivePermissions =
+        payload.permissionMode === 'default' ||
+        payload.permissionMode === 'acceptEdits'
     const child = spawn(cmd[0], cmd.slice(1), {
         cwd,
         env: {
             ...process.env,
-            HERMES_YOLO_MODE: '1',
+            ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
             ...(payload.env ?? {})
         },
         stdio: ['pipe', 'pipe', 'pipe']
@@ -246,7 +261,112 @@ export const runAcpTurn = (args: {
         for (const [, p] of pending) p.touch()
     }
 
+    // Interactive asks the user answers via the turn.permission RPC. Keyed by
+    // the agent's own JSON-RPC id (stringified — the requestId on the wire).
+    const pendingPermissions = new Map<
+        string,
+        {
+            id: number | string
+            options: Array<{ optionId: string; kind: string }>
+            timer: NodeJS.Timeout
+        }
+    >()
+    // A human deciding means child silence BY DESIGN; the pending ask ticks
+    // the idle budget so the turn cannot time out under the user.
+    let permissionKeepAlive: NodeJS.Timeout | null = null
+    const permissionTimeoutMs =
+        payload.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS
+
+    const settlePermission = (
+        requestId: string,
+        outcome: 'selected' | 'timeout' | 'cancelled',
+        optionId: string | null
+    ): void => {
+        const entry = pendingPermissions.get(requestId)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pendingPermissions.delete(requestId)
+        if (pendingPermissions.size === 0 && permissionKeepAlive) {
+            clearInterval(permissionKeepAlive)
+            permissionKeepAlive = null
+        }
+        // The resolution rides the buffer BEFORE the child reply, so a
+        // replayed stream shows the settlement ahead of any post-approval
+        // output — exactly the live order.
+        safePublish(
+            'stdout',
+            `${JSON.stringify({
+                jsonrpc: '2.0',
+                method: '_manyfold/permission_resolution',
+                params: { requestId, outcome, optionId }
+            })}\n`
+        )
+        try {
+            writeLine(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: entry.id,
+                    result: {
+                        outcome: optionId
+                            ? { outcome: 'selected', optionId }
+                            : { outcome: 'cancelled' }
+                    }
+                })
+            )
+        } catch {}
+    }
+
+    const cancelPendingPermissions = (): void => {
+        for (const requestId of [...pendingPermissions.keys()])
+            settlePermission(requestId, 'cancelled', null)
+    }
+
     const respondToAgent = (frame: Record<string, unknown>): void => {
+        if (
+            frame.method === 'session/request_permission' &&
+            interactivePermissions &&
+            frame.id !== undefined &&
+            frame.id !== null
+        ) {
+            const params = frame.params as
+                | Record<string, unknown>
+                | undefined
+            const rawOptions = params?.options
+            const options: Array<{ optionId: string; kind: string }> = []
+            if (Array.isArray(rawOptions))
+                for (const item of rawOptions) {
+                    if (!item || typeof item !== 'object') continue
+                    const rec = item as Record<string, unknown>
+                    if (typeof rec.optionId !== 'string') continue
+                    options.push({
+                        optionId: rec.optionId,
+                        kind: typeof rec.kind === 'string' ? rec.kind : ''
+                    })
+                }
+            const requestId = String(frame.id)
+            const timer = setTimeout(() => {
+                const reject =
+                    options.find((o) => o.kind === 'reject_once') ??
+                    options.find((o) => o.kind.startsWith('reject'))
+                settlePermission(
+                    requestId,
+                    'timeout',
+                    reject?.optionId ?? null
+                )
+            }, permissionTimeoutMs)
+            pendingPermissions.set(requestId, {
+                id: frame.id as number | string,
+                options,
+                timer
+            })
+            if (!permissionKeepAlive) {
+                permissionKeepAlive = setInterval(() => touchPending(), 15_000)
+                permissionKeepAlive.unref()
+            }
+            // No reply yet — the request frame is already durable in the
+            // buffer (every stdout line is), which is what surfaces the card.
+            return
+        }
         // Headless: auto-approve permission asks and refuse everything else,
         // so the agent never blocks on a client that cannot render UI.
         const response: Record<string, unknown> = {
@@ -377,9 +497,17 @@ export const runAcpTurn = (args: {
 
     ctx.onCancel(() => {
         cancelled = true
+        cancelPendingPermissions()
         settleAll(new Error('cancelled'))
         killChild()
     })
+
+    if (interactivePermissions)
+        permissionResponders.set(ctx.refId, (requestId, optionId) => {
+            if (!pendingPermissions.has(requestId)) return 'unknown'
+            settlePermission(requestId, 'selected', optionId)
+            return 'delivered'
+        })
 
     const handshakeTimeoutMs =
         payload.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS
@@ -492,6 +620,22 @@ export const runAcpTurn = (args: {
             }
             if (!sessionId)
                 throw new Error('hermes session/new returned no sessionId')
+            // Best-effort: align hermes's edit-approval policy with the
+            // chosen mode so accept_edits stops asking for what it
+            // auto-allows. A failure only means hermes asks MORE, and the
+            // interactive bridge absorbs that.
+            if (interactivePermissions)
+                await request(
+                    'session/set_mode',
+                    {
+                        sessionId,
+                        modeId:
+                            payload.permissionMode === 'acceptEdits'
+                                ? 'accept_edits'
+                                : 'default'
+                    },
+                    handshakeTimeoutMs
+                ).catch(() => undefined)
             // Reconcile the session's persisted model with the payload's
             // choice. State known -> diff (an untouched session costs no
             // RPC). State unknown (old hermes build) -> only a REQUIRED
@@ -572,6 +716,8 @@ export const runAcpTurn = (args: {
                 cancelled ? 'aborted' : 'completed'
             )
         } finally {
+            permissionResponders.delete(ctx.refId)
+            cancelPendingPermissions()
             // The conversation is over either way. EOF lets hermes exit on its
             // own; the escalation covers a child that lingers.
             try {

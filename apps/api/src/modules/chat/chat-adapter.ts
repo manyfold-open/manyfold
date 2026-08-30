@@ -9,6 +9,7 @@ import type {
     ChatUsage,
     ClaudeCodePermissionMode,
     CodexPermissionMode,
+    HermesPermissionMode,
     RuntimeLocalTuning
 } from '@manyfold/shared'
 import { eq } from 'drizzle-orm'
@@ -97,6 +98,7 @@ export interface ApiChatAdapterContext {
     runtimeLocalTuning?: RuntimeLocalTuning | null
     claudeCodePermissionMode: ClaudeCodePermissionMode | null
     codexPermissionMode: CodexPermissionMode | null
+    hermesPermissionMode: HermesPermissionMode | null
     frameworkSessionRef: string | null
     history: ChatMessage[]
     abortSignal?: AbortSignal
@@ -165,6 +167,23 @@ export type EmittedContextUsageEvent = {
     type: 'context_usage'
     context: { size: number; used: number }
 }
+// A hermes ask surfaced to the user (interactive permission modes), and its
+// settlement. Both persist as stream events AND fold into content blocks, so
+// the card survives reconnects and history exactly like tool_call/tool_result.
+export type EmittedPermissionRequestEvent = {
+    type: 'permission_request'
+    requestId: string
+    toolCallId: string | null
+    title: string
+    detail: string | null
+    options: Array<{ optionId: string; name: string; kind: string }>
+}
+export type EmittedPermissionResolutionEvent = {
+    type: 'permission_resolution'
+    requestId: string
+    outcome: 'selected' | 'timeout' | 'cancelled'
+    optionId: string | null
+}
 export type { ManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 export type EmittedErrorEvent = {
     type: 'error'
@@ -209,6 +228,8 @@ export type EmittedChatEvent =
     | EmittedReplaceEvent
     | EmittedUsageEvent
     | EmittedContextUsageEvent
+    | EmittedPermissionRequestEvent
+    | EmittedPermissionResolutionEvent
     | EmittedErrorEvent
     | EmittedDoneEvent
     | EmittedRawSourceEvent

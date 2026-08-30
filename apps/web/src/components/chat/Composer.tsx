@@ -10,11 +10,13 @@ import {
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
     ClaudeCodePermissionMode,
+    HermesPermissionMode,
     CodexIntelligence,
     CodexPermissionMode,
     CodexSpeed,
     CreateMessageContextRefInput,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+    DEFAULT_HERMES_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     claudeCodeModelAliasMapKey,
     claudeCodeEfforts,
@@ -118,6 +120,8 @@ interface Props {
     onClaudeCodePermissionModeChange?: (mode: ClaudeCodePermissionMode) => void
     codexPermissionMode?: CodexPermissionMode
     onCodexPermissionModeChange?: (mode: CodexPermissionMode) => void
+    hermesPermissionMode?: HermesPermissionMode
+    onHermesPermissionModeChange?: (mode: HermesPermissionMode) => void
     onModelConfigDraftChange?: (config: AgentModelConfig) => void
     onModelConfigSourceChange?: (source: AgentModelConfigSource) => void
     onRefreshModelConfig?: (
@@ -177,7 +181,10 @@ interface PendingAttachment {
     error?: string
 }
 
-type ComposerPermissionMode = ClaudeCodePermissionMode | CodexPermissionMode
+type ComposerPermissionMode =
+    | ClaudeCodePermissionMode
+    | CodexPermissionMode
+    | HermesPermissionMode
 
 interface ComposerPermissionOption<T extends ComposerPermissionMode> {
     value: T
@@ -263,6 +270,33 @@ const codexPermissionOptions: Array<
     }
 ]
 
+const hermesPermissionOptions: Array<
+    ComposerPermissionOption<HermesPermissionMode>
+> = [
+    {
+        value: 'default',
+        labelKey: 'web.composer.permission.hermes.ask',
+        titleKey: 'web.composer.permission.hermes.askTitle',
+        descriptionKey: 'web.composer.permission.hermes.askDescription',
+        icon: HandIcon
+    },
+    {
+        value: 'acceptEdits',
+        labelKey: 'web.composer.permission.hermes.acceptEdits',
+        titleKey: 'web.composer.permission.hermes.acceptEditsTitle',
+        descriptionKey: 'web.composer.permission.hermes.acceptEditsDescription',
+        icon: EditIcon
+    },
+    {
+        value: 'dontAsk',
+        labelKey: 'web.composer.permission.hermes.dontAsk',
+        titleKey: 'web.composer.permission.hermes.dontAskTitle',
+        descriptionKey: 'web.composer.permission.hermes.dontAskDescription',
+        icon: ShieldAlertIcon,
+        dangerous: true
+    }
+]
+
 // Mirrors the CSS clamp (.chat-composer-input max-height: 240px).
 const resizeComposerInput = (node: HTMLTextAreaElement): void => {
     node.style.height = 'auto'
@@ -291,6 +325,8 @@ const Composer: FC<Props> = ({
     onClaudeCodePermissionModeChange,
     codexPermissionMode = DEFAULT_CODEX_PERMISSION_MODE,
     onCodexPermissionModeChange,
+    hermesPermissionMode = DEFAULT_HERMES_PERMISSION_MODE,
+    onHermesPermissionModeChange,
     onModelConfigDraftChange,
     onModelConfigSourceChange,
     onRefreshModelConfig,
@@ -567,6 +603,8 @@ const Composer: FC<Props> = ({
         }
         if (canChooseClaudeCodePermissions)
             onClaudeCodePermissionModeChange?.(mode as ClaudeCodePermissionMode)
+        else if (canChooseHermesPermissions)
+            onHermesPermissionModeChange?.(mode as HermesPermissionMode)
         else onCodexPermissionModeChange?.(mode as CodexPermissionMode)
     }
 
@@ -828,8 +866,12 @@ const Composer: FC<Props> = ({
         framework === 'claude-code' && Boolean(onClaudeCodePermissionModeChange)
     const canChooseCodexPermissions =
         framework === 'codex' && Boolean(onCodexPermissionModeChange)
+    const canChooseHermesPermissions =
+        framework === 'hermes' && Boolean(onHermesPermissionModeChange)
     const canChoosePermissions =
-        canChooseClaudeCodePermissions || canChooseCodexPermissions
+        canChooseClaudeCodePermissions ||
+        canChooseCodexPermissions ||
+        canChooseHermesPermissions
     const permissionButtonDisabled =
         disabled || streaming || !canChoosePermissions
     const permissionOptions: Array<
@@ -840,7 +882,9 @@ const Composer: FC<Props> = ({
         }
     > = (canChooseClaudeCodePermissions
         ? claudeCodePermissionOptions
-        : codexPermissionOptions
+        : canChooseHermesPermissions
+          ? hermesPermissionOptions
+          : codexPermissionOptions
     ).map((option) => ({
         ...option,
         label: t(option.labelKey),
@@ -850,7 +894,9 @@ const Composer: FC<Props> = ({
     const activePermissionMode: ComposerPermissionMode =
         canChooseClaudeCodePermissions
             ? claudeCodePermissionMode
-            : codexPermissionMode
+            : canChooseHermesPermissions
+              ? hermesPermissionMode
+              : codexPermissionMode
     const permissionOption =
         permissionOptions.find(
             (option) => option.value === activePermissionMode

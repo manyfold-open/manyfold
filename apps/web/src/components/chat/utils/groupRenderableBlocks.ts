@@ -1,5 +1,9 @@
 import type { ChatCapabilities } from '@manyfold/shared'
-import type { RenderableBlock, ToolStatus } from './pairToolBlocks'
+import type {
+    PermissionCardBlock,
+    RenderableBlock,
+    ToolStatus
+} from './pairToolBlocks'
 
 export type TextLikeRenderable = Extract<
     RenderableBlock,
@@ -8,7 +12,14 @@ export type TextLikeRenderable = Extract<
 
 export type ActivityRenderable = Exclude<
     RenderableBlock,
-    { kind: 'text' | 'attachment' | 'context_ref' | 'upload' }
+    {
+        kind:
+            | 'text'
+            | 'attachment'
+            | 'context_ref'
+            | 'upload'
+            | 'permission_card'
+    }
 >
 
 export interface ActivitySummary {
@@ -26,6 +37,9 @@ export type RenderableGroup =
           status: ToolStatus
           summary: ActivitySummary
       }
+    // Standalone: the ask must interrupt the flow and stay visible, never
+    // fold into a collapsed activity group.
+    | { kind: 'permission-card'; block: PermissionCardBlock }
 
 export const groupRenderableBlocks = (
     renderable: RenderableBlock[],
@@ -61,6 +75,13 @@ export const groupRenderableBlocks = (
         ) {
             flushActivity()
             textRun.push(block)
+            continue
+        }
+
+        if (block.kind === 'permission_card') {
+            flushText()
+            flushActivity()
+            out.push({ kind: 'permission-card', block })
             continue
         }
 

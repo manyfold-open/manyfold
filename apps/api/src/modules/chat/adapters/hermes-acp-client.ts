@@ -20,6 +20,20 @@ export type AcpEvent =
           result: string | null
       }
     | {
+          type: 'permission_request'
+          requestId: string
+          toolCallId: string | null
+          title: string
+          detail: string | null
+          options: Array<{ optionId: string; name: string; kind: string }>
+      }
+    | {
+          type: 'permission_resolution'
+          requestId: string
+          outcome: 'selected' | 'timeout' | 'cancelled'
+          optionId: string | null
+      }
+    | {
           type: 'usage_update'
           usage: Record<string, unknown>
       }
@@ -124,6 +138,131 @@ export const pickAutoApproveOptionId = (
     // No parseable options: keep the legacy id so builds that predate the
     // options array behave as before.
     return 'approve_for_session'
+}
+
+// The reject the deny-on-timeout (and cancel) paths answer with. Mirrors
+// hermes's own timeout behavior: reject_once first, any reject second.
+export const pickRejectOptionId = (
+    options: Array<{ optionId: string; kind: string }>
+): string | null => {
+    const once = options.find((o) => o.kind === 'reject_once')
+    if (once) return once.optionId
+    const any = options.find((o) => o.kind.startsWith('reject'))
+    return any?.optionId ?? null
+}
+
+// Rendering data for a session/request_permission ask, shared by the
+// interactive client and the daemon-frame decoder so a replayed request
+// renders exactly like the live one did.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: params carry {options[],
+// toolCall:{toolCallId, title, kind, status, content:[{type:'diff', path,
+// newText} | ...], rawInput:{tool|command, arguments}}}.
+export const decodePermissionRequest = (
+    requestId: string | number,
+    params: Record<string, unknown> | undefined
+): Extract<AcpEvent, { type: 'permission_request' }> => {
+    const toolCall = (params?.['toolCall'] ?? {}) as Record<string, unknown>
+    const options: Array<{ optionId: string; name: string; kind: string }> = []
+    const rawOptions = params?.['options']
+    if (Array.isArray(rawOptions)) {
+        for (const item of rawOptions) {
+            if (!item || typeof item !== 'object') continue
+            const rec = item as Record<string, unknown>
+            if (typeof rec['optionId'] !== 'string') continue
+            options.push({
+                optionId: rec['optionId'],
+                name:
+                    typeof rec['name'] === 'string'
+                        ? rec['name']
+                        : rec['optionId'],
+                kind: typeof rec['kind'] === 'string' ? rec['kind'] : ''
+            })
+        }
+    }
+    const title =
+        typeof toolCall['title'] === 'string' && toolCall['title']
+            ? toolCall['title']
+            : 'Permission requested'
+    let detail: string | null = null
+    const rawInput = toolCall['rawInput']
+    if (rawInput && typeof rawInput === 'object') {
+        const cmd = (rawInput as Record<string, unknown>)['command']
+        if (typeof cmd === 'string' && cmd) detail = cmd
+    }
+    if (!detail) {
+        const content = toolCall['content']
+        if (Array.isArray(content)) {
+            const paths = content
+                .map((item) =>
+                    item && typeof item === 'object'
+                        ? (item as Record<string, unknown>)['path']
+                        : null
+                )
+                .filter((p): p is string => typeof p === 'string' && !!p)
+            if (paths.length > 0) detail = paths.join('\n')
+        }
+    }
+    return {
+        type: 'permission_request',
+        requestId: String(requestId),
+        toolCallId:
+            typeof toolCall['toolCallId'] === 'string'
+                ? toolCall['toolCallId']
+                : null,
+        title,
+        detail,
+        options
+    }
+}
+
+// The daemon publishes its permission RESOLUTIONS into the exec buffer as
+// synthetic notification lines under this method, so an exec.resume replay
+// reproduces resolution state through exactly this decoder.
+export const MANYFOLD_PERMISSION_RESOLUTION_METHOD =
+    '_manyfold/permission_resolution'
+
+// Superset decoder over raw JSON-RPC frames: session/update notifications,
+// the agent's session/request_permission REQUESTS (which have an id and are
+// invisible to acpEventsFromNotification), and the synthetic resolution
+// notifications above. The daemon drains decode replayed streams with this,
+// so live and recovered turns cannot diverge.
+export const acpEventsFromFrame = (
+    frame: Record<string, unknown>
+): AcpEvent[] => {
+    if (
+        'id' in frame &&
+        frame['method'] === 'session/request_permission' &&
+        frame['id'] !== undefined &&
+        frame['id'] !== null
+    )
+        return [
+            decodePermissionRequest(
+                frame['id'] as string | number,
+                frame['params'] as Record<string, unknown> | undefined
+            )
+        ]
+    if (frame['method'] === MANYFOLD_PERMISSION_RESOLUTION_METHOD) {
+        const params = (frame['params'] ?? {}) as Record<string, unknown>
+        const requestId = params['requestId']
+        const outcome = params['outcome']
+        if (typeof requestId !== 'string') return []
+        return [
+            {
+                type: 'permission_resolution',
+                requestId,
+                outcome:
+                    outcome === 'timeout' || outcome === 'cancelled'
+                        ? outcome
+                        : 'selected',
+                optionId:
+                    typeof params['optionId'] === 'string'
+                        ? params['optionId']
+                        : null
+            }
+        ]
+    }
+    if ('id' in frame && ('result' in frame || 'error' in frame)) return []
+    return acpEventsFromNotification(frame as unknown as JsonRpcNotification)
 }
 
 // Session state hermes attaches to its session/new|load|resume responses:
@@ -278,6 +417,23 @@ export class HermesAcpTurn {
     private readonly onEvent: (ev: AcpEvent) => void
     private readonly pending = new Map<number, PendingRequest>()
     private readonly closeGraceMs: number
+    private readonly permissionPolicy: 'auto' | 'interactive'
+    private readonly permissionTimeoutMs: number
+    private readonly permissionKeepAliveMs: number
+    // Asks forwarded to the user and not yet answered, keyed by the agent's
+    // own JSON-RPC id (stringified — it is the requestId on the wire).
+    private readonly pendingPermissions = new Map<
+        string,
+        {
+            id: number | string
+            options: Array<{ optionId: string; name: string; kind: string }>
+            timer: NodeJS.Timeout | null
+        }
+    >()
+    // While a human is deciding, the child is silent BY DESIGN — the idle
+    // budget must not read that as a hang (240s default vs minutes of human
+    // latency), so the pending asks tick the budget themselves.
+    private permissionKeepAlive: NodeJS.Timeout | null = null
     private stdoutBuffer = ''
     private stderrTail: string[] = []
     private nextId = 1
@@ -291,11 +447,17 @@ export class HermesAcpTurn {
         onEvent: (ev: AcpEvent) => void
         logger?: Logger
         closeGraceMs?: number
+        permissionPolicy?: 'auto' | 'interactive'
+        permissionTimeoutMs?: number
+        permissionKeepAliveMs?: number
     }) {
         this.transport = opts.transport
         this.onEvent = opts.onEvent
         this.log = opts.logger ?? new Logger(HermesAcpTurn.name)
         this.closeGraceMs = opts.closeGraceMs ?? 5_000
+        this.permissionPolicy = opts.permissionPolicy ?? 'auto'
+        this.permissionTimeoutMs = opts.permissionTimeoutMs ?? 300_000
+        this.permissionKeepAliveMs = opts.permissionKeepAliveMs ?? 15_000
         void this.pumpStdout()
         void this.pumpStderr()
         // #561's lesson, moved to the transport boundary: ANY transport
@@ -450,6 +612,32 @@ export class HermesAcpTurn {
     }
 
     private handleAgentRequest(req: JsonRpcAgentRequest): void {
+        if (
+            req.method === 'session/request_permission' &&
+            this.permissionPolicy === 'interactive'
+        ) {
+            const event = decodePermissionRequest(req.id, req.params)
+            const key = event.requestId
+            const timer = setTimeout(
+                () => this.expirePermission(key),
+                this.permissionTimeoutMs
+            )
+            this.pendingPermissions.set(key, {
+                id: req.id,
+                options: event.options,
+                timer
+            })
+            if (!this.permissionKeepAlive) {
+                this.permissionKeepAlive = setInterval(
+                    () => this.touchPending(),
+                    this.permissionKeepAliveMs
+                )
+                if (typeof this.permissionKeepAlive.unref === 'function')
+                    this.permissionKeepAlive.unref()
+            }
+            this.onEvent(event)
+            return
+        }
         // Headless — auto-approve permission asks; reply method-not-found for
         // anything else so the agent doesn't block.
         const response: Record<string, unknown> = {
@@ -470,6 +658,83 @@ export class HermesAcpTurn {
             }
         }
         this.writeLine(JSON.stringify(response))
+    }
+
+    // Delivers the user's answer to a pending ask. 'unknown' = never seen,
+    // already answered, or already expired — the caller turns that into 409.
+    respondPermission(
+        requestId: string,
+        optionId: string
+    ): 'delivered' | 'unknown' {
+        const pending = this.pendingPermissions.get(requestId)
+        if (!pending) return 'unknown'
+        this.settlePermission(requestId, pending, {
+            outcome: 'selected',
+            optionId
+        })
+        return 'delivered'
+    }
+
+    get pendingPermissionIds(): string[] {
+        return [...this.pendingPermissions.keys()]
+    }
+
+    private expirePermission(requestId: string): void {
+        const pending = this.pendingPermissions.get(requestId)
+        if (!pending) return
+        const rejectId = pickRejectOptionId(pending.options)
+        this.settlePermission(
+            requestId,
+            pending,
+            rejectId
+                ? { outcome: 'timeout', optionId: rejectId }
+                : { outcome: 'timeout', optionId: null }
+        )
+    }
+
+    private settlePermission(
+        requestId: string,
+        pending: {
+            id: number | string
+            options: Array<{ optionId: string; name: string; kind: string }>
+            timer: NodeJS.Timeout | null
+        },
+        answer: {
+            outcome: 'selected' | 'timeout' | 'cancelled'
+            optionId: string | null
+        }
+    ): void {
+        if (pending.timer) clearTimeout(pending.timer)
+        this.pendingPermissions.delete(requestId)
+        if (this.pendingPermissions.size === 0 && this.permissionKeepAlive) {
+            clearInterval(this.permissionKeepAlive)
+            this.permissionKeepAlive = null
+        }
+        this.writeLine(
+            JSON.stringify({
+                jsonrpc: '2.0',
+                id: pending.id,
+                result: {
+                    outcome: answer.optionId
+                        ? { outcome: 'selected', optionId: answer.optionId }
+                        : { outcome: 'cancelled' }
+                }
+            })
+        )
+        this.onEvent({
+            type: 'permission_resolution',
+            requestId,
+            outcome: answer.outcome,
+            optionId: answer.optionId
+        })
+    }
+
+    private cancelPendingPermissions(): void {
+        for (const [requestId, pending] of [...this.pendingPermissions])
+            this.settlePermission(requestId, pending, {
+                outcome: 'cancelled',
+                optionId: null
+            })
     }
 
     // Enqueue-only: a dead transport surfaces via `result` rejecting, which
@@ -618,6 +883,24 @@ export class HermesAcpTurn {
             }
     }
 
+    // Best-effort: an unknown mode id silently normalizes to `default`
+    // upstream (which asks MORE, never less), and a -32601 build simply keeps
+    // asking — so a failure here must never kill the turn.
+    async setMode(args: { modeId: string; timeoutMs: number }): Promise<void> {
+        if (!this.sessionId) return
+        try {
+            await this.request(
+                'session/set_mode',
+                { sessionId: this.sessionId, modeId: args.modeId },
+                args.timeoutMs
+            )
+        } catch (err) {
+            this.log.warn(
+                `hermes session/set_mode ${args.modeId} failed: ${(err as Error).message}`
+            )
+        }
+    }
+
     // The only streaming call, so it takes the split budgets rather than a
     // single number — the handshake calls above keep their short fixed one.
     async prompt(args: {
@@ -639,6 +922,9 @@ export class HermesAcpTurn {
     async close(): Promise<void> {
         if (this.closed) return
         this.closed = true
+        // Answer open asks as cancelled BEFORE the EOF: a child blocked on an
+        // unanswered ask would otherwise sit out the whole grace window.
+        this.cancelPendingPermissions()
         this.transport.endInput()
         // A child that ignores stdin EOF must not park the caller (and its
         // terminal event) for the whole transport budget: give it a short
@@ -670,6 +956,7 @@ export class HermesAcpTurn {
     // close() is inside its grace window must still reach the transport, or
     // the turn is uncancellable for the rest of the wait.
     abort(): void {
+        this.cancelPendingPermissions()
         this.transport.abort()
         if (this.closed) return
         this.closed = true

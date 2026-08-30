@@ -170,6 +170,7 @@ export type DaemonRpcMethod =
     | 'exec.input'
     | 'exec.eof'
     | 'turn.start'
+    | 'turn.permission'
     | 'model.inspect'
     | 'pty.open'
     | 'pty.input'
@@ -302,6 +303,17 @@ export interface DaemonHermesTurnPayload {
     // build that reports no session state skips the set silently, because the
     // target is just the agent's default.
     modelOverrideRequired?: boolean
+    // Hermes edit-approval mode for this turn (see hermesPermissionModes in
+    // chat.ts). dontAsk/absent = the pre-existing behavior: HERMES_YOLO_MODE=1
+    // and auto-approved asks. The ask modes drop YOLO, best-effort
+    // session/set_mode the matching hermes mode, and forward
+    // session/request_permission upstream as permission_request frames for
+    // the user to answer via the turn.permission RPC. Gated on
+    // `turn.hermes.permissions`.
+    permissionMode?: 'default' | 'acceptEdits' | 'dontAsk'
+    // Deny-on-timeout deadline for an unanswered ask, ms. The daemon answers
+    // with the request's own reject option when it expires.
+    permissionTimeoutMs?: number
     // Legacy single budget over session/prompt: one absolute deadline that the
     // streamed session/update notifications never reset, so a turn still
     // producing output was truncated (#556). Kept as the fallback for runners
@@ -426,6 +438,13 @@ export const DAEMON_FEATURE_CREDENTIAL_FACTS = 'model.credential-facts'
 // silently dropping the user's explicit model choice would run the wrong
 // model under a UI that claims otherwise.
 export const DAEMON_FEATURE_TURN_HERMES_OPTIONS = 'turn.hermes.options'
+// The hermes turn runner honours DaemonHermesTurnPayload.permissionMode
+// (interactive session/request_permission, answered via the turn.permission
+// RPC, deny-on-timeout) instead of unconditionally auto-approving under
+// HERMES_YOLO_MODE. The API refuses to dispatch an ask-mode turn to a daemon
+// without this — silently running YOLO under a UI that claims "ask" would be
+// worse than refusing.
+export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -440,5 +459,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_FS_WRITE_MODE,
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
-    DAEMON_FEATURE_TURN_HERMES_OPTIONS
+    DAEMON_FEATURE_TURN_HERMES_OPTIONS,
+    DAEMON_FEATURE_TURN_HERMES_PERMISSIONS
 ]

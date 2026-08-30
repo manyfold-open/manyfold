@@ -828,6 +828,11 @@ const normalizeBlockForCompare = (
             contentType: block.contentType,
             size: block.size
         }
+    if (
+        block.type === 'permission_request' ||
+        block.type === 'permission_resolution'
+    )
+        return block as unknown as Record<string, unknown>
     return {
         type: 'attachment',
         name: block.name,

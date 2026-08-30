@@ -34,6 +34,7 @@ import {
     channelSessions,
     chatMessageSources,
     chatMessages,
+    chatPermissionAnswers,
     chatSessions,
     chatSessionShares,
     chatStreamEvents,
@@ -444,6 +445,23 @@ export class ChatRepository {
             return
         }
         await apply(this.db)
+    }
+
+    // Durable half of a permission answer (see ChatPermissionBus). The
+    // composite PK makes the second answer a no-op here and a 409 at the
+    // endpoint — first click wins, racing tabs included.
+    async insertPermissionAnswer(row: {
+        messageId: string
+        requestId: string
+        optionId: string
+        userId: string
+    }): Promise<boolean> {
+        const inserted = await this.db
+            .insert(chatPermissionAnswers)
+            .values(row)
+            .onConflictDoNothing()
+            .returning({ requestId: chatPermissionAnswers.requestId })
+        return inserted.length > 0
     }
 
     // Drop a resume ref a framework can no longer load, but only while it is

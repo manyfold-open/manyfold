@@ -120,6 +120,7 @@ import type {
     CreateBuiltInUserModelProviderBody,
     CreateSkillRepoBody,
     CreateMessageRequest,
+    AnswerPermissionRequest,
     CreateSessionRequest,
     RegenerateMessageRequest,
     RegenerateMessageResponse,
@@ -1339,6 +1340,13 @@ export interface NcaClient {
             sessionId: string,
             body: Omit<CreateMessageRequest, 'sessionId'>
         ) => Promise<{ userMessage: ChatMessage; assistantMessageId: string }>
+        answerPermission: (
+            agentId: string,
+            sessionId: string,
+            messageId: string,
+            requestId: string,
+            body: AnswerPermissionRequest
+        ) => Promise<void>
         prewarm: (agentId: string) => Promise<{ accepted: boolean }>
         uploadFile: (
             agentId: string,
@@ -3196,6 +3204,33 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         body: JSON.stringify(body)
                     }
                 ),
+            answerPermission: async (
+                agentId,
+                sessionId,
+                messageId,
+                requestId,
+                body
+            ) => {
+                const token = await resolveToken(options.token)
+                const headers = new Headers()
+                headers.set('Content-Type', 'application/json')
+                if (token) headers.set('Authorization', `Bearer ${token}`)
+                const res = await fetchImpl(
+                    `${baseUrl}${apiPaths.AGENT_SESSION_PERMISSION_ANSWER(
+                        agentId,
+                        sessionId,
+                        messageId,
+                        requestId
+                    )}`,
+                    {
+                        method: 'POST',
+                        headers,
+                        body: JSON.stringify(body)
+                    }
+                )
+                if (!res.ok && res.status !== 204)
+                    throw await buildApiError(res)
+            },
             cancelStream: async (agentId, sessionId, assistantMessageId) => {
                 const token = await resolveToken(options.token)
                 const headers = new Headers()

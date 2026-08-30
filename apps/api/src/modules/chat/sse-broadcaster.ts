@@ -136,7 +136,9 @@ const CONTENT_ROW_TYPES = new Set<PersistedStreamEventType>([
     'thinking',
     'tool_call',
     'tool_result',
-    'replace'
+    'replace',
+    'permission_request',
+    'permission_resolution'
 ])
 
 const isHighSurrogate = (code: number): boolean =>

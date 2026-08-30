@@ -448,3 +448,152 @@ test('auto-approve picks from the request options, session-scoped grant first', 
     }
     assert.equal(editAsk.result.outcome.optionId, 'allow_once')
 })
+
+// PR: interactive permissions. In the ask modes the client forwards
+// session/request_permission to the user instead of auto-answering, keeps the
+// idle budget alive while a human decides, and denies on timeout with the
+// request's own reject option.
+test('interactive policy forwards the ask, delivers the answer, and emits the resolution', async () => {
+    const fake = makeFakeTransport()
+    const events: AcpEvent[] = []
+    const turn = new HermesAcpTurn({
+        transport: fake.handle,
+        onEvent: (ev) => events.push(ev),
+        permissionPolicy: 'interactive',
+        permissionTimeoutMs: 5_000
+    })
+    fake.stdout.push(
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 7,
+            method: 'session/request_permission',
+            params: {
+                options: [
+                    { optionId: 'allow_once', kind: 'allow_once', name: 'Allow edit' },
+                    { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+                ],
+                toolCall: {
+                    toolCallId: 'edit-approval-1',
+                    title: 'Approve edit: a.txt',
+                    kind: 'edit',
+                    status: 'pending',
+                    content: [{ type: 'diff', path: 'a.txt', newText: 'x' }],
+                    rawInput: { tool: 'write_file', arguments: { path: 'a.txt' } }
+                }
+            }
+        })}\n`
+    )
+    await waitFor(() => events.length === 1, 'permission request event')
+    assert.deepEqual(events[0], {
+        type: 'permission_request',
+        requestId: '7',
+        toolCallId: 'edit-approval-1',
+        title: 'Approve edit: a.txt',
+        detail: 'a.txt',
+        options: [
+            { optionId: 'allow_once', kind: 'allow_once', name: 'Allow edit' },
+            { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+        ]
+    })
+    assert.equal(fake.writes.length, 0, 'no auto-answer in interactive mode')
+    assert.deepEqual(turn.pendingPermissionIds, ['7'])
+
+    assert.equal(turn.respondPermission('7', 'allow_once'), 'delivered')
+    await waitFor(() => fake.writes.length === 1, 'child reply')
+    const reply = fake.lastFrame() as {
+        id: number
+        result: { outcome: { optionId: string } }
+    }
+    assert.equal(reply.id, 7)
+    assert.equal(reply.result.outcome.optionId, 'allow_once')
+    assert.deepEqual(events[1], {
+        type: 'permission_resolution',
+        requestId: '7',
+        outcome: 'selected',
+        optionId: 'allow_once'
+    })
+    assert.equal(turn.respondPermission('7', 'allow_once'), 'unknown')
+    await turn.close()
+})
+
+test('an unanswered ask denies on timeout with the reject option', async () => {
+    const fake = makeFakeTransport()
+    const events: AcpEvent[] = []
+    const turn = new HermesAcpTurn({
+        transport: fake.handle,
+        onEvent: (ev) => events.push(ev),
+        permissionPolicy: 'interactive',
+        permissionTimeoutMs: 60
+    })
+    fake.stdout.push(
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 9,
+            method: 'session/request_permission',
+            params: {
+                options: [
+                    { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                    { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+                ]
+            }
+        })}\n`
+    )
+    await waitFor(() => fake.writes.length === 1, 'timeout reply')
+    const reply = fake.lastFrame() as {
+        result: { outcome: { optionId: string } }
+    }
+    assert.equal(reply.result.outcome.optionId, 'deny')
+    assert.deepEqual(
+        events.find((e) => e.type === 'permission_resolution'),
+        {
+            type: 'permission_resolution',
+            requestId: '9',
+            outcome: 'timeout',
+            optionId: 'deny'
+        }
+    )
+    await turn.close()
+})
+
+test('a pending ask keeps the idle budget alive and close() cancels it', async () => {
+    const fake = makeFakeTransport()
+    const events: AcpEvent[] = []
+    const turn = new HermesAcpTurn({
+        transport: fake.handle,
+        onEvent: (ev) => events.push(ev),
+        permissionPolicy: 'interactive',
+        permissionTimeoutMs: 60_000,
+        permissionKeepAliveMs: 25
+    })
+    const prompt = turn.request('session/prompt', {}, {
+        idleTimeoutMs: 120,
+        maxDurationMs: 10_000
+    })
+    fake.stdout.push(
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'session/request_permission',
+            params: {
+                options: [
+                    { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' }
+                ]
+            }
+        })}\n`
+    )
+    await waitFor(() => turn.pendingPermissionIds.length === 1, 'pending ask')
+    // 3x the idle budget of silence: only the keepalive can have survived it
+    await new Promise((resolve) => setTimeout(resolve, 360))
+    fake.stdout.push(
+        `${JSON.stringify({ jsonrpc: '2.0', id: 1, result: { stopReason: 'end_turn' } })}\n`
+    )
+    await prompt
+    await turn.close()
+    const resolution = events.find((e) => e.type === 'permission_resolution')
+    assert.deepEqual(resolution, {
+        type: 'permission_resolution',
+        requestId: '3',
+        outcome: 'cancelled',
+        optionId: null
+    })
+})

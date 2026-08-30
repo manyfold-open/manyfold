@@ -18,6 +18,8 @@ import { ShareRateLimitService } from '@/common/share-rate-limit.service'
 import { ChatSseBroadcaster } from '@/modules/chat/sse-broadcaster'
 import { ChatStreamBus } from '@/modules/chat/chat-stream-bus'
 import { ChatCancelBus } from '@/modules/chat/chat-cancel-bus'
+import { ChatPermissionBus } from '@/modules/chat/chat-permission-bus'
+import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { ChatAdapterRegistry } from '@/modules/chat/adapters/adapter-registry.service'
 import { FakeEchoAdapter } from '@/modules/chat/adapters/fake-echo.adapter'
 import { ClaudeCodeAdapter } from '@/modules/chat/adapters/claude-code.adapter'
@@ -86,6 +88,8 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         ChatSseBroadcaster,
         ChatStreamBus,
         ChatCancelBus,
+        ChatPermissionBus,
+        HermesPermissionCoordinator,
         TurnAdoptionService,
         RunnerManagerService,
         ChatAdapterRegistry,

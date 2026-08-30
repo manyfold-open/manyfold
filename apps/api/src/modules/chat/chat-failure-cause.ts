@@ -37,6 +37,8 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // Same shape one capability later: the daemon carries hermes turns but
     // predates turn.hermes.options, so it cannot honour a model switch.
     hermes_daemon_options_upgrade_required: 'unsupported_capability',
+    // And the interactive-permissions capability after that.
+    hermes_daemon_permissions_upgrade_required: 'unsupported_capability',
     // The hermes build inside the agent's image predates session/set_model;
     // the fix is rebuilding the image (or dropping the override).
     hermes_set_model_unsupported: 'unsupported_capability',
