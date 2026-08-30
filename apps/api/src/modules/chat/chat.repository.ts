@@ -34,9 +34,11 @@ import {
     channelSessions,
     chatMessageSources,
     chatMessages,
+    chatPermissionAnswers,
     chatSessions,
     chatSessionShares,
     chatStreamEvents,
+    jsonbMerge,
     runtimeHosts,
     turnExecutions,
     users,
@@ -411,6 +413,55 @@ export class ChatRepository {
             .update(chatSessions)
             .set({ frameworkSessionRef: ref, updatedAt: new Date() })
             .where(eq(chatSessions.id, sessionId))
+    }
+
+    // Shallow-merges a patch into the message's capability metadata (the jsonb
+    // that already carries {model}). jsonbMerge runs against the LIVE row in
+    // SQL, so it cannot resurrect fields a concurrent writer just set.
+    async mergeMessageMetadata(
+        messageId: string,
+        sessionId: string,
+        patch: Record<string, unknown>,
+        fence?: TurnExecutionFence
+    ): Promise<void> {
+        const merged = sanitizeForJsonb(patch) as Record<string, unknown>
+        const apply = async (tx: Database | DatabaseTx): Promise<void> => {
+            await tx
+                .update(chatMessages)
+                .set({
+                    capabilityEventsJson: jsonbMerge(
+                        chatMessages.capabilityEventsJson,
+                        merged
+                    )
+                })
+                .where(eq(chatMessages.id, messageId))
+        }
+        if (fence) {
+            await this.db.transaction(async (tx) => {
+                if (!(await lockTurnSessionFence(tx, fence, sessionId)))
+                    throw new TurnFenceLostError(fence.messageId)
+                await apply(tx)
+            })
+            return
+        }
+        await apply(this.db)
+    }
+
+    // Durable half of a permission answer (see ChatPermissionBus). The
+    // composite PK makes the second answer a no-op here and a 409 at the
+    // endpoint — first click wins, racing tabs included.
+    async insertPermissionAnswer(row: {
+        messageId: string
+        requestId: string
+        optionId: string
+        userId: string
+    }): Promise<boolean> {
+        const inserted = await this.db
+            .insert(chatPermissionAnswers)
+            .values(row)
+            .onConflictDoNothing()
+            .returning({ requestId: chatPermissionAnswers.requestId })
+        return inserted.length > 0
     }
 
     // Drop a resume ref a framework can no longer load, but only while it is

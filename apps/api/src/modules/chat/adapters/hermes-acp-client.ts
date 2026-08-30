@@ -14,6 +14,26 @@ export type AcpEvent =
           input: Record<string, unknown> | null
       }
     | {
+          type: 'tool_result'
+          toolCallId: string
+          status: 'completed' | 'failed'
+          result: string | null
+      }
+    | {
+          type: 'permission_request'
+          requestId: string
+          toolCallId: string | null
+          title: string
+          detail: string | null
+          options: Array<{ optionId: string; name: string; kind: string }>
+      }
+    | {
+          type: 'permission_resolution'
+          requestId: string
+          outcome: 'selected' | 'timeout' | 'cancelled'
+          optionId: string | null
+      }
+    | {
           type: 'usage_update'
           usage: Record<string, unknown>
       }
@@ -75,6 +95,243 @@ const PROTOCOL_VERSION = 1
 const ACP_DEFAULT_CMD = ['hermes', 'acp', '--accept-hooks']
 export const HERMES_ACP_CMD = ACP_DEFAULT_CMD
 
+// Pick the auto-approve answer from the request's OWN options. The previous
+// hardcoded 'approve_for_session' matches no option id current hermes builds
+// advertise, and an unknown id maps to DENY on both of its approval bridges —
+// so the headless auto-approve was silently rejecting every file edit.
+// Broadest grant first: with the ask suppressed, re-asking per call is noise.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: terminal-command asks offer
+// allow_once / allow_session / allow_always / deny / deny_always; edit asks
+// offer only allow_once / deny, and approval is the literal comparison
+// option_id == "allow_once".
+export const pickAutoApproveOptionId = (
+    params: Record<string, unknown> | undefined
+): string => {
+    const options = params?.['options']
+    if (Array.isArray(options)) {
+        const rows = options.filter(
+            (o): o is Record<string, unknown> => !!o && typeof o === 'object'
+        )
+        const byKind = (kind: string): string | null => {
+            for (const o of rows) {
+                if (o['kind'] === kind && typeof o['optionId'] === 'string')
+                    return o['optionId']
+            }
+            return null
+        }
+        const allowAny = (): string | null => {
+            for (const o of rows) {
+                const kind = o['kind']
+                if (
+                    typeof kind === 'string' &&
+                    kind.startsWith('allow') &&
+                    typeof o['optionId'] === 'string'
+                )
+                    return o['optionId']
+            }
+            return null
+        }
+        const picked =
+            byKind('allow_always') ?? byKind('allow_once') ?? allowAny()
+        if (picked) return picked
+    }
+    // No parseable options: keep the legacy id so builds that predate the
+    // options array behave as before.
+    return 'approve_for_session'
+}
+
+// The reject the deny-on-timeout (and cancel) paths answer with. Mirrors
+// hermes's own timeout behavior: reject_once first, any reject second.
+export const pickRejectOptionId = (
+    options: Array<{ optionId: string; kind: string }>
+): string | null => {
+    const once = options.find((o) => o.kind === 'reject_once')
+    if (once) return once.optionId
+    const any = options.find((o) => o.kind.startsWith('reject'))
+    return any?.optionId ?? null
+}
+
+// Rendering data for a session/request_permission ask, shared by the
+// interactive client and the daemon-frame decoder so a replayed request
+// renders exactly like the live one did.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: params carry {options[],
+// toolCall:{toolCallId, title, kind, status, content:[{type:'diff', path,
+// newText} | ...], rawInput:{tool|command, arguments}}}.
+export const decodePermissionRequest = (
+    requestId: string | number,
+    params: Record<string, unknown> | undefined
+): Extract<AcpEvent, { type: 'permission_request' }> => {
+    const toolCall = (params?.['toolCall'] ?? {}) as Record<string, unknown>
+    const options: Array<{ optionId: string; name: string; kind: string }> = []
+    const rawOptions = params?.['options']
+    if (Array.isArray(rawOptions)) {
+        for (const item of rawOptions) {
+            if (!item || typeof item !== 'object') continue
+            const rec = item as Record<string, unknown>
+            if (typeof rec['optionId'] !== 'string') continue
+            options.push({
+                optionId: rec['optionId'],
+                name:
+                    typeof rec['name'] === 'string'
+                        ? rec['name']
+                        : rec['optionId'],
+                kind: typeof rec['kind'] === 'string' ? rec['kind'] : ''
+            })
+        }
+    }
+    const title =
+        typeof toolCall['title'] === 'string' && toolCall['title']
+            ? toolCall['title']
+            : 'Permission requested'
+    let detail: string | null = null
+    const rawInput = toolCall['rawInput']
+    if (rawInput && typeof rawInput === 'object') {
+        const cmd = (rawInput as Record<string, unknown>)['command']
+        if (typeof cmd === 'string' && cmd) detail = cmd
+    }
+    if (!detail) {
+        const content = toolCall['content']
+        if (Array.isArray(content)) {
+            const paths = content
+                .map((item) =>
+                    item && typeof item === 'object'
+                        ? (item as Record<string, unknown>)['path']
+                        : null
+                )
+                .filter((p): p is string => typeof p === 'string' && !!p)
+            if (paths.length > 0) detail = paths.join('\n')
+        }
+    }
+    return {
+        type: 'permission_request',
+        requestId: String(requestId),
+        toolCallId:
+            typeof toolCall['toolCallId'] === 'string'
+                ? toolCall['toolCallId']
+                : null,
+        title,
+        detail,
+        options
+    }
+}
+
+// The daemon publishes its permission RESOLUTIONS into the exec buffer as
+// synthetic notification lines under this method, so an exec.resume replay
+// reproduces resolution state through exactly this decoder.
+export const MANYFOLD_PERMISSION_RESOLUTION_METHOD =
+    '_manyfold/permission_resolution'
+
+// Superset decoder over raw JSON-RPC frames: session/update notifications,
+// the agent's session/request_permission REQUESTS (which have an id and are
+// invisible to acpEventsFromNotification), and the synthetic resolution
+// notifications above. The daemon drains decode replayed streams with this,
+// so live and recovered turns cannot diverge.
+export const acpEventsFromFrame = (
+    frame: Record<string, unknown>
+): AcpEvent[] => {
+    if (
+        'id' in frame &&
+        frame['method'] === 'session/request_permission' &&
+        frame['id'] !== undefined &&
+        frame['id'] !== null
+    )
+        return [
+            decodePermissionRequest(
+                frame['id'] as string | number,
+                frame['params'] as Record<string, unknown> | undefined
+            )
+        ]
+    if (frame['method'] === MANYFOLD_PERMISSION_RESOLUTION_METHOD) {
+        const params = (frame['params'] ?? {}) as Record<string, unknown>
+        const requestId = params['requestId']
+        const outcome = params['outcome']
+        if (typeof requestId !== 'string') return []
+        return [
+            {
+                type: 'permission_resolution',
+                requestId,
+                outcome:
+                    outcome === 'timeout' || outcome === 'cancelled'
+                        ? outcome
+                        : 'selected',
+                optionId:
+                    typeof params['optionId'] === 'string'
+                        ? params['optionId']
+                        : null
+            }
+        ]
+    }
+    if ('id' in frame && ('result' in frame || 'error' in frame)) return []
+    return acpEventsFromNotification(frame as unknown as JsonRpcNotification)
+}
+
+// Session state hermes attaches to its session/new|load|resume responses:
+// model ids are `provider:model` in hermes's own provider naming, mode ids are
+// its edit-approval policies (default / accept_edits / dont_ask).
+export interface AcpSessionState {
+    currentModelId: string | null
+    modelIds: string[]
+    currentModeId: string | null
+    modeIds: string[]
+}
+
+export const decodeAcpSessionState = (
+    result: Record<string, unknown> | undefined
+): AcpSessionState | null => {
+    if (!result) return null
+    const models = result['models']
+    const modes = result['modes']
+    const state: AcpSessionState = {
+        currentModelId: null,
+        modelIds: [],
+        currentModeId: null,
+        modeIds: []
+    }
+    let any = false
+    if (models && typeof models === 'object') {
+        const m = models as Record<string, unknown>
+        if (typeof m['currentModelId'] === 'string') {
+            state.currentModelId = m['currentModelId']
+            any = true
+        }
+        const available = m['availableModels']
+        if (Array.isArray(available)) {
+            for (const item of available) {
+                const id = (item as Record<string, unknown> | null)?.['modelId']
+                if (typeof id === 'string' && id) state.modelIds.push(id)
+            }
+            any = true
+        }
+    }
+    if (modes && typeof modes === 'object') {
+        const m = modes as Record<string, unknown>
+        if (typeof m['currentModeId'] === 'string') {
+            state.currentModeId = m['currentModeId']
+            any = true
+        }
+        const available = m['availableModes']
+        if (Array.isArray(available)) {
+            for (const item of available) {
+                const id = (item as Record<string, unknown> | null)?.['id']
+                if (typeof id === 'string' && id) state.modeIds.push(id)
+            }
+            any = true
+        }
+    }
+    return any ? state : null
+}
+
+// `provider:model` vs a bare model id. endsWith rather than a prefix strip:
+// model ids themselves can contain colons (ollama tags), so splitting on the
+// first colon would mangle them.
+export const acpModelMatches = (
+    currentModelId: string | null,
+    bareModel: string
+): boolean =>
+    currentModelId !== null &&
+    (currentModelId === bareModel ||
+        currentModelId.endsWith(`:${bareModel}`))
+
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered
 // ACP stream is decoded by exactly this code rather than a second copy that can
 // drift. A resumed turn must produce the same events the live turn did, or
@@ -116,6 +373,22 @@ export const acpEventsFromNotification = (
                 }
             ]
         }
+        case 'tool_call_update': {
+            const toolCallId = String(data['toolCallId'] ?? '')
+            const status = String(data['status'] ?? '')
+            // Only terminal statuses become tool results; pending/in_progress
+            // progress frames carry no outcome yet.
+            if (!toolCallId || (status !== 'completed' && status !== 'failed'))
+                return []
+            return [
+                {
+                    type: 'tool_result',
+                    toolCallId,
+                    status,
+                    result: extractToolResultText(data)
+                }
+            ]
+        }
         case 'usage_update':
             return [{ type: 'usage_update', usage: data }]
         case 'turn_end':
@@ -144,10 +417,28 @@ export class HermesAcpTurn {
     private readonly onEvent: (ev: AcpEvent) => void
     private readonly pending = new Map<number, PendingRequest>()
     private readonly closeGraceMs: number
+    private readonly permissionPolicy: 'auto' | 'interactive'
+    private readonly permissionTimeoutMs: number
+    private readonly permissionKeepAliveMs: number
+    // Asks forwarded to the user and not yet answered, keyed by the agent's
+    // own JSON-RPC id (stringified — it is the requestId on the wire).
+    private readonly pendingPermissions = new Map<
+        string,
+        {
+            id: number | string
+            options: Array<{ optionId: string; name: string; kind: string }>
+            timer: NodeJS.Timeout | null
+        }
+    >()
+    // While a human is deciding, the child is silent BY DESIGN — the idle
+    // budget must not read that as a hang (240s default vs minutes of human
+    // latency), so the pending asks tick the budget themselves.
+    private permissionKeepAlive: NodeJS.Timeout | null = null
     private stdoutBuffer = ''
     private stderrTail: string[] = []
     private nextId = 1
     private sessionId: string | null = null
+    private lastSessionState: AcpSessionState | null = null
     private closed = false
     private exitError: Error | null = null
 
@@ -156,11 +447,17 @@ export class HermesAcpTurn {
         onEvent: (ev: AcpEvent) => void
         logger?: Logger
         closeGraceMs?: number
+        permissionPolicy?: 'auto' | 'interactive'
+        permissionTimeoutMs?: number
+        permissionKeepAliveMs?: number
     }) {
         this.transport = opts.transport
         this.onEvent = opts.onEvent
         this.log = opts.logger ?? new Logger(HermesAcpTurn.name)
         this.closeGraceMs = opts.closeGraceMs ?? 5_000
+        this.permissionPolicy = opts.permissionPolicy ?? 'auto'
+        this.permissionTimeoutMs = opts.permissionTimeoutMs ?? 300_000
+        this.permissionKeepAliveMs = opts.permissionKeepAliveMs ?? 15_000
         void this.pumpStdout()
         void this.pumpStderr()
         // #561's lesson, moved to the transport boundary: ANY transport
@@ -176,6 +473,12 @@ export class HermesAcpTurn {
 
     get currentSessionId(): string | null {
         return this.sessionId
+    }
+
+    // The models/modes state from the last session/new|resume response, or
+    // null on hermes builds that predate it.
+    get sessionState(): AcpSessionState | null {
+        return this.lastSessionState
     }
 
     private async pumpStdout(): Promise<void> {
@@ -309,6 +612,32 @@ export class HermesAcpTurn {
     }
 
     private handleAgentRequest(req: JsonRpcAgentRequest): void {
+        if (
+            req.method === 'session/request_permission' &&
+            this.permissionPolicy === 'interactive'
+        ) {
+            const event = decodePermissionRequest(req.id, req.params)
+            const key = event.requestId
+            const timer = setTimeout(
+                () => this.expirePermission(key),
+                this.permissionTimeoutMs
+            )
+            this.pendingPermissions.set(key, {
+                id: req.id,
+                options: event.options,
+                timer
+            })
+            if (!this.permissionKeepAlive) {
+                this.permissionKeepAlive = setInterval(
+                    () => this.touchPending(),
+                    this.permissionKeepAliveMs
+                )
+                if (typeof this.permissionKeepAlive.unref === 'function')
+                    this.permissionKeepAlive.unref()
+            }
+            this.onEvent(event)
+            return
+        }
         // Headless — auto-approve permission asks; reply method-not-found for
         // anything else so the agent doesn't block.
         const response: Record<string, unknown> = {
@@ -319,7 +648,7 @@ export class HermesAcpTurn {
             response.result = {
                 outcome: {
                     outcome: 'selected',
-                    optionId: 'approve_for_session'
+                    optionId: pickAutoApproveOptionId(req.params)
                 }
             }
         } else {
@@ -329,6 +658,83 @@ export class HermesAcpTurn {
             }
         }
         this.writeLine(JSON.stringify(response))
+    }
+
+    // Delivers the user's answer to a pending ask. 'unknown' = never seen,
+    // already answered, or already expired — the caller turns that into 409.
+    respondPermission(
+        requestId: string,
+        optionId: string
+    ): 'delivered' | 'unknown' {
+        const pending = this.pendingPermissions.get(requestId)
+        if (!pending) return 'unknown'
+        this.settlePermission(requestId, pending, {
+            outcome: 'selected',
+            optionId
+        })
+        return 'delivered'
+    }
+
+    get pendingPermissionIds(): string[] {
+        return [...this.pendingPermissions.keys()]
+    }
+
+    private expirePermission(requestId: string): void {
+        const pending = this.pendingPermissions.get(requestId)
+        if (!pending) return
+        const rejectId = pickRejectOptionId(pending.options)
+        this.settlePermission(
+            requestId,
+            pending,
+            rejectId
+                ? { outcome: 'timeout', optionId: rejectId }
+                : { outcome: 'timeout', optionId: null }
+        )
+    }
+
+    private settlePermission(
+        requestId: string,
+        pending: {
+            id: number | string
+            options: Array<{ optionId: string; name: string; kind: string }>
+            timer: NodeJS.Timeout | null
+        },
+        answer: {
+            outcome: 'selected' | 'timeout' | 'cancelled'
+            optionId: string | null
+        }
+    ): void {
+        if (pending.timer) clearTimeout(pending.timer)
+        this.pendingPermissions.delete(requestId)
+        if (this.pendingPermissions.size === 0 && this.permissionKeepAlive) {
+            clearInterval(this.permissionKeepAlive)
+            this.permissionKeepAlive = null
+        }
+        this.writeLine(
+            JSON.stringify({
+                jsonrpc: '2.0',
+                id: pending.id,
+                result: {
+                    outcome: answer.optionId
+                        ? { outcome: 'selected', optionId: answer.optionId }
+                        : { outcome: 'cancelled' }
+                }
+            })
+        )
+        this.onEvent({
+            type: 'permission_resolution',
+            requestId,
+            outcome: answer.outcome,
+            optionId: answer.optionId
+        })
+    }
+
+    private cancelPendingPermissions(): void {
+        for (const [requestId, pending] of [...this.pendingPermissions])
+            this.settlePermission(requestId, pending, {
+                outcome: 'cancelled',
+                optionId: null
+            })
     }
 
     // Enqueue-only: a dead transport surfaces via `result` rejecting, which
@@ -426,6 +832,7 @@ export class HermesAcpTurn {
         if (!sid || typeof sid !== 'string')
             throw new Error('hermes session/new returned no sessionId')
         this.sessionId = sid
+        this.lastSessionState = decodeAcpSessionState(result)
         return sid
     }
 
@@ -447,7 +854,51 @@ export class HermesAcpTurn {
             (typeof result?.sessionId === 'string' && result.sessionId) ||
             args.sessionId
         this.sessionId = resolvedId
+        this.lastSessionState = decodeAcpSessionState(result)
         return resolvedId
+    }
+
+    // Switches the persisted session model. hermes accepts anything here and
+    // fails at inference instead — the only real failures are -32601 (a build
+    // that predates model switching) and transport death. Wrapped so the
+    // method name survives into the error: hermes's own -32601 message does
+    // not carry it, and the adapter classifies on it.
+    async setModel(args: { modelId: string; timeoutMs: number }): Promise<void> {
+        if (!this.sessionId)
+            throw new Error('hermes session/set_model called without sessionId')
+        try {
+            await this.request('session/set_model', {
+                sessionId: this.sessionId,
+                modelId: args.modelId
+            }, args.timeoutMs)
+        } catch (err) {
+            throw new Error(
+                `hermes session/set_model failed: ${(err as Error).message}`
+            )
+        }
+        if (this.lastSessionState)
+            this.lastSessionState = {
+                ...this.lastSessionState,
+                currentModelId: args.modelId
+            }
+    }
+
+    // Best-effort: an unknown mode id silently normalizes to `default`
+    // upstream (which asks MORE, never less), and a -32601 build simply keeps
+    // asking — so a failure here must never kill the turn.
+    async setMode(args: { modeId: string; timeoutMs: number }): Promise<void> {
+        if (!this.sessionId) return
+        try {
+            await this.request(
+                'session/set_mode',
+                { sessionId: this.sessionId, modeId: args.modeId },
+                args.timeoutMs
+            )
+        } catch (err) {
+            this.log.warn(
+                `hermes session/set_mode ${args.modeId} failed: ${(err as Error).message}`
+            )
+        }
     }
 
     // The only streaming call, so it takes the split budgets rather than a
@@ -471,6 +922,9 @@ export class HermesAcpTurn {
     async close(): Promise<void> {
         if (this.closed) return
         this.closed = true
+        // Answer open asks as cancelled BEFORE the EOF: a child blocked on an
+        // unanswered ask would otherwise sit out the whole grace window.
+        this.cancelPendingPermissions()
         this.transport.endInput()
         // A child that ignores stdin EOF must not park the caller (and its
         // terminal event) for the whole transport budget: give it a short
@@ -502,6 +956,7 @@ export class HermesAcpTurn {
     // close() is inside its grace window must still reach the transport, or
     // the turn is uncancellable for the rest of the wait.
     abort(): void {
+        this.cancelPendingPermissions()
         this.transport.abort()
         if (this.closed) return
         this.closed = true
@@ -564,6 +1019,39 @@ const extractContentText = (data: Record<string, unknown>): string => {
     const c = content as Record<string, unknown>
     const text = c['text']
     return typeof text === 'string' ? text : ''
+}
+
+// A tool_call_update carries its outcome twice: `rawOutput` (the verbatim
+// tool result, omitted for tools hermes renders itself) and `content[]`
+// blocks. Prefer rawOutput; fall back to the blocks' text. Diff blocks (file
+// edits) reduce to the touched path — the new file body is already in the
+// tool_call's input.
+// Measured on hermes-agent 0.20.6 [2026-08-29]: content items are
+// {type:'content', content:{type:'text', text}} and {type:'diff', path,
+// newText}; rawOutput is a plain string when present.
+const extractToolResultText = (
+    data: Record<string, unknown>
+): string | null => {
+    const raw = data['rawOutput']
+    if (typeof raw === 'string' && raw.length > 0) return raw
+    const content = data['content']
+    if (!Array.isArray(content)) return null
+    const parts: string[] = []
+    for (const item of content) {
+        if (!item || typeof item !== 'object') continue
+        const rec = item as Record<string, unknown>
+        if (rec['type'] === 'content') {
+            const inner = rec['content']
+            if (inner && typeof inner === 'object') {
+                const text = (inner as Record<string, unknown>)['text']
+                if (typeof text === 'string' && text) parts.push(text)
+            }
+        } else if (rec['type'] === 'diff') {
+            const path = rec['path']
+            if (typeof path === 'string' && path) parts.push(`edited ${path}`)
+        }
+    }
+    return parts.length > 0 ? parts.join('\n') : null
 }
 
 // Find the most informative stderr line — hermes writes a mix of "✓ booted"

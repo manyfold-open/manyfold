@@ -170,6 +170,7 @@ export type DaemonRpcMethod =
     | 'exec.input'
     | 'exec.eof'
     | 'turn.start'
+    | 'turn.permission'
     | 'model.inspect'
     | 'pty.open'
     | 'pty.input'
@@ -288,6 +289,31 @@ export interface DaemonHermesTurnPayload {
     // ACP sessionId from an earlier turn; the daemon tries session/resume and
     // falls back to session/new, reporting the id it ended up with.
     sessionId?: string | null
+    // Per-message model choice, applied via ACP session/set_model after the
+    // session ensure. The wire id is a bare model id (hermes resolves the
+    // provider; explicit `provider:model` also works). hermes persists the
+    // session's model in its state.db, so env vars cannot move a resumed
+    // session — set_model is the only reliable lever. Gated on
+    // `turn.hermes.options`: an old daemon would silently ignore this field,
+    // running the wrong model under a UI that claims otherwise.
+    modelOverride?: string | null
+    // true = the user explicitly picked this model, so a hermes build that
+    // cannot switch (no session state, set_model unsupported) must FAIL the
+    // turn rather than run something else. false/absent = reconcile-only: a
+    // build that reports no session state skips the set silently, because the
+    // target is just the agent's default.
+    modelOverrideRequired?: boolean
+    // Hermes edit-approval mode for this turn (see hermesPermissionModes in
+    // chat.ts). dontAsk/absent = the pre-existing behavior: HERMES_YOLO_MODE=1
+    // and auto-approved asks. The ask modes drop YOLO, best-effort
+    // session/set_mode the matching hermes mode, and forward
+    // session/request_permission upstream as permission_request frames for
+    // the user to answer via the turn.permission RPC. Gated on
+    // `turn.hermes.permissions`.
+    permissionMode?: 'default' | 'acceptEdits' | 'dontAsk'
+    // Deny-on-timeout deadline for an unanswered ask, ms. The daemon answers
+    // with the request's own reject option when it expires.
+    permissionTimeoutMs?: number
     // Legacy single budget over session/prompt: one absolute deadline that the
     // streamed session/update notifications never reset, so a turn still
     // producing output was truncated (#556). Kept as the fallback for runners
@@ -339,6 +365,17 @@ export interface DaemonTurnFinalPayload {
     stopReason: string | null
     sessionId: string | null
     result?: Record<string, unknown>
+    // Session state hermes reported in its session/new|resume response —
+    // model/mode ids as `provider:model` / mode id strings. Diagnostic
+    // capture; absent on daemons that predate turn.hermes.options.
+    models?: {
+        currentModelId: string | null
+        modelIds: string[]
+    }
+    modes?: {
+        currentModeId: string | null
+        modeIds: string[]
+    }
 }
 
 export const DAEMON_FEATURE_EXEC_RESUME = 'exec.resume'
@@ -394,6 +431,20 @@ export const DAEMON_FEATURE_TURN_BUDGETS = 'turn.budgets'
 // flag at decision time — it exists so fleet coverage is queryable from
 // `runtime_hosts.client_features`, which the heartbeat persists.
 export const DAEMON_FEATURE_CREDENTIAL_FACTS = 'model.credential-facts'
+// The hermes turn runner honours DaemonHermesTurnPayload.modelOverride
+// (session/set_model before the prompt, failing the turn on error) and
+// reports the session's models/modes state on the final. The API refuses to
+// dispatch a turn carrying a model override to a daemon without this —
+// silently dropping the user's explicit model choice would run the wrong
+// model under a UI that claims otherwise.
+export const DAEMON_FEATURE_TURN_HERMES_OPTIONS = 'turn.hermes.options'
+// The hermes turn runner honours DaemonHermesTurnPayload.permissionMode
+// (interactive session/request_permission, answered via the turn.permission
+// RPC, deny-on-timeout) instead of unconditionally auto-approving under
+// HERMES_YOLO_MODE. The API refuses to dispatch an ask-mode turn to a daemon
+// without this — silently running YOLO under a UI that claims "ask" would be
+// worse than refusing.
+export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -407,5 +458,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
     DAEMON_FEATURE_TURN_BUDGETS,
-    DAEMON_FEATURE_CREDENTIAL_FACTS
+    DAEMON_FEATURE_CREDENTIAL_FACTS,
+    DAEMON_FEATURE_TURN_HERMES_OPTIONS,
+    DAEMON_FEATURE_TURN_HERMES_PERMISSIONS
 ]

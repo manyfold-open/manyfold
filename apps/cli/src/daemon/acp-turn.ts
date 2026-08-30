@@ -46,6 +46,46 @@ const pickStderrErrorLine = (lines: string[]): string | null => {
     return null
 }
 
+// Ported from the API's hermes-acp-client (pickAutoApproveOptionId): the old
+// hardcoded 'approve_for_session' matches no option id current hermes builds
+// advertise, and an unknown id maps to DENY on both of hermes's approval
+// bridges — the headless auto-approve was silently rejecting every file edit.
+// Seen on hermes-agent 0.20.6 [2026-08-29]: terminal-command asks offer
+// allow_once / allow_session / allow_always / deny / deny_always; edit asks
+// offer only allow_once / deny.
+const pickAutoApproveOptionId = (
+    params: Record<string, unknown> | undefined
+): string => {
+    const options = params?.options
+    if (Array.isArray(options)) {
+        const rows = options.filter(
+            (o): o is Record<string, unknown> => !!o && typeof o === 'object'
+        )
+        const byKind = (kind: string): string | null => {
+            for (const o of rows) {
+                if (o.kind === kind && typeof o.optionId === 'string')
+                    return o.optionId
+            }
+            return null
+        }
+        const allowAny = (): string | null => {
+            for (const o of rows) {
+                if (
+                    typeof o.kind === 'string' &&
+                    o.kind.startsWith('allow') &&
+                    typeof o.optionId === 'string'
+                )
+                    return o.optionId
+            }
+            return null
+        }
+        const picked =
+            byKind('allow_always') ?? byKind('allow_once') ?? allowAny()
+        if (picked) return picked
+    }
+    return 'approve_for_session'
+}
+
 interface PendingRequest {
     method: string
     resolve: (result: Record<string, unknown> | undefined) => void
@@ -70,6 +110,15 @@ export interface TurnAck {
     error?: string
 }
 
+// Live interactive asks by turn refId, for the turn.permission RPC to answer.
+// 'unknown' = the request was never seen, already answered, or expired.
+export const permissionResponders = new Map<
+    string,
+    (requestId: string, optionId: string) => 'delivered' | 'unknown'
+>()
+
+const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000
+
 export const runAcpTurn = (args: {
     payload: DaemonHermesTurnPayload
     cwd: string
@@ -93,11 +142,17 @@ export const runAcpTurn = (args: {
     execStreams.set(ctx.refId, stream)
 
     const cmd = payload.cmd?.length ? payload.cmd : ACP_DEFAULT_CMD
+    // The ask modes need YOLO OFF so dangerous commands route to
+    // session/request_permission and reach the user's card; YOLO is frozen at
+    // the child's import time, so this is a per-turn decision.
+    const interactivePermissions =
+        payload.permissionMode === 'default' ||
+        payload.permissionMode === 'acceptEdits'
     const child = spawn(cmd[0], cmd.slice(1), {
         cwd,
         env: {
             ...process.env,
-            HERMES_YOLO_MODE: '1',
+            ...(interactivePermissions ? {} : { HERMES_YOLO_MODE: '1' }),
             ...(payload.env ?? {})
         },
         stdio: ['pipe', 'pipe', 'pipe']
@@ -206,7 +261,112 @@ export const runAcpTurn = (args: {
         for (const [, p] of pending) p.touch()
     }
 
+    // Interactive asks the user answers via the turn.permission RPC. Keyed by
+    // the agent's own JSON-RPC id (stringified — the requestId on the wire).
+    const pendingPermissions = new Map<
+        string,
+        {
+            id: number | string
+            options: Array<{ optionId: string; kind: string }>
+            timer: NodeJS.Timeout
+        }
+    >()
+    // A human deciding means child silence BY DESIGN; the pending ask ticks
+    // the idle budget so the turn cannot time out under the user.
+    let permissionKeepAlive: NodeJS.Timeout | null = null
+    const permissionTimeoutMs =
+        payload.permissionTimeoutMs ?? DEFAULT_PERMISSION_TIMEOUT_MS
+
+    const settlePermission = (
+        requestId: string,
+        outcome: 'selected' | 'timeout' | 'cancelled',
+        optionId: string | null
+    ): void => {
+        const entry = pendingPermissions.get(requestId)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pendingPermissions.delete(requestId)
+        if (pendingPermissions.size === 0 && permissionKeepAlive) {
+            clearInterval(permissionKeepAlive)
+            permissionKeepAlive = null
+        }
+        // The resolution rides the buffer BEFORE the child reply, so a
+        // replayed stream shows the settlement ahead of any post-approval
+        // output — exactly the live order.
+        safePublish(
+            'stdout',
+            `${JSON.stringify({
+                jsonrpc: '2.0',
+                method: '_manyfold/permission_resolution',
+                params: { requestId, outcome, optionId }
+            })}\n`
+        )
+        try {
+            writeLine(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: entry.id,
+                    result: {
+                        outcome: optionId
+                            ? { outcome: 'selected', optionId }
+                            : { outcome: 'cancelled' }
+                    }
+                })
+            )
+        } catch {}
+    }
+
+    const cancelPendingPermissions = (): void => {
+        for (const requestId of [...pendingPermissions.keys()])
+            settlePermission(requestId, 'cancelled', null)
+    }
+
     const respondToAgent = (frame: Record<string, unknown>): void => {
+        if (
+            frame.method === 'session/request_permission' &&
+            interactivePermissions &&
+            frame.id !== undefined &&
+            frame.id !== null
+        ) {
+            const params = frame.params as
+                | Record<string, unknown>
+                | undefined
+            const rawOptions = params?.options
+            const options: Array<{ optionId: string; kind: string }> = []
+            if (Array.isArray(rawOptions))
+                for (const item of rawOptions) {
+                    if (!item || typeof item !== 'object') continue
+                    const rec = item as Record<string, unknown>
+                    if (typeof rec.optionId !== 'string') continue
+                    options.push({
+                        optionId: rec.optionId,
+                        kind: typeof rec.kind === 'string' ? rec.kind : ''
+                    })
+                }
+            const requestId = String(frame.id)
+            const timer = setTimeout(() => {
+                const reject =
+                    options.find((o) => o.kind === 'reject_once') ??
+                    options.find((o) => o.kind.startsWith('reject'))
+                settlePermission(
+                    requestId,
+                    'timeout',
+                    reject?.optionId ?? null
+                )
+            }, permissionTimeoutMs)
+            pendingPermissions.set(requestId, {
+                id: frame.id as number | string,
+                options,
+                timer
+            })
+            if (!permissionKeepAlive) {
+                permissionKeepAlive = setInterval(() => touchPending(), 15_000)
+                permissionKeepAlive.unref()
+            }
+            // No reply yet — the request frame is already durable in the
+            // buffer (every stdout line is), which is what surfaces the card.
+            return
+        }
         // Headless: auto-approve permission asks and refuse everything else,
         // so the agent never blocks on a client that cannot render UI.
         const response: Record<string, unknown> = {
@@ -215,7 +375,12 @@ export const runAcpTurn = (args: {
         }
         if (frame.method === 'session/request_permission')
             response.result = {
-                outcome: { outcome: 'selected', optionId: 'approve_for_session' }
+                outcome: {
+                    outcome: 'selected',
+                    optionId: pickAutoApproveOptionId(
+                        frame.params as Record<string, unknown> | undefined
+                    )
+                }
             }
         else
             response.error = {
@@ -332,9 +497,17 @@ export const runAcpTurn = (args: {
 
     ctx.onCancel(() => {
         cancelled = true
+        cancelPendingPermissions()
         settleAll(new Error('cancelled'))
         killChild()
     })
+
+    if (interactivePermissions)
+        permissionResponders.set(ctx.refId, (requestId, optionId) => {
+            if (!pendingPermissions.has(requestId)) return 'unknown'
+            settlePermission(requestId, 'selected', optionId)
+            return 'delivered'
+        })
 
     const handshakeTimeoutMs =
         payload.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS
@@ -353,6 +526,52 @@ export const runAcpTurn = (args: {
         result && typeof result.sessionId === 'string' && result.sessionId
             ? result.sessionId
             : null
+
+    // Ported from the API's hermes-acp-client (decodeAcpSessionState /
+    // acpModelMatches): the models/modes state hermes attaches to its
+    // session/new|resume responses, and the `provider:model` vs bare-id
+    // comparison (endsWith, not a prefix strip — model ids can contain
+    // colons themselves).
+    interface SessionState {
+        currentModelId: string | null
+        modelIds: string[]
+        currentModeId: string | null
+        modeIds: string[]
+    }
+    const decodeSessionState = (
+        result: Record<string, unknown> | undefined
+    ): SessionState | null => {
+        if (!result) return null
+        const models = result.models as Record<string, unknown> | undefined
+        const modes = result.modes as Record<string, unknown> | undefined
+        if (!models && !modes) return null
+        const ids = (value: unknown, key: string): string[] =>
+            Array.isArray(value)
+                ? value
+                      .map((item) =>
+                          item && typeof item === 'object'
+                              ? (item as Record<string, unknown>)[key]
+                              : null
+                      )
+                      .filter((v): v is string => typeof v === 'string' && !!v)
+                : []
+        return {
+            currentModelId:
+                typeof models?.currentModelId === 'string'
+                    ? models.currentModelId
+                    : null,
+            modelIds: ids(models?.availableModels, 'modelId'),
+            currentModeId:
+                typeof modes?.currentModeId === 'string'
+                    ? modes.currentModeId
+                    : null,
+            modeIds: ids(modes?.availableModes, 'id')
+        }
+    }
+    const modelMatches = (current: string | null, bare: string): boolean =>
+        current !== null && (current === bare || current.endsWith(`:${bare}`))
+
+    let sessionState: SessionState | null = null
 
     const drive = async (): Promise<void> => {
         try {
@@ -380,6 +599,7 @@ export const runAcpTurn = (args: {
                         handshakeTimeoutMs
                     )
                     sessionId = sessionIdFrom(res) ?? payload.sessionId
+                    sessionState = decodeSessionState(res)
                 } catch {
                     const res = await request(
                         'session/new',
@@ -387,6 +607,7 @@ export const runAcpTurn = (args: {
                         handshakeTimeoutMs
                     )
                     sessionId = sessionIdFrom(res)
+                    sessionState = decodeSessionState(res)
                 }
             } else {
                 const res = await request(
@@ -395,9 +616,61 @@ export const runAcpTurn = (args: {
                     handshakeTimeoutMs
                 )
                 sessionId = sessionIdFrom(res)
+                sessionState = decodeSessionState(res)
             }
             if (!sessionId)
                 throw new Error('hermes session/new returned no sessionId')
+            // Best-effort: align hermes's edit-approval policy with the
+            // chosen mode so accept_edits stops asking for what it
+            // auto-allows. A failure only means hermes asks MORE, and the
+            // interactive bridge absorbs that.
+            if (interactivePermissions)
+                await request(
+                    'session/set_mode',
+                    {
+                        sessionId,
+                        modeId:
+                            payload.permissionMode === 'acceptEdits'
+                                ? 'accept_edits'
+                                : 'default'
+                    },
+                    handshakeTimeoutMs
+                ).catch(() => undefined)
+            // Reconcile the session's persisted model with the payload's
+            // choice. State known -> diff (an untouched session costs no
+            // RPC). State unknown (old hermes build) -> only a REQUIRED
+            // switch attempts it, where failing loudly beats answering with
+            // a model the user did not pick; a reconcile-only target is the
+            // agent default, which such a build already runs.
+            if (payload.modelOverride) {
+                const shouldSet = sessionState
+                    ? !modelMatches(
+                          sessionState.currentModelId,
+                          payload.modelOverride
+                      )
+                    : payload.modelOverrideRequired === true
+                if (shouldSet) {
+                    try {
+                        await request(
+                            'session/set_model',
+                            {
+                                sessionId,
+                                modelId: payload.modelOverride
+                            },
+                            handshakeTimeoutMs
+                        )
+                    } catch (err) {
+                        throw new Error(
+                            `hermes session/set_model failed: ${(err as Error).message}`
+                        )
+                    }
+                    if (sessionState)
+                        sessionState = {
+                            ...sessionState,
+                            currentModelId: payload.modelOverride
+                        }
+                }
+            }
             const result = await request(
                 'session/prompt',
                 {
@@ -415,7 +688,19 @@ export const runAcpTurn = (args: {
                         ? result.stopReason
                         : 'completed',
                 sessionId,
-                ...(result ? { result } : {})
+                ...(result ? { result } : {}),
+                ...(sessionState
+                    ? {
+                          models: {
+                              currentModelId: sessionState.currentModelId,
+                              modelIds: sessionState.modelIds
+                          },
+                          modes: {
+                              currentModeId: sessionState.currentModeId,
+                              modeIds: sessionState.modeIds
+                          }
+                      }
+                    : {})
             }
             stream.complete(
                 { ok: true, payload: final as unknown as Record<string, unknown> },
@@ -431,6 +716,8 @@ export const runAcpTurn = (args: {
                 cancelled ? 'aborted' : 'completed'
             )
         } finally {
+            permissionResponders.delete(ctx.refId)
+            cancelPendingPermissions()
             // The conversation is over either way. EOF lets hermes exit on its
             // own; the escalation covers a child that lingers.
             try {

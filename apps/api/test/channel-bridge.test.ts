@@ -1514,6 +1514,7 @@ const makeHarness = (opts: MakeHarnessOptions = {}): Harness => {
             _saveAsDefault?: unknown,
             _claudeCodePermissionMode?: unknown,
             _codexPermissionMode?: unknown,
+            _hermesPermissionMode?: unknown,
             observer?: typeof pendingObserver,
             _contextRefs?: unknown,
             uploads?: unknown,

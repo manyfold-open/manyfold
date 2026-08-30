@@ -44,6 +44,13 @@ export const apiPaths = {
     AGENT_SESSION_STREAM: (agentId: string, sessionId: string) =>
         `/agents/${agentId}/sessions/${sessionId}/stream`,
     AGENT_CHAT_PREWARM: (agentId: string) => `/agents/${agentId}/chat/prewarm`,
+    AGENT_SESSION_PERMISSION_ANSWER: (
+        agentId: string,
+        sessionId: string,
+        messageId: string,
+        requestId: string
+    ) =>
+        `/agents/${agentId}/sessions/${sessionId}/messages/${messageId}/permissions/${requestId}`,
     AGENT_SESSION_CANCEL: (agentId: string, sessionId: string) =>
         `/agents/${agentId}/sessions/${sessionId}/cancel`,
     AGENT_SESSION_SHARE: (agentId: string, sessionId: string) =>

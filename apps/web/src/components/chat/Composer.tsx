@@ -10,11 +10,13 @@ import {
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
     ClaudeCodePermissionMode,
+    HermesPermissionMode,
     CodexIntelligence,
     CodexPermissionMode,
     CodexSpeed,
     CreateMessageContextRefInput,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
+    DEFAULT_HERMES_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     claudeCodeModelAliasMapKey,
     claudeCodeEfforts,
@@ -118,6 +120,8 @@ interface Props {
     onClaudeCodePermissionModeChange?: (mode: ClaudeCodePermissionMode) => void
     codexPermissionMode?: CodexPermissionMode
     onCodexPermissionModeChange?: (mode: CodexPermissionMode) => void
+    hermesPermissionMode?: HermesPermissionMode
+    onHermesPermissionModeChange?: (mode: HermesPermissionMode) => void
     onModelConfigDraftChange?: (config: AgentModelConfig) => void
     onModelConfigSourceChange?: (source: AgentModelConfigSource) => void
     onRefreshModelConfig?: (
@@ -177,7 +181,10 @@ interface PendingAttachment {
     error?: string
 }
 
-type ComposerPermissionMode = ClaudeCodePermissionMode | CodexPermissionMode
+type ComposerPermissionMode =
+    | ClaudeCodePermissionMode
+    | CodexPermissionMode
+    | HermesPermissionMode
 
 interface ComposerPermissionOption<T extends ComposerPermissionMode> {
     value: T
@@ -263,6 +270,33 @@ const codexPermissionOptions: Array<
     }
 ]
 
+const hermesPermissionOptions: Array<
+    ComposerPermissionOption<HermesPermissionMode>
+> = [
+    {
+        value: 'default',
+        labelKey: 'web.composer.permission.hermes.ask',
+        titleKey: 'web.composer.permission.hermes.askTitle',
+        descriptionKey: 'web.composer.permission.hermes.askDescription',
+        icon: HandIcon
+    },
+    {
+        value: 'acceptEdits',
+        labelKey: 'web.composer.permission.hermes.acceptEdits',
+        titleKey: 'web.composer.permission.hermes.acceptEditsTitle',
+        descriptionKey: 'web.composer.permission.hermes.acceptEditsDescription',
+        icon: EditIcon
+    },
+    {
+        value: 'dontAsk',
+        labelKey: 'web.composer.permission.hermes.dontAsk',
+        titleKey: 'web.composer.permission.hermes.dontAskTitle',
+        descriptionKey: 'web.composer.permission.hermes.dontAskDescription',
+        icon: ShieldAlertIcon,
+        dangerous: true
+    }
+]
+
 // Mirrors the CSS clamp (.chat-composer-input max-height: 240px).
 const resizeComposerInput = (node: HTMLTextAreaElement): void => {
     node.style.height = 'auto'
@@ -291,6 +325,8 @@ const Composer: FC<Props> = ({
     onClaudeCodePermissionModeChange,
     codexPermissionMode = DEFAULT_CODEX_PERMISSION_MODE,
     onCodexPermissionModeChange,
+    hermesPermissionMode = DEFAULT_HERMES_PERMISSION_MODE,
+    onHermesPermissionModeChange,
     onModelConfigDraftChange,
     onModelConfigSourceChange,
     onRefreshModelConfig,
@@ -317,6 +353,7 @@ const Composer: FC<Props> = ({
     const dragDepthRef = useRef(0)
     const [agentMenuOpen, setAgentMenuOpen] = useState(false)
     const [modelMenuOpen, setModelMenuOpen] = useState(false)
+    const [modelFilter, setModelFilter] = useState('')
     const [permissionMenuOpen, setPermissionMenuOpen] = useState(false)
     const textareaRef = useRef<HTMLTextAreaElement | null>(null)
     const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -534,6 +571,7 @@ const Composer: FC<Props> = ({
         setAgentMenuOpen(false)
         setAttachmentMenuOpen(false)
         setPermissionMenuOpen(false)
+        setModelFilter('')
         setModelMenuOpen((prev) => !prev)
     }
 
@@ -565,6 +603,8 @@ const Composer: FC<Props> = ({
         }
         if (canChooseClaudeCodePermissions)
             onClaudeCodePermissionModeChange?.(mode as ClaudeCodePermissionMode)
+        else if (canChooseHermesPermissions)
+            onHermesPermissionModeChange?.(mode as HermesPermissionMode)
         else onCodexPermissionModeChange?.(mode as CodexPermissionMode)
     }
 
@@ -793,6 +833,16 @@ const Composer: FC<Props> = ({
     const selectableModels = uniqueModels(modelOptions).filter(
         (option) => option !== modelDefaultLabel
     )
+    // Provider catalogs (openrouter) run to hundreds of entries; a plain list
+    // is unusable past a screenful, so the menu grows a filter box.
+    const modelFilterNeedle = modelFilter.trim().toLowerCase()
+    const showModelFilter = selectableModels.length > 12
+    const filteredModels =
+        showModelFilter && modelFilterNeedle
+            ? selectableModels.filter((option) =>
+                  option.toLowerCase().includes(modelFilterNeedle)
+              )
+            : selectableModels
     const promptTarget = agentName?.trim() || t('web.composer.theAgent')
     const canSwitchAgent =
         showAgentSwitcher && agentOptions.length > 1 && Boolean(onSelectAgent)
@@ -816,8 +866,12 @@ const Composer: FC<Props> = ({
         framework === 'claude-code' && Boolean(onClaudeCodePermissionModeChange)
     const canChooseCodexPermissions =
         framework === 'codex' && Boolean(onCodexPermissionModeChange)
+    const canChooseHermesPermissions =
+        framework === 'hermes' && Boolean(onHermesPermissionModeChange)
     const canChoosePermissions =
-        canChooseClaudeCodePermissions || canChooseCodexPermissions
+        canChooseClaudeCodePermissions ||
+        canChooseCodexPermissions ||
+        canChooseHermesPermissions
     const permissionButtonDisabled =
         disabled || streaming || !canChoosePermissions
     const permissionOptions: Array<
@@ -828,7 +882,9 @@ const Composer: FC<Props> = ({
         }
     > = (canChooseClaudeCodePermissions
         ? claudeCodePermissionOptions
-        : codexPermissionOptions
+        : canChooseHermesPermissions
+          ? hermesPermissionOptions
+          : codexPermissionOptions
     ).map((option) => ({
         ...option,
         label: t(option.labelKey),
@@ -838,7 +894,9 @@ const Composer: FC<Props> = ({
     const activePermissionMode: ComposerPermissionMode =
         canChooseClaudeCodePermissions
             ? claudeCodePermissionMode
-            : codexPermissionMode
+            : canChooseHermesPermissions
+              ? hermesPermissionMode
+              : codexPermissionMode
     const permissionOption =
         permissionOptions.find(
             (option) => option.value === activePermissionMode
@@ -1214,7 +1272,34 @@ const Composer: FC<Props> = ({
                                                     0 && (
                                                     <div className='popover-separator' />
                                                 )}
-                                                {selectableModels.map(
+                                                {showModelFilter && (
+                                                    <input
+                                                        type='text'
+                                                        value={modelFilter}
+                                                        onChange={(e) =>
+                                                            setModelFilter(
+                                                                e.target.value
+                                                            )
+                                                        }
+                                                        placeholder={t(
+                                                            'web.composer.modelFilterPlaceholder'
+                                                        )}
+                                                        aria-label={t(
+                                                            'web.composer.modelFilterPlaceholder'
+                                                        )}
+                                                        className='bg-app text-body-sm placeholder:text-placeholder mx-2 my-1 w-[calc(100%-1rem)] rounded-md px-2 py-1 outline-none'
+                                                    />
+                                                )}
+                                                {showModelFilter &&
+                                                    filteredModels.length ===
+                                                        0 && (
+                                                        <div className='text-caption text-subtle px-3 py-2'>
+                                                            {t(
+                                                                'web.composer.modelNoMatches'
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                {filteredModels.map(
                                                     (option) => (
                                                         <ModelMenuItem
                                                             key={option}

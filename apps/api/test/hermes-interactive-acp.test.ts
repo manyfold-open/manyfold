@@ -59,6 +59,10 @@ const pushQueue = <T>(): PushQueue<T> => {
 
 interface Rig {
     adapter: HermesAdapter
+    db: unknown
+    chatRepo: unknown
+    adminSettings: unknown
+    execDrivers: unknown
     requests: InteractiveExecRequest[]
     writes: Array<Record<string, unknown>>
     stdout: PushQueue<string>
@@ -171,24 +175,29 @@ const buildRig = (): Rig => {
             sessionRefs.push({ sessionId, ref })
         }
     }
+    const adminSettings = {
+        getCachedChatExecTimeoutMs: async () => ({
+            keepAliveMs: 1_000,
+            livenessTimeoutMs: 1_000,
+            timeoutMs: 60_000
+        })
+    }
     const adapter = new HermesAdapter(
         db as never,
         {} as never,
         { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
         {} as never,
         chatRepo as never,
-        {
-            getCachedChatExecTimeoutMs: async () => ({
-                keepAliveMs: 1_000,
-                livenessTimeoutMs: 1_000,
-                timeoutMs: 60_000
-            })
-        } as never,
+        adminSettings as never,
         undefined as never,
         execDrivers as never
     )
     return {
         adapter,
+        db,
+        chatRepo,
+        adminSettings,
+        execDrivers,
         requests,
         writes,
         stdout,
@@ -432,4 +441,329 @@ test('a turn cancelled before dispatch never spawns the child', async () => {
     const last = events.at(-1) as { type: string; error: { code: string } }
     assert.equal(last.type, 'error')
     assert.equal(last.error.code, 'hermes_aborted')
+})
+
+// PR: tool outputs + context usage over the interactive transport — the same
+// decode rules the runner drain has, proven against this path's own queue.
+test('interactive turns emit tool_result in the x namespace and context usage as metadata input', async () => {
+    const rig = buildRig()
+    script(rig, {
+        answer: () => {
+            rig.note({ sessionUpdate: 'usage_update', size: 256000, used: 900 })
+            rig.note({
+                sessionUpdate: 'agent_message_chunk',
+                content: { type: 'text', text: 'running' }
+            })
+            rig.note({
+                sessionUpdate: 'tool_call',
+                toolCallId: 'tc-1',
+                title: 'write: a.txt',
+                rawInput: { path: 'a.txt' }
+            })
+            rig.note({
+                sessionUpdate: 'tool_call_update',
+                toolCallId: 'tc-1',
+                status: 'completed',
+                rawOutput: 'wrote a.txt'
+            })
+            rig.note({ sessionUpdate: 'usage_update', size: 256000, used: 1800 })
+        }
+    })
+    const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+
+    const toolResult = events.find((e) => e.type === 'tool_result') as
+        | { toolCallId: string; result: unknown }
+        | undefined
+    assert.ok(toolResult, 'tool_result expected')
+    assert.equal(toolResult.toolCallId, 'tc-1')
+    assert.equal(toolResult.result, 'wrote a.txt')
+
+    const sourceIds = events
+        .filter((e) => e.type === 'raw_source')
+        .map(
+            (e) =>
+                (e as { source: { externalId: string | null } }).source
+                    .externalId
+        )
+    assert.deepEqual(sourceIds, [
+        'hermes-acp-1',
+        'hermes-acp-2',
+        'hermes-acp-x-1'
+    ])
+
+    const contextIdx = events.findIndex((e) => e.type === 'context_usage')
+    const doneIdx = events.findIndex((e) => e.type === 'done')
+    assert.ok(contextIdx !== -1, 'context_usage must be emitted')
+    assert.ok(contextIdx < doneIdx, 'context_usage precedes done')
+    assert.deepEqual(
+        (events[contextIdx] as { context: unknown }).context,
+        { size: 256000, used: 1800 }
+    )
+})
+
+// PR: hermes model switching over the interactive transport. The adapter
+// reconciles the session's persisted model with the turn's claim: diff
+// against the state hermes reports, switch on mismatch, fail the turn when
+// the build cannot switch.
+test('an explicit model pick reconciles the session via set_model', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: [
+                        { modelId: 'openrouter:old-model', name: 'old' },
+                        { modelId: 'openrouter:new-model', name: 'new' }
+                    ]
+                }
+            }
+        })
+        const setModel = await rig.waitFor('session/set_model')
+        rig.reply({ jsonrpc: '2.0', id: setModel.id, result: {} })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.note({
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: 'switched' }
+        })
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'new-model' }), USER_MSG)
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    const setFrame = rig.writes.find((f) => f.method === 'session/set_model')
+    assert.ok(setFrame, 'set_model must be sent')
+    assert.equal(
+        (setFrame.params as { modelId: string }).modelId,
+        'new-model'
+    )
+})
+
+test('a session already on the picked model skips set_model', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: []
+                }
+            }
+        })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'old-model' }), USER_MSG)
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(
+        rig.writes.find((f) => f.method === 'session/set_model'),
+        undefined
+    )
+})
+
+test('set_model on a build that cannot switch fails the turn as unsupported', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: {
+                sessionId: 'sess_live',
+                models: {
+                    currentModelId: 'openrouter:old-model',
+                    availableModels: []
+                }
+            }
+        })
+        const setModel = await rig.waitFor('session/set_model')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: setModel.id,
+            error: { code: -32601, message: 'Method not found' }
+        })
+    })()
+    const events = await drain(
+        rig.adapter.sendMessage(ctx({ modelOverride: 'new-model' }), USER_MSG)
+    )
+    const err = events.find((e) => e.type === 'error') as {
+        error: { code: string; retryable: boolean }
+    }
+    assert.equal(err.error.code, 'hermes_set_model_unsupported')
+    assert.equal(err.error.retryable, false)
+})
+
+// PR: interactive permissions over the interactive transport — the full round
+// trip: ask mode drops YOLO, the child's ask surfaces as a permission_request
+// event, the coordinator delivers the user's answer to the blocked turn, and
+// the resolution event follows before the answer continues.
+test('an ask-mode turn surfaces the ask, takes the answer via the coordinator, and continues', async () => {
+    const rig = buildRig()
+    const holders = new Map<
+        string,
+        {
+            respond: (r: string, o: string) => 'delivered' | 'unknown'
+            pendingIds: () => string[]
+        }
+    >()
+    const coordinator = {
+        register: (
+            messageId: string,
+            holder: {
+                respond: (r: string, o: string) => 'delivered' | 'unknown'
+                pendingIds: () => string[]
+            }
+        ) => {
+            holders.set(messageId, holder)
+            return () => holders.delete(messageId)
+        }
+    }
+    const adapter = new HermesAdapter(
+        rig.db as never,
+        {} as never,
+        { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
+        {} as never,
+        rig.chatRepo as never,
+        rig.adminSettings as never,
+        undefined as never,
+        rig.execDrivers as never,
+        coordinator as never
+    )
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: { sessionId: 'sess_live' }
+        })
+        const setMode = await rig.waitFor('session/set_mode')
+        assert.equal(
+            (setMode.params as { modeId: string }).modeId,
+            'accept_edits'
+        )
+        rig.reply({ jsonrpc: '2.0', id: setMode.id, result: {} })
+        await rig.waitFor('session/prompt')
+        // the child asks and blocks
+        rig.reply({
+            jsonrpc: '2.0',
+            id: 41,
+            method: 'session/request_permission',
+            params: {
+                options: [
+                    { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                    { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+                ],
+                toolCall: { toolCallId: 'tc-9', title: 'Run command', kind: 'execute', status: 'pending', rawInput: { command: 'rm -rf /tmp/x' } }
+            }
+        })
+    })()
+
+    const events: EmittedChatEvent[] = []
+    const answered: { done: boolean } = { done: false }
+    for await (const ev of adapter.sendMessage(
+        ctx({ hermesPermissionMode: 'acceptEdits' }),
+        USER_MSG
+    )) {
+        events.push(ev)
+        if (ev.type === 'permission_request' && !answered.done) {
+            answered.done = true
+            const holder = holders.get('msg_1')
+            assert.ok(holder, 'the turn must register with the coordinator')
+            assert.deepEqual(holder.pendingIds(), ['41'])
+            assert.equal(holder.respond('41', 'allow_once'), 'delivered')
+            // the child sees the reply and finishes the turn
+            void (async () => {
+                const reply = rig.writes.find(
+                    (f) => f.id === 41 && 'result' in f
+                ) as { result: { outcome: { optionId: string } } } | undefined
+                assert.equal(reply?.result.outcome.optionId, 'allow_once')
+                rig.note({
+                    sessionUpdate: 'agent_message_chunk',
+                    content: { type: 'text', text: 'done' }
+                })
+                const prompt = rig.writes.find(
+                    (f) => f.method === 'session/prompt'
+                ) as { id: number }
+                rig.reply({
+                    jsonrpc: '2.0',
+                    id: prompt.id,
+                    result: { stopReason: 'end_turn' }
+                })
+            })()
+        }
+    }
+
+    // YOLO must be absent from the spawn env in ask modes
+    assert.equal(rig.requests[0]?.env?.HERMES_YOLO_MODE, undefined)
+    const request = events.find((e) => e.type === 'permission_request') as {
+        requestId: string
+        detail: string | null
+    }
+    assert.equal(request.requestId, '41')
+    assert.equal(request.detail, 'rm -rf /tmp/x')
+    const resolution = events.find(
+        (e) => e.type === 'permission_resolution'
+    ) as { outcome: string; optionId: string | null }
+    assert.deepEqual(
+        [resolution.outcome, resolution.optionId],
+        ['selected', 'allow_once']
+    )
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(holders.size, 0, 'the holder must unregister at turn end')
+})
+
+test('a dontAsk turn keeps YOLO and aligns the session mode', async () => {
+    const rig = buildRig()
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: { sessionId: 'sess_live' }
+        })
+        const setMode = await rig.waitFor('session/set_mode')
+        assert.equal(
+            (setMode.params as { modeId: string }).modeId,
+            'dont_ask'
+        )
+        rig.reply({ jsonrpc: '2.0', id: setMode.id, result: {} })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+    const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+    assert.ok(events.some((e) => e.type === 'done'))
+    assert.equal(rig.requests[0]?.env?.HERMES_YOLO_MODE, '1')
 })

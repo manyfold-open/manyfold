@@ -2455,6 +2455,9 @@ const en = {
             latencyTotal: 'total {{seconds}}s',
             model: 'model',
             time: 'time',
+            waitingForPermission: 'Waiting for your approval…',
+            contextUsage: 'context',
+            contextUsageValue: '{{used}} / {{size}} ({{percent}}%)',
             copyText: 'Copy text',
             copiedText: 'Copied text',
             copyMarkdown: 'Copy markdown text',
@@ -2463,6 +2466,15 @@ const en = {
             copiedRaw: 'Copied raw response'
         },
         chat: {
+            permissionCard: {
+                approvedWith: 'Approved · {{option}}',
+                denied: 'Denied',
+                timedOut: 'Timed out — denied',
+                cancelled: 'Cancelled with the turn',
+                expired: 'This request is no longer waiting for an answer.',
+                sending: 'Sending…',
+                answerFailed: 'Could not deliver the answer: {{message}}'
+            },
             header: {
                 resizeRuntimeViewer: 'Resize chat and runtime session viewer',
                 openMenu: 'Open menu',
@@ -2877,6 +2889,8 @@ const en = {
             sendHint: 'Send (Cmd/Ctrl+Enter)',
             streaming: 'Streaming',
             modelMenuLabel: 'Change model',
+            modelFilterPlaceholder: 'Filter models…',
+            modelNoMatches: 'No models match',
             modelDefaultLabel: 'Default ({{model}})',
             modelSettings: 'Model settings',
             modelSelectedTitle: '{{model}} (selected for this chat)',
@@ -2941,6 +2955,18 @@ const en = {
                     full: 'Full access',
                     fullTitle: 'Run Codex without approvals or sandboxing',
                     fullDescription: 'Unrestricted internet and file access'
+                },
+                hermes: {
+                    ask: 'Ask for approval',
+                    askTitle: 'Ask before file edits and risky commands',
+                    askDescription: 'Approval cards appear in the chat',
+                    acceptEdits: 'Accept edits',
+                    acceptEditsTitle:
+                        'Auto-allow workspace edits; still asks for risky commands',
+                    acceptEditsDescription: 'Sensitive paths still ask',
+                    dontAsk: "Don't ask",
+                    dontAskTitle: 'Run Hermes without approval prompts',
+                    dontAskDescription: 'Everything is auto-approved'
                 }
             },
             ready: 'Ready',

@@ -187,6 +187,7 @@ const ctxFor = (abortSignal?: AbortSignal): ApiChatAdapterContext =>
         modelConfig: null,
         claudeCodePermissionMode: null,
         codexPermissionMode: null,
+        hermesPermissionMode: null,
         // truthy so the post-success session-ref backfill (an exec through
         // drivers, not stubbed here) is skipped
         frameworkSessionRef: 'fsr-1',

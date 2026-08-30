@@ -8,6 +8,7 @@ import {
     DAEMON_FEATURE_TURN_HERMES,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
+    DEFAULT_HERMES_PERMISSION_MODE,
     createObjectId,
     isObjectId
 } from '@manyfold/shared'
@@ -30,6 +31,7 @@ import type {
     ChatUsage,
     ClaudeCodePermissionMode,
     CodexPermissionMode,
+    HermesPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
@@ -41,6 +43,7 @@ import type {
 } from '@manyfold/shared'
 import {
     BadRequestException,
+    BadGatewayException,
     ConflictException,
     HttpException,
     Injectable,
@@ -71,6 +74,7 @@ import {
     decodeMessageCursor,
     encodeMessageCursor,
     modelFromMessageMetadata,
+    contextUsageFromMessageMetadata,
     normalizeMessageModel,
     normalizeMessagePageLimit
 } from '@/modules/chat/message-page'
@@ -149,6 +153,9 @@ import {
     type SpriteExecTerminal
 } from '@/modules/chat/sprite-exec-terminal'
 import { ChatCancelBus } from '@/modules/chat/chat-cancel-bus'
+import { ChatPermissionBus } from '@/modules/chat/chat-permission-bus'
+import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
+import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     recoverTurnFromClaudeJsonl,
     type TurnRecoveryVerdict,
@@ -363,7 +370,9 @@ const CHECKPOINTED_STREAM_EVENT_TYPES = new Set<string>([
     'thinking',
     'tool_call',
     'tool_result',
-    'replace'
+    'replace',
+    'permission_request',
+    'permission_resolution'
 ])
 
 export const shouldCheckpointContent = (args: {
@@ -620,7 +629,16 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // pre-#730 behaviour: no durable exec-health verdict is consulted and
         // every turn rediscovers a dead sprite exec endpoint for itself.
         @Optional()
-        private readonly spriteExecHealth?: SpriteExecHealthService
+        private readonly spriteExecHealth?: SpriteExecHealthService,
+        // Same rule. The hermes interactive-permission answer path: the
+        // coordinator holds this instance's blocked asks, the bus reaches the
+        // peers, and the registry reaches a daemon-carried turn.
+        @Optional()
+        private readonly permissionCoordinator?: HermesPermissionCoordinator,
+        @Optional()
+        private readonly permissionBus?: ChatPermissionBus,
+        @Optional()
+        private readonly daemonRegistry?: DaemonRegistryService
     ) {
         // Registered here rather than in onApplicationBootstrap so a manually
         // constructed service (tests) gets the subscription without running
@@ -1362,6 +1380,95 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         await this.requestCancelRemotely(assistantMessageId)
     }
 
+    // Routes the user's answer for a hermes permission_request to whichever
+    // process holds the blocked ACP client: this instance's coordinator, the
+    // daemon that carries the turn (turn.permission RPC — the registry brokers
+    // cross-instance delivery), or — for an interactive turn owned by a peer
+    // API instance — the durable chat_permission_answers row plus a NOTIFY,
+    // mirroring cancel's contract.
+    async answerPermission(
+        userId: string,
+        agentId: string,
+        sessionId: string,
+        messageId: string,
+        requestId: string,
+        optionId: string
+    ): Promise<void> {
+        await this.assertSessionAccess(sessionId, userId, agentId)
+        const message = await this.repo.getMessageById(messageId)
+        if (!message || message.sessionId !== sessionId)
+            throw new NotFoundException('message not found')
+        const terminal = await this.repo.findTerminalStreamEvent(messageId)
+        if (terminal) throw new ConflictException('the turn has already ended')
+        const local = this.permissionCoordinator?.respondLocal(
+            messageId,
+            requestId,
+            optionId
+        )
+        if (local === 'delivered') {
+            await this.repo
+                .insertPermissionAnswer({
+                    messageId,
+                    requestId,
+                    optionId,
+                    userId
+                })
+                .catch(() => false)
+            return
+        }
+        if (local === 'unknown')
+            throw new ConflictException(
+                'the permission request is no longer pending'
+            )
+        if (message.daemonId && message.daemonExecRef) {
+            if (!this.daemonRegistry)
+                throw new BadGatewayException(
+                    'daemon transport unavailable for permission answer'
+                )
+            let ack: Record<string, unknown> | undefined
+            try {
+                ack = await this.daemonRegistry.rpc({
+                    daemonId: message.daemonId,
+                    method: 'turn.permission',
+                    payload: {
+                        refId: message.daemonExecRef,
+                        requestId,
+                        optionId
+                    },
+                    timeoutMs: 10_000
+                })
+            } catch (err) {
+                throw new BadGatewayException(
+                    `permission answer did not reach the daemon: ${(err as Error).message}`
+                )
+            }
+            if (ack?.ok !== true)
+                throw new ConflictException(
+                    'the permission request is no longer pending'
+                )
+            await this.repo
+                .insertPermissionAnswer({
+                    messageId,
+                    requestId,
+                    optionId,
+                    userId
+                })
+                .catch(() => false)
+            return
+        }
+        const inserted = await this.repo.insertPermissionAnswer({
+            messageId,
+            requestId,
+            optionId,
+            userId
+        })
+        if (!inserted)
+            throw new ConflictException(
+                'the permission request was already answered'
+            )
+        this.permissionBus?.notify(messageId, requestId, optionId)
+    }
+
     async hasInflightTurn(sessionId: string): Promise<boolean> {
         const messageId = await this.repo.latestInflightMessageId(sessionId)
         return messageId !== null
@@ -1784,6 +1891,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         saveAsDefault?: boolean,
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
         codexPermissionMode?: CodexPermissionMode | null,
+        hermesPermissionMode?: HermesPermissionMode | null,
         observer?: ChatTurnObserver,
         contextRefs: CreateMessageContextRefInput[] = [],
         uploads: CreateMessageUploadInput[] = [],
@@ -1808,7 +1916,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             framework,
             modelOverride,
             claudeCodePermissionMode,
-            codexPermissionMode
+            codexPermissionMode,
+            hermesPermissionMode
         )
         const turnConfig = await this.resolveTurnConfig(
             userId,
@@ -1910,6 +2019,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 turnConfig,
                 claudeCodePermissionMode,
                 codexPermissionMode,
+                hermesPermissionMode,
                 observer,
                 assistantMessageId,
                 agent,
@@ -2017,6 +2127,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 turnConfig,
                 null,
                 codexPermissionMode,
+                null,
                 observer,
                 assistantMessageId,
                 agent
@@ -2440,7 +2551,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         framework: AgentFramework,
         modelOverride?: string,
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
-        codexPermissionMode?: CodexPermissionMode | null
+        codexPermissionMode?: CodexPermissionMode | null,
+        hermesPermissionMode?: HermesPermissionMode | null
     ): void {
         if (modelOverride && !MESSAGE_MODEL_OVERRIDE_FRAMEWORKS.has(framework))
             throw new BadRequestException(
@@ -2453,6 +2565,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (codexPermissionMode && framework !== 'codex')
             throw new BadRequestException(
                 `codex permission mode is not supported for framework ${framework}`
+            )
+        if (hermesPermissionMode && framework !== 'hermes')
+            throw new BadRequestException(
+                `hermes permission mode is not supported for framework ${framework}`
             )
     }
 
@@ -2489,6 +2605,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         turnConfig: ChatTurnConfig,
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
         codexPermissionMode?: CodexPermissionMode | null,
+        hermesPermissionMode?: HermesPermissionMode | null,
         observer?: ChatTurnObserver,
         assistantMessageId: string = randomUUID(),
         agent?: Agent,
@@ -2532,6 +2649,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     : null,
                 framework === 'codex'
                     ? (codexPermissionMode ?? DEFAULT_CODEX_PERMISSION_MODE)
+                    : null,
+                framework === 'hermes'
+                    ? (hermesPermissionMode ?? DEFAULT_HERMES_PERMISSION_MODE)
                     : null,
                 abortController.signal,
                 observer,
@@ -2843,6 +2963,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     modelConfig: null,
                     claudeCodePermissionMode: null,
                     codexPermissionMode: null,
+                    hermesPermissionMode: null,
                     frameworkSessionRef: session.frameworkSessionRef,
                     history: [],
                     abortSignal: abortController.signal,
@@ -4530,6 +4651,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let fenceLost = false
         let totalTokensIn = 0
         let totalTokensOut = 0
+        let latestContextUsage: { size: number; used: number } | null = null
         let currentSourceEventKey: string | null = null
         let currentSourceEventOrdinal = 0
         // Advances only on a NEW raw_source line — see runnerSeq on
@@ -4724,6 +4846,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         })
                         continue
                     }
+                    // Same rule as runAdapter: metadata, not a stream event.
+                    if (event.type === 'context_usage') {
+                        latestContextUsage = event.context
+                        continue
+                    }
                     if (event.type === 'done') {
                         completed = true
                         const terminalContent = await prepareTerminalContent()
@@ -4788,6 +4915,26 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             toolCallId: event.toolCallId,
                             result: event.result,
                             elapsedMs: event.elapsedMs
+                        })
+                    }
+                    if (event.type === 'permission_request') {
+                        recoveryCheckpointCursor = null
+                        assistantBlocks.pushBlock({
+                            type: 'permission_request',
+                            requestId: event.requestId,
+                            toolCallId: event.toolCallId,
+                            title: event.title,
+                            detail: event.detail,
+                            options: event.options
+                        })
+                    }
+                    if (event.type === 'permission_resolution') {
+                        recoveryCheckpointCursor = null
+                        assistantBlocks.pushBlock({
+                            type: 'permission_resolution',
+                            requestId: event.requestId,
+                            outcome: event.outcome,
+                            optionId: event.optionId
                         })
                     }
                     if (event.type === 'replace') {
@@ -4872,6 +5019,19 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // emit only when THIS invocation's row actually landed, so a replay
             // deduped away on sourceEventKey does not report a second terminal
             // for a turn it did not terminalize.
+            if (!suspended && latestContextUsage)
+                await this.repo
+                    .mergeMessageMetadata(
+                        assistantMessageId,
+                        session.id,
+                        { contextUsage: latestContextUsage },
+                        opts.fence
+                    )
+                    .catch((err) =>
+                        this.logger.warn(
+                            `context usage persist failed for ${assistantMessageId}: ${(err as Error).message}`
+                        )
+                    )
             if (!suspended && terminalPersisted) {
                 if (completed) {
                     this.telemetry.event('chat.stream.complete', {
@@ -5002,6 +5162,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         runtimeLocalTuning: RuntimeLocalTuning | null,
         claudeCodePermissionMode: ClaudeCodePermissionMode | null,
         codexPermissionMode: CodexPermissionMode | null,
+        hermesPermissionMode: HermesPermissionMode | null,
         abortSignal: AbortSignal,
         observer?: ChatTurnObserver,
         agent?: Agent,
@@ -5016,6 +5177,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         let firstTokenAt: number | null = null
         let totalTokensIn = 0
         let totalTokensOut = 0
+        let latestContextUsage: { size: number; used: number } | null = null
         let terminalContentPrepared = false
         let completed = false
         let suspended = false
@@ -5500,6 +5662,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         modelConfig,
                         claudeCodePermissionMode,
                         codexPermissionMode,
+                        hermesPermissionMode,
                         frameworkSessionRef: session.frameworkSessionRef,
                         history,
                         abortSignal,
@@ -5611,6 +5774,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     })
                     continue
                 }
+                // Adapter-internal: folded into the message metadata at the
+                // terminal, never persisted as a stream event (it is not in
+                // the ChatStreamEvent union).
+                if (event.type === 'context_usage') {
+                    latestContextUsage = event.context
+                    continue
+                }
                 if (event.type === 'done') {
                     completed = true
                     const terminalContent = await prepareTerminalContent()
@@ -5676,6 +5846,22 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         toolCallId: event.toolCallId,
                         result: event.result,
                         elapsedMs: event.elapsedMs
+                    })
+                if (event.type === 'permission_request')
+                    assistantBlocks.pushBlock({
+                        type: 'permission_request',
+                        requestId: event.requestId,
+                        toolCallId: event.toolCallId,
+                        title: event.title,
+                        detail: event.detail,
+                        options: event.options
+                    })
+                if (event.type === 'permission_resolution')
+                    assistantBlocks.pushBlock({
+                        type: 'permission_resolution',
+                        requestId: event.requestId,
+                        outcome: event.outcome,
+                        optionId: event.optionId
                     })
                 // A replace is in the checkpoint set where it was not before,
                 // and it bypasses the byte rule. It supersedes answer text a
@@ -5763,6 +5949,22 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 ).persisted
                 if (terminalPersisted) notifyObserver(observer, event)
             }
+            // After the terminal so the merge cannot race the turn's own
+            // writes; suspended turns returned above — their continuation
+            // re-derives context usage from the replayed stream.
+            if (latestContextUsage)
+                await this.repo
+                    .mergeMessageMetadata(
+                        assistantMessageId,
+                        session.id,
+                        { contextUsage: latestContextUsage },
+                        turnFence ?? undefined
+                    )
+                    .catch((err) =>
+                        this.logger.warn(
+                            `context usage persist failed for ${assistantMessageId}: ${(err as Error).message}`
+                        )
+                    )
             if (terminalPersisted && completed) {
                 this.telemetry.event('chat.stream.complete', {
                     userId: session.userId,
@@ -6366,7 +6568,10 @@ const TITLE_MAX_LENGTH = 100
 const MESSAGE_MODEL_OVERRIDE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    // Applied via ACP session/set_model — the session persists its model in
+    // hermes's state.db, so this is the only lever that moves a live session.
+    'hermes'
 ])
 
 const deriveTitleFromText = (text: string): string | null => {
@@ -6433,7 +6638,8 @@ const toApiMessage = (
         createdAt: row.createdAt.toISOString(),
         model: usage?.model ?? modelFromMessageMetadata(row),
         usage,
-        error
+        error,
+        contextUsage: contextUsageFromMessageMetadata(row)
     }
 }
 

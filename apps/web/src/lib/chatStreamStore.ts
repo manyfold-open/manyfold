@@ -872,6 +872,40 @@ const applyEventToSnapshot = (
             suspendedReason: null,
             recoveryPhase: null
         }
+    if (event.type === 'permission_request')
+        return {
+            ...snapshot,
+            streamingBlocks: [
+                ...snapshot.streamingBlocks,
+                {
+                    kind: 'permission_request',
+                    requestId: event.requestId,
+                    toolCallId: event.toolCallId,
+                    title: event.title,
+                    detail: event.detail,
+                    options: event.options
+                }
+            ],
+            status: activeStatus,
+            suspendedReason: null,
+            recoveryPhase: null
+        }
+    if (event.type === 'permission_resolution')
+        return {
+            ...snapshot,
+            streamingBlocks: [
+                ...snapshot.streamingBlocks,
+                {
+                    kind: 'permission_resolution',
+                    requestId: event.requestId,
+                    outcome: event.outcome,
+                    optionId: event.optionId
+                }
+            ],
+            status: activeStatus,
+            suspendedReason: null,
+            recoveryPhase: null
+        }
     // The turn is alive: the API keeps the row and a resumed or adopted exec
     // appends to the same messageId, so hold every block and wait rather than
     // terminalising the stream or refetching over a turn still in flight.

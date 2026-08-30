@@ -43,6 +43,13 @@
       "when": 1787639494443,
       "tag": "0005_whatsapp_registrations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1788043591157,
+      "tag": "0006_chat_permission_answers",
+      "breakpoints": true
     }
   ]
 }

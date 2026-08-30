@@ -154,14 +154,28 @@ const userMsg = {
 const routingHarness = (row: {
     runtime: 'sprites' | 'daemon'
     daemonId: string | null
+    model?: string | null
+    clientFeatures?: string[]
 }) => {
     const db = {
-        select: () => ({
+        select: (projection?: Record<string, unknown>) => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [
-                        { ...row, workspacePath: '/w', extras: null }
-                    ]
+                    // The harness serves two different selects: the agents row
+                    // (runtime/daemonId/model/...) and daemonAdvertisesFeature's
+                    // runtime_hosts clientFeatures lookup, told apart by the
+                    // projection's keys.
+                    limit: async () =>
+                        projection && 'clientFeatures' in projection
+                            ? [{ clientFeatures: row.clientFeatures ?? [] }]
+                            : [
+                                  {
+                                      ...row,
+                                      workspacePath: '/w',
+                                      extras: null,
+                                      model: row.model ?? null
+                                  }
+                              ]
                 })
             })
         })
@@ -173,14 +187,24 @@ const routingHarness = (row: {
         {} as never,
         {} as never
     )
-    const routes: Array<{ via: string; env?: Record<string, string> }> = []
+    const routes: Array<{
+        via: string
+        env?: Record<string, string>
+        modelOverride?: string | null
+    }> = []
     const a = adapter as unknown as Record<string, unknown>
     a.sendViaTurnRpc = async function* (
         _c: unknown,
         _m: unknown,
-        args: { env?: Record<string, string> }
+        args: { env?: Record<string, string>; modelOverride?: string | null }
     ) {
-        routes.push({ via: 'turn', ...(args.env ? { env: args.env } : {}) })
+        routes.push({
+            via: 'turn',
+            ...(args.env ? { env: args.env } : {}),
+            ...(args.modelOverride != null
+                ? { modelOverride: args.modelOverride }
+                : {})
+        })
         yield { type: 'done', finalMessageId: 'msg_1' }
     }
     a.sendViaInteractiveAcp = async function* () {
@@ -424,3 +448,338 @@ const adapterAsAny = (
         a: unknown
     ) => AsyncIterable<EmittedChatEvent>
 } => adapter as never
+
+// PR: tool outputs + context usage over the runner transport.
+test('tool_call_update becomes tool_result in its own ordinal namespace', async () => {
+    const toolResultLine = (
+        toolCallId: string,
+        status: string,
+        rawOutput: string
+    ): string =>
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+                update: {
+                    sessionUpdate: 'tool_call_update',
+                    toolCallId,
+                    status,
+                    rawOutput
+                }
+            }
+        })}\n`
+    const usageUpdateLine = (used: number): string =>
+        `${JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+                update: { sessionUpdate: 'usage_update', size: 256000, used }
+            }
+        })}\n`
+    const h = buildHarness({
+        lines: [
+            noteLine('a'),
+            toolCallLine('call-1', 'Bash'),
+            usageUpdateLine(1000),
+            // interleaved between legacy events on purpose: it must NOT shift
+            // their hermes-acp-<n> numbering, or a cross-deploy resume re-keys
+            // rows the old decoder already wrote and dedup stops matching.
+            toolResultLine('call-1', 'completed', 'total 4'),
+            noteLine('b'),
+            toolResultLine('call-1', 'in_progress', 'not yet'),
+            usageUpdateLine(2000)
+        ],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/home/sprite/ws'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+
+    const results = events.filter((e) => e.type === 'tool_result') as Array<{
+        toolCallId: string
+        result: unknown
+    }>
+    assert.deepEqual(
+        results.map((r) => [r.toolCallId, r.result]),
+        [['call-1', 'total 4']]
+    )
+
+    const sourceIds = events
+        .filter((e) => e.type === 'raw_source')
+        .map(
+            (e) =>
+                (e as { source: { externalId: string | null } }).source
+                    .externalId
+        )
+    // legacy kinds keep the head-counted hermes-acp-<n> ordinals; the new kind
+    // counts in hermes-acp-x-<m>
+    assert.deepEqual(sourceIds, [
+        'hermes-acp-1',
+        'hermes-acp-2',
+        'hermes-acp-x-1',
+        'hermes-acp-3'
+    ])
+
+    // the LAST context pressure wins and it must precede the terminal, as
+    // metadata input — never as billing
+    const contextIdx = events.findIndex((e) => e.type === 'context_usage')
+    const doneIdx = events.findIndex((e) => e.type === 'done')
+    assert.ok(contextIdx !== -1, 'context_usage must be emitted')
+    assert.ok(contextIdx < doneIdx, 'context_usage precedes done')
+    assert.deepEqual(
+        (events[contextIdx] as { context: unknown }).context,
+        { size: 256000, used: 2000 }
+    )
+})
+
+// Seen on hermes-agent 0.20.6 [2026-08-29]: the acp 0.9.0 prompt ack spells
+// the cache fields cachedReadTokens/cachedWriteTokens (with the d); the
+// d-less aliases never matched and cache tokens fell out of billing.
+test('ack usage decodes the cachedReadTokens spelling', async () => {
+    const h = buildHarness({
+        lines: [noteLine('ok'), turnEndLine()],
+        result: {
+            ok: {
+                stopReason: 'end_turn',
+                sessionId: 'sess_new',
+                result: {
+                    usage: {
+                        inputTokens: 100,
+                        outputTokens: 20,
+                        totalTokens: 184,
+                        cachedReadTokens: 64
+                    }
+                }
+            }
+        }
+    })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/home/sprite/ws'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+    const usage = events.find((e) => e.type === 'usage') as
+        | { usage: { inputTokens: number; cacheReadTokens: number } }
+        | undefined
+    assert.ok(usage, 'usage event expected')
+    assert.equal(usage.usage.inputTokens, 100)
+    assert.equal(usage.usage.cacheReadTokens, 64)
+})
+
+// PR: hermes model switching. The web auto-defaults its override to the
+// agent's model, so "override present" alone is not user intent — only a
+// value that DIFFERS from the agent default hard-gates on the daemon
+// capability; the auto-default merely reconciles and old daemons skip it.
+test('an explicit model switch on a daemon without turn.hermes.options is refused', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes']
+    })
+    h.a.requireTurnHermes = async () => true
+    const events = await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'picked-model' }), userMsg)
+    )
+    assert.equal(h.routes.length, 0, 'must refuse before dispatch')
+    const err = events.find((e) => e.type === 'error') as {
+        error: { code: string; retryable: boolean; message: string }
+    }
+    assert.equal(err.error.code, 'hermes_daemon_options_upgrade_required')
+    assert.equal(err.error.retryable, false)
+    assert.match(err.error.message, /mf update/)
+})
+
+test('the auto-defaulted override dispatches without a model on an old daemon', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes']
+    })
+    h.a.requireTurnHermes = async () => true
+    await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'default-model' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [{ via: 'turn', env: {} }])
+})
+
+test('a capable daemon carries the override on the turn payload', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        model: 'default-model',
+        clientFeatures: ['turn.hermes', 'turn.hermes.options']
+    })
+    h.a.requireTurnHermes = async () => true
+    await drain(
+        h.adapter.sendMessage(ctx({ modelOverride: 'picked-model' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [
+        { via: 'turn', env: {}, modelOverride: 'picked-model' }
+    ])
+})
+
+test('turn.start serializes modelOverride and its required flag', async () => {
+    const h = buildHarness({
+        lines: [noteLine('ok'), turnEndLine()],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(
+            ctx({ modelOverride: 'picked-model' }),
+            userMsg,
+            {
+                daemonId: 'dh_runner',
+                cwd: '/w',
+                modelOverride: 'picked-model',
+                modelOverrideRequired: true
+            }
+        ) as AsyncIterable<EmittedChatEvent>
+    )
+    assert.equal(h.calls[0].payload.modelOverride, 'picked-model')
+    assert.equal(h.calls[0].payload.modelOverrideRequired, true)
+})
+
+// PR: interactive permissions over the runner transport. The daemon publishes
+// the raw request frame (every stdout line is durable) and a synthetic
+// _manyfold/permission_resolution line when it settles — so a replayed stream
+// reproduces both through exactly this decoder.
+test('request and synthetic resolution frames decode to persisted permission events', async () => {
+    const requestLine = `${JSON.stringify({
+        jsonrpc: '2.0',
+        id: 5,
+        method: 'session/request_permission',
+        params: {
+            options: [
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            ],
+            toolCall: {
+                toolCallId: 'edit-approval-2',
+                title: 'Approve edit: b.txt',
+                kind: 'edit',
+                status: 'pending',
+                content: [{ type: 'diff', path: 'b.txt', newText: 'y' }],
+                rawInput: { tool: 'write_file', arguments: {} }
+            }
+        }
+    })}\n`
+    const resolutionLine = `${JSON.stringify({
+        jsonrpc: '2.0',
+        method: '_manyfold/permission_resolution',
+        params: { requestId: '5', outcome: 'selected', optionId: 'allow_once' }
+    })}\n`
+    const h = buildHarness({
+        lines: [noteLine('a'), requestLine, resolutionLine, noteLine('b')],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    const events = await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(ctx(), userMsg, {
+            daemonId: 'dh_runner',
+            cwd: '/w'
+        }) as AsyncIterable<EmittedChatEvent>
+    )
+    const request = events.find((e) => e.type === 'permission_request') as {
+        requestId: string
+        title: string
+        detail: string | null
+        options: Array<{ optionId: string }>
+    }
+    assert.ok(request, 'permission_request expected')
+    assert.equal(request.requestId, '5')
+    assert.equal(request.title, 'Approve edit: b.txt')
+    assert.equal(request.detail, 'b.txt')
+    assert.deepEqual(
+        request.options.map((o) => o.optionId),
+        ['allow_once', 'deny']
+    )
+    const resolution = events.find(
+        (e) => e.type === 'permission_resolution'
+    ) as { requestId: string; outcome: string; optionId: string | null }
+    assert.deepEqual(
+        [resolution.requestId, resolution.outcome, resolution.optionId],
+        ['5', 'selected', 'allow_once']
+    )
+    // both live in the x namespace; the legacy text events keep their own
+    const sourceIds = events
+        .filter((e) => e.type === 'raw_source')
+        .map(
+            (e) =>
+                (e as { source: { externalId: string | null } }).source
+                    .externalId
+        )
+    assert.deepEqual(sourceIds, [
+        'hermes-acp-1',
+        'hermes-acp-x-1',
+        'hermes-acp-x-2',
+        'hermes-acp-2'
+    ])
+})
+
+test('an ask mode on a daemon without turn.hermes.permissions is refused', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        clientFeatures: ['turn.hermes', 'turn.hermes.options']
+    })
+    h.a.requireTurnHermes = async () => true
+    const events = await drain(
+        h.adapter.sendMessage(ctx({ hermesPermissionMode: 'default' }), userMsg)
+    )
+    assert.equal(h.routes.length, 0, 'must refuse before dispatch')
+    const err = events.find((e) => e.type === 'error') as {
+        error: { code: string; retryable: boolean }
+    }
+    assert.equal(err.error.code, 'hermes_daemon_permissions_upgrade_required')
+    assert.equal(err.error.retryable, false)
+})
+
+test('an explicit dontAsk dispatches to an old daemon without the field', async () => {
+    const h = routingHarness({
+        runtime: 'daemon',
+        daemonId: 'dh_1',
+        clientFeatures: ['turn.hermes']
+    })
+    h.a.requireTurnHermes = async () => true
+    await drain(
+        h.adapter.sendMessage(ctx({ hermesPermissionMode: 'dontAsk' }), userMsg)
+    )
+    assert.deepEqual(h.routes, [{ via: 'turn', env: {} }])
+})
+
+test('turn.start serializes the ask mode, its timeout, and drops YOLO', async () => {
+    const h = buildHarness({
+        lines: [noteLine('ok'), turnEndLine()],
+        result: { ok: { stopReason: 'end_turn', sessionId: 'sess_new' } }
+    })
+    await drain(
+        adapterAsAny(h.adapter).sendViaTurnRpc(
+            ctx({ hermesPermissionMode: 'acceptEdits' }),
+            userMsg,
+            {
+                daemonId: 'dh_runner',
+                cwd: '/w',
+                env: { OPENROUTER_API_KEY: 'sk-x' },
+                permissionMode: 'acceptEdits'
+            }
+        ) as AsyncIterable<EmittedChatEvent>
+    )
+    const payload = h.calls[0].payload as {
+        permissionMode?: string
+        permissionTimeoutMs?: number
+        env?: Record<string, string>
+    }
+    assert.equal(payload.permissionMode, 'acceptEdits')
+    assert.ok((payload.permissionTimeoutMs ?? 0) >= 10_000)
+    assert.equal(payload.env?.OPENROUTER_API_KEY, 'sk-x')
+    assert.equal(
+        payload.env?.HERMES_YOLO_MODE,
+        undefined,
+        'ask modes must not freeze YOLO into the child'
+    )
+})

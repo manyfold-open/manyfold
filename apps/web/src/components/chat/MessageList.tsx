@@ -24,6 +24,7 @@ import ActivityGroup from '@/components/chat/ActivityGroup'
 import ElapsedTimer from '@/components/chat/ElapsedTimer'
 import MarkdownText from '@/components/chat/MarkdownText'
 import MessageMetaFooter from '@/components/chat/MessageMetaFooter'
+import HermesPermissionCard from '@/components/chat/HermesPermissionCard'
 import PermissionRequestCard from '@/components/chat/PermissionRequestCard'
 import { splitGrantPermissionContent } from '@/components/chat/utils/grantPermissionLinks'
 import {
@@ -97,6 +98,10 @@ interface Props {
         message: ChatMessage,
         text: string
     ) => Promise<void>
+    // Answers a pending hermes permission card in the LIVE turn. Historical
+    // cards render inert: a turn that reached a terminal without a resolution
+    // was never answered.
+    onAnswerPermission?: (requestId: string, optionId: string) => Promise<void>
 }
 
 export interface MessageScrollAction {
@@ -150,7 +155,8 @@ const MessageList: FC<Props> = ({
     framework = null,
     editingDisabled = false,
     disableGrantCards = false,
-    onRegenerateUserMessage
+    onRegenerateUserMessage,
+    onAnswerPermission
 }): ReactNode => {
     const { t } = useI18n()
     const scrollerRef = useRef<HTMLDivElement>(null)
@@ -521,6 +527,7 @@ const MessageList: FC<Props> = ({
                             recoveryPhase={streamRecoveryPhase}
                             capabilities={capabilities}
                             onLinkClick={onLinkClick}
+                            onAnswerPermission={onAnswerPermission}
                         />
                     )}
                     {streamingAssistantId && streamingBlocks.length === 0 && (
@@ -919,6 +926,14 @@ export const MessageBubble: FC<BubbleProps> = ({
                                 renderGrantCards={!disableGrantCards}
                             />
                         )
+                    if (seg.kind === 'permission-card')
+                        return (
+                            <HermesPermissionCard
+                                key={`perm-${seg.block.request.requestId}`}
+                                card={seg.block}
+                                turnActive={false}
+                            />
+                        )
                     return <ActivityGroup key={key} group={seg} />
                 })}
             </div>
@@ -926,6 +941,7 @@ export const MessageBubble: FC<BubbleProps> = ({
                 <MessageMetaFooter
                     usage={message.usage ?? null}
                     messageModel={message.model ?? null}
+                    contextUsage={message.contextUsage ?? null}
                     createdAt={message.createdAt}
                     copyText={copyTextFromBlocks(message.contentBlocks)}
                     markdownText={markdownTextFromBlocks(message.contentBlocks)}
@@ -1051,6 +1067,7 @@ interface StreamingProps {
     recoveryPhase: ChatTurnStatusPhase | null
     capabilities: ChatCapabilities
     onLinkClick?: MarkdownLinkClickHandler
+    onAnswerPermission?: (requestId: string, optionId: string) => Promise<void>
 }
 
 const StreamingBubble: FC<StreamingProps> = ({
@@ -1061,7 +1078,8 @@ const StreamingBubble: FC<StreamingProps> = ({
     stalled,
     recoveryPhase,
     capabilities,
-    onLinkClick
+    onLinkClick,
+    onAnswerPermission
 }): ReactNode => {
     const { t } = useI18n()
     const isActive = isActiveStreamStatus(status)
@@ -1097,6 +1115,15 @@ const StreamingBubble: FC<StreamingProps> = ({
                                 group={seg}
                                 onLinkClick={onLinkClick}
                                 streaming={isActive}
+                            />
+                        )
+                    if (seg.kind === 'permission-card')
+                        return (
+                            <HermesPermissionCard
+                                key={`perm-${seg.block.request.requestId}`}
+                                card={seg.block}
+                                turnActive={isActive}
+                                onAnswer={onAnswerPermission}
                             />
                         )
                     return (
@@ -1238,6 +1265,10 @@ const streamingActivityLabel = (
     const last = groups[groups.length - 1]
     if (!last) return null
     if (last.kind === 'text-run') return t('web.chatStream.responding')
+    if (last.kind === 'permission-card')
+        return last.block.resolution
+            ? null
+            : t('web.chatStream.waitingForPermission')
     const block = last.blocks[last.blocks.length - 1]
     if (!block) return null
     if (block.kind === 'thinking') return t('web.chatStream.thinking')

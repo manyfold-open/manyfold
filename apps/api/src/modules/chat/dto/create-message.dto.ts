@@ -7,12 +7,14 @@ import {
     CHAT_UPLOAD_MAX_FILE_BYTES,
     ClaudeCodePermissionMode,
     CodexPermissionMode,
+    HermesPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
     agentModelConfigSources,
     claudeCodePermissionModes,
-    codexPermissionModes
+    codexPermissionModes,
+    hermesPermissionModes
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
 import {
@@ -213,6 +215,10 @@ export class CreateMessageDto {
     @IsOptional()
     @IsIn(codexPermissionModes)
     codexPermissionMode?: CodexPermissionMode
+
+    @IsOptional()
+    @IsIn(hermesPermissionModes)
+    hermesPermissionMode?: HermesPermissionMode
 
     @IsOptional()
     @IsArray()

@@ -34,6 +34,14 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
     // the daemon host, not a retry here.
     hermes_daemon_upgrade_required: 'unsupported_capability',
+    // Same shape one capability later: the daemon carries hermes turns but
+    // predates turn.hermes.options, so it cannot honour a model switch.
+    hermes_daemon_options_upgrade_required: 'unsupported_capability',
+    // And the interactive-permissions capability after that.
+    hermes_daemon_permissions_upgrade_required: 'unsupported_capability',
+    // The hermes build inside the agent's image predates session/set_model;
+    // the fix is rebuilding the image (or dropping the override).
+    hermes_set_model_unsupported: 'unsupported_capability',
     openclaw_resume_unsupported: 'unsupported_capability',
     resume_unsupported: 'unsupported_capability',
     dify_session_not_found: 'stale_resume_ref',

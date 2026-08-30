@@ -34,13 +34,39 @@ const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\\n')
 const notify = (update) =>
     send({ jsonrpc: '2.0', method: 'session/update', params: { update } })
 let promptId = null
+let switchedTo = null
+let modeSet = null
 rl.on('line', (line) => {
     let frame
     try { frame = JSON.parse(line) } catch { return }
     if (frame.method === 'initialize')
         return send({ jsonrpc: '2.0', id: frame.id, result: { protocolVersion: 1 } })
-    if (frame.method === 'session/new')
+    if (frame.method === 'session/new') {
+        if (mode === 'model')
+            return send({ jsonrpc: '2.0', id: frame.id, result: {
+                sessionId: 'sess_fake_1',
+                models: { currentModelId: 'prov:old-model', availableModels: [
+                    { modelId: 'prov:old-model', name: 'old' },
+                    { modelId: 'prov:new-model', name: 'new' }
+                ] },
+                modes: { currentModeId: 'default', availableModes: [
+                    { id: 'default', name: 'Default' },
+                    { id: 'accept_edits', name: 'Accept Edits' },
+                    { id: 'dont_ask', name: "Don't Ask" }
+                ] }
+            } })
         return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: 'sess_fake_1' } })
+    }
+    if (frame.method === 'session/set_mode') {
+        modeSet = frame.params.modeId
+        return send({ jsonrpc: '2.0', id: frame.id, result: {} })
+    }
+    if (frame.method === 'session/set_model') {
+        if (mode === 'model-unsupported')
+            return send({ jsonrpc: '2.0', id: frame.id, error: { code: -32601, message: 'Method not found' } })
+        switchedTo = frame.params.modelId
+        return send({ jsonrpc: '2.0', id: frame.id, result: {} })
+    }
     if (frame.method === 'session/resume')
         return send({ jsonrpc: '2.0', id: frame.id, result: { sessionId: frame.params.sessionId } })
     if (frame.method === 'session/prompt') {
@@ -65,11 +91,34 @@ rl.on('line', (line) => {
             return
         }
         promptId = frame.id
+        if (mode === 'interactive') {
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'yolo=' + (process.env.HERMES_YOLO_MODE || 'unset') + ' ' } })
+            return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: { options: [
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            ] } })
+        }
+        if (mode === 'model')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'model=' + (switchedTo || 'none') + ' ' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hel' } })
         notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'lo' } })
+        // 'options' asks with the upstream-shaped option list and echoes the
+        // client's choice back into the stream, so a test can prove WHICH
+        // grant the auto-approve burned.
+        if (mode === 'options')
+            return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: { options: [
+                { optionId: 'allow_once', kind: 'allow_once', name: 'Allow once' },
+                { optionId: 'allow_session', kind: 'allow_always', name: 'Allow for session' },
+                { optionId: 'allow_always', kind: 'allow_always', name: 'Always allow' },
+                { optionId: 'deny', kind: 'reject_once', name: 'Deny' }
+            ] } })
         return send({ jsonrpc: '2.0', id: 999, method: 'session/request_permission', params: {} })
     }
     if (frame.id === 999 && frame.result) {
+        if (mode === 'interactive')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'perm=' + (frame.result.outcome.optionId || frame.result.outcome.outcome) + ' mode=' + modeSet } })
+        if (mode === 'options')
+            notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' perm=' + frame.result.outcome.optionId } })
         notify({ sessionUpdate: 'turn_end', usage: { inputTokens: 3, outputTokens: 5 } })
         send({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn', usage: { inputTokens: 3, outputTokens: 5 } } })
     }
@@ -341,4 +390,200 @@ test('a payload with only the legacy timeoutMs degenerates to the old single cap
         Date.now() - startedAt < 5_000,
         'an actively streaming turn under a legacy payload is still bounded'
     )
+})
+
+// Seen on hermes-agent 0.20.6 [2026-08-29]: the old hardcoded
+// 'approve_for_session' matches no advertised option id and an unknown id
+// maps to DENY — the headless auto-approve was rejecting every file edit.
+// When the ask carries options, the answer must be one of them, preferring
+// the session-scoped allow_always-kind grant.
+test('auto-approve answers with the session-scoped option from the ask', async () => {
+    const h = makeCtx('turn-options-1')
+    const ack = await runAcpTurn({
+        payload: payloadFor('options'),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('perm=allow_session')),
+        'the fake agent must see allow_session as the chosen option'
+    )
+})
+
+// PR: hermes model switching. The daemon diffs the payload's model against
+// the session state hermes reported: a matching session costs no RPC, a
+// mismatch is switched via session/set_model, and a build that reports no
+// state only attempts the switch when the API marked it REQUIRED — failing
+// loudly beats answering with a model the user did not pick.
+test('a differing modelOverride is applied via set_model and reported on the final', async () => {
+    const h = makeCtx('turn-model-1')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model', { modelOverride: 'new-model' }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('model=new-model')),
+        'the fake agent must run with the switched model'
+    )
+    const final = ack.payload as {
+        models?: { currentModelId: string | null; modelIds: string[] }
+        modes?: { currentModeId: string | null; modeIds: string[] }
+    }
+    assert.equal(final.models?.currentModelId, 'new-model')
+    assert.deepEqual(final.models?.modelIds, [
+        'prov:old-model',
+        'prov:new-model'
+    ])
+    assert.equal(final.modes?.currentModeId, 'default')
+    assert.deepEqual(final.modes?.modeIds, [
+        'default',
+        'accept_edits',
+        'dont_ask'
+    ])
+})
+
+test('a modelOverride matching the session (provider-prefixed) skips set_model', async () => {
+    const h = makeCtx('turn-model-2')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model', { modelOverride: 'old-model' }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('model=none')),
+        'no switch may happen when the session already runs the target'
+    )
+    const final = ack.payload as {
+        models?: { currentModelId: string | null }
+    }
+    assert.equal(final.models?.currentModelId, 'prov:old-model')
+})
+
+test('a REQUIRED override on a stateless build fails the turn on set_model', async () => {
+    const h = makeCtx('turn-model-3')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model-unsupported', {
+            modelOverride: 'new-model',
+            modelOverrideRequired: true
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, false)
+    assert.match(ack.error ?? '', /session\/set_model/)
+})
+
+test('a reconcile-only override on a stateless build is skipped', async () => {
+    const h = makeCtx('turn-model-4')
+    const ack = await runAcpTurn({
+        payload: payloadFor('model-unsupported', {
+            modelOverride: 'new-model',
+            modelOverrideRequired: false
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const final = ack.payload as { models?: unknown }
+    assert.equal(final.models, undefined)
+})
+
+// PR: interactive permissions. An ask-mode payload drops YOLO from the child
+// env, aligns hermes's session mode, forwards the ask instead of
+// auto-answering (answered via the turn.permission responder), and publishes
+// a synthetic _manyfold/permission_resolution line into the buffer BEFORE the
+// child's reply — so a replayed stream shows the settlement in live order.
+test('an ask-mode turn takes the user answer via the responder', async () => {
+    const { permissionResponders } = await import('../src/daemon/acp-turn')
+    const h = makeCtx('turn-perm-1')
+    const ackPromise = runAcpTurn({
+        payload: payloadFor('interactive', {
+            permissionMode: 'acceptEdits',
+            permissionTimeoutMs: 30_000
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    // wait for the ask to reach the buffer, then answer like the API would
+    const deadline = Date.now() + 5_000
+    for (;;) {
+        if (
+            h.events.some((e) =>
+                e.data.includes('session/request_permission')
+            ) &&
+            permissionResponders.has('turn-perm-1')
+        )
+            break
+        if (Date.now() > deadline) throw new Error('ask never surfaced')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+    const responder = permissionResponders.get('turn-perm-1')!
+    assert.equal(responder('999', 'allow_once'), 'delivered')
+    assert.equal(responder('999', 'allow_once'), 'unknown')
+    const ack = await ackPromise
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some((e) => e.data.includes('yolo=unset')),
+        'ask modes must not freeze YOLO into the child'
+    )
+    assert.ok(
+        stdout.some((e) => e.data.includes('perm=allow_once mode=accept_edits')),
+        'the child must see the picked option after set_mode aligned the session'
+    )
+    const resolutionIdx = stdout.findIndex((e) =>
+        e.data.includes('_manyfold/permission_resolution')
+    )
+    const answeredIdx = stdout.findIndex((e) => e.data.includes('perm=allow_once'))
+    assert.ok(resolutionIdx !== -1, 'synthetic resolution line expected')
+    assert.ok(
+        resolutionIdx < answeredIdx,
+        'the settlement must precede post-approval output in the buffer'
+    )
+    assert.equal(permissionResponders.has('turn-perm-1'), false)
+})
+
+test('an unanswered ask denies on the payload timeout with the reject option', async () => {
+    const h = makeCtx('turn-perm-2')
+    const ack = await runAcpTurn({
+        payload: payloadFor('interactive', {
+            permissionMode: 'default',
+            permissionTimeoutMs: 200
+        }),
+        cwd: home,
+        ctx: h.ctx as never,
+        registerChild: () => {},
+        releaseChild: () => {}
+    })
+    assert.equal(ack.ok, true, ack.error)
+    const stdout = h.events.filter((e) => e.kind === 'stdout')
+    assert.ok(
+        stdout.some(
+            (e) =>
+                e.data.includes('_manyfold/permission_resolution') &&
+                e.data.includes('"timeout"') &&
+                e.data.includes('deny')
+        ),
+        'the timeout must settle with the reject option'
+    )
+    assert.ok(stdout.some((e) => e.data.includes('perm=deny mode=default')))
 })

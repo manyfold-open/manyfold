@@ -10,14 +10,17 @@ import {
     ChatMessagesPage,
     ClaudeCodePermissionMode,
     CodexPermissionMode,
+    HermesPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
+    DEFAULT_HERMES_PERMISSION_MODE,
     chatCapabilitiesByFramework,
     isClaudeCodePermissionMode,
-    isCodexPermissionMode
+    isCodexPermissionMode,
+    isHermesPermissionMode
 } from '@manyfold/shared'
 import {
     Suspense,
@@ -151,6 +154,7 @@ const MODEL_OVERRIDE_STORAGE_PREFIX = 'nca.chat.modelOverride.'
 const CLAUDE_CODE_PERMISSION_MODE_STORAGE_PREFIX =
     'nca.chat.claudeCodePermissionMode.'
 const CODEX_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.codexPermissionMode.'
+const HERMES_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.hermesPermissionMode.'
 const DRAFT_STORAGE_PREFIX = 'nca.chat.draft.'
 const DRAFT_NEW_SLOT = 'new'
 const DEFAULT_RUNTIME_SESSION_PANEL_WIDTH = 560
@@ -232,6 +236,8 @@ const AgentChat: FC = (): ReactNode => {
         useState<ClaudeCodePermissionMode>(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
     const [codexPermissionMode, setCodexPermissionMode] =
         useState<CodexPermissionMode>(DEFAULT_CODEX_PERMISSION_MODE)
+    const [hermesPermissionMode, setHermesPermissionMode] =
+        useState<HermesPermissionMode>(DEFAULT_HERMES_PERMISSION_MODE)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
     const [modelConfigDraft, setModelConfigDraft] =
@@ -332,13 +338,22 @@ const AgentChat: FC = (): ReactNode => {
     const modelSwitchingSupported = supportsModelOverride(currentAgent)
     const currentAgentId = currentAgent?.id ?? null
     const currentAgentFramework = currentAgent?.framework ?? null
+    const hermesModelSwitching = currentAgentFramework === 'hermes'
     const frameworkModelConfigSupported = frameworkUsesModelConfig(
         currentAgentFramework,
         currentAgent?.runtime
     )
     const modelOptions = useMemo(
-        () => modelOptionsForAgent(currentAgent, [modelOverride]),
-        [currentAgent, modelOverride]
+        () =>
+            modelOptionsForAgent(currentAgent, [
+                modelOverride,
+                // hermes options come from the provider-models cache the
+                // model-config view carries; presets stay empty.
+                ...(hermesModelSwitching
+                    ? (modelConfigView?.providerModels ?? [])
+                    : [])
+            ]),
+        [currentAgent, modelOverride, hermesModelSwitching, modelConfigView]
     )
     const effectiveModelConfigView = useMemo(
         () =>
@@ -439,6 +454,7 @@ const AgentChat: FC = (): ReactNode => {
         if (!agentId || currentAgent?.id !== agentId) {
             setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
             setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
+            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
             return
         }
         if (currentAgent.framework === 'claude-code') {
@@ -446,15 +462,24 @@ const AgentChat: FC = (): ReactNode => {
                 readStoredClaudeCodePermissionMode(agentId)
             )
             setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
+            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
             return
         }
         if (currentAgent.framework === 'codex') {
             setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
             setCodexPermissionMode(readStoredCodexPermissionMode(agentId))
+            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            return
+        }
+        if (currentAgent.framework === 'hermes') {
+            setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
+            setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
+            setHermesPermissionMode(readStoredHermesPermissionMode(agentId))
             return
         }
         setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
         setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
+        setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
     }, [agentId, currentAgent])
 
     useEffect(() => {
@@ -501,7 +526,9 @@ const AgentChat: FC = (): ReactNode => {
         if (
             !agentId ||
             currentAgentId !== agentId ||
-            !frameworkModelConfigSupported
+            // hermes has no config drawer, but the view's providerModels feed
+            // its model picker, so the fetch runs for it too.
+            !(frameworkModelConfigSupported || hermesModelSwitching)
         ) {
             setModelConfigView(null)
             setModelConfigDraft(null)
@@ -567,11 +594,19 @@ const AgentChat: FC = (): ReactNode => {
 
     const handleModelOverrideChange = useCallback(
         (next: string | null): void => {
-            const normalized = normalizeModelOverride(next)
+            // hermes sessions PERSIST their model, so picking "default" must
+            // re-send the default's id — a null override sends nothing and
+            // would leave the session on the previous pick while the UI
+            // claims the default.
+            const normalized =
+                normalizeModelOverride(next) ??
+                (hermesModelSwitching
+                    ? normalizeModelOverride(currentAgent?.model ?? null)
+                    : null)
             setModelOverride(normalized)
             if (agentId) writeStoredModelOverride(agentId, normalized)
         },
-        [agentId]
+        [agentId, hermesModelSwitching, currentAgent]
     )
 
     const handleRefreshModelConfig = useCallback(
@@ -1258,6 +1293,9 @@ const AgentChat: FC = (): ReactNode => {
                     : {}),
                 ...(currentAgentFramework === 'codex'
                     ? { codexPermissionMode }
+                    : {}),
+                ...(currentAgentFramework === 'hermes'
+                    ? { hermesPermissionMode }
                     : {})
             }
             const result = await client.chat.sendMessage(
@@ -1491,6 +1529,34 @@ const AgentChat: FC = (): ReactNode => {
             if (agentId) writeStoredClaudeCodePermissionMode(agentId, mode)
         },
         [agentId]
+    )
+
+    const handleHermesPermissionModeChange = useCallback(
+        (mode: HermesPermissionMode): void => {
+            setHermesPermissionMode(mode)
+            if (agentId) writeStoredHermesPermissionMode(agentId, mode)
+        },
+        [agentId]
+    )
+
+    // Answers a pending hermes permission card on the LIVE turn. The card
+    // lives in the streaming bubble, so the target message is always the
+    // stream's assistant id.
+    const handleAnswerPermission = useCallback(
+        async (requestId: string, optionId: string): Promise<void> => {
+            const sessionId = activeSessionIdRef.current
+            const messageId = stream.streamingAssistantId
+            if (!agentId || !sessionId || !messageId)
+                throw new Error('the turn is no longer active')
+            await client.chat.answerPermission(
+                agentId,
+                sessionId,
+                messageId,
+                requestId,
+                { optionId }
+            )
+        },
+        [agentId, client, stream.streamingAssistantId]
     )
 
     const workspaceToolsAvailable = currentAgent?.runtime !== 'external'
@@ -1861,6 +1927,12 @@ const AgentChat: FC = (): ReactNode => {
                     ? handleCodexPermissionModeChange
                     : undefined
             }
+            hermesPermissionMode={hermesPermissionMode}
+            onHermesPermissionModeChange={
+                currentAgent.framework === 'hermes'
+                    ? handleHermesPermissionModeChange
+                    : undefined
+            }
             onModelConfigDraftChange={
                 frameworkModelConfigSupported ? setModelConfigDraft : undefined
             }
@@ -2060,6 +2132,11 @@ const AgentChat: FC = (): ReactNode => {
                                         onRegenerateUserMessage={
                                             currentAgent.framework === 'codex'
                                                 ? handleRegenerateUserMessage
+                                                : undefined
+                                        }
+                                        onAnswerPermission={
+                                            currentAgent.framework === 'hermes'
+                                                ? handleAnswerPermission
                                                 : undefined
                                         }
                                     />
@@ -2521,6 +2598,35 @@ const writeStoredClaudeCodePermissionMode = (
             claudeCodePermissionStorageKey(agentId),
             mode
         )
+    } catch {
+        /* ignore local storage failures */
+    }
+}
+
+const hermesPermissionStorageKey = (agentId: string): string =>
+    `${HERMES_PERMISSION_MODE_STORAGE_PREFIX}${agentId}`
+
+const readStoredHermesPermissionMode = (
+    agentId: string
+): HermesPermissionMode => {
+    try {
+        const raw = window.localStorage.getItem(
+            hermesPermissionStorageKey(agentId)
+        )
+        return isHermesPermissionMode(raw)
+            ? raw
+            : DEFAULT_HERMES_PERMISSION_MODE
+    } catch {
+        return DEFAULT_HERMES_PERMISSION_MODE
+    }
+}
+
+const writeStoredHermesPermissionMode = (
+    agentId: string,
+    mode: HermesPermissionMode
+): void => {
+    try {
+        window.localStorage.setItem(hermesPermissionStorageKey(agentId), mode)
     } catch {
         /* ignore local storage failures */
     }

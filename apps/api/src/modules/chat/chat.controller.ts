@@ -37,6 +37,7 @@ import {
     ListMessagesQueryDto,
     RegenerateMessageDto
 } from '@/modules/chat/dto/create-message.dto'
+import { AnswerPermissionDto } from '@/modules/chat/dto/answer-permission.dto'
 
 @Controller('agents/:agentId')
 @UseGuards(AuthGuard)
@@ -170,9 +171,36 @@ export class ChatController {
             dto.saveAsDefault,
             dto.claudeCodePermissionMode,
             dto.codexPermissionMode,
+            dto.hermesPermissionMode,
             undefined,
             dto.contextRefs ?? [],
             dto.uploads ?? []
+        )
+    }
+
+    // The user's answer to a hermes permission_request card. 204 = delivered
+    // to the blocked ACP client (or durably queued for the peer that holds
+    // it); 409 = already answered or the turn ended; 502 = the carrying
+    // daemon could not be reached (retryable).
+    @Post('sessions/:sessionId/messages/:messageId/permissions/:requestId')
+    @HttpCode(204)
+    @RequireApiTokenScope('chat:edit')
+    @SubjectAgentFromPath('agentId')
+    async answerPermission(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('agentId') agentId: string,
+        @Param('sessionId') sessionId: string,
+        @Param('messageId') messageId: string,
+        @Param('requestId') requestId: string,
+        @Body() dto: AnswerPermissionDto
+    ): Promise<void> {
+        await this.chat.answerPermission(
+            user.userId,
+            agentId,
+            sessionId,
+            messageId,
+            requestId,
+            dto.optionId
         )
     }
 

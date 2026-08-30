@@ -2388,6 +2388,9 @@ const zh: Translations = {
             latencyTotal: '总耗时 {{seconds}}s',
             model: '模型',
             time: '时间',
+            waitingForPermission: '正在等待你的批准…',
+            contextUsage: '上下文',
+            contextUsageValue: '{{used}} / {{size}}（{{percent}}%）',
             copyText: '复制文本',
             copiedText: '已复制文本',
             copyMarkdown: '复制 markdown',
@@ -2396,6 +2399,15 @@ const zh: Translations = {
             copiedRaw: '已复制原始响应'
         },
         chat: {
+            permissionCard: {
+                approvedWith: '已批准 · {{option}}',
+                denied: '已拒绝',
+                timedOut: '超时 — 已拒绝',
+                cancelled: '随本轮对话一起取消',
+                expired: '该请求已不再等待应答。',
+                sending: '发送中…',
+                answerFailed: '应答发送失败：{{message}}'
+            },
             header: {
                 resizeRuntimeViewer: '调整聊天与 Runtime 会话查看器大小',
                 openMenu: '打开菜单',
@@ -2755,6 +2767,8 @@ const zh: Translations = {
             sendHint: '发送（Cmd/Ctrl+Enter）',
             streaming: '生成中',
             modelMenuLabel: '切换模型',
+            modelFilterPlaceholder: '筛选模型…',
+            modelNoMatches: '没有匹配的模型',
             modelDefaultLabel: '默认（{{model}}）',
             modelSettings: '模型设置',
             modelSelectedTitle: '{{model}}（已为本次对话选择）',
@@ -2815,6 +2829,17 @@ const zh: Translations = {
                     full: '完全访问',
                     fullTitle: '运行 Codex 时不需要批准且不使用沙箱',
                     fullDescription: '不受限制的互联网和文件访问'
+                },
+                hermes: {
+                    ask: '每次询问',
+                    askTitle: '文件编辑和高风险命令前先询问',
+                    askDescription: '审批卡片会出现在对话中',
+                    acceptEdits: '自动接受编辑',
+                    acceptEditsTitle: '自动允许工作区编辑；高风险命令仍会询问',
+                    acceptEditsDescription: '敏感路径仍会询问',
+                    dontAsk: '不询问',
+                    dontAskTitle: '运行 Hermes 时不弹出任何审批',
+                    dontAskDescription: '所有操作自动批准'
                 }
             },
             ready: '就绪',
