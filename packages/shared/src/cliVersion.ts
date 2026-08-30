@@ -79,10 +79,17 @@ export const isCliUpdateAvailable = (
 // compatibility surface, not a naming preference.
 const DEV_MARKER_RE = /-(?:dev|staging)\./
 
-export const isDevCliVersion = (
-    version: string | null | undefined
-): boolean => typeof version === 'string' && DEV_MARKER_RE.test(version)
+export const isDevCliVersion = (version: string | null | undefined): boolean =>
+    typeof version === 'string' && DEV_MARKER_RE.test(version)
 
 export const cliChannelOfVersion = (
     version: string | null | undefined
 ): MfCliChannel => (isDevCliVersion(version) ? 'dev' : 'stable')
+
+// Where a freshly installed CLI points when nothing tells it otherwise. Shared
+// because two surfaces must agree on it forever: the CLI reads it as its own
+// default, and the web compares its deployment's API base against it to decide
+// whether a connect command has to spell `--api-url` out. A copy in each would
+// drift silently — the command would keep looking right while sending daemons
+// to the wrong deployment.
+export const DEFAULT_CLI_API_URL = 'https://api.manyfold.ai/api'

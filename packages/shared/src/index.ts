@@ -107,10 +107,7 @@ export type {
     ModelsListShape
 } from './built-in-providers'
 export { INFERENCE_PROTOCOLS } from './dtos'
-export {
-    SKILL_FRAMEWORKS,
-    isSkillFramework
-} from './dtos'
+export { SKILL_FRAMEWORKS, isSkillFramework } from './dtos'
 export {
     defaultProtocolForProvider,
     compatibleProtocolsForProvider,
@@ -523,10 +520,7 @@ export {
     mcpDeliveryFromExtras,
     validateMcpJson
 } from './mcp'
-export {
-    chatCapabilitiesByFramework,
-    CHAT_MESSAGE_SOFT_LIMIT
-} from './chat'
+export { chatCapabilitiesByFramework, CHAT_MESSAGE_SOFT_LIMIT } from './chat'
 export {
     agentModelConfigSources,
     claudeCodeModelAliases,
@@ -858,7 +852,8 @@ export {
     isCliVersionTooOld,
     isCliUpdateAvailable,
     isDevCliVersion,
-    cliChannelOfVersion
+    cliChannelOfVersion,
+    DEFAULT_CLI_API_URL
 } from './cliVersion'
 export type { MfCliChannel } from './cliVersion'
 export {

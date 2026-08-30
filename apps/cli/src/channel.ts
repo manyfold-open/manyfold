@@ -1,4 +1,8 @@
-import { cliChannelOfVersion, isDevCliVersion } from '@manyfold/shared'
+import {
+    cliChannelOfVersion,
+    DEFAULT_CLI_API_URL,
+    isDevCliVersion
+} from '@manyfold/shared'
 
 declare const __MF_CLI_CHANNEL__: string
 
@@ -18,7 +22,7 @@ export const CLI_CHANNEL: CliChannel =
 // the production API: this repository is edition-neutral and cannot bake a
 // deployment-private endpoint. Point a profile at a pre-production API
 // explicitly instead (`mf --profile <name> login --api-url …`).
-export const DEFAULT_API_URL = 'https://api.manyfold.ai/api'
+export const DEFAULT_API_URL = DEFAULT_CLI_API_URL
 
 const CLI_RELEASE_REPO = 'manyfold-open/manyfold'
 const DOWNLOAD_BASE = `https://github.com/${CLI_RELEASE_REPO}/releases/download`
@@ -54,7 +58,9 @@ export const normalizeUpdateChannelFlag = (value: string): CliChannel => {
 // The API's daemon.update payload carries a channel string. An API deployed
 // before the rename still sends 'staging', so a rolling deploy must not brick
 // the RPC.
-export const normalizeWireChannel = (value: unknown): CliChannel | undefined => {
+export const normalizeWireChannel = (
+    value: unknown
+): CliChannel | undefined => {
     if (typeof value !== 'string') return undefined
     try {
         return normalizeUpdateChannelFlag(value)
