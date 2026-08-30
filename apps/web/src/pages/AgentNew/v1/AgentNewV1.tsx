@@ -12,10 +12,11 @@ import {
     providerSupportsTarget,
     validateAgentName
 } from '@manyfold/shared'
+import type { AgentFramework } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckIcon, CloseIcon, PlusIcon } from '@/components/icons'
+import { CheckIcon, CloseIcon, PlugIcon, PlusIcon } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
 import { DashboardViewToggle } from '@/components/DashboardCard'
 import WorkbenchSelect, {
@@ -77,6 +78,7 @@ import {
 } from '@/lib/agentCreate/providerHelpers'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
+import { SandboxSlots } from '@/pages/AgentNew/components/SandboxSlots'
 import { CreateFrameworkModelConfig } from '@/pages/AgentNew/components/shared/CreateFrameworkModelConfig'
 import { useI18n } from '@/lib/i18n'
 import { BILLING_SURFACE } from '@/edition-capabilities'
@@ -106,57 +108,64 @@ const runtimeColumnClass = (_active: boolean, disabled = false): string =>
         disabled ? 'text-placeholder' : 'text-muted'
     ].join(' ')
 
-const runtimeTargetClass = (active: boolean, disabled: boolean): string =>
-    [
-        'shadow-ring-light focus-visible:shadow-focus flex w-full flex-col gap-2 rounded-md px-3 py-2.5 text-left transition-[color,background-color,box-shadow] focus:outline-none',
-        disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer',
-        disabled
-            ? 'bg-surface text-muted'
-            : active
-              ? 'bg-info-bg text-fg shadow-card ring-1 ring-link/40'
-              : 'bg-surface text-muted hover:bg-surface-hover'
-    ].join(' ')
-
-const runtimeSelectionIndicatorClass = (active: boolean): string =>
-    [
-        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
-        active
-            ? 'border-link bg-link text-white'
-            : 'border-divider bg-surface text-transparent'
-    ].join(' ')
-
-const runtimePropertyGridClass =
-    'border-divider grid grid-cols-[5.75rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 border-t pt-2 sm:grid-cols-[7.5rem_minmax(0,1fr)]'
-
-const runtimePropertyLabelClass = 'text-caption text-subtle font-medium'
-
 // A runtime the agent can land on: either one this form provisions (`create`)
 // or one that already exists (`existing`). Both shapes select the same way, so
 // the picker renders one list instead of a tab per provenance.
 type RuntimeTargetKind = 'sprites' | 'k8s' | 'daemon'
 type RuntimeKindFilter = 'all' | RuntimeTargetKind
 
-interface RuntimeTargetMeta {
+interface RuntimeTargetStatus {
     label: string
-    value: string
-    mono?: boolean
-    warn?: boolean
+    tone: 'ready' | 'offline'
 }
 
 interface RuntimeTarget {
     key: string
     kind: RuntimeTargetKind
     group: 'create' | 'existing'
-    framework: CreateableFramework
     name: string
     tag: string | null
     detail: string
-    meta: RuntimeTargetMeta[]
+    status: RuntimeTargetStatus | null
+    // Right-hand quantity: the quota a create target spends, or how many agents
+    // an existing one already carries.
+    note: string | null
+    // Frameworks already resident on a sandbox host, rendered as occupancy
+    // slots the way the newer form draws them.
+    slots: AgentFramework[] | null
     selected: boolean
     disabled: boolean
     disabledReason: string | null
     onSelect: () => void
 }
+
+// The newer create form's option row (its `rowClass`): the whole card is the
+// control, selection is a ring plus a check, and the ring never depends on a
+// separate indicator dot.
+const runtimeTargetClass = (active: boolean, disabled: boolean): string =>
+    [
+        'shadow-ring-light focus-visible:shadow-focus w-full rounded-md px-3.5 py-3 text-left transition-[color,background-color,box-shadow] focus:outline-none',
+        disabled
+            ? 'bg-surface text-muted cursor-not-allowed opacity-55'
+            : active
+              ? 'bg-info-bg text-fg ring-link/40 ring-2'
+              : 'bg-surface text-muted hover:bg-surface-hover hover:text-fg'
+    ].join(' ')
+
+const RuntimeTargetStatusTag: FC<{ status: RuntimeTargetStatus }> = ({
+    status
+}): ReactNode =>
+    status.tone === 'offline' ? (
+        <span className='text-muted text-caption inline-flex shrink-0 items-center gap-1'>
+            <PlugIcon className='h-3.5 w-3.5' />
+            {status.label}
+        </span>
+    ) : (
+        <span className='text-subtle text-caption inline-flex shrink-0 items-center gap-1.5'>
+            <span className='bg-success h-1.5 w-1.5 rounded-full' />
+            {status.label}
+        </span>
+    )
 
 const FrameworkLogo: FC<{
     framework: FrameworkChoice
@@ -197,11 +206,14 @@ const RuntimeAgentIcons: FC<{
     </span>
 )
 
-const RuntimeTargetItem: FC<{
+// The newer form's option anatomy — tag chips, ring selection, a check, a
+// status dot, occupancy slots — restacked for a two-column grid: its rows are
+// full width, so name and status share one line there and cannot here.
+const RuntimeTargetCard: FC<{
     target: RuntimeTarget
-    view: DashboardView
     kindLabel: string
-}> = ({ target, view, kindLabel }): ReactNode => (
+    frameworkLabelFor: (framework: AgentFramework) => string
+}> = ({ target, kindLabel, frameworkLabelFor }): ReactNode => (
     <button
         type='button'
         disabled={target.disabled}
@@ -209,75 +221,139 @@ const RuntimeTargetItem: FC<{
         aria-pressed={target.selected}
         className={runtimeTargetClass(target.selected, target.disabled)}
     >
-        <span className='flex w-full min-w-0 items-center gap-2'>
-            <FrameworkLogo framework={target.framework} className='h-7 w-7' />
-            <span className='min-w-0 flex-1'>
-                <span className='flex min-w-0 items-center gap-1.5'>
-                    <span className='tag tag-neutral'>{kindLabel}</span>
-                    {target.tag && (
-                        <span className='tag tag-neutral'>{target.tag}</span>
-                    )}
-                    <span className='text-caption text-fg min-w-0 truncate font-medium'>
-                        {target.name}
-                    </span>
-                </span>
-                <span className='text-caption text-subtle mt-0.5 block truncate'>
-                    {target.disabledReason ?? target.detail}
-                </span>
+        <span className='flex items-center justify-between gap-2'>
+            <span className='flex min-w-0 items-center gap-1.5'>
+                <span className='tag tag-neutral'>{kindLabel}</span>
+                {target.tag && (
+                    <span className='tag tag-neutral'>{target.tag}</span>
+                )}
             </span>
-            {!target.disabled && (
-                <span
-                    className={runtimeSelectionIndicatorClass(target.selected)}
-                    aria-hidden='true'
-                >
-                    <CheckIcon className='h-3 w-3' />
+            <span className='flex shrink-0 items-center gap-2.5'>
+                {target.status && (
+                    <RuntimeTargetStatusTag status={target.status} />
+                )}
+                {target.slots && (
+                    <SandboxSlots
+                        frameworks={target.slots}
+                        frameworkLabelFor={frameworkLabelFor}
+                    />
+                )}
+                {target.selected && (
+                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                )}
+            </span>
+        </span>
+        <span className='mt-1.5 flex items-baseline justify-between gap-2'>
+            <span className='text-fg text-ui min-w-0 truncate font-medium'>
+                {target.name}
+            </span>
+            {target.note && (
+                <span className='text-subtle text-caption shrink-0 font-mono tabular-nums'>
+                    {target.note}
                 </span>
             )}
         </span>
-        {target.meta.length > 0 &&
-            (view === 'grid' ? (
-                <span className={runtimePropertyGridClass}>
-                    {target.meta.map((item) => (
-                        <Fragment key={item.label}>
-                            <span className={runtimePropertyLabelClass}>
-                                {item.label}
-                            </span>
-                            <span
-                                className={[
-                                    'text-caption min-w-0 truncate',
-                                    item.warn
-                                        ? 'text-workflow-ship'
-                                        : 'text-muted',
-                                    item.mono ? 'font-mono' : ''
-                                ].join(' ')}
-                            >
-                                {item.value}
-                            </span>
-                        </Fragment>
-                    ))}
-                </span>
-            ) : (
-                <span className='text-caption flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5'>
-                    {target.meta.map((item) => (
-                        <span key={item.label} className='min-w-0 truncate'>
-                            <span className='text-subtle mr-1 font-medium'>
-                                {item.label}
-                            </span>
-                            <span
-                                className={[
-                                    item.warn
-                                        ? 'text-workflow-ship'
-                                        : 'text-muted',
-                                    item.mono ? 'font-mono' : ''
-                                ].join(' ')}
-                            >
-                                {item.value}
-                            </span>
-                        </span>
-                    ))}
-                </span>
-            ))}
+        <span className='text-muted text-caption mt-0.5 block truncate'>
+            {target.disabledReason ?? target.detail}
+        </span>
     </button>
+)
+
+const targetHeadCell = 'px-3 py-2 font-medium'
+const targetBodyCell = 'text-caption text-muted px-3 py-2'
+
+const RuntimeTargetTable: FC<{
+    targets: RuntimeTarget[]
+    kindLabelFor: (kind: RuntimeTargetKind) => string
+    frameworkLabelFor: (framework: AgentFramework) => string
+    columns: { runtime: string; kind: string; status: string }
+}> = ({ targets, kindLabelFor, frameworkLabelFor, columns }): ReactNode => (
+    <div className='settings-card overflow-x-auto'>
+        <table className='w-full min-w-[32rem] text-left'>
+            <thead className='workbench-table-head'>
+                <tr>
+                    <th className={targetHeadCell}>{columns.runtime}</th>
+                    <th className={targetHeadCell}>{columns.kind}</th>
+                    <th className={targetHeadCell}>{columns.status}</th>
+                    <th className={targetHeadCell} aria-hidden='true' />
+                </tr>
+            </thead>
+            <tbody>
+                {targets.map((target) => (
+                    <tr
+                        key={target.key}
+                        tabIndex={target.disabled ? -1 : 0}
+                        aria-selected={target.selected}
+                        onClick={() => {
+                            if (!target.disabled) target.onSelect()
+                        }}
+                        onKeyDown={(event) => {
+                            if (target.disabled) return
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                target.onSelect()
+                            }
+                        }}
+                        className={[
+                            'border-divider/60 border-t transition-colors',
+                            target.disabled
+                                ? 'cursor-not-allowed opacity-55'
+                                : 'hover:bg-surface-hover cursor-pointer',
+                            target.selected ? 'bg-info-bg' : ''
+                        ].join(' ')}
+                    >
+                        <td className='px-3 py-2'>
+                            <span className='flex min-w-0 items-center gap-2'>
+                                {target.selected ? (
+                                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                                ) : (
+                                    <span
+                                        className='h-4 w-4 shrink-0'
+                                        aria-hidden='true'
+                                    />
+                                )}
+                                <span className='text-caption text-fg min-w-0 truncate font-medium'>
+                                    {target.name}
+                                </span>
+                                {target.tag && (
+                                    <span className='tag tag-neutral shrink-0'>
+                                        {target.tag}
+                                    </span>
+                                )}
+                            </span>
+                        </td>
+                        <td className={targetBodyCell}>
+                            {kindLabelFor(target.kind)}
+                        </td>
+                        <td className={targetBodyCell}>
+                            {target.status ? (
+                                <RuntimeTargetStatusTag
+                                    status={target.status}
+                                />
+                            ) : (
+                                <span className='text-placeholder'>—</span>
+                            )}
+                        </td>
+                        <td className={`${targetBodyCell} text-right`}>
+                            <span className='inline-flex items-center justify-end gap-2'>
+                                {target.note && (
+                                    <span className='font-mono tabular-nums'>
+                                        {target.note}
+                                    </span>
+                                )}
+                                {target.slots && (
+                                    <SandboxSlots
+                                        frameworks={target.slots}
+                                        frameworkLabelFor={frameworkLabelFor}
+                                    />
+                                )}
+                            </span>
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    </div>
 )
 
 interface ExternalAgentSectionProps {
@@ -885,21 +961,9 @@ const AgentNew: FC = (): ReactNode => {
               ? t('web.agentNew.persistent')
               : t('web.agentNew.localDaemon')
 
-    const quotaMeta = (category: RuntimeCategory): RuntimeTargetMeta[] => {
-        const label = runtimeQuotaLabel(category)
-        if (!label) return []
-        return [
-            {
-                label: t('web.agentNew.runtime'),
-                value: label,
-                mono: true,
-                warn:
-                    category === 'sandbox'
-                        ? sandboxLimitReached
-                        : persistentLimitReached
-            }
-        ]
-    }
+    const frameworkLabelFor = (target: AgentFramework): string =>
+        localizedFrameworkOptions.find((opt) => opt.value === target)?.label ??
+        target
 
     // Create-new and reuse targets share one list: the picker's job is "where
     // does this agent land", and that question does not split by provenance.
@@ -912,13 +976,14 @@ const AgentNew: FC = (): ReactNode => {
                       key: 'create:sandbox',
                       kind: 'sprites' as const,
                       group: 'create' as const,
-                      framework,
                       name: t('web.agentNew.createRuntimeNamed', {
                           runtime: t('web.agentNew.sandbox')
                       }),
                       tag: t('web.agentNew.recommended'),
                       detail: t('web.agentNew.sandboxDesc'),
-                      meta: quotaMeta('sandbox'),
+                      status: null,
+                      note: runtimeQuotaLabel('sandbox'),
+                      slots: null,
                       selected:
                           runtimeMode === 'sandbox' && !attachSandboxHostId,
                       disabled: sandboxLimitReached,
@@ -935,13 +1000,14 @@ const AgentNew: FC = (): ReactNode => {
                       key: 'create:persistent',
                       kind: 'k8s' as const,
                       group: 'create' as const,
-                      framework,
                       name: t('web.agentNew.createRuntimeNamed', {
                           runtime: t('web.agentNew.persistent')
                       }),
                       tag: null,
                       detail: t('web.agentNew.computerTagline'),
-                      meta: quotaMeta('persistent'),
+                      status: null,
+                      note: runtimeQuotaLabel('persistent'),
+                      slots: null,
                       selected: runtimeMode === 'persistent',
                       disabled: persistentLimitReached,
                       disabledReason: persistentLimitReached
@@ -959,41 +1025,29 @@ const AgentNew: FC = (): ReactNode => {
             key: `runtime:${r.id}`,
             kind: (r.kind ?? 'sprites') as RuntimeTargetKind,
             group: 'existing' as const,
-            framework: isCreateableFramework(r.framework)
-                ? r.framework
-                : framework,
             name: r.name,
             tag: null,
             detail:
+                r.kind === 'daemon'
+                    ? (r.daemonName ?? frameworkLabelFor(r.framework))
+                    : frameworkLabelFor(r.framework),
+            status:
+                r.kind === 'daemon' && !r.daemonOnline
+                    ? {
+                          label: t('web.agentNew.offline'),
+                          tone: 'offline' as const
+                      }
+                    : {
+                          label: t('web.agentNew.readyTag'),
+                          tone: 'ready' as const
+                      },
+            note:
                 r.agentsCount === 1
                     ? t('web.agentNew.agentCountOne')
                     : t('web.agentNew.agentCountMany', {
                           count: String(r.agentsCount)
                       }),
-            meta: [
-                {
-                    label: t('web.agentNew.frameworkLabel'),
-                    value:
-                        localizedFrameworkOptions.find(
-                            (opt) => opt.value === r.framework
-                        )?.label ?? r.framework
-                },
-                ...(r.kind === 'daemon'
-                    ? [
-                          {
-                              label: t('web.agentNew.machine'),
-                              value: r.daemonName ?? r.name
-                          },
-                          {
-                              label: t('web.agentNew.status'),
-                              value: r.daemonOnline
-                                  ? t('web.agentNew.online')
-                                  : t('web.agentNew.offline'),
-                              warn: !r.daemonOnline
-                          }
-                      ]
-                    : [])
-            ],
+            slots: null,
             selected: runtimeMode === 'existing' && pickedRuntimeId === r.id,
             disabled: false,
             disabledReason: null,
@@ -1003,30 +1057,17 @@ const AgentNew: FC = (): ReactNode => {
             key: `sandbox:${target.hostId}`,
             kind: 'sprites' as const,
             group: 'existing' as const,
-            framework,
             name: target.name ?? target.spriteName ?? target.hostId,
             tag: null,
             detail: t('web.agentNew.addFramework', {
                 framework: selectedFramework.label
             }),
-            meta: [
-                {
-                    label: t('web.agentNew.runs'),
-                    value: target.frameworks
-                        .map(
-                            (f) =>
-                                localizedFrameworkOptions.find(
-                                    (o) => o.value === f
-                                )?.label ?? f
-                        )
-                        .join(', ')
-                },
-                {
-                    label: t('web.agentNew.runtime'),
-                    value: `${target.runtimeCount}/4`,
-                    mono: true
-                }
-            ],
+            status: {
+                label: t('web.agentNew.readyTag'),
+                tone: 'ready' as const
+            },
+            note: `${target.runtimeCount}/4`,
+            slots: target.frameworks,
             selected:
                 runtimeMode === 'sandbox' &&
                 attachSandboxHostId === target.hostId,
@@ -1725,27 +1766,38 @@ const AgentNew: FC = (): ReactNode => {
                                         <p className='text-caption text-muted font-medium'>
                                             {t('web.agentNew.notAvailable')}
                                         </p>
-                                    ) : (
-                                        <div
-                                            className={
-                                                runtimeView === 'grid'
-                                                    ? 'grid gap-2 sm:grid-cols-2'
-                                                    : 'grid gap-2'
-                                            }
-                                        >
+                                    ) : runtimeView === 'grid' ? (
+                                        <div className='grid gap-2 sm:grid-cols-2'>
                                             {visibleRuntimeTargets.map(
                                                 (target) => (
-                                                    <RuntimeTargetItem
+                                                    <RuntimeTargetCard
                                                         key={target.key}
                                                         target={target}
-                                                        view={runtimeView}
                                                         kindLabel={runtimeKindLabel(
                                                             target.kind
                                                         )}
+                                                        frameworkLabelFor={
+                                                            frameworkLabelFor
+                                                        }
                                                     />
                                                 )
                                             )}
                                         </div>
+                                    ) : (
+                                        <RuntimeTargetTable
+                                            targets={visibleRuntimeTargets}
+                                            kindLabelFor={runtimeKindLabel}
+                                            frameworkLabelFor={
+                                                frameworkLabelFor
+                                            }
+                                            columns={{
+                                                runtime: t(
+                                                    'web.agentNew.runtime'
+                                                ),
+                                                kind: t('web.agentNew.kind'),
+                                                status: t('web.agentNew.status')
+                                            }}
+                                        />
                                     )}
                                     {newRuntimeEntries.length > 0 && (
                                         <div className='mt-2 flex flex-wrap gap-2'>

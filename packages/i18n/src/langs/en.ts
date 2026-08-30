@@ -3327,9 +3327,7 @@ const en = {
         },
         agentNew: {
             title: 'Create Agent',
-            machine: 'Machine',
             status: 'Status',
-            online: 'Online',
             offline: 'Offline',
             recommended: 'Recommended',
             cancel: 'Cancel',
@@ -3561,7 +3559,6 @@ const en = {
             nameHint:
                 '1–64 characters. You can use any language, emoji, spaces, _ - .',
             runtimeSelect: 'Select runtime',
-            frameworkLabel: 'Framework',
             createRuntimeNamed: 'Create new {{runtime}}',
             selectedRuntime: 'Selected runtime',
             createRuntime: 'Create {{runtime}}',
@@ -3600,6 +3597,8 @@ const en = {
             customModel: 'Custom model',
             computerTagline: 'Always-online or self-owned computers',
             filterAll: 'All',
+            kind: 'Kind',
+            readyTag: 'Ready',
             modelProviderSection: 'Model provider'
         },
         externalProviderDialog: {

@@ -3178,9 +3178,7 @@ const zh: Translations = {
         },
         agentNew: {
             title: '创建智能体',
-            machine: '机器',
             status: '状态',
-            online: '在线',
             offline: '离线',
             recommended: '推荐',
             cancel: '取消',
@@ -3392,7 +3390,6 @@ const zh: Translations = {
             runs: '运行',
             nameHint: '1–64 个字符，可使用任意语言、emoji、空格，以及 _ - 。',
             runtimeSelect: '选择运行时',
-            frameworkLabel: '框架',
             createRuntimeNamed: '创建新的 {{runtime}}',
             selectedRuntime: '已选运行时',
             createRuntime: '创建 {{runtime}}',
@@ -3431,6 +3428,8 @@ const zh: Translations = {
             customModel: '自定义模型',
             computerTagline: '始终在线或自有电脑',
             filterAll: '全部',
+            kind: '类型',
+            readyTag: '就绪',
             modelProviderSection: '模型 Provider'
         },
         externalProviderDialog: {
