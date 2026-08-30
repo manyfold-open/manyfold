@@ -25,14 +25,6 @@ export const runtimeCategoryShortLabel = (
     return t('web.agentNew.localDaemon')
 }
 
-export type RuntimeTopChoice = 'sandbox' | 'computer'
-
-export const runtimeTopChoices: RuntimeTopChoice[] = ['sandbox', 'computer']
-
-export const topChoiceForCategory = (
-    category: RuntimeCategory
-): RuntimeTopChoice => (category === 'sandbox' ? 'sandbox' : 'computer')
-
 export const REUSE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'openclaw',
     'hermes',
