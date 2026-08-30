@@ -3597,6 +3597,9 @@ const en = {
             customModel: 'Custom model',
             computerTagline: 'Always-online or self-owned computers',
             filterAll: 'All',
+            pagination: 'Pagination',
+            previousPage: 'Previous page',
+            nextPage: 'Next page',
             kind: 'Kind',
             readyTag: 'Ready',
             modelProviderSection: 'Model provider'

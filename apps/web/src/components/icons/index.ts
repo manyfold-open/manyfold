@@ -13,6 +13,7 @@ export {
     Braces as RawIcon,
     Check as CheckIcon,
     ChevronDown as ChevronDownIcon,
+    ChevronLeft as ChevronLeftIcon,
     ChevronRight as ChevronRightIcon,
     ChevronUp as ChevronUpIcon,
     Camera as CameraIcon,

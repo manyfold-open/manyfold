@@ -16,7 +16,14 @@ import type { AgentFramework } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckIcon, CloseIcon, PlugIcon, PlusIcon } from '@/components/icons'
+import {
+    CheckIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    CloseIcon,
+    PlugIcon,
+    PlusIcon
+} from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
 import { DashboardViewToggle } from '@/components/DashboardCard'
 import WorkbenchSelect, {
@@ -257,6 +264,91 @@ const RuntimeTargetCard: FC<{
             {target.disabledReason ?? target.detail}
         </span>
     </button>
+)
+
+// One page holds four grid rows; the picker is a step in a form, not a
+// dashboard, so it should not grow past that no matter how many runtimes the
+// account carries.
+const RUNTIME_PAGE_SIZE = 8
+
+// First, last, and the current page's neighbours; gaps collapse to an ellipsis
+// so the control's width stays bounded as the runtime count grows.
+const runtimePagerEntries = (
+    page: number,
+    pageCount: number
+): Array<number | 'gap'> => {
+    if (pageCount <= 7)
+        return Array.from({ length: pageCount }, (_, index) => index + 1)
+    const shown = new Set([1, pageCount, page - 1, page, page + 1])
+    const entries: Array<number | 'gap'> = []
+    let previous = 0
+    for (let n = 1; n <= pageCount; n += 1) {
+        if (!shown.has(n)) continue
+        if (previous && n - previous > 1) entries.push('gap')
+        entries.push(n)
+        previous = n
+    }
+    return entries
+}
+
+const runtimePagerButtonClass = (active: boolean): string =>
+    [
+        'text-caption inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-sm px-2 tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        active
+            ? 'bg-surface text-fg shadow-ring-light'
+            : 'text-muted hover:bg-surface-hover'
+    ].join(' ')
+
+const RuntimePager: FC<{
+    page: number
+    pageCount: number
+    onChange: (page: number) => void
+    labels: { group: string; previous: string; next: string }
+}> = ({ page, pageCount, onChange, labels }): ReactNode => (
+    <nav
+        aria-label={labels.group}
+        className='mt-2 flex flex-wrap items-center justify-center gap-1'
+    >
+        <button
+            type='button'
+            aria-label={labels.previous}
+            disabled={page <= 1}
+            onClick={() => onChange(page - 1)}
+            className={runtimePagerButtonClass(false)}
+        >
+            <ChevronLeftIcon className='h-4 w-4' />
+        </button>
+        {runtimePagerEntries(page, pageCount).map((entry, index) =>
+            entry === 'gap' ? (
+                <span
+                    key={`gap-${index}`}
+                    aria-hidden='true'
+                    className='text-subtle text-caption px-1'
+                >
+                    …
+                </span>
+            ) : (
+                <button
+                    key={entry}
+                    type='button'
+                    aria-current={entry === page ? 'page' : undefined}
+                    onClick={() => onChange(entry)}
+                    className={runtimePagerButtonClass(entry === page)}
+                >
+                    {entry}
+                </button>
+            )
+        )}
+        <button
+            type='button'
+            aria-label={labels.next}
+            disabled={page >= pageCount}
+            onClick={() => onChange(page + 1)}
+            className={runtimePagerButtonClass(false)}
+        >
+            <ChevronRightIcon className='h-4 w-4' />
+        </button>
+    </nav>
 )
 
 const targetHeadCell = 'px-3 py-2 font-medium'
@@ -511,6 +603,7 @@ const AgentNew: FC = (): ReactNode => {
     )
     const [runtimeKindFilter, setRuntimeKindFilter] =
         useState<RuntimeKindFilter>('all')
+    const [runtimePage, setRuntimePage] = useState(1)
     const [runtimeCompareDialogOpen, setRuntimeCompareDialogOpen] =
         useState(false)
     const [frameworkCompareDialogOpen, setFrameworkCompareDialogOpen] =
@@ -778,6 +871,7 @@ const AgentNew: FC = (): ReactNode => {
         setExternalProviderId('')
         setExternalRemoteId('')
         setRuntimeKindFilter('all')
+        setRuntimePage(1)
         if (isK8sOnlyFramework(next)) {
             setRuntimeMode('persistent')
         } else if (runtimeMode === 'existing') {
@@ -1112,6 +1206,19 @@ const AgentNew: FC = (): ReactNode => {
             : runtimeTargets.filter(
                   (target) => target.kind === runtimeKindFilter
               )
+    // Clamped rather than corrected in an effect: a filter that shrinks the
+    // list must not leave the picker on a page that no longer exists, and the
+    // clamp is a pure function of what is being rendered.
+    const runtimePageCount = Math.max(
+        1,
+        Math.ceil(visibleRuntimeTargets.length / RUNTIME_PAGE_SIZE)
+    )
+    const runtimePageSafe = Math.min(runtimePage, runtimePageCount)
+    const pagedRuntimeTargets = visibleRuntimeTargets.slice(
+        (runtimePageSafe - 1) * RUNTIME_PAGE_SIZE,
+        runtimePageSafe * RUNTIME_PAGE_SIZE
+    )
+
     // Entry points to provision a runtime outside this form. Reuses the
     // dashboard's option table so a new runtime kind appears in both places.
     const newRuntimeEntries = NEW_RUNTIME_OPTIONS.filter((option) => {
@@ -1731,11 +1838,12 @@ const AgentNew: FC = (): ReactNode => {
                                                             runtimeKindFilter ===
                                                             kind
                                                         }
-                                                        onClick={() =>
+                                                        onClick={() => {
                                                             setRuntimeKindFilter(
                                                                 kind
                                                             )
-                                                        }
+                                                            setRuntimePage(1)
+                                                        }}
                                                         className={[
                                                             'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
                                                             runtimeKindFilter ===
@@ -1771,7 +1879,7 @@ const AgentNew: FC = (): ReactNode => {
                                         </p>
                                     ) : runtimeView === 'grid' ? (
                                         <div className='grid gap-2 sm:grid-cols-2'>
-                                            {visibleRuntimeTargets.map(
+                                            {pagedRuntimeTargets.map(
                                                 (target) => (
                                                     <RuntimeTargetCard
                                                         key={target.key}
@@ -1788,7 +1896,7 @@ const AgentNew: FC = (): ReactNode => {
                                         </div>
                                     ) : (
                                         <RuntimeTargetTable
-                                            targets={visibleRuntimeTargets}
+                                            targets={pagedRuntimeTargets}
                                             kindLabelFor={runtimeKindLabel}
                                             frameworkLabelFor={
                                                 frameworkLabelFor
@@ -1799,6 +1907,22 @@ const AgentNew: FC = (): ReactNode => {
                                                 ),
                                                 kind: t('web.agentNew.kind'),
                                                 status: t('web.agentNew.status')
+                                            }}
+                                        />
+                                    )}
+                                    {runtimePageCount > 1 && (
+                                        <RuntimePager
+                                            page={runtimePageSafe}
+                                            pageCount={runtimePageCount}
+                                            onChange={setRuntimePage}
+                                            labels={{
+                                                group: t(
+                                                    'web.agentNew.pagination'
+                                                ),
+                                                previous: t(
+                                                    'web.agentNew.previousPage'
+                                                ),
+                                                next: t('web.agentNew.nextPage')
                                             }}
                                         />
                                     )}

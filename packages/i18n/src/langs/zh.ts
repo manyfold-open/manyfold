@@ -3428,6 +3428,9 @@ const zh: Translations = {
             customModel: '自定义模型',
             computerTagline: '始终在线或自有电脑',
             filterAll: '全部',
+            pagination: '分页',
+            previousPage: '上一页',
+            nextPage: '下一页',
             kind: '类型',
             readyTag: '就绪',
             modelProviderSection: '模型 Provider'
