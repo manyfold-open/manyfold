@@ -22,7 +22,9 @@ import {
     ChevronRightIcon,
     CloseIcon,
     PlugIcon,
-    PlusIcon
+    PlusIcon,
+    RuntimeIcon,
+    type LucideIcon
 } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
 import ConnectDaemonDialog from '@/components/ConnectDaemonDialog'
@@ -229,6 +231,35 @@ const RuntimeAgentIcons: FC<{
 // framework's runtime carries. A framework with no agents still shows (at
 // zero) — that it is installed at all is what decides whether this machine
 // needs provisioning.
+// Icon, not word: four kind names in a row cost more width than the list they
+// filter. The name survives as the accessible name and the tooltip, so the
+// control is not a rebus for anyone who needs the text.
+const RuntimeKindChip: FC<{
+    icon: LucideIcon
+    label: string
+    count: number
+    active: boolean
+    onSelect: () => void
+}> = ({ icon: Icon, label, count, active, onSelect }): ReactNode => (
+    <ShortcutTooltip label={label}>
+        <button
+            type='button'
+            aria-label={label}
+            aria-pressed={active}
+            onClick={onSelect}
+            className={[
+                'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
+                active
+                    ? 'bg-surface text-fg shadow-ring-light'
+                    : 'text-muted hover:bg-surface-hover'
+            ].join(' ')}
+        >
+            <Icon className='h-4 w-4 shrink-0' aria-hidden='true' />
+            <span className='tabular-nums'>{count}</span>
+        </button>
+    </ShortcutTooltip>
+)
+
 const RuntimePopulation: FC<{
     population: RuntimeTargetPopulation[]
     labelFor: (entry: RuntimeTargetPopulation) => string
@@ -1168,6 +1199,12 @@ const AgentNew: FC = (): ReactNode => {
               })
             : null
     }
+    // Same table the provision-elsewhere links read, so a kind's icon here and
+    // its icon there can never be two different decisions.
+    const runtimeKindIcon = (kind: RuntimeTargetKind): LucideIcon =>
+        NEW_RUNTIME_OPTIONS.find((option) => option.kind === kind)?.icon ??
+        RuntimeIcon
+
     const runtimeKindLabel = (kind: RuntimeTargetKind): string =>
         kind === 'sprites'
             ? t('web.agentNew.sandbox')
@@ -2063,44 +2100,42 @@ const AgentNew: FC = (): ReactNode => {
                                         >
                                             {runtimeKindFilterOptions.map(
                                                 (kind) => (
-                                                    <button
+                                                    <RuntimeKindChip
                                                         key={kind}
-                                                        type='button'
-                                                        aria-pressed={
-                                                            runtimeKindFilter ===
-                                                            kind
+                                                        icon={
+                                                            kind === 'all'
+                                                                ? RuntimeIcon
+                                                                : runtimeKindIcon(
+                                                                      kind
+                                                                  )
                                                         }
-                                                        onClick={() => {
-                                                            setRuntimeKindFilter(
-                                                                kind
-                                                            )
-                                                            setRuntimePage(1)
-                                                        }}
-                                                        className={[
-                                                            'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
-                                                            runtimeKindFilter ===
-                                                            kind
-                                                                ? 'bg-surface text-fg shadow-ring-light'
-                                                                : 'text-muted hover:bg-surface-hover'
-                                                        ].join(' ')}
-                                                    >
-                                                        <span>
-                                                            {kind === 'all'
+                                                        label={
+                                                            kind === 'all'
                                                                 ? t(
                                                                       'web.agentNew.filterAll'
                                                                   )
                                                                 : runtimeKindLabel(
                                                                       kind
-                                                                  )}
-                                                        </span>
-                                                        <span className='text-subtle tabular-nums'>
-                                                            {kind === 'all'
+                                                                  )
+                                                        }
+                                                        count={
+                                                            kind === 'all'
                                                                 ? runtimeTargets.length
                                                                 : runtimeKindCount(
                                                                       kind
-                                                                  )}
-                                                        </span>
-                                                    </button>
+                                                                  )
+                                                        }
+                                                        active={
+                                                            runtimeKindFilter ===
+                                                            kind
+                                                        }
+                                                        onSelect={() => {
+                                                            setRuntimeKindFilter(
+                                                                kind
+                                                            )
+                                                            setRuntimePage(1)
+                                                        }}
+                                                    />
                                                 )
                                             )}
                                         </div>
