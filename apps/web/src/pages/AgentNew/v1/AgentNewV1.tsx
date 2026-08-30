@@ -231,20 +231,21 @@ const RuntimeAgentIcons: FC<{
 // framework's runtime carries. A framework with no agents still shows (at
 // zero) — that it is installed at all is what decides whether this machine
 // needs provisioning.
-// Icon, not word: four kind names in a row cost more width than the list they
-// filter. The name survives as the accessible name and the tooltip, so the
-// control is not a rebus for anyone who needs the text.
+// Icon, not word, for the kinds: four names in a row cost more width than the
+// list they filter. The name survives as the accessible name and the tooltip,
+// so the control is not a rebus for anyone who needs the text. "All" keeps its
+// word — it has no object to draw, and it is the state the picker opens in.
 const RuntimeKindChip: FC<{
-    icon: LucideIcon
+    icon?: LucideIcon
     label: string
     count: number
     active: boolean
     onSelect: () => void
-}> = ({ icon: Icon, label, count, active, onSelect }): ReactNode => (
-    <ShortcutTooltip label={label}>
+}> = ({ icon: Icon, label, count, active, onSelect }): ReactNode => {
+    const chip = (
         <button
             type='button'
-            aria-label={label}
+            aria-label={Icon ? label : undefined}
             aria-pressed={active}
             onClick={onSelect}
             className={[
@@ -254,11 +255,18 @@ const RuntimeKindChip: FC<{
                     : 'text-muted hover:bg-surface-hover'
             ].join(' ')}
         >
-            <Icon className='h-4 w-4 shrink-0' aria-hidden='true' />
+            {Icon ? (
+                <Icon className='h-4 w-4 shrink-0' aria-hidden='true' />
+            ) : (
+                <span>{label}</span>
+            )}
             <span className='tabular-nums'>{count}</span>
         </button>
-    </ShortcutTooltip>
-)
+    )
+    // A visible label is already the accessible name; only the icon-only chips
+    // need the hover affordance that repeats it.
+    return Icon ? <ShortcutTooltip label={label}>{chip}</ShortcutTooltip> : chip
+}
 
 const RuntimePopulation: FC<{
     population: RuntimeTargetPopulation[]
@@ -2104,7 +2112,7 @@ const AgentNew: FC = (): ReactNode => {
                                                         key={kind}
                                                         icon={
                                                             kind === 'all'
-                                                                ? RuntimeIcon
+                                                                ? undefined
                                                                 : runtimeKindIcon(
                                                                       kind
                                                                   )
