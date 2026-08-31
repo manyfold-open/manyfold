@@ -172,20 +172,22 @@ test('every focus-shadow consumer transitions box-shadow', () => {
     )
 })
 
-test('the framework picker does not gate its ring on open state', () => {
-    const file = join(srcRoot, 'pages/AgentNew/v1/AgentNewV1.tsx')
+test('the product select trigger does not gate its ring on open state', () => {
+    // Agent create's framework picker used to be a hand-rolled disclosure and
+    // was pinned here by name. It is a WorkbenchSelect now, so the same
+    // contract is pinned one level down, where every surface inherits it.
+    const file = join(srcRoot, 'components/WorkbenchSelect.tsx')
     const source = parse(file)
     let className: ts.JsxAttribute | undefined
     const visit = (node: ts.Node): void => {
         if (ts.isJsxOpeningElement(node)) {
-            const controls = node.attributes.properties.find(
+            const popup = node.attributes.properties.find(
                 (attribute): attribute is ts.JsxAttribute =>
                     ts.isJsxAttribute(attribute) &&
-                    attribute.name.getText() === 'aria-controls' &&
-                    attribute.initializer?.getText() ===
-                        "'agent-framework-picker'"
+                    attribute.name.getText() === 'aria-haspopup' &&
+                    attribute.initializer?.getText() === "'listbox'"
             )
-            if (controls)
+            if (popup)
                 className = node.attributes.properties.find(
                     (attribute): attribute is ts.JsxAttribute =>
                         ts.isJsxAttribute(attribute) &&
@@ -195,7 +197,7 @@ test('the framework picker does not gate its ring on open state', () => {
         ts.forEachChild(node, visit)
     }
     visit(source)
-    assert.ok(className, 'framework picker trigger is missing')
+    assert.ok(className, 'select trigger is missing')
     assert.match(className.getText(), /focus-visible:shadow-focus/)
 
     const offenders: string[] = []
@@ -222,7 +224,7 @@ test('the framework picker does not gate its ring on open state', () => {
     assert.deepEqual(
         offenders,
         [],
-        `framework picker open-state branch gates its focus ring: ${offenders.join(', ')}`
+        `select trigger open-state branch gates its focus ring: ${offenders.join(', ')}`
     )
 })
 

@@ -1,5 +1,4 @@
 import {
-    AgentFramework,
     AgentRuntimeSummary,
     CreateAgentBody,
     DaemonHostSummary,
@@ -59,6 +58,7 @@ import {
     FRAMEWORK_CAPABILITIES
 } from '@/pages/AgentNew/v3/capabilities'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
+import { SandboxSlots } from '@/pages/AgentNew/components/SandboxSlots'
 import { WorkspacePathField } from '@/pages/AgentNew/WorkspacePathField'
 import {
     initialPicker,
@@ -238,32 +238,6 @@ const rowClass = (active: boolean, disabled = false): string =>
 // selected background swaps (a fixed fill blends into one of them), and flips
 // automatically in dark mode. Occupied and empty share the same fill; the only
 // distinction is the framework logo. Small square radius to echo its shape.
-const slotBase =
-    'flex h-5 w-5 shrink-0 items-center justify-center rounded-[6px]'
-
-// What a sandbox already runs: one slot per co-resident framework (its logo).
-// There is no per-sandbox capacity to fill against, so an empty sandbox simply
-// shows nothing and the same indicator reads identically on reuse and attach rows.
-const SandboxSlots: FC<{
-    frameworks: AgentFramework[]
-    frameworkLabelFor: (framework: AgentFramework) => string
-}> = ({ frameworks, frameworkLabelFor }) => {
-    if (frameworks.length === 0) return null
-    return (
-        <span
-            className='flex shrink-0 items-center gap-1'
-            role='img'
-            aria-label={frameworks.map(frameworkLabelFor).join(', ')}
-        >
-            {frameworks.map((f) => (
-                <span key={f} className={`${slotBase} bg-fg/[0.05]`}>
-                    <FrameworkLogo framework={f} size={13} />
-                </span>
-            ))}
-        </span>
-    )
-}
-
 const modeSegmentClass = (active: boolean): string =>
     [
         'inline-flex h-8 items-center justify-center rounded-sm px-4 text-ui font-medium transition-colors',
