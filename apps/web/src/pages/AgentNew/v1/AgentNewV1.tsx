@@ -12,17 +12,27 @@ import {
     providerSupportsTarget,
     validateAgentName
 } from '@manyfold/shared'
+import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
     CheckIcon,
-    ChevronDownIcon,
+    HelpIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
     CloseIcon,
-    ProviderIcon
+    PlugIcon,
+    PlusIcon,
+    RuntimeIcon,
+    type LucideIcon
 } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
-import WorkbenchSelect from '@/components/WorkbenchSelect'
+import ConnectDaemonDialog from '@/components/ConnectDaemonDialog'
+import { DashboardViewToggle } from '@/components/DashboardCard'
+import WorkbenchSelect, {
+    type WorkbenchSelectOption
+} from '@/components/WorkbenchSelect'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     initialPicker,
@@ -31,10 +41,14 @@ import {
     type ProviderPickerValue
 } from '@/pages/AgentNew/components/ProviderPicker'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
-import { FrameworkLogo as FrameworkLogoMark } from '@/lib/frameworkMeta'
+import {
+    frameworkLabel,
+    FrameworkLogo as FrameworkLogoMark
+} from '@/lib/frameworkMeta'
 import {
     apiKeyLabelForProvider,
     buildAddRuntimeAgentBody,
+    buildAgentCredentialsBody,
     buildCreateAgentBody,
     modelProviderForFramework,
     progressStepsForCreate,
@@ -50,20 +64,24 @@ import {
     isK8sOnlyFramework,
     REUSE_FRAMEWORKS,
     reuseRuntimeKindsFor,
-    runtimeTopChoices,
     supportsSandbox,
-    topChoiceForCategory,
     usesConfigurableModelProvider,
     remoteIdHintFor,
     remoteIdLabelFor,
     remoteIdPlaceholderFor,
     type FrameworkChoice,
     type RuntimeCategory,
-    type RuntimeMode,
-    type RuntimeTopChoice
+    type RuntimeMode
 } from '@/lib/agentCreate/frameworkOptions'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { flattenSavedModels } from '@/lib/agentCreate/savedModels'
+import {
+    AGENT_NEW_RUNTIME_VIEW_KEY,
+    readDashboardView,
+    writeDashboardView,
+    type DashboardView
+} from '@/lib/dashboardView'
+import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
 import {
     computeSpriteTargets,
@@ -73,11 +91,12 @@ import {
     openclawWorkspaceFor,
     preferredSavedProviderFor
 } from '@/lib/agentCreate/providerHelpers'
+import { useApiClient } from '@/lib/apiClient'
+import { apiErrorMessage } from '@/lib/errorMessage'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
 import { CreateFrameworkModelConfig } from '@/pages/AgentNew/components/shared/CreateFrameworkModelConfig'
-import { providerLabel } from '@/pages/Settings/ModelProviderFields'
-import { useI18n, type TFn } from '@/lib/i18n'
+import { useI18n } from '@/lib/i18n'
 import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const persistentProviderOptions: Array<{
@@ -99,69 +118,76 @@ const cardClass = (active: boolean, disabled = false): string =>
               : 'bg-[#f7f7f4] text-muted hover:bg-white hover:text-fg'
     ].join(' ')
 
-// The sr-only radio delegates its browser-determined `:focus-visible` state to
-// the card, keeping pointer selection distinct from Tab/arrow navigation.
-const frameworkLogoButtonClass = (active: boolean, disabled = false): string =>
-    [
-        'group relative flex h-28 w-full flex-col items-center justify-center rounded-md px-3 text-center text-ui transition-[color,background-color,box-shadow] shadow-ring-light has-[:focus-visible]:shadow-focus',
-        disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer',
-        disabled
-            ? 'bg-surface text-muted'
-            : active
-              ? 'bg-info-bg text-fg shadow-elevated ring-2 ring-link ring-offset-2 ring-offset-main'
-              : 'bg-surface text-muted hover:bg-surface-hover'
-    ].join(' ')
-
 const runtimeColumnClass = (_active: boolean, disabled = false): string =>
     [
         'border-divider border-l px-4 py-2.5 align-top',
         disabled ? 'text-placeholder' : 'text-muted'
     ].join(' ')
 
-const runtimeCreateCardClass = (active: boolean, disabled = false): string =>
-    [
-        'shadow-ring-light focus-visible:shadow-focus flex w-full flex-col gap-2 rounded-md px-2.5 py-2 text-left transition-[color,background-color,box-shadow] focus:outline-none',
-        disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer',
-        disabled
-            ? 'bg-surface text-muted'
-            : active
-              ? 'bg-info-bg text-fg shadow-card ring-1 ring-link/40'
-              : 'bg-surface text-muted hover:bg-surface-hover'
-    ].join(' ')
+// A runtime the agent can land on: either one this form provisions (`create`)
+// or one that already exists (`existing`). Both shapes select the same way, so
+// the picker renders one list instead of a tab per provenance.
+type RuntimeTargetKind = 'sprites' | 'k8s' | 'daemon'
+type RuntimeKindFilter = 'all' | RuntimeTargetKind
 
-const runtimeExistingCardClass = (active: boolean): string =>
-    [
-        'shadow-ring-light flex w-full flex-col gap-2 rounded-md px-2.5 py-2 text-left transition-colors',
-        active
-            ? 'bg-info-bg text-fg shadow-card ring-1 ring-link/40'
-            : 'bg-surface text-muted hover:bg-surface-hover'
-    ].join(' ')
-
-const runtimeSelectionIndicatorClass = (active: boolean): string =>
-    [
-        'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border transition-colors',
-        active
-            ? 'border-link bg-link text-white'
-            : 'border-divider bg-surface text-transparent'
-    ].join(' ')
-
-const runtimePropertyGridClass =
-    'border-divider grid grid-cols-[5.75rem_minmax(0,1fr)] gap-x-2.5 gap-y-1.5 border-t pt-2 sm:grid-cols-[7.5rem_minmax(0,1fr)]'
-
-const runtimePropertyLabelClass = 'text-caption text-subtle font-medium'
-
-const runtimePropertyValueClass =
-    'text-caption text-fg min-w-0 break-all font-mono'
-
-const runtimeKindShortLabel = (
-    kind: AgentRuntimeSummary['kind'],
-    t: TFn
-): string => {
-    if (kind === 'daemon') return t('web.agentNew.localDaemon')
-    if (kind === 'k8s') return t('web.agentNew.persistent')
-    if (kind === 'sprites') return t('web.agentNew.sandbox')
-    return t('web.agentNew.runtime')
+interface RuntimeTargetStatus {
+    label: string
+    tone: 'ready' | 'offline'
 }
+
+interface RuntimeTargetPopulation {
+    framework: AgentFramework
+    agents: number
+}
+
+// Name, kind, status, agent count: what picking a runtime turns on. Anything
+// else this list used to carry (the framework, the machine behind a daemon, a
+// host's spare slots) is either constant across the list or answered elsewhere
+// in the form.
+interface RuntimeTarget {
+    key: string
+    kind: RuntimeTargetKind
+    group: 'create' | 'existing'
+    name: string
+    status: RuntimeTargetStatus | null
+    // Who already lives on this machine, per framework — a sandbox host carries
+    // one runtime per framework, so this is the whole VM's population, not just
+    // the runtime that matched the picker. Empty for a runtime this form would
+    // create, and for a host nothing runs on yet.
+    population: RuntimeTargetPopulation[]
+    selected: boolean
+    disabled: boolean
+    disabledReason: string | null
+    onSelect: () => void
+}
+
+// The newer create form's option row (its `rowClass`): the whole card is the
+// control, selection is a ring plus a check, and the ring never depends on a
+// separate indicator dot.
+const runtimeTargetClass = (active: boolean, disabled: boolean): string =>
+    [
+        'shadow-ring-light focus-visible:shadow-focus w-full rounded-md px-3.5 py-3 text-left transition-[color,background-color,box-shadow] focus:outline-none',
+        disabled
+            ? 'bg-surface text-muted cursor-not-allowed opacity-55'
+            : active
+              ? 'bg-info-bg text-fg ring-link/40 ring-2'
+              : 'bg-surface text-muted hover:bg-surface-hover hover:text-fg'
+    ].join(' ')
+
+const RuntimeTargetStatusTag: FC<{ status: RuntimeTargetStatus }> = ({
+    status
+}): ReactNode =>
+    status.tone === 'offline' ? (
+        <span className='text-muted text-caption inline-flex shrink-0 items-center gap-1'>
+            <PlugIcon className='h-3.5 w-3.5' />
+            {status.label}
+        </span>
+    ) : (
+        <span className='text-subtle text-caption inline-flex shrink-0 items-center gap-1.5'>
+            <span className='bg-success h-1.5 w-1.5 rounded-full' />
+            {status.label}
+        </span>
+    )
 
 const FrameworkLogo: FC<{
     framework: FrameworkChoice
@@ -200,6 +226,316 @@ const RuntimeAgentIcons: FC<{
             )
         })}
     </span>
+)
+
+// "who is already here", per framework: the logo, then how many agents that
+// framework's runtime carries. A framework with no agents still shows (at
+// zero) — that it is installed at all is what decides whether this machine
+// needs provisioning.
+// Icon, not word, for the kinds: four names in a row cost more width than the
+// list they filter. The name survives as the accessible name and the tooltip,
+// so the control is not a rebus for anyone who needs the text. "All" keeps its
+// word — it has no object to draw, and it is the state the picker opens in.
+// The two comparison tables are reference material, not steps: as words they
+// read like the next thing to do, and they sat on the same line as the control
+// they annotate. A question mark keeps them reachable and stops them competing
+// with the label beside them; the name lives in the tooltip and the accessible
+// name.
+const CompareButton: FC<{ label: string; onOpen: () => void }> = ({
+    label,
+    onOpen
+}): ReactNode => (
+    <ShortcutTooltip label={label} placement='bottom-start'>
+        <button
+            type='button'
+            aria-label={label}
+            onClick={onOpen}
+            className='text-subtle hover:text-fg hover:bg-surface-hover focus-visible:shadow-focus inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-[color,background-color,box-shadow] focus:outline-none'
+        >
+            <HelpIcon className='h-4 w-4' aria-hidden='true' />
+        </button>
+    </ShortcutTooltip>
+)
+
+const RuntimeKindChip: FC<{
+    icon?: LucideIcon
+    label: string
+    count: number
+    active: boolean
+    onSelect: () => void
+}> = ({ icon: Icon, label, count, active, onSelect }): ReactNode => {
+    const chip = (
+        <button
+            type='button'
+            aria-label={Icon ? label : undefined}
+            aria-pressed={active}
+            onClick={onSelect}
+            className={[
+                'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
+                active
+                    ? 'bg-surface text-fg shadow-ring-light'
+                    : 'text-muted hover:bg-surface-hover'
+            ].join(' ')}
+        >
+            {Icon ? (
+                <Icon className='h-4 w-4 shrink-0' aria-hidden='true' />
+            ) : (
+                <span>{label}</span>
+            )}
+            <span className='tabular-nums'>{count}</span>
+        </button>
+    )
+    // A visible label is already the accessible name; only the icon-only chips
+    // need the hover affordance that repeats it.
+    return Icon ? <ShortcutTooltip label={label}>{chip}</ShortcutTooltip> : chip
+}
+
+const RuntimePopulation: FC<{
+    population: RuntimeTargetPopulation[]
+    labelFor: (entry: RuntimeTargetPopulation) => string
+}> = ({ population, labelFor }): ReactNode => {
+    if (population.length === 0) return null
+    return (
+        <span className='flex flex-wrap items-center gap-x-2.5 gap-y-1'>
+            {population.map((entry) => (
+                <span
+                    key={entry.framework}
+                    className='text-subtle text-caption inline-flex shrink-0 items-center gap-1 tabular-nums'
+                    title={labelFor(entry)}
+                    aria-label={labelFor(entry)}
+                >
+                    <FrameworkLogoMark framework={entry.framework} size={14} />×
+                    {entry.agents}
+                </span>
+            ))}
+        </span>
+    )
+}
+
+// The newer form's option anatomy — tag chip, ring selection, a check, a status
+// dot — restacked for a two-column grid: its rows are full width, so name and
+// status share one line there and cannot here.
+const RuntimeTargetCard: FC<{
+    target: RuntimeTarget
+    kindLabel: string
+    populationLabelFor: (entry: RuntimeTargetPopulation) => string
+}> = ({ target, kindLabel, populationLabelFor }): ReactNode => (
+    <button
+        type='button'
+        disabled={target.disabled}
+        onClick={target.onSelect}
+        aria-pressed={target.selected}
+        className={runtimeTargetClass(target.selected, target.disabled)}
+    >
+        <span className='flex items-center justify-between gap-2'>
+            <span className='flex min-w-0 items-center gap-2'>
+                <span className='tag tag-neutral'>{kindLabel}</span>
+                <span className='text-fg text-ui min-w-0 truncate font-medium'>
+                    {target.name}
+                </span>
+            </span>
+            <span className='flex shrink-0 items-center gap-2.5'>
+                {target.disabled && target.disabledReason ? (
+                    <span className='text-muted text-caption'>
+                        {target.disabledReason}
+                    </span>
+                ) : (
+                    target.status && (
+                        <RuntimeTargetStatusTag status={target.status} />
+                    )
+                )}
+                {target.selected && (
+                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                )}
+            </span>
+        </span>
+        {target.population.length > 0 && (
+            <span className='mt-1.5 block'>
+                <RuntimePopulation
+                    population={target.population}
+                    labelFor={populationLabelFor}
+                />
+            </span>
+        )}
+    </button>
+)
+
+const targetHeadCell = 'px-3 py-2 font-medium'
+const targetBodyCell = 'text-caption text-muted px-3 py-2'
+
+const RuntimeTargetTable: FC<{
+    targets: RuntimeTarget[]
+    kindLabelFor: (kind: RuntimeTargetKind) => string
+    populationLabelFor: (entry: RuntimeTargetPopulation) => string
+    columns: { runtime: string; kind: string; status: string; agents: string }
+}> = ({ targets, kindLabelFor, populationLabelFor, columns }): ReactNode => (
+    <div className='settings-card overflow-x-auto'>
+        <table className='w-full min-w-[32rem] text-left'>
+            <thead className='workbench-table-head'>
+                <tr>
+                    <th className={targetHeadCell}>{columns.runtime}</th>
+                    <th className={targetHeadCell}>{columns.kind}</th>
+                    <th className={targetHeadCell}>{columns.status}</th>
+                    <th className={`${targetHeadCell} text-right`}>
+                        {columns.agents}
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {targets.map((target) => (
+                    <tr
+                        key={target.key}
+                        tabIndex={target.disabled ? -1 : 0}
+                        aria-selected={target.selected}
+                        onClick={() => {
+                            if (!target.disabled) target.onSelect()
+                        }}
+                        onKeyDown={(event) => {
+                            if (target.disabled) return
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                target.onSelect()
+                            }
+                        }}
+                        className={[
+                            'border-divider/60 border-t transition-colors',
+                            target.disabled
+                                ? 'cursor-not-allowed opacity-55'
+                                : 'hover:bg-surface-hover cursor-pointer',
+                            target.selected ? 'bg-info-bg' : ''
+                        ].join(' ')}
+                    >
+                        <td className='px-3 py-2'>
+                            <span className='flex min-w-0 items-center gap-2'>
+                                {target.selected ? (
+                                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                                ) : (
+                                    <span
+                                        className='h-4 w-4 shrink-0'
+                                        aria-hidden='true'
+                                    />
+                                )}
+                                <span className='text-caption text-fg min-w-0 truncate font-medium'>
+                                    {target.name}
+                                </span>
+                            </span>
+                        </td>
+                        <td className={targetBodyCell}>
+                            {kindLabelFor(target.kind)}
+                        </td>
+                        <td className={targetBodyCell}>
+                            {target.disabled && target.disabledReason ? (
+                                target.disabledReason
+                            ) : target.status ? (
+                                <RuntimeTargetStatusTag
+                                    status={target.status}
+                                />
+                            ) : (
+                                <span className='text-placeholder'>—</span>
+                            )}
+                        </td>
+                        <td className={`${targetBodyCell} text-right`}>
+                            {target.population.length === 0 ? (
+                                <span className='text-placeholder'>—</span>
+                            ) : (
+                                <span className='inline-flex justify-end'>
+                                    <RuntimePopulation
+                                        population={target.population}
+                                        labelFor={populationLabelFor}
+                                    />
+                                </span>
+                            )}
+                        </td>
+                    </tr>
+                ))}
+            </tbody>
+        </table>
+    </div>
+)
+
+// One page holds four grid rows; the picker is a step in a form, not a
+// dashboard, so it should not grow past that no matter how many runtimes the
+// account carries.
+const RUNTIME_PAGE_SIZE = 8
+
+// First, last, and the current page's neighbours; gaps collapse to an ellipsis
+// so the control's width stays bounded as the runtime count grows.
+const runtimePagerEntries = (
+    page: number,
+    pageCount: number
+): Array<number | 'gap'> => {
+    if (pageCount <= 7)
+        return Array.from({ length: pageCount }, (_, index) => index + 1)
+    const shown = new Set([1, pageCount, page - 1, page, page + 1])
+    const entries: Array<number | 'gap'> = []
+    let previous = 0
+    for (let n = 1; n <= pageCount; n += 1) {
+        if (!shown.has(n)) continue
+        if (previous && n - previous > 1) entries.push('gap')
+        entries.push(n)
+        previous = n
+    }
+    return entries
+}
+
+const runtimePagerButtonClass = (active: boolean): string =>
+    [
+        'text-caption inline-flex h-7 min-w-[1.75rem] items-center justify-center rounded-sm px-2 tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        active
+            ? 'bg-surface text-fg shadow-ring-light'
+            : 'text-muted hover:bg-surface-hover'
+    ].join(' ')
+
+const RuntimePager: FC<{
+    page: number
+    pageCount: number
+    onChange: (page: number) => void
+    labels: { group: string; previous: string; next: string }
+}> = ({ page, pageCount, onChange, labels }): ReactNode => (
+    <nav
+        aria-label={labels.group}
+        className='mt-2 flex flex-wrap items-center justify-center gap-1'
+    >
+        <button
+            type='button'
+            aria-label={labels.previous}
+            disabled={page <= 1}
+            onClick={() => onChange(page - 1)}
+            className={runtimePagerButtonClass(false)}
+        >
+            <ChevronLeftIcon className='h-4 w-4' />
+        </button>
+        {runtimePagerEntries(page, pageCount).map((entry, index) =>
+            entry === 'gap' ? (
+                <span
+                    key={`gap-${index}`}
+                    aria-hidden='true'
+                    className='text-subtle text-caption px-1'
+                >
+                    …
+                </span>
+            ) : (
+                <button
+                    key={entry}
+                    type='button'
+                    aria-current={entry === page ? 'page' : undefined}
+                    onClick={() => onChange(entry)}
+                    className={runtimePagerButtonClass(entry === page)}
+                >
+                    {entry}
+                </button>
+            )
+        )}
+        <button
+            type='button'
+            aria-label={labels.next}
+            disabled={page >= pageCount}
+            onClick={() => onChange(page + 1)}
+            className={runtimePagerButtonClass(false)}
+        >
+            <ChevronRightIcon className='h-4 w-4' />
+        </button>
+    </nav>
 )
 
 interface ExternalAgentSectionProps {
@@ -308,6 +644,7 @@ const AgentNew: FC = (): ReactNode => {
         description: t(option.descriptionKey)
     }))
     const navigate = useNavigate()
+    const client = useApiClient()
     const { refreshAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
@@ -324,6 +661,9 @@ const AgentNew: FC = (): ReactNode => {
         externalProvidersError,
         runtimes,
         runtimesError,
+        refetchRuntimes,
+        refetchSandboxes,
+        setRuntimes,
         sandboxes,
         runtimeAccess,
         runtimeAgents,
@@ -352,14 +692,28 @@ const AgentNew: FC = (): ReactNode => {
     const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>(
         initialRuntimeId ? 'existing' : 'sandbox'
     )
-    const [frameworkPickerOpen, setFrameworkPickerOpen] = useState(false)
-    const [runtimePickerOpen, setRuntimePickerOpen] = useState(false)
+    const [runtimeView, setRuntimeView] = useState<DashboardView>(() =>
+        readDashboardView(AGENT_NEW_RUNTIME_VIEW_KEY)
+    )
+    const [runtimeKindFilter, setRuntimeKindFilter] =
+        useState<RuntimeKindFilter>('all')
+    const [runtimePage, setRuntimePage] = useState(1)
+    const [existingRuntimeModel, setExistingRuntimeModel] = useState('')
+    const [changeProviderOnReuse, setChangeProviderOnReuse] = useState(false)
+    const [connectDaemonOpen, setConnectDaemonOpen] = useState(false)
+    const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
+    const [sandboxDraftName, setSandboxDraftName] = useState('')
+    const [sandboxCreating, setSandboxCreating] = useState(false)
+    const [sandboxCreateError, setSandboxCreateError] = useState<string | null>(
+        null
+    )
+    // Set when a target must be brought on screen after the list reloads — the
+    // page it lands on is only knowable once the reloaded list is rendered.
+    const [revealTargetKey, setRevealTargetKey] = useState<string | null>(null)
     const [runtimeCompareDialogOpen, setRuntimeCompareDialogOpen] =
         useState(false)
     const [frameworkCompareDialogOpen, setFrameworkCompareDialogOpen] =
         useState(false)
-    const [runtimeConfigDialogCategory, setRuntimeConfigDialogCategory] =
-        useState<RuntimeCategory | null>(null)
     const [pickedRuntimeId, setPickedRuntimeId] = useState(initialRuntimeId)
     const [attachSandboxHostId, setAttachSandboxHostId] = useState('')
     const [frameworkVersionSel, setFrameworkVersionSel] = useState(() =>
@@ -515,6 +869,9 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeMode('sandbox')
         setAttachSandboxHostId(target.hostId)
         setPickedRuntimeId('')
+        // ?sandboxId= can name a host several pages down; selecting it without
+        // paging to it would leave the picker showing someone else.
+        setRevealTargetKey(`sandbox:${target.hostId}`)
     }, [initialSandboxId, spriteAttachTargets, runtimes, sandboxes])
 
     const pickedRuntime = useMemo(
@@ -582,7 +939,6 @@ const AgentNew: FC = (): ReactNode => {
 
     const selectFramework = (next: CreateableFramework): void => {
         setFramework(next)
-        setFrameworkPickerOpen(false)
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
         setFrameworkVersionSel('')
@@ -616,7 +972,6 @@ const AgentNew: FC = (): ReactNode => {
         setPrimaryModelName(nextPrimaryModel)
         setFrameworkModelConfig(null)
         setPrimaryModelCustom(false)
-        setRuntimeConfigDialogCategory(null)
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -624,19 +979,20 @@ const AgentNew: FC = (): ReactNode => {
         setWorkspaceDialogOpen(false)
         setExternalProviderId('')
         setExternalRemoteId('')
+        setRuntimeKindFilter('all')
+        setRuntimePage(1)
+        setExistingRuntimeModel('')
+        setChangeProviderOnReuse(false)
         if (isK8sOnlyFramework(next)) {
             setRuntimeMode('persistent')
         } else if (runtimeMode === 'existing') {
             setRuntimeMode('sandbox')
         }
-        setRuntimePickerOpen(false)
     }
 
-    const selectRuntimeCategory = (next: RuntimeCategory): void => {
+    const selectRuntimeCategory = (next: 'sandbox' | 'persistent'): void => {
         if (next === 'sandbox' && !supportsSandbox(framework)) return
         if (next === 'persistent' && !cloudComputerAvailable) return
-        if (next === 'daemon' && !reuseRuntimeKindsFor(framework).has('daemon'))
-            return
         setRuntimeMode(next)
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
@@ -647,29 +1003,6 @@ const AgentNew: FC = (): ReactNode => {
         setWorkspaceDialogOpen(false)
     }
 
-    const selectTopChoice = (choice: RuntimeTopChoice): void => {
-        if (choice === 'sandbox') {
-            selectRuntimeCategory('sandbox')
-            return
-        }
-        const daemonSupportedNow = reuseRuntimeKindsFor(framework).has('daemon')
-        if (daemonSupportedNow) {
-            selectRuntimeCategory('daemon')
-            return
-        }
-        if (cloudComputerAvailable) selectRuntimeCategory('persistent')
-    }
-
-    const openCreateRuntimeConfig = (category: RuntimeCategory): void => {
-        if (category === 'daemon') return
-        if (category === 'sandbox' && !supportsSandbox(framework)) return
-        if (category === 'sandbox' && sandboxLimitReached) return
-        if (category === 'persistent' && !cloudComputerAvailable) return
-        if (category === 'persistent' && persistentLimitReached) return
-        selectRuntimeCategory(category)
-        setRuntimeConfigDialogCategory(category)
-    }
-
     const selectExistingRuntimeTarget = (
         runtime: AgentRuntimeSummary
     ): void => {
@@ -677,7 +1010,8 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeMode('existing')
         setPickedRuntimeId(runtime.id)
         setAttachSandboxHostId('')
-        setRuntimeConfigDialogCategory(null)
+        setExistingRuntimeModel('')
+        setChangeProviderOnReuse(false)
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -691,7 +1025,6 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeMode('sandbox')
         setAttachSandboxHostId(target.hostId)
         setPickedRuntimeId('')
-        setRuntimeConfigDialogCategory(null)
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -699,9 +1032,80 @@ const AgentNew: FC = (): ReactNode => {
         setWorkspaceDialogOpen(false)
     }
 
+    const openSandboxDialog = (): void => {
+        // Mirrors the server's auto-name (sandbox-001, sandbox-002, …) so the
+        // prefilled value is the one the user would have got by leaving the
+        // standalone form blank — editable, not decorative.
+        const used = sandboxes
+            .map((sandbox) => /^sandbox-(\d+)$/.exec(sandbox.name ?? '')?.[1])
+            .flatMap((digits) => (digits ? [Number(digits)] : []))
+        const next = Math.max(sandboxes.length, ...used, 0) + 1
+        setSandboxDraftName(`sandbox-${String(next).padStart(3, '0')}`)
+        setSandboxCreateError(null)
+        setSandboxDialogOpen(true)
+    }
+
+    const createSandbox = async (): Promise<void> => {
+        const validation = validateAgentName(sandboxDraftName)
+        if (!validation.valid || sandboxCreating) return
+        setSandboxCreating(true)
+        setSandboxCreateError(null)
+        try {
+            const created = await client.sandboxes.create({
+                name: validation.value
+            })
+            await Promise.all([refetchRuntimes(), refetchSandboxes()])
+            setRuntimeMode('sandbox')
+            setAttachSandboxHostId(created.id)
+            setPickedRuntimeId('')
+            setRuntimeKindFilter('all')
+            setRevealTargetKey(`sandbox:${created.id}`)
+            setSandboxDialogOpen(false)
+        } catch (err) {
+            setSandboxCreateError(apiErrorMessage(err))
+        } finally {
+            setSandboxCreating(false)
+        }
+    }
+
+    // The dialog only offers "use this machine" once the host reports the
+    // framework, so a runtime row for it exists (or is moments away) by the
+    // time this runs.
+    const handleDaemonConnected = async (
+        host: DaemonHostSummary
+    ): Promise<void> => {
+        setConnectDaemonOpen(false)
+        const rows = await client.agentRuntimes.list().catch(() => null)
+        if (!rows) return
+        setRuntimes(rows)
+        const connected =
+            rows.find(
+                (r) =>
+                    r.kind === 'daemon' &&
+                    r.daemonId === host.id &&
+                    r.framework === framework
+            ) ?? rows.find((r) => r.kind === 'daemon' && r.daemonId === host.id)
+        if (!connected) return
+        setRuntimeMode('existing')
+        setPickedRuntimeId(connected.id)
+        setAttachSandboxHostId('')
+        setRuntimeKindFilter('all')
+        setRevealTargetKey(`runtime:${connected.id}`)
+    }
+
+    const changeRuntimeView = (next: DashboardView): void => {
+        setRuntimeView(next)
+        writeDashboardView(AGENT_NEW_RUNTIME_VIEW_KEY, next)
+    }
+
     const randomizeName = (): void => {
         setName(randomAgentName())
     }
+
+    const sandboxNameValidation = validateAgentName(sandboxDraftName)
+    const sandboxNameValidationMessage = sandboxNameValidation.valid
+        ? null
+        : sandboxNameValidation.message
 
     const nameValidation = validateAgentName(name)
     const normalizedName = nameValidation.valid
@@ -714,7 +1118,7 @@ const AgentNew: FC = (): ReactNode => {
     const workspaceInputEnabled =
         runtimeMode === 'existing'
             ? pickedRuntime !== null && pickedRuntime.framework !== 'hermes'
-            : runtimeMode !== 'daemon' && framework !== 'hermes'
+            : framework !== 'hermes'
     const requestedWorkspacePath = workspaceInputEnabled
         ? workspacePath.trim()
         : ''
@@ -757,9 +1161,10 @@ const AgentNew: FC = (): ReactNode => {
             }
             return true
         }
-        if (runtimeMode === 'sandbox' && !supportsSandbox(framework))
-            return false
-        if (runtimeMode === 'daemon') return false
+        // A sandbox target is always an existing host now — creating one is a
+        // separate step, so an unattached 'sandbox' mode means nothing is
+        // picked yet.
+        if (runtimeMode === 'sandbox' && !attachSandboxHostId) return false
         if (runtimeMode === 'persistent') return false
         return pickerIsValid(picker)
     })()
@@ -772,18 +1177,16 @@ const AgentNew: FC = (): ReactNode => {
             ? 'sandbox'
             : runtimeMode === 'persistent'
               ? 'persistent'
-              : runtimeMode === 'daemon'
-                ? 'daemon'
-                : runtimeMode === 'existing' && pickedRuntime
-                  ? pickedRuntime.kind === 'sprites'
-                      ? 'sandbox'
-                      : pickedRuntime.kind === 'daemon'
-                        ? 'daemon'
-                        : 'persistent'
-                  : reuseRuntimeKindsFor(framework).has('sprites') &&
-                      !reuseRuntimeKindsFor(framework).has('k8s')
+              : runtimeMode === 'existing' && pickedRuntime
+                ? pickedRuntime.kind === 'sprites'
                     ? 'sandbox'
-                    : 'persistent'
+                    : pickedRuntime.kind === 'daemon'
+                      ? 'daemon'
+                      : 'persistent'
+                : reuseRuntimeKindsFor(framework).has('sprites') &&
+                    !reuseRuntimeKindsFor(framework).has('k8s')
+                  ? 'sandbox'
+                  : 'persistent'
     const existingRuntimeOptionsByKind = {
         sprites: spriteReuseRuntimes,
         k8s: reusable.filter((r) => r.kind === 'k8s'),
@@ -796,10 +1199,6 @@ const AgentNew: FC = (): ReactNode => {
             : selectedRuntimeCategory === 'daemon'
               ? t('web.agentNew.localDaemon')
               : t('web.agentNew.persistent')
-    const selectedTopChoice: RuntimeTopChoice = topChoiceForCategory(
-        selectedRuntimeCategory
-    )
-    const computerTabSupported = daemonSupported || cloudComputerAvailable
     const runtimeQuotaItems = runtimeAccess
         ? [
               {
@@ -830,16 +1229,211 @@ const AgentNew: FC = (): ReactNode => {
               })
             : null
     }
-    const selectedRuntimeQuotaCategory: RuntimeCategory =
-        selectedRuntimeCategory === 'daemon'
-            ? 'persistent'
-            : selectedRuntimeCategory
-    const selectedRuntimeQuota =
-        runtimeMode === 'existing'
-            ? null
-            : runtimeQuotaItems.find(
-                  (item) => item.category === selectedRuntimeQuotaCategory
+    // Same table the provision-elsewhere links read, so a kind's icon here and
+    // its icon there can never be two different decisions.
+    const runtimeKindIcon = (kind: RuntimeTargetKind): LucideIcon =>
+        NEW_RUNTIME_OPTIONS.find((option) => option.kind === kind)?.icon ??
+        RuntimeIcon
+
+    const runtimeKindLabel = (kind: RuntimeTargetKind): string =>
+        kind === 'sprites'
+            ? t('web.agentNew.sandbox')
+            : kind === 'k8s'
+              ? t('web.agentNew.persistent')
+              : t('web.agentNew.localDaemon')
+
+    // A machine's population, keyed by host: a sandbox VM (and a daemon) runs
+    // one runtime per framework, so the picker can say who already lives there
+    // rather than only counting the runtime that matched the framework filter.
+    const populationByHost = useMemo(() => {
+        const out = new Map<string, RuntimeTargetPopulation[]>()
+        for (const r of runtimes) {
+            const key = r.hostId ?? r.id
+            const list = out.get(key) ?? []
+            const existing = list.find(
+                (entry) => entry.framework === r.framework
+            )
+            if (existing) existing.agents += r.agentsCount
+            else list.push({ framework: r.framework, agents: r.agentsCount })
+            out.set(key, list)
+        }
+        for (const list of out.values())
+            list.sort(
+                (a, b) =>
+                    b.agents - a.agents ||
+                    a.framework.localeCompare(b.framework)
+            )
+        return out
+    }, [runtimes])
+
+    const populationLabel = (entry: RuntimeTargetPopulation): string =>
+        `${frameworkLabel(entry.framework)} · ${
+            entry.agents === 1
+                ? t('web.agentNew.agentCountOne')
+                : t('web.agentNew.agentCountMany', {
+                      count: String(entry.agents)
+                  })
+        }`
+
+    // Create-new and reuse targets share one list: the picker's job is "where
+    // does this agent land", and that question does not split by provenance.
+    // Containers are a purchased product only where a billing surface exists,
+    // so on that edition renting stays a link instead of a selectable target.
+    const runtimeTargets: RuntimeTarget[] = [
+        ...(cloudComputerAvailable && !BILLING_SURFACE
+            ? [
+                  {
+                      key: 'create:persistent',
+                      kind: 'k8s' as const,
+                      group: 'create' as const,
+                      name: t('web.agentNew.createRuntimeNamed', {
+                          runtime: t('web.agentNew.persistent')
+                      }),
+                      status: null,
+                      population: [],
+                      selected: runtimeMode === 'persistent',
+                      disabled: persistentLimitReached,
+                      disabledReason: persistentLimitReached
+                          ? t('web.agentNew.limitReached')
+                          : null,
+                      onSelect: () => selectRuntimeCategory('persistent')
+                  }
+              ]
+            : []),
+        ...[
+            ...existingRuntimeOptionsByKind.sprites,
+            ...existingRuntimeOptionsByKind.k8s,
+            ...existingRuntimeOptionsByKind.daemon
+        ].map((r) => ({
+            key: `runtime:${r.id}`,
+            kind: (r.kind ?? 'sprites') as RuntimeTargetKind,
+            group: 'existing' as const,
+            name: r.name,
+            status:
+                r.kind === 'daemon' && !r.daemonOnline
+                    ? {
+                          label: t('web.agentNew.offline'),
+                          tone: 'offline' as const
+                      }
+                    : {
+                          label: t('web.agentNew.readyTag'),
+                          tone: 'ready' as const
+                      },
+            population:
+                populationByHost.get(r.hostId ?? r.id) ??
+                (r.agentsCount > 0
+                    ? [{ framework: r.framework, agents: r.agentsCount }]
+                    : []),
+            selected: runtimeMode === 'existing' && pickedRuntimeId === r.id,
+            disabled: false,
+            disabledReason: null,
+            onSelect: () => selectExistingRuntimeTarget(r)
+        })),
+        // A sandbox that does not run this framework yet: the agent lands here
+        // too, so it is the same kind of row. Nothing runs on it for this
+        // framework, hence zero.
+        ...spriteAttachTargets.map((target) => ({
+            key: `sandbox:${target.hostId}`,
+            kind: 'sprites' as const,
+            group: 'existing' as const,
+            name: target.name ?? target.spriteName ?? target.hostId,
+            status: {
+                label: t('web.agentNew.readyTag'),
+                tone: 'ready' as const
+            },
+            population: populationByHost.get(target.hostId) ?? [],
+            selected:
+                runtimeMode === 'sandbox' &&
+                attachSandboxHostId === target.hostId,
+            disabled: false,
+            disabledReason: null,
+            onSelect: () => selectAttachSandboxTarget(target)
+        }))
+    ]
+
+    // The quick filter's chips are the kinds this framework can land on, not
+    // the kinds that happen to have a target today: a deployment with one
+    // sandbox and nothing else should still see that computers are a choice,
+    // and filtering to an empty kind is what surfaces its "provision one" link.
+    // Kinds that hold a target are always included, so no target can be
+    // unreachable through the filter.
+    const runtimeKindsWithTargets = new Set(
+        runtimeTargets.map((target) => target.kind)
+    )
+    const runtimeKindCount = (kind: RuntimeTargetKind): number =>
+        runtimeTargets.filter((target) => target.kind === kind).length
+    const runtimeKindFilterOptions: RuntimeKindFilter[] = [
+        'all',
+        ...(
+            [
+                ['sprites', supportsSandbox(framework)],
+                ['k8s', cloudComputerAvailable],
+                ['daemon', daemonSupported]
+            ] as Array<[RuntimeTargetKind, boolean]>
+        )
+            .filter(
+                ([kind, supported]) =>
+                    supported || runtimeKindsWithTargets.has(kind)
+            )
+            .map(([kind]) => kind)
+    ]
+    const visibleRuntimeTargets =
+        runtimeKindFilter === 'all'
+            ? runtimeTargets
+            : runtimeTargets.filter(
+                  (target) => target.kind === runtimeKindFilter
               )
+
+    // Clamped rather than corrected in an effect: a filter that shrinks the
+    // list must not leave the picker on a page that no longer exists, and the
+    // clamp is a pure function of what is being rendered.
+    const runtimePageCount = Math.max(
+        1,
+        Math.ceil(visibleRuntimeTargets.length / RUNTIME_PAGE_SIZE)
+    )
+    const runtimePageSafe = Math.min(runtimePage, runtimePageCount)
+    const pagedRuntimeTargets = visibleRuntimeTargets.slice(
+        (runtimePageSafe - 1) * RUNTIME_PAGE_SIZE,
+        runtimePageSafe * RUNTIME_PAGE_SIZE
+    )
+
+    // An empty selection makes the first click a guess: the form cannot submit
+    // and does not say what is missing. Whenever the picker has something to
+    // offer and nothing is chosen, the first available target is chosen — after
+    // any deep link has had its say, so it never overrides one.
+    useEffect(() => {
+        if (initialDaemonId && !daemonPreselectedRef.current) return
+        if (initialSandboxId && !sandboxPreselectedRef.current) return
+        if (runtimeTargets.some((target) => target.selected)) return
+        const first = runtimeTargets.find((target) => !target.disabled)
+        first?.onSelect()
+    }, [initialDaemonId, initialSandboxId, runtimeTargets])
+
+    // A target selected for the user (the sandbox they just created) has to be
+    // on the visible page, or "selected" is a claim they cannot see. Runs only
+    // while a reveal is pending, and clears itself once the target lands.
+    useEffect(() => {
+        if (!revealTargetKey) return
+        const index = visibleRuntimeTargets.findIndex(
+            (target) => target.key === revealTargetKey
+        )
+        if (index < 0) return
+        setRuntimePage(Math.floor(index / RUNTIME_PAGE_SIZE) + 1)
+        setRevealTargetKey(null)
+    }, [revealTargetKey, visibleRuntimeTargets])
+
+    // Entry points to provision a runtime outside this form. Reuses the
+    // dashboard's option table so a new runtime kind appears in both places.
+    const newRuntimeEntries = NEW_RUNTIME_OPTIONS.filter((option) => {
+        if (option.kind === 'external') return false
+        if (option.kind === 'daemon') return daemonSupported
+        if (option.kind === 'sprites') return supportsSandbox(framework)
+        return cloudComputerAvailable
+    }).filter(
+        (option) =>
+            runtimeKindFilter === 'all' || option.kind === runtimeKindFilter
+    )
+
     const primaryModelOptions = useMemo(() => {
         const seen = new Set<string>()
         return flattenSavedModels(
@@ -862,49 +1456,6 @@ const AgentNew: FC = (): ReactNode => {
     const showPrimaryModelCustomInput =
         primaryModelOptions.length === 0 ||
         primaryModelSelectValue === '__custom'
-    const modelProviderSummary = selectedSavedProvider
-        ? selectedSavedProvider.providerName
-        : picker.mode === 'inline'
-          ? t('web.agentNew.newProviderApiKey', {
-                provider: providerLabel[modelProviderForRuntime]
-            })
-          : t('web.agentNew.selectProvider', {
-                provider: providerLabel[modelProviderForRuntime]
-            })
-    const modelProviderDetail = selectedSavedProvider
-        ? selectedSavedProvider.apiKeyMasked
-        : picker.mode === 'inline' && picker.apiKey
-          ? t('web.agentNew.newApiKeyEntered')
-          : t('web.agentNew.credentialsRequired')
-    const modelProviderConfigured =
-        pickerIsValid(picker) &&
-        (!usesConfigurableModelProvider(framework) ||
-            primaryModelName.trim().length > 0)
-    const modelProviderActionLabel = modelProviderConfigured
-        ? t('web.agentNew.change')
-        : t('web.agentNew.configure')
-    const createRuntimeConfigItems: Array<{
-        label: string
-        value: string
-        mono?: boolean
-        required?: boolean
-    }> = [
-        ...(usesConfigurableModelProvider(framework)
-            ? [
-                  {
-                      label: t('web.agentNew.apiProvider'),
-                      value: providerLabel[persistentModelProvider]
-                  },
-                  {
-                      label: t('web.agentNew.primaryModel'),
-                      value:
-                          primaryModelName.trim() || t('web.agentNew.required'),
-                      mono: primaryModelName.trim().length > 0,
-                      required: primaryModelName.trim().length === 0
-                  }
-              ]
-            : [])
-    ]
 
     useEffect(() => {
         if (
@@ -1019,96 +1570,31 @@ const AgentNew: FC = (): ReactNode => {
         return defaultCodingWorkspaceValue(runtime)
     }
 
-    const runtimeSummaryItems: Array<{
-        label: string
-        value: string
-        mono?: boolean
-    }> =
-        runtimeMode === 'existing'
-            ? [
-                  {
-                      label: t('web.agentNew.target'),
-                      value:
-                          pickedRuntime?.name ?? t('web.agentNew.runtimeSelect')
-                  },
-                  ...(pickedRuntime
-                      ? [
-                            {
-                                label: t('web.agentNew.frameworkLabel'),
-                                value:
-                                    localizedFrameworkOptions.find(
-                                        (opt) =>
-                                            opt.value ===
-                                            pickedRuntime.framework
-                                    )?.label ?? pickedRuntime.framework
-                            }
-                        ]
-                      : []),
-                  ...(pickedRuntime?.framework === 'hermes'
-                      ? [
-                            {
-                                label: t('web.agentNew.cloneProfile'),
-                                value: cloneEnabled
-                                    ? cloneFromProfile ||
-                                      t('web.agentNew.selectProfile')
-                                    : t('web.agentNew.off'),
-                                mono: cloneEnabled
-                            }
-                        ]
-                      : []),
-                  {
-                      label: t('web.agentNew.credentials'),
-                      value: pickedRuntime
-                          ? pickedRuntime.kind === 'daemon'
-                              ? t('web.agentNew.managedOnMachine')
-                              : t('web.agentNew.providerDescInherited')
-                          : t('web.agentNew.runtimeSelect')
-                  }
-              ]
-            : runtimeMode === 'daemon'
-              ? [
-                    {
-                        label: t('web.agentNew.target'),
-                        value: t('web.agentNew.selectConnectedComputer')
-                    },
-                    {
-                        label: t('web.agentNew.credentials'),
-                        value: t('web.agentNew.managedOnMachine')
-                    },
-                    {
-                        label: t('web.agentNew.workspace'),
-                        value: t('web.agentNew.configuredAfterRuntime')
-                    }
-                ]
-              : [
-                    {
-                        label: t('web.agentNew.target'),
-                        value: t('web.agentNew.createRuntimeNamed', {
-                            runtime: selectedRuntimeLabel
-                        })
-                    },
-                    {
-                        label: t('web.agentNew.provider'),
-                        value:
-                            modelProviderDetail ===
-                            t('web.agentNew.credentialsRequired')
-                                ? modelProviderSummary
-                                : `${modelProviderSummary} · ${modelProviderDetail}`,
-                        mono:
-                            picker.mode === 'saved' || picker.mode === 'inline'
-                    },
-                    ...(usesConfigurableModelProvider(framework)
-                        ? [
-                              {
-                                  label: t('web.agentNew.primaryModel'),
-                                  value:
-                                      primaryModelName.trim() ||
-                                      t('web.agentNew.primaryModelRequired'),
-                                  mono: primaryModelName.trim().length > 0
-                              }
-                          ]
-                        : [])
-                ]
+    // One workspace row serves the whole picker, so it resolves the default of
+    // whichever target is selected rather than of the card it used to sit in.
+    const selectedWorkspaceDefault =
+        runtimeMode === 'existing' && pickedRuntime
+            ? existingRuntimeDefaultWorkspaceValue(pickedRuntime)
+            : createRuntimeDefaultWorkspaceValue(
+                  runtimeMode === 'persistent' ? 'persistent' : 'sandbox'
+              )
+
+    const frameworkSelectOptions: WorkbenchSelectOption[] =
+        localizedFrameworkOptions.map((opt) => ({
+            value: opt.value,
+            disabled: opt.disabled === true,
+            label: (
+                <span className='flex min-w-0 items-center gap-2'>
+                    <FrameworkLogoMark framework={opt.value} size={18} />
+                    <span className='truncate'>{opt.label}</span>
+                    {opt.disabled && (
+                        <span className='tag tag-neutral'>
+                            {t('web.agentNew.coming')}
+                        </span>
+                    )}
+                </span>
+            )
+        }))
 
     const resetWorkspaceToDefault = (): void => {
         setWorkspacePath('')
@@ -1203,20 +1689,45 @@ const AgentNew: FC = (): ReactNode => {
                 body: buildAddRuntimeAgentBody({
                     name: normalizedName,
                     workspace: effectiveExistingWorkspace,
+                    // The provider override carries its own model, so the two
+                    // never both set one.
+                    model: changeProviderOnReuse ? '' : existingRuntimeModel,
                     cloneFrom:
                         pickedRuntime.framework === 'hermes' && cloneEnabled
                             ? cloneFromProfile || undefined
                             : undefined
                 })
             })
-            if (created) {
-                await refreshAgents()
-                navigate(`/agents/${created.id}/chat`)
+            if (!created) return
+            if (changeProviderOnReuse && canChangeProviderOnReuse) {
+                try {
+                    await client.agents.credentials.update(
+                        created.id,
+                        buildAgentCredentialsBody({
+                            framework,
+                            picker,
+                            persistentModelProvider,
+                            primaryModelName
+                        })
+                    )
+                } catch (err) {
+                    // The agent exists either way; saying so beats a bare
+                    // failure that hides a created agent.
+                    await refreshAgents()
+                    setError(
+                        t('web.agentNew.providerChangeFailed', {
+                            name: normalizedName,
+                            reason: apiErrorMessage(err)
+                        })
+                    )
+                    return
+                }
             }
+            await refreshAgents()
+            navigate(`/agents/${created.id}/chat`)
             return
         }
         const externalNow = isExternalFramework(framework)
-        if (!externalNow && runtimeMode === 'daemon') return
         const filesystemRuntimeMode: AgentCreateRuntimeMode =
             runtimeMode === 'persistent' ? 'persistent' : 'sandbox'
         const steps = externalNow
@@ -1274,6 +1785,76 @@ const AgentNew: FC = (): ReactNode => {
     const retry = (): void => {
         resetProgress()
     }
+
+    // Adding an agent to a runtime inherits that runtime's provider and key —
+    // the attach service reads them off the runtime's primary agent and the
+    // request cannot override them. The model is per agent, so it is the one
+    // thing worth offering here.
+    // Adding an agent to a runtime inherits that runtime's provider and key.
+    // Changing them is a real operation, not a create-time field: it is the
+    // same PATCH the agent's own credentials dialog issues, and because the
+    // stored credential belongs to the runtime, it lands for every agent on
+    // it. The API rejects it for narranexus and the external frameworks, so
+    // they never get the affordance.
+    const canChangeProviderOnReuse =
+        !isExternalFramework(framework) && framework !== 'narranexus'
+
+    const renderExistingRuntimeModelSettings = (): ReactNode => (
+        <div className='space-y-4'>
+            <div className='bg-soft shadow-ring-light rounded-md px-3 py-2.5'>
+                <div className='flex items-start justify-between gap-3'>
+                    <div className='min-w-0'>
+                        <div className='text-caption text-subtle font-medium'>
+                            {t('web.agentNew.usingCredentialsFrom')}
+                        </div>
+                        <div className='text-caption text-fg mt-0.5 truncate'>
+                            {pickedRuntime?.name ??
+                                t('web.agentNew.runtimeSelect')}
+                        </div>
+                    </div>
+                    {canChangeProviderOnReuse && (
+                        <button
+                            type='button'
+                            onClick={() =>
+                                setChangeProviderOnReuse((open) => !open)
+                            }
+                            className='text-caption text-link hover:text-fg shrink-0 font-medium'
+                        >
+                            {changeProviderOnReuse
+                                ? t('common.cancel')
+                                : t('web.agentNew.change')}
+                        </button>
+                    )}
+                </div>
+                {changeProviderOnReuse && (
+                    <p className='workbench-hint mt-2'>
+                        {t('web.agentNew.providerSharedHint')}
+                    </p>
+                )}
+            </div>
+            {changeProviderOnReuse ? (
+                renderCreateRuntimeSettings()
+            ) : (
+                <label className='block'>
+                    <span className='workbench-field-label'>
+                        {t('web.agentNew.model')}
+                    </span>
+                    <input
+                        value={existingRuntimeModel}
+                        onChange={(e) =>
+                            setExistingRuntimeModel(e.target.value)
+                        }
+                        placeholder={t('web.agentNew.primaryModelPlaceholder')}
+                        maxLength={255}
+                        className='workbench-input font-mono'
+                    />
+                    <p className='workbench-hint mt-2'>
+                        {t('web.agentNew.modelInheritHint')}
+                    </p>
+                </label>
+            )}
+        </div>
+    )
 
     const renderCreateRuntimeSettings = (): ReactNode => (
         <div className='space-y-4'>
@@ -1394,549 +1975,6 @@ const AgentNew: FC = (): ReactNode => {
         </div>
     )
 
-    const renderCreateRuntimeOption = (
-        category: RuntimeCategory
-    ): ReactNode => {
-        const selected =
-            runtimeMode !== 'existing' &&
-            selectedRuntimeCategory === category &&
-            !(category === 'sandbox' && attachSandboxHostId)
-        const unsupported =
-            category === 'sandbox' && !supportsSandbox(framework)
-        const limitReached =
-            category === 'sandbox'
-                ? sandboxLimitReached
-                : persistentLimitReached
-        // Containers are a purchased product only where a billing surface
-        // exists. Self-hosted provisions one on the fly (the cloud-computer
-        // port's self-serve spec), so the category stays selectable instead
-        // of turning into a rent link that leads to a redirect.
-        const buyCloudComputer =
-            category === 'persistent' &&
-            cloudComputerAvailable &&
-            BILLING_SURFACE
-        const disabled = unsupported || limitReached || buyCloudComputer
-        if (disabled) {
-            return (
-                <div className='text-caption text-muted font-medium'>
-                    {unsupported ? (
-                        t('web.agentNew.notAvailable')
-                    ) : buyCloudComputer ? (
-                        <Link
-                            to='/settings/plan-and-billing/buy-container'
-                            className='text-link hover:underline'
-                        >
-                            {t('web.agentNew.persistentRent')}
-                        </Link>
-                    ) : (
-                        t('web.agentNew.limitReached')
-                    )}
-                </div>
-            )
-        }
-
-        return (
-            <div
-                role='button'
-                tabIndex={0}
-                className={runtimeCreateCardClass(selected)}
-                onClick={() => selectRuntimeCategory(category)}
-                onKeyDown={(e) => {
-                    if (e.target !== e.currentTarget) return
-                    if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        selectRuntimeCategory(category)
-                    }
-                }}
-            >
-                <span className='flex w-full items-start gap-2'>
-                    <span className='grid min-w-0 flex-1 gap-1'>
-                        <span className='grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-2'>
-                            <span className='text-caption text-subtle font-medium'>
-                                {t('web.agentNew.provider')}
-                            </span>
-                            <span className='text-caption text-muted min-w-0 truncate'>
-                                {modelProviderSummary}
-                            </span>
-                        </span>
-                        <span className='grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-2'>
-                            <span className='text-caption text-subtle font-medium'>
-                                {t('web.agentNew.credentials')}
-                            </span>
-                            <span
-                                className={[
-                                    'text-caption min-w-0 truncate',
-                                    modelProviderDetail ===
-                                    t('web.agentNew.credentialsRequired')
-                                        ? 'text-workflow-ship'
-                                        : 'text-muted font-mono'
-                                ].join(' ')}
-                            >
-                                {modelProviderDetail}
-                            </span>
-                        </span>
-                        {createRuntimeConfigItems.map((item) => (
-                            <span
-                                key={item.label}
-                                className='grid min-w-0 grid-cols-[6.5rem_minmax(0,1fr)] gap-2'
-                            >
-                                <span className='text-caption text-subtle font-medium'>
-                                    {item.label}
-                                </span>
-                                <span
-                                    className={[
-                                        'text-caption min-w-0 truncate',
-                                        item.required
-                                            ? 'text-workflow-ship'
-                                            : 'text-muted',
-                                        item.mono ? 'font-mono' : ''
-                                    ].join(' ')}
-                                >
-                                    {item.value}
-                                </span>
-                            </span>
-                        ))}
-                    </span>
-                    <span
-                        className={runtimeSelectionIndicatorClass(selected)}
-                        aria-hidden='true'
-                    >
-                        <CheckIcon className='h-3 w-3' />
-                    </span>
-                </span>
-                <button
-                    type='button'
-                    className='text-caption text-link hover:text-fg focus-visible:shadow-focus self-end font-medium transition-shadow focus:outline-none'
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        openCreateRuntimeConfig(category)
-                    }}
-                >
-                    {modelProviderActionLabel} {t('web.agentNew.provider')}
-                </button>
-                <div className={runtimePropertyGridClass}>
-                    {framework !== 'hermes' && (
-                        <>
-                            <span className={runtimePropertyLabelClass}>
-                                {t('web.agentNew.workspace')}
-                            </span>
-                            {renderWorkspaceValue({
-                                defaultPath:
-                                    createRuntimeDefaultWorkspaceValue(
-                                        category
-                                    ),
-                                active: selected,
-                                onActivate: () => {
-                                    if (!selected)
-                                        selectRuntimeCategory(category)
-                                }
-                            })}
-                        </>
-                    )}
-                </div>
-            </div>
-        )
-    }
-
-    const renderSelfOwnedComputerOption = (): ReactNode => {
-        const disabled = !daemonSupported
-        if (disabled) {
-            return (
-                <div className='text-caption text-muted font-medium'>
-                    {t('web.agentNew.notAvailableFramework')}
-                </div>
-            )
-        }
-        return (
-            <div className='text-caption text-muted font-medium'>
-                <Link
-                    to='/settings/runtimes/local-daemons'
-                    className='text-link hover:underline'
-                >
-                    {t('web.agentNew.localDaemonRegister')}
-                </Link>
-            </div>
-        )
-    }
-
-    const renderAttachSandboxOptions = (
-        targets: SpriteAttachTarget[]
-    ): ReactNode => (
-        <div className='grid gap-2'>
-            {targets.map((target) => {
-                const selected =
-                    runtimeMode === 'sandbox' &&
-                    attachSandboxHostId === target.hostId
-                const runsLabel = target.frameworks
-                    .map(
-                        (f) =>
-                            localizedFrameworkOptions.find((o) => o.value === f)
-                                ?.label ?? f
-                    )
-                    .join(', ')
-                return (
-                    <div
-                        key={target.hostId}
-                        className={runtimeExistingCardClass(selected)}
-                    >
-                        <button
-                            type='button'
-                            onClick={() => selectAttachSandboxTarget(target)}
-                            className='focus-visible:shadow-focus flex w-full items-center gap-2 rounded-md text-left transition-shadow focus:outline-none'
-                        >
-                            <FrameworkLogo
-                                framework={framework}
-                                className='h-7 w-7'
-                            />
-                            <span className='min-w-0 flex-1'>
-                                <span className='flex min-w-0 items-center gap-1.5'>
-                                    <span className='tag tag-neutral'>
-                                        {t('web.agentNew.sandbox')}
-                                    </span>
-                                    <span className='text-caption text-fg min-w-0 truncate font-medium'>
-                                        {target.name ??
-                                            target.spriteName ??
-                                            target.hostId}
-                                    </span>
-                                </span>
-                                <span className='text-caption text-subtle mt-0.5 block truncate'>
-                                    {t('web.agentNew.addFramework', {
-                                        framework: selectedFramework.label
-                                    })}{' '}
-                                    · {t('web.agentNew.runs')} {runsLabel} ·{' '}
-                                    {target.runtimeCount}/4
-                                </span>
-                            </span>
-                            <span
-                                className={runtimeSelectionIndicatorClass(
-                                    selected
-                                )}
-                                aria-hidden='true'
-                            >
-                                <CheckIcon className='h-3 w-3' />
-                            </span>
-                        </button>
-                        {selected && (
-                            <div className={runtimePropertyGridClass}>
-                                <span className={runtimePropertyLabelClass}>
-                                    {t('web.agentNew.provider')}
-                                </span>
-                                <span className='text-caption text-muted min-w-0 truncate'>
-                                    {modelProviderSummary}
-                                </span>
-                                <span className={runtimePropertyLabelClass}>
-                                    {t('web.agentNew.credentials')}
-                                </span>
-                                <button
-                                    type='button'
-                                    onClick={() =>
-                                        setRuntimeConfigDialogCategory(
-                                            'sandbox'
-                                        )
-                                    }
-                                    className='text-caption text-link hover:text-fg focus-visible:shadow-focus justify-self-start font-medium transition-shadow focus:outline-none'
-                                >
-                                    {modelProviderActionLabel}{' '}
-                                    {t('web.agentNew.provider')}
-                                </button>
-                                {framework !== 'hermes' && (
-                                    <>
-                                        <span
-                                            className={
-                                                runtimePropertyLabelClass
-                                            }
-                                        >
-                                            {t('web.agentNew.workspace')}
-                                        </span>
-                                        {renderWorkspaceValue({
-                                            defaultPath:
-                                                createRuntimeDefaultWorkspaceValue(
-                                                    'sandbox'
-                                                ),
-                                            active: true,
-                                            onActivate: () =>
-                                                selectAttachSandboxTarget(
-                                                    target
-                                                )
-                                        })}
-                                    </>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                )
-            })}
-        </div>
-    )
-
-    const renderExistingRuntimeOptions = (
-        options: AgentRuntimeSummary[],
-        emptyState: ReactNode = t('web.agentNew.notAvailable')
-    ): ReactNode => {
-        if (options.length === 0) {
-            return (
-                <div className='text-caption text-muted font-medium'>
-                    {emptyState}
-                </div>
-            )
-        }
-
-        return (
-            <div className='grid gap-2'>
-                {options.map((r) => {
-                    const selected =
-                        runtimeMode === 'existing' && pickedRuntimeId === r.id
-                    const runtimeProfiles = runtimeAgents[r.id] ?? []
-                    const runtimeFrameworkOption =
-                        localizedFrameworkOptions.find(
-                            (opt) => opt.value === r.framework
-                        ) ?? selectedFramework
-
-                    return (
-                        <div
-                            key={r.id}
-                            className={runtimeExistingCardClass(selected)}
-                        >
-                            <button
-                                type='button'
-                                onClick={() => selectExistingRuntimeTarget(r)}
-                                className='focus-visible:shadow-focus flex w-full items-center gap-2 rounded-md text-left transition-shadow focus:outline-none'
-                            >
-                                <FrameworkLogo
-                                    framework={r.framework}
-                                    className='h-7 w-7'
-                                />
-                                <span className='min-w-0 flex-1'>
-                                    <span className='flex min-w-0 items-center gap-1.5'>
-                                        <span className='tag tag-neutral'>
-                                            {t('web.agentNew.runtime')} -{' '}
-                                            {runtimeKindShortLabel(r.kind, t)}
-                                        </span>
-                                        <span className='text-caption text-fg min-w-0 truncate font-medium'>
-                                            {r.name}
-                                        </span>
-                                    </span>
-                                    <span className='text-caption text-subtle mt-0.5 block truncate'>
-                                        {runtimeFrameworkOption.label} ·{' '}
-                                        {r.agentsCount === 1
-                                            ? t('web.agentNew.agentCountOne')
-                                            : t('web.agentNew.agentCountMany', {
-                                                  count: String(r.agentsCount)
-                                              })}
-                                    </span>
-                                </span>
-                                <span
-                                    className={runtimeSelectionIndicatorClass(
-                                        selected
-                                    )}
-                                    aria-hidden='true'
-                                >
-                                    <CheckIcon className='h-3 w-3' />
-                                </span>
-                            </button>
-                            {r.framework !== 'hermes' && (
-                                <div className={runtimePropertyGridClass}>
-                                    <span className={runtimePropertyLabelClass}>
-                                        {t('web.agentNew.workspace')}
-                                    </span>
-                                    {renderWorkspaceValue({
-                                        defaultPath:
-                                            existingRuntimeDefaultWorkspaceValue(
-                                                r
-                                            ),
-                                        active: selected,
-                                        onActivate: () =>
-                                            selectExistingRuntimeTarget(r)
-                                    })}
-                                    {r.kind === 'daemon' && (
-                                        <>
-                                            <span
-                                                className={
-                                                    runtimePropertyLabelClass
-                                                }
-                                            >
-                                                {t('web.agentNew.machine')}
-                                            </span>
-                                            <span className='text-caption text-muted min-w-0 truncate'>
-                                                {r.daemonName ?? r.name}
-                                            </span>
-                                            <span
-                                                className={
-                                                    runtimePropertyLabelClass
-                                                }
-                                            >
-                                                {t('web.agentNew.status')}
-                                            </span>
-                                            <span
-                                                className={[
-                                                    'text-caption min-w-0 truncate',
-                                                    r.daemonOnline
-                                                        ? 'text-fg'
-                                                        : 'text-workflow-ship'
-                                                ].join(' ')}
-                                            >
-                                                {r.daemonOnline
-                                                    ? t('web.agentNew.online')
-                                                    : t('web.agentNew.offline')}
-                                            </span>
-                                        </>
-                                    )}
-                                    {r.framework === 'openclaw' && (
-                                        <>
-                                            <span
-                                                className={
-                                                    runtimePropertyLabelClass
-                                                }
-                                            >
-                                                {t('web.agentNew.credentials')}
-                                            </span>
-                                            <span className='text-caption text-muted'>
-                                                {t(
-                                                    'web.agentNew.providerDescInherited'
-                                                )}
-                                            </span>
-                                        </>
-                                    )}
-                                </div>
-                            )}
-                            {r.framework === 'hermes' && (
-                                <div className={runtimePropertyGridClass}>
-                                    <span className={runtimePropertyLabelClass}>
-                                        {t('web.agentNew.displayName')}
-                                    </span>
-                                    <span className={runtimePropertyValueClass}>
-                                        {normalizedName || name}
-                                    </span>
-                                    <span className={runtimePropertyLabelClass}>
-                                        {t('web.agentNew.cloneProfile')}
-                                    </span>
-                                    <label
-                                        className={[
-                                            'text-caption inline-flex min-w-0 items-center gap-2 transition-colors',
-                                            selected && cloneEnabled
-                                                ? 'text-fg'
-                                                : 'text-muted'
-                                        ].join(' ')}
-                                    >
-                                        <input
-                                            type='checkbox'
-                                            checked={selected && cloneEnabled}
-                                            onChange={(e) => {
-                                                const next = e.target.checked
-                                                if (!selected) {
-                                                    selectExistingRuntimeTarget(
-                                                        r
-                                                    )
-                                                }
-                                                setCloneEnabled(next)
-                                                if (next) {
-                                                    const preferred =
-                                                        runtimeProfiles.find(
-                                                            (profile) =>
-                                                                profile.id ===
-                                                                'coder'
-                                                        )?.id ??
-                                                        runtimeProfiles.find(
-                                                            (profile) =>
-                                                                profile.id ===
-                                                                'default'
-                                                        )?.id ??
-                                                        runtimeProfiles[0]
-                                                            ?.id ??
-                                                        ''
-                                                    setCloneFromProfile(
-                                                        preferred
-                                                    )
-                                                } else {
-                                                    setCloneFromProfile('')
-                                                }
-                                            }}
-                                            className='accent-fg'
-                                        />
-                                        <span className='min-w-0 truncate'>
-                                            {selected && cloneEnabled
-                                                ? t('web.agentNew.enabled')
-                                                : t('web.agentNew.off')}
-                                        </span>
-                                    </label>
-                                    <span className={runtimePropertyLabelClass}>
-                                        {t('web.agentNew.sourceProfile')}
-                                    </span>
-                                    {(!selected || !cloneEnabled) && (
-                                        <span className='text-caption text-muted min-w-0 truncate'>
-                                            {selected
-                                                ? t('web.agentNew.notCloning')
-                                                : t(
-                                                      'web.agentNew.selectRuntimeToLoadProfiles'
-                                                  )}
-                                        </span>
-                                    )}
-                                    {selected &&
-                                        cloneEnabled &&
-                                        runtimeAgentsLoading && (
-                                            <span className='text-caption text-subtle'>
-                                                {t(
-                                                    'web.agentNew.loadingProfiles'
-                                                )}
-                                            </span>
-                                        )}
-                                    {selected &&
-                                        cloneEnabled &&
-                                        runtimeAgentsError && (
-                                            <span className='text-caption text-workflow-ship min-w-0 break-words'>
-                                                {runtimeAgentsError}
-                                            </span>
-                                        )}
-                                    {selected &&
-                                        cloneEnabled &&
-                                        !runtimeAgentsLoading &&
-                                        !runtimeAgentsError &&
-                                        pickedRuntimeAgents.length > 0 && (
-                                            <WorkbenchSelect
-                                                size='sm'
-                                                mono
-                                                className='min-w-0'
-                                                ariaLabel={t(
-                                                    'web.agentNew.cloneFromProfile'
-                                                )}
-                                                value={cloneFromProfile}
-                                                onChange={setCloneFromProfile}
-                                                options={pickedRuntimeAgents.map(
-                                                    (profile) => ({
-                                                        value: profile.id,
-                                                        label: profile.name
-                                                    })
-                                                )}
-                                            />
-                                        )}
-                                    {selected &&
-                                        cloneEnabled &&
-                                        !runtimeAgentsLoading &&
-                                        !runtimeAgentsError &&
-                                        pickedRuntimeAgents.length === 0 && (
-                                            <span className='text-caption text-subtle'>
-                                                {t(
-                                                    'web.agentNew.noProfilesFound'
-                                                )}
-                                            </span>
-                                        )}
-                                    <span className={runtimePropertyLabelClass}>
-                                        {t('web.agentNew.credentials')}
-                                    </span>
-                                    <span className='text-caption text-muted'>
-                                        {t(
-                                            'web.agentNew.providerDescInherited'
-                                        )}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-        )
-    }
-
     return (
         <>
             <div className='workbench-page-narrow pt-5 md:py-8'>
@@ -2020,457 +2058,330 @@ const AgentNew: FC = (): ReactNode => {
                             </label>
 
                             <div>
-                                <div className='mb-1 flex items-center justify-between gap-2'>
-                                    <span className='workbench-field-label'>
+                                <div className='mb-1.5 flex items-center gap-1'>
+                                    <span className='workbench-field-label mb-0'>
                                         {t('web.agentNew.agentFramework')}
                                     </span>
-                                    <button
-                                        type='button'
-                                        onClick={() =>
+                                    <CompareButton
+                                        label={t(
+                                            'web.agentNew.compareFrameworks'
+                                        )}
+                                        onOpen={() =>
                                             setFrameworkCompareDialogOpen(true)
                                         }
-                                        className='text-caption text-fg underline underline-offset-2 hover:opacity-80'
-                                    >
-                                        {t('web.agentNew.compareFrameworks')}
-                                    </button>
+                                    />
                                 </div>
-                                <button
-                                    type='button'
-                                    className={[
-                                        'bg-surface shadow-ring-light hover:bg-surface-hover focus-visible:shadow-focus flex w-full items-start gap-3 px-3.5 py-3 text-left transition-[color,background-color,box-shadow] focus:outline-none',
-                                        frameworkPickerOpen
-                                            ? 'rounded-t-lg'
-                                            : 'rounded-md'
-                                    ].join(' ')}
-                                    aria-expanded={frameworkPickerOpen}
-                                    aria-controls='agent-framework-picker'
-                                    onClick={() =>
-                                        setFrameworkPickerOpen((open) => !open)
-                                    }
-                                >
-                                    <FrameworkLogo
-                                        framework={selectedFramework.value}
-                                        className='h-10 w-10'
-                                    />
-                                    <span className='min-w-0 flex-1'>
-                                        <span className='flex flex-wrap items-center gap-2'>
-                                            <span className='text-ui text-fg font-medium'>
-                                                {selectedFramework.label}
-                                            </span>
-                                            {selectedFramework.disabled && (
-                                                <span className='tag tag-neutral'>
-                                                    {t('web.agentNew.coming')}
-                                                </span>
-                                            )}
-                                        </span>
-                                        <span className='text-ui text-muted mt-1 block'>
-                                            {selectedFramework.description}
-                                        </span>
-                                    </span>
-                                    <ChevronDownIcon
-                                        className={[
-                                            'text-muted mt-2 h-4 w-4 shrink-0 transition-transform',
-                                            frameworkPickerOpen
-                                                ? ''
-                                                : '-rotate-90'
-                                        ].join(' ')}
-                                        aria-hidden='true'
-                                    />
-                                </button>
-                                {frameworkPickerOpen && (
-                                    <div
-                                        id='agent-framework-picker'
-                                        className='bg-surface-subtle shadow-ring-light rounded-b-lg p-3'
-                                        role='radiogroup'
-                                        aria-label={t(
-                                            'web.agentNew.agentFramework'
-                                        )}
-                                    >
-                                        <div className='grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'>
-                                            {localizedFrameworkOptions.map(
-                                                (opt) => {
-                                                    const selected =
-                                                        framework === opt.value
-                                                    const disabled =
-                                                        opt.disabled === true
-                                                    return (
-                                                        <label
-                                                            key={opt.value}
-                                                            className={frameworkLogoButtonClass(
-                                                                selected,
-                                                                disabled
-                                                            )}
-                                                        >
-                                                            <input
-                                                                type='radio'
-                                                                name='framework'
-                                                                value={
-                                                                    opt.value
-                                                                }
-                                                                checked={
-                                                                    selected
-                                                                }
-                                                                disabled={
-                                                                    disabled
-                                                                }
-                                                                onChange={() => {
-                                                                    if (
-                                                                        !disabled &&
-                                                                        isCreateableFramework(
-                                                                            opt.value
-                                                                        )
-                                                                    ) {
-                                                                        selectFramework(
-                                                                            opt.value
-                                                                        )
-                                                                    }
-                                                                }}
-                                                                className='sr-only'
-                                                            />
-                                                            {disabled && (
-                                                                <span className='tag tag-neutral absolute right-1.5 top-1.5'>
-                                                                    {t(
-                                                                        'web.agentNew.coming'
-                                                                    )}
-                                                                </span>
-                                                            )}
-                                                            <FrameworkLogo
-                                                                framework={
-                                                                    opt.value
-                                                                }
-                                                            />
-                                                            <span className='mt-2 flex max-w-full flex-col items-center gap-1'>
-                                                                <span className='max-w-full truncate font-medium'>
-                                                                    {opt.label}
-                                                                </span>
-                                                            </span>
-                                                        </label>
-                                                    )
-                                                }
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
+                                <WorkbenchSelect
+                                    ariaLabel={t('web.agentNew.agentFramework')}
+                                    value={framework}
+                                    onChange={(value) => {
+                                        const option =
+                                            localizedFrameworkOptions.find(
+                                                (opt) => opt.value === value
+                                            )
+                                        if (
+                                            option &&
+                                            !option.disabled &&
+                                            isCreateableFramework(option.value)
+                                        )
+                                            selectFramework(option.value)
+                                    }}
+                                    options={frameworkSelectOptions}
+                                />
+                                <p className='workbench-hint mt-2'>
+                                    {selectedFramework.description}
+                                </p>
                             </div>
 
                             {!isExternalFramework(framework) && (
                                 <div>
-                                    <div className='mb-1 flex items-center justify-between gap-2'>
-                                        <span className='workbench-field-label'>
+                                    <div className='mb-2 flex flex-wrap items-center gap-1'>
+                                        <span className='workbench-field-label mb-0'>
                                             {t('web.agentNew.agentRuntime')}
                                         </span>
-                                        <button
-                                            type='button'
-                                            onClick={() =>
+                                        <CompareButton
+                                            label={t(
+                                                'web.agentNew.compareRuntimes'
+                                            )}
+                                            onOpen={() =>
                                                 setRuntimeCompareDialogOpen(
                                                     true
                                                 )
                                             }
-                                            className='text-caption text-fg underline underline-offset-2 hover:opacity-80'
-                                        >
-                                            {t('web.agentNew.compareRuntimes')}
-                                        </button>
+                                        />
+                                        <span className='min-w-2 flex-1' />
+                                        <DashboardViewToggle
+                                            value={runtimeView}
+                                            onChange={changeRuntimeView}
+                                            ariaLabel={t(
+                                                'web.agentNew.agentRuntime'
+                                            )}
+                                        />
                                     </div>
-                                    <div
-                                        className={[
-                                            'bg-surface shadow-ring-light overflow-hidden transition-colors',
-                                            runtimePickerOpen
-                                                ? 'rounded-t-lg'
-                                                : 'rounded-md'
-                                        ].join(' ')}
-                                    >
-                                        <button
-                                            type='button'
-                                            className='hover:bg-surface-hover focus-visible:shadow-focus flex w-full items-start justify-between gap-3 px-3.5 py-3 text-left transition-[color,background-color,box-shadow] focus:outline-none'
-                                            aria-expanded={runtimePickerOpen}
-                                            aria-controls='agent-runtime-picker'
-                                            onClick={() =>
-                                                setRuntimePickerOpen(
-                                                    (open) => !open
-                                                )
-                                            }
+                                    {runtimeKindFilterOptions.length > 1 && (
+                                        <div
+                                            role='group'
+                                            aria-label={t(
+                                                'web.agentNew.runtimeCategory'
+                                            )}
+                                            className='bg-soft shadow-ring-light mb-2 inline-flex flex-wrap gap-1 rounded-md p-1'
                                         >
-                                            <span className='min-w-0 flex-1'>
-                                                <span className='flex flex-wrap items-center gap-2'>
-                                                    <span className='text-ui text-fg font-medium'>
-                                                        {selectedRuntimeLabel}
-                                                    </span>
-                                                    {selectedRuntimeQuota && (
-                                                        <span
-                                                            className={[
-                                                                'tag tag-neutral font-mono tabular-nums',
-                                                                selectedRuntimeQuota.reached
-                                                                    ? 'text-workflow-ship'
-                                                                    : ''
-                                                            ].join(' ')}
-                                                        >
-                                                            {
-                                                                selectedRuntimeQuota.usage
-                                                            }
-                                                            /
-                                                            {
-                                                                selectedRuntimeQuota.limit
-                                                            }{' '}
-                                                            {t(
-                                                                'web.agentNew.runtimeUsedSuffix'
-                                                            )}
-                                                        </span>
-                                                    )}
-                                                    {selectedRuntimeCategory ===
-                                                        'sandbox' && (
-                                                        <span className='tag tag-neutral'>
-                                                            {t(
-                                                                'web.agentNew.recommended'
-                                                            )}
-                                                        </span>
-                                                    )}
-                                                </span>
-                                                <ul className='text-caption text-muted mt-2 list-disc space-y-1 pl-4'>
-                                                    {runtimeSummaryItems.map(
-                                                        (item) => (
-                                                            <li
-                                                                key={item.label}
-                                                                className='min-w-0 pl-0.5'
-                                                            >
-                                                                <span className='text-subtle mr-1 font-medium'>
-                                                                    {item.label}
-                                                                    :
-                                                                </span>
-                                                                <span
-                                                                    className={[
-                                                                        'text-muted',
-                                                                        item.mono
-                                                                            ? 'font-mono'
-                                                                            : ''
-                                                                    ].join(' ')}
-                                                                >
-                                                                    {item.value}
-                                                                </span>
-                                                            </li>
-                                                        )
-                                                    )}
-                                                </ul>
-                                            </span>
-                                            <ChevronDownIcon
-                                                className={[
-                                                    'text-muted mt-2 h-4 w-4 shrink-0 transition-transform',
-                                                    runtimePickerOpen
-                                                        ? ''
-                                                        : '-rotate-90'
-                                                ].join(' ')}
-                                                aria-hidden='true'
-                                            />
-                                        </button>
-                                    </div>
-                                    {runtimePickerOpen && (
-                                        <div id='agent-runtime-picker'>
-                                            <div className='bg-surface-subtle shadow-ring-light overflow-hidden rounded-b-lg'>
-                                                <div
-                                                    role='tablist'
-                                                    aria-label={t(
-                                                        'web.agentNew.runtimeCategory'
-                                                    )}
-                                                    className='border-divider flex gap-1 border-b p-1.5'
-                                                >
-                                                    {runtimeTopChoices.map(
-                                                        (choice) => {
-                                                            const isActive =
-                                                                selectedTopChoice ===
-                                                                choice
-                                                            const unsupported =
-                                                                (choice ===
-                                                                    'sandbox' &&
-                                                                    !supportsSandbox(
-                                                                        framework
-                                                                    )) ||
-                                                                (choice ===
-                                                                    'computer' &&
-                                                                    !computerTabSupported)
-                                                            const tabLabel =
-                                                                choice ===
-                                                                'sandbox'
-                                                                    ? t(
-                                                                          'web.agentNew.sandbox'
-                                                                      )
-                                                                    : t(
-                                                                          'web.agentNew.computers'
-                                                                      )
-                                                            const tagline =
-                                                                choice ===
-                                                                'sandbox'
-                                                                    ? t(
-                                                                          'web.agentNew.sandboxTagline'
-                                                                      )
-                                                                    : t(
-                                                                          'web.agentNew.computerTagline'
-                                                                      )
-                                                            const quotaLabel =
-                                                                choice ===
-                                                                'sandbox'
-                                                                    ? runtimeQuotaLabel(
-                                                                          'sandbox'
-                                                                      )
-                                                                    : runtimeQuotaLabel(
-                                                                          'persistent'
-                                                                      )
-                                                            return (
-                                                                <button
-                                                                    key={choice}
-                                                                    type='button'
-                                                                    role='tab'
-                                                                    aria-selected={
-                                                                        isActive
-                                                                    }
-                                                                    disabled={
-                                                                        unsupported
-                                                                    }
-                                                                    onClick={() => {
-                                                                        if (
-                                                                            selectedTopChoice ===
-                                                                            choice
-                                                                        )
-                                                                            return
-                                                                        selectTopChoice(
-                                                                            choice
-                                                                        )
-                                                                    }}
-                                                                    className={[
-                                                                        'focus-visible:shadow-focus flex-1 rounded-md px-3 py-2 text-left transition-[color,background-color,box-shadow] focus:outline-none',
-                                                                        unsupported
-                                                                            ? 'cursor-not-allowed opacity-50'
-                                                                            : '',
-                                                                        isActive
-                                                                            ? 'bg-surface text-fg shadow-ring-light'
-                                                                            : !unsupported
-                                                                              ? 'text-muted hover:text-fg'
-                                                                              : 'text-muted'
-                                                                    ].join(' ')}
-                                                                >
-                                                                    <span className='flex flex-col items-start gap-0.5'>
-                                                                        <span className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5'>
-                                                                            <span className='text-ui font-medium'>
-                                                                                {
-                                                                                    tabLabel
-                                                                                }
-                                                                            </span>
-                                                                            {quotaLabel && (
-                                                                                <span className='text-caption text-muted font-mono'>
-                                                                                    {
-                                                                                        quotaLabel
-                                                                                    }
-                                                                                </span>
-                                                                            )}
-                                                                        </span>
-                                                                        <span className='text-caption text-muted'>
-                                                                            {
-                                                                                tagline
-                                                                            }
-                                                                        </span>
-                                                                    </span>
-                                                                </button>
-                                                            )
+                                            {runtimeKindFilterOptions.map(
+                                                (kind) => (
+                                                    <RuntimeKindChip
+                                                        key={kind}
+                                                        icon={
+                                                            kind === 'all'
+                                                                ? undefined
+                                                                : runtimeKindIcon(
+                                                                      kind
+                                                                  )
                                                         }
-                                                    )}
-                                                </div>
-
-                                                <div
-                                                    role='tabpanel'
-                                                    className='space-y-4 p-4'
-                                                >
-                                                    {selectedTopChoice ===
-                                                        'sandbox' && (
-                                                        <>
-                                                            <div>
-                                                                <div className='text-caption text-subtle mb-2 font-medium uppercase tracking-wider'>
-                                                                    {t(
-                                                                        'web.agentNew.createNewRuntime'
-                                                                    )}
-                                                                </div>
-                                                                {renderCreateRuntimeOption(
-                                                                    'sandbox'
+                                                        label={
+                                                            kind === 'all'
+                                                                ? t(
+                                                                      'web.agentNew.filterAll'
+                                                                  )
+                                                                : runtimeKindLabel(
+                                                                      kind
+                                                                  )
+                                                        }
+                                                        count={
+                                                            kind === 'all'
+                                                                ? runtimeTargets.length
+                                                                : runtimeKindCount(
+                                                                      kind
+                                                                  )
+                                                        }
+                                                        active={
+                                                            runtimeKindFilter ===
+                                                            kind
+                                                        }
+                                                        onSelect={() => {
+                                                            setRuntimeKindFilter(
+                                                                kind
+                                                            )
+                                                            setRuntimePage(1)
+                                                        }}
+                                                    />
+                                                )
+                                            )}
+                                        </div>
+                                    )}
+                                    {visibleRuntimeTargets.length === 0 ? (
+                                        <p className='text-caption text-muted font-medium'>
+                                            {t('web.agentNew.notAvailable')}
+                                        </p>
+                                    ) : runtimeView === 'grid' ? (
+                                        <div className='grid gap-2 sm:grid-cols-2'>
+                                            {pagedRuntimeTargets.map(
+                                                (target) => (
+                                                    <RuntimeTargetCard
+                                                        key={target.key}
+                                                        target={target}
+                                                        kindLabel={runtimeKindLabel(
+                                                            target.kind
+                                                        )}
+                                                        populationLabelFor={
+                                                            populationLabel
+                                                        }
+                                                    />
+                                                )
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <RuntimeTargetTable
+                                            targets={pagedRuntimeTargets}
+                                            kindLabelFor={runtimeKindLabel}
+                                            populationLabelFor={populationLabel}
+                                            columns={{
+                                                runtime: t(
+                                                    'web.agentNew.runtime'
+                                                ),
+                                                kind: t('web.agentNew.kind'),
+                                                status: t(
+                                                    'web.agentNew.status'
+                                                ),
+                                                agents: t(
+                                                    'web.agentNew.agentsColumn'
+                                                )
+                                            }}
+                                        />
+                                    )}
+                                    {runtimePageCount > 1 && (
+                                        <RuntimePager
+                                            page={runtimePageSafe}
+                                            pageCount={runtimePageCount}
+                                            onChange={setRuntimePage}
+                                            labels={{
+                                                group: t(
+                                                    'web.agentNew.pagination'
+                                                ),
+                                                previous: t(
+                                                    'web.agentNew.previousPage'
+                                                ),
+                                                next: t('web.agentNew.nextPage')
+                                            }}
+                                        />
+                                    )}
+                                    {newRuntimeEntries.length > 0 && (
+                                        <div className='mt-2 flex flex-wrap gap-2'>
+                                            {newRuntimeEntries.map((option) => {
+                                                const Icon = option.icon
+                                                const entryClass =
+                                                    'text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors disabled:cursor-not-allowed disabled:opacity-55'
+                                                const body = (
+                                                    <>
+                                                        <PlusIcon className='h-3.5 w-3.5 shrink-0' />
+                                                        <Icon className='h-3.5 w-3.5 shrink-0' />
+                                                        {t(option.labelKey)}
+                                                    </>
+                                                )
+                                                // A sandbox is provisioned here
+                                                // and selected in place; the
+                                                // other kinds still need their
+                                                // own settings page.
+                                                if (option.kind === 'sprites')
+                                                    return (
+                                                        <button
+                                                            key={option.kind}
+                                                            type='button'
+                                                            disabled={
+                                                                sandboxLimitReached
+                                                            }
+                                                            title={
+                                                                sandboxLimitReached
+                                                                    ? t(
+                                                                          'web.agentNew.limitReached'
+                                                                      )
+                                                                    : undefined
+                                                            }
+                                                            onClick={
+                                                                openSandboxDialog
+                                                            }
+                                                            className={
+                                                                entryClass
+                                                            }
+                                                        >
+                                                            {body}
+                                                        </button>
+                                                    )
+                                                if (option.kind === 'daemon')
+                                                    return (
+                                                        <button
+                                                            key={option.kind}
+                                                            type='button'
+                                                            onClick={() =>
+                                                                setConnectDaemonOpen(
+                                                                    true
+                                                                )
+                                                            }
+                                                            className={
+                                                                entryClass
+                                                            }
+                                                        >
+                                                            {body}
+                                                        </button>
+                                                    )
+                                                return (
+                                                    <Link
+                                                        key={option.kind}
+                                                        to={option.to}
+                                                        className={entryClass}
+                                                    >
+                                                        {body}
+                                                    </Link>
+                                                )
+                                            })}
+                                        </div>
+                                    )}
+                                    {runtimeMode === 'existing' &&
+                                        pickedRuntime?.framework ===
+                                            'hermes' && (
+                                            <div className='bg-surface shadow-ring-light mt-2 rounded-md px-3.5 py-3'>
+                                                <label className='flex items-center gap-2'>
+                                                    <input
+                                                        type='checkbox'
+                                                        checked={cloneEnabled}
+                                                        onChange={(e) => {
+                                                            setCloneEnabled(
+                                                                e.target.checked
+                                                            )
+                                                            if (
+                                                                !e.target
+                                                                    .checked
+                                                            )
+                                                                setCloneFromProfile(
+                                                                    ''
+                                                                )
+                                                        }}
+                                                        className='accent-fg'
+                                                    />
+                                                    <span className='text-ui text-fg'>
+                                                        {t(
+                                                            'web.agentNew.cloneProfile'
+                                                        )}
+                                                    </span>
+                                                </label>
+                                                {cloneEnabled && (
+                                                    <div className='mt-2'>
+                                                        {runtimeAgentsLoading ? (
+                                                            <p className='text-caption text-muted'>
+                                                                {t(
+                                                                    'web.agentNew.loadingProfiles'
                                                                 )}
-                                                            </div>
-                                                            <div className='border-divider border-t pt-4'>
-                                                                <div className='text-caption text-subtle mb-2 font-medium uppercase tracking-wider'>
-                                                                    {t(
-                                                                        'web.agentNew.addToExistingRuntime'
-                                                                    )}
-                                                                </div>
-                                                                {existingRuntimeOptionsByKind
-                                                                    .sprites
-                                                                    .length ===
-                                                                    0 &&
-                                                                spriteAttachTargets.length ===
-                                                                    0 ? (
-                                                                    <div className='text-caption text-muted font-medium'>
-                                                                        {t(
-                                                                            'web.agentNew.notAvailable'
-                                                                        )}
-                                                                    </div>
-                                                                ) : (
-                                                                    <div className='space-y-2'>
-                                                                        {existingRuntimeOptionsByKind
-                                                                            .sprites
-                                                                            .length >
-                                                                            0 &&
-                                                                            renderExistingRuntimeOptions(
-                                                                                existingRuntimeOptionsByKind.sprites
-                                                                            )}
-                                                                        {spriteAttachTargets.length >
-                                                                            0 &&
-                                                                            renderAttachSandboxOptions(
-                                                                                spriteAttachTargets
-                                                                            )}
-                                                                    </div>
+                                                            </p>
+                                                        ) : runtimeAgentsError ? (
+                                                            <p className='text-caption text-workflow-ship'>
+                                                                {
+                                                                    runtimeAgentsError
+                                                                }
+                                                            </p>
+                                                        ) : pickedRuntimeAgents.length ===
+                                                          0 ? (
+                                                            <p className='text-caption text-muted'>
+                                                                {t(
+                                                                    'web.agentNew.noProfilesFound'
                                                                 )}
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                    {selectedTopChoice ===
-                                                        'computer' && (
-                                                        <>
-                                                            <div>
-                                                                <div className='text-caption text-subtle mb-2 font-medium uppercase tracking-wider'>
-                                                                    {t(
-                                                                        'web.agentNew.addSelfOwnedComputer'
-                                                                    )}
-                                                                </div>
-                                                                {renderSelfOwnedComputerOption()}
-                                                            </div>
-                                                            {cloudComputerAvailable && (
-                                                                <div>
-                                                                    <div className='text-caption text-subtle mb-2 font-medium uppercase tracking-wider'>
-                                                                        {t(
-                                                                            'web.agentNew.rentCloudComputer'
-                                                                        )}
-                                                                    </div>
-                                                                    {renderCreateRuntimeOption(
-                                                                        'persistent'
-                                                                    )}
-                                                                </div>
-                                                            )}
-                                                            <div className='border-divider border-t pt-4'>
-                                                                <div className='text-caption text-subtle mb-2 font-medium uppercase tracking-wider'>
-                                                                    {t(
-                                                                        'web.agentNew.addToExistingComputer'
-                                                                    )}
-                                                                </div>
-                                                                {renderExistingRuntimeOptions(
-                                                                    [
-                                                                        ...existingRuntimeOptionsByKind.daemon,
-                                                                        ...existingRuntimeOptionsByKind.k8s
-                                                                    ],
-                                                                    <>
-                                                                        {t(
-                                                                            'web.agentNew.noComputerConnected'
-                                                                        )}
-                                                                    </>
+                                                            </p>
+                                                        ) : (
+                                                            <WorkbenchSelect
+                                                                mono
+                                                                size='sm'
+                                                                ariaLabel={t(
+                                                                    'web.agentNew.cloneFromProfile'
                                                                 )}
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                </div>
+                                                                value={
+                                                                    cloneFromProfile
+                                                                }
+                                                                onChange={
+                                                                    setCloneFromProfile
+                                                                }
+                                                                options={pickedRuntimeAgents.map(
+                                                                    (
+                                                                        profile
+                                                                    ) => ({
+                                                                        value: profile.id,
+                                                                        label: profile.name
+                                                                    })
+                                                                )}
+                                                            />
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
+                                        )}
+                                    {workspaceInputEnabled && (
+                                        <div className='border-divider mt-3 border-t pt-3'>
+                                            <span className='workbench-field-label mb-1 block'>
+                                                {t('web.agentNew.workspace')}
+                                            </span>
+                                            {renderWorkspaceValue({
+                                                defaultPath:
+                                                    selectedWorkspaceDefault,
+                                                active: true,
+                                                onActivate: () => {}
+                                            })}
                                         </div>
                                     )}
                                     {runtimesError && (
@@ -2478,6 +2389,17 @@ const AgentNew: FC = (): ReactNode => {
                                             {runtimesError}
                                         </p>
                                     )}
+                                </div>
+                            )}
+
+                            {!isExternalFramework(framework) && (
+                                <div>
+                                    <span className='workbench-field-label mb-2 block'>
+                                        {t('web.agentNew.modelProviderSection')}
+                                    </span>
+                                    {runtimeMode === 'existing'
+                                        ? renderExistingRuntimeModelSettings()
+                                        : renderCreateRuntimeSettings()}
                                 </div>
                             )}
 
@@ -2556,11 +2478,9 @@ const AgentNew: FC = (): ReactNode => {
                                 disabled={!canSubmit}
                                 className='workbench-button-primary h-11 w-full'
                             >
-                                {runtimeMode === 'daemon'
-                                    ? t('web.agentNew.selectSelfOwnedComputer')
-                                    : runtimeMode === 'existing'
-                                      ? t('web.agentNew.addAgentToRuntime')
-                                      : t('web.agentNew.createAgent')}
+                                {runtimeMode === 'existing'
+                                    ? t('web.agentNew.addAgentToRuntime')
+                                    : t('web.agentNew.createAgent')}
                             </button>
                         </form>
                     )}
@@ -2667,66 +2587,112 @@ const AgentNew: FC = (): ReactNode => {
                     </div>
                 </div>
             )}
-            {runtimeConfigDialogCategory && (
+            {connectDaemonOpen && (
+                <ConnectDaemonDialog
+                    framework={framework}
+                    onClose={() => {
+                        setConnectDaemonOpen(false)
+                        void refetchRuntimes()
+                    }}
+                    onConnected={handleDaemonConnected}
+                />
+            )}
+            {sandboxDialogOpen && (
                 <div
                     className='fixed inset-0 z-[120] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm'
                     role='dialog'
                     aria-modal='true'
-                    aria-label={t('web.agentNew.configureRuntimeSettings')}
+                    aria-label={t('web.sandboxNew.title')}
                     onClick={(e) => {
-                        if (e.target === e.currentTarget) {
-                            setRuntimeConfigDialogCategory(null)
-                        }
+                        if (e.target === e.currentTarget && !sandboxCreating)
+                            setSandboxDialogOpen(false)
                     }}
                 >
-                    <div className='workbench-panel flex max-h-[calc(100vh-3rem)] w-full max-w-2xl flex-col overflow-hidden'>
+                    <div className='workbench-panel flex w-full max-w-md flex-col overflow-hidden'>
                         <header className='border-divider/80 flex items-center justify-between gap-3 border-b px-5 py-3'>
-                            <div className='flex min-w-0 items-center gap-3'>
-                                <span
-                                    className='bg-soft text-muted shadow-ring-light inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-sm'
-                                    aria-hidden='true'
-                                >
-                                    <ProviderIcon className='h-4 w-4' />
-                                </span>
-                                <div className='min-w-0'>
-                                    <h2 className='text-ui text-fg truncate font-medium'>
-                                        {t(
-                                            'web.agentNew.configureRuntimeSettings'
-                                        )}
-                                    </h2>
-                                    <p className='text-caption text-muted mt-0.5 truncate'>
-                                        {runtimeConfigDialogCategory ===
-                                        'sandbox'
-                                            ? t(
-                                                  'web.agentNew.createStatefulSandbox'
-                                              )
-                                            : t('web.agentNew.rentCloud')}
-                                    </p>
-                                </div>
+                            <div className='min-w-0'>
+                                <h2 className='text-ui text-fg truncate font-medium'>
+                                    {t('web.sandboxNew.title')}
+                                </h2>
+                                <p className='text-caption text-muted mt-0.5 truncate'>
+                                    {t('web.agentNew.sandboxDesc')}
+                                </p>
                             </div>
                             <button
                                 type='button'
                                 className='text-muted hover:bg-surface-hover shadow-ring-light bg-surface flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors'
                                 aria-label={t('common.close')}
-                                onClick={() =>
-                                    setRuntimeConfigDialogCategory(null)
-                                }
+                                disabled={sandboxCreating}
+                                onClick={() => setSandboxDialogOpen(false)}
                             >
                                 <CloseIcon className='h-4 w-4' />
                             </button>
                         </header>
-                        <div className='min-h-0 overflow-y-auto px-5 py-4'>
-                            {renderCreateRuntimeSettings()}
+                        <div className='space-y-4 px-5 py-4'>
+                            <label className='block'>
+                                <span className='workbench-field-label'>
+                                    {t('web.agentNew.name')}
+                                </span>
+                                <input
+                                    autoFocus
+                                    value={sandboxDraftName}
+                                    onChange={(e) =>
+                                        setSandboxDraftName(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                            e.preventDefault()
+                                            void createSandbox()
+                                        }
+                                        if (
+                                            e.key === 'Escape' &&
+                                            !sandboxCreating
+                                        ) {
+                                            e.preventDefault()
+                                            setSandboxDialogOpen(false)
+                                        }
+                                    }}
+                                    className='workbench-input font-mono'
+                                    maxLength={64}
+                                />
+                                <p className='workbench-hint mt-2'>
+                                    {t('web.agentNew.sandboxNameHint')}
+                                </p>
+                                {sandboxNameValidationMessage && (
+                                    <p className='text-caption text-accent-ruby mt-1'>
+                                        {sandboxNameValidationMessage}
+                                    </p>
+                                )}
+                            </label>
+                            {sandboxCreateError && (
+                                <div className='workbench-alert-error'>
+                                    <pre className='text-caption whitespace-pre-wrap font-mono'>
+                                        {sandboxCreateError}
+                                    </pre>
+                                </div>
+                            )}
                         </div>
                         <footer className='border-divider/80 bg-surface-subtle/60 flex items-center justify-end gap-2 border-t px-5 py-3'>
                             <button
                                 type='button'
-                                className='workbench-button-primary'
-                                onClick={() =>
-                                    setRuntimeConfigDialogCategory(null)
-                                }
+                                className='workbench-button-secondary'
+                                disabled={sandboxCreating}
+                                onClick={() => setSandboxDialogOpen(false)}
                             >
-                                {t('common.done')}
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                type='button'
+                                className='workbench-button-primary'
+                                disabled={
+                                    sandboxCreating ||
+                                    sandboxNameValidationMessage !== null
+                                }
+                                onClick={() => void createSandbox()}
+                            >
+                                {sandboxCreating
+                                    ? t('web.sandboxNew.creating')
+                                    : t('web.sandboxNew.create')}
                             </button>
                         </footer>
                     </div>

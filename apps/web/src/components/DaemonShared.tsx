@@ -1,32 +1,17 @@
-import type {
-    AgentFramework,
-    DaemonHostSummary
-} from '@manyfold/shared'
+import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { useState } from 'react'
 import { CheckIcon, CopyIcon, ExternalLinkIcon } from '@/components/icons'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { apiBaseUrl } from '@/lib/apiClient'
+import {
+    daemonInstallCommand,
+    daemonRegisterCommand,
+    daemonSetupCommand
+} from '@/lib/daemonCommands'
 import { docsHref } from '@/lib/docsLinks'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
-
-// Two ways to run the same token. install.sh forwards everything after `-s --`
-// to the freshly installed binary, so the first line installs the CLI then
-// registers + starts the daemon in one copy-paste. The second is for machines
-// that already have `mf`. `-y` skips the start prompt either way.
-export const daemonInstallCommand = (token: string): string =>
-    `curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- daemon register --token ${token} -y`
-
-export const daemonRegisterCommand = (token: string): string =>
-    `mf daemon register --token ${token} -y`
-
-// Token-less onboarding: install.sh reattaches a controlling terminal so the
-// forwarded `mf setup` can run its browser sign-in, then registers + starts the
-// daemon under the signed-in account. No secret in the command, so it never
-// needs a per-machine token — nothing to leak into shell history or a screen
-// share, nothing to re-issue.
-export const daemonSetupCommand = (): string =>
-    'curl -fsSL https://manyfold.ai/cli/install.sh | sh -s -- setup'
 
 export const DaemonStatusDot: FC<{ online: boolean }> = ({
     online
@@ -35,7 +20,9 @@ export const DaemonStatusDot: FC<{ online: boolean }> = ({
     return (
         <ShortcutTooltip
             label={t(
-                online ? 'web.connectDaemon.online' : 'web.connectDaemon.offline'
+                online
+                    ? 'web.connectDaemon.online'
+                    : 'web.connectDaemon.offline'
             )}
         >
             <span
@@ -61,7 +48,9 @@ export const DaemonFrameworkTags: FC<{
                     key={f.framework}
                     className={[
                         'tag',
-                        f.framework === highlight ? 'tag-success' : 'tag-neutral'
+                        f.framework === highlight
+                            ? 'tag-success'
+                            : 'tag-neutral'
                     ].join(' ')}
                 >
                     {frameworkLabel(f.framework)}
@@ -137,7 +126,11 @@ export const DaemonSetupCommand: FC<{ onCopy?: () => void }> = ({
     const { t } = useI18n()
     return (
         <div>
-            <CommandRow command={daemonSetupCommand()} onCopy={onCopy} wrap />
+            <CommandRow
+                command={daemonSetupCommand(apiBaseUrl())}
+                onCopy={onCopy}
+                wrap
+            />
             <p className='text-subtle text-caption mt-1.5'>
                 {t('web.connectDaemon.cmdPlatform')}
             </p>
@@ -160,7 +153,10 @@ export const DaemonConnectCommands: FC<{
                 <p className='text-fg text-caption mb-1.5 font-medium'>
                     {t('web.connectDaemon.cmdInstallLabel')}
                 </p>
-                <CommandRow command={daemonInstallCommand(token)} onCopy={onCopy} />
+                <CommandRow
+                    command={daemonInstallCommand(token, apiBaseUrl())}
+                    onCopy={onCopy}
+                />
                 <p className='text-subtle text-caption mt-1.5'>
                     {t('web.connectDaemon.cmdInstallNote')}{' '}
                     <a
@@ -179,7 +175,7 @@ export const DaemonConnectCommands: FC<{
                     {t('web.connectDaemon.cmdRegisterLabel')}
                 </p>
                 <CommandRow
-                    command={daemonRegisterCommand(token)}
+                    command={daemonRegisterCommand(token, apiBaseUrl())}
                     onCopy={onCopy}
                 />
                 <p className='text-subtle text-caption mt-1.5'>

@@ -2,6 +2,7 @@ import { EXPERIMENT_KEYS } from '@manyfold/shared'
 import { Suspense, type FC, type ReactNode } from 'react'
 import { Ghost } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
+import { AGENT_CREATE_UX_FALLBACK } from '@/lib/agentCreate/createUxFallback'
 import { lazyChunk } from '@/lib/lazyChunk'
 import { useExperimentVariant } from '@/lib/useExperiment'
 
@@ -28,7 +29,10 @@ const Fallback: FC = (): ReactNode => {
 }
 
 const AgentNewRouter: FC = (): ReactNode => {
-    const variant = useExperimentVariant(EXPERIMENT_KEYS.AGENT_CREATE_UX, 'v3')
+    const variant = useExperimentVariant(
+        EXPERIMENT_KEYS.AGENT_CREATE_UX,
+        AGENT_CREATE_UX_FALLBACK
+    )
     const Component =
         variant === 'v3' || variant === 'c'
             ? AgentNewV3

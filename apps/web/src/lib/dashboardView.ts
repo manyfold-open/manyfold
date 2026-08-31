@@ -7,6 +7,9 @@ export const MODEL_PROVIDERS_DASHBOARD_VIEW_KEY =
     'mf.modelProviders.dashboardView.v1'
 export const CHANNELS_DASHBOARD_VIEW_KEY = 'mf.channels.dashboardView.v1'
 export const API_TOKENS_DASHBOARD_VIEW_KEY = 'mf.apiTokens.dashboardView.v1'
+// Agent create's runtime picker is not a dashboard, but it lists the same
+// objects in the same two shapes, so it reuses the toggle and keeps its own key.
+export const AGENT_NEW_RUNTIME_VIEW_KEY = 'mf.agentNew.runtimeView.v1'
 
 const defaultView: DashboardView = 'grid'
 
