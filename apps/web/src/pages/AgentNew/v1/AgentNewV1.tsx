@@ -245,7 +245,7 @@ const CompareButton: FC<{ label: string; onOpen: () => void }> = ({
     label,
     onOpen
 }): ReactNode => (
-    <ShortcutTooltip label={label} placement='bottom-end'>
+    <ShortcutTooltip label={label} placement='bottom-start'>
         <button
             type='button'
             aria-label={label}
@@ -2058,8 +2058,8 @@ const AgentNew: FC = (): ReactNode => {
                             </label>
 
                             <div>
-                                <div className='mb-1 flex items-center justify-between gap-2'>
-                                    <span className='workbench-field-label'>
+                                <div className='mb-1.5 flex items-center gap-1'>
+                                    <span className='workbench-field-label mb-0'>
                                         {t('web.agentNew.agentFramework')}
                                     </span>
                                     <CompareButton
@@ -2095,11 +2095,10 @@ const AgentNew: FC = (): ReactNode => {
 
                             {!isExternalFramework(framework) && (
                                 <div>
-                                    <div className='mb-2 flex flex-wrap items-center gap-2'>
-                                        <span className='workbench-field-label'>
+                                    <div className='mb-2 flex flex-wrap items-center gap-1'>
+                                        <span className='workbench-field-label mb-0'>
                                             {t('web.agentNew.agentRuntime')}
                                         </span>
-                                        <span className='min-w-2 flex-1' />
                                         <CompareButton
                                             label={t(
                                                 'web.agentNew.compareRuntimes'
@@ -2110,6 +2109,7 @@ const AgentNew: FC = (): ReactNode => {
                                                 )
                                             }
                                         />
+                                        <span className='min-w-2 flex-1' />
                                         <DashboardViewToggle
                                             value={runtimeView}
                                             onChange={changeRuntimeView}
