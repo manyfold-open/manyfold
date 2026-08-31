@@ -12,6 +12,7 @@ export {
     Box as BoxIcon,
     Braces as RawIcon,
     Check as CheckIcon,
+    CircleHelp as HelpIcon,
     ChevronDown as ChevronDownIcon,
     ChevronLeft as ChevronLeftIcon,
     ChevronRight as ChevronRightIcon,

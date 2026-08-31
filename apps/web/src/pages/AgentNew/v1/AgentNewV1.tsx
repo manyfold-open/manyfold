@@ -18,6 +18,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
     CheckIcon,
+    HelpIcon,
     ChevronLeftIcon,
     ChevronRightIcon,
     CloseIcon,
@@ -235,6 +236,27 @@ const RuntimeAgentIcons: FC<{
 // list they filter. The name survives as the accessible name and the tooltip,
 // so the control is not a rebus for anyone who needs the text. "All" keeps its
 // word — it has no object to draw, and it is the state the picker opens in.
+// The two comparison tables are reference material, not steps: as words they
+// read like the next thing to do, and they sat on the same line as the control
+// they annotate. A question mark keeps them reachable and stops them competing
+// with the label beside them; the name lives in the tooltip and the accessible
+// name.
+const CompareButton: FC<{ label: string; onOpen: () => void }> = ({
+    label,
+    onOpen
+}): ReactNode => (
+    <ShortcutTooltip label={label} placement='bottom-end'>
+        <button
+            type='button'
+            aria-label={label}
+            onClick={onOpen}
+            className='text-subtle hover:text-fg hover:bg-surface-hover focus-visible:shadow-focus inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-sm transition-[color,background-color,box-shadow] focus:outline-none'
+        >
+            <HelpIcon className='h-4 w-4' aria-hidden='true' />
+        </button>
+    </ShortcutTooltip>
+)
+
 const RuntimeKindChip: FC<{
     icon?: LucideIcon
     label: string
@@ -2040,15 +2062,14 @@ const AgentNew: FC = (): ReactNode => {
                                     <span className='workbench-field-label'>
                                         {t('web.agentNew.agentFramework')}
                                     </span>
-                                    <button
-                                        type='button'
-                                        onClick={() =>
+                                    <CompareButton
+                                        label={t(
+                                            'web.agentNew.compareFrameworks'
+                                        )}
+                                        onOpen={() =>
                                             setFrameworkCompareDialogOpen(true)
                                         }
-                                        className='text-caption text-fg underline underline-offset-2 hover:opacity-80'
-                                    >
-                                        {t('web.agentNew.compareFrameworks')}
-                                    </button>
+                                    />
                                 </div>
                                 <WorkbenchSelect
                                     ariaLabel={t('web.agentNew.agentFramework')}
@@ -2079,17 +2100,16 @@ const AgentNew: FC = (): ReactNode => {
                                             {t('web.agentNew.agentRuntime')}
                                         </span>
                                         <span className='min-w-2 flex-1' />
-                                        <button
-                                            type='button'
-                                            onClick={() =>
+                                        <CompareButton
+                                            label={t(
+                                                'web.agentNew.compareRuntimes'
+                                            )}
+                                            onOpen={() =>
                                                 setRuntimeCompareDialogOpen(
                                                     true
                                                 )
                                             }
-                                            className='text-caption text-fg underline underline-offset-2 hover:opacity-80'
-                                        >
-                                            {t('web.agentNew.compareRuntimes')}
-                                        </button>
+                                        />
                                         <DashboardViewToggle
                                             value={runtimeView}
                                             onChange={changeRuntimeView}
