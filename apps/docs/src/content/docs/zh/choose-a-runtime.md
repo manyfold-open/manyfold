@@ -9,7 +9,7 @@ order: 5
 
 ## 什么是 Stateful sandbox？
 
-Stateful sandbox 是 Manyfold 提供的**隔离云端 workspace**。它可以暂停和恢复，同时保留 Agent 的文件和 session state。官方建议大多数用户从这个 runtime 开始，因为不需要设置自己的电脑或本地 daemon。
+Stateful sandbox 是 Manyfold 提供的**隔离云端 workspace**。它可以暂停和恢复，同时保留 Agent 的文件和 session state —— 包括你在其终端里完成的 coding CLI 登录，因此以**使用自己的订阅**创建的 Agent 会一直保持登录，直到 sandbox 被删除。官方建议大多数用户从这个 runtime 开始，因为不需要设置自己的电脑或本地 daemon。
 
 ## 什么是 Self-owned computer？
 

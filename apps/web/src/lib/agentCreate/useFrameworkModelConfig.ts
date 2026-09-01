@@ -85,8 +85,11 @@ export const useFrameworkModelConfig = ({
             : testErrorState.message
         : null
 
+    // Runtime mode has no platform provider to test or map models against:
+    // model selection happens post-create from the runtime's own list.
     const required =
         runtimeMode !== 'existing' &&
+        picker.mode !== 'runtime' &&
         (framework === 'claude-code' || framework === 'codex')
 
     const selectedSavedProvider =

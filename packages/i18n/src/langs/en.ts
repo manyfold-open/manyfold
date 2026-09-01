@@ -2526,6 +2526,18 @@ const en = {
             sessionMessageLimit:
                 'This session has {{count}} messages. Consider starting a new session for better performance.',
             failedToCreateSession: 'Failed to create chat session.',
+            runtimeSignIn: {
+                title: 'Sign in to use your subscription',
+                body: 'This agent runs on the credentials signed in on its runtime. Open the terminal, complete the sign-in there, then refresh.',
+                claudeHint:
+                    'then type /login, open the link and paste the code back.',
+                codexHint:
+                    'approve the device code from any browser (device-code sign-in may need enabling in your ChatGPT security settings).',
+                geminiHint: 'open the printed link and paste the code back.',
+                openTerminal: 'Open terminal',
+                refresh: 'Refresh status',
+                checking: 'Checking…'
+            },
             generating: 'Generating',
             tokensLabel: 'tokens',
             tools: {
@@ -3459,6 +3471,13 @@ const en = {
             managed: 'Managed',
             useNewApiKey: 'Use new API key',
             provideCredentials: 'Provide credentials for this agent',
+            useOwnSubscription: 'Use your own subscription',
+            subscriptionSignInHint:
+                'Sign in on the computer or sandbox after creating',
+            subscriptionSignInExplainer:
+                'After the agent is created, open its terminal and sign in with the coding CLI using your own plan. The sign-in stays on the runtime.',
+            subscriptionSignInPrivacy:
+                'Manyfold stores no API key for this agent.',
             noSavedKeys: 'No saved keys yet. Add one in',
             addModelProvider: 'Add Model Provider',
             reuseAcrossAgents: 'to reuse it across agents.',

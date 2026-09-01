@@ -2459,6 +2459,17 @@ const zh: Translations = {
             sessionMessageLimit:
                 '此会话有 {{count}} 条消息。建议开始新会话以获得更好的性能。',
             failedToCreateSession: '创建聊天会话失败。',
+            runtimeSignIn: {
+                title: '登录以使用你的订阅',
+                body: '这个 Agent 使用其运行环境里已登录的凭据。请打开终端完成登录，然后刷新状态。',
+                claudeHint: '然后输入 /login，打开链接并把代码粘贴回来。',
+                codexHint:
+                    '在任意浏览器中批准设备代码（可能需要先在 ChatGPT 安全设置中启用 device-code 登录）。',
+                geminiHint: '打开打印出的链接并把代码粘贴回来。',
+                openTerminal: '打开终端',
+                refresh: '刷新状态',
+                checking: '检查中…'
+            },
             generating: '生成中',
             tokensLabel: 'tokens',
             tools: {
@@ -3300,6 +3311,12 @@ const zh: Translations = {
             managed: '托管',
             useNewApiKey: '使用新的 API 密钥',
             provideCredentials: '为此 Agent 提供凭据',
+            useOwnSubscription: '使用自己的订阅',
+            subscriptionSignInHint: '创建后在 computer 或 sandbox 里登录',
+            subscriptionSignInExplainer:
+                '创建 Agent 后，打开它的终端并用你自己的订阅完成 coding CLI 登录。登录凭据只保存在该运行环境里。',
+            subscriptionSignInPrivacy:
+                'Manyfold 不会为这个 Agent 保存任何 API 密钥。',
             noSavedKeys: '还没有保存的密钥，请在',
             addModelProvider: '添加模型提供商',
             reuseAcrossAgents: '中添加，以便在多个 Agent 间复用。',

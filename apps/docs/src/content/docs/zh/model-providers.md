@@ -16,6 +16,16 @@ order: 4
 
 你的工作区也可能有托管模型额度。如果有，创建流程会展示可用选项，而不要求你粘贴个人 API key。
 
+## 使用自己的订阅
+
+Claude Code、Codex 和 Gemini CLI 的 Agent 可以直接使用 CLI 自身的登录会话运行 —— 例如 Claude Pro/Max、ChatGPT 订阅或 Google 账号 —— 而不需要 API key。
+
+1. 创建 Agent 时，在模型提供方区域选择**使用自己的订阅**。
+2. 创建完成后，在聊天页打开该 Agent 的终端，并在终端里完成 CLI 的登录。
+3. 在登录卡片上点击**刷新状态**。检测到登录后，Agent 即可开始对话。
+
+登录凭据只保存在 Agent 所在的 sandbox 或电脑里；Manyfold 不会为该 Agent 保存任何 API key。在 sandbox 中，登录在暂停和恢复后仍然有效，直到 sandbox 被删除。共用同一个 sandbox 的同 framework Agent 也会共享这次登录。
+
 ## 添加提供方密钥
 
 1. 打开 **Settings -> Model providers**。

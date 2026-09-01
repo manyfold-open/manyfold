@@ -63,6 +63,8 @@ import { workspaceDirNameOf, workspacePathOf } from '@/lib/workspacePath'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import EmptyState from '@/components/EmptyState'
 import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
+import { RuntimeLocalSignInCard } from '@/components/chat/RuntimeLocalSignInCard'
+import { shouldShowRuntimeSignIn } from '@/lib/runtimeSignIn'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { Ghost } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
@@ -1827,8 +1829,14 @@ const AgentChat: FC = (): ReactNode => {
         observer.observe(node)
         return () => observer.disconnect()
     }, [showEmptyState])
+    const runtimeSignInVisible =
+        frameworkModelConfigSupported &&
+        shouldShowRuntimeSignIn(effectiveModelConfigView)
     const showTopNotices =
-        !chatAvailability.ready || softLimitHit || Boolean(error)
+        !chatAvailability.ready ||
+        softLimitHit ||
+        Boolean(error) ||
+        runtimeSignInVisible
     const shouldMountWorkspaceFiles =
         workspaceToolsAvailable &&
         !runtimeSessionViewerOpen &&
@@ -2030,6 +2038,24 @@ const AgentChat: FC = (): ReactNode => {
                                         {error}
                                     </div>
                                 )}
+                                {runtimeSignInVisible &&
+                                    effectiveModelConfigView && (
+                                        <RuntimeLocalSignInCard
+                                            view={effectiveModelConfigView}
+                                            refreshing={modelConfigRefreshing}
+                                            onRefresh={() =>
+                                                void handleRefreshModelConfig(
+                                                    'runtime-local'
+                                                ).catch(() => {})
+                                            }
+                                            onOpenTerminal={() =>
+                                                currentAgent &&
+                                                openTerminalForAgent(
+                                                    currentAgent
+                                                )
+                                            }
+                                        />
+                                    )}
                             </div>
                         </div>
                     )}

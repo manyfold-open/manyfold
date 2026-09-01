@@ -4,17 +4,22 @@ import {
     UserModelProviderSummary,
     brandFor,
     frameworkSupportsProtocol,
+    isConfigurableFramework,
     isManagedProtocolAllowedForFramework,
     providerProtocolForTarget,
     providerSupportsTarget
 } from '@manyfold/shared'
 import { useEffect, useMemo } from 'react'
 import type { FC, ReactNode } from 'react'
+import { PROVIDER_PICKER_DEFAULT_MODE } from '@/lib/agentCreate/providerDefaultMode'
 import { providerLabel } from '@/pages/Settings/ModelProviderFields'
 import { useI18n } from '@/lib/i18n'
 
 export interface ProviderPickerValue {
-    mode: 'saved' | 'inline'
+    // 'runtime' = use the coding CLI's own sign-in inside the
+    // sandbox/computer (a subscription plan); the create body then carries
+    // modelConfigSource 'runtime-local' and no credentials.
+    mode: 'saved' | 'inline' | 'runtime'
     providerId: string
     apiKey: string
     baseUrl: string
@@ -31,7 +36,23 @@ export const initialPicker = (): ProviderPickerValue => ({
     saveLabel: ''
 })
 
+// Create-form starting mode. The editions slot is typed `string` (the two
+// editions hold different literals), so narrow it here: anything that is not
+// the runtime sign-in falls back to the saved-provider list. Frameworks
+// without a runtime-local surface always start on 'saved'.
+export const initialPickerForFramework = (
+    framework: AgentFramework
+): ProviderPickerValue => ({
+    ...initialPicker(),
+    mode:
+        isConfigurableFramework(framework) &&
+        PROVIDER_PICKER_DEFAULT_MODE === 'runtime'
+            ? 'runtime'
+            : 'saved'
+})
+
 export const pickerIsValid = (v: ProviderPickerValue): boolean => {
+    if (v.mode === 'runtime') return true
     if (v.mode === 'saved') return v.providerId.length > 0
     if (v.apiKey.length < 10) return false
     if (v.save && !/^[A-Za-z0-9][A-Za-z0-9_\- .]{0,63}$/.test(v.saveLabel))
@@ -49,6 +70,11 @@ interface Props {
     baseUrlPlaceholder?: string
     defaultBaseUrl?: string
     showBaseUrl?: boolean
+    // Offer the in-runtime subscription sign-in mode. Opt-in per surface:
+    // the create forms enable it for configurable frameworks, while the
+    // credentials-edit dialog must not (its job is the platform key; the
+    // source switch lives in the composer/settings).
+    allowRuntimeMode?: boolean
     options: UserModelProviderSummary[]
     value: ProviderPickerValue
     onChange: (next: ProviderPickerValue) => void
@@ -65,6 +91,7 @@ export const ProviderPicker: FC<Props> = ({
     baseUrlPlaceholder,
     defaultBaseUrl,
     showBaseUrl = true,
+    allowRuntimeMode = false,
     options,
     value,
     onChange,
@@ -188,6 +215,41 @@ export const ProviderPicker: FC<Props> = ({
                             </button>
                         )
                     })}
+                    {allowRuntimeMode && (
+                        <button
+                            type='button'
+                            onClick={() =>
+                                onChange({
+                                    ...value,
+                                    mode: 'runtime',
+                                    providerId: ''
+                                })
+                            }
+                            className={[
+                                'shadow-ring-light flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3.5 py-3 text-left transition-colors',
+                                value.mode === 'runtime'
+                                    ? 'text-fg shadow-card bg-info-bg'
+                                    : 'text-muted hover:text-fg bg-surface hover:bg-surface-hover'
+                            ].join(' ')}
+                        >
+                            <span>
+                                <span className='text-ui block font-medium'>
+                                    {t('web.agentNew.useOwnSubscription')}
+                                </span>
+                                <span className='text-caption text-subtle block'>
+                                    {t('web.agentNew.subscriptionSignInHint')}
+                                </span>
+                            </span>
+                            <span
+                                className={[
+                                    'shadow-ring-light h-3 w-3 shrink-0 rounded-full',
+                                    value.mode === 'runtime'
+                                        ? 'bg-link'
+                                        : 'bg-white'
+                                ].join(' ')}
+                            />
+                        </button>
+                    )}
                     <button
                         type='button'
                         onClick={() =>
@@ -233,6 +295,17 @@ export const ProviderPicker: FC<Props> = ({
                     </p>
                 )}
             </div>
+
+            {value.mode === 'runtime' && (
+                <div className='shadow-ring-light space-y-1 rounded-md bg-[#f8f8f5] p-4'>
+                    <p className='text-ui text-fg'>
+                        {t('web.agentNew.subscriptionSignInExplainer')}
+                    </p>
+                    <p className='workbench-hint'>
+                        {t('web.agentNew.subscriptionSignInPrivacy')}
+                    </p>
+                </div>
+            )}
 
             {value.mode === 'inline' && (
                 <div className='shadow-ring-light space-y-4 rounded-md bg-[#f8f8f5] p-4'>

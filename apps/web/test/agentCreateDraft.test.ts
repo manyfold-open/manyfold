@@ -181,3 +181,74 @@ test('selects progress steps from runtime target and framework family', () => {
         true
     )
 })
+
+const runtimePicker = (): ProviderPickerValue => ({
+    mode: 'runtime',
+    providerId: '',
+    apiKey: '',
+    baseUrl: '',
+    save: false,
+    saveLabel: ''
+})
+
+test('runtime picker mode sends modelConfigSource and no credentials', () => {
+    for (const framework of ['claude-code', 'codex', 'gemini-cli'] as const) {
+        const body = buildCreateAgentBody({
+            framework,
+            name: 'agent-one',
+            picker: runtimePicker(),
+            runtimeMode: 'sandbox',
+            modelConfig: {
+                framework: 'codex',
+                model: 'gpt-5.5',
+                speed: 'fast',
+                intelligence: 'high'
+            }
+        })
+        assert.equal(body.modelConfigSource, 'runtime-local', framework)
+        assert.equal('claudeCodeCredentials' in body, false, framework)
+        assert.equal('codexCredentials' in body, false, framework)
+        assert.equal('geminiCliCredentials' in body, false, framework)
+        assert.equal('saveCredentialAs' in body, false, framework)
+        // A stale platform model-config draft must not ride along.
+        assert.equal('modelConfig' in body, false, framework)
+    }
+})
+
+test('saved and inline pickers keep the existing body shape untouched', () => {
+    const saved = buildCreateAgentBody({
+        framework: 'claude-code',
+        name: 'agent-one',
+        picker: { ...runtimePicker(), mode: 'saved', providerId: 'ump_1' },
+        runtimeMode: 'sandbox'
+    })
+    assert.equal(saved.modelConfigSource, undefined)
+    assert.deepEqual(saved.claudeCodeCredentials, { providerId: 'ump_1' })
+
+    const inline = buildCreateAgentBody({
+        framework: 'gemini-cli',
+        name: 'agent-one',
+        picker: inlinePicker(),
+        runtimeMode: 'sandbox'
+    })
+    assert.equal(inline.modelConfigSource, undefined)
+    assert.deepEqual(inline.geminiCliCredentials, {
+        googleApiKey: 'sk-test-123456'
+    })
+})
+
+test('runtime picker mode on a non-configurable framework keeps the credential path', () => {
+    // The UI never offers the runtime mode for openclaw/hermes; if state ever
+    // leaks in, the body must still carry credentials rather than silently
+    // sending a source those frameworks cannot use.
+    const body = buildCreateAgentBody({
+        framework: 'openclaw',
+        name: 'agent-one',
+        picker: { ...runtimePicker(), apiKey: 'sk-test-123456' },
+        persistentModelProvider: 'anthropic',
+        primaryModelName: 'claude-sonnet-4-5',
+        runtimeMode: 'sandbox'
+    })
+    assert.equal(body.modelConfigSource, undefined)
+    assert.equal(body.openclawCredentials?.apiKey, 'sk-test-123456')
+})
