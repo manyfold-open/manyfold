@@ -1,5 +1,13 @@
 # @manyfold/web
 
+## 0.50.1
+
+### Patch Changes
+
+- [#121](https://github.com/manyfold-open/manyfold/pull/121) [`1c27f0f`](https://github.com/manyfold-open/manyfold/commit/1c27f0f60a63fcf1a6e255fbef4a6e96cc185631) Thanks [@yingca1](https://github.com/yingca1)! - Clicking the **Model providers** rail title while a provider is open now actually returns to the dashboard. The route changed to `/settings/model-providers/dashboard`, but the pane kept rendering the provider that was already open and the title never took its own active state: the effect that syncs the selection from the URL returned early on the dashboard segment, so it never cleared the previous pick. The early return was guarding against an auto-select fallback that no longer exists — the branch it skipped had since become the one that clears.
+
+    The rule now lives in `pages/Settings/modelProviderSelection`, alongside the selection helpers it uses: the dashboard segment resolves to no selection and outranks a lingering `?selected=` param, which is what lets the pane switch back and keeps the rail from lighting up a provider beside the dashboard.
+
 ## 0.50.0
 
 ### Minor Changes
