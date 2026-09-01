@@ -100,51 +100,13 @@ interface ProviderGroup {
 const providerGroupHealth = (items: UserModelProviderSummary[]): Health =>
     items.some((r) => r.lastTestStatus === 'error') ? 'error' : null
 
-// Reserved path segment under model-providers/*. Provider selection lives in
-// a query param, so the path never carries an id to collide with.
-const DASHBOARD_SEGMENT = 'dashboard'
-
-type Selection =
-    | { kind: 'configured'; id: string }
-    | { kind: 'managed' }
-    | { kind: 'builtin'; builtInId: string }
-    | { kind: 'custom-new' }
-
-const selectionToParam = (s: Selection | null): string => {
-    if (!s) return ''
-    if (s.kind === 'configured') return s.id
-    if (s.kind === 'managed') return 'managed'
-    if (s.kind === 'builtin') return `builtin:${s.builtInId}`
-    return 'custom-new'
-}
-
-const selectionFromParam = (
-    raw: string | null,
-    items: UserModelProviderSummary[],
-    hasManaged: boolean
-): Selection | null => {
-    if (!raw) return null
-    if (raw === 'custom-new') return { kind: 'custom-new' }
-    if (raw === 'managed') return hasManaged ? { kind: 'managed' } : null
-    if (raw.startsWith('builtin:')) {
-        const id = raw.slice('builtin:'.length)
-        if (lookupBuiltIn(id)) return { kind: 'builtin', builtInId: id }
-        return null
-    }
-    if (items.some((i) => i.id === raw && i.source !== 'managed'))
-        return { kind: 'configured', id: raw }
-    return null
-}
-
-const selectionsEqual = (a: Selection | null, b: Selection | null): boolean => {
-    if (a === b) return true
-    if (!a || !b) return false
-    if (a.kind !== b.kind) return false
-    if (a.kind === 'configured' && b.kind === 'configured') return a.id === b.id
-    if (a.kind === 'builtin' && b.kind === 'builtin')
-        return a.builtInId === b.builtInId
-    return true
-}
+import {
+    DASHBOARD_SEGMENT,
+    providerSelectionFor,
+    selectionsEqual,
+    selectionToParam,
+    type Selection
+} from '@/pages/Settings/modelProviderSelection'
 
 import {
     flattenProtocolMap,
@@ -212,20 +174,16 @@ const ModelProviders: FC = (): ReactNode => {
 
     const selectedParam = searchParams.get('selected')
     useEffect(() => {
-        // The dashboard is a selection of its own; letting the fallback below
-        // run would light up a provider in the rail beside it.
-        if (onDashboard) return
-        const fromUrl = selectionFromParam(selectedParam, items, hasManaged)
-        if (fromUrl) {
-            setSelected((prev) =>
-                selectionsEqual(prev, fromUrl) ? prev : fromUrl
-            )
-            return
-        }
-        // No fallback selection: the bare URL shows the dashboard, the same
-        // way /settings/runtimes does, instead of opening whichever provider
-        // happens to sort first.
-        setSelected(null)
+        // Includes leaving a provider for the dashboard: that segment resolves
+        // to no selection, and dropping the early return this had is what lets
+        // the pane actually switch back.
+        const next = providerSelectionFor({
+            onDashboard,
+            param: selectedParam,
+            items,
+            hasManaged
+        })
+        setSelected((prev) => (selectionsEqual(prev, next) ? prev : next))
     }, [items, hasManaged, nonManagedRows, selectedParam, onDashboard])
 
     const selectAndPersist = (next: Selection): void => {
