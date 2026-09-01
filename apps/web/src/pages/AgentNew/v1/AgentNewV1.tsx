@@ -8,6 +8,7 @@ import {
     UserExternalAgentProviderSummary,
     UserModelProvider,
     externalSteps,
+    isConfigurableFramework,
     normalizeAgentName,
     providerSupportsTarget,
     validateAgentName
@@ -36,6 +37,7 @@ import WorkbenchSelect, {
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     initialPicker,
+    initialPickerForFramework,
     pickerIsValid,
     ProviderPicker,
     type ProviderPickerValue
@@ -725,7 +727,9 @@ const AgentNew: FC = (): ReactNode => {
     const [primaryModelCustom, setPrimaryModelCustom] = useState(false)
     const [cloneEnabled, setCloneEnabled] = useState(false)
     const [cloneFromProfile, setCloneFromProfile] = useState('')
-    const [picker, setPicker] = useState<ProviderPickerValue>(initialPicker)
+    const [picker, setPicker] = useState<ProviderPickerValue>(() =>
+        initialPickerForFramework(framework)
+    )
     const [externalProviderId, setExternalProviderId] = useState('')
     const [externalRemoteId, setExternalRemoteId] = useState('')
 
@@ -957,10 +961,11 @@ const AgentNew: FC = (): ReactNode => {
             providers,
             nextTargetProvider
         )
+        const pickerBase = initialPickerForFramework(next)
         setPicker(
-            preferred
-                ? { ...initialPicker(), providerId: preferred.id }
-                : initialPicker()
+            pickerBase.mode === 'saved' && preferred
+                ? { ...pickerBase, providerId: preferred.id }
+                : pickerBase
         )
         const nextPrimaryModel =
             usesConfigurableModelProvider(next) && preferred
@@ -1888,6 +1893,7 @@ const AgentNew: FC = (): ReactNode => {
             <ProviderPicker
                 provider={modelProviderForRuntime}
                 framework={framework}
+                allowRuntimeMode={isConfigurableFramework(framework)}
                 label={
                     usesConfigurableModelProvider(framework)
                         ? t('web.agentNew.apiKey')

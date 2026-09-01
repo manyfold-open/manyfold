@@ -75,3 +75,36 @@ test('coding-agent K8s plans omit env contract keys the API has not configured',
         assert.equal('MF_DEPLOY_ENV' in plan.envSecretData, false)
     }
 })
+
+test('coding-agent K8s plans keep provider keys out of a runtime-local Secret', () => {
+    // Pod env outranks the on-disk OAuth the user signs in with, so even
+    // credentials that somehow reach plan() must not land in the Secret.
+    const runtimeLocalCtx: K8sBootstrapContext = {
+        ...stagingCtx,
+        modelConfigSource: 'runtime-local'
+    }
+    const providerKeys = [
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_BASE_URL',
+        'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
+        'OPENAI_API_KEY',
+        'CODEX_BASE_URL',
+        'CODEX_MODEL',
+        'GEMINI_API_KEY',
+        'GOOGLE_GEMINI_BASE_URL',
+        'GEMINI_MODEL'
+    ]
+    for (const plan of plans(runtimeLocalCtx)) {
+        for (const key of providerKeys)
+            assert.equal(key in plan.envSecretData, false, key)
+        assert.equal(plan.envSecretData.MF_AGENT_ID, 'agt_env')
+        assert.equal((plan.envSecretData.WORKSPACE_DIR ?? '').length > 0, true)
+    }
+})
+
+test('coding-agent K8s plans keep injecting provider keys for platform agents', () => {
+    const [claude, codex, gemini] = plans(stagingCtx)
+    assert.equal(claude.envSecretData.ANTHROPIC_AUTH_TOKEN, 'anthropic-token')
+    assert.equal(codex.envSecretData.OPENAI_API_KEY, 'sk-test')
+    assert.equal(gemini.envSecretData.GEMINI_API_KEY, 'gemini-key')
+})

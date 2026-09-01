@@ -127,7 +127,7 @@ On macOS and Linux, `mf setup` installs a user-scope autostart unit, so you gene
   A sandbox runs in Manyfold's isolated cloud environment. A self-owned computer runs on a machine you control, so it can use local files, tools, and network access. Both can be used to create and manage Manyfold agents.
 - **Can I use my own Codex or Claude Code subscription?**
 
-  Yes. With Local config, Manyfold uses credentials that the selected local framework can access. Make sure its CLI is installed, working, and signed in. Subscription and API-key support can differ by framework.
+  Yes. With Local config, Manyfold uses credentials that the selected local framework can access. Make sure its CLI is installed, working, and signed in. Subscription and API-key support can differ by framework. Sandboxes and cloud computers support this too: choose **Use your own subscription** when creating the agent, then sign in from its built-in terminal.
 - **Does my computer need to stay on?**
 
   Yes. Whenever an agent needs to run on this computer, it must be powered on, online, and running the `mf` daemon.

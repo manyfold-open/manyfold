@@ -40,9 +40,15 @@ export class GeminiCliK8sBootstrap implements K8sFrameworkBootstrap {
             pvcMountPath: pvcRoot,
             workspacePath,
             envSecretData: {
-                GEMINI_API_KEY: creds.googleApiKey,
-                GOOGLE_GEMINI_BASE_URL: baseUrl,
-                ...(creds.model ? { GEMINI_MODEL: creds.model } : {}),
+                // Pod env outranks the on-disk OAuth a runtime-local user
+                // signs in with, so the provider keys stay out of the Secret.
+                ...(ctx.modelConfigSource === 'runtime-local'
+                    ? {}
+                    : {
+                          GEMINI_API_KEY: creds.googleApiKey,
+                          GOOGLE_GEMINI_BASE_URL: baseUrl,
+                          ...(creds.model ? { GEMINI_MODEL: creds.model } : {})
+                      }),
                 WORKSPACE_DIR: workspacePath,
                 WORKSPACE_PVC_ROOT: pvcRoot,
                 AGENT_ID: ctx.agentId,

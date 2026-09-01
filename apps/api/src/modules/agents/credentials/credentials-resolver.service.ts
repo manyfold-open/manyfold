@@ -3,6 +3,7 @@ import {
     builtInBaseUrlForProtocol,
     builtInSupportsProtocol,
     defaultProtocolForProvider,
+    isConfigurableFramework,
     isManagedProtocolAllowedForFramework,
     lookupBuiltIn,
     protocolToHermesBrand,
@@ -120,6 +121,22 @@ export class CredentialsResolverService {
         ownerUserId: string,
         dto: CreateAgentDto
     ): Promise<ResolvedAgentCredentials> {
+        // Runtime-local agents own their model credentials inside the runtime
+        // (CLI subscription sign-in). The stored payload is deliberately an
+        // empty object rather than no row: decryptCreds throws on a missing
+        // agent_credentials row, and the keep-alive report-token merge needs
+        // a row to merge into. The DTO guard already rejected any credential
+        // block riding along.
+        if (
+            dto.modelConfigSource === 'runtime-local' &&
+            isConfigurableFramework(dto.framework)
+        ) {
+            return {
+                framework: dto.framework,
+                providerId: null,
+                value: {}
+            } as ResolvedAgentCredentials
+        }
         await this.assertManagedChannelBindable(
             ownerUserId,
             requestedProviderId(dto),

@@ -1,4 +1,4 @@
-import { normalizeAgentName, stepsFor } from '@manyfold/shared'
+import { isConfigurableFramework, normalizeAgentName, stepsFor } from '@manyfold/shared'
 import type {
     AddRuntimeAgentBody,
     AgentCreateStep,
@@ -63,7 +63,15 @@ export const buildCreateAgentBody = (
         runtime: draft.runtimeMode === 'persistent' ? 'k8s' : 'sprites'
     }
 
-    if (draft.framework === 'claude-code') {
+    // The CLI inside the runtime owns the credentials (subscription
+    // sign-in): no credential block, no saveCredentialAs, no platform
+    // modelConfig — the API's DTO guard enforces the same XOR.
+    const runtimeLocal =
+        draft.picker.mode === 'runtime' && isConfigurableFramework(draft.framework)
+
+    if (runtimeLocal) {
+        base.modelConfigSource = 'runtime-local'
+    } else if (draft.framework === 'claude-code') {
         base.claudeCodeCredentials = buildClaudePayload(draft.picker)
     } else if (draft.framework === 'codex') {
         base.codexCredentials = buildCodexPayload(draft.picker)
@@ -113,7 +121,7 @@ export const buildCreateAgentBody = (
         base.saveCredentialAs = { providerName: draft.picker.saveLabel }
     }
     if (draft.restoreBackupId) base.restoreBackupId = draft.restoreBackupId
-    if (draft.modelConfig) base.modelConfig = draft.modelConfig
+    if (draft.modelConfig && !runtimeLocal) base.modelConfig = draft.modelConfig
     const workspace = optionalWorkspace(draft.workspace)
     if (workspace) base.workspace = workspace
     const frameworkVersion = draft.frameworkVersion?.trim()

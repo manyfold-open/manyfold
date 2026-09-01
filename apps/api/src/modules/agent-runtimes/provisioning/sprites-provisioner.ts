@@ -1,6 +1,7 @@
 import {
     AgentFramework,
     AgentModelConfig,
+    AgentModelConfigSource,
     FrameworkInstallSource,
     codingAgentWorkspacePath,
     createObjectId,
@@ -90,6 +91,9 @@ export interface SpritesProvisionInput {
     workspacePath?: string
     workspaceManaged?: boolean
     modelConfig?: AgentModelConfig | null
+    // 'runtime-local' drives the credential-less bootstrap path (no platform
+    // keys written, no key login, no paid verify). See BootstrapContext.
+    modelConfigSource?: AgentModelConfigSource | null
     frameworkVersion?: string | null
     // Provenance of `frameworkVersion`; drives whether a failed install is fatal
     // or degrades to the framework's built-in default. See installFrameworkVersion.
@@ -654,6 +658,7 @@ export class SpritesProvisioner {
                 logger: spritesLoggerFor(this.log),
                 execTimeoutMs: 60_000,
                 modelConfig: input.modelConfig ?? null,
+                modelConfigSource: input.modelConfigSource ?? null,
                 frameworkVersion: input.frameworkVersion ?? null,
                 frameworkVersionSource: input.frameworkVersionSource ?? 'none',
                 frameworkRepo: input.frameworkRepo ?? null

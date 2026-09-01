@@ -1,4 +1,7 @@
-import type { AgentModelConfig } from '@manyfold/shared'
+import type {
+    AgentModelConfig,
+    AgentModelConfigSource
+} from '@manyfold/shared'
 import type { Logger } from '@nestjs/common'
 import type { V1Probe } from '@kubernetes/client-node'
 import type { PodExec } from '@/modules/k8s/pod-exec'
@@ -22,6 +25,10 @@ export interface K8sBootstrapContext {
     dashboardEnabled: boolean
     workspacePath?: string
     modelConfig?: AgentModelConfig | null
+    // 'runtime-local' = the CLI inside the pod owns the model credentials
+    // (subscription sign-in): plan() must keep every provider key out of the
+    // env Secret — pod env outranks the on-disk OAuth the user signs in with.
+    modelConfigSource?: AgentModelConfigSource | null
     apiBaseUrl?: string
     apiToken?: string
     deployEnv?: string
@@ -81,6 +88,8 @@ export interface K8sPostProvisionContext {
     exec: PodExec
     logger: Logger
     modelConfig?: AgentModelConfig | null
+    // See K8sBootstrapContext: skips key logins and paid verify turns.
+    modelConfigSource?: AgentModelConfigSource | null
 }
 
 export interface K8sFrameworkBootstrap {

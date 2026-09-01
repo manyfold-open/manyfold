@@ -9,6 +9,7 @@ import {
     SPRITE_HOME_BASE,
     UserModelProvider,
     externalSteps,
+    isConfigurableFramework,
     normalizeAgentName,
     providerSupportsTarget,
     validateAgentName
@@ -23,6 +24,7 @@ import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
 import {
     initialPicker,
+    initialPickerForFramework,
     pickerIsValid,
     ProviderPicker,
     type ProviderPickerValue
@@ -431,7 +433,7 @@ const AgentNewBInline: FC = (): ReactNode => {
         /^v?\d+\.\d+\.\d+$/.test(initialVersion) ? initialVersion : ''
     )
     const [picker, setPicker] = useState<ProviderPickerValue>(() =>
-        initialPicker()
+        initialPickerForFramework(framework)
     )
     const [externalProviderUserPicked, setExternalProviderUserPicked] =
         useState(false)
@@ -579,10 +581,11 @@ const AgentNewBInline: FC = (): ReactNode => {
             providers,
             nextTargetProvider
         )
+        const pickerBase = initialPickerForFramework(next)
         setPicker(
-            preferred
-                ? { ...initialPicker(), providerId: preferred.id }
-                : initialPicker()
+            pickerBase.mode === 'saved' && preferred
+                ? { ...pickerBase, providerId: preferred.id }
+                : pickerBase
         )
         const nextPrimaryModel =
             usesConfigurableModelProvider(next) && preferred
@@ -1410,6 +1413,9 @@ const AgentNewBInline: FC = (): ReactNode => {
                                         <ProviderPicker
                                             provider={modelProviderForRuntime}
                                             framework={framework}
+                                            allowRuntimeMode={isConfigurableFramework(
+                                                framework
+                                            )}
                                             apiKeyLabel={apiKeyLabelForProvider(
                                                 credentialProvider
                                             )}

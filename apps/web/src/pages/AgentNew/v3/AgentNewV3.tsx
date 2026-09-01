@@ -18,6 +18,7 @@ import {
     inputValidation,
     isManagedProtocolAllowedForFramework,
     normalizeAgentName,
+    isConfigurableFramework,
     providerProtocolForTarget,
     providerSupportsTarget,
     suggestAgentName,
@@ -114,6 +115,7 @@ import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const PROVIDER_NEW_KEY_OPTION = '__new_key__'
 const PROVIDER_INLINE_OPTION = '__inline__'
+const PROVIDER_RUNTIME_OPTION = '__runtime__'
 
 const NAME_ERROR_KEY = {
     empty: 'errors.agentName.empty',
@@ -1097,11 +1099,13 @@ const AgentNewV3: FC = (): ReactNode => {
         !selectableProviders.some((o) => o.source === 'managed')
 
     const providerSelectValue =
-        picker.mode === 'inline'
-            ? inlineConfigured
-                ? PROVIDER_INLINE_OPTION
-                : ''
-            : (picker.providerId ?? '')
+        picker.mode === 'runtime'
+            ? PROVIDER_RUNTIME_OPTION
+            : picker.mode === 'inline'
+              ? inlineConfigured
+                  ? PROVIDER_INLINE_OPTION
+                  : ''
+              : (picker.providerId ?? '')
 
     const providerOptions: WorkbenchSelectOption[] = [
         ...pickerProviders.map((o) => ({
@@ -1113,6 +1117,21 @@ const AgentNewV3: FC = (): ReactNode => {
                 t('web.agentNewV3.managedProvider')
             )
         })),
+        ...(isConfigurableFramework(framework)
+            ? [
+                  {
+                      value: PROVIDER_RUNTIME_OPTION,
+                      label: (
+                          <span className='flex min-w-0 items-center gap-2'>
+                              <ProviderIcon className='text-fg h-[18px] w-[18px] shrink-0' />
+                              <span className='truncate'>
+                                  {t('web.agentNew.useOwnSubscription')}
+                              </span>
+                          </span>
+                      )
+                  }
+              ]
+            : []),
         ...(inlineConfigured
             ? [
                   {
@@ -1155,6 +1174,17 @@ const AgentNewV3: FC = (): ReactNode => {
     const selectProvider = (v: string): void => {
         if (v === PROVIDER_NEW_KEY_OPTION || v === PROVIDER_INLINE_OPTION) {
             openKeyDialog()
+            return
+        }
+        if (v === PROVIDER_RUNTIME_OPTION) {
+            setPicker((cur) => ({
+                ...cur,
+                mode: 'runtime',
+                providerId: '',
+                apiKey: '',
+                baseUrl: ''
+            }))
+            modelConfig.setDraft(null)
             return
         }
         setPicker((cur) => ({
@@ -1739,6 +1769,11 @@ const AgentNewV3: FC = (): ReactNode => {
                 onChange={selectProvider}
                 options={providerOptions}
             />
+            {picker.mode === 'runtime' && (
+                <p className='text-subtle text-caption mt-1.5'>
+                    {t('web.agentNew.subscriptionSignInExplainer')}
+                </p>
+            )}
             {isConfigurable &&
                 (managedUnavailableForFamily &&
                 persistentModelProvider !== 'anthropic' ? (

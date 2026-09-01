@@ -207,8 +207,15 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
               }
             : null
+        // modelConfig null + tuning present = runtime-local turn (see
+        // resolveTurnConfig); injected env would outrank the CLI's on-disk
+        // sign-in, which is exactly the credential this mode runs on. The
+        // legacy no-modelConfigs fallback leaves BOTH null and keeps
+        // injecting on sprites.
+        const runtimeLocalTurn = !modelConfig && !!ctx.runtimeLocalTuning
         const shouldInjectPlatformCredentials =
-            runtime === 'sprites' || (runtime === 'daemon' && !!modelConfig)
+            !runtimeLocalTurn &&
+            (runtime === 'sprites' || (runtime === 'daemon' && !!modelConfig))
         const env =
             shouldInjectPlatformCredentials && credentialEnv
                 ? {
