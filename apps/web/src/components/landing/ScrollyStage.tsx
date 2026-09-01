@@ -317,7 +317,6 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
     const layerOrder = useMemo(
         () => [layers.gA, layers.gFeed, layers.gB, layers.gFlow, layers.gC],
         // The refs are stable for the component's lifetime.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         []
     )
 
