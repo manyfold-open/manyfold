@@ -121,6 +121,63 @@ describe('runtimeLocalCredentialStatus — claude-code', () => {
         assert.ok(isRuntimeLocalCredentialUsable(result.status))
     })
 
+    // Seen on a self-hosted sandbox [2026-09-01]: this exact fact shape — the
+    // one a fresh runtime-local sandbox reports, because ClaudeCodeBootstrap
+    // creates ~/.claude itself — evaluated as usable, so the sign-in card hid
+    // and the first turn died on the CLI's own "Not logged in".
+    it('reports missing when a provisioned runtime shows only the config we created', () => {
+        const result = runtimeLocalCredentialStatus(
+            claude({ configPresent: true }),
+            NOW,
+            { configPresenceIsEvidence: false }
+        )
+        assert.equal(result.status, 'missing')
+        assert.equal(result.reason, 'no-credentials')
+        assert.equal(isRuntimeLocalCredentialUsable(result.status), false)
+    })
+
+    it('still reads real credential material on a provisioned runtime', () => {
+        const provisioned = { configPresenceIsEvidence: false }
+        // A credentials file we could parse but not date is evidence of
+        // something; only the bare directory was ever manufactured.
+        assert.equal(
+            runtimeLocalCredentialStatus(
+                claude({ credentialsFileParsed: true, configPresent: true }),
+                NOW,
+                provisioned
+            ).status,
+            'unknown'
+        )
+        assert.equal(
+            runtimeLocalCredentialStatus(
+                claude({
+                    credentialsFileParsed: true,
+                    configPresent: true,
+                    oauthExpiresAt: NOW + HOUR
+                }),
+                NOW,
+                provisioned
+            ).status,
+            'valid'
+        )
+        assert.equal(
+            runtimeLocalCredentialStatus(
+                claude({ oauthAccount: true, configPresent: true }),
+                NOW,
+                provisioned
+            ).status,
+            'valid'
+        )
+        assert.equal(
+            runtimeLocalCredentialStatus(
+                claude({ envToken: true, configPresent: true }),
+                NOW,
+                provisioned
+            ).status,
+            'valid'
+        )
+    })
+
     it('reports missing when no credential trace exists at all', () => {
         const result = runtimeLocalCredentialStatus(claude(), NOW)
         assert.equal(result.status, 'missing')

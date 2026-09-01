@@ -581,6 +581,7 @@ export type {
     CodexCredentialFacts,
     CodexCustomProviderFact,
     GeminiCredentialFacts,
+    RuntimeLocalCredentialContext,
     RuntimeLocalCredentialEvaluation,
     RuntimeLocalCredentialFacts,
     RuntimeLocalCredentialReason,
