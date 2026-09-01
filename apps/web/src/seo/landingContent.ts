@@ -1,3 +1,4 @@
+import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 // Shared between the interactive landing page and the build-time landing
 // snapshot so the crawler HTML and the hydrated page cannot drift.
 
@@ -95,43 +96,65 @@ export interface WorksWithChip {
     name?: string
     key?: string
     soft?: boolean
+    /* A mark makes the row scannable in a way a wall of pills is not: the eye
+       finds a logo before it reads a word. Rows whose entries are capabilities
+       rather than products (the runtimes) stay text — inventing marks for them
+       would be decoration, not information. */
+    framework?: AgentFramework
+    channel?: ChannelProviderName
+    /* Runtimes are capabilities, not products, so they carry a drawn icon
+       rather than a vendor mark. */
+    runtime?: 'sandbox' | 'cloud' | 'own' | 'external'
 }
 
 export const WORKS_WITH_ROWS: ReadonlyArray<{
     labelKey: string
     chips: ReadonlyArray<WorksWithChip>
 }> = [
+    /* Every framework the platform runs, not a curated six: the row's whole
+       job is to let a reader find the one they already use, and a shortened
+       list fails exactly the person it is meant to reassure. Dify and
+       Langflow belong here rather than buried in the runtimes line — they
+       are frameworks, and what makes them different is where they run, which
+       the runtimes row already says. */
     {
         labelKey: 'web.landing.worksWithFrameworks',
         chips: [
-            { name: 'Claude Code' },
-            { name: 'Codex' },
-            { name: 'Gemini CLI' },
-            { name: 'Openclaw' },
-            { name: 'Hermes' },
-            { name: 'NarraNexus' }
+            { name: 'Claude Code', framework: 'claude-code' },
+            { name: 'Codex', framework: 'codex' },
+            { name: 'Gemini CLI', framework: 'gemini-cli' },
+            { name: 'Openclaw', framework: 'openclaw' },
+            { name: 'Hermes', framework: 'hermes' },
+            { name: 'NarraNexus', framework: 'narranexus' },
+            { name: 'Dify', framework: 'dify' },
+            { name: 'Langflow', framework: 'langflow' },
+            { name: 'A2A', framework: 'a2a' }
         ]
     },
     {
         labelKey: 'web.landing.worksWithChannels',
         chips: [
-            { name: 'Lark' },
-            { name: 'Slack' },
-            { name: 'Discord' },
-            { name: 'Telegram' },
-            { name: 'Matrix' },
-            { name: 'WeChat' },
-            { name: 'Linear' },
-            { name: 'GitHub' }
+            { name: 'Lark', channel: 'lark' },
+            { name: 'Slack', channel: 'slack' },
+            { name: 'Discord', channel: 'discord' },
+            { name: 'Telegram', channel: 'telegram' },
+            { name: 'WhatsApp', channel: 'whatsapp' },
+            { name: 'Matrix', channel: 'matrix' },
+            { name: 'WeChat', channel: 'weixin' },
+            { name: 'LINE', channel: 'line' },
+            { name: 'Linear', channel: 'linear' },
+            { name: 'GitHub', channel: 'github' }
         ]
     },
     {
         labelKey: 'web.landing.worksWithRuntimes',
         chips: [
-            { key: 'web.landing.worksWithSandbox' },
-            { key: 'web.landing.worksWithCloud' },
-            { key: 'web.landing.worksWithOwn' },
-            { key: 'web.landing.worksWithExternal', soft: true }
+            { key: 'web.landing.worksWithSandbox', runtime: 'sandbox' },
+            { key: 'web.landing.worksWithCloud', runtime: 'cloud' },
+            { key: 'web.landing.worksWithOwn', runtime: 'own' },
+            /* Reuses the world's own label so "external" needs no new string
+               and arrives already translated in all eleven catalogues. */
+            { key: 'web.landing.worldRuntimeExternal', runtime: 'external' }
         ]
     }
 ]

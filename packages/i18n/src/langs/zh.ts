@@ -690,7 +690,8 @@ const zh: Translations = {
             beta: 'Beta',
             language: '语言',
             followX: '在 X 上关注',
-            joinDiscord: '加入 Discord'
+            joinDiscord: '加入 Discord',
+            sourceGithub: '在 GitHub 上查看源码'
         },
         cascade: {
             close: '关闭',
@@ -1917,6 +1918,18 @@ const zh: Translations = {
                 '托管运行时有套餐与配额。用你自己的机器，不额外收费。',
             meterHonest:
                 '我们不敢说每一次运行都最便宜。我们保证的是：你永远知道一次运行花了多少，也永远有更便宜的地方可以搬过去。',
+            obsEyebrow: '可观测性',
+            obsTitle: '每一次运行，',
+            obsTitleAccent: '都留有记录。',
+            obsLead: '每一轮的对话记录、花费和权限都在 —— 包括你睡着时跑完的那些。',
+            obsPoint1Label: '对话记录。',
+            obsPoint1Body: '每一轮都留下来 —— 提示词、工具调用、改过的文件。几周后回来也能接着看。',
+            obsPoint2Label: '花费。',
+            obsPoint2Body: '每一轮的 token、耗时、模型和价格，覆盖你用的每一个供应商。',
+            obsPoint3Label: '控制权。',
+            obsPoint3Body: 'Agent 申请过的每一项权限，以及你的回答，记在同一份记录里。',
+            obsAllowed: '已允许',
+            obsDenied: '已拒绝',
             pricingEyebrow: '套餐',
             pricingPopular: '最受欢迎',
             faqEyebrow: '常见问题',
@@ -1949,11 +1962,6 @@ const zh: Translations = {
             faqTitleBefore: '真正决定选择的',
             faqTitleAccent: '那几个问题。',
             faqLead: '如果你在纠结自己搭一套还是用现成的，从这里开始看。',
-            ctaTitle1: '多个 Agent。',
-            ctaTitle2: '同一个',
-            ctaTitleAccent: '工作区。',
-            ctaLead:
-                '预览期免费。把你的智能体和你的机器带过来，今天就开始让它们交付成果。',
             ctaSecondaryCta: '查看文档',
             pricingTitleBefore: '免费开始，',
             pricingTitleAccent: '需要时再扩展。',

@@ -105,20 +105,18 @@ export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
             <section className='lp-section seo-section'>
                 <div className='lp-container'>
                     <h2 className='lp-h2'>
-                        {t('web.landing.meterTitle')}{' '}
-                        {t('web.landing.meterTitleAccent')}
+                        {t('web.landing.obsTitle')}{' '}
+                        {t('web.landing.obsTitleAccent')}
                     </h2>
                     <ul className='seo-bullets'>
                         {ITEMS.map((point) => (
                             <li key={point}>
-                                {t(`web.landing.meterPoint${point}Label`)}{' '}
-                                {t(`web.landing.meterPoint${point}Body`)}
+                                {t(`web.landing.obsPoint${point}Label`)}{' '}
+                                {t(`web.landing.obsPoint${point}Body`)}
                             </li>
                         ))}
                     </ul>
-                    <p className='seo-positioning'>
-                        {t('web.landing.meterHonest')}
-                    </p>
+                    <p className='seo-positioning'>{t('web.landing.obsLead')}</p>
                 </div>
             </section>
             <section className='lp-section seo-section'>
@@ -158,34 +156,6 @@ export const LandingSnapshot: FC<{ entry: SeoPageEntry }> = ({
                             </div>
                         ))}
                     </dl>
-                </div>
-            </section>
-            <section className='lp-section seo-section seo-cta-block'>
-                <div className='lp-container'>
-                    <h2 className='lp-h2'>{copy.ctaTitle}</h2>
-                    <p className='lp-lead'>{t('web.landing.ctaLead')}</p>
-                    <div className='seo-ctas'>
-                        <a
-                            className='lp-btn lp-btn-primary'
-                            href={copy.ctaPrimary.href}
-                        >
-                            {copy.ctaPrimary.label}
-                        </a>
-                        <a
-                            className='lp-btn lp-btn-secondary'
-                            href={copy.ctaSecondary.href}
-                        >
-                            {copy.ctaSecondary.label}
-                        </a>
-                    </div>
-                    <h3 className='seo-links-label'>{copy.docsLinksLabel}</h3>
-                    <ul className='seo-links'>
-                        {copy.docsLinks.map((link) => (
-                            <li key={link.href}>
-                                <a href={link.href}>{link.label}</a>
-                            </li>
-                        ))}
-                    </ul>
                 </div>
             </section>
         </main>

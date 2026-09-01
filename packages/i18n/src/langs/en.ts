@@ -705,7 +705,8 @@ const en = {
             followX: 'Follow on X',
             // "Discord", not "our Discord": the invite opens the NetMind.AI
             // server, so promising a Manyfold one would misdescribe it.
-            joinDiscord: 'Join Discord'
+            joinDiscord: 'Join Discord',
+            sourceGithub: 'Source on GitHub'
         },
         cascade: {
             close: 'Close',
@@ -1968,6 +1969,22 @@ const en = {
                 'Plans and quotas for hosted runtimes. Your own machines cost you nothing extra.',
             meterHonest:
                 'We don’t claim the cheapest run every time. We do promise you always know what a run cost, and always have somewhere cheaper to move it.',
+            obsEyebrow: 'Observability',
+            obsTitle: 'Every run,',
+            obsTitleAccent: 'on the record.',
+            obsLead:
+                'Transcripts, cost and permissions for every turn — including the runs that happened while you were asleep.',
+            obsPoint1Label: 'Transcript.',
+            obsPoint1Body:
+                'Every turn kept — the prompt, the tool calls, the files it touched. Pick the session back up weeks later.',
+            obsPoint2Label: 'Cost.',
+            obsPoint2Body:
+                'Tokens, latency, model and price per turn, across every provider you use.',
+            obsPoint3Label: 'Control.',
+            obsPoint3Body:
+                'Every permission an agent asked for, and what you answered, on the same record.',
+            obsAllowed: 'Allowed',
+            obsDenied: 'Denied',
             pricingEyebrow: 'Plans',
             pricingPopular: 'Popular',
             faqEyebrow: 'Questions',
@@ -2001,11 +2018,6 @@ const en = {
             faqTitleAccent: 'decide it.',
             faqLead:
                 'If you are weighing this against building it yourself, start here.',
-            ctaTitle1: 'Many agents.',
-            ctaTitle2: 'One',
-            ctaTitleAccent: 'fold.',
-            ctaLead:
-                'Free while in preview. Bring your agents and your machines, and start delivering their work today.',
             ctaSecondaryCta: 'Read the docs',
             pricingTitleBefore: 'Start free.',
             pricingTitleAccent: 'Scale when ready.',

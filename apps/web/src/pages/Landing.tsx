@@ -7,7 +7,16 @@ import {
     useState
 } from 'react'
 import { Link, Navigate, useLocation, useSearchParams } from 'react-router-dom'
-import { ArrowRight, Check, Plus, Sparkle } from 'lucide-react'
+import {
+    ArrowRight,
+    Blocks,
+    Check,
+    Cloud,
+    HardDrive,
+    Laptop,
+    Plus,
+    Sparkle
+} from 'lucide-react'
 import { ScrollyStage } from '@/components/landing/ScrollyStage'
 import { MarketingFooter } from '@/components/marketing/MarketingFooter'
 import { MarketingNav } from '@/components/marketing/MarketingNav'
@@ -16,6 +25,13 @@ import AccessGateModal from '@/components/signup-gate/AccessGateModal'
 import { useSignupGateFeature } from '@/components/signup-gate/useSignupGate'
 import { useSignedInBilling, type PricingBilling } from '@/lib/landingBilling'
 import { SignedIn, SignedOut, useAppAuth } from '@/lib/auth'
+import {
+    AnthropicMono,
+    GeminiMono,
+    OpenAIMono
+} from '@/lib/brandIcons'
+import { ChannelProviderIcon } from '@/lib/channelMeta'
+import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import {
     FAQ_KEYS,
@@ -194,6 +210,31 @@ const LandingOverflowCta: FC<{ close: () => void }> = ({
     )
 }
 
+/* Vendor marks in the usage table run mono, not colour: the table is dense
+   monospaced figures, and three saturated logos would out-shout the readings
+   they are meant to label. */
+const VENDOR_MARK = {
+    anthropic: AnthropicMono,
+    openai: OpenAIMono,
+    google: GeminiMono
+} as const
+
+const VendorMark: FC<{ vendor: keyof typeof VENDOR_MARK }> = ({ vendor }) => {
+    const Mark = VENDOR_MARK[vendor]
+    return (
+        <span className='lp-usage-mark' aria-hidden='true'>
+            <Mark size={13} />
+        </span>
+    )
+}
+
+const RUNTIME_ICON = {
+    sandbox: HardDrive,
+    cloud: Cloud,
+    own: Laptop,
+    external: Blocks
+} as const
+
 // Three rows of what plugs in: the frameworks that run, the channels that
 // deliver, the runtimes that host. Names are products, so only the row
 // labels and the descriptive entries carry translations.
@@ -218,19 +259,73 @@ const WorksWith: FC = (): ReactNode => {
                     {WORKS_WITH_ROWS.map((row) => (
                         <div key={row.labelKey} className='lp-ww-row'>
                             <div className='lp-ww-k'>{t(row.labelKey)}</div>
+                            {/* The track carries the list twice and travels
+                                exactly one copy, so the seam never arrives.
+                                A short row is padded out first: with four
+                                items the repeat lands inside one viewport and
+                                the loop becomes visible. Only the first copy
+                                is read aloud. */}
                             <div className='lp-ww-v'>
-                                {row.chips.map((chip) => (
-                                    <span
-                                        key={chip.name ?? chip.key}
-                                        className={
-                                            chip.soft
-                                                ? 'lp-chip lp-chip-soft'
-                                                : 'lp-chip'
-                                        }
-                                    >
-                                        {chip.name ?? t(chip.key ?? '')}
-                                    </span>
-                                ))}
+                                <div className='lp-ww-track'>
+                                    {[0, 1].map((copy) => (
+                                        <div
+                                            className='lp-ww-set'
+                                            key={copy}
+                                            aria-hidden={copy === 1}
+                                        >
+                                            {Array.from(
+                                                {
+                                                    length:
+                                                        row.chips.length < 6
+                                                            ? 3
+                                                            : 1
+                                                },
+                                                (_, rep) => rep
+                                            ).flatMap((rep) =>
+                                                row.chips.map((chip) => ({
+                                                    ...chip,
+                                                    rep
+                                                }))
+                                            ).map((chip) => {
+                                                const Runtime = chip.runtime
+                                                    ? RUNTIME_ICON[chip.runtime]
+                                                    : null
+                                                return (
+                                                    <span
+                                                        key={`${chip.rep}-${chip.name ?? chip.key}`}
+                                                        className='lp-chip'
+                                                    >
+                                                        {chip.framework ? (
+                                                            <FrameworkLogo
+                                                                framework={
+                                                                    chip.framework
+                                                                }
+                                                                size={26}
+                                                                className='lp-chip-mark'
+                                                            />
+                                                        ) : null}
+                                                        {chip.channel ? (
+                                                            <ChannelProviderIcon
+                                                                provider={
+                                                                    chip.channel
+                                                                }
+                                                                className='lp-chip-mark'
+                                                            />
+                                                        ) : null}
+                                                        {Runtime ? (
+                                                            <Runtime
+                                                                className='lp-chip-mark lp-chip-drawn'
+                                                                aria-hidden='true'
+                                                            />
+                                                        ) : null}
+                                                        {chip.name ??
+                                                            t(chip.key ?? '')}
+                                                    </span>
+                                                )
+                                            })}
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     ))}
@@ -250,129 +345,184 @@ const USAGE_ROWS: ReadonlyArray<{
     tokens: string
     latency: string
     cost: string
+    costValue: number
+    vendor: 'anthropic' | 'openai' | 'google'
     ownKey?: boolean
 }> = [
     {
         turn: '#142',
         agent: 'cc-review',
         model: 'claude-sonnet-5',
+        vendor: 'anthropic',
         tokens: '38.2k',
         latency: '3.2s',
-        cost: '$0.120'
+        cost: '$0.120',
+        costValue: 0.12
     },
     {
         turn: '#141',
         agent: 'pr-bot',
         model: 'gpt-5-codex',
+        vendor: 'openai',
         tokens: '8.1k',
         latency: '2.1s',
-        cost: '$0.052'
+        cost: '$0.052',
+        costValue: 0.052
     },
     {
         turn: '#140',
         agent: 'research-mate',
         model: 'gemini-2.5-pro',
+        vendor: 'google',
         tokens: '21.4k',
         latency: '4.8s',
-        cost: '$0.011'
+        cost: '$0.011',
+        costValue: 0.011
     },
     {
         turn: '#139',
         agent: 'cc-review',
         model: 'sonnet-5',
+        vendor: 'anthropic',
         tokens: '12.4k',
         latency: '2.9s',
         cost: '$0.084',
+        costValue: 0.084,
         ownKey: true
     }
 ]
 
-const Metering: FC = (): ReactNode => {
+/* Observability, not metering. The section used to argue one thing — that a
+   run's price is visible — and the three claims under it were all restatements
+   of that. What a reader needs to trust an agent they cannot watch is broader:
+   what it did, what that cost, and what it was allowed to touch.
+
+   Three peers, so three columns rather than three stacked pairs: paired rows
+   left a ragged column of artefacts at three different heights, and put a
+   month-to-date figure at the head of a section that is no longer about
+   money. The figure now sits in the column it belongs to. */
+const TRANSCRIPT = [
+    ['read', 'src/auth/session.ts'],
+    ['edit', '3 files'],
+    ['test', '18 passed']
+] as const
+
+const PERMISSIONS = [
+    ['edit', 'src/auth/session.ts', true],
+    ['run', 'pnpm test', true],
+    ['run', 'rm -rf node_modules', false]
+] as const
+
+const Observability: FC = (): ReactNode => {
     const { t } = useI18n()
+    const dearest = Math.max(...USAGE_ROWS.map((r) => r.costValue))
+    const panels = [
+        <div className='lp-ob-panel' key='transcript'>
+            <div className='lp-ob-row'>
+                <span className='lp-ob-who'>
+                    <VendorMark vendor='anthropic' />
+                    cc-review
+                    <span className='lp-ob-dim'>#4</span>
+                </span>
+                <span className='lp-ob-dim'>2h</span>
+            </div>
+            {TRANSCRIPT.map(([verb, what]) => (
+                <div className='lp-ob-step' key={what}>
+                    <span className='lp-ob-verb'>{verb}</span>
+                    <span className='lp-ob-dim'>{what}</span>
+                </div>
+            ))}
+            <div className='lp-ob-step'>
+                <span className='lp-ob-ok' aria-hidden='true'>
+                    <Check />
+                </span>
+                <span className='lp-ob-dim'>PR #412</span>
+            </div>
+        </div>,
+        <div className='lp-ob-panel' key='cost'>
+            {USAGE_ROWS.slice(0, 3).map((row) => (
+                <div className='lp-ob-row' key={row.turn}>
+                    <span className='lp-ob-who'>
+                        <VendorMark vendor={row.vendor} />
+                        <span className='lp-ob-dim'>{row.model}</span>
+                    </span>
+                    <span className='lp-ob-cost'>
+                        <span className='lp-ob-bar' aria-hidden='true'>
+                            <i
+                                style={{
+                                    width: `${Math.round((row.costValue / dearest) * 100)}%`
+                                }}
+                            />
+                        </span>
+                        <b>{row.cost}</b>
+                    </span>
+                </div>
+            ))}
+            {/* Month to date belongs to cost, not to the section. */}
+            <div className='lp-ob-foot'>
+                <span>{t('web.landing.meterMonthToDate')}</span>
+                <b>$12.40</b>
+            </div>
+        </div>,
+        <div className='lp-ob-panel' key='control'>
+            {PERMISSIONS.map(([verb, what, allowed]) => (
+                <div className='lp-ob-perm' key={what}>
+                    <span className='lp-ob-verb'>{verb}</span>
+                    <span className='lp-ob-dim'>{what}</span>
+                    <span
+                        className={
+                            allowed
+                                ? 'lp-ob-tag lp-ob-yes'
+                                : 'lp-ob-tag lp-ob-no'
+                        }
+                    >
+                        {t(
+                            allowed
+                                ? 'web.landing.obsAllowed'
+                                : 'web.landing.obsDenied'
+                        )}
+                    </span>
+                </div>
+            ))}
+        </div>
+    ]
     return (
         <section id='lp-metering' className='lp-section'>
-            <div className='lp-container'>
-                <div className='lp-section-head'>
-                    <div className='lp-eyebrow'>
-                        {t('web.landing.meterEyebrow')}
-                    </div>
-                </div>
-                <div className='lp-meter'>
-                    <div className='lp-usage'>
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>{t('web.landing.meterColTurn')}</th>
-                                    <th>{t('web.landing.meterColAgent')}</th>
-                                    <th>{t('web.landing.meterColModel')}</th>
-                                    <th>{t('web.landing.meterColTokens')}</th>
-                                    <th>{t('web.landing.meterColLatency')}</th>
-                                    <th>{t('web.landing.meterColCost')}</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {USAGE_ROWS.map((row) => (
-                                    <tr key={row.turn}>
-                                        <td>{row.turn}</td>
-                                        <td className='lp-usage-strong'>
-                                            {row.agent}
-                                        </td>
-                                        <td>
-                                            {row.ownKey
-                                                ? `${row.model} · ${t('web.landing.meterOwnKey')}`
-                                                : row.model}
-                                        </td>
-                                        <td>{row.tokens}</td>
-                                        <td>{row.latency}</td>
-                                        <td className='lp-usage-strong'>
-                                            {row.cost}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                        <div className='lp-usage-foot'>
-                            <span>
-                                {t('web.landing.meterMonthToDate')} ·{' '}
-                                <b>$12.40</b>
-                            </span>
-                            <span>
-                                {t('web.landing.meterProviderBalance')} ·{' '}
-                                <b>$41.20</b>
-                            </span>
+            <div className='lp-container lp-ob'>
+                <div className='lp-ob-head'>
+                    <div className='lp-section-head'>
+                        <div className='lp-eyebrow'>
+                            {t('web.landing.obsEyebrow')}
                         </div>
-                    </div>
-                    <div>
                         <h2 className='lp-h2'>
-                            {t('web.landing.meterTitle')}{' '}
+                            {t('web.landing.obsTitle')}
+                            {/* The break is explicit, the way the hero's is:
+                                `balance` evens the lines out and drags the
+                                accent's first word up to join the first. */}
+                            <br />
                             <span className='lp-h-accent'>
-                                {t('web.landing.meterTitleAccent')}
+                                {t('web.landing.obsTitleAccent')}
                             </span>
                         </h2>
-                        <div className='lp-meter-points'>
-                            {[1, 2, 3].map((n) => (
-                                <p key={n} className='lp-meter-point'>
-                                    <i aria-hidden='true' />
-                                    <span>
-                                        <b>
-                                            {t(
-                                                `web.landing.meterPoint${n}Label`
-                                            )}
-                                        </b>{' '}
-                                        {t(`web.landing.meterPoint${n}Body`)}
-                                    </span>
-                                </p>
-                            ))}
-                        </div>
-                        <p className='lp-meter-honest'>
-                            {t('web.landing.meterHonest')}
-                        </p>
                     </div>
+                    <p className='lp-lead'>{t('web.landing.obsLead')}</p>
+                </div>
+                <div className='lp-ob-cols'>
+                    {[1, 2, 3].map((n) => (
+                        <div className='lp-ob-col' key={n}>
+                            {panels[n - 1]}
+                            <div className='lp-ob-claim'>
+                                <b>{t(`web.landing.obsPoint${n}Label`)}</b>
+                                <p>{t(`web.landing.obsPoint${n}Body`)}</p>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             </div>
         </section>
     )
 }
+
 const PricingCard: FC<{
     tier: PricingTier
     billing: PricingBilling | null
@@ -594,44 +744,6 @@ const Faq: FC = (): ReactNode => {
         </section>
     )
 }
-const CtaSection: FC = (): ReactNode => {
-    const { t } = useI18n()
-    return (
-        <section className='lp-cta'>
-            <div className='lp-container'>
-                <div className='lp-cta-card'>
-                    <div className='lp-cta-inner'>
-                        <h2>
-                            {t('web.landing.ctaTitle1')}
-                            <br />
-                            {t('web.landing.ctaTitle2')}{' '}
-                            <span className='lp-h-accent'>
-                                {t('web.landing.ctaTitleAccent')}
-                            </span>
-                        </h2>
-                        <p className='lp-cta-lead'>
-                            {t('web.landing.ctaLead')}
-                        </p>
-                        <div className='lp-cta-ctas'>
-                            <SignedOut>
-                                <SignedOutCtas />
-                            </SignedOut>
-                            <SignedIn>
-                                <Link
-                                    to='/workspace'
-                                    className='lp-btn lp-btn-primary'
-                                >
-                                    {t('web.landing.openWorkspace')}
-                                    <ArrowRight className='lp-arr' />
-                                </Link>
-                            </SignedIn>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-    )
-}
 
 // The one CTA pair the hero scenes reuse: the gated sign-up flow when
 // signed out, a straight route into the workspace when signed in.
@@ -713,10 +825,9 @@ const Landing: FC = (): ReactNode => {
                     <main>
                         <ScrollyStage cta={<HeroCta />} />
                         <WorksWith />
-                        <Metering />
+                        <Observability />
                         <Pricing />
                         <Faq />
-                        <CtaSection />
                     </main>
                     <MarketingFooter badge={<LandingBrandBadge />} />
                 </div>

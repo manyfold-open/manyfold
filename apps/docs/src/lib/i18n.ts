@@ -82,6 +82,7 @@ type UiCopy = {
     themeToggle: string
     joinDiscord: string
     followX: string
+    sourceGithub: string
     onThisPage: string
     copyPage: string
     copied: string
@@ -162,6 +163,7 @@ const defaultUi: UiCopy = {
     // "Discord", not "our Discord": the invite opens the NetMind.AI server.
     joinDiscord: 'Join Discord',
     followX: 'Follow on X',
+    sourceGithub: 'Source on GitHub',
     // The third column's heading, and the only one now: the inline "Table of
     // contents" the API landing used to carry is the same list, and shipping
     // both meant one site naming the same object two ways.
@@ -202,6 +204,7 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
         languageLabel: '语言',
         joinDiscord: '加入 Discord',
         followX: '在 X 上关注',
+        sourceGithub: '在 GitHub 上查看源码',
         docsHome: '文档首页',
         docsTitle: '文档',
         docsDescription:
