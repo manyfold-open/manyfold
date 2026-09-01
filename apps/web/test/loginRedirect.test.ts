@@ -37,7 +37,7 @@ test('what loginUrl produces is what the login page accepts', () => {
     for (const next of [
         '/agents/new?framework=narranexus',
         '/connections?connected=github',
-        '/settings/plan-and-billing?topup=1',
+        '/skills/library/edit?id=lsk_1&edit=1',
         '/skills/shared/shr_1'
     ]) {
         const decoded = new URL(
