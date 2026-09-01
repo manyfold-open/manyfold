@@ -1151,6 +1151,19 @@ test('parseNetmindPricing survives a body that is not the shape we expect', () =
     )
 })
 
+// The gateway the table moved to publishes the category groups at the top level
+// instead of under `data`. Same rows either way, so the two shapes have to
+// resolve to the same rates — reading the new one as an empty table is the
+// failure that would silently freeze prices at the last snapshot.
+test('parseNetmindPricing reads the top-level shape the same as the wrapped one', () => {
+    const wrapped = parseNetmindPricing(NETMIND_PRICING_SAMPLE)
+    const bare = parseNetmindPricing(
+        NETMIND_PRICING_SAMPLE.data as Record<string, unknown>
+    )
+    assert.ok(bare.size > 0)
+    assert.deepEqual(Object.fromEntries(bare), Object.fromEntries(wrapped))
+})
+
 test('a NetMind turn is priced from NetMind, not from the public tables', async () => {
     const engine = seededEngine({
         litellm: litellmRival(),
@@ -1469,7 +1482,7 @@ test('the NetMind table persists to and seeds from a snapshot', async () => {
     )
     // Prefixed with the parse version so a parser change cannot stay pinned to
     // rows an older build wrote.
-    assert.equal(payload?.etag, '1:')
+    assert.equal(payload?.etag, '2:')
 
     const reloaded = seededEngine({ netmind: payload?.prices ?? {} })
     await reloaded.ensureLoaded()
