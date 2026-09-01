@@ -48,6 +48,7 @@ import {
     isRuntimeLocalCredentialUsable,
     parseRuntimeLocalCredentialFacts,
     runtimeLocalCredentialStatus,
+    type RuntimeLocalCredentialContext,
     type RuntimeLocalCredentialFacts,
     type RuntimeLocalCredentialStatus
 } from '@manyfold/shared'
@@ -1230,7 +1231,8 @@ export class AgentModelConfigService {
         // snapshot taken an hour ago must not keep claiming a live token.
         const evaluated = runtimeLocalCredentialStatus(
             cached.credentialFacts,
-            Date.now()
+            Date.now(),
+            credentialContextFor(agent.runtime)
         )
         const usable = isRuntimeLocalCredentialUsable(evaluated.status)
         return {
@@ -1425,13 +1427,28 @@ export class AgentModelConfigService {
         const now = Date.now()
         const credentialFacts =
             parseRuntimeLocalCredentialFacts(capability.credentialFacts) ?? null
-        const evaluated = runtimeLocalCredentialStatus(credentialFacts, now)
-        const ready = runtimeLocalReady(agent.framework, capability, now)
+        const context = credentialContextFor(agent.runtime)
+        const evaluated = runtimeLocalCredentialStatus(
+            credentialFacts,
+            now,
+            context
+        )
+        const ready = runtimeLocalReady(
+            agent.framework,
+            capability,
+            now,
+            context
+        )
         const error =
             normalizeNullable(capability.error) ??
             (ready
                 ? null
-                : runtimeLocalNotReadyMessage(agent.framework, capability, now))
+                : runtimeLocalNotReadyMessage(
+                      agent.framework,
+                      capability,
+                      now,
+                      context
+                  ))
         const runtimeLocal: RuntimeLocalModelConfigCache = {
             available: true,
             ready,
@@ -1609,6 +1626,16 @@ const isFrameworkModelConfigurable = (
     framework: string
 ): framework is ConfigurableFramework => isConfigurableFramework(framework)
 
+// Only a machine the user owns can hold a sign-in the inspect pass cannot
+// read (macOS keeps the Claude token in the Keychain). A sandbox or cloud
+// computer is one we provisioned: its framework config dir comes from our own
+// bootstrap, so it is never evidence of a login.
+const credentialContextFor = (
+    runtime: Agent['runtime']
+): RuntimeLocalCredentialContext => ({
+    configPresenceIsEvidence: runtime === 'daemon'
+})
+
 const defaultModelConfigSource = (agent: Agent): AgentModelConfigSource =>
     agent.runtime === 'daemon' ? 'runtime-local' : 'platform'
 
@@ -1623,7 +1650,8 @@ const runtimeLocalCacheSource = (
 const runtimeLocalReady = (
     framework: string,
     capability: DaemonFrameworkModelCapability,
-    now: number
+    now: number,
+    context: RuntimeLocalCredentialContext
 ): boolean => {
     // Facts beat the daemon's own verdict: it reports `ready` from a presence
     // heuristic that cannot see an expired token, and a daemon too old to send
@@ -1632,7 +1660,8 @@ const runtimeLocalReady = (
         !isRuntimeLocalCredentialUsable(
             runtimeLocalCredentialStatus(
                 parseRuntimeLocalCredentialFacts(capability.credentialFacts),
-                now
+                now,
+                context
             ).status
         )
     )
@@ -1673,13 +1702,15 @@ const credentialStatusMessage = (
 const runtimeLocalNotReadyMessage = (
     framework: string,
     capability: DaemonFrameworkModelCapability,
-    now: number
+    now: number,
+    context: RuntimeLocalCredentialContext
 ): string => {
     const credential = credentialStatusMessage(
         framework,
         runtimeLocalCredentialStatus(
             parseRuntimeLocalCredentialFacts(capability.credentialFacts),
-            now
+            now,
+            context
         ).status
     )
     if (credential) return credential

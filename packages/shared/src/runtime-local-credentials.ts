@@ -82,6 +82,19 @@ export interface RuntimeLocalCredentialEvaluation {
     reason: RuntimeLocalCredentialReason
 }
 
+// What the runtime itself makes a fact worth. The same fact means different
+// things on a machine the user owns and on a container the platform built, so
+// the runtime has to say which one it is rather than let the evaluator guess.
+export interface RuntimeLocalCredentialContext {
+    // Whether "a framework config exists" counts as a sign-in we cannot read.
+    // True (the default) for a user's own machine: macOS keeps the Claude
+    // token in the Keychain, so an unreadable credentials file there can still
+    // be a live session. False for a platform-provisioned sandbox or cloud
+    // computer, which has no such store and whose config dir is created by our
+    // own framework bootstrap.
+    configPresenceIsEvidence?: boolean
+}
+
 const evaluation = (
     status: RuntimeLocalCredentialStatus,
     reason: RuntimeLocalCredentialReason
@@ -105,7 +118,8 @@ const oauthEvaluation = (
 
 const evaluateClaude = (
     facts: ClaudeCredentialFacts,
-    now: number
+    now: number,
+    context: RuntimeLocalCredentialContext
 ): RuntimeLocalCredentialEvaluation => {
     if (facts.envToken) return evaluation('valid', 'env-token')
     const oauth = oauthEvaluation(
@@ -118,7 +132,14 @@ const evaluateClaude = (
     // prompt for, so the login record in ~/.claude.json is the strongest
     // signal available there.
     if (facts.oauthAccount) return evaluation('valid', 'login-record')
-    if (facts.credentialsFileParsed || facts.configPresent)
+    // Seen on a self-hosted sandbox [2026-09-01]: the config dir alone read as
+    // a sign-in, so every fresh runtime-local sandbox reported ready and its
+    // first turn died on the CLI's own "Not logged in". ClaudeCodeBootstrap
+    // runs `mkdir -p "$HOME/.claude"`, so on a container this fact is one we
+    // manufactured — only a runtime that can hide a session earns the doubt.
+    const configEvidence =
+        facts.configPresent && context.configPresenceIsEvidence !== false
+    if (facts.credentialsFileParsed || configEvidence)
         return evaluation('unknown', 'unreadable')
     return evaluation('missing', 'no-credentials')
 }
@@ -191,10 +212,12 @@ const evaluateGemini = (
 // Callers may pass a raw wire payload, so every branch tolerates missing keys.
 export const runtimeLocalCredentialStatus = (
     facts: RuntimeLocalCredentialFacts | null | undefined,
-    now: number
+    now: number,
+    context: RuntimeLocalCredentialContext = {}
 ): RuntimeLocalCredentialEvaluation => {
     if (!facts) return evaluation('unknown', 'not-reported')
-    if (facts.framework === 'claude-code') return evaluateClaude(facts, now)
+    if (facts.framework === 'claude-code')
+        return evaluateClaude(facts, now, context)
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
     if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
     return evaluation('unknown', 'not-reported')

@@ -115,6 +115,34 @@ const withHome = async (
     await fn(home)
 }
 
+test('sandbox inspect reports an unsigned-in claude home as missing credentials', async () => {
+    await withHome(async (home) => {
+        // Exactly what ClaudeCodeBootstrap leaves behind before anyone signs
+        // in: `mkdir -p "$HOME/.claude"` and nothing else. Seen on a
+        // self-hosted sandbox [2026-09-01] reporting ready.
+        await mkdir(join(home, '.claude'), { recursive: true })
+        const capability = await inspect('claude-code', home)
+        const facts = capability.credentialFacts as ClaudeCredentialFacts
+        assert.equal(facts.envToken, false)
+        assert.equal(facts.credentialsFileParsed, false)
+        assert.equal(facts.oauthAccount, false)
+        // The directory is ours, so it is reported but must not be believed.
+        assert.equal(facts.configPresent, true)
+        assert.equal(
+            runtimeLocalCredentialStatus(facts, Date.now(), {
+                configPresenceIsEvidence: false
+            }).status,
+            'missing'
+        )
+        // A machine the user owns keeps the benefit of the doubt (macOS holds
+        // the token in the Keychain, where no inspect pass can see it).
+        assert.equal(
+            runtimeLocalCredentialStatus(facts, Date.now()).status,
+            'unknown'
+        )
+    })
+})
+
 test('sandbox inspect reports claude oauth expiry and refresh capability', async () => {
     await withHome(async (home) => {
         await mkdir(join(home, '.claude'), { recursive: true })
