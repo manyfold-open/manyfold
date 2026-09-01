@@ -4,6 +4,7 @@ import {
     SEMVER_TAG_RE,
     agentModelConfigSources,
     inputValidation,
+    isConfigurableFramework,
     supportsRuntime
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
@@ -407,6 +408,41 @@ const IsRuntimeFrameworkCompatible =
         })
     }
 
+// A runtime-local create means "the CLI inside the runtime owns the model
+// credentials" (subscription sign-in), so it is strict XOR with every
+// platform-credential input: rejecting the combination here keeps the
+// resolver's short-circuit from silently discarding a key the user pasted.
+const IsRuntimeLocalSourceShape =
+    (options?: ValidationOptions) =>
+    (target: object, propertyName: string): void => {
+        registerDecorator({
+            name: 'IsRuntimeLocalSourceShape',
+            target: target.constructor,
+            propertyName,
+            options: { ...options },
+            validator: {
+                validate(value: unknown, args: ValidationArguments): boolean {
+                    if (value !== 'runtime-local') return true
+                    const o = args.object as CreateAgentDto
+                    if (!o.framework) return true
+                    if (!isConfigurableFramework(o.framework)) return false
+                    return !(
+                        o.claudeCodeCredentials ||
+                        o.codexCredentials ||
+                        o.geminiCliCredentials ||
+                        o.saveCredentialAs
+                    )
+                },
+                defaultMessage(args: ValidationArguments): string {
+                    const o = args.object as CreateAgentDto
+                    return o.framework && !isConfigurableFramework(o.framework)
+                        ? 'modelConfigSource runtime-local is only available for claude-code, codex and gemini-cli'
+                        : 'modelConfigSource runtime-local cannot be combined with credentials or saveCredentialAs'
+                }
+            }
+        })
+    }
+
 export class CreateAgentDto {
     @NormalizeAgentName()
     @IsString()
@@ -530,6 +566,7 @@ export class CreateAgentDto {
 
     @IsOptional()
     @IsIn(agentModelConfigSources)
+    @IsRuntimeLocalSourceShape()
     modelConfigSource?: AgentModelConfigSource
 
     @IsOptional()

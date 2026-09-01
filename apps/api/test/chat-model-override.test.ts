@@ -755,6 +755,78 @@ test('Claude runtime-local tuning sets effort without platform credentials', asy
     assert.equal(handle.request?.env, undefined)
 })
 
+test('Claude sprites runtime-local turn does not inject platform credentials', async () => {
+    const handle = makeDriverFactory({
+        anthropicAuthToken: 'token',
+        anthropicBaseUrl: 'https://api.example.test'
+    })
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'claude-code',
+                modelConfig: null,
+                runtimeLocalTuning: {}
+            },
+            userMessage
+        )
+    )
+
+    // Injected env would outrank the sprite's on-disk sign-in — the exact
+    // credential a runtime-local agent runs on.
+    assert.equal(handle.request?.env, undefined)
+})
+
+test('Claude sprites platform turn still injects platform credentials', async () => {
+    const handle = makeDriverFactory({
+        anthropicAuthToken: 'token',
+        anthropicBaseUrl: 'https://api.example.test'
+    })
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'claude-code',
+                modelConfig: {
+                    framework: 'claude-code',
+                    model: 'claude-sonnet-4-5',
+                    modelMap: { sonnet: 'claude-sonnet-4-5' }
+                }
+            },
+            userMessage
+        )
+    )
+
+    assert.equal(handle.request?.env?.ANTHROPIC_AUTH_TOKEN, 'token')
+    assert.equal(
+        handle.request?.env?.ANTHROPIC_BASE_URL,
+        'https://api.example.test'
+    )
+})
+
+test('Claude sprites turn with neither config nor tuning keeps injecting', async () => {
+    // The legacy no-modelConfigs chat fallback leaves modelConfig AND
+    // runtimeLocalTuning null; those turns must keep today's injection.
+    const handle = makeDriverFactory({
+        anthropicAuthToken: 'token',
+        anthropicBaseUrl: 'https://api.example.test'
+    })
+    const adapter = new ClaudeCodeAdapter(handle.drivers as never, {} as never)
+
+    await drain(
+        adapter.sendMessage(
+            { ...baseCtx, framework: 'claude-code', modelConfig: null },
+            userMessage
+        )
+    )
+
+    assert.equal(handle.request?.env?.ANTHROPIC_AUTH_TOKEN, 'token')
+})
+
 test('Claude platform config still maps a concrete model onto its alias', async () => {
     const handle = makeDriverFactory(
         {
@@ -1010,6 +1082,39 @@ test('Codex runtime-local turn without tuning leaves the local config alone', as
     )
     assert.equal(
         cmd.some((arg) => arg.startsWith('service_tier=')),
+        false
+    )
+})
+
+test('Codex sprites runtime-local turn stays free of platform provider wiring', async () => {
+    // Pins the "codex needs no adapter change" claim: sprites codex auth
+    // lives in the sprite's ~/.codex/auth.json, and the only injection gate
+    // is daemon+modelConfig — a runtime-local sprites turn must carry no env
+    // and no Manyfold provider args.
+    const handle = makeDriverFactory({ openaiApiKey: 'token' })
+    const adapter = new CodexAdapter(
+        handle.drivers as never,
+        {} as never,
+        {} as never
+    )
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'codex',
+                model: 'gpt-5.5',
+                modelConfig: null,
+                runtimeLocalTuning: {}
+            },
+            userMessage
+        )
+    )
+
+    const cmd = handle.request?.cmd ?? []
+    assert.equal(handle.request?.env, undefined)
+    assert.equal(
+        cmd.some((arg) => arg.startsWith('model_provider=')),
         false
     )
 })
@@ -1479,6 +1584,36 @@ test('Gemini daemon adapter does not require stored credentials', async () => {
     assert.notEqual(approvalIndex, -1)
     assert.equal(handle.request?.cmd[approvalIndex + 1], 'yolo')
     assert.equal(handle.request?.env, undefined)
+})
+
+test('Gemini sprites runtime-local turn does not inject platform credentials', async () => {
+    const handle = makeDriverFactory({
+        googleApiKey: 'token',
+        model: 'gemini-2.5-flash'
+    })
+    const adapter = new GeminiCliAdapter(
+        handle.drivers as never,
+        {} as never,
+        {} as never
+    )
+
+    await drain(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'gemini-cli',
+                modelConfig: null,
+                runtimeLocalTuning: {}
+            },
+            userMessage
+        )
+    )
+
+    // No GEMINI_API_KEY also means the bash bootstrap skips its
+    // settings.json rewrite, so the user's own auth selection survives; and
+    // the stored credential's model must not leak into the turn.
+    assert.equal(handle.request?.env, undefined)
+    assert.equal(handle.request?.cmd.includes('--model'), false)
 })
 
 test('Gemini adapter keeps auto routing off the CLI flags and bills result stats', async () => {

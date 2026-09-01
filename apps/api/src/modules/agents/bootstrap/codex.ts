@@ -32,6 +32,12 @@ export class CodexBootstrap implements FrameworkBootstrap {
         credentials: unknown
     ): Promise<BootstrapResult> {
         const creds = credentials as ResolvedCodexCredentials
+        // Runtime-local: the user signs in with their own ChatGPT plan inside
+        // the sprite, so the platform must not pin a provider config.toml or
+        // run a key-based login. `touch` (not `cat >`) still guarantees the
+        // file exists for later MCP splices without truncating anything the
+        // CLI already wrote on a reused sandbox.
+        const runtimeLocal = ctx.modelConfigSource === 'runtime-local'
         const baseUrl =
             creds.openaiBaseUrl?.trim() || OFFICIAL_PROVIDER_BASE_URL.openai
         const configToml = buildCodexConfigToml(baseUrl)
@@ -43,7 +49,9 @@ export class CodexBootstrap implements FrameworkBootstrap {
                 'set -eu',
                 `mkdir -p ${shellQuote(ctx.mountPath)}`,
                 `mkdir -p "$HOME/.codex"`,
-                `cat > "$HOME/.codex/config.toml" <<'MF_CODEX_EOF'\n${configToml}\nMF_CODEX_EOF`,
+                runtimeLocal
+                    ? `touch "$HOME/.codex/config.toml"`
+                    : `cat > "$HOME/.codex/config.toml" <<'MF_CODEX_EOF'\n${configToml}\nMF_CODEX_EOF`,
                 `printf 'MF_HOME=%s\\n' "$HOME"`
             ].join('\n')
         ])
@@ -71,26 +79,28 @@ export class CodexBootstrap implements FrameworkBootstrap {
 
         const frameworkVersion = await installFrameworkVersion(ctx, 'codex')
 
-        const login = await execSprite(
-            ctx.client,
-            ctx.spriteName,
-            {
-                cmd: [
-                    'bash',
-                    '-lc',
-                    'printenv OPENAI_API_KEY | codex login --with-api-key'
-                ],
-                env: { OPENAI_API_KEY: creds.openaiApiKey },
-                stdin: '',
-                timeoutMs: ctx.execTimeoutMs ?? 60_000
-            },
-            ctx.logger
-        )
-        if (login.exitCode !== 0)
-            throw new BootstrapError(
-                'codex-login',
-                `codex login exited ${login.exitCode}: ${login.stderr.slice(0, 512)}`
+        if (!runtimeLocal) {
+            const login = await execSprite(
+                ctx.client,
+                ctx.spriteName,
+                {
+                    cmd: [
+                        'bash',
+                        '-lc',
+                        'printenv OPENAI_API_KEY | codex login --with-api-key'
+                    ],
+                    env: { OPENAI_API_KEY: creds.openaiApiKey },
+                    stdin: '',
+                    timeoutMs: ctx.execTimeoutMs ?? 60_000
+                },
+                ctx.logger
             )
+            if (login.exitCode !== 0)
+                throw new BootstrapError(
+                    'codex-login',
+                    `codex login exited ${login.exitCode}: ${login.stderr.slice(0, 512)}`
+                )
+        }
 
         const verify = await execSprite(
             ctx.client,

@@ -235,6 +235,13 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             runtime === 'daemon'
                 ? null
                 : (creds as ResolvedGeminiCliCredentials)
+        // modelConfig null + tuning present = runtime-local turn (see
+        // resolveTurnConfig). Gating the env on it keeps GEMINI_API_KEY out
+        // of the exec, which both lets the CLI use its own on-disk sign-in
+        // and skips the settings.json auth rewrite in geminiBootstrap (that
+        // script only runs when GEMINI_API_KEY is set) — otherwise every
+        // turn would flip the user's selectedType back to gemini-api-key.
+        const runtimeLocalTurn = !ctx.modelConfig && !!ctx.runtimeLocalTuning
         const prompt = messageToPromptText(userMessage)
         const configModel =
             ctx.modelConfig?.framework === 'gemini-cli'
@@ -244,7 +251,9 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             ctx.modelOverride?.trim() ||
             configModel ||
             ctx.model?.trim() ||
-            (runtime === 'daemon' ? null : geminiCreds?.model?.trim()) ||
+            (runtime === 'daemon' || runtimeLocalTurn
+                ? null
+                : geminiCreds?.model?.trim()) ||
             null
         // `auto` is the CLI's own router default, not a callable model id:
         // leave --model / GEMINI_MODEL unset so routing stays in charge.
@@ -264,7 +273,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             cmd.push('--resume', ctx.frameworkSessionRef)
 
         const env =
-            runtime === 'sprites' && geminiCreds
+            runtime === 'sprites' && geminiCreds && !runtimeLocalTurn
                 ? {
                       GEMINI_API_KEY: geminiCreds.googleApiKey,
                       GOOGLE_GEMINI_BASE_URL:

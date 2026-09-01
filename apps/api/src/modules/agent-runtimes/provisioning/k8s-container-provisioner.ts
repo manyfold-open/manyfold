@@ -1,5 +1,6 @@
 import type { ProvisionableContainerSku } from '@/common/ports/cloud-computer.ports'
 import { createObjectId } from '@manyfold/shared'
+import type { AgentModelConfigSource } from '@manyfold/shared'
 import {
     GatewayTimeoutException,
     Inject,
@@ -58,6 +59,9 @@ export interface ProvisionContainerInput {
     sku: ProvisionableContainerSku
     name: string
     credentials: unknown
+    // 'runtime-local' keeps provider keys out of the pod Secret and skips
+    // key logins / paid verifies in the bootstrap (subscription sign-in).
+    modelConfigSource?: AgentModelConfigSource | null
     // Self-serve (BYO) creates name their cluster; purchased SKUs pick by
     // region. Ignored when null/undefined.
     clusterId?: string | null
@@ -169,7 +173,8 @@ export class K8sContainerProvisioner {
             host,
             image,
             controlUiEnabled: true,
-            dashboardEnabled: false
+            dashboardEnabled: false,
+            modelConfigSource: input.modelConfigSource ?? null
         }
         const plan = bootstrap.plan(bootstrapCtx, credentials)
 

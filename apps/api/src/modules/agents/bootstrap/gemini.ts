@@ -81,7 +81,12 @@ export class GeminiCliBootstrap implements FrameworkBootstrap {
                     '-lc',
                     'export PATH="$HOME/.local/bin:$PATH"; gemini --version'
                 ],
-                env: envFor(creds),
+                // The version probe needs no credentials; a runtime-local
+                // create has none to offer.
+                env:
+                    ctx.modelConfigSource === 'runtime-local'
+                        ? undefined
+                        : envFor(creds),
                 stdin: '',
                 timeoutMs: ctx.execTimeoutMs ?? 30_000
             },
