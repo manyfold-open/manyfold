@@ -20,6 +20,7 @@ import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/dateFormat'
+import { loginUrl } from '@/lib/loginRedirect'
 import { useI18n } from '@/lib/i18n'
 
 const PAGE_LIMIT = 50
@@ -207,7 +208,7 @@ const SharedChatSession: FC = (): ReactNode => {
                     </SignedIn>
                     <SignedOut>
                         <Link
-                            to={`/login?redirect_url=${encodeURIComponent(`/chat/shared/${shareId ?? ''}`)}`}
+                            to={loginUrl(`/chat/shared/${shareId ?? ''}`)}
                             className='workbench-button-primary inline-flex'
                         >
                             {t('web.chat.shared.signInCta')}

@@ -15,6 +15,7 @@ import {
     type ReactNode
 } from 'react'
 import { clearSession, getSession, storeSession } from '@/lib/session'
+import { safeRedirectPath } from '@/lib/loginRedirect'
 import { adminRoutes } from '@/routes'
 
 type AuthProviderKind = 'native'
@@ -297,17 +298,22 @@ const NativeCredentialForm: FC<{ redirectUrl: string }> = ({ redirectUrl }) => {
 
     const completeSession = (res: AuthSessionResponse): void => {
         storeSession(res.token)
-        window.location.assign(safeRedirect(redirectUrl) ?? '/')
+        window.location.assign(safeRedirectPath(redirectUrl) ?? '/')
     }
 
     // OAuth is brokered server-side and lands back on THIS app's /login via the
-    // `#session=` fragment, so we pass our absolute origin as redirect_url.
+    // `#session=` fragment, so we pass our absolute origin as redirect_url. The
+    // in-app destination rides inside that URL: the API splits an allowlisted
+    // absolute target into origin + path and re-emits the path as
+    // `?redirect_url=` on the bounce, which the login page then honours.
     const startOauth = (provider: 'google' | 'oidc'): void => {
         const path =
             provider === 'google'
                 ? apiPaths.AUTH_OAUTH_GOOGLE_START
                 : apiPaths.AUTH_OAUTH_OIDC_START
-        const back = `${window.location.origin}/`
+        const back = `${window.location.origin}${
+            safeRedirectPath(redirectUrl) ?? '/'
+        }`
         window.location.href = `${apiBase()}${path}?redirect_url=${encodeURIComponent(
             back
         )}`
@@ -550,12 +556,6 @@ const postAuth = async <T,>(path: string, body: unknown): Promise<T> => {
         )
     }
     return data as T
-}
-
-const safeRedirect = (value: string | null | undefined): string | null => {
-    if (!value) return null
-    if (!value.startsWith('/') || value.startsWith('//')) return null
-    return value
 }
 
 const parseAuthFragment = (): { token?: string; error?: string } => {

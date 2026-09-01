@@ -1,7 +1,7 @@
 import type { FC, ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { AuthUserButton, SignedIn, SignedOut } from '@/lib/auth'
-import { adminRoutes } from '@/routes'
+import { loginUrl, nextPath } from '@/lib/loginRedirect'
 import { Card, Heading } from '@/ui'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 
@@ -10,13 +10,16 @@ interface Props {
 }
 
 const ProtectedRoute: FC<Props> = ({ children }): ReactNode => {
+    // This guard fronts every admin deep link, so the attempted URL rides along
+    // to the login page and back.
+    const location = useLocation()
     return (
         <>
             <SignedIn>
                 <AdminGate>{children}</AdminGate>
             </SignedIn>
             <SignedOut>
-                <Navigate to={adminRoutes.login} replace />
+                <Navigate to={loginUrl(nextPath(location))} replace />
             </SignedOut>
         </>
     )

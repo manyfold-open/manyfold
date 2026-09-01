@@ -6,6 +6,7 @@ import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { useI18n } from '@/lib/i18n'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { loginUrl, nextPath } from '@/lib/loginRedirect'
 import { formatDate } from '@/lib/dateFormat'
 
 // The emailed confirmation link lands here (ADR-0023 §9.1). The token proves
@@ -15,14 +16,10 @@ import { formatDate } from '@/lib/dateFormat'
 // never fire just because a link was opened (or prefetched).
 const AccountDeletionConfirm: FC = (): ReactNode => {
     const location = useLocation()
-    const next = `${location.pathname}${location.search}`
     return (
         <>
             <SignedOut>
-                <Navigate
-                    to={`/login?redirect_url=${encodeURIComponent(next)}`}
-                    replace
-                />
+                <Navigate to={loginUrl(nextPath(location))} replace />
             </SignedOut>
             <SignedIn>
                 <ConfirmContent />

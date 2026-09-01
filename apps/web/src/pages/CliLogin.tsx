@@ -13,21 +13,18 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorDetailMessage } from '@/lib/errorMessage'
+import { loginUrl, nextPath } from '@/lib/loginRedirect'
 import { useCurrentUser } from '@/lib/useCurrentUser'
 import { useI18n } from '@/lib/i18n'
 
 const CliLogin: FC = (): ReactNode => {
     const location = useLocation()
     const [params] = useSearchParams()
-    const next = `${location.pathname}${location.search}`
 
     return (
         <>
             <SignedOut>
-                <Navigate
-                    to={`/login?redirect_url=${encodeURIComponent(next)}`}
-                    replace
-                />
+                <Navigate to={loginUrl(nextPath(location))} replace />
             </SignedOut>
             <SignedIn>
                 <CliLoginContent
