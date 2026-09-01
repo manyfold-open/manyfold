@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 0.61.0
+
+### Minor Changes
+
+- [#112](https://github.com/manyfold-open/manyfold/pull/112) [`908cf7b`](https://github.com/manyfold-open/manyfold/commit/908cf7b725e5bfd3501bc8af6e195c0e887e31dd) Thanks [@yingca1](https://github.com/yingca1)! - Agents can now be created without platform model credentials by sending `modelConfigSource: 'runtime-local'` — the "use your own subscription" mode, where the coding CLI inside the sandbox / computer / cloud computer owns its credentials via its own sign-in. The DTO enforces a strict XOR (runtime-local carries no credential block and no `saveCredentialAs`, and is limited to claude-code / codex / gemini-cli), the resolver stores a deliberately empty encrypted payload (every reader keeps a row to decrypt, and keep-alive's report-token merge keeps working), and the bootstraps skip everything that presumes a key: the claude `--print` verify turn (which could only fail before the user signs in), `codex login --with-api-key` plus the provider-pinned `config.toml` (an empty file is still touched so MCP splices have a target, without truncating a reused sandbox's own config), gemini's credential env, and all provider keys in the k8s pod Secret (pod env would outrank the on-disk OAuth the user signs in with).
+
+    Turn time closes the loop: sprites turns for claude-code and gemini-cli no longer inject platform credentials when the turn is runtime-local (`modelConfig` null + `runtimeLocalTuning` present) — previously an injected `ANTHROPIC_AUTH_TOKEN`/`GEMINI_API_KEY` shadowed the sandbox's own CLI sign-in even with the source switched to Local config, and gemini's per-turn settings.json rewrite flipped the auth type back to api-key. Codex sprites turns already carried no injection; that claim now has a pin test. Creating (or joining a sandbox) in this mode also persists the source choice on the paths that silently dropped it (join-instance and k8s creates) and best-effort enables the sandbox terminal, which is where the sign-in happens.
+
 ## 0.60.1
 
 ### Patch Changes
