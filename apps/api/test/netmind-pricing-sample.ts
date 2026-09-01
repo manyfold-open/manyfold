@@ -1,5 +1,5 @@
-// A slice of NetMind's POST /inference/modelPrice body, copied verbatim from the
-// live response (2026-07-28) and trimmed to the rows that carry a rule:
+// A slice of NetMind's price-table body, copied verbatim from the live response
+// (2026-07-28) and trimmed to the rows that carry a rule:
 //
 // - anthropic/claude-sonnet-5   the only shape with a cache WRITE rate
 // - google/gemini-3.5-flash     a bare-id turn has to reach this through the
@@ -12,6 +12,9 @@
 //
 // Kept as raw JSON rather than a parsed map so the parser is what the tests
 // exercise: the competitor blocks are the whole reason this fixture exists.
+// The `success` / `status` / `data` wrapper is the old gateway's envelope; the
+// new one publishes the same groups at the top level, which the parser also
+// accepts and which the tests derive from `.data` rather than duplicating.
 export const NETMIND_PRICING_SAMPLE: Record<string, unknown> = {
     success: true,
     status: 200,
