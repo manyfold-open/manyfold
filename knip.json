@@ -66,7 +66,8 @@
                 "scripts/**"
             ],
             "ignore": [
-                "scripts/og/poster.css"
+                "scripts/og/poster.css",
+                "src/components/field/**"
             ]
         },
         "apps/docs": {
