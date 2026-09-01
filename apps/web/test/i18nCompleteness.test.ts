@@ -852,6 +852,9 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'managed',
         'success'
     ],
+    // Query-param values and union tags for the provider rail's selection,
+    // not display copy.
+    'pages/Settings/modelProviderSelection.ts': ['custom-new', 'managed'],
     'pages/Settings/PlanAndBilling.tsx': [
         'bg-workflow-develop',
         'bg-workflow-preview',
