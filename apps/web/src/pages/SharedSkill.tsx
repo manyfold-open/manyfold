@@ -12,6 +12,7 @@ import { useApiClient } from '@/lib/apiClient'
 import { Ghost, Spinner } from '@/components/Loading'
 import { apiErrorDetailMessage, apiErrorMessage } from '@/lib/errorMessage'
 import { formatDate } from '@/lib/dateFormat'
+import { loginUrl } from '@/lib/loginRedirect'
 import { useI18n } from '@/lib/i18n'
 import { importConflictName } from '@/pages/Customize/CreateSkillDialog'
 import { librarySkillEditPath } from '@/pages/Customize/LibrarySkills'
@@ -177,7 +178,9 @@ const SharedSkill: FC = (): ReactNode => {
                                 </SignedIn>
                                 <SignedOut>
                                     <Link
-                                        to={`/login?redirect_url=${encodeURIComponent(`/skills/shared/${shareId ?? ''}`)}`}
+                                        to={loginUrl(
+                                            `/skills/shared/${shareId ?? ''}`
+                                        )}
                                         className='workbench-button-primary inline-flex'
                                     >
                                         {t('web.skills.shared.signInToImport')}
