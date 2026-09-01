@@ -47,9 +47,16 @@ export class ClaudeCodeK8sBootstrap implements K8sFrameworkBootstrap {
             pvcMountPath: pvcRoot,
             workspacePath,
             envSecretData: {
-                ANTHROPIC_BASE_URL: baseUrl,
-                ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
-                CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+                // Pod env outranks the on-disk OAuth a runtime-local user
+                // signs in with, so in that mode the provider keys must not
+                // exist in the Secret at all.
+                ...(ctx.modelConfigSource === 'runtime-local'
+                    ? {}
+                    : {
+                          ANTHROPIC_BASE_URL: baseUrl,
+                          ANTHROPIC_AUTH_TOKEN: creds.anthropicAuthToken,
+                          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1'
+                      }),
                 WORKSPACE_DIR: workspacePath,
                 WORKSPACE_PVC_ROOT: pvcRoot,
                 AGENT_ID: ctx.agentId,

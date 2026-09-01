@@ -77,6 +77,13 @@ export class ClaudeCodeBootstrap implements FrameworkBootstrap {
             'claude-code'
         )
 
+        // Runtime-local agents have no platform key to verify with, and the
+        // user has not signed in yet at provision time — a verify turn here
+        // could only fail. Readiness is owned by the credential probe after
+        // the in-sprite sign-in instead.
+        if (ctx.modelConfigSource === 'runtime-local')
+            return { homeDir, frameworkVersion }
+
         const mc =
             ctx.modelConfig?.framework === 'claude-code'
                 ? ctx.modelConfig

@@ -692,18 +692,54 @@ export class AgentOrchestratorService {
                 },
                 name: dto.name,
                 credentials: resolved.value,
+                modelConfigSource: dto.modelConfigSource ?? null,
                 clusterId: dto.clusterId ?? null
             })
             runtimeRow = provisioned.runtime
         }
         emitter.step('inserting_agent')
-        return this.attach.attach({
+        const summary = await this.attach.attach({
             runtime: runtimeRow,
             name: dto.name,
             workspace: dto.workspace,
             model: undefined,
             cloneFrom: undefined
         })
+        // Scoped to runtime-local: persisting a platform modelConfig here
+        // could throw after the container is provisioned (provider fetch),
+        // and unlike the sprites path this one has no teardown wrapper. The
+        // platform-config silent drop on k8s predates this feature.
+        if (dto.modelConfigSource === 'runtime-local')
+            await this.modelConfig.updateForAgent(
+                userId,
+                summary.id,
+                {
+                    modelConfigSource: dto.modelConfigSource,
+                    modelConfig: dto.modelConfig
+                },
+                true
+            )
+        return summary
+    }
+
+    // Best-effort: the sign-in card's "Open terminal" should not detour
+    // through the enable-confirm dialog for the mode whose whole point is a
+    // terminal sign-in. PATCH /sandboxes/:id/terminal stays the user-facing
+    // toggle, and the web enable-on-confirm flow covers a lost write.
+    private async enableSandboxTerminalForSignIn(
+        userId: string,
+        hostId: string | null
+    ): Promise<void> {
+        if (!hostId) return
+        try {
+            await this.runtimes.setSandboxTerminalEnabled(userId, hostId, true)
+        } catch (err) {
+            this.log.warn(
+                `enabling terminal for runtime-local sign-in on host ${hostId} failed: ${
+                    (err as Error).message
+                }`
+            )
+        }
     }
 
     async delete(
@@ -1202,11 +1238,31 @@ export class AgentOrchestratorService {
                         status: instance.status
                     })
                 emitter.step('inserting_agent')
-                return this.attach.attach({
+                const joined = await this.attach.attach({
                     runtime: instance,
                     name: dto.name,
                     workspace: dto.workspace
                 })
+                // The inherited instance credentials stay untouched; a
+                // runtime-local agent doesn't read them at turn time. But the
+                // source choice itself must stick, or the join path silently
+                // lands the agent on 'platform'.
+                if (dto.modelConfigSource === 'runtime-local') {
+                    await this.modelConfig.updateForAgent(
+                        userId,
+                        joined.id,
+                        {
+                            modelConfigSource: dto.modelConfigSource,
+                            modelConfig: dto.modelConfig
+                        },
+                        true
+                    )
+                    await this.enableSandboxTerminalForSignIn(
+                        userId,
+                        instance.hostId
+                    )
+                }
+                return joined
             }
         }
 
@@ -1240,6 +1296,7 @@ export class AgentOrchestratorService {
                 workspacePath: workspace.path,
                 workspaceManaged: workspace.managed,
                 modelConfig: dto.modelConfig ?? null,
+                modelConfigSource: dto.modelConfigSource ?? null,
                 frameworkVersion: frameworkVersion.selection.version,
                 frameworkVersionSource: frameworkVersion.selection.source,
                 frameworkRepo: frameworkVersion.repo
@@ -1417,6 +1474,12 @@ export class AgentOrchestratorService {
                         true
                     )
             }
+
+            if (dto.modelConfigSource === 'runtime-local')
+                await this.enableSandboxTerminalForSignIn(
+                    userId,
+                    runtime.hostId
+                )
 
             if (dto.restoreBackupId) {
                 emitter.step('restoring_backup')

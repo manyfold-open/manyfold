@@ -51,9 +51,16 @@ export class CodexK8sBootstrap implements K8sFrameworkBootstrap {
             pvcMountPath: pvcRoot,
             workspacePath,
             envSecretData: {
-                OPENAI_API_KEY: creds.openaiApiKey,
-                CODEX_BASE_URL: baseUrl,
-                ...(model ? { CODEX_MODEL: model } : {}),
+                // No CODEX_BASE_URL for a runtime-local pod: without it the
+                // image entrypoint writes no provider-pinned config.toml, so
+                // the CLI runs on the user's own ChatGPT sign-in.
+                ...(ctx.modelConfigSource === 'runtime-local'
+                    ? {}
+                    : {
+                          OPENAI_API_KEY: creds.openaiApiKey,
+                          CODEX_BASE_URL: baseUrl,
+                          ...(model ? { CODEX_MODEL: model } : {})
+                      }),
                 WORKSPACE_DIR: workspacePath,
                 WORKSPACE_PVC_ROOT: pvcRoot,
                 AGENT_ID: ctx.agentId,

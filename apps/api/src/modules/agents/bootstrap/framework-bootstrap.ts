@@ -1,5 +1,6 @@
 import type {
     AgentModelConfig,
+    AgentModelConfigSource,
     FrameworkInstallSource
 } from '@manyfold/shared'
 import type { SpritesClient, SpritesLogger } from '@manyfold/sprites'
@@ -14,6 +15,12 @@ export interface BootstrapContext {
     logger: SpritesLogger
     execTimeoutMs?: number
     modelConfig?: AgentModelConfig | null
+    // 'runtime-local' = the CLI inside the sprite owns the model credentials
+    // (subscription sign-in): the bootstrap must not write platform keys,
+    // run key-based logins, or spend money on a verify turn. Threaded
+    // explicitly rather than sniffed from an empty credentials object so a
+    // future credential shape can't silently re-enable those steps.
+    modelConfigSource?: AgentModelConfigSource | null
     // Version this framework should install (null = no resolvable target, so keep
     // the framework's built-in default: image binary / dist-tag / hardcoded clone).
     frameworkVersion?: string | null

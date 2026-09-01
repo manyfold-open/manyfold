@@ -237,6 +237,174 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     )
 })
 
+test('AgentOrchestrator creates a credential-less runtime-local sprites agent', async () => {
+    const db = new FakeCreateAgentDb()
+    const steps: AgentCreateStep[] = []
+    let provisionArgs: Record<string, unknown> | null = null
+    const terminalCalls: Array<Record<string, unknown>> = []
+    const modelConfigCalls: Array<{
+        method: string
+        agentId: string
+        source?: unknown
+    }> = []
+    const provisionedRuntime = { ...runtimeRow(), hostId: 'rth_1' }
+
+    const service = new AgentOrchestratorService(
+        db as never,
+        {} as never,
+        {} as never,
+        {
+            encrypt: (plain: string) => ({
+                ciphertext: `enc:${plain}`,
+                keyVersion: 7
+            })
+        } as never,
+        {
+            setSandboxTerminalEnabled: async (
+                userId: string,
+                hostId: string,
+                enabled: boolean
+            ) => {
+                terminalCalls.push({ userId, hostId, enabled })
+                return true
+            }
+        } as never,
+        {
+            provisionRuntime: async (args: Record<string, unknown>) => {
+                provisionArgs = args
+                const emitter = args.emitter as {
+                    step(step: AgentCreateStep): void
+                }
+                emitter.step('selecting_account')
+                emitter.step('checking_quota')
+                emitter.step('creating_sprite')
+                emitter.step('bootstrapping')
+                db.runtimeRows.push(provisionedRuntime)
+                return {
+                    runtime: provisionedRuntime,
+                    account: { id: 'spa_1', slug: 'default' },
+                    spritesClient: {},
+                    homeDir: '/home/sprite'
+                }
+            },
+            installRuntimeIdentity: async () => {},
+            finalizeReady: async () => {},
+            teardownRuntime: async () => {
+                throw new Error('teardown should not run')
+            }
+        } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+            // Mirrors CredentialsResolverService's runtime-local short-circuit:
+            // no credential block arrives, so the stored payload is empty.
+            resolve: async () => ({
+                framework: 'claude-code',
+                providerId: null,
+                value: {}
+            }),
+            maybePersistInline: async () => {}
+        } as never,
+        {
+            restoreBackupToAgentForCreate: async () => {
+                throw new Error('restore should not run')
+            }
+        } as never,
+        {} as never,
+        {
+            ensureProviderModelsReady: async (
+                _userId: string,
+                agentId: string,
+                _isAdmin: boolean,
+                source?: unknown
+            ) => {
+                modelConfigCalls.push({ method: 'ensure', agentId, source })
+            },
+            updateForAgent: async (
+                _userId: string,
+                agentId: string,
+                body: { modelConfigSource?: unknown }
+            ) => {
+                modelConfigCalls.push({
+                    method: 'update',
+                    agentId,
+                    source: body.modelConfigSource
+                })
+            }
+        } as never,
+        {
+            getCachedFrameworkRuntimeDefaults: async () => ({
+                defaults: { hermes: 'sprites', openclaw: 'sprites' }
+            }),
+            getCachedFrameworkDefaultVersions: async () => ({ defaults: {} }),
+            getDefaultAgentSkills: async () => ({ skillIds: [] })
+        } as never,
+        {
+            latestForFresh: async () => '2.9.9'
+        } as never,
+        {
+            getFrameworkRuntimeOverrides: async () => ({ overrides: {} })
+        } as never,
+        {
+            get: () => ({
+                assignFor: async () => null
+            })
+        } as never,
+        { recordFirstAgentCreated: async () => {} } as never,
+        {} as never
+    )
+
+    const result = await service.create(
+        {
+            userId: 'user-1',
+            actorUserId: 'user-1',
+            isAdmin: false,
+            dto: {
+                name: 'Subscription Agent',
+                framework: 'claude-code',
+                runtime: 'sprites',
+                workspace: '/repo/project',
+                modelConfigSource: 'runtime-local'
+            } as never
+        },
+        { step: (step) => steps.push(step) }
+    )
+
+    assert.equal(result.status, 'running')
+    const capturedProvisionArgs = provisionArgs as Record<
+        string,
+        unknown
+    > | null
+    assert.equal(capturedProvisionArgs?.modelConfigSource, 'runtime-local')
+
+    assert.equal(db.agentRows.length, 1)
+    assert.equal(db.agentRows[0].modelProviderId, null)
+
+    // The row exists (decryptCreds and the report-token merge need one) but
+    // carries no platform key.
+    assert.equal(db.credentialRows.length, 1)
+    assert.equal(db.credentialRows[0].payloadCiphertext, 'enc:{}')
+
+    assert.deepEqual(modelConfigCalls, [
+        { method: 'ensure', agentId: result.id, source: 'runtime-local' },
+        { method: 'update', agentId: result.id, source: 'runtime-local' }
+    ])
+    assert.deepEqual(terminalCalls, [
+        { userId: 'user-1', hostId: 'rth_1', enabled: true }
+    ])
+    assert.deepEqual(steps, [
+        'validating',
+        'selecting_account',
+        'checking_quota',
+        'creating_sprite',
+        'bootstrapping',
+        'inserting_agent',
+        'storing_credentials',
+        'finalizing'
+    ])
+})
+
 test('AgentOrchestrator create runs A2A through external provisioning', async () => {
     const db = new FakeCreateAgentDb()
     const steps: AgentCreateStep[] = []
