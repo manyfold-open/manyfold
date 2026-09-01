@@ -27,8 +27,7 @@ import { ModelPriceSnapshotRepository } from './model-price-snapshot.repository'
 const LITELLM_PRICING_URL =
     'https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json'
 const MODELS_DEV_PRICING_URL = 'https://models.dev/api.json'
-const NETMIND_PRICING_URL =
-    'https://platform-api.netmind.ai/inference/modelPrice'
+const NETMIND_PRICING_URL = 'https://inference.api.netmind.ai/v1/price/model'
 const FETCH_TIMEOUT_MS = 15_000
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
@@ -47,7 +46,11 @@ const SNAPSHOT_PARSE_VERSIONS: Record<ModelPriceSource, number> = {
     litellm: 1,
     // 2: every models.dev provider is ingested, not just the official labs.
     models_dev: 2,
-    netmind: 1
+    // 2: the rates moved to NetMind's new gateway. The parse result is
+    // unchanged, but a snapshot row written from the old origin still carries a
+    // fresh fetchedAt, which would skip the fetch for up to a day and leave the
+    // dead endpoint's table in place; the bump forces one refetch at boot.
+    netmind: 2
 }
 
 const wrapSnapshotEtag = (
@@ -476,6 +479,10 @@ export const parseModelsDevPricing = (
 // `costFromPrice` cannot express — so billing_type, not the category name, is the
 // filter: a new token-billed category then needs no code change.
 //
+// The new gateway returns those groups at the top level; the old one wrapped
+// them in `data`. Both are accepted because the rows inside are identical, so
+// the URL can be pointed back without a matching code revert.
+//
 // Every rate is read from the FOUR NAMED KEYS of price_details[0] and nothing
 // else. Each detail also nests `member_price` (a membership discount we cannot
 // attribute — the endpoint never says whether an account has it) and one block
@@ -490,8 +497,7 @@ export const parseModelsDevPricing = (
 export const parseNetmindPricing = (
     raw: Record<string, unknown>
 ): Map<string, LiteLlmModelPricing> => {
-    const data = isRecord(raw.data) ? raw.data : null
-    if (!data) return new Map()
+    const data = isRecord(raw.data) ? raw.data : raw
     const perToken = (v: unknown): number | undefined => {
         const parsed = toFiniteNumber(v)
         return parsed === undefined ? undefined : parsed / 1_000_000
@@ -1294,13 +1300,10 @@ const fetchLiteLlmPricing = (etag: string | null): Promise<PricingFetch> =>
 const fetchModelsDevPricing = (etag: string | null): Promise<PricingFetch> =>
     fetchJson(MODELS_DEV_PRICING_URL, etag)
 
-// A POST endpoint that sends no etag and no cache-control, so the stored etag is
+// An endpoint that sends no etag and no cache-control, so the stored etag is
 // deliberately not offered: an If-None-Match against an origin that never
 // validates would be dead weight, and echoing one back would let a 304 branch
-// pin an empty table. Each refresh transfers the whole body (~70KB, once a day).
+// pin an empty table. Measured on prod [2026-09-01]: each refresh transfers the
+// whole body (~95KB, once a day).
 const fetchNetmindPricing = (): Promise<PricingFetch> =>
-    fetchJson(NETMIND_PRICING_URL, null, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: '{}'
-    })
+    fetchJson(NETMIND_PRICING_URL, null)
