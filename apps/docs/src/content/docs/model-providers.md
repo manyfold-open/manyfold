@@ -16,6 +16,16 @@ Model providers give agents access to the models they need. You can save provide
 
 Your workspace may also have managed model access. If it does, the creation flow can offer provider options without requiring you to paste a personal API key.
 
+## Use your own subscription
+
+Claude Code, Codex, and Gemini CLI agents can run on the CLI's own sign-in — for example a Claude Pro/Max plan, a ChatGPT plan, or a Google account — instead of an API key.
+
+1. When creating the agent, choose **Use your own subscription** in the model provider section.
+2. After the agent is created, open its terminal from the chat page and complete the CLI's sign-in there.
+3. Select **Refresh status** on the sign-in card. Once the sign-in is detected, the agent is ready to chat.
+
+The sign-in stays inside the sandbox or computer the agent runs on; Manyfold stores no API key for the agent. On a sandbox it survives pause and resume and remains until the sandbox is deleted. Agents of the same framework sharing one sandbox also share its sign-in.
+
 ## Add a provider key
 
 1. Open **Settings -> Model providers**.

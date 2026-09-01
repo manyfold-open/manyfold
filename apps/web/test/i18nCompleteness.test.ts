@@ -724,6 +724,12 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     ],
     'lib/fontSize.tsx': ['default'],
     'lib/i18n.tsx': ['zh'],
+    // Shell commands the sign-in card shows verbatim, not display copy.
+    'lib/runtimeSignIn.ts': [
+        'claude',
+        'codex login --device-auth',
+        'NO_BROWSER=true gemini'
+    ],
     'lib/theme.tsx': ['light'],
     'pages/AgentNew/components/CreateProgress.tsx': [
         'active',

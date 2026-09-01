@@ -9,7 +9,7 @@ Either runtime needs a Manyfold account; a self-owned computer also needs an onl
 
 ## What is a Stateful sandbox?
 
-A Stateful sandbox is a Manyfold-provided **isolated cloud workspace**. It can pause and resume while keeping the agent's files and session state. Manyfold recommends that most users start with this runtime because it does not require you to configure your own computer or local daemon.
+A Stateful sandbox is a Manyfold-provided **isolated cloud workspace**. It can pause and resume while keeping the agent's files and session state — including any coding-CLI sign-in you complete in its terminal, so an agent created with **Use your own subscription** stays signed in until the sandbox is deleted. Manyfold recommends that most users start with this runtime because it does not require you to configure your own computer or local daemon.
 
 ## What is a self-owned computer?
 

@@ -127,7 +127,7 @@ mf daemon doctor
   Sandbox 在 Manyfold 的云端隔离环境中运行；Self-owned computer 在你自己的电脑上运行，因此可以使用本地文件、工具与网络环境。两者都可由 Manyfold 创建与管理 Agent。
 - **我可以使用自己的 Codex 或 Claude Code 订阅吗？**
 
-  可以。选择「本地配置」后，Manyfold 会使用所选本地 framework 的凭据。请先确认 CLI 已安装、可运行且已登录；不同 framework 对订阅与 API key 的支持方式可能不同。
+  可以。选择「本地配置」后，Manyfold 会使用所选本地 framework 的凭据。请先确认 CLI 已安装、可运行且已登录；不同 framework 对订阅与 API key 的支持方式可能不同。sandbox 和 cloud computer 也支持这种方式：创建 Agent 时选择**使用自己的订阅**，然后在其内置终端里完成登录。
 - **电脑必须一直开着吗？**
 
   是。当 Agent 需要在该电脑执行工作时，电脑必须开机、联网，且 `mf` daemon 必须运行。
