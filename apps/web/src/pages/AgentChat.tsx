@@ -48,13 +48,9 @@ import {
 import {
     FolderIcon,
     FolderOpenIcon,
-    HistoryIcon,
     MenuIcon,
     PreviewIcon,
-    RefreshIcon,
-    ShareIcon,
-    TasksIcon,
-    TerminalIcon
+    TasksIcon
 } from '@/components/icons'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
@@ -112,6 +108,7 @@ import Composer, {
     type ComposerSendHelpers
 } from '@/components/chat/Composer'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { ChatGrantProvider } from '@/components/chat/ChatGrantContext'
 import type { MarkdownLinkClickHandler } from '@/components/chat/MarkdownText'
 import type { MessageScrollAction } from '@/components/chat/MessageList'
@@ -2493,6 +2490,39 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
         ? t('web.chat.header.hideRuntimeViewer')
         : t('web.chat.header.runtimeViewer')
 
+    // The lower-frequency header actions, collapsed into one overflow menu so
+    // the bar keeps only the view switch and the panel toggles. The Terminal
+    // item opens the multi-tab dock, distinct from the Chat/Terminal view
+    // switch beside it.
+    const overflowItems: OverflowMenuEntry[] = [
+        ...(onShare
+            ? [{ label: t('web.chat.header.share'), onSelect: onShare }]
+            : []),
+        ...(agent.runtime !== 'external'
+            ? [
+                  {
+                      label: t('web.chat.header.openTerminal'),
+                      onSelect: onOpenTerminal,
+                      disabled: agent.status !== 'running'
+                  }
+              ]
+            : []),
+        {
+            label: t('web.chat.header.refresh'),
+            onSelect: onRefresh,
+            disabled: refreshing
+        },
+        ...(agent.runtime !== 'external'
+            ? [
+                  {
+                      label: runtimeSessionLabel,
+                      onSelect: onToggleRuntimeSessionViewer,
+                      disabled: !runtimeSessionViewerEnabled
+                  }
+              ]
+            : [])
+    ]
+
     return (
         <header className='bg-main relative z-[80] flex h-14 shrink-0 items-center justify-between gap-3 px-4 md:px-5'>
             <div className='flex min-w-0 items-center gap-3'>
@@ -2601,74 +2631,10 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                     terminalDisabledReason={terminalDisabledReason}
                     onSelect={onSelectSessionView}
                 />
-                {onShare && (
-                    <ShortcutTooltip
-                        label={t('web.chat.header.share')}
-                        placement='bottom-end'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass()} inline-flex`}
-                            aria-label={t('web.chat.header.share')}
-                            onClick={onShare}
-                        >
-                            <ShareIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={t('web.chat.header.openTerminal')}
-                        placement='bottom-end'
-                        shortcut='Cmd+J'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass()} inline-flex`}
-                            disabled={agent.status !== 'running'}
-                            aria-label={t('web.chat.header.openTerminal')}
-                            onClick={onOpenTerminal}
-                        >
-                            <TerminalIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                <ShortcutTooltip
-                    label={t('web.chat.header.refresh')}
-                    placement='bottom-end'
-                >
-                    <button
-                        type='button'
-                        className={`${actionButtonClass()} inline-flex`}
-                        disabled={refreshing}
-                        aria-label={t('web.chat.header.refresh')}
-                        onClick={onRefresh}
-                    >
-                        <RefreshIcon
-                            className={[
-                                'h-4 w-4',
-                                refreshing ? 'loading-spin' : ''
-                            ].join(' ')}
-                        />
-                    </button>
-                </ShortcutTooltip>
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={runtimeSessionLabel}
-                        placement='bottom-end'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass(runtimeSessionViewerOpen)} inline-flex`}
-                            disabled={!runtimeSessionViewerEnabled}
-                            aria-label={runtimeSessionLabel}
-                            aria-pressed={runtimeSessionViewerOpen}
-                            onClick={onToggleRuntimeSessionViewer}
-                        >
-                            <HistoryIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
+                <OverflowMenu
+                    items={overflowItems}
+                    triggerClassName={`${actionButtonClass()} inline-flex`}
+                />
                 {agent.runtime !== 'external' && (
                     <ShortcutTooltip
                         label={filesLabel}
