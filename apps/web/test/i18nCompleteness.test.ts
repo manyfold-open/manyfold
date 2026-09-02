@@ -773,6 +773,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Hermes',
         'Lark',
         'Matrix',
+        'PR #412',
         'Slack',
         'Telegram',
         'cc-refactor',

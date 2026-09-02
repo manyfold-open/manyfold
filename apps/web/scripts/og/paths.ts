@@ -51,9 +51,11 @@ export const generatorPackage = (
 ): string => installedFile(GENERATOR_PACKAGE_RELS[name])
 
 export const WEB_HEAD = path.join(repoRoot, 'apps/web/src/seo/head.ts')
+// The card is a still of the hero, and the hero lives in the scrolly stage
+// rather than in the page shell that mounts it.
 export const LANDING_PAGE = path.join(
     repoRoot,
-    'apps/web/src/pages/Landing.tsx'
+    'apps/web/src/components/landing/ScrollyStage.tsx'
 )
 export const DOCS_LAYOUT = path.join(
     repoRoot,

@@ -15,9 +15,14 @@ import ChallengeNavLink, {
     ChallengeNavMenuItem
 } from '@/components/challenge/ChallengeNavLink'
 import { useAppAuth } from '@/lib/auth'
+import { GithubMono } from '@/lib/brandIcons'
 import { DiscordMark, XMark } from '@/lib/brandMarks'
 import { languageOptions, useI18n } from '@/lib/i18n'
-import { SOCIAL_DISCORD_URL, SOCIAL_X_URL } from '@/lib/socialLinks'
+import {
+    SOCIAL_DISCORD_URL,
+    SOCIAL_GITHUB_URL,
+    SOCIAL_X_URL
+} from '@/lib/socialLinks'
 import {
     marketingLinkLanguage,
     marketingLinksFor
@@ -180,15 +185,26 @@ const ThemeToggle: FC = (): ReactNode => {
     )
 }
 
-/* The two outward doors. They sit with the page preferences rather than in
-   the centre group because both are utilities — and at 16px in muted grey
-   neither competes with the CTA, which is the whole reason the nav can carry
-   them at all. The rule after them separates "leaves the site" from "changes
-   this page"; without it four bare glyphs read as one string. */
+/* The three outward doors, source first: an open-source product's repository
+   is the one a visitor evaluating it reaches for, and the other two are
+   pointing there anyway. They sit with the page preferences rather than in the
+   centre group because all three are utilities — and at 16px in muted grey
+   none competes with the CTA, which is the whole reason the nav can carry them
+   at all. The rule after them separates "leaves the site" from "changes this
+   page"; without it the bare glyphs read as one string. */
 const SocialLinks: FC = (): ReactNode => {
     const { t } = useI18n()
     return (
         <>
+            <a
+                className='lp-nav-ico'
+                href={SOCIAL_GITHUB_URL}
+                target='_blank'
+                rel='noopener noreferrer'
+                aria-label={t('web.marketing.sourceGithub')}
+            >
+                <GithubMono />
+            </a>
             <a
                 className='lp-nav-ico'
                 href={SOCIAL_X_URL}
@@ -284,7 +300,18 @@ const NavOverflow: FC<{
                     <div className='lp-nav-menu-sep' role='separator' />
                     {/* Their own group between the pages and the preferences:
                         "which page" and "which site" are different questions,
-                        and the icon column keeps them scannable as a pair. */}
+                        and the icon column keeps them scannable as a set. */}
+                    <a
+                        className='lp-nav-menu-item'
+                        href={SOCIAL_GITHUB_URL}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                        role='menuitem'
+                        onClick={() => setOpen(false)}
+                    >
+                        <GithubMono />
+                        <span>{t('web.marketing.sourceGithub')}</span>
+                    </a>
                     <a
                         className='lp-nav-menu-item'
                         href={SOCIAL_X_URL}
