@@ -5,6 +5,7 @@ import { describe, it } from 'node:test'
 import { formatValue, listDrift } from '../src/emit'
 import { landingColors } from '../src/landing-colors'
 import { coolBiasAt, iris } from '../src/palette'
+import { dropLayersOf, normalizeShadow, shadows } from '../src/shadow'
 import {
     headingWeight,
     lineHeight,
@@ -165,6 +166,52 @@ describe('typography', () => {
             assert.ok(
                 col.compact < col.default && col.default < col.large,
                 `${rung} column is not ascending`
+            )
+        }
+    })
+})
+
+describe('shadows', () => {
+    it('sees through the two house styles', () => {
+        // The webapp writes layers colour-first, docs offset-first. CSS
+        // accepts both; a textual diff cannot tell you they are the same.
+        assert.equal(
+            normalizeShadow('rgba(10, 12, 15, 0.05) 0 1px 2px -1px'),
+            normalizeShadow('0 1px 2px -1px rgba(10, 12, 15, 0.05)')
+        )
+    })
+
+    it('does not collapse a genuine alpha difference', () => {
+        assert.notEqual(
+            normalizeShadow('rgba(10, 12, 15, 0.11) 0 0 0 1px'),
+            normalizeShadow('rgba(10, 12, 15, 0.12) 0 0 0 1px')
+        )
+    })
+
+    it('keeps every divergence scoped to the ring layer', () => {
+        // "docs rings run one step heavier" must not become licence to
+        // change the drop layers on one side only.
+        for (const [name, spec] of Object.entries(shadows)) {
+            if (!spec.docs || !spec.web.includes('),')) continue
+            const web = dropLayersOf(spec.web).map(normalizeShadow)
+            const docs = dropLayersOf(spec.docs).map(normalizeShadow)
+            assert.deepEqual(
+                web,
+                docs,
+                `${name} diverges beyond its ring layer`
+            )
+        }
+    })
+
+    it('states a reason for every divergence', () => {
+        for (const [name, spec] of Object.entries(shadows)) {
+            if (!spec.docs) continue
+            const same =
+                normalizeShadow(spec.web) === normalizeShadow(spec.docs)
+            if (same) continue
+            assert.ok(
+                'divergence' in spec && spec.divergence.reason.length > 0,
+                `${name} differs between consumers with no stated reason`
             )
         }
     })

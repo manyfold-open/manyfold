@@ -29,6 +29,12 @@ import { landingColors } from '../src/landing-colors'
 import { productColors } from '../src/product-colors'
 import { fontStackCss, radius, radiusPill } from '../src/scale'
 import {
+    dropLayersOf,
+    normalizeShadow,
+    shadows,
+    type ShadowName
+} from '../src/shadow'
+import {
     docsSizes,
     headingWeight,
     lineHeight,
@@ -268,6 +274,70 @@ for (const { label, actual, role } of STACKS) {
         problems.push(
             `${label}\n      css declares : ${actual}\n      tokens expect: ${want}`
         )
+}
+
+// ────────────────────────── shadows ──────────────────────────
+{
+    const CSS_NAME: Record<ShadowName, string> = {
+        ring: '--shadow-ring',
+        ringLight: '--shadow-ring-light',
+        card: '--shadow-card',
+        elevated: '--shadow-elevated'
+    }
+    const read = (css: string, name: string) => {
+        const m = new RegExp(`${name}\\s*:\\s*([^;{}]+);`).exec(
+            css.replace(/\/\*[\s\S]*?\*\//g, '')
+        )
+        return m ? m[1].trim().replace(/\s+/g, ' ') : null
+    }
+    for (const [key, spec] of Object.entries(shadows)) {
+        const name = CSS_NAME[key as ShadowName]
+        for (const [consumer, file, expected] of [
+            ['web', 'apps/web/src/styles.css', spec.web],
+            ['docs', 'apps/docs/src/styles/global.css', spec.docs]
+        ] as const) {
+            if (!expected) continue
+            const actual = read(consumer === 'web' ? webCss : docsCss, name)
+            if (actual === null) {
+                problems.push(`${file} is missing ${name}`)
+                continue
+            }
+            compared++
+            if (normalizeShadow(actual) !== normalizeShadow(expected))
+                problems.push(
+                    `${file} ${name}\n` +
+                        `      css declares : ${actual}\n` +
+                        `      tokens expect: ${expected}`
+                )
+        }
+        // The divergence between the two consumers is supposed to be the
+        // trailing ring and nothing else — "docs rings run one step
+        // heavier". Assert that scope: every drop layer must still paint
+        // the same on both sides, however each side spells it. Without
+        // this, "the ring is heavier" is a licence to change the whole
+        // recipe on one side, and normalising the spellings is the only
+        // way to see it either way.
+        const multiLayer = spec.docs && spec.web.includes('),')
+        if (multiLayer && spec.docs) {
+            const web = dropLayersOf(spec.web).map(normalizeShadow)
+            const docs = dropLayersOf(spec.docs).map(normalizeShadow)
+            if (web.length !== docs.length) {
+                problems.push(
+                    `${name} has ${web.length} drop layer(s) on web but ${docs.length} on docs — only the trailing ring may differ`
+                )
+            } else {
+                for (const [i, layer] of web.entries()) {
+                    compared++
+                    if (layer !== docs[i])
+                        problems.push(
+                            `${name} drop layer ${i + 1} differs beyond the ring\n` +
+                                `      web : ${layer}\n` +
+                                `      docs: ${docs[i]}`
+                        )
+                }
+            }
+        }
+    }
 }
 
 // ───────────────────────── type ramps ─────────────────────────

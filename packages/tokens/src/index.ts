@@ -67,3 +67,10 @@ export {
     type DisplayMode,
     type ProductRung
 } from './typography'
+export {
+    dropLayersOf,
+    normalizeShadow,
+    shadows,
+    type ShadowName,
+    type ShadowSpec
+} from './shadow'
