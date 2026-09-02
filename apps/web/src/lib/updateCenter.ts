@@ -286,9 +286,11 @@ const skillRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
                 targetKind: 'agent',
                 targetKey: `agent:${skill.agentId}`,
                 targetLabel: group.agent.name,
-                installedVersion:
-                    skill.installedVersion ??
-                    shortRevision(skill.installedRevision),
+                // Revisions on both sides even when the install recorded a
+                // version: the catalog only knows the latest as a revision, and
+                // an arrow between "0.3.1" and a commit hash reads as if the
+                // version were being replaced by one.
+                installedVersion: shortRevision(skill.installedRevision),
                 latestVersion: shortRevision(skill.latestRevision),
                 severity: 'recommended',
                 blockedReason: null,

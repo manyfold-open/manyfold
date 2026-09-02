@@ -463,7 +463,10 @@ test('a skill at the same revision, readonly, still installing, or missing a rev
     assert.deepEqual(rows, [])
 })
 
-test('a skill shows its version when it has one and a short revision otherwise', () => {
+test('a skill compares revisions on both sides, even when it records a version', () => {
+    // The catalog only knows the latest as a revision, so showing the recorded
+    // version on the left would put an arrow between two different kinds of
+    // thing and read as if 1.2.3 were being replaced by a commit hash.
     const rows = build({
         skillGroups: [
             skillGroup('agt_1', 'Alpha', [
@@ -475,7 +478,7 @@ test('a skill shows its version when it has one and a short revision otherwise',
     assert.deepEqual(
         rows.map((r) => [r.installedVersion, r.latestVersion]),
         [
-            ['1.2.3', 'bbbbbbb'],
+            ['aaaaaaa', 'bbbbbbb'],
             ['aaaaaaa', 'bbbbbbb']
         ]
     )

@@ -185,7 +185,10 @@ const RowAction: FC<{
                     onClick={() => onGuide(row)}
                     className='workbench-button-secondary'
                 >
-                    {t('web.agentRuntimesList.update')}
+                    {/* The ellipsis is the product's mark for "opens a dialog";
+                        without it this reads as the button that runs the
+                        update, which on someone's own machine it never is. */}
+                    {t('web.agentRuntimesList.update')}…
                 </button>
             )
         if (row.exec.href)
