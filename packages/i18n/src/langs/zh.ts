@@ -2728,7 +2728,14 @@ const zh: Translations = {
             enablePromptBody:
                 '该沙箱的终端尚未开启。开启后即可打开交互式终端。你可以随时在沙箱设置中再次关闭。',
             enablePromptConfirm: '开启终端',
-            enablePromptCancel: '取消'
+            enablePromptCancel: '取消',
+            unavailableExternal: '该智能体运行在外部提供方，因此没有终端。',
+            unavailableStopped: '启动该智能体后即可打开它的终端。'
+        },
+        sessionView: {
+            label: '会话视图',
+            chat: '对话',
+            terminal: '终端'
         },
         composer: {
             askPlaceholder: '向 {{target}} 提问。',

@@ -121,6 +121,16 @@ import type {
     WorkspaceFileTerminalRequest
 } from '@/components/chat/WorkspaceFiles'
 import { resolveWorkspaceFileLink } from '@/components/chat/fileLinkPreview'
+import SessionViewSwitch, {
+    type SessionViewMode
+} from '@/components/chat/SessionViewSwitch'
+import type { TerminalTabModel } from '@/components/TerminalSession'
+import { useProductConfirm } from '@/components/ProductConfirmDialog'
+import {
+    ensureSandboxTerminalEnabled,
+    terminalAvailabilityForAgent,
+    terminalBlockedLabel
+} from '@/lib/terminalAccess'
 import {
     applyRegeneratedUserMessage,
     mergeLatestMessages,
@@ -128,6 +138,7 @@ import {
 } from '@/lib/chatMessages'
 
 const MessageList = lazyChunk(() => import('@/components/chat/MessageList'))
+const SessionTerminal = lazyChunk(() => import('@/components/TerminalSession'))
 const WorkspaceFiles = lazyChunk(
     () => import('@/components/chat/WorkspaceFiles')
 )
@@ -189,6 +200,7 @@ const AgentChat: FC = (): ReactNode => {
     const navigate = useNavigate()
     const client = useApiClient()
     const { getToken, sessionKey } = useAppAuth()
+    const { confirm, confirmDialog } = useProductConfirm()
     const {
         agents,
         agentsLoading,
@@ -253,6 +265,12 @@ const AgentChat: FC = (): ReactNode => {
     const [runtimeSessionPanelWidth, setRuntimeSessionPanelWidth] = useState(
         DEFAULT_RUNTIME_SESSION_PANEL_WIDTH
     )
+    const [sessionView, setSessionView] = useState<SessionViewMode>('chat')
+    /* Created on the first switch to Terminal and kept afterwards: the chat
+       and terminal panes both stay mounted so toggling back does not tear
+       down the websocket, the pty or the scrollback. */
+    const [sessionTerminal, setSessionTerminal] =
+        useState<TerminalTabModel | null>(null)
     const sendInFlightRef = useRef(false)
     const chatWindowRef = useRef<HTMLDivElement>(null)
     const composerDockRef = useRef<HTMLDivElement>(null)
@@ -1108,6 +1126,55 @@ const AgentChat: FC = (): ReactNode => {
         },
         [agentId, refreshSessionsForAgent, reloadSessionMessages, selectSession]
     )
+
+    /* A terminal is bound to one agent's sandbox, so switching agents must
+       drop it rather than show the previous agent's shell under a new
+       header. */
+    useEffect(() => {
+        setSessionView('chat')
+        setSessionTerminal(null)
+    }, [agentId])
+
+    const terminalAvailability = currentAgent
+        ? terminalAvailabilityForAgent(currentAgent)
+        : { available: false, reason: 'agent-not-running' as const }
+
+    const handleSelectSessionView = useCallback(
+        (next: SessionViewMode): void => {
+            if (next === 'chat') {
+                setSessionView('chat')
+                return
+            }
+            if (!currentAgent) return
+            if (!terminalAvailabilityForAgent(currentAgent).available) return
+            if (sessionTerminal) {
+                setSessionView('terminal')
+                return
+            }
+            void (async (): Promise<void> => {
+                const allowed = await ensureSandboxTerminalEnabled({
+                    agent: currentAgent,
+                    client,
+                    confirm,
+                    t
+                })
+                if (!allowed) return
+                setSessionTerminal({
+                    agentId: currentAgent.id,
+                    agentName: currentAgent.name,
+                    framework: currentAgent.framework,
+                    id: `session-terminal-${currentAgent.id}`,
+                    index: 1,
+                    runtime: currentAgent.runtime,
+                    status: 'connecting'
+                })
+                setSessionView('terminal')
+            })()
+        },
+        [client, confirm, currentAgent, sessionTerminal, t]
+    )
+
+    const noopTerminalStatusChange = useCallback((): void => {}, [])
 
     const createSession = useCallback(
         async (selectCreated = true): Promise<string | null> => {
@@ -1996,6 +2063,13 @@ const AgentChat: FC = (): ReactNode => {
                     })
                 }
                 onOpenTerminal={() => openTerminalForAgent(currentAgent)}
+                sessionView={sessionView}
+                terminalDisabledReason={
+                    terminalAvailability.reason
+                        ? terminalBlockedLabel(terminalAvailability.reason, t)
+                        : null
+                }
+                onSelectSessionView={handleSelectSessionView}
                 onShare={
                     shareableSession
                         ? () => setShareSessionOpen(true)
@@ -2198,6 +2272,31 @@ const AgentChat: FC = (): ReactNode => {
                                 </div>
                             </div>
                         </div>
+                        {/* Kept mounted once opened, and only hidden when the
+                            chat tab is active: unmounting would drop the
+                            websocket, the pty and the scrollback, and the
+                            message list underneath would lose its reading
+                            position if it were the side that got hidden. */}
+                        {sessionTerminal && (
+                            <div
+                                className={
+                                    sessionView === 'terminal'
+                                        ? 'absolute inset-0 z-20'
+                                        : 'hidden'
+                                }
+                            >
+                                <Suspense fallback={null}>
+                                    <SessionTerminal
+                                        active={sessionView === 'terminal'}
+                                        getToken={getToken}
+                                        onStatusChange={
+                                            noopTerminalStatusChange
+                                        }
+                                        tab={sessionTerminal}
+                                    />
+                                </Suspense>
+                            </div>
+                        )}
                     </div>
                 </div>
                 {runtimeSessionViewerOpen && agentId && (
@@ -2254,7 +2353,7 @@ const AgentChat: FC = (): ReactNode => {
                     </Suspense>
                 )}
             </div>
-
+            {confirmDialog}
         </div>
     )
 }
@@ -2270,6 +2369,9 @@ interface AgentChatHeaderProps {
     onOpenMobileMenu: () => void
     onToggleRuntimeSessionViewer: () => void
     onOpenTerminal: () => void
+    sessionView: SessionViewMode
+    terminalDisabledReason: string | null
+    onSelectSessionView: (mode: SessionViewMode) => void
     onShare: (() => void) | null
     onRefresh: () => void
     onToggleFiles: () => void
@@ -2289,6 +2391,9 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     onOpenMobileMenu,
     onToggleRuntimeSessionViewer,
     onOpenTerminal,
+    sessionView,
+    terminalDisabledReason,
+    onSelectSessionView,
     onShare,
     onRefresh,
     onToggleFiles,
@@ -2422,6 +2527,11 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
             </div>
 
             <div className='flex shrink-0 items-center gap-1.5'>
+                <SessionViewSwitch
+                    mode={sessionView}
+                    terminalDisabledReason={terminalDisabledReason}
+                    onSelect={onSelectSessionView}
+                />
                 {onShare && (
                     <ShortcutTooltip
                         label={t('web.chat.header.share')}

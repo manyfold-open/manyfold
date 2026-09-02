@@ -2858,7 +2858,15 @@ const en = {
             enablePromptBody:
                 'The terminal is turned off for this sandbox. Enable it to open an interactive shell. You can turn it off again anytime in the sandbox settings.',
             enablePromptConfirm: 'Enable terminal',
-            enablePromptCancel: 'Cancel'
+            enablePromptCancel: 'Cancel',
+            unavailableExternal:
+                'This agent runs on an external provider, so it has no terminal.',
+            unavailableStopped: 'Start the agent to open its terminal.'
+        },
+        sessionView: {
+            label: 'Session view',
+            chat: 'Chat',
+            terminal: 'Terminal'
         },
         composer: {
             askPlaceholder: 'Ask {{target}} anything.',
