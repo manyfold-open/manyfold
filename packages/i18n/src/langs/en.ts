@@ -742,10 +742,7 @@ const en = {
         },
         cliUpgrade: {
             one: '1 machine needs a CLI upgrade',
-            many: '{{count}} machines need a CLI upgrade',
-            instructions:
-                'Run mf update, then mf daemon stop && mf daemon start.',
-            learnHow: 'Learn how →'
+            many: '{{count}} machines need a CLI upgrade'
         },
         backgroundTasks: {
             title: 'Background tasks',
@@ -821,6 +818,7 @@ const en = {
                 'It may have been deleted, or the link is out of date. Pick another agent from the sidebar.'
         },
         settingsMenu: {
+            updates: 'Updates',
             personalAccount: 'Personal account',
             settings: 'Settings',
             usage: 'Usage',
@@ -3251,6 +3249,47 @@ const en = {
                 'This link is incomplete. Open the exact link from the email.',
             linkInvalid: 'This link is invalid or has expired.'
         },
+        updates: {
+            title: 'Update Center',
+            subtitle: 'Every available update across your machines, agents and skills.',
+            refresh: 'Refresh',
+            reviewCta: 'Review in Update Center',
+            updateSelected: 'Update selected ({{count}})',
+            updateOne: 'Update',
+            selectAll: 'Select every update that can be run from here',
+            selectRow: 'Select {{name}}',
+            colUpdate: 'Update',
+            colTarget: 'Where',
+            colVersion: 'Version',
+            colStatus: 'Status',
+            colAction: 'Action',
+            versionUnknown: 'Unknown',
+            kindCli: 'mf CLI',
+            kindFramework: 'Agent framework',
+            kindSkill: 'Skill',
+            kindCliUsage: 'Manyfold CLI usage',
+            groupKind: 'Type',
+            groupTarget: 'Where',
+            groupStatus: 'Status',
+            statusRequired: 'Update required',
+            statusReady: 'Ready to update',
+            statusManual: 'Update by hand',
+            statusOffline: 'Machine offline',
+            run: {
+                pending: 'Queued',
+                running: 'Updating',
+                succeeded: 'Updated',
+                failed: 'Failed',
+                waiting: 'Waiting for the rate limit window'
+            },
+            runningNotice: 'Updates run one at a time; leaving this page stops the queue.',
+            batchSummary: '{{done}} updated · {{failed}} failed',
+            emptyTitle: 'Everything is up to date',
+            emptyBody: 'No updates are available for your machines, agents or skills.',
+            filteredNotice: 'Showing {{kind}} only',
+            clearFilter: 'Show all',
+            viewTarget: 'View'
+        },
         usage: {
             title: 'Usage',
             overview: 'Overview',
@@ -3779,7 +3818,6 @@ const en = {
             machineMeta:
                 'frameworks: {{frameworks}} · agents: {{agents}} · last seen {{lastSeen}}',
             cliVersion: 'cli {{version}}',
-            upgradeAvailableTip: 'Upgrade & restart this daemon',
             upgradeBlockedTip:
                 'Remote upgrade needs the daemon online, autostart-managed, and on a recent CLI. Update the CLI on the machine once to enable it.',
             upgradeAvailableSuffix: '{{version}} available',
@@ -3798,17 +3836,10 @@ const en = {
             deleteHostTitle: 'Delete machine',
             deleteHostDesc:
                 'Permanently delete the {{name}} machine registration, its bound daemon tokens, and its agent and runtime records from Manyfold. Workspace data on the machine is kept. This cannot be undone.',
-            upgradeHostTitle: 'Upgrade & restart daemon',
-            upgradeHostDesc:
-                'Download mf {{version}} on {{name}} and restart the daemon. Agents running on this machine will be stopped briefly.',
-            upgradeHostConfirm: 'Upgrade',
             msgTokenRevoked: 'Token revoked',
             msgMachineRevoked: 'Machine revoked',
             msgMachineDeleted: 'Machine deleted',
             msgCommandCopied: 'Command copied',
-            msgUpgrading:
-                'Upgrading {{name}} to {{version}} — daemon restarting…',
-            msgUpToDate: '{{name}} is already on {{version}}',
             startupLaunchdUser: 'autostart · login (launchd)',
             startupLaunchdSystem: 'autostart · boot (launchd)',
             startupSystemdUser: 'autostart · login (systemd)',
@@ -4264,7 +4295,6 @@ const en = {
             noCliVersionShort: 'No CLI version reported yet.',
             stopSandbox: 'Stop sandbox',
             deleteSandbox: 'Delete sandbox',
-            upgradeCli: 'Upgrade mf CLI',
             rename: 'Rename',
             stopping: 'Stopping…',
             removingRuntimes: 'Remove its runtimes first',
@@ -4421,10 +4451,6 @@ const en = {
             inOut: '{{inbound}} in · {{outbound}} out',
             lastMessage: 'Last message',
             noMessages: 'No messages yet'
-        },
-        agentRuntimesListExtras: {
-            upgradeHostDescription:
-                'Upgrade mf CLI on "{{name}}" to {{version}} and restart the daemon. Agents on this machine will be stopped briefly.'
         },
     },
     admin: {

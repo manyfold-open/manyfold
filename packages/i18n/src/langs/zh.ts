@@ -727,10 +727,7 @@ const zh: Translations = {
         },
         cliUpgrade: {
             one: '1 台机器需要升级 CLI',
-            many: '{{count}} 台机器需要升级 CLI',
-            instructions:
-                '运行 mf update，然后运行 mf daemon stop && mf daemon start。',
-            learnHow: '了解方法 →'
+            many: '{{count}} 台机器需要升级 CLI'
         },
         backgroundTasks: {
             title: '后台任务',
@@ -803,6 +800,7 @@ const zh: Translations = {
                 '它可能已被删除,或链接已过期。请从侧边栏选择其他 agent。'
         },
         settingsMenu: {
+            updates: '更新',
             personalAccount: '个人账号',
             settings: '设置',
             usage: '用量',
@@ -3097,6 +3095,47 @@ const zh: Translations = {
             missingToken: '链接不完整。请打开邮件中的完整链接。',
             linkInvalid: '链接无效或已过期。'
         },
+        updates: {
+            title: '更新中心',
+            subtitle: '你的机器、agent 和 skill 上所有可用的更新。',
+            refresh: '刷新',
+            reviewCta: '在更新中心查看',
+            updateSelected: '更新所选（{{count}}）',
+            updateOne: '更新',
+            selectAll: '选中所有可从这里执行的更新',
+            selectRow: '选中 {{name}}',
+            colUpdate: '更新项',
+            colTarget: '位置',
+            colVersion: '版本',
+            colStatus: '状态',
+            colAction: '操作',
+            versionUnknown: '未知',
+            kindCli: 'mf CLI',
+            kindFramework: 'Agent framework',
+            kindSkill: 'Skill',
+            kindCliUsage: 'Manyfold CLI 用法',
+            groupKind: '类型',
+            groupTarget: '位置',
+            groupStatus: '状态',
+            statusRequired: '必须更新',
+            statusReady: '可以更新',
+            statusManual: '需手动更新',
+            statusOffline: '机器离线',
+            run: {
+                pending: '排队中',
+                running: '更新中',
+                succeeded: '已更新',
+                failed: '失败',
+                waiting: '等待限流窗口'
+            },
+            runningNotice: '更新逐个执行；离开本页会中止队列。',
+            batchSummary: '{{done}} 个已更新 · {{failed}} 个失败',
+            emptyTitle: '一切都是最新的',
+            emptyBody: '你的机器、agent 和 skill 目前没有可用更新。',
+            filteredNotice: '仅显示{{kind}}',
+            clearFilter: '显示全部',
+            viewTarget: '查看'
+        },
         usage: {
             title: '用量',
             overview: '概览',
@@ -3582,7 +3621,6 @@ const zh: Translations = {
             machineMeta:
                 '框架：{{frameworks}} · agent：{{agents}} · 最近在线 {{lastSeen}}',
             cliVersion: 'cli {{version}}',
-            upgradeAvailableTip: '升级并重启该 daemon',
             upgradeBlockedTip:
                 '远程升级需要 daemon 在线、由自启动管理且 CLI 版本较新。先在机器上手动升级一次 CLI 即可启用。',
             upgradeAvailableSuffix: '有 {{version}} 可用',
@@ -3600,17 +3638,10 @@ const zh: Translations = {
             deleteHostTitle: '删除机器',
             deleteHostDesc:
                 '永久删除 {{name}} 的机器注册信息、绑定的 daemon token，以及 Manyfold 中关联的 Agent 和 Runtime 记录。机器上的工作区数据仍会保留。此操作无法撤销。',
-            upgradeHostTitle: '升级并重启 daemon',
-            upgradeHostDesc:
-                '在 {{name}} 上下载 mf {{version}} 并重启 daemon，该机器上运行的 agent 会短暂停止。',
-            upgradeHostConfirm: '升级',
             msgTokenRevoked: 'Token 已吊销',
             msgMachineRevoked: '机器已吊销',
             msgMachineDeleted: '机器已删除',
             msgCommandCopied: '命令已复制',
-            msgUpgrading:
-                '正在把 {{name}} 升级到 {{version}} —— daemon 重启中…',
-            msgUpToDate: '{{name}} 已是 {{version}}',
             startupLaunchdUser: '自动启动 · 登录时（launchd）',
             startupLaunchdSystem: '自动启动 · 开机时（launchd）',
             startupSystemdUser: '自动启动 · 登录时（systemd）',
@@ -4050,7 +4081,6 @@ const zh: Translations = {
                 '停止沙箱“{{name}}”？其中的 Agent 会停止并关闭保持运行；下次收到消息时会自动唤醒。其他服务会停止，活动任务会删除，以便沙箱挂起。',
             deleteSandboxDescription:
                 '删除沙箱“{{name}}”？sprite VM 及其中数据都会被销毁。',
-            upgradeCli: '升级 mf CLI',
             rename: '重命名',
             stopping: '停止中…',
             removingRuntimes: '请先移除其中的运行时',
@@ -4199,10 +4229,6 @@ const zh: Translations = {
             inOut: '收 {{inbound}} · 发 {{outbound}}',
             lastMessage: '最近消息',
             noMessages: '还没有消息'
-        },
-        agentRuntimesListExtras: {
-            upgradeHostDescription:
-                '将“{{name}}”上的 mf CLI 升级到 {{version}} 并重启守护进程。此机器上的 Agent 会短暂停止。'
         },
     },
     admin: {

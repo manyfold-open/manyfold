@@ -19,6 +19,7 @@ import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
+import { updatesPath } from '@/lib/updateCenter'
 import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
 import {
     RUNTIMES_DASHBOARD_VIEW_KEY,
@@ -425,10 +426,16 @@ const VMTable: FC<{
                         {vm.host?.cliVersion ? `v${vm.host.cliVersion}` : '—'}
                         {vm.host?.updateAvailable &&
                             vm.host.latestCliVersion && (
-                                <span className='text-link'>
+                                <Link
+                                    to={updatesPath('cli')}
+                                    // The whole row navigates to the machine;
+                                    // this one cell goes somewhere else.
+                                    onClick={(event) => event.stopPropagation()}
+                                    className='text-link hover:underline'
+                                >
                                     {' '}
                                     ↑ v{vm.host.latestCliVersion}
-                                </span>
+                                </Link>
                             )}
                     </td>
                     <td className={bodyCellRight}>{vm.agentsCount}</td>

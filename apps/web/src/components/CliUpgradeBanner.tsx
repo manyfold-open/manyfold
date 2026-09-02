@@ -1,8 +1,9 @@
 import type { DaemonHostSummary } from '@manyfold/shared'
 import type { FC } from 'react'
+import { Link } from 'react-router-dom'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { CLI_UPGRADE_LEARN_HOW_URL } from '@/lib/chatAgents'
 import { useI18n } from '@/lib/i18n'
+import { updatesPath } from '@/lib/updateCenter'
 
 type Props = {
     daemons: DaemonHostSummary[]
@@ -20,32 +21,25 @@ const CliUpgradeBanner: FC<Props> = ({ daemons, collapsed = false }) => {
     if (collapsed) {
         return (
             <ShortcutTooltip label={label} placement='right' className='mx-auto mb-2'>
-                <a
-                    href={CLI_UPGRADE_LEARN_HOW_URL}
-                    target='_blank'
-                    rel='noreferrer'
+                <Link
+                    to={updatesPath('cli')}
                     aria-label={label}
                     className='bg-danger-bg text-fg shadow-ring-light inline-flex h-7 w-7 items-center justify-center rounded-pill text-xs font-medium'
                 >
                     !
-                </a>
+                </Link>
             </ShortcutTooltip>
         )
     }
     return (
         <div className='bg-danger-bg text-fg shadow-ring-light mx-2 mb-2 rounded-md px-3 py-2'>
             <p className='text-caption font-medium'>{label}</p>
-            <p className='text-caption mt-0.5 break-words'>
-                {t('web.cliUpgrade.instructions')}
-            </p>
-            <a
-                href={CLI_UPGRADE_LEARN_HOW_URL}
-                target='_blank'
-                rel='noreferrer'
+            <Link
+                to={updatesPath('cli')}
                 className='text-caption text-link mt-1 inline-block hover:underline'
             >
-                {t('web.cliUpgrade.learnHow')}
-            </a>
+                {t('web.updates.reviewCta')}
+            </Link>
         </div>
     )
 }

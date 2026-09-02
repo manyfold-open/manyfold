@@ -4415,7 +4415,6 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     gap: clamp(36px, 5vw, 76px);
     align-items: end;
     padding-bottom: 44px;
-    border-bottom: 1px solid var(--lp-line-soft);
 }
 
 .landing-root .lp-ob-head .lp-section-head {

@@ -62,6 +62,7 @@ const SkillsRepos = lazyChunk(() => import('@/pages/Skills/SkillsRepos'))
 const AutomationsList = lazyChunk(
     () => import('@/pages/Automations/AutomationsList')
 )
+const UpdateCenter = lazyChunk(() => import('@/pages/UpdateCenter'))
 const AutomationDetail = lazyChunk(
     () => import('@/pages/Automations/AutomationDetail')
 )
@@ -217,6 +218,7 @@ const App: FC = (): ReactNode => {
                         path='/automations/:id'
                         element={<AutomationDetail />}
                     />
+                    <Route path='/updates' element={<UpdateCenter />} />
                 </Route>
                 <Route
                     path='/agents/:id/settings'

@@ -43,6 +43,7 @@ import RenameDialog from '@/components/RenameDialog'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
+import { updatesPath } from '@/lib/updateCenter'
 import { useApiClient } from '@/lib/apiClient'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -774,15 +775,12 @@ const RuntimeDetailPanel: FC<{
                             : translate('web.runtimeDetails.upgradeNotice')
                     }
                     action={
-                        <button
-                            type='button'
-                            onClick={(): void => {
-                                void handleOpenVersionPicker()
-                            }}
+                        <Link
+                            to={updatesPath('framework')}
                             className='workbench-button-secondary'
                         >
-                            {translate('web.runtimeDetails.upgrade')}
-                        </button>
+                            {translate('web.updates.reviewCta')}
+                        </Link>
                     }
                 />
             )}
