@@ -1,13 +1,14 @@
-import type { FC, ReactNode, RefObject } from 'react'
+import type { CSSProperties, FC, ReactNode, RefObject } from 'react'
 import {
     ClaudeCodeColor,
     CodexColor,
     DifyColor,
     GeminiCLIColor,
     HermesAgentMono,
-    OpenClawColor,
-    type IconType
+    OpenClawColor
 } from '@/lib/brandIcons'
+import nexusLightIcon from '@/assets/agent-logos/nexus-light.svg'
+import nexusDarkIcon from '@/assets/agent-logos/nexus-dark.svg'
 import { useI18n } from '@/lib/i18n'
 
 export interface WorldLayerRefs {
@@ -17,6 +18,41 @@ export interface WorldLayerRefs {
     gFlow: RefObject<SVGGElement>
     gC: RefObject<SVGGElement>
 }
+
+/* What a head can carry: a @lobehub/icons component or the local NarraNexus
+   mark. Both take the same four props and the world needs none of the rest of
+   lobehub's icon surface — but it has to be a bare call signature rather than
+   an `FC`, because `FC` carries a `propTypes` field no `IconType` satisfies. */
+type WorldMark = (props: {
+    size?: number
+    x?: number
+    y?: number
+    style?: CSSProperties
+}) => ReactNode
+
+/* @lobehub/icons has no NarraNexus mark, so the world borrows the product's
+   own asset — the same two files `frameworkMeta` renders everywhere else.
+   Two images rather than one tinted mark: the stroke is a black-to-grey
+   gradient in light and white-to-grey in dark, which `currentColor` cannot
+   express. The nested viewBox crops the file's 738-square canvas to the
+   artwork's own band, so the mark fills the head's slot instead of sitting
+   at 60% with air above and below. */
+const NarraNexusMark: WorldMark = ({ size = 15, x = 0, y = 0 }) => (
+    <svg x={x} y={y} width={size} height={size} viewBox='0 149 738 441'>
+        <image
+            className='dark:hidden'
+            href={nexusLightIcon}
+            width='738'
+            height='738'
+        />
+        <image
+            className='hidden dark:block'
+            href={nexusDarkIcon}
+            width='738'
+            height='738'
+        />
+    </svg>
+)
 
 /* Every agent in the world is the same figure: a blank head carrying its
    framework's own mark, a body wearing the run slot, two feet, and an
@@ -38,7 +74,7 @@ const WorldAgent: FC<{
     x: number
     y: number
     scale: number
-    Logo: IconType
+    Logo: WorldMark
     /* Mono marks paint themselves `currentColor`; give them the page ink so
        they read on both plates. */
     mono?: boolean
@@ -176,7 +212,7 @@ const Workstation: FC<{
     /* The desk's back corner, in world coordinates. */
     x: number
     y: number
-    Logo: IconType
+    Logo: WorldMark
     mono?: boolean
     size?: number
     flip?: boolean
@@ -2715,7 +2751,7 @@ export const ScrollyWorld: FC<{
                     <Workstation
                         x={348.9}
                         y={129}
-                        Logo={OpenClawColor}
+                        Logo={NarraNexusMark}
                         beat={1}
                     />
                     <path
@@ -2898,7 +2934,7 @@ export const ScrollyWorld: FC<{
                     <Workstation
                         x={537.7}
                         y={182}
-                        Logo={DifyColor}
+                        Logo={OpenClawColor}
                         flip
                         scale={1.0}
                         beat={2}
@@ -2924,7 +2960,7 @@ export const ScrollyWorld: FC<{
                     <Workstation
                         x={376.6}
                         y={227}
-                        Logo={ClaudeCodeColor}
+                        Logo={DifyColor}
                         flip
                         beat={6}
                     />
