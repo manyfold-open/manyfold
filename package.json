@@ -20,6 +20,8 @@
         "changeset-presence:check": "node --test scripts/check-changeset-presence.test.mjs && node scripts/check-changeset-presence.mjs",
         "cli-content:check": "pnpm --filter @manyfold/docs check:cli-content",
         "social-card:check": "pnpm --filter @manyfold/web exec tsx scripts/og/check.ts",
+        "tokens:check": "pnpm --filter @manyfold/tokens tokens:verify",
+        "tokens:drift": "pnpm --filter @manyfold/tokens tokens:drift",
         "check": "turbo check",
         "test": "turbo test",
         "db:generate": "pnpm --filter @manyfold/api db:generate",
