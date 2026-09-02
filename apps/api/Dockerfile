@@ -28,6 +28,7 @@ COPY packages/shared/package.json packages/shared/
 COPY packages/sdk/package.json packages/sdk/
 COPY packages/i18n/package.json packages/i18n/
 COPY packages/sprites/package.json packages/sprites/
+COPY packages/tokens/package.json packages/tokens/
 RUN find . -name package.json | xargs node -e ' \
     const fs = require("fs"); \
     for (const file of process.argv.slice(1)) { \
