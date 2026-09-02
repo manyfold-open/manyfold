@@ -77,6 +77,7 @@ import {
     defaultProviderForFramework,
     frameworkLabel
 } from '@/lib/frameworkMeta'
+import { updatesPath } from '@/lib/updateCenter'
 import {
     frameworkUsesModelConfig,
     mergeCachedRuntimeLocalModelConfigView,
@@ -1224,19 +1225,28 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                 )}
                                             </span>
                                             {fwUpgradeable ? (
-                                                <button
-                                                    type='button'
-                                                    onClick={() =>
-                                                        void handleOpenVersionPicker()
-                                                    }
-                                                    className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
-                                                >
-                                                    {fwUpgradeReady
-                                                        ? fwLatestLabel
-                                                        : t(
-                                                              'web.agents.detail.framework.changeVersion'
-                                                          )}
-                                                </button>
+                                                fwUpgradeReady ? (
+                                                    <Link
+                                                        to={updatesPath(
+                                                            'framework'
+                                                        )}
+                                                        className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
+                                                    >
+                                                        {fwLatestLabel}
+                                                    </Link>
+                                                ) : (
+                                                    <button
+                                                        type='button'
+                                                        onClick={() =>
+                                                            void handleOpenVersionPicker()
+                                                        }
+                                                        className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
+                                                    >
+                                                        {t(
+                                                            'web.agents.detail.framework.changeVersion'
+                                                        )}
+                                                    </button>
+                                                )
                                             ) : fwLatestLabel ? (
                                                 <span className='text-caption text-subtle mt-1 block'>
                                                     {fwLatestLabel}
@@ -1302,7 +1312,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                     {agent.cliUpdateAvailable &&
                                                     agent.cliLatestVersion ? (
                                                         <Link
-                                                            to={runtimePath}
+                                                            to={updatesPath(
+                                                                'cli'
+                                                            )}
                                                             className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
                                                         >
                                                             {t(

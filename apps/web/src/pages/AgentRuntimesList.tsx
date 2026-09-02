@@ -26,6 +26,7 @@ import Breadcrumb, { type BreadcrumbItem } from '@/components/Breadcrumb'
 import EmptyState from '@/components/EmptyState'
 import { CascadeShell } from '@/components/CascadeShell'
 import { CreateMenu } from '@/components/CreateMenu'
+import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
 import { GhostRailRows, SheenText, Spinner } from '@/components/Loading'
 import { useI18n, type TFn } from '@/lib/i18n'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
@@ -74,6 +75,7 @@ import {
     useCascadeState
 } from '@/lib/cascade'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
+import { updatesPath } from '@/lib/updateCenter'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 import { spriteStatusDotClass } from '@/lib/spriteStatus'
 import RuntimesDashboard from '@/pages/RuntimesDashboard'
@@ -468,11 +470,7 @@ const HostRuntimeRow: FC<{
     runtime: AgentRuntimeSummary
     latest: string | null
     onSelect: () => void
-    onGuide?: (
-        framework: VersionedFramework,
-        mode: 'install' | 'upgrade'
-    ) => void
-}> = ({ runtime: r, latest, onSelect, onGuide }): ReactNode => {
+}> = ({ runtime: r, latest, onSelect }): ReactNode => {
     const { t } = useI18n()
     const upgradeAvailable = frameworkUpgradeAvailable(
         r.frameworkVersion,
@@ -535,14 +533,13 @@ const HostRuntimeRow: FC<{
                     </span>
                 </span>
             </button>
-            {r.kind === 'daemon' && onGuide && guideFramework && (
-                <button
-                    type='button'
-                    onClick={(): void => onGuide(guideFramework, 'upgrade')}
+            {r.kind === 'daemon' && guideFramework && (
+                <Link
+                    to={updatesPath('framework')}
                     className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
                 >
                     {t('web.agentRuntimesList.update')}…
-                </button>
+                </Link>
             )}
             <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
         </div>
@@ -567,111 +564,6 @@ const HostKindIcon: FC<{ kind: RuntimeKind; className?: string }> = ({
             aria-label={runtimeKindLabel(kind)}
             className={className}
         />
-    )
-}
-
-// Per-framework install/upgrade guidance for self-owned (daemon) hosts — we
-// never install CLIs on a user's own machine, so we show the command + official
-// docs and let the daemon detect it on PATH. Most are npm; hermes ships its own
-// install script + `hermes update`.
-const FRAMEWORK_INSTALL_GUIDE: Partial<
-    Record<
-        VersionedFramework,
-        { bin: string; install: string; upgrade: string; docs: string }
-    >
-> = {
-    'claude-code': {
-        bin: 'claude',
-        install: 'npm install -g @anthropic-ai/claude-code',
-        upgrade: 'npm install -g @anthropic-ai/claude-code@latest',
-        docs: 'https://docs.anthropic.com/en/docs/claude-code/setup'
-    },
-    codex: {
-        bin: 'codex',
-        install: 'npm install -g @openai/codex',
-        upgrade: 'npm install -g @openai/codex@latest',
-        docs: 'https://github.com/openai/codex'
-    },
-    'gemini-cli': {
-        bin: 'gemini',
-        install: 'npm install -g @google/gemini-cli',
-        upgrade: 'npm install -g @google/gemini-cli@latest',
-        docs: 'https://github.com/google-gemini/gemini-cli'
-    },
-    openclaw: {
-        bin: 'openclaw',
-        install: 'npm install -g openclaw',
-        upgrade: 'npm install -g openclaw@latest',
-        docs: 'https://github.com/openclaw/openclaw'
-    },
-    hermes: {
-        bin: 'hermes',
-        install:
-            'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash',
-        upgrade: 'hermes update',
-        docs: 'https://hermes-agent.nousresearch.com/docs/getting-started/installation'
-    }
-}
-
-// "弹出引导官网" popup for daemon hosts: shows the install/upgrade command + a
-// link to the official docs. The daemon detects the CLI automatically once it
-// lands on PATH (incl. nvm/fnm/volta, via the login-shell resolver).
-const FrameworkInstallGuide: FC<{
-    framework: VersionedFramework
-    mode: 'install' | 'upgrade'
-    hostName: string
-    onClose: () => void
-}> = ({ framework, mode, hostName, onClose }): ReactNode => {
-    const { t } = useI18n()
-    const guide = FRAMEWORK_INSTALL_GUIDE[framework]
-    const [copied, setCopied] = useState(false)
-    if (!guide) return null
-    const cmd = mode === 'upgrade' ? guide.upgrade : guide.install
-    return (
-        <ProductDialog
-            title={`${mode === 'upgrade' ? t('web.agentRuntimesList.update') : t('web.agentRuntimesList.install')} ${frameworkLabel(framework)}`}
-            description={t('web.agentRuntimesList.guideDescription', {
-                host: hostName
-            })}
-            size='md'
-            onClose={onClose}
-        >
-            <div className='space-y-4'>
-                <div>
-                    <div className='workbench-kicker mb-2'>
-                        {t('web.agentRuntimesList.command')}
-                    </div>
-                    <div className='flex items-center gap-2'>
-                        <code className='text-caption shadow-ring-light bg-surface text-fg min-w-0 flex-1 overflow-x-auto rounded-md px-3 py-2 font-mono'>
-                            {cmd}
-                        </code>
-                        <button
-                            type='button'
-                            onClick={(): void => {
-                                void navigator.clipboard?.writeText(cmd)
-                                setCopied(true)
-                            }}
-                            className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-2 font-medium transition-colors'
-                        >
-                            {copied
-                                ? t('web.agentRuntimesList.copied')
-                                : t('web.agentRuntimesList.copy')}
-                        </button>
-                    </div>
-                </div>
-                <a
-                    href={guide.docs}
-                    target='_blank'
-                    rel='noreferrer'
-                    className='text-link hover:text-fg text-ui inline-flex items-center gap-1 font-medium'
-                >
-                    {t('web.agentRuntimesList.officialGuide')}
-                </a>
-                <p className='text-caption text-muted'>
-                    {t('web.agentRuntimesList.guideInstallMethods')}
-                </p>
-            </div>
-        </ProductDialog>
     )
 }
 
@@ -719,17 +611,22 @@ const AvailableFrameworkRow: FC<{
         // Self-owned machines are detect-only: we never install/upgrade CLIs on
         // someone's own computer. Point them at the official install guide
         // instead; the daemon picks the CLI up automatically once it's on PATH.
-        action = (
-            <button
-                type='button'
-                onClick={(): void =>
-                    onGuide?.(framework, installed ? 'upgrade' : 'install')
-                }
+        // Updating an already-installed one is a reminder like any other, so it
+        // goes through the Update Center rather than opening the guide here.
+        action = installed ? (
+            <Link
+                to={updatesPath('framework')}
                 className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
             >
-                {installed
-                    ? `${t('web.agentRuntimesList.update')}…`
-                    : `${t('web.agentRuntimesList.install')}…`}
+                {`${t('web.agentRuntimesList.update')}…`}
+            </Link>
+        ) : (
+            <button
+                type='button'
+                onClick={(): void => onGuide?.(framework, 'install')}
+                className='text-ui shadow-ring-light bg-surface hover:bg-surface-hover shrink-0 rounded-md px-3 py-1.5 font-medium transition-colors'
+            >
+                {`${t('web.agentRuntimesList.install')}…`}
             </button>
         )
     } else {
@@ -861,9 +758,12 @@ const CliVersionValue: FC<{
             )}
             {latest &&
                 (updateAvailable || !current ? (
-                    <span className='text-caption text-link'>
+                    <Link
+                        to={updatesPath('cli')}
+                        className='text-caption text-link hover:underline'
+                    >
                         ↑ v{latest} {t('web.agentRuntimesList.available')}
-                    </span>
+                    </Link>
                 ) : (
                     <span className='text-caption text-subtle'>
                         {t('web.agentRuntimesList.latest')}
@@ -1406,47 +1306,6 @@ const HostDetailPanel: FC<{
             setDeleting(false)
         )
     }
-    const handleNoticeCliUpgrade = async (): Promise<void> => {
-        if (!host || !onUpgradeCli) return
-        if (
-            !(await confirm({
-                title: t('web.agentRuntimesList.upgradeCli'),
-                description: t(
-                    'web.agentRuntimesListExtras.upgradeHostDescription',
-                    {
-                        name: vm.label,
-                        version: host.latestCliVersion
-                            ? `v${host.latestCliVersion}`
-                            : t('web.agentRuntimesList.latest')
-                    }
-                ),
-                confirmLabel: t('web.agentRuntimesList.upgrade'),
-                tone: 'danger'
-            }))
-        )
-            return
-        void onUpgradeCli(host.id, undefined)
-    }
-    const handleNoticeSandboxCliUpgrade = async (): Promise<void> => {
-        if (!sandbox || !onUpgradeSandboxCli) return
-        if (
-            !(await confirm({
-                title: t('web.agentRuntimesList.upgradeCli'),
-                description: t(
-                    'web.agentRuntimesListExtras.upgradeHostDescription',
-                    {
-                        name: sandbox.name,
-                        version: sandbox.latestCliVersion
-                            ? `v${sandbox.latestCliVersion}`
-                            : t('web.agentRuntimesList.latest')
-                    }
-                ),
-                confirmLabel: t('web.agentRuntimesList.upgrade')
-            }))
-        )
-            return
-        void onUpgradeSandboxCli(sandbox.id, undefined)
-    }
     const menuItems: OverflowMenuItem[] = []
     if (onRename)
         menuItems.push({
@@ -1542,27 +1401,20 @@ const HostDetailPanel: FC<{
                             : t('web.agentRuntimesList.remoteUpgradeHint')
                     }
                     action={
-                        host.canRemoteUpgrade && onUpgradeCli ? (
-                            <button
-                                type='button'
-                                disabled={Boolean(upgradingCli)}
-                                onClick={(): void => {
-                                    void handleNoticeCliUpgrade()
-                                }}
+                        host.canRemoteUpgrade ? (
+                            <Link
+                                to={updatesPath('cli')}
                                 className='workbench-button-secondary'
                             >
-                                {upgradingCli
-                                    ? t('web.agentRuntimesList.upgrading')
-                                    : t('web.agentRuntimesList.upgrade')}
-                            </button>
+                                {t('web.updates.reviewCta')}
+                            </Link>
                         ) : undefined
                     }
                 />
             )}
             {sandbox &&
                 sandbox.cliUpdateAvailable &&
-                sandbox.latestCliVersion &&
-                onUpgradeSandboxCli && (
+                sandbox.latestCliVersion && (
                     <NoticeRow
                         title={t('web.agentRuntimesList.cliAvailable', {
                             version: sandbox.latestCliVersion
@@ -1573,18 +1425,12 @@ const HostDetailPanel: FC<{
                                 : t('common.unknown')
                         })}
                         action={
-                            <button
-                                type='button'
-                                disabled={Boolean(upgradingSandboxCli)}
-                                onClick={(): void => {
-                                    void handleNoticeSandboxCliUpgrade()
-                                }}
+                            <Link
+                                to={updatesPath('cli')}
                                 className='workbench-button-secondary'
                             >
-                                {upgradingSandboxCli
-                                    ? t('web.agentRuntimesList.upgrading')
-                                    : t('web.agentRuntimesList.upgrade')}
-                            </button>
+                                {t('web.updates.reviewCta')}
+                            </Link>
                         }
                     />
                 )}
@@ -1634,9 +1480,6 @@ const HostDetailPanel: FC<{
                                 runtime={r}
                                 latest={catalog[r.framework]?.latest ?? null}
                                 onSelect={() => onSelectRuntime(r.id)}
-                                onGuide={(framework, mode): void =>
-                                    setGuide({ framework, mode })
-                                }
                             />
                         ))}
                     </div>

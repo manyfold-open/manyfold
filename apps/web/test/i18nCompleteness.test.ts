@@ -731,6 +731,16 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'NO_BROWSER=true gemini'
     ],
     'lib/theme.tsx': ['light'],
+    // Row/target/status union tags for the Update Center's model, not display
+    // copy — each is rendered through its own translated label map.
+    'lib/updateCenter.ts': [
+        'daemon',
+        'manual',
+        'offline',
+        'ready',
+        'required',
+        'sandbox'
+    ],
     'pages/AgentNew/components/CreateProgress.tsx': [
         'active',
         'done',
@@ -864,6 +874,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'pages/SharedChatSession.tsx': ['Manyfold'],
     'pages/SharedSkill.tsx': ['Manyfold'],
     'pages/UsageEvents.tsx': ['custom'],
+    // The cascade health-dot tags, matching lib/cascade.tsx's Health union.
+    'pages/UpdateCenter.tsx': ['error', 'warn'],
     'pages/agents/AgentA2a.tsx': ['mf a2a'],
     'pages/agents/AgentContextDoc.tsx': ['AGENTS.manyfold.md'],
     'pages/agents/AgentEnvVars.tsx': ['.env'],

@@ -17,8 +17,9 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useApiClient } from '@/lib/apiClient'
-import { apiErrorDetailMessage, apiErrorMessage } from '@/lib/errorMessage'
+import { apiErrorMessage } from '@/lib/errorMessage'
 import { docsHref } from '@/lib/docsLinks'
+import { updatesPath } from '@/lib/updateCenter'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 
@@ -166,44 +167,6 @@ const LocalDaemons: FC = (): ReactNode => {
         }
     }
 
-    const upgradeHost = async (h: DaemonHostSummary): Promise<void> => {
-        if (
-            !(await confirm({
-                title: t('web.selfOwned.upgradeHostTitle'),
-                description: t('web.selfOwned.upgradeHostDesc', {
-                    version: h.latestCliVersion ?? 'latest',
-                    name: h.name
-                }),
-                confirmLabel: t('web.selfOwned.upgradeHostConfirm'),
-                tone: 'danger'
-            }))
-        ) {
-            return
-        }
-        setBusy(true)
-        setError(null)
-        setMessage(null)
-        try {
-            const res = await client.daemons.upgradeHost(h.id)
-            setMessage(
-                res.restarting
-                    ? t('web.selfOwned.msgUpgrading', {
-                          name: h.name,
-                          version: res.toVersion ?? 'latest'
-                      })
-                    : t('web.selfOwned.msgUpToDate', {
-                          name: h.name,
-                          version: res.toVersion ?? 'latest'
-                      })
-            )
-            await refresh()
-        } catch (err) {
-            setError(apiErrorDetailMessage(err))
-        } finally {
-            setBusy(false)
-        }
-    }
-
     const steps = [
         t('web.connectDaemon.step1'),
         t('web.connectDaemon.step2'),
@@ -286,19 +249,15 @@ const LocalDaemons: FC = (): ReactNode => {
                                             (h.canRemoteUpgrade ? (
                                                 <ShortcutTooltip
                                                     label={t(
-                                                        'web.selfOwned.upgradeAvailableTip'
+                                                        'web.updates.reviewCta'
                                                     )}
                                                 >
-                                                    <button
-                                                        type='button'
-                                                        disabled={busy}
-                                                        onClick={() =>
-                                                            upgradeHost(h)
-                                                        }
-                                                        className='text-link ml-1 font-mono hover:underline disabled:opacity-50'
+                                                    <Link
+                                                        to={updatesPath('cli')}
+                                                        className='text-link ml-1 font-mono hover:underline'
                                                     >
                                                         ↑ {h.latestCliVersion}
-                                                    </button>
+                                                    </Link>
                                                 </ShortcutTooltip>
                                             ) : (
                                                 <ShortcutTooltip
@@ -362,6 +321,21 @@ const LocalDaemons: FC = (): ReactNode => {
                                                     )}{' '}
                                                     →
                                                 </a>
+                                                {h.canRemoteUpgrade && (
+                                                    <>
+                                                        {' · '}
+                                                        <Link
+                                                            to={updatesPath(
+                                                                'cli'
+                                                            )}
+                                                            className='text-link hover:underline'
+                                                        >
+                                                            {t(
+                                                                'web.updates.reviewCta'
+                                                            )}
+                                                        </Link>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     )}

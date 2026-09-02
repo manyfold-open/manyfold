@@ -47,6 +47,7 @@ import {
     SidebarToggleIcon,
     SunIcon,
     TrashIcon,
+    UpdatesIcon,
     UsageIcon
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
@@ -88,6 +89,8 @@ import type { AgentMenuItem } from '@/lib/agentMenu'
 import { buildAgentMenuItems, isSectionBoundary } from '@/lib/agentMenu'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
+import { buildUpdateRows, countUpdates } from '@/lib/updateCenter'
+import { useUpdateCenterData } from '@/lib/useUpdateCenterData'
 import {
     FrameworkLogo,
     frameworkLabel as frameworkDisplayLabel
@@ -1654,6 +1657,16 @@ const useAccountUsage = (active: boolean): AccountUsageWindows | null => {
     return usage
 }
 
+// Counted only while the menu is open: the five list endpoints behind it are
+// not worth polling for a badge nobody is looking at.
+const useAvailableUpdateCount = (active: boolean): number => {
+    const { inputs } = useUpdateCenterData(active)
+    return useMemo(
+        () => countUpdates(buildUpdateRows(inputs, frameworkDisplayLabel)),
+        [inputs]
+    )
+}
+
 const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
     collapsed = false
 }): ReactNode => {
@@ -1665,6 +1678,7 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
     const { theme, toggleTheme } = useTheme()
     const [open, setOpen] = useState(false)
     const usage = useAccountUsage(open)
+    const updateCount = useAvailableUpdateCount(open)
     const [languageOpen, setLanguageOpen] = useState(false)
     const [learnMoreOpen, setLearnMoreOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement | null>(null)
@@ -1859,6 +1873,32 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                                 </span>
                             </span>
                         )}
+                    </button>
+
+                    <button
+                        type='button'
+                        role='menuitem'
+                        onClick={() => {
+                            runAction(() =>
+                                navigateWithRailTransition(
+                                    navigate,
+                                    '/updates',
+                                    'forward'
+                                )
+                            )
+                        }}
+                        className={sidebarMenuItemClass()}
+                    >
+                        <UpdatesIcon className='h-4 w-4 shrink-0' />
+                        <span className='min-w-0 flex-1'>
+                            {t('web.settingsMenu.updates')}
+                        </span>
+                        {updateCount > 0 && (
+                            <span className='tag tag-neutral tabular-nums'>
+                                {updateCount}
+                            </span>
+                        )}
+                        <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
                     </button>
 
                     <div className='popover-separator' />
