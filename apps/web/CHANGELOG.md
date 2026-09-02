@@ -1,5 +1,15 @@
 # @manyfold/web
 
+## 0.52.1
+
+### Patch Changes
+
+- [#136](https://github.com/manyfold-open/manyfold/pull/136) [`e9f681e`](https://github.com/manyfold-open/manyfold/commit/e9f681eb1f22d424ec9520c69d864c25d22e5579) Thanks [@yingca1](https://github.com/yingca1)! - Serve `/updates` and `/account` as SPA routes. Caddy serves the app shell only
+  for an explicit list of route families and 404s everything else, so both were
+  registered in the router but unreachable once deployed: the Update Center
+  returned the 404 page, as did the account-deletion confirm and restore pages
+  that people reach from an emailed link.
+
 ## 0.52.0
 
 ### Minor Changes
