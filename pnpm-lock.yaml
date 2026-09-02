@@ -541,6 +541,9 @@ importers:
       '@manyfold/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@manyfold/tokens':
+        specifier: workspace:*
+        version: link:../../packages/tokens
       '@pierre/trees':
         specifier: 1.0.0-beta.3
         version: 1.0.0-beta.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

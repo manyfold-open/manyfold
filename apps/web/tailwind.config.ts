@@ -1,3 +1,10 @@
+import {
+    fontStacks,
+    px,
+    radius,
+    radiusDefaultTier,
+    radiusPill
+} from '@manyfold/tokens'
 import type { Config } from 'tailwindcss'
 import typography from '@tailwindcss/typography'
 
@@ -35,7 +42,8 @@ const config: Config = {
                 /* Active session fill — used inside an active agent
                    block to mark the currently-open chat. Tone lifts
                    above the block in both themes. */
-                'active-session': 'rgb(var(--color-active-session) / <alpha-value>)',
+                'active-session':
+                    'rgb(var(--color-active-session) / <alpha-value>)',
                 strong: {
                     DEFAULT: 'rgb(var(--color-strong) / <alpha-value>)',
                     hover: 'rgb(var(--color-strong-hover) / <alpha-value>)',
@@ -98,25 +106,15 @@ const config: Config = {
                     ship: 'rgb(var(--color-workflow-ship) / <alpha-value>)'
                 }
             },
+            /* Stacks come from @manyfold/tokens so the webapp, the docs
+               site and the landing register cannot drift apart on them.
+               `display` is the serif; it is loaded globally by styles.css
+               and used only above the size floor (DESIGN.product-iris.md
+               §4.2). */
             fontFamily: {
-                sans: [
-                    'Geist',
-                    '-apple-system',
-                    'BlinkMacSystemFont',
-                    'Segoe UI',
-                    'Roboto',
-                    'Arial',
-                    'sans-serif'
-                ],
-                mono: [
-                    'Geist Mono',
-                    'ui-monospace',
-                    'SFMono-Regular',
-                    'Menlo',
-                    'Monaco',
-                    'Courier New',
-                    'monospace'
-                ]
+                sans: [...fontStacks.sans],
+                mono: [...fontStacks.mono],
+                display: [...fontStacks.display]
             },
             /* Sizes come from the per-mode ramp in styles.css, not from
                scaling one base — see the [data-font-size] blocks there for
@@ -187,16 +185,19 @@ const config: Config = {
                generous padding, so the rule there is informational.
                Landing (`.lp-*`) reads `--lp-r-*` directly from styles.css
                and keeps its 24 / 28 / 32 hero tiers — see DESIGN.md §6.1. */
+            /* From @manyfold/tokens. The product scale runs tighter than
+               landing at `sm`/`md` on purpose and never reaches above
+               `md` — DESIGN.md §6.1. */
             borderRadius: {
-                DEFAULT: '10px',
-                xs: '8px',
-                sm: '10px',
-                md: '14px',
-                lg: '20px',
-                xl: '24px',
-                '2xl': '28px',
-                '3xl': '32px',
-                pill: '9999px'
+                DEFAULT: px(radius.product[radiusDefaultTier]),
+                xs: px(radius.product.xs),
+                sm: px(radius.product.sm),
+                md: px(radius.product.md),
+                lg: px(radius.product.lg),
+                xl: px(radius.product.xl),
+                '2xl': px(radius.product['2xl']),
+                '3xl': px(radius.product['3xl']),
+                pill: px(radiusPill.product)
             },
             boxShadow: {
                 ring: 'var(--shadow-ring)',
@@ -230,8 +231,7 @@ const config: Config = {
                         '--tw-prose-bullets': 'rgb(var(--color-subtle))',
                         '--tw-prose-hr': 'rgb(var(--color-divider))',
                         '--tw-prose-quotes': 'rgb(var(--color-muted))',
-                        '--tw-prose-quote-borders':
-                            'rgb(var(--color-divider))',
+                        '--tw-prose-quote-borders': 'rgb(var(--color-divider))',
                         '--tw-prose-captions': 'rgb(var(--color-subtle))',
                         '--tw-prose-code': 'rgb(var(--color-fg))',
                         '--tw-prose-th-borders': 'rgb(var(--color-divider))',

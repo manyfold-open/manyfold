@@ -19,7 +19,14 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { formatValue } from '../src/emit'
 import { normalizeValue, parseColorTokens } from '../src/parse'
+import {
+    normalizeStack,
+    parseFontStack,
+    parseRadius,
+    parseTailwindRadius
+} from '../src/parse-scale'
 import { productColors } from '../src/product-colors'
+import { fontStackCss, radius, radiusPill } from '../src/scale'
 import { isRaw, type Consumer, type Theme } from '../src/index'
 
 const oss = resolve(__dirname, '../../..')
@@ -85,9 +92,138 @@ for (const { consumer, file } of BASELINES) {
     }
 }
 
+// ─────────────────── radius and font stacks ───────────────────
+// Not colours, but the same failure mode: one value written down in three
+// places with nothing comparing them.
+
+const read = (file: string) => readFileSync(resolve(oss, file), 'utf8')
+const webCss = read('apps/web/src/styles.css')
+const docsCss = read('apps/docs/src/styles/global.css')
+const twConfig = read('apps/web/tailwind.config.ts')
+
+function compareRadius(
+    label: string,
+    actual: Record<string, number>,
+    expected: Record<string, number>,
+    expectedPill: number
+) {
+    for (const [tier, value] of Object.entries(expected)) {
+        const got = actual[tier]
+        if (got === undefined) {
+            problems.push(
+                `${label} is missing radius tier '${tier}' (${value}px)`
+            )
+            continue
+        }
+        compared++
+        if (got !== value)
+            problems.push(
+                `${label} radius '${tier}' is ${got}px, @manyfold/tokens declares ${value}px`
+            )
+    }
+    if (actual.pill !== undefined) {
+        compared++
+        if (actual.pill !== expectedPill)
+            problems.push(
+                `${label} radius 'pill' is ${actual.pill}px, @manyfold/tokens declares ${expectedPill}px`
+            )
+    }
+}
+
+// The webapp's Tailwind config IMPORTS these values, so there is nothing to
+// compare — it cannot disagree. What can regress is someone replacing the
+// import with literals again, so assert the shape instead of the values.
+{
+    const label = 'apps/web/tailwind.config.ts'
+    if (!/from '@manyfold\/tokens'/.test(twConfig)) {
+        problems.push(
+            `${label} no longer imports @manyfold/tokens — radius and font stacks must come from the package`
+        )
+    } else {
+        compared++
+    }
+    const literals = parseTailwindRadius(twConfig)
+    const hardcoded = Object.entries(literals).filter(([, value]) =>
+        Number.isFinite(value)
+    )
+    if (hardcoded.length) {
+        problems.push(
+            `${label} has hardcoded borderRadius values (${hardcoded
+                .map(([tier, value]) => `${tier}: ${value}px`)
+                .join(', ')}) — take them from radius.product instead`
+        )
+    }
+    for (const role of ['sans', 'mono', 'display'] as const) {
+        if (
+            !new RegExp(`${role}:\\s*\\[\\.\\.\\.fontStacks\\.${role}\\]`).test(
+                twConfig
+            )
+        ) {
+            problems.push(
+                `${label} fontFamily.${role} does not spread fontStacks.${role} — it must come from the package`
+            )
+        } else {
+            compared++
+        }
+    }
+}
+
+compareRadius(
+    'apps/docs/src/styles/global.css',
+    parseRadius(docsCss, '--radius-'),
+    radius.product,
+    radiusPill.product
+)
+compareRadius(
+    'apps/web/src/styles.css (--lp-r-*)',
+    parseRadius(webCss, '--lp-r-'),
+    radius.landing,
+    radiusPill.landing
+)
+
+const STACKS: Array<{
+    label: string
+    actual: string | null
+    role: 'sans' | 'mono' | 'display'
+}> = [
+    {
+        label: 'apps/docs --font-sans',
+        actual: parseFontStack(docsCss, '--font-sans'),
+        role: 'sans'
+    },
+    {
+        label: 'apps/docs --font-mono',
+        actual: parseFontStack(docsCss, '--font-mono'),
+        role: 'mono'
+    },
+    {
+        label: 'apps/web --lp-mono',
+        actual: parseFontStack(webCss, '--lp-mono'),
+        role: 'mono'
+    },
+    {
+        label: 'apps/web --lp-display',
+        actual: parseFontStack(webCss, '--lp-display'),
+        role: 'display'
+    }
+]
+
+for (const { label, actual, role } of STACKS) {
+    if (actual === null) {
+        problems.push(`${label} not found — @manyfold/tokens declares it`)
+        continue
+    }
+    compared++
+    const want = normalizeStack(fontStackCss(role))
+    if (actual !== want)
+        problems.push(
+            `${label}\n      css declares : ${actual}\n      tokens expect: ${want}`
+        )
+}
+
 if (problems.length) {
     console.error(
-        `\n  ✗ ${problems.length} token disagreement(s) between the CSS baselines and @manyfold/tokens:\n`
+        `\n  ✗ ${problems.length} token disagreement(s) between the baselines and @manyfold/tokens:\n`
     )
     for (const p of problems) console.error(`    ${p}\n`)
     process.exit(1)
