@@ -1,5 +1,74 @@
 # @manyfold/web
 
+## 0.52.0
+
+### Minor Changes
+
+- [#132](https://github.com/manyfold-open/manyfold/pull/132) [`cc2faee`](https://github.com/manyfold-open/manyfold/commit/cc2faee7fe103a0685d5032d045c8280c4f8bd87) Thanks [@yingca1](https://github.com/yingca1)! - Add the Update Center: one page listing every available update across machines,
+  agents and skills, with group-by filtering and multi-select batch updates.
+
+    Update reminders that used to act in place now link there instead — the mf CLI
+    banner, the CLI and framework notices on the runtimes pages, the agent overview
+    hints, the self-owned machine list and the agent skills panel. Version pickers
+    and "install missing" prompts are unchanged; they are separate actions.
+
+### Patch Changes
+
+- [#130](https://github.com/manyfold-open/manyfold/pull/130) [`3e82814`](https://github.com/manyfold-open/manyfold/commit/3e8281460f92b21631afa748353311d6554b6c42) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing world's leader captions now read as blocks instead of nine
+  different indents.
+
+    Every caption is a title with a mono line under it, and the pair is supposed to
+    hang off one leader. But the second line's `x` had been set by eye for each
+    one: measured against its own title it sat at -48, -26, -13, -6, +8, +13, +18,
+    +21 and +48. No two agreed, and on the cloud-computer plate the offset was
+    large enough that `ALWAYS ON` started where `Cloud computer` ended and ran back
+    under its own leader. Each mono line now takes its title's `x` and anchor, so
+    both lines are flush on the side the leader comes from — which is the edge the
+    elbow points at.
+
+    Flush lines are wider than staggered ones, and two captions then reached
+    artwork their title had cleared on its own, so their leaders drop or rise
+    further before turning out: `Your own machine` now sits above the screen it was
+    printing over, and `Stateful sandboxes` has more than the 0.4 units it had
+    between its mono line and the plate below.
+
+    Three placements are fixed alongside them. `Skills & MCP` and the control
+    plane's own layer title were drawn through each other — the note hangs into the
+    margin below the plate's near edge, which is where the title lives; the title
+    now sits further along that edge, since the note cannot move up without landing
+    on the plate or down without a leader twice the length of any other.
+    `External services` and `Your schedule` were both printed on their own plate,
+    crossing its front edge, and now drop clear of it first. The delivery plane's
+    layer title moves along its edge too: at 1024 it was overlapping the copy
+    column's third bullet.
+
+    Checked at 390, 430, 768, 820, 1024, 1280, 1440 and 1920 across all three
+    scenes: no caption overlaps another caption, the copy column, or runs off the
+    stage.
+
+- [#130](https://github.com/manyfold-open/manyfold/pull/130) [`3e82814`](https://github.com/manyfold-open/manyfold/commit/3e8281460f92b21631afa748353311d6554b6c42) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing world's top plane now puts each framework on the runtime it
+  actually runs on.
+
+    The four agent plates are labelled by runtime — stateful sandboxes, cloud
+    computer, your own machine, external services — but three of the marks standing
+    on them were placed before the runtimes were, and had drifted into claims that
+    aren't true: OpenClaw sat in a sandbox, Dify on the cloud computer, and a second
+    Claude Code stood in for the external services the platform doesn't host. A
+    reader who knows the frameworks reads the plane as a map, so a mark on the wrong
+    plate is a wrong statement, not a decoration.
+
+    The sandbox plate now carries NarraNexus, the cloud computer carries OpenClaw,
+    and external services carries Dify — which also stops Claude Code from appearing
+    twice in a scene whose whole point is that the marks are the variable.
+
+    `@lobehub/icons` has no NarraNexus mark, so the world borrows the product's own
+    asset, the pair `frameworkMeta` already renders everywhere else. It goes in as
+    two `<image>` elements swapped by theme rather than one tinted mark, because the
+    stroke is a black-to-grey gradient in light and white-to-grey in dark, which
+    `currentColor` cannot express; a nested `viewBox` crops the file's square canvas
+    to the artwork's own band so the mark fills its slot on the head instead of
+    sitting at 60% with air above and below it.
+
 ## 0.51.0
 
 ### Minor Changes
