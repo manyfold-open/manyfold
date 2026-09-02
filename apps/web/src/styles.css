@@ -1991,10 +1991,18 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
    accent reading as a power-on LED. High-end audio / pro hardware
    register: sculptural, precise, expensive. */
 .landing-root {
-    /* Ash — a genuinely neutral paper. Only 2–4 units of cool bias (B a
-       little above R) to cancel the yellow cast of warm displays; no hue is
-       readable. Paper feel comes from near-white lightness and very narrow
-       steps between levels, never from tinting the ground: tint the ground
+    /* Ash — a genuinely neutral paper. The cool bias (B a little above R)
+       cancels the yellow cast of warm displays without any hue becoming
+       readable. Its size tracks lightness rather than being constant: 0-3
+       units at the near-white and near-black ends, peaking around 10 in the
+       mid-greys where the ink ramp sits (see --lp-muted / --lp-subtle
+       below). An earlier version of this comment claimed a flat "2-4 units"
+       — true of the background tiers only, and it has already misled a
+       migration into flattening the ink ramp, which reads as the whole page
+       turning warm. DESIGN.landing.md §1.2 carries the curve.
+
+       Paper feel comes from near-white lightness and very narrow steps
+       between levels, never from tinting the ground: tint the ground
        and the accent loses contrast against its own light end, and the whole
        site wears a filter that cannot be washed out. */
     --lp-bg: #f4f4f6;
