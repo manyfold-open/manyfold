@@ -1,5 +1,359 @@
 # @manyfold/web
 
+## 0.51.0
+
+### Minor Changes
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing page's closing CTA block is gone.
+
+    It restated the hero one screen after the pricing table and the FAQ had already
+    made the case, with the same two buttons the hero opens with and the same offer
+    the pricing table states — a third ask on a page whose reader has by then been
+    asked twice. The FAQ now runs into the footer, which still carries the sign-up
+    route for anyone who reaches the bottom.
+
+    The no-JS snapshot drops its matching block for the same reason: that view's
+    contract is to mirror what the page shows, and its hero already carries the
+    same two crawlable links, so nothing is lost to a crawler. About 130 lines of
+    the CSS that drew the card — a graphite slab with its own LED edge, chamfer
+    washes and brushed grain, none of it used anywhere else — and the four copy
+    keys behind it come out with it.
+
+    The rule above the footer goes with it. It was the page's only full-width
+    hairline: every section boundary on this page is white space, and the hairlines
+    that do exist belong inside a block — the FAQ's rows, the pricing card's
+    feature list — rather than between blocks. It had the CTA card to separate
+    itself from; without it, it sat 112px under the FAQ's own closing rule and
+    underlined nothing. The footer's smaller, quieter type and 148px of clearance
+    carry the boundary on their own.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing page's metering section is now an observability section.
+
+    It used to argue one thing — that a run's price is visible — with a
+    month-to-date figure heading the section and three claims underneath that were
+    all restatements of it. What a reader needs in order to trust an agent they
+    cannot watch is broader than the bill: what it did, what that cost, and what it
+    was allowed to touch. Those are three peers, so the section is now three
+    columns instead of three stacked pairs, and the month-to-date figure sits in
+    the cost column where it belongs.
+
+    The paired rows are gone with it. Each row put a wide artefact beside the
+    sentence it proved, which left the three artefacts at three different heights
+    with no shared baseline between the halves. The columns are a CSS subgrid, so
+    every panel sits in the same row and the three share a height without anyone
+    picking a min-height; stacked under 900px they go back to sizing themselves.
+    The closing line about failed runs is dropped — the claims carry the section
+    without it.
+
+    The no-JS snapshot follows the same copy, so a crawler reads the section the
+    page actually shows.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing page is now one scrolled explanation instead of a hero plus five
+  sections that each restated the product from a different angle.
+
+    The old page opened on a floor of roaming agent standees that could fold away
+    to reveal a second, classic hero behind it, and then said the same thing four
+    more times: Flow ("three steps to a working agent"), Machines ("run your
+    workspace anywhere"), Features ("automations, integrations, connective
+    tissue"), each with its own illustrated apparatus. Everything above the pricing
+    table was an argument about what Manyfold is, made three ways, none of which
+    showed how the parts sit together.
+
+    The hero is now a pinned stage the reader scrolls through. One isometric world
+    holds the whole product in three stacked planes — agent infrastructure on top,
+    the Manyfold control plane in the middle, delivery surfaces at the bottom — and
+    the camera pans and zooms to the plane each scene is describing while the copy
+    rail cross-fades beside it. Five scenes: the claim, hosting, one workspace,
+    every surface, and the point. Below the stage, "Works with" lists what actually
+    plugs in (frameworks, channels, runtimes) as three rows of chips rather than
+    prose, and a new metering section shows a per-turn usage ledger next to the
+    three things it buys you — visible, choosable, capped — with an honest note
+    that we do not claim the cheapest run every time.
+
+    Pricing, FAQ and the closing CTA keep their existing treatment; the Plus tier
+    now carries the POPULAR badge the grid always implied, and the FAQ answers the
+    five questions someone weighing this against building it themselves actually
+    asks.
+
+    The stage sits on the page's own grid rather than floating over the viewport:
+    the copy starts on the same left edge as every section below it, and the world
+    occupies a column inside the container instead of being shoved against the
+    right edge by its aspect ratio. The drawing's viewBox was also trimmed to its
+    own ink — a quarter of its width was empty space on the right, which had been
+    holding the illustration away from the words. Section headings drop from 76px
+    to 54px so they sit under the 62px hero title instead of above it.
+
+    Copy notes: the hero's four keys are the ones the OG card renders, so the card
+    is a still of the new hero and has been re-rendered. Chinese sets solid, so zh
+    gets `word-break: keep-all` and its own step down the heading ramp — without
+    it the browser was breaking 成倍放大 across two lines in the 46%-wide rail.
+
+    Removed with the old page: `ProductDemo`, the workspace-floor hero, and about
+    2,900 lines of the CSS that drew them.
+
+### Patch Changes
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Both sites now link the public repository. GitHub joins X and Discord in the
+  navigation and the footer on manyfold.ai and docs.manyfold.ai, and leads them:
+  for an open-source product the source is where the other two are pointing
+  people anyway. The docs header, which carries only the doors a reader
+  mid-problem needs, gains it alongside Discord.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - On phones the hero's drawing is centred and the dead air under the copy is
+  gone.
+
+    The world's viewBox had been trimmed to the drawing's ink once, but the ink has
+    moved since — planes translated, bodies rebuilt — and it had drifted 64 units
+    right of the frame's centre, which on a phone reads as the whole illustration
+    sitting off to one side. The viewBox is re-centred on where the ink actually is
+    now, and the camera's own centre moves with it so the zoomed scenes still frame
+    the plane they are describing.
+
+    The portrait layout gave the art a fixed 46vh band and the copy everything
+    below it, so the taller the phone the larger the pocket of nothing under the
+    scroll hint — 146px at 375x812 — while the drawing stayed the same size. The
+    copy now takes only what it needs and the drawing takes the rest: at 375x812
+    the art goes from 374px to 464px and the pocket from 146px to 56px. The rail's
+    scenes are absolutely positioned, so its row cannot size to content; the clamp
+    is set from the tallest scene there is, which is the Chinese hero at 305px on a
+    360-wide phone.
+
+    The scenes themselves framed badly in portrait. The art band sat inside the
+    stage's 22px gutter, so a drawing that was already wider than the band showed
+    two pale bars down the sides and lost its leader captions to the clip; the band
+    is full bleed now, and the gutter belongs to the copy alone. The narrow zoom was
+    the other half: `km` was 2.3, which put a plane and its labels half again wider
+    than the phone. A plane plus its captions is about 240px across at rest, so the
+    narrow keys are 1.45 and 1.35 — the most zoom the width will take.
+
+    The camera also gained a horizontal focus. It only ever had `focusY`, so every
+    zoom happened about the world's own centre, and the planes do not share it —
+    they sit at 346, 368 and 359 against the world's 388, a difference that any
+    zoom above 1 magnifies into a plane pushed off to one side. Each scene now
+    names the centre of the plane it is describing, which squares up the desktop
+    framing too.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Remove the landing page header's background fill and bottom divider so the
+  navigation sits directly on the hero canvas in both themes.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Delay landing World layer annotations until the camera zoom and focus settle,
+  then fade them in as the active layer comes into view.
+
+    Layer names are scoped to their active scene rather than remaining visible in
+    the global overview, and use the landing display face at a quieter size. The
+    camera transition leaves a clearer pause before supporting callouts appear.
+
+    The Skills & MCP node is now illustrated as a compact isometric toolbox while
+    keeping its existing annotation anchor aligned.
+
+    Screen copy and usage marks now follow the isometric face direction instead of
+    remaining flat to the viewport.
+
+    The usage chart details are nudged inward from the card edge for a cleaner
+    visual margin.
+
+    The complete usage device is inset from the lower plate edge so its base and
+    screen share the same visual margin.
+
+    The control-plane usage device is shifted right within its card to match the
+    requested alignment.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The GitHub link in the marketing nav and footer has a label again.
+
+    It called `web.marketing.sourceGithub`, which no catalog defined, so the
+    accessible name and the menu item's text both rendered as the raw key.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing world's three planes are now joined by light rather than by line.
+
+    Every solid in the scene is drawn as a lit body — modelled faces, a silhouette
+    outline, a contact shadow — but the wires between the planes were flat
+    hairlines of one uniform alpha with flat discs sliding along them, and the
+    mismatch is what made the lower half read as unfinished. The connective tissue
+    now uses the same language as the bodies: each wire is a soft bloom under a
+    crisp core whose stroke is a gradient fading with distance, so a cable has a
+    length instead of being a band of constant value.
+
+    Below the control plane the three trunk strands splay where they leave the
+    plate and gather into a junction, so the bundle has a round cross-section
+    instead of reading as a barcode — and all three now carry traffic, where only
+    the middle one used to. The trunk lands on an actual junction: a puck with a
+    plinth, a contact shadow, a halo and a ripple that fires on each arrival,
+    rather than on a bare four-unit dot floating over a plate. The four routes out
+    of it are curves that stop at a lit pad on each destination plate instead of
+    straight chords aimed at the object standing on it, which is what used to send
+    them through the solids they were meant to reach.
+
+    One clock now runs the whole chain, so a single run can be followed all the way
+    down: a packet reaching the junction, the ring it fires there and the route
+    that leaves are the same run, where the old 3.2s trunk and the fan-out's own
+    begins were aliased against each other and no two events were ever related.
+
+    The packets themselves are lit beads — an aura, a hot core, and a tail that
+    trails the head however the wire curves — that scale in and out rather than
+    blinking. Above the control plane they keep their framework's hue, because
+    what arrives there is a particular framework's run; below it they are the brand
+    hue, because Manyfold has normalised them. The light is carried by gradients
+    rather than blur filters, which would be re-rasterised on every camera frame.
+
+    Light mode now treats the blue energy as reflected light on paper: the wide
+    wire bloom, plane spill and control-cube glow are reduced independently, while
+    dark mode keeps the stronger emissive treatment.
+
+    `--lp-w-flux` and `--lp-w-flux-spec` are new: the flux is read against the
+    world's plates rather than against the page, so on the near-black plate it has
+    to climb the Iris ramp to hold the same weight, exactly as `--lp-w-wire` does.
+    SMIL cannot be stopped from CSS, so under `prefers-reduced-motion` the moving
+    parts are removed and the wires, ports and pads they travel between stay.
+
+- [#125](https://github.com/manyfold-open/manyfold/pull/125) [`550f52f`](https://github.com/manyfold-open/manyfold/commit/550f52fc2f3d995dcd1b713c11df310fcd8862ac) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Every body in the landing world now turns a face of the right width to the
+  camera, and the agents work behind their desks instead of standing on them.
+
+    The world was drawn on a correct 30° isometric grid, but a solid's footprint
+    decides how wide each of its two visible faces reads: a body 52 deep by 34
+    wide shows a 52-wide face to the left and a 34-wide face to the right. Nothing
+    enforced a relationship between those two numbers, so bodies came out sheared.
+    The desks were the loudest case in a second way — the ones whose screen faced
+    left stood on their long edge and the ones facing right stood on their short
+    edge, so the same workstation was 52 wide in one corner of the plane and 32 in
+    another, wearing a 34-wide monitor in one place and a 16-wide one in another.
+
+    Desks are rectangles now, and the long edge is always the one they face the
+    camera with: the side the screen stands on and the figure works behind. The
+    pipeline plate follows the same rule for the same reason — the node chain runs
+    along it, so its long edge faces the camera too. The bodies that genuinely have
+    no front — plinths, racks, the control-plane cube — are square in plan instead,
+    which is that rule with no facing to honour; between them that fixed the
+    terminal plinth at 1.96:1, the pipeline plate at 3.05:1 and the skills base at
+    2.82:1. Thirteen of them were
+    rebuilt, with their screens, bars, lamps and leader-line captions carried
+    along. The ground plates keep their shapes, since a plot of ground is allowed
+    to be oblong.
+
+    The four identical stations, the bring-your-own desk and the two that face the
+    other way were also nine separate copies of the same drawing. They are now one
+    `Workstation` built on an isometric helper, where `flip` swaps the two ground
+    axes to turn a whole station — desk, screen, long edge and figure — without
+    touching a single proportion.
+
+    The figure itself: it used to stand on the desktop, which is not what an agent
+    at a workstation does. It is now drawn before its desk, so the desk's far edge
+    cuts it at the waist and it reads as working behind it. Its head was a grey
+    shell around a stroked inner card around the framework mark, three frames deep;
+    it is now one blank face with the mark centred in it, a size larger. And it has
+    an antenna — a stalk and a lamp that breathes green — because nothing in the
+    world said whether an agent was actually running.
+
+    The planes are also positioned with a denser vertical rhythm: the upper plane
+    is translated down and the lower plane up as complete groups, bringing the
+    stack together without changing the artwork's proportions. Short desktop
+    viewports additionally give the hero copy a proportional step down.
+
+    The delivery layer is now enlarged uniformly around its junction, with the
+    fan-out curves and pads following the same coordinates so the larger footprint
+    stays connected to the control plane.
+
+    The top plane is also at work now. Each screen carries a live log: a line wipes
+    and types back in over five steps, along the screen's own axis rather than
+    across the drawing — the contents are authored in the face's own frame, so
+    `scaleX` writes a line out instead of shearing it off the isometric grid. The
+    run slot on each agent's body breathes with it, and the figure works: it taps
+    four beats while its line is being written and stands still while the line
+    stands. At this size a body moving a unit is under the eye's floor, so the read
+    is carried by the head — a five-degree lean pivoted at the neck, two beats
+    behind the body so the antenna whips rather than moving with it, which swings
+    the lamp, the brightest thing on the plane, about three pixels in the hero and
+    twice that once the camera is on this plane. Three clocks drive all of it —
+    the log on 4.8s, the active line on 3.1s, the slot on 2.2s, none a multiple of
+    another — and every station is handed each clock on its own negative delay, so
+    seven desks never fall into step and none of them waits for a cycle to begin on
+    load. The antenna lamps were pulsing in unison; they are staggered now too. All
+    of it is CSS, so the world's existing reduced-motion rule already stops it, and
+    the state it stops on is every line finished — which is what a screen at rest
+    should show.
+
+    The checklist board on the delivery plane had its tiles authored in screen
+    coordinates inside a group that already carried the panel's own matrix, so the
+    lattice was sheared twice and its columns marched across the drawing instead of
+    along the face. The tiles are laid out in the panel's frame now — an even 4 x 3
+    grid, one cell running and one ticked — and the tick stays upright, the way
+    every other legend in the world is drawn.
+
+    The delivery plane was four copies of one composition — a plate, a plinth, an
+    upright panel — so the four surfaces it names read as one thing repeated rather
+    than as the different places an agent's work actually lands. Each is now shaped
+    like what it is. The terminal is a machine: a deck lying on the plate with the
+    screen hinged up from its back edge, keys and a trackpad printed on the deck,
+    and no plinth at all, which is what breaks the repeated stack. Your product arrives
+    on a monitor: a cabinet with real thickness, so its top and side edges read as
+    depth rather than as a poster stood on edge, carried on a column that reaches
+    the desk, with the machine that drives it standing beside it and desk left in
+    front of both, and the screen itself is smaller than the panel it
+    replaces. It wears a window's own chrome, a title bar with three dots and an
+    address pill. Its plinth follows the desks' rule too — the long edge is the one
+    the screen faces the camera with.
+    Team chat gets a speaker slit and a home bar, and the card is a handset. The
+    schedule board already had its own grid and keeps it.
+
+    The terminal's surface was also the only pure black in a near-white world, a
+    hole in the light theme. It is a light console there now and stays dark in the
+    dark theme, where dark is what the rest of the world is.
+
+    The three surfaces that were still single quads have bodies now, built the same
+    way as the monitor: a slab four to six units thick, so the lid and the side
+    edge do the work a drop shadow would otherwise have to. Team chat is a phone —
+    a bezel around an inset display, standing in a dock. The schedule and the usage
+    readout are boards standing in base rails, one carrying a month header over a
+    day grid, the other a bar chart on a baseline. A panel with no thickness reads
+    as a sheet of paper propped up; in an isometric drawing the two visible edges
+    are the whole of the illusion, and they cost three paths.
+
+    The delivery wires now land somewhere. Each of the four pads sat on a plate's
+    own edge or inside the footprint of the body standing on it, so the light
+    arrived at a seam rather than on a surface; two of them were a pixel off a
+    plinth's rim. Every pad is on bare plate now, clear of the plate's edges and of
+    the body it serves, and the curves are shaped to approach from a side that
+    crosses nothing. The product desk was the reason one of them had nowhere to go —
+    it filled its plate to within ten units — so it is shallower, and the plate has
+    an apron again.
+
+    The lower two planes move now, and neither of them invents a clock. The wires
+    already ran on one — FAN is 6.4s and every route arrives at a known beat — but
+    nothing at the far end ever answered, so a packet landed on a pad and the
+    surface it landed on carried on as though nothing had happened. Each of the
+    four delivery surfaces is now handed its own route's arrival as a negative
+    delay: a line types onto the terminal, a message lands on the phone, a row
+    lands in the product, a tick appears on the schedule, each on the beat its
+    packet touches down and each clearing again before the next. One run can be
+    followed from an agent typing on the top plane to the row it becomes at the
+    bottom.
+
+    The control plane in between is deliberately not reacting to anything — it is
+    simply running, on two slow periods of its own: the model rack answering in a
+    scan rather than four lamps in lockstep, and the usage bar climbing in steps
+    before the meter rolls over. The stores stay still — a cabinet blinking its
+    handles reads as hardware status rather than as work being done. All
+    of it is CSS, so the world's reduced-motion rule stops it and leaves every
+    surface showing its finished state.
+
+    The leader captions point at things again. Thirteen of them had been left
+    behind by the rebuild: risers ending in mid-air beside a rack that had since
+    been mirrored, an anchor a pixel off a plinth's rim, one that ran straight
+    through an agent's head on its way up, and one whose whole elbow was buried
+    inside the cube it named. Every anchor now sits a few units inside the
+    silhouette of the body it names — never on a corner, never in the air — every
+    riser is routed clear of anything it does not belong to, and the four captions
+    whose elbow had inverted were moved to the side their leader can actually
+    reach.
+
+    The captions also sat too far out — risers long enough that a label floated in
+    the dark well clear of the drawing, and on the agent plane one of them reached
+    so far left it landed in the hero copy. Every riser is shorter now and every
+    elbow is a short hook rather than a run, so a label hangs off the body it names
+    instead of orbiting it. The two that still had nowhere to go were re-placed
+    rather than shortened: one anchors further along its desk so its caption can
+    lie against the plate, and one drops to where its plate is wide enough to
+    carry it.
+
 ## 0.50.1
 
 ### Patch Changes
