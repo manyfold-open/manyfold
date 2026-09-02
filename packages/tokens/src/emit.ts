@@ -7,12 +7,17 @@ export type Theme = 'light' | 'dark'
     `web` runs Tailwind 3 and reads tokens through `rgb(var(--x) / a)`, so an
     opaque colour must be a bare triplet. `docs` runs Tailwind 4, whose
     `@theme` block needs a complete colour value to derive its utilities.
-    One value, two spellings — maintaining them by hand is what let the two
-    baselines drift apart. */
+    `landing` is hand-written CSS in hex. One value, three spellings —
+    maintaining them by hand is what let the baselines drift apart. */
 export function formatValue(value: TokenValue, consumer: Consumer): string {
     if (isRaw(value)) return value.raw
     const [r, g, b] = value
-    return consumer === 'web' ? `${r} ${g} ${b}` : `rgb(${r} ${g} ${b})`
+    if (consumer === 'web') return `${r} ${g} ${b}`
+    if (consumer === 'landing')
+        return (
+            '#' + [r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')
+        )
+    return `rgb(${r} ${g} ${b})`
 }
 
 function resolve(

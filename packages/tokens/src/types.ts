@@ -14,9 +14,15 @@ export type TokenValue = Rgb | Raw
 export const isRaw = (v: TokenValue): v is Raw =>
     typeof v === 'object' && v !== null && 'raw' in v
 
-/** The apps that consume this package. Each one gets its own emitted file
-    because their Tailwind majors disagree on colour syntax. */
-export type Consumer = 'web' | 'docs'
+/** The surfaces that consume this package. Each spells an opaque colour
+    differently, which is the whole reason one value needs one home:
+
+      web     bare triplet     `244 244 246`   — Tailwind 3 + rgb(var(--x) / a)
+      docs    complete value   `rgb(244 244 246)` — Tailwind 4 `@theme`
+      landing hex              `#f4f4f6`       — hand-written `.lp-*` CSS
+
+    Three spellings maintained by hand is how they drifted apart. */
+export type Consumer = 'web' | 'docs' | 'landing'
 
 export interface Override {
     readonly light?: TokenValue

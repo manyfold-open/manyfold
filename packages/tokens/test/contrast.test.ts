@@ -30,7 +30,12 @@ const STATUS = [
     '--color-idle'
 ]
 
-const CANVAS: Record<Consumer, string> = {
+/** Only the two product consumers are checked here: the status tokens are
+    product-register. Landing's judgment colours live in `landingColors` and
+    carry their own contrast story (DESIGN.landing.md §1.4 — its dark
+    `-strong` tier is a knowing sub-AA choice for readouts next to a filled
+    bar, never for standalone text). */
+const CANVAS: Partial<Record<Consumer, string>> = {
     web: '--color-main-bg',
     docs: '--color-main'
 }
@@ -42,9 +47,11 @@ describe('status colours clear WCAG AA as text', () => {
                 const label = `${consumer} ${theme} ${token}`
                 it(label, () => {
                     const fg = resolveRgb(productColors, token, consumer, theme)
+                    const canvas = CANVAS[consumer]
+                    if (!canvas) return
                     const bg = resolveRgb(
                         productColors,
-                        CANVAS[consumer],
+                        canvas,
                         consumer,
                         theme
                     )

@@ -18,13 +18,14 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { formatValue } from '../src/emit'
-import { normalizeValue, parseColorTokens } from '../src/parse'
+import { normalizeValue, parseColorTokens, parseTokens } from '../src/parse'
 import {
     normalizeStack,
     parseFontStack,
     parseRadius,
     parseTailwindRadius
 } from '../src/parse-scale'
+import { landingColors } from '../src/landing-colors'
 import { productColors } from '../src/product-colors'
 import { fontStackCss, radius, radiusPill } from '../src/scale'
 import { isRaw, type Consumer, type Theme } from '../src/index'
@@ -88,6 +89,44 @@ for (const { consumer, file } of BASELINES) {
                         `add it to packages/tokens/src/product-colors.ts`
                 )
             }
+        }
+    }
+}
+
+// ─────────────────────── landing register ───────────────────────
+// `--lp-*` is scoped to `.landing-root`, so it is one file and one
+// consumer — no cross-baseline drift is possible. What the gate protects is
+// the seam to the shared ramp: if someone edits a hex in the stylesheet,
+// the value stops matching the step it is supposed to derive from.
+{
+    const file = 'apps/web/src/styles.css'
+    const css = parseTokens(readFileSync(resolve(oss, file), 'utf8'), '--lp-')
+    for (const theme of THEMES) {
+        for (const [name, def] of Object.entries(landingColors)) {
+            const expected = def[theme]
+            const actual = css[theme][name]
+            if (actual === undefined) {
+                // A token that does not change with the theme is declared
+                // once and inherited — re-declaring it in the dark block
+                // would be dead weight. Only a token whose value actually
+                // differs has to appear in both.
+                const sameBothThemes =
+                    normalizeValue(formatValue(def.light, 'landing')) ===
+                    normalizeValue(formatValue(def.dark, 'landing'))
+                if (theme === 'dark' && sameBothThemes) continue
+                problems.push(
+                    `${file} [${theme}] is missing ${name}, which @manyfold/tokens declares`
+                )
+                continue
+            }
+            compared++
+            const want = normalizeValue(formatValue(expected, 'landing'))
+            if (want === normalizeValue(actual)) continue
+            problems.push(
+                `${file} [${theme}] ${name}\n` +
+                    `      css declares : ${actual}\n` +
+                    `      tokens expect: ${formatValue(expected, 'landing')}`
+            )
         }
     }
 }

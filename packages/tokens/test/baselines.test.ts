@@ -3,6 +3,8 @@ import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { describe, it } from 'node:test'
 import { formatValue, listDrift } from '../src/emit'
+import { landingColors } from '../src/landing-colors'
+import { coolBiasAt, iris } from '../src/palette'
 import { normalizeValue, parseColorTokens } from '../src/parse'
 import { productColors } from '../src/product-colors'
 
@@ -75,5 +77,47 @@ describe('drift ledger', () => {
         // Raising this number means a new accidental divergence landed.
         // Lowering it means one was resolved — update it in that commit.
         assert.equal(listDrift(productColors).length, 6)
+    })
+})
+
+describe('the shared ramp is what both registers point at', () => {
+    it('landing iris tokens derive from the palette, not from copies', () => {
+        // The point of `palette.ts` is that aligning the product with
+        // landing means pointing at the same steps. If these ever stop
+        // being the same objects' values, the two registers can drift on
+        // the brand colour again.
+        for (const step of [
+            50, 100, 200, 300, 400, 500, 600, 700, 800, 900
+        ] as const) {
+            const token = landingColors[`--lp-iris-${step}`]
+            assert.ok(token, `--lp-iris-${step} is not declared`)
+            assert.deepEqual(
+                token.light,
+                [...iris[step]],
+                `--lp-iris-${step} light does not match palette step ${step}`
+            )
+            assert.deepEqual(
+                token.dark,
+                [...iris[step]],
+                `--lp-iris-${step} dark does not match palette step ${step}`
+            )
+        }
+    })
+
+    it('the cool-bias curve is not the flat 2-4 the old spec claimed', () => {
+        // Guards the correction in DESIGN.landing.md §1.2: the offset peaks
+        // in the mid-greys. A flat reading of it flattened the product ink
+        // ramp and made the whole page read warm.
+        assert.equal(coolBiasAt(252, 'light'), 1)
+        assert.equal(coolBiasAt(244, 'light'), 2)
+        assert.ok(
+            coolBiasAt(92, 'light') >= 9,
+            'mid-grey light bias should peak near 10'
+        )
+        assert.ok(
+            coolBiasAt(140, 'dark') >= 9,
+            'mid-grey dark bias should peak near 10'
+        )
+        assert.equal(coolBiasAt(5, 'dark'), 1)
     })
 })
