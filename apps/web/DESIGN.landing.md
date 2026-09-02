@@ -90,7 +90,18 @@ landing 的真身在 `oss/`（公共仓库 `manyfold-open/manyfold`）。按 `AG
 
 ### 1.2 中性轴 Ash
 
-只留 2–4 单位的冷偏（B 略高于 R），用来抵消暖色屏上的发黄，肉眼读不出色相。
+冷偏（B 略高于 R）用来抵消暖色屏上的发黄，肉眼读不出色相。**偏移量不是常数，是明度的函数**：离纯黑或纯白越远、越接近中灰，冷偏越大。
+
+| 明度区间     | B − R | 例                                                        |
+| ------------ | ----- | --------------------------------------------------------- |
+| 近纯白/黑    | 0–1   | `--lp-paper-warm` `#ffffff` 0，`--lp-paper` 1             |
+| 背景档       | 2–3   | `--lp-bg` 2，`--lp-bg-deep` 3                             |
+| 中灰（峰值） | 7–10  | **`--lp-muted` 10**、**`--lp-subtle` 10**、`--lp-faint` 7 |
+| 墨色端       | 3–6   | `--lp-ink-soft` 6，`--lp-ink` 3                           |
+
+> **「只留 2–4 单位」那句话原先写在这里，是错的 —— 它只对背景五档成立。** 同一节下面的 `--lp-muted: #5c5e66` 就是 B−R=10。这句话已经误导过一次实现（把产品的墨阶一并压到 4，结果整页读起来发暖，因为真正被中性化的是文字而不是背景）。`styles.css:1994` 的注释有同样的问题，需要一起改。
+>
+> 这条曲线是有道理的：极亮和极暗处色偏本来就看不出来，硬加只会让白发蓝、黑发紫；中灰是唯一能容纳可见冷偏又不显脏的区域，那点冷正是「纸」和「脏灰」的区别。
 
 | 层级         | `--lp-*` token    | 浅色      | 深色      | 用途                     |
 | ------------ | ----------------- | --------- | --------- | ------------------------ |
@@ -183,20 +194,24 @@ landing 的真身在 `oss/`（公共仓库 `manyfold-open/manyfold`）。按 `AG
 
 四支，各有分工。值不变（本轮不动），但要知道为什么它们的彩度低于 Iris：品牌色本来就该是画面上彩度最高的一支，而且绿和黄在同等彩度下会直接变荧光。实测 C 0.14–0.20，与 Iris 的 0.215 是正确的关系。
 
-| 角色                  | token          | 浅色 fill / text      | 深色      |
-| --------------------- | -------------- | --------------------- | --------- |
-| Jade · 成功 / 已交付  | `--lp-success` | `#22c46f` / `#12a75c` | `#3bd383` |
-| Amber · 排队 / 待处理 | `--lp-warning` | `#e9a23b` / `#c8811c` | `#efb45e` |
-| Coral · 失败 / 破坏性 | `--lp-error`   | `#f2554b` / `#dd3d34` | `#ff7a70` |
-| Idle · 空闲 / 禁用    | `--lp-idle`    | `#9a9db2`             | `#6d7085` |
+每支色三档，两个模式各一组，与 `styles.css:2100` / `:2291` 一一对应：
 
-**一支色两个亮度**（参考图里最值得抄的细节）：计量条的填充用饱和的 500，旁边的读数用更浅的 400，标签退到 ink-3。写成规则：
+| 角色                  | `--lp-{hue}` 浅 / 深  | `-strong` 浅 / 深     | `-bg` 的 α 浅 / 深 |
+| --------------------- | --------------------- | --------------------- | ------------------ |
+| Jade · 成功 / 已交付  | `#12a75c` / `#3bd383` | `#0b8548` / `#22c46f` | .10 / .14          |
+| Amber · 排队 / 待处理 | `#c8811c` / `#efb45e` | `#a06714` / `#e9a23b` | .10 / .16          |
+| Coral · 失败 / 破坏性 | `#dd3d34` / `#ff7a70` | `#b82c25` / `#f2554b` | **.09** / **.13**  |
+| Idle · 空闲 / 禁用    | `#9a9db2` / `#6d7085` | —                     | **.13** / .16      |
 
-```
-fill = 500 · numeral = 400 · label = ink-3
-```
+> **这张表原先是错的，改它的时候要知道错在哪。** 它写的是「浅色 fill / text = `#22c46f` / `#12a75c`」，把 `#22c46f`、`#e9a23b`、`#f2554b` 列成浅色的 fill 档。**代码里没有浅色 fill 档** —— 浅色的 `--lp-success` 就是单值 `#12a75c`；那三个 hex 实际是**深色模式的 `-strong`**（`styles.css:2293/2296/2299`）。照着旧表取色相彩度会让 success 的彩度偏高 0.016、warning 的色相偏 3.4°。
+>
+> `-bg` 的 alpha 也不是统一 10%：**error 用 .09、idle 用 .13**。红在同等 alpha 下比其他色显脏，灰则需要更多才能从画布上浮起来。
 
-数据的"量"由饱和度承担、"读数"退一档，一排计量条才不会变成一片绿噪声。注意这是**知情的低对比选择**：`--lp-success` 的 400 档在浅色底上约 2.9:1，不满足正文 AA —— 它只允许出现在紧邻实心填充条的读数上，那根条本身就是非颜色信号。**不要**把这个亮度用于任何独立的文字。
+**一支色两个亮度**（参考图里最值得抄的细节）：计量条的填充用饱和档，旁边的读数退一档，标签退到 ink-3。数据的"量"由饱和度承担、"读数"退一档，一排计量条才不会变成一片绿噪声。
+
+这条规则**在 landing 的三档 token 上没有专门的 fill 档承载** —— 它靠 `--lp-{hue}` 与 `--lp-{hue}-strong` 的明度差实现，深色模式下两者的方向正好相反（`-strong` 更亮）。要真正拆开"填充"与"读数"需要新增一档，那要过 §9.2 的门槛。
+
+注意深色的 `-strong` 是**知情的低对比选择**：`#22c46f` 一类在浅色底上只有 2.9:1，不满足正文 AA —— 它只允许出现在紧邻实心填充条的读数上，那根条本身就是非颜色信号。**不要**把这个亮度用于任何独立的文字。产品语域把这条拆成了显式的四档（`-bg` / `-fg` / `-strong` / `-vivid`），见 `DESIGN.product-iris.md` §3.5。
 
 ### 1.5 阴影：拆掉铣削铝
 
@@ -258,40 +273,38 @@ fill = 500 · numeral = 400 · label = ink-3
 
 ### 2.1 两个语域
 
-| 家族                | 何时用                                                                                                          |
-| ------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Fraunces Variable` | 只有 hero、分区标题、故事卡标题、大数字、引文。**≥24px 才允许出现。**                                           |
-| `Geist`             | 其余一切：lead、正文、按钮、导航、标签、表头、徽章。字重只用 400 / 500。                                        |
-| `Geist Mono`        | 技术信号（框架名、runtime 状态、CLI、路径、hex）、eyebrow、表格数字，外加一个新职务：**Fieldwork 的字形字体**。 |
+| 家族                      | 何时用                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `Source Serif 4 Variable` | 只有 hero、分区标题、故事卡标题、大数字、引文。**≥24px 才允许出现。**                                           |
+| `Geist`                   | 其余一切：lead、正文、按钮、导航、标签、表头、徽章。字重只用 400 / 500。                                        |
+| `Geist Mono`              | 技术信号（框架名、runtime 状态、CLI、路径、hex）、eyebrow、表格数字，外加一个新职务：**Fieldwork 的字形字体**。 |
 
 中间没有第三种。参考图的字体逻辑很硬：所有小字是中性无衬线，所有大字是高对比细衬线。
 
 ### 2.2 字体加载
 
-**已定：Fraunces，SOFT 50，WONK 0，字重 300（卡片标题 400）。**
+**已落地：Source Serif 4，字重 400，opsz 轴交给浏览器。**
+
+> **这一节曾经写的是 Fraunces（SOFT 50 / WONK 0 / 字重 300），与实现不符。** 那是一份未落地的早期方案；`styles.css:15` 导入的一直是 Source Serif 4，`package.json` 里也只有它。以此为准。两者不是同一类衬线，差别会传导到下面每一条规则：Fraunces 是高对比 display serif（细笔画极细，为大字号设计），Source Serif 4 是 Adobe 为**屏幕正文**设计的过渡型衬线，笔画对比低、x 高度大。
 
 ```bash
-pnpm --filter @manyfold/web add @fontsource-variable/fraunces
+pnpm --filter @manyfold/web add @fontsource-variable/source-serif-4
 ```
 
 ```css
 /* styles.css 顶部，紧跟现有的 geist 导入 */
-@import '@fontsource-variable/fraunces/full.css';
-/* 斜体先不加载 —— 见下面的第 5 条 */
+@import '@fontsource-variable/source-serif-4/opsz.css';
 ```
 
-四个必须知道的实现细节：
+三个必须知道的实现细节：
 
-1. **family 名是 `'Fraunces Variable'`，不是 `'Fraunces'`。** 写错了会静默回退到 CJK 宋体 —— 中文页面上完全看不出来，英文页面上才暴露。
-2. **必须用 `full.css`，不能用 `soft.css`。** fontsource 按轴切了子集：`soft.css`（SOFT + wght）只有 140KB，比 `full.css` 的 271KB 省一半 —— 但它没有 `opsz` 轴。实测 hero 在 opsz 14（`soft.css` 的固定光学尺寸）下字面明显更宽更松，丢掉了 76px 该有的紧凑与优雅。这 131KB 买的是 hero 的字面质量，值。
-3. **`opsz` 不要写死**，交给 `font-optical-sizing: auto`。这样 hero（clamp 上限 100px）自动取到高对比的 display 切，卡片标题（26px）取到笔画更稳的正文切 —— 一支字两种表现，不用手动分配。一旦在 `font-variation-settings` 里显式写 `'opsz'`，`auto` 就失效。
-4. **`WONK` 必须钉 0。** 它的默认值是 0，但显式钉住，否则任何一次上游默认值变化都会让页面冒出摇摆的怪笔画。
+1. **family 名是 `'Source Serif 4 Variable'`，不是 `'Source Serif 4'`。** 写错了会静默回退到 CJK 宋体 —— 中文页面上完全看不出来，英文页面上才暴露。
+2. **必须用 `opsz.css`。** 它带光学尺寸轴，所以 hero（clamp 上限 100px）自动取到高对比的 display 切，卡片标题（26px）取到笔画更稳的正文切 —— 一支字两种表现，不用手动分配。配 `font-optical-sizing: auto`；一旦在 `font-variation-settings` 里显式写 `'opsz'`，`auto` 就失效。
+3. **不要写 `font-variation-settings`。** Source Serif 4 只有 `opsz` 与 `wght` 两轴，**没有 `SOFT` / `WONK`** —— 那是 Fraunces 的轴。写上去是静默无效的，肉眼几乎察觉不到，这个坑已经踩过一次。
 
-5. **斜体暂时不加载。** 标题的强调改成实色之后（§2.5），整个 landing 只剩引文 `.lp-quote` 会用到斜体，而它目前还没有任何调用点。所以先只 `@import 'full.css'`，把字体预算从 271KB 砍到 **121KB**。真的排上引文时再加 `full-italic.css`，并在那次改动里重新量一遍首屏。
+**斜体不加载。** 整个 landing 只有引文 `.lp-quote` 会用到斜体，而它目前没有任何调用点。
 
-字体预算：latin 子集 normal **121KB**（加载斜体则 +150KB = 271KB）。参照系是同页的 `landing-workbench.png`（268KB）—— 现在字体只占它的不到一半。latin-ext / vietnamese 子集有独立的 `unicode-range`，只在页面真的出现那些字符时才下载。
-
-> **后续可选优化（不在本轮）**：用 `fonttools varLib.instancer` 把 SOFT 钉死在 50、保留 opsz + wght 两轴，产出物自托管。预期 ≈150KB，省下 121KB 且渲染不变。代价是引入一个字体构建步骤。
+字体预算：latin 子集 normal **119KB**。latin-ext / vietnamese 子集有独立的 `unicode-range`，只在页面真的出现那些字符时才下载。
 
 Tailwind 侧加一个 family：
 
@@ -299,7 +312,7 @@ Tailwind 侧加一个 family：
 // tailwind.config.ts
 fontFamily: {
     display: [
-        'Fraunces Variable',
+        'Source Serif 4 Variable',
         'Source Han Serif SC',
         'Noto Serif SC',
         'Songti SC',
@@ -316,17 +329,18 @@ fontFamily: {
 ```css
 .landing-root {
     --lp-display:
-        'Fraunces Variable', 'Source Han Serif SC', 'Noto Serif SC',
+        'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
         'Songti SC', 'SimSun', serif;
-    --lp-display-weight: 300;
-    --lp-display-track: -0.014em;
-    --lp-display-lh: 0.98;
-    --lp-display-vary: 'SOFT' 50, 'WONK' 0;
+    --lp-display-weight: 400;
+    --lp-display-track: -0.018em;
+    --lp-display-lh: 1;
     /* 同一个视觉分量，不同字面需要不同的实际字号：x 高度大的族要调小，
-       纤细族要调大。Fraunces 取 1。 */
+       纤细族要调大。Source Serif 4 取 1。 */
     --lp-display-scale: 1;
 }
 ```
+
+**没有 `--lp-display-vary`。** Source Serif 4 没有可钉的额外轴（§2.2 第 3 条）。
 
 所有 display 元素统一：
 
@@ -334,26 +348,33 @@ fontFamily: {
 .landing-root .lp-h1,
 .landing-root .lp-h2,
 .landing-root .lp-h3,
-.landing-root .lp-floor-h1 {
+.landing-root .lp-scene-title,
+.landing-root .lp-price-num {
     font-family: var(--lp-display);
     font-weight: var(--lp-display-weight);
     letter-spacing: var(--lp-display-track);
     line-height: var(--lp-display-lh);
-    font-variation-settings: var(--lp-display-vary);
     font-optical-sizing: auto;
+    text-wrap: balance;
 }
 ```
 
+选择器列表以 `styles.css:2369` 为准 —— `.lp-scene-title` 与 `.lp-price-num` 在里面，`.lp-floor-h1` 不在。`text-wrap: balance` 是实现里有、这份文档原先漏写的一条（§2.7 的第一条规则正是它）。
+
 ### 2.4 Display 阶梯
 
-| 角色           | 类                               | 字号                                                        | 字重       | tracking | lh   |
-| -------------- | -------------------------------- | ----------------------------------------------------------- | ---------- | -------- | ---- |
-| Hero           | `.lp-h1`                         | `calc(clamp(46px, 6.6vw, 100px) * var(--lp-display-scale))` | 300        | -0.014em | 0.98 |
-| Hero（翻面前） | `.lp-floor-h1`                   | `calc(clamp(41px, 5.1vw, 68px) * var(--lp-display-scale))`  | 300        | -0.014em | 1.0  |
-| 分区标题       | `.lp-h2`                         | `calc(clamp(34px, 4.2vw, 60px) * var(--lp-display-scale))`  | 300        | -0.016em | 1.0  |
-| 故事卡标题     | `.lp-h3`                         | `calc(clamp(24px, 1.9vw, 29px) * var(--lp-display-scale))`  | 400        | -0.008em | 1.14 |
-| 大数字         | `.lp-price-num` / `.lp-step-num` | 现值不动                                                    | 400        | -0.01em  | 1.1  |
-| 引文           | 新 `.lp-quote`                   | `clamp(22px, 2vw, 28px)`                                    | 300 italic | 0        | 1.35 |
+字号阶梯与实现一致；**字重 / tracking / lh 以下表为准**（本节原先记的 300 / -0.014em / 0.98 属于那份未落地的 Fraunces 方案）：
+
+| 角色       | 类                               | 字号                                                        | 字重       | tracking | lh   |
+| ---------- | -------------------------------- | ----------------------------------------------------------- | ---------- | -------- | ---- |
+| Hero       | `.lp-h1`                         | `calc(clamp(46px, 6.6vw, 100px) * var(--lp-display-scale))` | 400        | -0.018em | 1    |
+| 分区标题   | `.lp-h2`                         | `calc(clamp(34px, 4.2vw, 60px) * var(--lp-display-scale))`  | 400        | -0.018em | 1    |
+| 分区标题   | `.lp-h2` ≤720px                  | `clamp(30px, 7vw, 44px)`                                    | 400        | -0.012em | 1    |
+| 故事卡标题 | `.lp-h3`                         | `calc(clamp(24px, 1.9vw, 29px) * var(--lp-display-scale))`  | 400        | -0.008em | 1.14 |
+| 大数字     | `.lp-price-num` / `.lp-step-num` | 现值不动                                                    | 400        | -0.018em | 1    |
+| 引文       | 新 `.lp-quote`                   | `clamp(22px, 2vw, 28px)`                                    | 400 italic | 0        | 1.35 |
+
+**字重全档统一 400，不再分 300 / 400。** Source Serif 4 的 300 在任何 display 尺寸上都撑不住，而它的 400 本身就比 Fraunces 的 400 轻。
 
 **斜体只在引文里出现，别处一律没有。** 引文是"另一个人在说话"，换字形是它的本义；标题里的强调是同一个人加重语气，换字形就跑题了。CJK 引文同样不用斜体（宋体没有真斜体），改用左侧一条 `--lp-info` 竖线。
 
@@ -1074,7 +1095,7 @@ DOM 形状：
 
 按顺序，每一项各自一份迁移文档：
 
-1. **webapp** —— 产品语域换 Iris + 中性底。注意产品的 hover 填充是**按背景层级分别调**的（`DESIGN.md` §8.10），换轴时每个层级的 δ 要按对比度比值重解，不能照搬 RGB 差值。产品**不引入衬线**。
-2. **docs** —— docs 现在是把 `--lp-*` 的值字面量复制过去的，换轴时要同步复制一遍，或者改成真正消费变量。
+1. **webapp** —— 产品语域换 Iris + 中性底。注意产品的 hover 填充是**按背景层级分别调**的（`DESIGN.md` §8.10）；固定每个 token 的相对亮度再重解 RGB，δ 就自动守恒，不需要逐层重算。~~产品**不引入衬线**。~~ **这一条已被推翻** —— 见 `DESIGN.product-iris.md` §4：产品在 24px 以上的档位引入 Source Serif 4，字体已经在 webapp 的 CSS 里（`styles.css:15` 的 `@import` 是全局的），所以 webapp 侧零依赖、零构建改动。
+2. **docs** —— docs 曾经是把值字面量复制过去的，`@manyfold/tokens` 已经接管了产品语域的 `--color-*`：值在包里定义一次，按消费方输出两种语法（webapp 的三元组配 `rgb(var(--x) / α)`，docs 的完整值配 Tailwind 4 `@theme`），`pnpm tokens:check` 守住两边一致。`--lp-*` 尚未纳入，是下一步。
 3. **Fieldwork 进 webapp** —— §3.8 的五个落点。sigil 替换头像会碰到全站 avatar，需要单独评估。
 4. **`DESIGN.md` 合并** —— 两个语域收敛之后，这份文档并回主文档的对应章节；在那之前，主文档里加一条指向本文的链接。
