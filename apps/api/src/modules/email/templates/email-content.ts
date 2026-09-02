@@ -10,11 +10,9 @@
  * characters keeps every break on a 1400px screen and reads as a narrow
  * ragged column with sentences split down the middle.
  */
-import {
-    BRAND_NAME,
-    DEFAULT_WEB_BASE_URL,
-    SUPPORT_EMAIL
-} from '@/common/brand'
+import { emailPalette } from '@manyfold/tokens'
+
+import { BRAND_NAME, DEFAULT_WEB_BASE_URL, SUPPORT_EMAIL } from '@/common/brand'
 
 export interface EmailLink {
     label: string
@@ -73,32 +71,16 @@ export interface EmailPalette {
     buttonFg: string
 }
 
-/* Mirrors the app's cool-graphite ramp (apps/web/src/styles.css): the page
-   floor is `--color-app-bg`, the card is `--color-surface-elevated` in light
-   and `--color-surface` in dark, text is `--color-fg` / `--color-muted`. */
-export const LIGHT_PALETTE: EmailPalette = {
-    floor: '#d8dce0',
-    card: '#f7fafc',
-    ring: '#dadee3',
-    fg: '#0a0c0f',
-    muted: '#525861',
-    subtle: '#6d747e',
-    fill: '#e6e9ed',
-    buttonBg: '#0a0c0f',
-    buttonFg: '#f7fafc'
-}
+/* Derived from the product ramp rather than transcribed from it. Mail
+   clients strip custom properties, so these have to be literal hexes — which
+   is how this palette became a fourth hand-maintained copy of the ramp and
+   fell behind it on five light values. `@manyfold/tokens` now owns the
+   mapping (which token each field mirrors) and holds the values that still
+   disagree, so this renders byte-identically until each one is reconciled
+   on purpose. See `packages/tokens/src/email.ts`. */
+export const LIGHT_PALETTE: EmailPalette = emailPalette('light')
 
-export const DARK_PALETTE: EmailPalette = {
-    floor: '#07090c',
-    card: '#20242a',
-    ring: '#3a3f46',
-    fg: '#e4e7ec',
-    muted: '#b9bec6',
-    subtle: '#7c838c',
-    fill: '#2a2f36',
-    buttonBg: '#e4e7ec',
-    buttonFg: '#0a0c0f'
-}
+export const DARK_PALETTE: EmailPalette = emailPalette('dark')
 
 export const escapeHtml = (raw: string): string =>
     raw
