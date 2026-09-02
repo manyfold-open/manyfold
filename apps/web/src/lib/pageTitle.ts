@@ -45,6 +45,7 @@ const TITLE_ROUTES: TitleRoute[] = [
     { path: '/agents/:id', labelKey: 'web.pageTitle.agent' },
     { path: '/agents/*', labelKey: 'web.pageTitle.workspace' },
     { path: '/automations/*', labelKey: 'web.shell.automations' },
+    { path: '/updates', labelKey: 'web.updates.title' },
 
     { path: '/chat/shared/:shareId', labelKey: 'web.pageTitle.sharedChat' },
     { path: '/skills/shared/:shareId', labelKey: 'web.pageTitle.sharedSkill' },

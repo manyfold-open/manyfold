@@ -18,6 +18,7 @@ export {
     ChevronRight as ChevronRightIcon,
     ChevronUp as ChevronUpIcon,
     Camera as CameraIcon,
+    CircleArrowUp as UpdatesIcon,
     CircleUserRound as AccountIcon,
     Clock as AutomationsIcon,
     Cloud as CloudComputerIcon,

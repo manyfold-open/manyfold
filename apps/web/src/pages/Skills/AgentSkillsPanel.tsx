@@ -12,6 +12,7 @@ import { StatusTag, Tag } from '@/components/Tag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
+import { updatesPath } from '@/lib/updateCenter'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { shouldPromptFirstPartyInstall } from './firstPartySkill'
 
@@ -405,16 +406,17 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                                 : t('web.skills.enableAction')}
                                         </button>
                                         {hasUpdate(skill) && (
-                                            <button
-                                                type='button'
-                                                disabled={busyId === skill.id}
-                                                onClick={() =>
-                                                    void update(skill)
-                                                }
+                                            <Link
+                                                to={updatesPath(
+                                                    skill.skillId ===
+                                                        MANYFOLD_CLI_USAGE_SKILL_ID
+                                                        ? 'cliUsage'
+                                                        : 'skill'
+                                                )}
                                                 className='workbench-button-secondary'
                                             >
                                                 {t('web.skills.updateAction')}
-                                            </button>
+                                            </Link>
                                         )}
                                         {skill.materializeStatus ===
                                             'failed' && (
