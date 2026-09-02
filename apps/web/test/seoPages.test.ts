@@ -295,6 +295,32 @@ test('app.html is the shell plus an unconditional noindex', () => {
     assert.ok(build404Html().includes('404'))
 })
 
+// Caddy serves the app shell only for the families listed above and 404s
+// everything else on purpose, so a route added to App.tsx without a prefix
+// here is a page that works in dev and is unreachable in production. That is
+// how /updates shipped broken to staging; nothing else in the suite covers it.
+test('every app route in App.tsx is served by an SPA route prefix', () => {
+    const app = readFileSync(
+        new URL('../src/App.tsx', import.meta.url),
+        'utf8'
+    )
+    const topLevel = [...app.matchAll(/path='(\/[^']*)'/g)]
+        .map((match) => match[1])
+        .filter((path) => path !== '/' && path !== '*')
+        .map((path) => `/${path.split('/')[1]}`)
+    for (const segment of new Set(topLevel))
+        assert.ok(
+            SPA_ROUTE_PREFIXES.includes(segment) ||
+                // A marketing page is a real file, so its own top segment is
+                // served by try_files; /zh is declared as '/zh' here and '/zh/'
+                // there, so compare segments rather than whole paths.
+                entries.some(
+                    (entry) => `/${entry.path.split('/')[1]}` === segment
+                ),
+            `${segment} is routed by App.tsx but is neither an SPA prefix nor a marketing page — Caddy will 404 it`
+        )
+})
+
 // The Caddyfile lists the SPA route families a second time (as path
 // matchers). If a family is added to one side only, either the crawl policy
 // or the serving boundary silently drifts — this is the signal.
