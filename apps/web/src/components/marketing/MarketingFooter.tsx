@@ -1,11 +1,16 @@
 import type { FC, ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { requestConsentPrompt } from '@/lib/analyticsConsent'
+import { GithubMono } from '@/lib/brandIcons'
 import { DiscordMark, XMark } from '@/lib/brandMarks'
 import { CHALLENGE_PATH } from '@/lib/challengeConfig'
 import { analyticsConfigured } from '@/lib/googleAnalytics'
 import { useI18n } from '@/lib/i18n'
-import { SOCIAL_DISCORD_URL, SOCIAL_X_URL } from '@/lib/socialLinks'
+import {
+    SOCIAL_DISCORD_URL,
+    SOCIAL_GITHUB_URL,
+    SOCIAL_X_URL
+} from '@/lib/socialLinks'
 import {
     marketingLinkLanguage,
     marketingLinksFor
@@ -72,6 +77,18 @@ export const MarketingFooter: FC<{ badge?: ReactNode }> = ({
                             people passing through, the footer catches the ones
                             who came looking. */}
                         <span className='lp-foot-social'>
+                            {/* Source first: for an open-source product the
+                                repository is the destination the other two
+                                lead people to, not a third social account. */}
+                            <a
+                                className='lp-nav-ico'
+                                href={SOCIAL_GITHUB_URL}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                aria-label={t('web.marketing.sourceGithub')}
+                            >
+                                <GithubMono />
+                            </a>
                             <a
                                 className='lp-nav-ico'
                                 href={SOCIAL_X_URL}

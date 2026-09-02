@@ -1,3 +1,4 @@
+import type { AgentFramework, ChannelProviderName } from '@manyfold/shared'
 // Shared between the interactive landing page and the build-time landing
 // snapshot so the crawler HTML and the hydrated page cannot drift.
 
@@ -7,6 +8,8 @@ export interface PricingTier {
     sandboxAgents: number
     alwaysOnlineAgents: number
     featureKeys: string[]
+    // The one tier the pricing grid leans on; carries the POPULAR badge.
+    popular?: boolean
 }
 
 // Mirrors the authenticated billing plans (web.pricing.tier* strings are the
@@ -40,6 +43,7 @@ export const PRICING_TIERS: PricingTier[] = [
     {
         id: 'plus',
         price: 19,
+        popular: true,
         sandboxAgents: 25,
         alwaysOnlineAgents: 18,
         featureKeys: [
@@ -85,13 +89,72 @@ export const FAQ_KEYS: Array<{ q: string; a: string }> = [
     { q: 'web.landing.faqQ5', a: 'web.landing.faqA5' }
 ]
 
-export const FLOOR_BRAND_NAMES: string[] = [
-    'Claude Code',
-    'Codex',
-    'Gemini CLI',
-    'NarraNexus',
-    'Dify',
-    'Langflow',
-    'Hermes',
-    'Openclaw'
+// The "works with" rows. Product names render verbatim; the descriptive
+// entries (runtime postures, the external-service catch-all) go through a
+// translation key instead.
+export interface WorksWithChip {
+    name?: string
+    key?: string
+    soft?: boolean
+    /* A mark makes the row scannable in a way a wall of pills is not: the eye
+       finds a logo before it reads a word. Rows whose entries are capabilities
+       rather than products (the runtimes) stay text — inventing marks for them
+       would be decoration, not information. */
+    framework?: AgentFramework
+    channel?: ChannelProviderName
+    /* Runtimes are capabilities, not products, so they carry a drawn icon
+       rather than a vendor mark. */
+    runtime?: 'sandbox' | 'cloud' | 'own' | 'external'
+}
+
+export const WORKS_WITH_ROWS: ReadonlyArray<{
+    labelKey: string
+    chips: ReadonlyArray<WorksWithChip>
+}> = [
+    /* Every framework the platform runs, not a curated six: the row's whole
+       job is to let a reader find the one they already use, and a shortened
+       list fails exactly the person it is meant to reassure. Dify and
+       Langflow belong here rather than buried in the runtimes line — they
+       are frameworks, and what makes them different is where they run, which
+       the runtimes row already says. */
+    {
+        labelKey: 'web.landing.worksWithFrameworks',
+        chips: [
+            { name: 'Claude Code', framework: 'claude-code' },
+            { name: 'Codex', framework: 'codex' },
+            { name: 'Gemini CLI', framework: 'gemini-cli' },
+            { name: 'Openclaw', framework: 'openclaw' },
+            { name: 'Hermes', framework: 'hermes' },
+            { name: 'NarraNexus', framework: 'narranexus' },
+            { name: 'Dify', framework: 'dify' },
+            { name: 'Langflow', framework: 'langflow' },
+            { name: 'A2A', framework: 'a2a' }
+        ]
+    },
+    {
+        labelKey: 'web.landing.worksWithChannels',
+        chips: [
+            { name: 'Lark', channel: 'lark' },
+            { name: 'Slack', channel: 'slack' },
+            { name: 'Discord', channel: 'discord' },
+            { name: 'Telegram', channel: 'telegram' },
+            { name: 'WhatsApp', channel: 'whatsapp' },
+            { name: 'Matrix', channel: 'matrix' },
+            { name: 'WeChat', channel: 'weixin' },
+            { name: 'LINE', channel: 'line' },
+            { name: 'Linear', channel: 'linear' },
+            { name: 'GitHub', channel: 'github' }
+        ]
+    },
+    {
+        labelKey: 'web.landing.worksWithRuntimes',
+        chips: [
+            { key: 'web.landing.worksWithSandbox', runtime: 'sandbox' },
+            { key: 'web.landing.worksWithCloud', runtime: 'cloud' },
+            { key: 'web.landing.worksWithOwn', runtime: 'own' },
+            /* Reuses the world's own label so "external" needs no new string
+               and arrives already translated in all eleven catalogues. */
+            { key: 'web.landing.worldRuntimeExternal', runtime: 'external' }
+        ]
+    }
 ]

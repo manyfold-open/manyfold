@@ -29,7 +29,7 @@
         "apps/web/scripts/og/canonical.ts": "3b7189b7094256ef4bfc7f74ec7f72993c470e4ad4d5ab62f60647a4a091c49e",
         "apps/web/scripts/og/contract.ts": "b464b48e9b4eef5371682ce14624578afb232b067a5a999b7d3ff6a341946c93",
         "apps/web/scripts/og/fonts.ts": "b752e1564d2364ad3354bfe6721b3da2be56e67627514cf60ffcec1585ed69b7",
-        "apps/web/scripts/og/paths.ts": "2495a296d14c70b52ec75d1e23c57789834f0686a70fe0d470fa7e133636f2ee",
+        "apps/web/scripts/og/paths.ts": "acb283c9a2638f8a199fc7130edff94e96e7a0d59bcdcd23c6a0db741e8d4f1d",
         "apps/web/scripts/og/poster.ts": "fb134c941191d4d3036b0a74c972829b5b75ca60ca4201035b8cc3daa3ca5057",
         "apps/web/scripts/og/render.ts": "39886404463de061fdf03196ecc189c016e0e9bb560ab1fb7575d22f389e1b8d",
         "apps/web/scripts/og/runtime.ts": "c0f3807b3b671726e2d4685a4a01f853ce533dc8bec83e6f21edccacb3f08eaa"
@@ -50,10 +50,10 @@
         "en": {
             "file": "manyfold-og-v3.png",
             "copy": {
-                "web.landing.heroTitleBefore": "Many agents.",
-                "web.landing.heroTitleAfter": "One",
-                "web.landing.heroTitleAccent": "fold.",
-                "web.landing.heroTagline": "Any agent framework, or bring your own, all from one workspace."
+                "web.landing.heroTitleBefore": "Host your agents.",
+                "web.landing.heroTitleAfter": "Your work,",
+                "web.landing.heroTitleAccent": "multiplied.",
+                "web.landing.heroTagline": "Claude Code, Codex and your own agents, always on and delivering into your product."
             },
             "fonts": [
                 {
@@ -76,16 +76,16 @@
                 "bodyBottom": 489.8125,
                 "minFontPx": 23
             },
-            "bytes": 443622,
-            "sha256": "c00029964ec1a093fd65d58ebf194f63e68f82e82a1f65a328413f1b0a172f0f"
+            "bytes": 464723,
+            "sha256": "9f63be3fc7f2365a48f086515b6f430e9c766d8858fdce6dcf9c34d0841f4e34"
         },
         "zh": {
             "file": "manyfold-og-zh-v3.png",
             "copy": {
-                "web.landing.heroTitleBefore": "多个 Agent。",
-                "web.landing.heroTitleAfter": "同一个",
-                "web.landing.heroTitleAccent": "工作区。",
-                "web.landing.heroTagline": "任何 agent 框架，或带上你自己的，都在同一个工作区运行。"
+                "web.landing.heroTitleBefore": "托管你的智能体。",
+                "web.landing.heroTitleAfter": "你的产出，",
+                "web.landing.heroTitleAccent": "成倍放大。",
+                "web.landing.heroTagline": "Claude Code、Codex，以及你自己的智能体，始终在线并持续交付。"
             },
             "fonts": [
                 {
@@ -118,8 +118,8 @@
                 "bodyBottom": 492.53125,
                 "minFontPx": 23
             },
-            "bytes": 441720,
-            "sha256": "10e049ebc72a2f8cf83a28d82cbacb99bd1a416b872b3df6af73adb8ce9221e6"
+            "bytes": 472081,
+            "sha256": "558115ecdb6bb8085a26729fed26f6b2064e94843541f44ea9aa88c9e03649cd"
         }
     }
 }

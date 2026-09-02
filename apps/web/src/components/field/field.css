@@ -1,0 +1,206 @@
+/* Fieldwork — DESIGN.landing.md §3. Imported from styles.css.
+   Everything here is scoped to .landing-root: the field language is a landing
+   register for now, and the product surfaces must not pick it up by accident. */
+
+/* --- Subject: the ASCII field ---------------------------------------------
+   Three ink plates overprinted like press separations. The glyph carries the
+   ink level; the plates carry the tonal depth. */
+.landing-root .lp-field {
+    display: grid;
+    justify-content: center;
+    align-content: center;
+    font-family: var(--lp-mono);
+    font-size: 12px;
+    /* Together with the 0.6em mono advance these produce the 1.36 cell aspect
+       every shape corrects for. Changing either one distorts every field. */
+    line-height: 0.92;
+    letter-spacing: 0.06em;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+}
+
+.landing-root .lp-field pre {
+    grid-area: 1 / 1;
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+    font: inherit;
+    letter-spacing: inherit;
+}
+
+.landing-root .lp-field pre[data-ink='1'] {
+    color: rgb(var(--lp-field) / 0.3);
+}
+.landing-root .lp-field pre[data-ink='2'] {
+    color: rgb(var(--lp-field) / 0.66);
+}
+.landing-root .lp-field pre[data-ink='3'] {
+    color: rgb(var(--lp-field-deep));
+}
+
+/* Structural thinning is done by the field value; the mask only takes the
+   last stretch, so a field dissolves instead of being cut off. */
+.landing-root .lp-field[data-mask='radial'] {
+    -webkit-mask-image: radial-gradient(
+        ellipse 84% 88% at 50% 50%,
+        #000 66%,
+        transparent 100%
+    );
+    mask-image: radial-gradient(
+        ellipse 84% 88% at 50% 50%,
+        #000 66%,
+        transparent 100%
+    );
+}
+
+.landing-root .lp-field[data-mask='band'] {
+    -webkit-mask-image: linear-gradient(
+        180deg,
+        transparent,
+        #000 20%,
+        #000 80%,
+        transparent
+    );
+    mask-image: linear-gradient(
+        180deg,
+        transparent,
+        #000 20%,
+        #000 80%,
+        transparent
+    );
+}
+
+.landing-root .lp-field-sm {
+    font-size: 10px;
+}
+
+/* --- Atmosphere: the halftone band --------------------------------------- */
+.landing-root .lp-halftone {
+    display: block;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.landing-root .lp-ht-band {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 220px;
+    z-index: 0;
+    pointer-events: none;
+}
+.landing-root .lp-ht-band[data-edge='top'] {
+    top: 0;
+}
+.landing-root .lp-ht-band[data-edge='bottom'] {
+    bottom: 0;
+}
+
+/* --- Data: the pixel meter ----------------------------------------------- */
+.landing-root .lp-pxrow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+}
+
+.landing-root .lp-pxbar {
+    display: inline-flex;
+    gap: 2px;
+    align-items: center;
+    vertical-align: middle;
+}
+
+.landing-root .lp-pxbar i {
+    display: block;
+    width: 4px;
+    height: 12px;
+    border-radius: 1px;
+    background: var(--lp-idle-bg);
+}
+
+.landing-root .lp-pxbar[data-tone='jade'] i[data-on='true'] {
+    background: var(--lp-success);
+}
+.landing-root .lp-pxbar[data-tone='iris'] i[data-on='true'] {
+    background: var(--lp-info);
+}
+.landing-root .lp-pxbar[data-tone='coral'] i[data-on='true'] {
+    background: var(--lp-error);
+}
+
+/* The reading steps one shade lighter than the fill: the quantity is carried
+   by the saturated bar, so the number can recede. This deliberately sits
+   below text AA and is only legal directly beside its own bar. */
+.landing-root .lp-pxnum {
+    font-family: var(--lp-mono);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+.landing-root .lp-pxnum[data-tone='jade'] {
+    color: var(--lp-success);
+}
+.landing-root .lp-pxnum[data-tone='iris'] {
+    color: var(--lp-info);
+}
+.landing-root .lp-pxnum[data-tone='coral'] {
+    color: var(--lp-error);
+}
+
+.landing-root .lp-pxlabel {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--lp-muted);
+}
+.landing-root .lp-pxlabel::before {
+    content: '';
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background: var(--lp-faint);
+}
+
+/* --- Identity mark ------------------------------------------------------- */
+.landing-root .lp-sigil {
+    display: grid;
+    gap: 1px;
+    padding: 4px;
+    border-radius: var(--lp-r-xs);
+    background: var(--lp-info-bg);
+}
+.landing-root .lp-sigil span {
+    display: block;
+    border-radius: 0.5px;
+    background: rgb(var(--lp-field));
+}
+
+/* --- Section rule: a row of the lattice instead of a hairline ------------
+   Only between major sections. An ordinary divider stays a 1px line. */
+.landing-root .lp-pxrule {
+    display: block;
+    width: 100%;
+    height: 9px;
+    background-image: radial-gradient(
+        circle at 50% 50%,
+        rgb(var(--lp-field) / 0.55) 0.9px,
+        transparent 1.2px
+    );
+    background-size: 9px 9px;
+    -webkit-mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 18%,
+        #000 82%,
+        transparent
+    );
+    mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 18%,
+        #000 82%,
+        transparent
+    );
+    opacity: 0.75;
+}

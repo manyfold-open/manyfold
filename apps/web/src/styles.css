@@ -8,6 +8,11 @@
 @import '@fontsource/geist/600.css';
 @import '@fontsource/geist-mono/400.css';
 @import '@fontsource/geist-mono/500.css';
+/* Display register for the landing only (DESIGN.landing.md §2.2). opsz.css
+   carries the optical-size axis, so the hero takes the display cut and card
+   titles the text cut off one file. The family name is 'Source Serif 4
+   Variable' — dropping the suffix falls back to a CJK serif in silence. */
+@import '@fontsource-variable/source-serif-4/opsz.css';
 
 @tailwind base;
 @tailwind components;
@@ -1986,54 +1991,123 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
    accent reading as a power-on LED. High-end audio / pro hardware
    register: sculptural, precise, expensive. */
 .landing-root {
-    /* Canvas: pale silver-grey showroom floor (not raw substrate).
-       Paper still brighter than canvas so elevation reads from the
-       box-shadow alone.
+    /* Ash — a genuinely neutral paper. Only 2–4 units of cool bias (B a
+       little above R) to cancel the yellow cast of warm displays; no hue is
+       readable. Paper feel comes from near-white lightness and very narrow
+       steps between levels, never from tinting the ground: tint the ground
+       and the accent loses contrast against its own light end, and the whole
+       site wears a filter that cannot be washed out. */
+    --lp-bg: #f4f4f6;
+    --lp-bg-soft: #f9f9fb;
+    --lp-bg-deep: #e7e8ea;
+    --lp-paper: #fcfcfd;
+    /* Name is now wrong — nothing is warm. Renaming it would touch every
+       one of the 249 .lp-* rules and bury the real diff, so it stays. */
+    --lp-paper-warm: #ffffff;
+    --lp-ink: #101013;
+    --lp-ink-soft: #2a2b30;
+    --lp-muted: #5c5e66;
+    --lp-subtle: #8d8f97;
+    --lp-faint: #b8b9bf;
+    --lp-line: rgba(16, 16, 22, 0.12);
+    --lp-line-soft: rgba(16, 16, 22, 0.07);
+    --lp-line-strong: rgba(16, 16, 22, 0.22);
 
-       The floor sits one notch brighter than it used to (was #dde0e3):
-       at hero scale the old tone read heavy, and it compressed the gap
-       to paper so the milled chamfer had nothing to catch. It stays a
-       deliberate 15 units below the product canvas (247 249 251) — the
-       showroom floor is grey on purpose, and must never be mistaken for
-       the near-white workspace it is advertising. */
-    --lp-bg: #e7eaed;
-    /* Not a section band — every landing surface (nav, hero, sections,
-       footer) shares --lp-bg above. This is the hover/chip fill for small
-       elements: button and menu-item hovers, icon plates, badges. */
-    --lp-bg-soft: #eef1f4;
-    /* No consumers today. Kept in step with the ramp so it is correct if
-       something ever reaches for a floor tone. */
-    --lp-bg-deep: #d4d8dc;
-    --lp-paper: #f4f6f9;
-    --lp-paper-warm: #fafbfd;
-    --lp-ink: #0a0c0f;
-    --lp-ink-soft: #1f242c;
-    --lp-muted: #525861;
-    --lp-subtle: #828891;
-    --lp-line: rgba(10, 12, 15, 0.18);
-    --lp-line-soft: rgba(10, 12, 15, 0.09);
-    --lp-line-strong: rgba(10, 12, 15, 0.36);
-    /* Status spectrum (DESIGN.md §4.1 / §10.6) — five hues with
-       adequate saturation and 55°+ hue gaps so adjacent states
-       are instantly distinguishable, while still sitting calmly
-       on the cool-graphite chassis. Each role gets:
-         <role>         — solid fg (dot, icon, text)
-         <role>-bg      — low-alpha tint for banner/badge bg
-         <role>-strong  — pressed / one-shot inline highlight */
-    --lp-info: #3b82c9; /* cool blue ~210° — active / brand / info */
-    --lp-info-bg: rgba(59, 130, 201, 0.1);
-    --lp-info-strong: #2666ad;
-    --lp-success: #2e9e6e; /* teal-green ~155° — confirmed / done */
-    --lp-success-bg: rgba(46, 158, 110, 0.1);
-    --lp-success-strong: #1f7e54;
-    --lp-warning: #c89436; /* amber-ochre ~40° — queued / pending */
-    --lp-warning-bg: rgba(200, 148, 54, 0.12);
-    --lp-warning-strong: #a07321;
-    --lp-error: #c44c3a; /* brick-red ~10° — failed / destructive */
-    --lp-error-bg: rgba(196, 76, 58, 0.1);
-    --lp-error-strong: #9a3527;
-    --lp-idle: #8a9099; /* neutral grey — idle / disabled */
-    --lp-idle-bg: rgba(138, 144, 153, 0.1);
+    /* Isometric world (--lp-w-*). The scene is drawn as lit solids, so it
+       needs faces the flat page palette has no name for: a top, a right and a
+       left face per slab and per box, plus the screens, wires and leader
+       lines drawn on them. Faces are Ash, and only energy — the glow, the
+       wires, the LEDs — takes the brand hue. */
+    /* Light falls from the upper left: tops brightest, left faces a step
+       above right ones. Side faces stay high — deep sides on near-white
+       paper read as grime, and the form is already carried by the two-step
+       value difference. Edges are quiet: the drawing should hold together
+       by value first, line second. */
+    --lp-w-slab-top: #f7f7f9;
+    --lp-w-slab-hi: #ffffff;
+    --lp-w-slab-l: #ebecef;
+    --lp-w-slab-r: #dfe0e5;
+    --lp-w-slab-edge: rgba(16, 16, 22, 0.13);
+    --lp-w-box-top: #ffffff;
+    --lp-w-box-l: #ecedf0;
+    --lp-w-box-r: #e0e1e6;
+    --lp-w-box-edge: rgba(16, 16, 22, 0.16);
+    --lp-w-box-accent: #f4f5f8;
+    --lp-w-screen: #f0f1f4;
+    --lp-w-socket: #e2e3e8;
+    --lp-w-chip: #e7e9ef;
+    --lp-w-face: #16161b;
+    --lp-w-bar: rgba(16, 16, 22, 0.15);
+    --lp-w-card: rgba(16, 16, 22, 0.05);
+    --lp-w-wire: rgba(53, 96, 235, 0.34);
+    --lp-w-wire-bloom-opacity: 0.12;
+    --lp-w-lead: rgba(16, 16, 22, 0.32);
+    --lp-w-lead-dot: rgba(16, 16, 22, 0.55);
+    --lp-w-ghost: rgba(16, 16, 22, 0.26);
+    --lp-w-zone: rgba(16, 16, 22, 0.03);
+    --lp-w-ground-lab: rgba(16, 16, 22, 0.46);
+    --lp-w-led-edge: rgba(53, 96, 235, 0.5);
+    /* Framework marks on the world's agent tiles, in their own brand hues. */
+    --lp-w-c1: #d97757;
+    --lp-w-c2: #10a37f;
+    --lp-w-c3: #7c6ae8;
+    --lp-w-c4: #3370ff;
+    /* The flux — the light that runs between the three planes. It is its own
+       token and not `--lp-info` because it is read against the world's plates
+       rather than against the page: on the near-black plate the accent has to
+       climb the ramp to keep the same weight, exactly as `--lp-w-wire` already
+       does. The specular is the key light's own colour, white on both plates. */
+    --lp-w-flux: var(--lp-iris-600);
+    --lp-w-flux-spec: rgba(255, 255, 255, 0.82);
+    /* Light mode treats blue as reflected light on paper, not emissive glow. */
+    --lp-w-glow-opacity: 0.1;
+    --lp-w-spill-opacity: 0.1;
+    /* Iris — brand hue ~226°, chroma calibrated in OKLCH rather than guessed
+       in HSL: 600 sits at C 0.215, the Tailwind blue-600 / Vercel blue tier,
+       which is the line between "definitely a colour" and "fluorescent". The
+       ramp's chroma arcs, peaking near 700, because blue's largest usable
+       chroma lives around L 0.47; forcing it at 600's lightness falls out of
+       gamut. 600 holds 4.75:1 on the canvas.
+
+       The whole ramp is a token. Exposing only info/-bg/-strong is not
+       enough: the pricing ring and the focus ring on near-black slabs both
+       need the 300 step, and without it someone writes a bare hex. */
+    --lp-iris-50: #edf1ff;
+    --lp-iris-100: #dbe3ff;
+    --lp-iris-200: #b9c8fd;
+    --lp-iris-300: #8ca5f9;
+    --lp-iris-300-rgb: 140 165 249;
+    --lp-iris-400: #5d80f4;
+    --lp-iris-400-rgb: 93 128 244;
+    --lp-iris-500: #426bf0;
+    --lp-iris-600: #3560eb;
+    --lp-iris-600-rgb: 53 96 235;
+    --lp-iris-700: #1842d8;
+    --lp-iris-700-rgb: 24 66 216;
+    --lp-iris-800: #1833a0;
+    --lp-iris-900: #152466;
+
+    /* Brand and the info state are one colour now, not two blues to keep
+       in step. */
+    --lp-info: var(--lp-iris-600);
+    --lp-info-bg: rgb(var(--lp-iris-600-rgb) / 0.1);
+    --lp-info-strong: var(--lp-iris-700);
+    --lp-focus-rgb: var(--lp-iris-600-rgb);
+
+    /* Judgment colours sit below Iris in chroma on purpose — the brand
+       should be the most saturated thing on the page, and green and yellow
+       go fluorescent at matching chroma. */
+    --lp-success: #12a75c;
+    --lp-success-bg: rgba(18, 167, 92, 0.1);
+    --lp-success-strong: #0b8548;
+    --lp-warning: #c8811c;
+    --lp-warning-bg: rgba(200, 129, 28, 0.1);
+    --lp-warning-strong: #a06714;
+    --lp-error: #dd3d34;
+    --lp-error-bg: rgba(221, 61, 52, 0.09);
+    --lp-error-strong: #b82c25;
+    --lp-idle: #9a9db2;
+    --lp-idle-bg: rgba(154, 157, 178, 0.13);
 
     /* Legacy aliases — kept so existing rules resolve. New rules
        should reference --lp-info / -warning / -idle / -error / -success
@@ -2072,69 +2146,57 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
     --lp-r-xs: 8px;
     --lp-r-pill: 999px;
 
-    /* Anodized tactile glaze: top gleam is full white with a cool
-       platinum stop, ring is a sharper hairline so the milled edge
-       cuts cleanly against the canvas. */
-    --lp-tactile-top: rgba(255, 255, 255, 1);
-    --lp-tactile-top-soft: rgba(210, 226, 238, 0.6);
-    --lp-tactile-ring: rgba(10, 12, 15, 0.18);
+    /* Display register (DESIGN.landing.md §2.3). Sizes are ladder × family
+       factor, so swapping the face later does not mean re-tuning every
+       clamp(). Source Serif 4 is a transitional: vertical stress, flat
+       serifs, terminals that stop rather than curl — the same rationale as
+       the printed world beside it. Weight 400 is not bolding; at matching
+       visual mass this face sits a step lighter than a display serif, and
+       the hero has to win the first fixation against a screened plate. */
+    --lp-display:
+        'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
+        'Songti SC', 'SimSun', serif;
+    --lp-display-weight: 400;
+    --lp-display-track: -0.018em;
+    --lp-display-lh: 1;
+    --lp-display-scale: 1;
 
-    /* Shadow recipe: full white top inset gleam + cool platinum
-       bottom edge-glow + single drop + 1px dark outer ring. No
-       inner-white-ring layer — it read as a second border concentric
-       to the main radius. */
+    /* The landing's own focus recipe. It is not a redeclaration of the
+       product's --shadow-focus: that token resolves --color-focus off :root,
+       one recipe per theme, and it propagates to the docs baseline as a pair —
+       a third scoped value would silently opt this register out of that
+       contract. The landing is hand-written .lp-* CSS rather than product
+       utilities, so it names its ring explicitly. */
+    --lp-shadow-focus:
+        rgb(var(--lp-focus-rgb)) 0 0 0 1px,
+        rgb(var(--lp-focus-rgb) / 0.18) 0 0 0 4px;
+
+    /* Lift is 1px edge + one diffuse drop. The milled-aluminium recipe (white
+       top inset + platinum bottom glow + violet drop) is gone: on 244–255
+       paper a white inset gleam has nowhere to gleam and only greys the card
+       edge, and a metal surface fights the printed world for the answer to
+       "what is this made of". Drops are de-purpled — the old rgba(23,20,66)
+       bled violet back out of every stacked card. */
     --lp-shadow-sm:
-        var(--lp-tactile-top) 0 4px 6px -2px inset,
-        rgba(170, 188, 208, 0.35) 0 -2px 5px -2px inset,
-        rgba(10, 12, 15, 0.05) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.04), 0 4px 9px -3px rgba(10, 12, 15, 0.08),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(14, 14, 20, 0.03), 0 4px 10px -6px rgba(14, 14, 20, 0.16),
+        0 0 0 1px var(--lp-line-soft);
     --lp-shadow-md:
-        var(--lp-tactile-top) 0 4px 6px -2px inset,
-        rgba(170, 188, 208, 0.38) 0 -2px 5px -2px inset,
-        rgba(10, 12, 15, 0.06) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.05), 0 7px 16px -4px rgba(10, 12, 15, 0.1),
-        0 16px 30px -10px rgba(10, 12, 15, 0.07),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(14, 14, 20, 0.04), 0 10px 26px -14px rgba(14, 14, 20, 0.2),
+        0 0 0 1px var(--lp-line-soft);
     --lp-shadow-lg:
-        var(--lp-tactile-top) 0 5px 8px -2px inset,
-        rgba(170, 188, 208, 0.4) 0 -2.5px 6px -2px inset,
-        rgba(10, 12, 15, 0.08) 0 -3px 6px -2px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.06),
-        0 10px 22px -5px rgba(10, 12, 15, 0.11),
-        0 22px 42px -14px rgba(10, 12, 15, 0.08),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(14, 14, 20, 0.05), 0 20px 48px -24px rgba(14, 14, 20, 0.24),
+        0 44px 80px -60px rgba(14, 14, 20, 0.3), 0 0 0 1px var(--lp-line-soft);
     --lp-shadow-xl:
-        var(--lp-tactile-top) 0 6px 10px -2px inset,
-        rgba(170, 188, 208, 0.42) 0 -2.5px 7px -2px inset,
-        rgba(10, 12, 15, 0.09) 0 -3px 7px -2px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.07),
-        0 14px 28px -6px rgba(10, 12, 15, 0.12),
-        0 30px 54px -18px rgba(10, 12, 15, 0.09),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(14, 14, 20, 0.06), 0 28px 60px -28px rgba(14, 14, 20, 0.26),
+        0 56px 96px -68px rgba(14, 14, 20, 0.32), 0 0 0 1px var(--lp-line-soft);
     --lp-shadow-lg-hover:
-        var(--lp-tactile-top) 0 5px 8px -2px inset,
-        rgba(190, 208, 226, 0.5) 0 -2.5px 7px -2px inset,
-        rgba(10, 12, 15, 0.09) 0 -3px 6px -2px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.07),
-        0 14px 26px -5px rgba(10, 12, 15, 0.13),
-        0 26px 48px -14px rgba(10, 12, 15, 0.09),
-        rgba(10, 12, 15, 0.18) 0 0 0 1px;
-
-    /* Primary button: graphite slab with a thin platinum chamfer
-       and a tucked dark lip. Reads as a milled control. */
+        0 1px 0 rgba(14, 14, 20, 0.06), 0 24px 54px -22px rgba(14, 14, 20, 0.28),
+        0 48px 84px -56px rgba(14, 14, 20, 0.32), 0 0 0 1px var(--lp-line);
     --lp-shadow-button-primary:
-        rgba(255, 255, 255, 0.3) 0 3px 5px -2px inset,
-        rgba(160, 180, 200, 0.18) 0 -1px 3px -1px inset,
-        rgba(0, 0, 0, 0.5) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(15, 17, 20, 0.1), 0 3px 7px -2px rgba(15, 17, 20, 0.12),
-        0 7px 16px -6px rgba(15, 17, 20, 0.1);
+        0 1px 0 rgba(14, 14, 20, 0.08), 0 4px 10px -4px rgba(14, 14, 20, 0.18);
     --lp-shadow-button-secondary:
-        var(--lp-tactile-top) 0 3px 5px -2px inset,
-        rgba(180, 195, 210, 0.3) 0 -1.5px 4px -2px inset,
-        rgba(15, 17, 20, 0.06) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(15, 17, 20, 0.04), 0 3px 7px -2px rgba(15, 17, 20, 0.06),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(14, 14, 20, 0.03), 0 2px 6px -3px rgba(14, 14, 20, 0.12),
+        0 0 0 1px var(--lp-line);
 
     /* Surface gradient is intentionally inert — cards are flat fills.
        The token is kept so existing `background-image: var(...)` rules
@@ -2166,87 +2228,104 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
    anatomy as light mode (top gleam + bottom edge tuck + 1px ring),
    drop alphas raised 5–8× so cards survive on the dark canvas. */
 html[data-theme='dark'] .landing-root {
-    --lp-bg: #07090c;
-    --lp-bg-soft: #0e1115;
-    --lp-bg-deep: #030506;
-    --lp-paper: #1c2026;
-    --lp-paper-warm: #262b32;
-    --lp-ink: #e4e7ec;
-    --lp-ink-soft: #b9bec6;
-    --lp-muted: #7c838c;
-    --lp-subtle: #50555c;
-    --lp-line: rgba(255, 255, 255, 0.13);
-    --lp-line-soft: rgba(255, 255, 255, 0.06);
-    --lp-line-strong: rgba(255, 255, 255, 0.28);
-    /* Status spectrum (DESIGN.md §4.2) — same hue family as light
-       mode, brightened so perceived saturation matches across themes. */
-    --lp-info: #7bb6e8;
-    --lp-info-bg: rgba(123, 182, 232, 0.16);
-    --lp-info-strong: #5c99d2;
-    --lp-success: #5bc598;
-    --lp-success-bg: rgba(91, 197, 152, 0.14);
-    --lp-success-strong: #3aa67a;
-    --lp-warning: #e4b968;
-    --lp-warning-bg: rgba(228, 185, 104, 0.16);
-    --lp-warning-strong: #c39945;
-    --lp-error: #e07a6a;
-    --lp-error-bg: rgba(224, 122, 106, 0.14);
-    --lp-error-strong: #bf5946;
-    --lp-idle: #6e7682;
-    --lp-idle-bg: rgba(110, 118, 130, 0.16);
+    --lp-bg: #0a0a0c;
+    --lp-bg-soft: #101013;
+    --lp-bg-deep: #050506;
+    --lp-paper: #161719;
+    --lp-paper-warm: #1e1f23;
+    --lp-ink: #ededef;
+    --lp-ink-soft: #c6c7cb;
+    --lp-muted: #8c8e96;
+    --lp-subtle: #62646b;
+    --lp-faint: #404248;
+    --lp-line: rgba(232, 232, 238, 0.13);
+    --lp-line-soft: rgba(232, 232, 238, 0.07);
+    --lp-line-strong: rgba(232, 232, 238, 0.24);
+
+    /* Dark is the negative plate: paper goes near-black, ink goes light, and
+       the two screen densities swap so the darkest face still takes the least
+       ink. Reuse the light densities here and the left face ends up brighter
+       than the right one — the solid reads inside out. */
+    /* Same key light from the upper left. Every face sits above the
+       near-black canvas — the old sides were darker than the page and the
+       solids melted into it; separation must come from the faces' own
+       values, not from brighter outlines. */
+    --lp-w-slab-top: #1d1f26;
+    --lp-w-slab-hi: #25272f;
+    --lp-w-slab-l: #191b21;
+    --lp-w-slab-r: #13151b;
+    --lp-w-slab-edge: rgba(232, 232, 238, 0.16);
+    --lp-w-box-top: #2d2f38;
+    --lp-w-box-l: #24262e;
+    --lp-w-box-r: #1b1d24;
+    --lp-w-box-edge: rgba(232, 232, 238, 0.18);
+    --lp-w-box-accent: #343640;
+    --lp-w-screen: #101117;
+    --lp-w-socket: #15161d;
+    --lp-w-chip: #101117;
+    --lp-w-face: #0d0e13;
+    --lp-w-bar: rgba(237, 237, 239, 0.15);
+    --lp-w-card: rgba(237, 237, 239, 0.06);
+    --lp-w-wire: rgba(140, 165, 249, 0.35);
+    --lp-w-wire-bloom-opacity: 0.2;
+    --lp-w-lead: rgba(232, 232, 238, 0.33);
+    --lp-w-lead-dot: rgba(232, 232, 238, 0.62);
+    --lp-w-ghost: rgba(232, 232, 238, 0.28);
+    --lp-w-zone: rgba(232, 232, 238, 0.04);
+    --lp-w-ground-lab: rgba(237, 237, 239, 0.5);
+    --lp-w-led-edge: rgba(140, 165, 249, 0.5);
+    --lp-w-c1: #e8916f;
+    --lp-w-c2: #37c99e;
+    --lp-w-c3: #9d8cff;
+    --lp-w-c4: #6b9aff;
+    --lp-w-flux: var(--lp-iris-300);
+    --lp-w-flux-spec: rgba(255, 255, 255, 0.6);
+    --lp-w-glow-opacity: 0.3;
+    --lp-w-spill-opacity: 0.3;
+    /* The ramp itself does not change; only the semantic aliases move up one
+       step so the accent keeps its weight against a near-black ground. */
+    --lp-info: var(--lp-iris-400);
+    --lp-info-bg: rgb(var(--lp-iris-400-rgb) / 0.16);
+    --lp-info-strong: var(--lp-iris-300);
+    --lp-focus-rgb: var(--lp-iris-400-rgb);
+    --lp-success: #3bd383;
+    --lp-success-bg: rgba(59, 211, 131, 0.14);
+    --lp-success-strong: #22c46f;
+    --lp-warning: #efb45e;
+    --lp-warning-bg: rgba(239, 180, 94, 0.16);
+    --lp-warning-strong: #e9a23b;
+    --lp-error: #ff7a70;
+    --lp-error-bg: rgba(255, 122, 112, 0.13);
+    --lp-error-strong: #f2554b;
+    --lp-idle: #6d7085;
+    --lp-idle-bg: rgba(109, 112, 133, 0.16);
     --lp-success-soft: var(--lp-success-bg);
     --lp-terracotta-soft: var(--lp-info-bg);
     --lp-ochre-soft: var(--lp-warning-bg);
     --lp-sage-soft: var(--lp-idle-bg);
 
-    --lp-tactile-top: rgba(255, 255, 255, 0.11);
-    --lp-tactile-top-soft: rgba(200, 220, 240, 0.07);
-    --lp-tactile-ring: rgba(255, 255, 255, 0.14);
-
-    /* Shadow scale — same anatomy (soft top gleam + soft bottom edge
-       tuck + contact line + two short drops + outer ring). Drop alphas
-       are quiet (0.15–0.24): on a warm-paper dark canvas a noisy drop
-       reads as a smudge, not as lift. */
+    /* Same anatomy as light: 1px edge + one diffuse drop, drop turned pure
+       black and raised so cards survive the near-black canvas. */
     --lp-shadow-sm:
-        var(--lp-tactile-top) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.12) 0 -2px 4px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.08), 0 3px 6px -2px rgba(0, 0, 0, 0.12),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(0, 0, 0, 0.2), 0 4px 12px -6px rgba(0, 0, 0, 0.5),
+        0 0 0 1px var(--lp-line-soft);
     --lp-shadow-md:
-        var(--lp-tactile-top) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.14) 0 -2px 4px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.09), 0 4px 10px -3px rgba(0, 0, 0, 0.14),
-        0 10px 20px -8px rgba(0, 0, 0, 0.1), var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(0, 0, 0, 0.25), 0 12px 28px -14px rgba(0, 0, 0, 0.6),
+        0 0 0 1px var(--lp-line-soft);
     --lp-shadow-lg:
-        var(--lp-tactile-top) 0 4px 6px -2px inset,
-        rgba(0, 0, 0, 0.15) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.1), 0 6px 14px -4px rgba(0, 0, 0, 0.15),
-        0 14px 28px -10px rgba(0, 0, 0, 0.12), var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(0, 0, 0, 0.3), 0 22px 50px -24px rgba(0, 0, 0, 0.7),
+        0 48px 88px -60px rgba(0, 0, 0, 0.8), 0 0 0 1px var(--lp-line-soft);
     --lp-shadow-xl:
-        var(--lp-tactile-top) 0 5px 7px -2px inset,
-        rgba(0, 0, 0, 0.16) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.12), 0 7px 16px -4px rgba(0, 0, 0, 0.17),
-        0 18px 36px -12px rgba(0, 0, 0, 0.13), var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(0, 0, 0, 0.34), 0 30px 62px -28px rgba(0, 0, 0, 0.72),
+        0 60px 104px -70px rgba(0, 0, 0, 0.82), 0 0 0 1px var(--lp-line-soft);
     --lp-shadow-lg-hover:
-        var(--lp-tactile-top) 0 4px 6px -2px inset,
-        rgba(0, 0, 0, 0.16) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.12), 0 8px 18px -4px rgba(0, 0, 0, 0.2),
-        0 18px 36px -12px rgba(0, 0, 0, 0.15),
-        rgba(255, 255, 255, 0.12) 0 0 0 1px;
-
-    /* Buttons: soft top gleam, soft bottom lip, two tight drop stops.
-       Quieter alphas than the previous pass so the press feels
-       grounded but doesn't punch a hole in the canvas. */
+        0 1px 0 rgba(0, 0, 0, 0.34), 0 26px 56px -22px rgba(0, 0, 0, 0.74),
+        0 52px 92px -58px rgba(0, 0, 0, 0.84), 0 0 0 1px var(--lp-line);
     --lp-shadow-button-primary:
-        rgba(255, 255, 255, 0.18) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.32) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.18), 0 3px 7px -2px rgba(0, 0, 0, 0.2),
-        0 7px 14px -6px rgba(0, 0, 0, 0.15);
+        0 1px 0 rgba(0, 0, 0, 0.3), 0 4px 10px -4px rgba(0, 0, 0, 0.5);
     --lp-shadow-button-secondary:
-        var(--lp-tactile-top) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.14) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.1), 0 3px 7px -2px rgba(0, 0, 0, 0.14),
-        var(--lp-tactile-ring) 0 0 0 1px;
+        0 1px 0 rgba(0, 0, 0, 0.24), 0 2px 6px -3px rgba(0, 0, 0, 0.4),
+        0 0 0 1px var(--lp-line);
 
     /* Surface gradient inert in dark mode too — cards are flat fills,
        lift comes from box-shadow only. */
@@ -2257,365 +2336,83 @@ html[data-theme='dark'] .landing-root {
    A very fine vertical grain (the signature of anodized metal,
    read against the light) layered with low-alpha noise. Two-octave,
    low-alpha so it stays in the periphery. */
-.landing-root::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 0;
-    background-image:
-        /* a single quiet layer: very fine vertical brushed grain so
-           the canvas still reads as metal, not paper. No seams, no
-           specular bands — those belong on the cards, not the page
-           floor. */
-        repeating-linear-gradient(
-            90deg,
-            rgba(10, 12, 15, 0) 0,
-            rgba(10, 12, 15, 0) 1px,
-            rgba(10, 12, 15, 0.018) 1px,
-            rgba(10, 12, 15, 0.018) 2px
-        ),
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.08 0 0 0 0 0.1 0 0 0 0.04 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    opacity: 0.8;
-    mix-blend-mode: multiply;
-    -webkit-mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(0, 0, 0, 0.4) 30%,
-        rgba(0, 0, 0, 1) 60%
-    );
-    mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(0, 0, 0, 0.4) 30%,
-        rgba(0, 0, 0, 1) 60%
-    );
+/* On a near-black slab the 600 ring is invisible; jump it to 300. */
+.landing-root .lp-btn-primary {
+    --lp-focus-rgb: var(--lp-iris-300-rgb);
 }
 
-html[data-theme='dark'] .landing-root::before {
-    background-image:
-        repeating-linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0) 0,
-            rgba(255, 255, 255, 0) 1px,
-            rgba(255, 255, 255, 0.022) 1px,
-            rgba(255, 255, 255, 0.022) 2px
-        ),
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.045 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    opacity: 0.75;
-    mix-blend-mode: screen;
+/* Selecting a paragraph should tint it, not turn it into a colour bar, so
+   the wash rather than a solid. */
+.landing-root ::selection {
+    background: var(--lp-info-bg);
+    color: var(--lp-ink);
 }
 
-/* --- Anodized: every elevated card carries the brushed-grain
-   skin + a vertical luminance gradient so the surface reads as
-   a milled aluminium panel lit from above, with the bottom
-   slightly darker than the top. The gradient sits on the fill
-   (not the shadow) so the lift anatomy from §7 is preserved. --- */
-.landing-root .lp-product-demo,
-.landing-root .lp-machine,
-.landing-root .lp-feat,
-.landing-root .lp-price-card,
-.landing-root .lp-cta-card {
-    /* Everything — brushed grain + luminance + corner chamfer washes
-       — lives in the parent's own background-image stack.  A single
-       layer, a single border-radius, no concentric edges.  This is
-       the only structural way to avoid the double-radius artifact
-       the user spotted: any pseudo-element with its own rounded
-       edge will trace a curve slightly offset from the parent's,
-       and that offset is what reads as ghosting. */
-    background-image:
-        /* top-left chamfer — the dominant lit corner. Note the
-           gradient terminates well before the card edge (42%) so
-           even though it would be clipped by border-radius, no
-           visible curved edge is produced — the alpha is already
-           zero by the time it reaches the corner. */
-        radial-gradient(
-            130% 90% at 0% 0%,
-            rgba(255, 255, 255, 0.3) 0%,
-            rgba(255, 255, 255, 0.08) 18%,
-            rgba(255, 255, 255, 0) 42%
-        ),
-        /* top-right chamfer — quieter */
-        radial-gradient(
-                90% 70% at 100% 0%,
-                rgba(255, 255, 255, 0.14) 0%,
-                rgba(255, 255, 255, 0) 36%
-            ),
-        /* bottom-right reverse chamfer — sculptural depth */
-        radial-gradient(
-                70% 50% at 100% 100%,
-                rgba(10, 12, 15, 0.06) 0%,
-                rgba(10, 12, 15, 0) 40%
-            ),
-        /* fine vertical brushed grain */
-        repeating-linear-gradient(
-                90deg,
-                rgba(10, 12, 15, 0) 0,
-                rgba(10, 12, 15, 0) 1px,
-                rgba(10, 12, 15, 0.04) 1px,
-                rgba(10, 12, 15, 0.04) 2px
-            ),
-        /* top-to-bottom luminance */
-        linear-gradient(
-                to bottom,
-                rgba(255, 255, 255, 0.1) 0%,
-                rgba(255, 255, 255, 0) 26%,
-                rgba(10, 12, 15, 0.04) 100%
-            );
-}
-
-html[data-theme='dark'] .landing-root .lp-product-demo,
-html[data-theme='dark'] .landing-root .lp-machine,
-html[data-theme='dark'] .landing-root .lp-price-card,
-html[data-theme='dark'] .landing-root .lp-feat {
-    background-image:
-        radial-gradient(
-            130% 90% at 0% 0%,
-            rgba(220, 232, 240, 0.14) 0%,
-            rgba(220, 232, 240, 0.04) 18%,
-            rgba(220, 232, 240, 0) 42%
-        ),
-        radial-gradient(
-            90% 70% at 100% 0%,
-            rgba(220, 232, 240, 0.06) 0%,
-            rgba(220, 232, 240, 0) 36%
-        ),
-        radial-gradient(
-            70% 50% at 100% 100%,
-            rgba(0, 0, 0, 0.18) 0%,
-            rgba(0, 0, 0, 0) 40%
-        ),
-        repeating-linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0) 0,
-            rgba(255, 255, 255, 0) 1px,
-            rgba(255, 255, 255, 0.04) 1px,
-            rgba(255, 255, 255, 0.04) 2px
-        ),
-        linear-gradient(
-            to bottom,
-            rgba(255, 255, 255, 0.06) 0%,
-            rgba(255, 255, 255, 0) 26%,
-            rgba(0, 0, 0, 0.2) 100%
-        );
-}
-
-/* The cards need position:relative so the screw pseudo can sit
-   inside the card bounds. */
-.landing-root .lp-product-demo,
-.landing-root .lp-machine,
-.landing-root .lp-price-card,
-.landing-root .lp-feat {
+/* Cards are flat fills. The brushed-grain skin and the top-lit luminance
+   wash are gone: a milled panel and a printed plate cannot both be the
+   answer to what this page is made of, and the wash only greyed the card
+   edge against near-white paper anyway. */
+/* Kept: the pricing card still positions its own children. */
+.landing-root .lp-price-card {
     position: relative;
 }
 
-/* Make card content layer above the chamfer wash. */
-.landing-root .lp-product-demo > *,
-.landing-root .lp-machine > *,
-.landing-root .lp-price-card > *,
-.landing-root .lp-feat > * {
+.landing-root .lp-price-card > * {
     position: relative;
     z-index: 1;
 }
 
-/* --- Anodized: precision screws at the four corners ---
-   Tiny dark dots (1.5px) with a 1px bright ring (the milled edge
-   catching light).  Sit at inset 14px from each corner, well
-   inside the rounded edge, so no curve geometry is involved —
-   nothing to compete with the parent's border-radius. */
-.landing-root .lp-product-demo::after,
-.landing-root .lp-machine::after,
-.landing-root .lp-price-card::after,
-.landing-root .lp-feat::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    background-image:
-        radial-gradient(
-            circle at center,
-            rgba(10, 12, 15, 0.55) 0,
-            rgba(10, 12, 15, 0.55) 1.5px,
-            rgba(255, 255, 255, 0.75) 1.5px,
-            rgba(255, 255, 255, 0.75) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(10, 12, 15, 0.55) 0,
-            rgba(10, 12, 15, 0.55) 1.5px,
-            rgba(255, 255, 255, 0.75) 1.5px,
-            rgba(255, 255, 255, 0.75) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(10, 12, 15, 0.55) 0,
-            rgba(10, 12, 15, 0.55) 1.5px,
-            rgba(255, 255, 255, 0.75) 1.5px,
-            rgba(255, 255, 255, 0.75) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(10, 12, 15, 0.55) 0,
-            rgba(10, 12, 15, 0.55) 1.5px,
-            rgba(255, 255, 255, 0.75) 1.5px,
-            rgba(255, 255, 255, 0.75) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        );
-    background-repeat: no-repeat;
-    background-size: 6px 6px;
-    background-position:
-        14px 14px,
-        calc(100% - 14px) 14px,
-        14px calc(100% - 14px),
-        calc(100% - 14px) calc(100% - 14px);
-    z-index: 0;
-}
-
-html[data-theme='dark'] .landing-root .lp-product-demo::after,
-html[data-theme='dark'] .landing-root .lp-machine::after,
-html[data-theme='dark'] .landing-root .lp-price-card::after,
-html[data-theme='dark'] .landing-root .lp-feat::after {
-    background-image:
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.7) 0,
-            rgba(0, 0, 0, 0.7) 1.5px,
-            rgba(255, 255, 255, 0.32) 1.5px,
-            rgba(255, 255, 255, 0.32) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.7) 0,
-            rgba(0, 0, 0, 0.7) 1.5px,
-            rgba(255, 255, 255, 0.32) 1.5px,
-            rgba(255, 255, 255, 0.32) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.7) 0,
-            rgba(0, 0, 0, 0.7) 1.5px,
-            rgba(255, 255, 255, 0.32) 1.5px,
-            rgba(255, 255, 255, 0.32) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.7) 0,
-            rgba(0, 0, 0, 0.7) 1.5px,
-            rgba(255, 255, 255, 0.32) 1.5px,
-            rgba(255, 255, 255, 0.32) 2.2px,
-            rgba(255, 255, 255, 0) 3px
-        );
-}
-
-/* --- Anodized: typography refinement ---
-   Geist throughout, including the accent word — it shares the heading's
-   sans face and weight, set apart only by the brand-gradient colour. */
+/* Display elements share one face contract. Tracking is the trap here: the
+   -0.05em the sans headings carried would crush a serif, whose fit is already
+   tighter, and the line-height has to loosen because the serif's ascenders
+   and descenders run longer. */
 .landing-root .lp-h1,
-.landing-root .lp-h2 {
-    letter-spacing: -0.055em;
+.landing-root .lp-h2,
+.landing-root .lp-h3,
+.landing-root .lp-scene-title,
+.landing-root .lp-price-num {
+    font-family: var(--lp-display);
+    font-weight: var(--lp-display-weight);
+    letter-spacing: var(--lp-display-track);
+    line-height: var(--lp-display-lh);
+    font-optical-sizing: auto;
+    text-wrap: balance;
 }
 
-/* Etched-metal accent: linear-gradient clipped to the glyphs.
-   Top edge of the letterform catches light (near-white), bottom
-   slips into the deep platinum — reads as a name plate milled
-   into the chassis. The accent word keeps the heading's own Geist
-   face and weight; the gradient is the only thing setting it apart.
-   Color fallback in plain --lp-terracotta for browsers without
-   background-clip:text. */
-.landing-root .lp-h-accent {
-    color: var(--lp-terracotta);
-    background: linear-gradient(
-        to bottom,
-        #d6e0e8 0%,
-        var(--lp-terracotta) 55%,
-        var(--lp-terracotta-deep) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5))
-        drop-shadow(0 0 1px rgba(10, 12, 15, 0.18));
-}
-
-html[data-theme='dark'] .landing-root .lp-h-accent {
-    background: linear-gradient(
-        to bottom,
-        #e6eef5 0%,
-        var(--lp-terracotta) 55%,
-        var(--lp-terracotta-deep) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.6))
-        drop-shadow(0 0 2px rgba(168, 192, 210, 0.2));
+/* Accent is one solid colour and nothing else. The etched-metal recipe
+   (gradient + background-clip + two drop-shadows) needed a light and a dark
+   value and a CJK exception; a solid needs neither, so this is one device,
+   one rule, zero exceptions. Emphasis stays upright — italic at display size
+   reads as a different voice, not as stress. */
+.landing-root .lp-h-accent,
+.landing-root .lp-floor-accent {
+    font-family: inherit;
+    font-style: normal;
+    color: var(--lp-info);
+    background: none;
+    -webkit-background-clip: initial;
+    background-clip: initial;
+    -webkit-text-fill-color: currentColor;
+    filter: none;
 }
 
 /* --- Anodized: pills, chips, mcp rows --- pill shape kept (§6.2
    says controls are pills), but each chip gets a fine inset top
    hairline that reads as a milled groove on the chassis. --- */
-.landing-root .lp-int-chip,
-.landing-root .lp-mcp-row,
-.landing-root .lp-pd-scene-result {
+.landing-root .lp-int-chip {
     background: var(--lp-bg-soft);
     box-shadow: inset 0 0 0 1px var(--lp-line);
 }
 
-html[data-theme='dark'] .landing-root .lp-int-chip,
-html[data-theme='dark'] .landing-root .lp-mcp-row,
-html[data-theme='dark'] .landing-root .lp-pd-scene-result {
+html[data-theme='dark'] .landing-root .lp-int-chip {
     box-shadow: inset 0 0 0 1px var(--lp-line);
 }
 
-/* --- Anodized: eyebrow chip ---
-   Small uppercase metadata block on each section.  The dot
-   becomes a tiny icy-blue power LED with a soft halo — the
-   one piece of true color in the design.  Reads as the
-   indicator on a piece of pro audio gear. */
-.landing-root .lp-eyebrow {
-    text-transform: uppercase;
-    letter-spacing: 0.16em;
-    font-weight: 500;
-    /* Pill chip with the same tactile anatomy as elevated cards
-       — top white gleam, bottom edge tuck, 1px ring, faint drop —
-       just sized down for a chip.  Reads as a small milled
-       nameplate, not a hollow outlined rectangle. */
-    border-radius: var(--lp-r-pill);
-    padding: 5px 12px 5px 11px;
-    background: var(--lp-paper);
-    color: var(--lp-ink-soft);
-    box-shadow:
-        rgba(255, 255, 255, 0.85) 0 1.5px 3px -1px inset,
-        rgba(10, 12, 15, 0.06) 0 -1px 2px -1px inset,
-        0 1px 0 0 rgba(10, 12, 15, 0.05),
-        0 2px 5px -1px rgba(10, 12, 15, 0.1),
-        var(--lp-tactile-ring) 0 0 0 1px;
-}
-
-html[data-theme='dark'] .landing-root .lp-eyebrow {
-    background: var(--lp-paper);
-    color: var(--lp-ink-soft);
-    box-shadow:
-        rgba(255, 255, 255, 0.1) 0 1.5px 3px -1px inset,
-        rgba(170, 188, 208, 0.18) 0 -1.5px 3px -1px inset,
-        rgba(0, 0, 0, 0.18) 0 -1px 2px -1px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.3),
-        0 3px 6px -2px rgba(0, 0, 0, 0.4),
-        var(--lp-tactile-ring) 0 0 0 1px;
-}
-
 .landing-root .lp-eyebrow .lp-dot {
-    background: #6cc0f0;
+    background: var(--lp-info);
     box-shadow:
-        0 0 0 2px var(--lp-paper),
-        0 0 0 3px rgba(108, 192, 240, 0.35),
+        0 0 0 2px var(--lp-bg-soft),
+        0 0 0 3px var(--lp-info-bg),
         0 0 10px rgba(108, 192, 240, 0.85);
 }
 
@@ -2627,40 +2424,6 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
         0 0 14px rgba(136, 212, 255, 0.7);
 }
 
-/* The live-dot in the canvas header carries the same LED reading. */
-.landing-root .lp-pd-canvas-label .lp-live-dot {
-    background: #6cc0f0;
-    box-shadow:
-        0 0 0 2px var(--lp-bg-soft),
-        0 0 0 3px rgba(108, 192, 240, 0.35),
-        0 0 12px rgba(108, 192, 240, 0.8);
-}
-
-html[data-theme='dark'] .landing-root .lp-pd-canvas-label .lp-live-dot {
-    background: #88d4ff;
-    box-shadow:
-        0 0 0 2px var(--lp-bg-soft),
-        0 0 0 3px rgba(136, 212, 255, 0.32),
-        0 0 16px rgba(136, 212, 255, 0.7);
-}
-
-.landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot {
-    background: #6cc0f0;
-    box-shadow:
-        0 0 0 1px rgba(108, 192, 240, 0.5),
-        0 0 10px rgba(108, 192, 240, 0.8);
-}
-
-html[data-theme='dark']
-    .landing-root
-    .lp-pd-agent[data-state='active']
-    .lp-pd-agent-dot {
-    background: #88d4ff;
-    box-shadow:
-        0 0 0 1px rgba(136, 212, 255, 0.5),
-        0 0 12px rgba(136, 212, 255, 0.7);
-}
-
 /* --- Anodized: section-head pre-mark ---
    A thin platinum bar above each section title.  Equivalent of
    the etched mark on a pro-grade chassis next to a port label. */
@@ -2668,260 +2431,53 @@ html[data-theme='dark']
     position: relative;
 }
 
-.landing-root .lp-section-head::before {
-    content: '';
-    display: block;
-    width: 28px;
-    height: 2px;
-    background: var(--lp-terracotta);
-    margin-bottom: 14px;
-    box-shadow: 0 1px 2px rgba(15, 17, 20, 0.15);
-    border-radius: 1px;
-}
-
-html[data-theme='dark'] .landing-root .lp-section-head::before {
-    background: var(--lp-terracotta);
-    box-shadow: 0 0 4px rgba(155, 176, 192, 0.35);
-}
-
-/* --- Anodized: CTA card ---
-   The showpiece.  A deep-graphite milled slab with a soft
-   warm-cool sheen from above and a faint platinum bleed from
-   the bottom edge — reads as a high-end hardware product
-   sitting on a desk under a single overhead light. */
-.landing-root .lp-cta-card {
-    background-color: #16191e;
-    color: #e4e7ec;
-    position: relative;
-    overflow: hidden;
-    /* CTA gets a complete background-image stack — single layer,
-       single border-radius, no pseudo with its own geometry. The
-       LED top edge + bottom platinum bleed live here alongside
-       the chamfer washes, grain, and luminance. */
-    background-image:
-        /* LED top edge + bottom platinum bleed (single straight
-           gradient — clipping by rounded corner has no curve
-           geometry to ghost against). */
-        linear-gradient(
-            to bottom,
-            rgba(168, 192, 210, 0.55) 0%,
-            rgba(168, 192, 210, 0.35) 3px,
-            rgba(168, 192, 210, 0.12) 8px,
-            rgba(168, 192, 210, 0) 18px,
-            rgba(168, 192, 210, 0) 78%,
-            rgba(168, 192, 210, 0.18) 100%
-        ),
-        /* top-left chamfer wash */
-        radial-gradient(
-                140% 80% at 0% 0%,
-                rgba(255, 255, 255, 0.12) 0%,
-                rgba(255, 255, 255, 0) 42%
-            ),
-        /* top-right chamfer */
-        radial-gradient(
-                90% 70% at 100% 0%,
-                rgba(255, 255, 255, 0.06) 0%,
-                rgba(255, 255, 255, 0) 38%
-            ),
-        /* brushed grain (last layer = bottom of stack visually) */
-        repeating-linear-gradient(
-                90deg,
-                rgba(255, 255, 255, 0) 0,
-                rgba(255, 255, 255, 0) 1px,
-                rgba(255, 255, 255, 0.04) 1px,
-                rgba(255, 255, 255, 0.04) 2px
-            );
-}
-
-/* CTA: corner screws — same precision-screw treatment as cards,
-   drawn via a third pseudo (::after) so the ::before can stay
-   focused on the texture/glow layer. */
-.landing-root .lp-cta-card::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    background-image:
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.85) 0,
-            rgba(0, 0, 0, 0.85) 1.5px,
-            rgba(168, 192, 210, 0.55) 1.5px,
-            rgba(168, 192, 210, 0.55) 2.2px,
-            rgba(168, 192, 210, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.85) 0,
-            rgba(0, 0, 0, 0.85) 1.5px,
-            rgba(168, 192, 210, 0.55) 1.5px,
-            rgba(168, 192, 210, 0.55) 2.2px,
-            rgba(168, 192, 210, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.85) 0,
-            rgba(0, 0, 0, 0.85) 1.5px,
-            rgba(168, 192, 210, 0.55) 1.5px,
-            rgba(168, 192, 210, 0.55) 2.2px,
-            rgba(168, 192, 210, 0) 3px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(0, 0, 0, 0.85) 0,
-            rgba(0, 0, 0, 0.85) 1.5px,
-            rgba(168, 192, 210, 0.55) 1.5px,
-            rgba(168, 192, 210, 0.55) 2.2px,
-            rgba(168, 192, 210, 0) 3px
-        );
-    background-repeat: no-repeat;
-    background-size: 6px 6px;
-    background-position:
-        16px 16px,
-        calc(100% - 16px) 16px,
-        16px calc(100% - 16px),
-        calc(100% - 16px) calc(100% - 16px);
-    z-index: 0;
-}
-
-.landing-root .lp-cta-card > * {
-    position: relative;
-    z-index: 1;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-card {
-    background-color: #050709;
-    color: #e4e7ec;
-    background-image:
-        linear-gradient(
-            to bottom,
-            rgba(168, 192, 210, 0.6) 0%,
-            rgba(168, 192, 210, 0.4) 3px,
-            rgba(168, 192, 210, 0.14) 8px,
-            rgba(168, 192, 210, 0) 18px,
-            rgba(168, 192, 210, 0) 78%,
-            rgba(168, 192, 210, 0.22) 100%
-        ),
-        radial-gradient(
-            140% 80% at 0% 0%,
-            rgba(220, 232, 240, 0.1) 0%,
-            rgba(220, 232, 240, 0) 42%
-        ),
-        radial-gradient(
-            90% 70% at 100% 0%,
-            rgba(220, 232, 240, 0.05) 0%,
-            rgba(220, 232, 240, 0) 38%
-        ),
-        repeating-linear-gradient(
-            90deg,
-            rgba(255, 255, 255, 0) 0,
-            rgba(255, 255, 255, 0) 1px,
-            rgba(255, 255, 255, 0.045) 1px,
-            rgba(255, 255, 255, 0.045) 2px
-        );
-}
-
-/* Dark-mode primary button and CTA inner buttons: flip
-   any warm-paper hard-codes to the chassis metal tone. */
 html[data-theme='dark'] .landing-root .lp-btn-primary {
     background: #e6e9ec;
     color: #0f1114;
 }
 
-html[data-theme='dark'] .landing-root .lp-cta h2 {
-    color: #dfe2e7;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-primary {
-    background: #e6e9ec;
-    color: #0f1114;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-primary:hover {
-    background: #f4f6f8;
-    color: #0f1114;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary {
-    color: #dfe2e7;
-    border-color: rgba(223, 226, 231, 0.32);
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
-    background: rgba(223, 226, 231, 0.12);
-    border-color: rgba(223, 226, 231, 0.7);
-}
-
 /* --- Anodized: machines-strip ---
    A fine engraved hairline instead of the bunker caution-stripe
    tape.  Reads as a precision mark scored into the chassis. */
-.landing-root .lp-machines-strip {
-    border-top: 0;
-    padding-top: 24px;
-    position: relative;
-}
-
-.landing-root .lp-machines-strip::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 1px;
-    background: linear-gradient(
-        to right,
-        rgba(15, 17, 20, 0) 0%,
-        rgba(15, 17, 20, 0.28) 20%,
-        rgba(15, 17, 20, 0.28) 80%,
-        rgba(15, 17, 20, 0) 100%
-    );
-    box-shadow: 0 1px 0 0 rgba(255, 255, 255, 0.6);
-}
-
-html[data-theme='dark'] .landing-root .lp-machines-strip::before {
-    background: linear-gradient(
-        to right,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.22) 20%,
-        rgba(255, 255, 255, 0.22) 80%,
-        rgba(255, 255, 255, 0) 100%
-    );
-    box-shadow: 0 1px 0 0 rgba(0, 0, 0, 0.4);
-}
-
 .landing-root .lp-z {
     position: relative;
     z-index: 1;
 }
 
 .landing-root .lp-h-accent {
-    color: var(--lp-terracotta);
-    font-family: 'Geist', sans-serif;
+    color: var(--lp-info);
+    font-family: inherit;
     font-style: normal;
 }
 
+/* One eyebrow for the whole page. The section heads used to wear a pill and a
+   short accent rule above it, neither of which the hero's scene eyebrows have
+   — three treatments for one role. This is the scene form: mono, uppercase,
+   brand colour, nothing around it. */
 .landing-root .lp-eyebrow {
     display: inline-flex;
     align-items: center;
     gap: 9px;
     font-family: var(--lp-mono);
-    font-size: 11px;
+    font-size: 10.5px;
     font-weight: 500;
-    color: var(--lp-muted);
+    color: var(--lp-info);
     letter-spacing: 0.16em;
     text-transform: uppercase;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+    border-radius: 0;
 }
 
 .landing-root .lp-eyebrow .lp-dot {
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: #2f8fd6;
+    background: var(--lp-success);
     box-shadow:
-        0 0 0 2px var(--lp-paper),
-        0 0 0 3px rgba(47, 143, 214, 0.35),
-        0 0 10px rgba(47, 143, 214, 0.85);
+        0 0 0 2px var(--lp-bg),
+        0 0 0 3px var(--lp-success-bg);
 }
 
 html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
@@ -2941,44 +2497,35 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
 }
 
 .landing-root .lp-h1 {
-    font-family: 'Geist', sans-serif;
-    font-size: clamp(56px, 8vw, 124px);
-    line-height: 0.92;
-    letter-spacing: -0.05em;
-    font-weight: 500;
+    font-size: calc(clamp(46px, 6.6vw, 100px) * var(--lp-display-scale));
     color: var(--lp-ink);
 }
 
+/* Section headings sit one step under the hero title. They used to run to
+   76px, which put every section h2 above the 62px h1 in the scrolled hero —
+   the ramp read upside down. */
 .landing-root .lp-h2 {
-    font-family: 'Geist', sans-serif;
-    font-size: clamp(38px, 5vw, 76px);
-    line-height: 0.98;
-    letter-spacing: -0.04em;
-    font-weight: 500;
+    font-size: calc(clamp(34px, 4.2vw, 60px) * var(--lp-display-scale));
     color: var(--lp-ink);
 }
 
 @media (max-width: 720px) {
     .landing-root .lp-h2 {
         font-size: clamp(30px, 7vw, 44px);
-        line-height: 1;
-        letter-spacing: -0.035em;
+        letter-spacing: -0.012em;
     }
 }
 
+/* Card titles hold at 400 and never drop below 24px: a high-contrast serif
+   breaks into grey crumbs at small sizes (T1). */
 .landing-root .lp-h3 {
-    font-family: 'Geist', sans-serif;
-    font-size: clamp(20px, 1.55vw, 24px);
-    line-height: 1.2;
-    letter-spacing: -0.02em;
-    font-weight: 500;
+    font-size: calc(clamp(24px, 1.9vw, 29px) * var(--lp-display-scale));
+    letter-spacing: -0.008em;
+    line-height: 1.14;
     color: var(--lp-ink);
 }
 
 @media (max-width: 480px) {
-    .landing-root .lp-h3 {
-        font-size: 18px;
-    }
     .landing-root .lp-lead {
         font-size: 15.5px;
         line-height: 1.55;
@@ -3059,7 +2606,10 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
     align-items: center;
     gap: 8px;
     padding: 14px 24px;
-    border-radius: var(--lp-r-pill);
+    /* 12px, not a pill: §5.1 keeps the pill for nav chips only. A pill at
+       this size reads as a tag, and it fights the squared-off geometry the
+       rest of the register is built from. */
+    border-radius: var(--lp-r-sm);
     font-size: 14.5px;
     font-weight: 500;
     line-height: 1;
@@ -3186,9 +2736,22 @@ html[data-theme='dark'] .landing-root .lp-btn-secondary:hover {
 .landing-root .lp-nav {
     position: relative;
     z-index: 50;
-    backdrop-filter: blur(14px);
-    background: color-mix(in srgb, var(--lp-bg) 82%, transparent);
-    border-bottom: 1px solid var(--lp-line-soft);
+    background: transparent;
+    border-bottom: none;
+}
+
+/* On the interactive landing the bar floats over the pinned hero instead of
+   standing above it. In flow it pushed .lp-pin down the document by its own
+   height, so the sticky stage started below the fold and hung the same amount
+   past the bottom: measured on local dev [2026-08-28] at 1920x1080, a 67px bar
+   put the first scene's copy 67px below the viewport centre, and only the
+   first 67px of scroll got it back. Still not a following bar — it scrolls
+   away with the hero, so the reasoning above stands. Scoped to .lp-z because
+   StaticChrome renders the same markup without it for the crawler snapshot,
+   which has plain sections instead of a pinned stage and needs the room. */
+.landing-root .lp-z > .lp-nav {
+    position: absolute;
+    inset: 0 0 auto;
 }
 
 .landing-root .lp-nav-inner {
@@ -3358,7 +2921,7 @@ html[data-theme='dark'] .landing-root .lp-nav-ico:hover {
 }
 
 /* Splits the utility run into "leaves the site" and "changes this page".
-   Four bare controls in a row read as one undifferentiated string of glyphs
+   Five bare controls in a row read as one undifferentiated string of glyphs
    without it, and 6px of extra gap is too weak a signal at this size. */
 .landing-root .lp-nav-sep {
     flex: none;
@@ -3615,1648 +3178,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     color: #0f1114;
 }
 
-/* === Hero === */
-.landing-root .lp-hero {
-    position: relative;
-    padding: 48px 0 88px;
-    overflow: hidden;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-hero {
-        padding: 36px 0 64px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-hero {
-        padding: 28px 0 52px;
-    }
-}
-
-.landing-root .lp-hero-content {
-    position: relative;
-    z-index: 2;
-    text-align: center;
-    margin: 0 auto 44px;
-}
-
-.landing-root .lp-hero-content .lp-hero-eyebrow {
-    margin-bottom: 16px;
-    font-size: 11px;
-    letter-spacing: 0.22em;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-hero-content h1 {
-    text-wrap: balance;
-    max-width: 18ch;
-    margin: 0 auto;
-    font-size: clamp(40px, 6vw, 84px);
-    line-height: 0.92;
-    letter-spacing: -0.045em;
-    font-weight: 500;
-}
-
-.landing-root .lp-hero-content .lp-lead {
-    margin: 18px auto 24px;
-    max-width: none;
-    text-align: center;
-    font-size: clamp(16px, 1.2vw, 19px);
-    line-height: 1.46;
-    color: var(--lp-ink-soft);
-    white-space: nowrap;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-hero-content {
-        margin-bottom: 36px;
-    }
-    .landing-root .lp-hero-content h1 {
-        max-width: 14ch;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-hero-content {
-        margin-bottom: 28px;
-    }
-    .landing-root .lp-hero-content h1 {
-        max-width: none;
-        font-size: clamp(34px, 9vw, 48px);
-        line-height: 0.98;
-        letter-spacing: -0.035em;
-    }
-    .landing-root .lp-hero-content .lp-lead {
-        font-size: 15px;
-        margin: 14px auto 20px;
-        line-height: 1.5;
-        white-space: normal;
-        max-width: 34ch;
-    }
-    .landing-root .lp-hero-content .lp-hero-eyebrow {
-        margin-bottom: 12px;
-        font-size: 10px;
-        letter-spacing: 0.2em;
-    }
-}
-
-/* Hero CTAs scale down on mobile: 52px → 44px height, smaller font,
-   so the dual-CTA row reads as one band rather than two banner-class
-   buttons. Wrap stays in place via the existing .lp-hero-ctas. */
-@media (max-width: 580px) {
-    .landing-root .lp-hero-ctas {
-        gap: 10px;
-    }
-    .landing-root .lp-hero-ctas .lp-btn {
-        height: 44px;
-        padding: 0 20px;
-        font-size: 14px;
-        gap: 8px;
-    }
-    .landing-root .lp-hero-ctas .lp-arr {
-        width: 14px;
-        height: 14px;
-    }
-}
-
-.landing-root .lp-hero-ctas {
-    display: flex;
-    gap: 14px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-hero-ctas .lp-btn {
-    height: 52px;
-    padding: 0 26px;
-    font-size: 15.5px;
-    gap: 10px;
-}
-
-.landing-root .lp-hero-ctas .lp-arr {
-    width: 16px;
-    height: 16px;
-}
-
-/* Two-step CTA: Step 1 request access → Step 2 sign in. The numbered badge
-   on each button reads the flow as an ordered sequence; the connector arrow
-   sits between them on wide layouts and folds away when the buttons wrap. */
-.landing-root .lp-step-ctas {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 14px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-step-cta {
-    position: relative;
-    padding-left: 18px;
-}
-
-.landing-root .lp-step-cta-badge {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    padding: 0 9px;
-    border-radius: var(--lp-r-pill);
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    white-space: nowrap;
-}
-
-/* The numeric-only badge ("1"/"2") is a phone-only space saver; the full
-   "Step 1" label is the default. The mobile breakpoint swaps them. */
-.landing-root .lp-step-cta-badge-num {
-    display: none;
-}
-
-.landing-root .lp-btn-primary .lp-step-cta-badge {
-    background: rgba(255, 255, 255, 0.16);
-    color: #fff;
-}
-
-.landing-root .lp-btn-secondary .lp-step-cta-badge {
-    background: var(--lp-bg-soft);
-    color: var(--lp-muted);
-    box-shadow: inset 0 0 0 1px var(--lp-line);
-}
-
-html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
-    background: rgba(10, 12, 15, 0.16);
-    color: #0a0c0f;
-}
-
-.landing-root .lp-step-cta-arrow {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-subtle);
-    flex: none;
-}
-
-.landing-root .lp-step-cta-arrow svg {
-    width: 18px;
-    height: 18px;
-}
-
-@media (max-width: 560px) {
-    /* Keep the two CTAs on one row; the numeric badges ("1"/"2") keep them
-       narrow enough to fit without wrapping. */
-    .landing-root .lp-step-ctas {
-        flex-wrap: nowrap;
-        gap: 8px;
-    }
-    /* Size each CTA to its own label rather than forcing a 50/50 split — the
-       longer "Request access" needs more room than "Sign in", and an equal
-       basis clips it (the label is white-space: nowrap). flex-grow: 0 lets
-       them hug content; flex-shrink: 1 + min-width: 0 keeps them fitting on
-       the very narrowest phones. */
-    .landing-root .lp-step-cta {
-        flex: 0 1 auto;
-        min-width: 0;
-        justify-content: center;
-        padding: 10px 12px;
-        font-size: 14px;
-    }
-    .landing-root .lp-step-cta-badge {
-        height: 20px;
-        padding: 0 7px;
-    }
-    /* Show just the number on phones; hide the full "Step N" word. */
-    .landing-root .lp-step-cta-badge-full {
-        display: none;
-    }
-    .landing-root .lp-step-cta-badge-num {
-        display: inline-flex;
-    }
-    /* No room for the inter-button arrow on a single narrow row. */
-    .landing-root .lp-step-cta-arrow {
-        display: none;
-    }
-}
-
-.landing-root .lp-hero-content > *,
-.landing-root .lp-product-demo {
-    opacity: 0;
-    transform: translateY(16px);
-    animation: lp-hero-reveal 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.landing-root .lp-hero-content > .lp-eyebrow {
-    animation-delay: 0.05s;
-}
-.landing-root .lp-hero-content > h1 {
-    animation-delay: 0.15s;
-}
-.landing-root .lp-hero-content > .lp-lead {
-    animation-delay: 0.3s;
-}
-.landing-root .lp-hero-content > .lp-hero-ctas {
-    animation-delay: 0.42s;
-}
-.landing-root .lp-product-demo {
-    animation-delay: 0.55s;
-    animation-duration: 0.95s;
-}
-
-@keyframes lp-hero-reveal {
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* === Product demo (state-driven by ProductDemo component) === */
-.landing-root .lp-product-demo {
-    position: relative;
-    z-index: 1;
-    width: 100%;
-    max-width: 1040px;
-    margin: 0 auto;
-    background-color: var(--lp-paper);
-    border-radius: var(--lp-r-xl);
-    overflow: hidden;
-    pointer-events: none;
-    user-select: none;
-    box-shadow: var(--lp-shadow-xl);
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-product-demo {
-        max-width: 720px;
-    }
-}
-
-.landing-root .lp-pd-body {
-    display: grid;
-    grid-template-columns: 244px 1fr;
-    min-height: 420px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-body {
-        grid-template-columns: 208px 1fr;
-        min-height: 380px;
-    }
-}
-
-.landing-root .lp-pd-rail {
-    background: var(--lp-bg-soft);
-    border-right: 1px solid var(--lp-line);
-    padding: 24px 14px 22px;
-    display: flex;
-    flex-direction: column;
-}
-
-/* Below the rail's minimum useful width: drop the rail entirely and
-   let the chat canvas occupy the full demo card. The agent list does
-   not collapse to the top — it is simply hidden, because at this
-   width there isn't room to show both surfaces meaningfully. */
-@media (max-width: 640px) {
-    .landing-root .lp-pd-body {
-        grid-template-columns: 1fr;
-        min-height: 0;
-    }
-    .landing-root .lp-pd-rail {
-        display: none;
-    }
-}
-
-.landing-root .lp-pd-rail-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 6px 14px;
-    margin-bottom: 6px;
-    border-bottom: 1px dashed var(--lp-line);
-}
-
-.landing-root .lp-pd-rail-head .lp-label {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 500;
-}
-
-.landing-root .lp-pd-rail-head .lp-count {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-terracotta);
-    background: var(--lp-terracotta-soft);
-    padding: 2px 8px;
-    border-radius: 999px;
-    letter-spacing: 0.04em;
-}
-
-.landing-root .lp-pd-rail-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.landing-root .lp-pd-agent {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    padding: 10px 11px;
-    border-radius: 16px;
-    position: relative;
-    background: transparent;
-    box-shadow: transparent 0 0 0 1px;
-    transition:
-        background 240ms ease,
-        box-shadow 240ms ease;
-}
-
-.landing-root .lp-pd-agent[data-state='active'] {
-    background: var(--lp-paper);
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-}
-
-.landing-root .lp-pd-agent-avatar {
-    width: 30px;
-    height: 30px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-agent-avatar svg {
-    width: 17px;
-    height: 17px;
-}
-
-.landing-root .lp-pd-agent-body {
-    min-width: 0;
-    flex: 1;
-}
-
-.landing-root .lp-pd-agent-name {
-    font-size: 13.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--lp-ink);
-    line-height: 1.25;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.landing-root .lp-pd-agent-meta {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.02em;
-    line-height: 1.4;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-top: 1px;
-}
-
-.landing-root .lp-pd-agent-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    box-shadow: 0 0 0 2px var(--lp-success-soft);
-    flex-shrink: 0;
-    transition:
-        background 360ms ease,
-        box-shadow 360ms ease,
-        transform 360ms ease;
-}
-
-.landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot {
-    background: var(--lp-terracotta);
-    box-shadow: 0 0 0 2px var(--lp-terracotta-soft);
-    animation: lp-agent-dot-pulse 1.6s ease-in-out infinite;
-}
-
-.landing-root .lp-pd-agent[data-state='queued'] .lp-pd-agent-dot {
-    background: var(--lp-ochre);
-    box-shadow: 0 0 0 2px var(--lp-ochre-soft);
-}
-
-@keyframes lp-agent-dot-pulse {
-    0%,
-    100% {
-        transform: scale(1);
-    }
-    50% {
-        transform: scale(1.25);
-    }
-}
-
-.landing-root .lp-pd-canvas {
-    position: relative;
-    background: var(--lp-paper);
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-    padding: 26px 28px 20px;
-    overflow: hidden;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-canvas {
-        padding: 22px 22px 18px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-pd-canvas {
-        padding: 18px 16px 16px;
-    }
-}
-
-.landing-root .lp-pd-canvas-label {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    font-weight: 500;
-    margin-bottom: 22px;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.landing-root .lp-pd-canvas-label .lp-live-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-terracotta);
-    box-shadow: 0 0 0 3px var(--lp-terracotta-soft);
-    animation: lp-live-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes lp-live-pulse {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.4;
-    }
-}
-
-.landing-root .lp-pd-stage {
-    position: relative;
-    flex: 1;
-    min-height: 220px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-pd-stage {
-        min-height: 200px;
-    }
-}
-
-@media (max-width: 580px) {
-    .landing-root .lp-pd-stage {
-        min-height: 180px;
-    }
-}
-
-.landing-root .lp-pd-scene {
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    animation: lp-scene-enter 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-@keyframes lp-scene-enter {
-    from {
-        opacity: 0;
-    }
-    to {
-        opacity: 1;
-    }
-}
-
-.landing-root .lp-pd-scene-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.landing-root .lp-pd-scene-head .lp-av {
-    width: 40px;
-    height: 40px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-scene-head .lp-av svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-pd-scene-head .lp-nm {
-    font-size: 17px;
-    font-weight: 500;
-    letter-spacing: -0.015em;
-    color: var(--lp-ink);
-    line-height: 1.2;
-}
-
-.landing-root .lp-pd-scene-head .lp-fw {
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    margin-top: 3px;
-}
-
-.landing-root .lp-pd-scene-head .lp-copy {
-    display: flex;
-    flex-direction: column;
-}
-
-.landing-root .lp-pd-steps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.landing-root .lp-pd-step {
-    display: flex;
-    align-items: center;
-    gap: 11px;
-    font-family: var(--lp-mono);
-    font-size: 12.5px;
-    letter-spacing: 0;
-    line-height: 1.5;
-    color: var(--lp-muted);
-    transition: color 220ms ease;
-}
-
-.landing-root .lp-pd-step[data-status='active'] {
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-pd-step[data-status='done'] {
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-pd-step-mark {
-    position: relative;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.landing-root .lp-pd-mark-dot,
-.landing-root .lp-pd-mark-spin,
-.landing-root .lp-pd-mark-check {
-    position: absolute;
-    inset: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    opacity: 0;
-    transition: opacity 200ms ease;
-}
-
-/* pending state */
-.landing-root .lp-pd-step[data-status='pending'] .lp-pd-mark-dot {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-dot::before {
-    content: '';
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: var(--lp-line-strong);
-}
-
-/* active state */
-.landing-root .lp-pd-step[data-status='active'] .lp-pd-mark-spin {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-spin {
-    background: transparent;
-    box-shadow: var(--lp-line) 0 0 0 1px inset;
-}
-
-.landing-root .lp-pd-mark-spin::before {
-    content: '';
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    border: 1.5px solid var(--lp-terracotta);
-    border-right-color: transparent;
-    box-sizing: border-box;
-    animation: lp-step-spin 0.9s linear infinite;
-}
-
-/* done state */
-.landing-root .lp-pd-step[data-status='done'] .lp-pd-mark-check {
-    opacity: 1;
-}
-
-.landing-root .lp-pd-mark-check {
-    background: var(--lp-success);
-    color: var(--lp-paper);
-}
-
-.landing-root .lp-pd-mark-check svg {
-    width: 9px;
-    height: 9px;
-}
-
-@keyframes lp-step-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-.landing-root .lp-pd-step-caret {
-    display: inline-block;
-    width: 1px;
-    height: 11px;
-    background: var(--lp-terracotta);
-    vertical-align: -1px;
-    margin-left: 4px;
-    animation: lp-caret-blink 1.1s steps(2, end) infinite;
-}
-
-@keyframes lp-caret-blink {
-    50% {
-        opacity: 0;
-    }
-}
-
-.landing-root .lp-pd-scene-result {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 14px;
-    color: var(--lp-ink);
-    line-height: 1.5;
-    letter-spacing: -0.005em;
-    padding: 11px 16px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    align-self: flex-start;
-    max-width: 100%;
-    opacity: 0;
-    transform: translateY(4px);
-    transition:
-        opacity 320ms ease,
-        transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.landing-root .lp-pd-scene-result[data-visible='true'] {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.landing-root .lp-pd-scene-result .lp-check {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    color: var(--lp-paper);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-scene-result .lp-check svg {
-    width: 9px;
-    height: 9px;
-}
-
-.landing-root .lp-pd-scene-result .lp-accent {
-    color: var(--lp-terracotta);
-    font-family: var(--lp-mono);
-    font-size: 12.5px;
-}
-
-.landing-root .lp-pd-composer {
-    margin-top: 22px;
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    background: var(--lp-paper-warm);
-    border-radius: var(--lp-r-md);
-    padding: 14px 18px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-pd-composer-stack {
-    position: relative;
-    flex: 1 1 0;
-    min-width: 0;
-    min-height: 22px;
-    display: flex;
-    align-items: center;
-    overflow: hidden;
-}
-
-/* attach + send are visual anchors of the composer and must never be
-   clipped by the canvas overflow. Pin them as non-shrinking flex
-   items; the stack between them absorbs all remaining width. */
-.landing-root .lp-pd-composer-attach,
-.landing-root .lp-pd-composer-send {
-    flex: 0 0 auto;
-}
-
-.landing-root .lp-pd-composer-empty {
-    display: inline-flex;
-    align-items: center;
-    height: 22px;
-    font-size: 14.5px;
-    color: var(--lp-placeholder);
-    letter-spacing: -0.005em;
-    line-height: 1.4;
-}
-
-.landing-root .lp-pd-composer-caret {
-    display: inline-block;
-    width: 1px;
-    height: 16px;
-    background: var(--lp-ink);
-    animation: lp-caret-blink 1.1s steps(2, end) infinite;
-}
-
-.landing-root .lp-pd-composer-send {
-    width: 36px;
-    height: 36px;
-    border-radius: 999px;
-    background: var(--lp-ink);
-    color: var(--lp-bg);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-composer-send svg {
-    width: 14px;
-    height: 14px;
-}
-
-/* Attach / upload affordance, quiet pill on the left of the composer.
-   Same role as the upload button in the product composer, rendered
-   here as a static cue (the demo is pointer-events: none). */
-.landing-root .lp-pd-composer-attach {
-    width: 28px;
-    height: 28px;
-    border-radius: 999px;
-    background: var(--lp-bg-soft);
-    color: var(--lp-ink-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-pd-composer-attach svg {
-    width: 14px;
-    height: 14px;
-    opacity: 0.7;
-}
-
-/* Narrow-screen composer: tighter padding, smaller send affordance,
-   and a smaller caret font so the input never overruns the demo card. */
-@media (max-width: 580px) {
-    .landing-root .lp-pd-composer {
-        margin-top: 16px;
-        padding: 8px 10px;
-        gap: 8px;
-    }
-    .landing-root .lp-pd-composer-empty {
-        font-size: 13px;
-        height: 20px;
-    }
-    .landing-root .lp-pd-composer-attach {
-        width: 26px;
-        height: 26px;
-    }
-    .landing-root .lp-pd-composer-attach svg {
-        width: 12px;
-        height: 12px;
-    }
-    .landing-root .lp-pd-composer-send {
-        width: 30px;
-        height: 30px;
-    }
-    .landing-root .lp-pd-composer-send svg {
-        width: 12px;
-        height: 12px;
-    }
-}
-
-/* Scale down the active scene + steps on mobile so the canvas fits
-   comfortably and doesn't force the composer below the fold. */
-@media (max-width: 580px) {
-    .landing-root .lp-pd-scene {
-        gap: 12px;
-    }
-    .landing-root .lp-pd-scene-head .lp-av {
-        width: 32px;
-        height: 32px;
-    }
-    .landing-root .lp-pd-scene-head .lp-av svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-pd-scene-head .lp-nm {
-        font-size: 15px;
-    }
-    .landing-root .lp-pd-scene-head .lp-fw {
-        font-size: 9.5px;
-    }
-    .landing-root .lp-pd-steps {
-        gap: 7px;
-    }
-    .landing-root .lp-pd-step {
-        font-size: 11.5px;
-        gap: 9px;
-    }
-    .landing-root .lp-pd-canvas-label {
-        font-size: 9.5px;
-        margin-bottom: 14px;
-    }
-    .landing-root .lp-pd-rail-head .lp-label {
-        font-size: 9.5px;
-    }
-    .landing-root .lp-pd-rail-head .lp-count {
-        font-size: 9.5px;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-hero-content > *,
-    .landing-root .lp-product-demo {
-        animation: none;
-        opacity: 1;
-        transform: none;
-    }
-    .landing-root .lp-pd-scene,
-    .landing-root .lp-pd-mark-spin::before,
-    .landing-root .lp-pd-agent[data-state='active'] .lp-pd-agent-dot,
-    .landing-root .lp-pd-canvas-label .lp-live-dot,
-    .landing-root .lp-pd-composer-caret,
-    .landing-root .lp-pd-step-caret {
-        animation: none;
-    }
-}
-
-/* === Machines section === */
-.landing-root .lp-machines-bg {
-    background: transparent;
-}
-
-.landing-root .lp-machines-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 24px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-machines-grid {
-        grid-template-columns: 1fr;
-        gap: 16px;
-    }
-}
-
-.landing-root .lp-machine {
-    background-color: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-lg);
-    padding: 36px 32px 32px;
-    display: flex;
-    flex-direction: column;
-    gap: 22px;
-    min-height: 320px;
-    position: relative;
-    overflow: hidden;
-    box-shadow: var(--lp-shadow-lg);
-    transition:
-        transform 220ms ease,
-        box-shadow 220ms ease;
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-machine {
-        padding: 24px 22px 22px;
-        gap: 16px;
-        min-height: 0;
-    }
-    .landing-root .lp-machine .lp-ico {
-        width: 40px;
-        height: 40px;
-    }
-    .landing-root .lp-machine .lp-ico svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-machine .lp-nm {
-        font-size: 19px;
-    }
-    .landing-root .lp-machine .lp-ds {
-        font-size: 14px;
-    }
-    .landing-root .lp-machine .lp-tag {
-        padding-top: 14px;
-    }
-}
-
-.landing-root .lp-machine:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--lp-shadow-lg-hover);
-}
-
-.landing-root .lp-machine .lp-ico {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-machine .lp-ico svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-machine .lp-nm {
-    font-size: 22px;
-    font-weight: 500;
-    letter-spacing: -0.025em;
-    line-height: 1.1;
-    text-wrap: balance;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-machine .lp-ds {
-    font-size: 14.5px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    letter-spacing: -0.005em;
-    max-width: 28ch;
-    margin-top: 8px;
-}
-
-.landing-root .lp-machine .lp-tag {
-    margin-top: auto;
-    font-family: var(--lp-mono);
-    font-size: 10.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding-top: 18px;
-    border-top: 1px dashed var(--lp-line);
-}
-
-.landing-root .lp-machine .lp-tag .lp-v {
-    color: var(--lp-terracotta);
-}
-
-.landing-root .lp-machines-strip {
-    margin-top: 48px;
-    padding-top: 32px;
-    border-top: 1px solid var(--lp-line);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 32px;
-    flex-wrap: wrap;
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-machines-strip {
-        margin-top: 32px;
-        padding-top: 24px;
-        gap: 16px;
-    }
-    .landing-root .lp-machines-strip .lp-marks {
-        gap: 18px 24px;
-    }
-    .landing-root .lp-machines-strip .lp-mark {
-        font-size: 13.5px;
-    }
-}
-
-.landing-root .lp-machines-strip .lp-label {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-machines-strip .lp-marks {
-    display: flex;
-    gap: 32px;
-    align-items: center;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-machines-strip .lp-mark {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    font-size: 14.5px;
-    font-weight: 500;
-    letter-spacing: -0.01em;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-machines-strip .lp-mark svg {
-    width: 20px;
-    height: 20px;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-machines-strip .lp-mark .lp-plus {
-    font-family: 'Geist', sans-serif;
-    font-style: normal;
-    color: var(--lp-terracotta);
-    font-size: 16px;
-}
-
-/* === Flow section === */
-.landing-root .lp-flow {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0;
-    position: relative;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-flow {
-        grid-template-columns: 1fr;
-    }
-}
-
-.landing-root .lp-step {
-    padding: 0 36px;
-    display: flex;
-    flex-direction: column;
-    gap: 24px;
-    position: relative;
-    min-height: 360px;
-}
-
-.landing-root .lp-step + .lp-step {
-    border-left: 1px solid var(--lp-line);
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-step {
-        padding: 0 0 40px;
-        min-height: 0;
-        gap: 16px;
-    }
-    .landing-root .lp-step + .lp-step {
-        border-left: 0;
-        border-top: 1px solid var(--lp-line);
-        padding-top: 40px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-step {
-        padding: 0 0 32px;
-        gap: 14px;
-    }
-    .landing-root .lp-step + .lp-step {
-        padding-top: 32px;
-    }
-    .landing-root .lp-step-num {
-        font-size: 40px;
-    }
-    .landing-root .lp-step-body {
-        font-size: 14px;
-    }
-    .landing-root .lp-step-visual {
-        height: auto;
-        min-height: 80px;
-    }
-}
-
-.landing-root .lp-step:first-child {
-    padding-left: 0;
-}
-.landing-root .lp-step:last-child {
-    padding-right: 0;
-}
-
-.landing-root .lp-step-num {
-    font-family: 'Geist', sans-serif;
-    font-style: normal;
-    font-weight: 600;
-    font-size: 52px;
-    color: var(--lp-terracotta);
-    line-height: 1;
-    letter-spacing: -0.04em;
-}
-
-.landing-root .lp-step h3 {
-    text-wrap: balance;
-    max-width: 18ch;
-}
-
-.landing-root .lp-step-body {
-    font-size: 15px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    max-width: 32ch;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-step-visual {
-    margin-top: 8px;
-    height: 110px;
-    display: flex;
-    align-items: center;
-}
-
-.landing-root .lp-step-logos {
-    display: flex;
-    align-items: center;
-    gap: 0;
-}
-
-.landing-root .lp-step-logos .lp-lg {
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    background: var(--lp-paper);
-    border: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-    flex-shrink: 0;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-step-logos .lp-lg + .lp-lg {
-    margin-left: -10px;
-}
-
-.landing-root .lp-step-logos .lp-lg svg {
-    width: 24px;
-    height: 24px;
-}
-
-.landing-root .lp-step-logos .lp-lg-more {
-    margin-left: 12px;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-    letter-spacing: 0.04em;
-}
-
-.landing-root .lp-step-host {
-    display: flex;
-    gap: 12px;
-    width: 100%;
-}
-
-.landing-root .lp-step-host .lp-tile {
-    flex: 1;
-    background: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-md);
-    padding: 14px 14px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 100px;
-    position: relative;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-h {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 12.5px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-h svg {
-    width: 14px;
-    height: 14px;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-step-host .lp-tile .lp-l {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    margin-top: auto;
-}
-
-.landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-terracotta);
-}
-
-.landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-sage);
-}
-
-.landing-root .lp-step-chat {
-    width: 100%;
-    background: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-md);
-    padding: 14px 18px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    box-shadow: var(--lp-shadow-sm);
-}
-
-.landing-root .lp-step-chat .lp-who {
-    font-family: var(--lp-mono);
-    font-size: 10px;
-    color: var(--lp-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-step-chat .lp-text {
-    font-size: 13.5px;
-    color: var(--lp-ink);
-    line-height: 1.45;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-step-chat .lp-caret {
-    display: inline-block;
-    width: 1px;
-    height: 14px;
-    background: var(--lp-terracotta);
-    vertical-align: -2px;
-    margin-left: 2px;
-    animation: lp-caret 1.05s steps(2, end) infinite;
-}
-
-@keyframes lp-caret {
-    50% {
-        opacity: 0;
-    }
-}
-
-/* === Features section === */
-.landing-root .lp-features-bg {
-    background: transparent;
-}
-
-.landing-root .lp-feat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-}
-
-@media (max-width: 880px) {
-    .landing-root .lp-feat-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-.landing-root .lp-feat {
-    background-color: var(--lp-paper);
-    border: 0;
-    border-radius: var(--lp-r-lg);
-    padding: 40px 36px 36px;
-    display: flex;
-    flex-direction: column;
-    gap: 18px;
-    min-height: 320px;
-    overflow: hidden;
-    position: relative;
-    box-shadow: var(--lp-shadow-lg);
-    transition:
-        transform 220ms ease,
-        box-shadow 220ms ease;
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-feat {
-        padding: 26px 22px 24px;
-        gap: 14px;
-        min-height: 0;
-    }
-    .landing-root .lp-feat .lp-ico {
-        width: 38px;
-        height: 38px;
-    }
-    .landing-root .lp-feat .lp-ico svg {
-        width: 18px;
-        height: 18px;
-    }
-    .landing-root .lp-feat .lp-ttl {
-        font-size: 19px;
-        line-height: 1.18;
-    }
-    .landing-root .lp-feat .lp-ds {
-        font-size: 14px;
-    }
-    .landing-root .lp-feat .lp-vis {
-        padding-top: 16px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-feat-grid {
-        gap: 14px;
-    }
-    .landing-root .lp-machines-grid {
-        gap: 14px;
-    }
-    .landing-root .lp-auto-stages {
-        flex-wrap: wrap;
-        gap: 8px;
-    }
-    .landing-root .lp-auto-stage {
-        flex: 1 1 calc(50% - 4px);
-    }
-    .landing-root .lp-auto-arr {
-        display: none;
-    }
-    .landing-root .lp-int-chip {
-        font-size: 12.5px;
-        padding: 6px 12px 6px 9px;
-    }
-    .landing-root .lp-mcp-row {
-        padding: 8px 14px;
-        font-size: 12.5px;
-    }
-}
-
-.landing-root .lp-feat:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--lp-shadow-lg-hover);
-}
-
-.landing-root .lp-feat .lp-ico {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--lp-r-pill);
-    background: var(--lp-bg-soft);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-feat .lp-ico svg {
-    width: 22px;
-    height: 22px;
-}
-
-.landing-root .lp-feat .lp-ttl {
-    font-size: clamp(22px, 1.8vw, 28px);
-    font-weight: 500;
-    letter-spacing: -0.025em;
-    line-height: 1.12;
-    text-wrap: balance;
-    max-width: 18ch;
-    color: var(--lp-ink-soft);
-}
-
-.landing-root .lp-feat .lp-ds {
-    font-size: 15px;
-    color: var(--lp-ink-soft);
-    line-height: 1.55;
-    max-width: 36ch;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-feat .lp-vis {
-    margin-top: auto;
-    padding-top: 24px;
-}
-
-.landing-root .lp-auto-stages {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.landing-root .lp-auto-stage {
-    background: var(--lp-bg-soft);
-    box-shadow: inset 0 0 0 1px var(--lp-line);
-    border-radius: var(--lp-r-sm);
-    padding: 10px 14px;
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-}
-
-.landing-root .lp-auto-stage .lp-lbl {
-    font-family: var(--lp-mono);
-    font-size: 9.5px;
-    color: var(--lp-muted);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-}
-
-.landing-root .lp-auto-stage .lp-v {
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-    line-height: 1.3;
-}
-
-.landing-root .lp-auto-arr {
-    color: var(--lp-subtle);
-    display: inline-flex;
-    align-items: center;
-    flex-shrink: 0;
-}
-
-.landing-root .lp-auto-arr svg {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-int-chips {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-int-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 14px 8px 10px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    font-size: 13px;
-    font-weight: 500;
-    letter-spacing: -0.005em;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-int-chip svg {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-int-chip img {
-    width: 14px;
-    height: 14px;
-}
-
-.landing-root .lp-mcp-row {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 18px;
-    background: var(--lp-bg-soft);
-    border-radius: var(--lp-r-pill);
-    font-size: 13px;
-    letter-spacing: -0.005em;
-}
-
-.landing-root .lp-mcp-row + .lp-mcp-row {
-    margin-top: 6px;
-}
-
-.landing-root .lp-mcp-row .lp-mn {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-ink);
-    flex: 1;
-}
-
-.landing-root .lp-mcp-row .lp-v {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-mcp-row .lp-d {
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--lp-success);
-    flex-shrink: 0;
-}
-
-.landing-root .lp-mcp-row .lp-d.lp-run {
-    background: var(--lp-terracotta);
-    animation: lp-dot-pulse 1.4s ease-in-out infinite;
-}
-
-@keyframes lp-dot-pulse {
-    0%,
-    100% {
-        opacity: 1;
-    }
-    50% {
-        opacity: 0.35;
-    }
-}
-
-.landing-root .lp-thread {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    position: relative;
-}
-
-.landing-root .lp-thread::before {
-    content: '';
-    position: absolute;
-    left: 13px;
-    top: 12px;
-    bottom: 12px;
-    width: 1px;
-    background: var(--lp-line-strong);
-    opacity: 0.6;
-}
-
-.landing-root .lp-thr-step {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    position: relative;
-    z-index: 1;
-}
-
-.landing-root .lp-thr-step .lp-d {
-    width: 26px;
-    height: 26px;
-    border-radius: 50%;
-    background: var(--lp-paper);
-    border: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    box-shadow: var(--lp-tactile-ring) 0 0 0 1px;
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-thr-step .lp-d svg {
-    width: 15px;
-    height: 15px;
-}
-
-.landing-root .lp-thr-step .lp-tx {
-    font-size: 13px;
-    color: var(--lp-ink-soft);
-    letter-spacing: -0.005em;
-    line-height: 1.4;
-}
-
-.landing-root .lp-thr-step .lp-tx .lp-nm {
-    color: var(--lp-ink);
-    font-weight: 500;
-}
-
 /* === Pricing === */
 .landing-root .lp-price-grid {
     display: grid;
@@ -5276,6 +3197,16 @@ html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
     .landing-root .lp-price-grid {
         grid-template-columns: 1fr;
     }
+}
+
+.landing-root .lp-price-card.lp-price-hot {
+    box-shadow:
+        var(--lp-shadow-lg),
+        inset 0 0 0 1.5px color-mix(in srgb, var(--lp-info) 62%, transparent);
+}
+
+.landing-root .lp-price-badge.lp-price-popular {
+    background: var(--lp-info);
 }
 
 .landing-root .lp-price-card {
@@ -5345,11 +3276,13 @@ html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
 }
 
 .landing-root .lp-price-num {
-    font-size: 34px;
-    font-weight: 600;
-    letter-spacing: -0.04em;
+    font-size: 40px;
+    letter-spacing: -0.01em;
     color: var(--lp-ink);
     line-height: 1;
+    /* Old-style figures misread as prices; tabular keeps the four cards'
+       numerals on one vertical. */
+    font-variant-numeric: lining-nums tabular-nums;
 }
 
 .landing-root .lp-price-per {
@@ -5566,233 +3499,39 @@ html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
     padding-bottom: 8px;
 }
 
-/* === CTA === */
-.landing-root .lp-cta {
-    padding: 0 0 112px;
+/* === CTA === *
+
+@media (max-width: 720px) {
 }
 
 @media (max-width: 720px) {
-    .landing-root .lp-cta {
-        padding-bottom: 84px;
-    }
-}
-
-.landing-root .lp-cta-card {
-    position: relative;
-    background: var(--lp-ink);
-    color: var(--lp-bg);
-    border-radius: var(--lp-r-xl);
-    padding: 96px 64px 88px;
-    overflow: hidden;
-    text-align: center;
-    /* Dark card — soft top gleam (small blur so the edge fades into
-       the fill, no hard seam) + a tight low-alpha drop stack. */
-    box-shadow:
-        rgba(255, 255, 255, 0.06) 0 3px 6px -2px inset,
-        0 1px 0 0 rgba(27, 25, 22, 0.05),
-        0 10px 22px -4px rgba(27, 25, 22, 0.06),
-        0 24px 48px -12px rgba(27, 25, 22, 0.05);
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-cta-card {
-        padding: 64px 28px 60px;
-        border-radius: var(--lp-r-lg);
-    }
 }
 
 @media (max-width: 480px) {
-    .landing-root .lp-cta-card {
-        padding: 44px 22px 40px;
-    }
-    .landing-root .lp-cta-lead {
-        font-size: 14.5px;
-        margin: 18px auto 24px;
-    }
-    .landing-root .lp-cta-ctas .lp-btn {
-        height: 44px;
-        padding: 0 20px;
-        font-size: 14px;
-    }
 }
 
-.landing-root .lp-cta-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background:
-        radial-gradient(
-            ellipse 75% 60% at 50% 100%,
-            rgba(168, 192, 210, 0.42),
-            transparent 72%
-        ),
-        radial-gradient(
-            ellipse 65% 45% at 50% 0%,
-            rgba(220, 232, 240, 0.14),
-            transparent 72%
-        );
-    pointer-events: none;
-}
-
-.landing-root .lp-cta-card::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    pointer-events: none;
-    mix-blend-mode: overlay;
-    opacity: 0.6;
-}
-
-.landing-root .lp-cta-inner {
-    position: relative;
-    z-index: 1;
-}
-
-.landing-root .lp-cta-eyebrow {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: rgba(236, 228, 208, 0.6);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    margin-bottom: 28px;
-    display: inline-flex;
-    gap: 9px;
-    align-items: center;
-}
-
-.landing-root .lp-cta-eyebrow .lp-dot {
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--lp-ochre);
-}
-
-.landing-root .lp-cta h2 {
-    color: var(--lp-bg);
-    font-size: clamp(42px, 5.6vw, 88px);
-    line-height: 0.95;
-    letter-spacing: -0.045em;
-    text-wrap: balance;
-    max-width: 18ch;
-    margin: 0 auto;
-    font-weight: 500;
-}
-
-.landing-root .lp-cta h2 .lp-h-accent {
-    color: var(--lp-ochre);
-}
-
-.landing-root .lp-cta-lead {
-    font-size: clamp(16px, 1.15vw, 19px);
-    color: rgba(236, 228, 208, 0.78);
-    line-height: 1.55;
-    margin: 28px auto 40px;
-    max-width: 48ch;
-}
-
-.landing-root .lp-cta-ctas {
-    display: flex;
-    gap: 12px;
-    justify-content: center;
-    flex-wrap: wrap;
-}
-
-.landing-root .lp-cta-ctas .lp-btn-primary {
-    background: var(--lp-bg);
-    color: var(--lp-ink);
-}
+/* On the near-black slab the 600 step disappears; the accent steps up to
+   300, the same jump the focus ring makes here. *
 
 /* The bottom CTA card is dark in both themes, so its primary button is
    light-filled — the hero's white badge would vanish on it. Tint the badge
    toward ink here, and give the connector arrow / secondary badge enough
-   contrast against the dark chassis. */
-.landing-root .lp-cta-ctas .lp-btn-primary .lp-step-cta-badge {
-    background: rgba(10, 12, 15, 0.14);
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-cta-ctas .lp-step-cta-arrow {
-    color: rgba(236, 228, 208, 0.6);
-}
-
-.landing-root .lp-cta-ctas .lp-btn-secondary .lp-step-cta-badge {
-    background: rgba(255, 255, 255, 0.12);
-    color: #dfe2e7;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
-}
-
-.landing-root .lp-cta-ctas .lp-btn-primary:hover {
-    background: var(--lp-paper-warm);
-    color: var(--lp-ink);
-}
-
-.landing-root .lp-cta-ctas .lp-btn-secondary {
-    background: transparent;
-    color: var(--lp-bg);
-    border: 1px solid rgba(248, 242, 225, 0.35);
-    box-shadow: none;
-}
-
-.landing-root .lp-cta-ctas .lp-btn-secondary:hover {
-    background: rgba(248, 242, 225, 0.18);
-    border-color: rgba(248, 242, 225, 0.75);
-}
+   contrast against the dark chassis. *
 
 /* CTA card is deliberately a deep umber tile that contrasts the
    surrounding paper. In dark mode --lp-ink/--lp-bg flip, which would
    invert that contrast — pin the card to fixed dark values so the
    hero-on-paper relationship survives. The heavier drop alphas match
-   the rest of the dark shadow scale. */
-html[data-theme='dark'] .landing-root .lp-cta-card {
-    background: #0d1014;
-    color: #dfe2e7;
-    box-shadow:
-        rgba(255, 255, 255, 0.06) 0 3px 6px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.22),
-        0 10px 22px -4px rgba(0, 0, 0, 0.26),
-        0 24px 48px -12px rgba(0, 0, 0, 0.2);
-}
-
-html[data-theme='dark'] .landing-root .lp-cta h2 {
-    color: #dfe2e7;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-primary {
-    background: #e6e9ec;
-    color: #0f1114;
-    box-shadow:
-        rgba(255, 255, 255, 0.5) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.1) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.22),
-        0 4px 10px -2px rgba(0, 0, 0, 0.24),
-        0 10px 20px -6px rgba(0, 0, 0, 0.18);
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-primary:hover {
-    background: #d4d8dc;
-    color: #0f1114;
-    box-shadow:
-        rgba(255, 255, 255, 0.7) 0 3px 5px -2px inset,
-        rgba(0, 0, 0, 0.12) 0 -2.5px 5px -2px inset,
-        0 1px 0 0 rgba(0, 0, 0, 0.3),
-        0 6px 14px -2px rgba(0, 0, 0, 0.32),
-        0 14px 28px -6px rgba(0, 0, 0, 0.24);
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary {
-    color: #dfe2e7;
-}
-
-html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.4);
-}
+   the rest of the dark shadow scale. *
 
 /* === Footer === */
+/* No rule above the footer. It was the page's only full-width hairline —
+   every section boundary here is white space, and the hairlines that do exist
+   belong inside a block (the FAQ rows, the pricing feature list) rather than
+   between blocks. It also had something to separate itself from until the
+   closing CTA card came out; now it would only underline the gap. */
 .landing-root .lp-foot {
     padding: 36px 0 40px;
-    border-top: 1px solid var(--lp-line-soft);
 }
 
 .landing-root .lp-foot-row {
@@ -5894,52 +3633,992 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     }
 }
 
-/* === Hero mockup: tilt on initial view, untilt as user scrolls ===
-   Two-layer motion:
-   1. Scroll-driven progress (--tilt-target) computed in JS from scrollY,
-      mapped linearly across animation-range (0 → 400px).
-   2. Eased follower (--tilt-progress) lerped toward --tilt-target each
-      frame, so card keeps easing toward the target after scroll stops. */
-.landing-root .lp-product-demo-tilt {
-    --tilt-progress: 1;
-    --tilt-translate: 48px;
-    --tilt-scale-delta: 0.08;
-    --tilt-rotate: 28deg;
-    transform-origin: center top;
-    transform: perspective(1600px)
-        translateY(calc((1 - var(--tilt-progress)) * var(--tilt-translate)))
-        scale(calc(1 - (1 - var(--tilt-progress)) * var(--tilt-scale-delta)))
-        rotateX(calc((1 - var(--tilt-progress)) * var(--tilt-rotate)));
+/* === Scrollytelling hero ===
+   A pinned stage the reader scrolls *through*: the copy rail cross-fades
+   between five scenes while the isometric world behind it pans and zooms
+   to the part being described. ScrollyStage owns the numbers; this file
+   owns the frame they move inside. The stage is 100vh and the wrapper is
+   340vh, so each scene gets roughly 60vh of scroll before it hands over. */
+.landing-root .lp-pin {
+    position: relative;
+    height: 340vh;
+    /* The nav bar's own height: 16px padding either side of a 35px brand row.
+       Only the desktop value is ever read — below 900px the bar is back in the
+       flow and the world stops compensating for it. */
+    --lp-nav-h: 67px;
 }
 
-.landing-root[data-tilt-enabled='true'] .lp-product-demo-tilt {
-    --tilt-progress: 0;
-    will-change: transform;
+.landing-root .lp-stage {
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow: hidden;
 }
 
-/* On narrower viewports the steep 28deg tilt + 48px lift can feel
-   excessive on a phone-sized canvas. Keep the interaction visible
-   (don't shrink to nothing) but tone the magnitude down so the card
-   still settles cleanly. */
-@media (max-width: 880px) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-translate: 36px;
-        --tilt-scale-delta: 0.06;
-        --tilt-rotate: 20deg;
+/* Two columns on the page's own grid, so the copy starts on the same left
+   edge as every section below and the world sits inside the container
+   rather than being shoved against the viewport by its aspect ratio.
+   The world is a tall 688x1095 drawing, trimmed to its own ink: painted
+   width is height times 0.63, so the column is sized in vh and capped,
+   which keeps a tall window from squeezing the copy column into a third
+   title line. */
+.landing-root .lp-stage-inner {
+    height: 100%;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 32px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) clamp(280px, 62vh, 520px);
+    gap: clamp(32px, 4vw, 72px);
+    align-items: center;
+}
+
+.landing-root .lp-rail {
+    position: relative;
+    height: 100%;
+    z-index: 2;
+    /* The rail spans the stage so its cards can sit centred, but only the
+       controls inside a live (non-inert) card should catch the pointer. */
+    pointer-events: none;
+}
+
+.landing-root .lp-scene {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    /* -50%, not -40%: the drift below carries a card up through its resting
+       place, and that place is the centre line. At -40% every scene settled
+       10% of its own height low — 41px for the hero block at 1920x1080. */
+    transform: translateY(-50%);
+    opacity: 0;
+}
+
+.landing-root .lp-scene a,
+.landing-root .lp-scene button {
+    pointer-events: auto;
+}
+
+.landing-root .lp-scene-eyebrow {
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lp-info);
+    margin-bottom: 14px;
+}
+
+.landing-root .lp-scene-title {
+    font-size: calc(clamp(38px, 4.4vw, 68px) * var(--lp-display-scale));
+    color: var(--lp-ink);
+    margin-bottom: 16px;
+}
+
+/* CJK sets solid: without keep-all the browser breaks mid-word, which in
+   a 46%-wide rail split phrases like 成倍放大 across two lines. The Latin
+   ramp is also too tight for Han glyphs, so zh gets its own step down. */
+html[lang^='zh'] .landing-root .lp-scene-title,
+html[lang^='zh'] .landing-root .lp-h1,
+html[lang^='zh'] .landing-root .lp-h2,
+html[lang^='zh'] .landing-root .lp-h3 {
+    word-break: keep-all;
+    /* Han squares jam together at Latin tracking, and the serif fallback
+       needs the extra leading. */
+    letter-spacing: 0;
+    line-height: 1.15;
+}
+
+html[lang^='zh'] .landing-root .lp-scene-title {
+    font-size: clamp(30px, 3.7vw, 54px);
+    letter-spacing: -0.01em;
+}
+
+.landing-root .lp-scene-lead {
+    font-size: 16.5px;
+    color: var(--lp-muted);
+    line-height: 1.6;
+    max-width: 44ch;
+}
+
+.landing-root .lp-scene-list {
+    list-style: none;
+    margin-top: 18px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.landing-root .lp-scene-list li {
+    font-size: 14.5px;
+    color: var(--lp-muted);
+    display: flex;
+    gap: 10px;
+    line-height: 1.5;
+}
+
+.landing-root .lp-scene-list li::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--lp-info);
+    margin-top: 7px;
+    flex: none;
+}
+
+.landing-root .lp-scene-list li b {
+    color: var(--lp-ink-soft);
+    font-weight: 600;
+}
+
+.landing-root .lp-scene-ctas {
+    display: flex;
+    gap: 12px;
+    margin-top: 26px;
+    flex-wrap: wrap;
+}
+
+.landing-root .lp-scene-hint {
+    margin-top: 34px;
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-world-col {
+    position: relative;
+    height: 100%;
+    z-index: 1;
+}
+
+.landing-root .lp-world {
+    position: absolute;
+    inset: 0;
+    /* Center against the hero stage itself. The header is outside the stage's
+       layout and must not push the world down by its own height. */
+    top: 0;
+    width: 100%;
+    height: 100%;
+    font-family: 'Geist', sans-serif;
+    /* The column frames the world at rest. When a scene zooms in, the drawing
+       has to be able to spill past that frame — clipped to the column it lost
+       the left edge of the middle plane — so it overflows and the stage does
+       the clipping instead. The copy rail sits above it. */
+    overflow: visible;
+}
+
+/* The wide wire bloom is a reflected-light cue in light mode and an
+   emissive halo in dark mode; keep the core stroke unchanged. */
+.landing-root .lp-world .lp-flux-bloom {
+    stroke-opacity: var(--lp-w-wire-bloom-opacity);
+}
+
+.landing-root .lp-world [data-notes] {
+    transition: opacity 260ms ease;
+}
+
+.landing-root .lp-world [data-layer-title] {
+    transition: opacity 180ms ease;
+}
+
+.landing-root .lp-world [data-layer-title] text {
+    font-family: var(--lp-display);
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
+.landing-root .lp-world .lp-mono {
+    font-family: var(--lp-mono);
+}
+
+/* The world's leader-line captions are set in caps; the terminal glyphs
+   drawn on the same mono face are not. */
+.landing-root .lp-world .lp-w-sub {
+    text-transform: uppercase;
+}
+
+/* The top plane at work.
+   Three clocks, none a multiple of another — the log rewrites on 4.8s, the
+   active line on 3.1s, the run slot breathes on 2.2s — and every station is
+   handed each of them on its own negative delay. Seven desks then never fall
+   into step, and none of them waits for a cycle to start on load.
+   Each line lives in its screen's own axes (see the `matrix` on the group),
+   so scaling it along x writes it out along the face instead of shearing it
+   off the isometric grid. Base state is the finished line, which is exactly
+   what reduced motion should leave behind. */
+.landing-root .lp-w-line,
+.landing-root .lp-w-run {
+    transform-box: fill-box;
+    transform-origin: left center;
+    animation: lp-w-write 4.8s infinite;
+}
+
+.landing-root .lp-w-run {
+    animation-duration: 3.1s;
+}
+
+/* Wipe on the beat, then type back in five steps: a line is written, not
+   swept. Everything either side of that is the line simply standing there. */
+@keyframes lp-w-write {
+    0%,
+    54% {
+        transform: scaleX(1);
+        animation-timing-function: steps(1, end);
+    }
+    56% {
+        transform: scaleX(0.04);
+        animation-timing-function: steps(5, end);
+    }
+    74%,
+    100% {
+        transform: scaleX(1);
     }
 }
 
-@media (max-width: 580px) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-translate: 28px;
-        --tilt-scale-delta: 0.05;
-        --tilt-rotate: 16deg;
+/* The delivery plane answers its own wires.
+   FAN is 6.4s and each route arrives at `begin + FAN * FAN_T`; every surface
+   below is handed that moment as a negative delay, so the thing that lights up
+   is the thing the packet just landed on rather than a loop that happens to
+   overlap one. Nothing on these two planes invents a clock — the wires already
+   had one, and this is the first time the plates answer it. */
+.landing-root .lp-w-land {
+    transform-box: fill-box;
+    transform-origin: left center;
+    animation: lp-w-land 6.4s infinite;
+}
+
+.landing-root .lp-w-land-in {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: lp-w-land-in 6.4s infinite;
+}
+
+/* Types on where it lands, sits while it is the newest thing on the surface,
+   then clears for the next arrival. */
+@keyframes lp-w-land {
+    0% {
+        transform: scaleX(0);
+        opacity: 0;
+        animation-timing-function: steps(4, end);
+    }
+    9% {
+        transform: scaleX(1);
+        opacity: 1;
+    }
+    82% {
+        transform: scaleX(1);
+        opacity: 1;
+    }
+    92% {
+        transform: scaleX(1);
+        opacity: 0;
+    }
+    100% {
+        transform: scaleX(0);
+        opacity: 0;
+    }
+}
+
+@keyframes lp-w-land-in {
+    0% {
+        transform: scale(0.4);
+        opacity: 0;
+    }
+    7% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    82% {
+        transform: scale(1);
+        opacity: 1;
+    }
+    92%,
+    100% {
+        transform: scale(1);
+        opacity: 0;
+    }
+}
+
+/* The control plane at work: models answering, cost accruing. Two slow,
+   unrelated periods, neither of them the wires' — this plane is not reacting
+   to anything, it is simply running. The stores are deliberately still: a
+   cabinet blinking its handles reads as hardware status, not as work. */
+.landing-root .lp-w-led {
+    animation: lp-w-led 4.6s ease-in-out infinite;
+}
+
+@keyframes lp-w-led {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    45% {
+        opacity: 0.3;
+    }
+}
+
+/* Cost only ever goes up, then the meter rolls over. */
+.landing-root .lp-w-meter {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    animation: lp-w-meter 9.2s infinite;
+}
+
+@keyframes lp-w-meter {
+    0% {
+        transform: scaleY(0.34);
+        animation-timing-function: steps(6, end);
+    }
+    68% {
+        transform: scaleY(1);
+    }
+    84% {
+        transform: scaleY(1);
+    }
+    92%,
+    100% {
+        transform: scaleY(0.34);
+    }
+}
+
+/* The figure at work. Body and head run on the same clock as the screen's
+   active line, so the movement and the output it makes are one event rather
+   than two loops that happen to overlap: four beats while the line is being
+   written, still while it stands.
+   The nod is what actually carries it. At this size a body moving a unit is
+   below the eye's floor, but the antenna is the longest thing on the figure —
+   pivoted at the neck, three and a half degrees swings its lamp far enough to
+   read, and the lamp is the brightest object on the plane. */
+.landing-root .lp-w-tap,
+.landing-root .lp-w-nod {
+    transform-box: fill-box;
+    transform-origin: 50% 100%;
+    animation-duration: 3.1s;
+    animation-iteration-count: infinite;
+}
+
+.landing-root .lp-w-tap {
+    animation-name: lp-w-tap;
+}
+
+.landing-root .lp-w-nod {
+    animation-name: lp-w-nod;
+}
+
+@keyframes lp-w-tap {
+    0%,
+    52% {
+        transform: translateY(0);
+        animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
+    }
+    56% {
+        transform: translateY(2.2px);
+    }
+    62% {
+        transform: translateY(0.5px);
+        animation-timing-function: cubic-bezier(0.3, 0, 0.2, 1);
+    }
+    68% {
+        transform: translateY(2.2px);
+    }
+    74% {
+        transform: translateY(0.5px);
+    }
+    80%,
+    100% {
+        transform: translateY(0);
+    }
+}
+
+/* Two beats behind the body, so the stalk whips rather than moving with it. */
+@keyframes lp-w-nod {
+    0%,
+    50% {
+        transform: rotate(0deg);
+    }
+    58% {
+        transform: rotate(-5.5deg);
+    }
+    64% {
+        transform: rotate(-3deg);
+    }
+    70% {
+        transform: rotate(-5.5deg);
+    }
+    76% {
+        transform: rotate(-3deg);
+    }
+    86%,
+    100% {
+        transform: rotate(0deg);
+    }
+}
+
+/* The slot the run rides in, on the agent's own body. */
+.landing-root .lp-w-slot {
+    animation: lp-w-slot 2.2s ease-in-out infinite;
+}
+
+@keyframes lp-w-slot {
+    0%,
+    100% {
+        opacity: 0.3;
+    }
+    50% {
+        opacity: 0.85;
+    }
+}
+
+/* The lamp on an agent's antenna: a slow breath around the solid dot, not a
+   blink. It is the one thing in the world that reports state, so it reads as
+   "running" at a glance and goes quiet with the rest under reduced motion. */
+.landing-root .lp-w-lamp {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: lp-w-lamp 2.6s ease-in-out infinite;
+}
+
+@keyframes lp-w-lamp {
+    0%,
+    100% {
+        opacity: 0.3;
+        transform: scale(0.72);
+    }
+    50% {
+        opacity: 0.08;
+        transform: scale(1.35);
+    }
+}
+
+.landing-root .lp-worldg {
+    will-change: transform;
+}
+
+.landing-root .lp-layer {
+    transition: opacity 0.15s linear;
+}
+
+.landing-root .lp-progress {
+    position: fixed;
+    right: 22px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 3;
+}
+
+.landing-root .lp-pdot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--lp-line);
+    transition: background 0.2s ease;
+}
+
+.landing-root .lp-pdot.lp-on {
+    background: var(--lp-info);
+}
+
+/* Hidden once the stage un-pins — ScrollyStage flips the opacity. */
+.landing-root .lp-progress {
+    transition: opacity 0.2s ease;
+}
+
+@media (max-width: 900px) {
+    /* Portrait: the world takes the top of the stage and the copy rail the
+       bottom, instead of sitting side by side. The art band starts at the top
+       of the stage here, so the bar needs its own room back. */
+    .landing-root .lp-z > .lp-nav {
+        position: relative;
+    }
+    .landing-root .lp-stage-inner {
+        grid-template-columns: minmax(0, 1fr);
+        /* No gap and no rule between the art and the copy: stacked, they are
+           one block, and a divider plus a gap made the drawing read as a
+           separate banner sitting above the page. */
+        /* The copy is given only what it needs and the drawing takes the
+           rest. A fixed art band left a pocket of dead air under the copy
+           that grew with the viewport — 146px at 375x812 — while the drawing
+           stayed small. The rail's scenes are absolutely positioned, so the
+           row cannot size to content; the clamp is the tallest scene plus a
+           little — zh's hero runs 305px at 360x640, which is what sets the
+           floor — capped so a tall window spends the surplus on the art. */
+        grid-template-rows: minmax(0, 1fr) clamp(320px, 44vh, 348px);
+        gap: 0;
+        padding: 0 22px;
+        align-items: stretch;
+    }
+    .landing-root .lp-world-col {
+        /* Drawn first, read second: the copy stays ahead of it in the DOM. */
+        order: -1;
+        /* Full bleed. The stage's 22px gutter belongs to the copy; on the art
+           it only ever showed as two pale bars down the sides of a band that
+           was already clipping the drawing. */
+        margin-left: -22px;
+        margin-right: -22px;
+        /* Stacked, the art has to stay inside its own band. The camera zooms
+           harder here (the narrow twin of every keyframe), so the drawing
+           spills well past the column — on the desktop split that spill is
+           wanted and the stage clips it, but in portrait it lands straight on
+           the copy. Clip it, and let the bottom edge dissolve instead of being
+           cut, so the two blocks still read as one. */
+        overflow: hidden;
+        -webkit-mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
+        mask-image: linear-gradient(180deg, #000 74%, transparent 100%);
+    }
+    .landing-root .lp-world {
+        top: 0;
+    }
+    /* Top-aligned rather than centred in the rail: centring left a pocket of
+       air under the drawing that grew with the viewport. The scroll loop
+       drives the same drift off this origin. */
+    .landing-root .lp-scene {
+        top: 0;
+        transform: none;
+        padding-top: 8px;
+    }
+    .landing-root .lp-scene-title {
+        font-size: clamp(26px, 7.4vw, 34px);
+        margin-bottom: 12px;
+    }
+    .landing-root .lp-scene-lead {
+        font-size: 14px;
+        max-width: none;
+    }
+    .landing-root .lp-scene-list {
+        gap: 8px;
+        margin-top: 14px;
+    }
+    .landing-root .lp-scene-list li {
+        font-size: 12.5px;
+    }
+    .landing-root .lp-scene-eyebrow {
+        margin-bottom: 10px;
+        font-size: 9.5px;
+    }
+    .landing-root .lp-scene-ctas {
+        margin-top: 18px;
+        gap: 10px;
+    }
+    .landing-root .lp-scene-hint {
+        margin-top: 20px;
+        font-size: 9.5px;
+    }
+    .landing-root .lp-progress {
+        top: 22vh;
+        right: 10px;
+        gap: 8px;
+    }
+}
+
+/* Short desktop viewports have less vertical room for the pinned world. Give
+   the copy a little more of the grid, while ScrollyStage compresses the
+   world's inter-plane gaps and keeps each plane visually substantial. */
+@media (min-width: 901px) and (max-height: 760px) {
+    .landing-root .lp-stage-inner {
+        grid-template-columns: minmax(0, 0.9fr) clamp(260px, 52vh, 460px);
+        gap: clamp(24px, 3vw, 48px);
+    }
+
+    .landing-root .lp-scene-title {
+        font-size: calc(clamp(34px, 4.2vw, 60px) * 0.84);
+    }
+
+    .landing-root .lp-scene-lead {
+        font-size: 15px;
+        line-height: 1.5;
+    }
+
+    .landing-root .lp-scene-ctas {
+        margin-top: 18px;
+    }
+
+    .landing-root .lp-scene-hint {
+        margin-top: 24px;
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-product-demo-tilt {
-        --tilt-progress: 1;
+    .landing-root .lp-world * {
+        animation: none !important;
+    }
+
+    /* SMIL cannot be stopped from CSS, so the parts that move are removed
+       rather than stilled. The wires, ports and pads they travel between all
+       stay, and the drawing still says where a run goes. */
+    .landing-root .lp-world .lp-flux {
+        display: none;
+    }
+}
+
+/* === Works with ===
+   Three tracks that drift rather than three rows in a table. The rules are
+   gone and so are the chips' bubbles: at this size a pill around every mark
+   is a second frame competing with the mark itself, and a full-width hairline
+   between rows turns an inventory into a spec sheet.
+
+   Each track holds the list twice and travels exactly one copy, so the loop
+   has no seam. The two directions alternate so the section reads as movement
+   rather than as one belt. */
+.landing-root .lp-ww {
+    margin-top: 44px;
+    display: grid;
+    gap: 30px;
+}
+
+.landing-root .lp-ww-row {
+    display: grid;
+    grid-template-columns: 116px minmax(0, 1fr);
+    gap: 20px;
+    align-items: center;
+}
+
+.landing-root .lp-ww-k {
+    font-family: var(--lp-mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--lp-subtle);
+}
+
+/* Both ends dissolve, so the list reads as a window onto something longer
+   rather than as a strip that has been cut off. */
+.landing-root .lp-ww-v {
+    overflow: hidden;
+    -webkit-mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 13%,
+        #000 88%,
+        transparent
+    );
+    mask-image: linear-gradient(
+        90deg,
+        transparent,
+        #000 13%,
+        #000 88%,
+        transparent
+    );
+}
+
+.landing-root .lp-ww-track {
+    display: flex;
+    width: max-content;
+    animation: lp-ww-drift 46s linear infinite;
+}
+
+.landing-root .lp-ww-row:nth-child(2) .lp-ww-track {
+    animation-direction: reverse;
+    animation-duration: 54s;
+}
+
+.landing-root .lp-ww-row:nth-child(3) .lp-ww-track {
+    animation-duration: 38s;
+}
+
+/* Anyone reading the list wants it to hold still while they read it. */
+.landing-root .lp-ww-v:hover .lp-ww-track,
+.landing-root .lp-ww-v:focus-within .lp-ww-track {
+    animation-play-state: paused;
+}
+
+.landing-root .lp-ww-set {
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    padding-right: 40px;
+    flex: none;
+}
+
+@keyframes lp-ww-drift {
+    to {
+        transform: translateX(-50%);
+    }
+}
+
+.landing-root .lp-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 11px;
+    font-size: 16px;
+    color: var(--lp-ink-soft);
+    white-space: nowrap;
+}
+
+/* Sizing only, deliberately no `display`: the two-image marks (a light and a
+   dark file) hide one of the pair with a utility class, and a `display` here
+   outranks it — both would show. */
+.landing-root .lp-chip-mark {
+    width: 26px;
+    height: 26px;
+    flex: none;
+    object-fit: contain;
+}
+
+.landing-root .lp-chip-mark > svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* Runtimes carry a drawn icon rather than a vendor mark, so it takes the ink
+   colour and a lighter stroke than a filled logo would. */
+.landing-root .lp-chip-drawn {
+    color: var(--lp-muted);
+    stroke-width: 1.5;
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-ww-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    .landing-root .lp-chip {
+        font-size: 15px;
+    }
+    .landing-root .lp-chip-mark {
+        width: 22px;
+        height: 22px;
+    }
+}
+
+/* The drift is decoration; nobody should have to watch it move. */
+@media (prefers-reduced-motion: reduce) {
+    .landing-root .lp-ww-track {
+        animation: none;
+    }
+}
+
+/* === Observability === */
+/* Three peers — what the agent did, what it cost, what it was allowed to
+   touch — so three columns. Paired rows put a wide artefact beside the
+   sentence it proved, which left the artefacts at three different heights and
+   gave the two halves of each row no shared baseline.
+
+   The columns are a subgrid: every panel sits in the same row, so the three
+   share a height without anyone guessing a min-height, and the claims below
+   start on one line. */
+.landing-root .lp-ob {
+    display: grid;
+    gap: 0;
+}
+
+.landing-root .lp-ob-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: clamp(36px, 5vw, 76px);
+    align-items: end;
+    padding-bottom: 44px;
+    border-bottom: 1px solid var(--lp-line-soft);
+}
+
+.landing-root .lp-ob-head .lp-section-head {
+    margin: 0;
+}
+
+.landing-root .lp-ob-head .lp-lead {
+    margin: 0 0 6px;
+}
+
+.landing-root .lp-ob-cols {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto auto;
+    gap: clamp(20px, 2.4vw, 32px);
+    padding-top: 40px;
+}
+
+.landing-root .lp-ob-col {
+    display: grid;
+    grid-row: span 2;
+    grid-template-rows: subgrid;
+    gap: 20px;
+}
+
+@supports not (grid-template-rows: subgrid) {
+    .landing-root .lp-ob-panel {
+        min-height: 156px;
+    }
+}
+
+.landing-root .lp-ob-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 15px 16px;
+    background: var(--lp-paper);
+    border-radius: var(--lp-r-md);
+    box-shadow: var(--lp-shadow-sm);
+    font-family: var(--lp-mono);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--lp-muted);
+}
+
+.landing-root .lp-ob-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+}
+
+.landing-root .lp-ob-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--lp-ink-soft);
+    white-space: nowrap;
+}
+
+.landing-root .lp-ob-dim {
+    color: var(--lp-subtle);
+}
+
+/* A transcript line: the verb in a fixed column so the rows read as a
+   sequence of actions rather than as prose. */
+.landing-root .lp-ob-step,
+.landing-root .lp-ob-perm {
+    display: grid;
+    gap: 10px;
+    align-items: center;
+}
+
+.landing-root .lp-ob-step {
+    grid-template-columns: 38px minmax(0, 1fr);
+}
+
+.landing-root .lp-ob-perm {
+    grid-template-columns: 38px minmax(0, 1fr) auto;
+}
+
+.landing-root .lp-ob-verb {
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-ob-ok {
+    display: inline-flex;
+    color: var(--lp-success);
+}
+
+.landing-root .lp-ob-ok > svg {
+    width: 13px;
+    height: 13px;
+}
+
+.landing-root .lp-ob-cost {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Bars relative to the dearest turn: three figures of the same size and
+   colour tell the reader nothing about which run was expensive. */
+.landing-root .lp-ob-bar {
+    width: 52px;
+    height: 5px;
+    border-radius: 1px;
+    background: var(--lp-idle-bg);
+    overflow: hidden;
+}
+
+.landing-root .lp-ob-bar i {
+    display: block;
+    height: 100%;
+    background: var(--lp-info);
+}
+
+.landing-root .lp-ob-cost b {
+    color: var(--lp-ink);
+    font-weight: 400;
+    min-width: 52px;
+    text-align: right;
+}
+
+/* Month to date belongs to the cost column, not to the head of a section
+   that is no longer about money. */
+.landing-root .lp-ob-foot {
+    margin-top: auto;
+    padding-top: 10px;
+    border-top: 1px solid var(--lp-line-soft);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    font-size: 11.5px;
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-ob-foot b {
+    color: var(--lp-ink);
+    font-weight: 400;
+}
+
+.landing-root .lp-ob-tag {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 3px 7px;
+    border-radius: var(--lp-r-xs);
+    white-space: nowrap;
+}
+
+/* The answer is the point of the row, so it is the only coloured thing in it.
+   The shared error wash is too faint to read as a label at this size. */
+.landing-root .lp-ob-tag.lp-ob-yes {
+    color: var(--lp-success);
+    background: var(--lp-success-bg);
+}
+
+.landing-root .lp-ob-tag.lp-ob-no {
+    color: var(--lp-error);
+    background: color-mix(in srgb, var(--lp-error) 14%, transparent);
+}
+
+.landing-root .lp-ob-claim {
+    display: grid;
+    gap: 6px;
+    align-content: start;
+}
+
+.landing-root .lp-ob-claim b {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-ob-claim p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--lp-muted);
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-ob-head,
+    .landing-root .lp-ob-cols {
+        grid-template-columns: 1fr;
+    }
+    .landing-root .lp-ob-head {
+        align-items: start;
+        gap: 16px;
+        padding-bottom: 28px;
+    }
+    .landing-root .lp-ob-cols {
+        gap: 32px;
+        padding-top: 28px;
+    }
+    /* Stacked, the panels no longer share a row; let each be its own size. */
+    .landing-root .lp-ob-col {
+        grid-row: auto;
+        grid-template-rows: none;
+    }
+    .landing-root .lp-ob-panel {
+        min-height: 0;
     }
 }
 
@@ -6095,1256 +4774,4 @@ html[data-theme='dark'] .landing-root .lp-cta-ctas .lp-btn-secondary:hover {
     .loading-spin {
         animation-duration: 1.6s;
     }
-}
-
-/* ======================================================================
-   Landing — "workspace floor" hero (v3) + page-fold flip.
-
-   A 3D perspective floor where agent standees roam between waypoints,
-   framework cabinets glow along the back, and an mcp-gateway machine sits
-   mid-floor. Ported from the design export and re-themed onto the landing
-   --lp-* system: a single blue accent (--fl-ac → --lp-info) drives every
-   glow, with a tokenised scene palette so light & dark both read cleanly.
-   ====================================================================== */
-
-@keyframes flBelt {
-    to {
-        background-position:
-            40px 0,
-            0 0,
-            0 0;
-    }
-}
-@keyframes flStepA {
-    0%,
-    100% {
-        transform: translateY(0) rotate(0deg);
-    }
-    50% {
-        transform: translateY(-2px) rotate(-20deg);
-    }
-}
-@keyframes flStepB {
-    0%,
-    100% {
-        transform: translateY(-2px) rotate(20deg);
-    }
-    50% {
-        transform: translateY(0) rotate(0deg);
-    }
-}
-@keyframes flPulse {
-    0%,
-    100% {
-        box-shadow: 0 0 0 0 currentColor;
-    }
-    50% {
-        box-shadow: 0 0 0 5px transparent;
-    }
-}
-@keyframes flHum {
-    0%,
-    100% {
-        opacity: 0.55;
-    }
-    50% {
-        opacity: 0.95;
-    }
-}
-@keyframes flBob {
-    0%,
-    100% {
-        transform: translate(-50%, -100%) rotateX(-63deg) translateY(0);
-    }
-    50% {
-        transform: translate(-50%, -100%) rotateX(-63deg) translateY(-7px);
-    }
-}
-@keyframes flHeadBob {
-    0%,
-    100% {
-        transform: translateY(0);
-    }
-    50% {
-        transform: translateY(-3px);
-    }
-}
-@keyframes flScanX {
-    0% {
-        transform: translateX(-120%);
-        opacity: 0;
-    }
-    20%,
-    80% {
-        opacity: 0.9;
-    }
-    100% {
-        transform: translateX(120%);
-        opacity: 0;
-    }
-}
-@keyframes flScan {
-    0% {
-        transform: translateY(-10px);
-        opacity: 0;
-    }
-    14%,
-    86% {
-        opacity: 0.85;
-    }
-    100% {
-        transform: translateY(120px);
-        opacity: 0;
-    }
-}
-@keyframes flRise {
-    from {
-        opacity: 0;
-        transform: translateY(16px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-/* ── Page-fold flip card ────────────────────────────────────────────── */
-.landing-root .lp-hero-flip {
-    /* Fill the viewport below the nav so the animation centres and the footbar
-       sits at the bottom of the screen. Both faces share this height, so the
-       FOLD and UNFOLD bars coincide exactly. */
-    --fl-hero-h: clamp(600px, calc(100vh - 72px), 940px);
-    position: relative;
-    perspective: 2600px;
-    height: var(--fl-hero-h);
-}
-
-.landing-root .lp-hero-flip-inner {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    transform-style: preserve-3d;
-    transition: transform 0.9s cubic-bezier(0.66, 0, 0.2, 1);
-}
-
-.landing-root .lp-hero-flip[data-folded='true'] .lp-hero-flip-inner {
-    transform: rotateY(180deg);
-}
-
-.landing-root .lp-hero-face {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 100%;
-    backface-visibility: hidden;
-    -webkit-backface-visibility: hidden;
-    /* backface-visibility is unreliable on mobile when a face contains nested
-       preserve-3d (the floor scene), letting the hidden mirror leak through.
-       Fade the outgoing face out around the flip midpoint (edge-on) so the
-       resting face is alone — a short opacity crossfade delayed to mid-flip. */
-    transition: opacity 0.18s linear 0.36s;
-}
-
-.landing-root .lp-hero-flip[data-folded='false'] .lp-hero-face-back,
-.landing-root .lp-hero-flip[data-folded='true'] .lp-hero-face-front {
-    opacity: 0;
-}
-
-.landing-root .lp-hero-face-back {
-    transform: rotateY(180deg);
-}
-/* Classic hero centres vertically in the viewport-height face. */
-.landing-root .lp-hero-face-back .lp-hero {
-    min-height: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-/* ── Floor hero shell + scene palette ───────────────────────────────── */
-.landing-root .lp-floor {
-    --fl-ac: var(--lp-info);
-    --fl-ac-strong: var(--lp-info-strong);
-    --fl-grid: rgba(28, 42, 66, 0.09);
-    /* Centre glow — a light translucent wash so the middle of the floor reads
-       a touch brighter than the page background. */
-    --fl-glow: rgba(255, 255, 255, 0.6);
-    --fl-panel: #f6f8fb;
-    --fl-panel-2: #e7ecf1;
-    --fl-edge: rgba(22, 32, 48, 0.16);
-    --fl-edge-soft: rgba(22, 32, 48, 0.08);
-    --fl-ink: #1a2331;
-    --fl-muted: #5d6877;
-    --fl-shadow: rgba(22, 32, 48, 0.22);
-    --fl-led-idle: var(--lp-success);
-    --fl-led-work: var(--lp-warning);
-    --fl-leg: #aab4bf;
-    --fl-create-bg: var(--lp-info-strong);
-    --fl-scale: 1;
-    position: relative;
-    overflow: hidden;
-    isolation: isolate;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-}
-
-html[data-theme='dark'] .landing-root .lp-floor {
-    --fl-grid: rgba(255, 255, 255, 0.05);
-    --fl-glow: rgba(150, 180, 220, 0.16);
-    --fl-panel: #1a212b;
-    --fl-panel-2: #10151c;
-    --fl-edge: rgba(255, 255, 255, 0.14);
-    --fl-edge-soft: rgba(255, 255, 255, 0.07);
-    --fl-ink: #eef2f6;
-    --fl-muted: #8794a1;
-    --fl-shadow: rgba(0, 0, 0, 0.55);
-    --fl-leg: #2b343e;
-    --fl-create-bg: #2f72b3;
-}
-
-.landing-root .lp-floor-stage {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-}
-
-.landing-root .lp-floor-scene {
-    position: absolute;
-    inset: 0;
-    perspective: 1500px;
-    perspective-origin: 50% 28%;
-    overflow: hidden;
-    /* Fade the grid/agents to transparent at the far (top) edge and the near
-       (bottom) edge with an alpha mask — never a colour overlay — so the page
-       background (grain and all) shows through unchanged and there is no
-       visible boundary between the hero and the section below it. */
-    -webkit-mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        #000 9%,
-        #000 86%,
-        transparent 100%
-    );
-    mask-image: linear-gradient(
-        to bottom,
-        transparent 0%,
-        #000 9%,
-        #000 86%,
-        transparent 100%
-    );
-}
-
-.landing-root .lp-fl-plane {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%) rotateX(63deg) scale(var(--fl-scale));
-    transform-style: preserve-3d;
-    border-radius: 8px;
-    /* No solid fill and no inset vignette — those traced the finite plane's
-       rectangular edge. The grid sits directly on the page background (shows
-       straight through), and a soft light glow lifts the centre. */
-    background:
-        radial-gradient(56% 50% at 50% 42%, var(--fl-glow), transparent 70%),
-        linear-gradient(var(--fl-grid) 1px, transparent 1px) 0 0 / 100% 60px,
-        linear-gradient(90deg, var(--fl-grid) 1px, transparent 1px) 0 0 / 60px
-            100%;
-}
-
-/* conveyor belt: a domed rubber track with travelling cleats and end drums */
-.landing-root .lp-fl-belt {
-    position: absolute;
-    left: 300px;
-    top: 686px;
-    width: 1000px;
-    height: 54px;
-    border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 16%, var(--fl-edge-soft));
-    background-image:
-        repeating-linear-gradient(
-            90deg,
-            transparent 0 18px,
-            color-mix(in srgb, var(--fl-shadow) 16%, transparent) 18px 19px,
-            color-mix(in srgb, var(--fl-ac) 20%, transparent) 19px 21px,
-            transparent 21px 40px
-        ),
-        linear-gradient(
-            180deg,
-            color-mix(in srgb, white 10%, transparent) 0,
-            transparent 32%,
-            transparent 66%,
-            color-mix(in srgb, var(--fl-shadow) 22%, transparent) 100%
-        ),
-        linear-gradient(
-            180deg,
-            color-mix(
-                in srgb,
-                var(--fl-ac) 5%,
-                color-mix(in srgb, white 4%, var(--lp-bg-soft))
-            ),
-            color-mix(in srgb, var(--fl-ac) 3%, var(--lp-bg-soft))
-        );
-    background-size:
-        40px 100%,
-        100% 100%,
-        100% 100%;
-    background-position:
-        0 0,
-        0 0,
-        0 0;
-    box-shadow:
-        inset 0 1px 1px color-mix(in srgb, white 10%, transparent),
-        inset 0 -3px 7px var(--fl-shadow),
-        0 6px 14px var(--fl-shadow);
-    animation: flBelt 1.8s linear infinite;
-}
-
-/* end drums: the rollers the belt wraps around */
-.landing-root .lp-fl-belt::before,
-.landing-root .lp-fl-belt::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    bottom: -2px;
-    width: 11px;
-    border-radius: 999px;
-    background: linear-gradient(
-        180deg,
-        color-mix(
-            in srgb,
-            white 9%,
-            color-mix(in srgb, var(--fl-ac) 4%, var(--lp-bg))
-        ),
-        var(--lp-bg)
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 16%, var(--fl-edge-soft));
-    box-shadow: 0 3px 8px var(--fl-shadow);
-}
-
-.landing-root .lp-fl-belt::before {
-    left: -6px;
-}
-
-.landing-root .lp-fl-belt::after {
-    right: -6px;
-}
-
-/* framework cabinets (the back-wall armory) */
-.landing-root .lp-fl-cab {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-}
-
-.landing-root .lp-fl-cab-ring {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 104px;
-    height: 104px;
-    transform: translate(-50%, -50%);
-    border-radius: 999px;
-    background: radial-gradient(
-        closest-side,
-        color-mix(in srgb, var(--fl-ac) 20%, transparent),
-        transparent 70%
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 24%, transparent);
-}
-
-.landing-root .lp-fl-cab-stand {
-    position: absolute;
-    left: 0;
-    top: 0;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg) scale(0.62);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.landing-root .lp-fl-cab-tag {
-    margin-bottom: 8px;
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 9px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--fl-panel) 70%, transparent);
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 30%, transparent);
-    white-space: nowrap;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.04em;
-    color: var(--fl-ink);
-}
-
-.landing-root .lp-fl-cab-tag-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 999px;
-    background: var(--fl-ac);
-    box-shadow: 0 0 7px var(--fl-ac);
-}
-
-.landing-root .lp-fl-cab-case {
-    position: relative;
-    width: 116px;
-    height: 196px;
-    border-radius: 12px 12px 5px 5px;
-    overflow: hidden;
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--fl-ac) 8%, var(--fl-panel)),
-        var(--fl-panel-2)
-    );
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 26%, var(--fl-edge));
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.16),
-        inset 0 0 30px color-mix(in srgb, var(--fl-ac) 12%, transparent),
-        0 0 30px color-mix(in srgb, var(--fl-ac) 18%, transparent),
-        0 20px 34px var(--fl-shadow);
-    animation: flHum 3.4s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-cab-rail {
-    position: absolute;
-    top: 16px;
-    bottom: 30px;
-    width: 2px;
-    border-radius: 2px;
-    background: linear-gradient(
-        180deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 75%, transparent),
-        transparent
-    );
-    box-shadow: 0 0 8px color-mix(in srgb, var(--fl-ac) 60%, transparent);
-}
-.landing-root .lp-fl-cab-rail-l {
-    left: 8px;
-}
-.landing-root .lp-fl-cab-rail-r {
-    right: 8px;
-}
-
-.landing-root .lp-fl-cab-scan {
-    position: absolute;
-    left: 6px;
-    right: 6px;
-    top: 10px;
-    height: 22px;
-    background: linear-gradient(
-        180deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 30%, transparent),
-        transparent
-    );
-    animation: flScan 5s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-cab-icon {
-    position: absolute;
-    left: 50%;
-    top: 46%;
-    transform: translate(-50%, -50%);
-    display: inline-flex;
-    opacity: 0.9;
-}
-.landing-root .lp-fl-cab-icon svg {
-    width: 46px;
-    height: 46px;
-    filter: drop-shadow(
-        0 0 10px color-mix(in srgb, var(--fl-ac) 40%, transparent)
-    );
-}
-
-.landing-root .lp-fl-cab-top {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 12px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border-bottom: 1px solid color-mix(in srgb, var(--fl-ac) 24%, transparent);
-}
-
-.landing-root .lp-fl-cab-base {
-    position: relative;
-    width: 132px;
-    height: 16px;
-    margin-top: -1px;
-    border-radius: 3px 3px 7px 7px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow: 0 14px 22px var(--fl-shadow);
-}
-
-/* roaming agent standees */
-.landing-root .lp-fl-bot {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-    transition:
-        left 3.4s ease-in-out,
-        top 3.4s ease-in-out,
-        transform 3.4s ease-in-out;
-}
-/* While working, the agent stands on top of the raised bench — lift it just
-   above the slab so the legs aren't clipped. Eased so it reads as stepping up
-   / down as the agent walks on and off. */
-.landing-root .lp-fl-bot[data-working='true'] {
-    transform: translateZ(22px);
-}
-
-.landing-root .lp-fl-bot-shadow {
-    position: absolute;
-    left: -28px;
-    top: -8px;
-    width: 56px;
-    height: 15px;
-    border-radius: 999px;
-    background: radial-gradient(closest-side, var(--fl-shadow), transparent);
-    filter: blur(2px);
-}
-
-.landing-root .lp-fl-bot-standee {
-    position: absolute;
-    left: 0;
-    top: 0;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    background: none;
-    cursor: pointer;
-    pointer-events: auto;
-    transition: filter 0.2s ease;
-}
-.landing-root .lp-fl-bot-standee:hover {
-    filter: brightness(1.08);
-}
-
-.landing-root .lp-fl-bot-plate {
-    margin-bottom: 6px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 1px;
-    text-align: center;
-    white-space: nowrap;
-    padding: 3px 9px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--fl-panel) 78%, transparent);
-    border: 1px solid var(--fl-edge-soft);
-    transition: border-color 0.3s ease;
-}
-.landing-root .lp-fl-bot-name {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: var(--fl-ink);
-}
-.landing-root .lp-fl-bot-fw {
-    font-family: var(--lp-mono);
-    font-size: 9px;
-    color: var(--fl-muted);
-}
-
-.landing-root .lp-fl-bot-neck {
-    width: 2px;
-    height: 6px;
-    background: var(--fl-muted);
-    opacity: 0.7;
-}
-
-.landing-root .lp-fl-bot-led {
-    width: 7px;
-    height: 7px;
-    border-radius: 999px;
-    color: var(--fl-led-idle);
-    background: var(--fl-led-idle);
-    box-shadow: 0 0 9px var(--fl-led-idle);
-    animation: flPulse 1.6s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-led {
-    color: var(--fl-led-work);
-    background: var(--fl-led-work);
-    box-shadow: 0 0 9px var(--fl-led-work);
-}
-
-.landing-root .lp-fl-bot-head {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 38px;
-    border-radius: 11px;
-    margin-top: 1px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 6px 14px var(--fl-shadow);
-    transition:
-        border-color 0.2s ease,
-        box-shadow 0.2s ease;
-}
-.landing-root .lp-fl-bot-face {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-}
-.landing-root .lp-fl-bot-face svg {
-    width: 22px;
-    height: 22px;
-}
-.landing-root .lp-fl-bot-corner {
-    position: absolute;
-    top: 4px;
-    right: 5px;
-    width: 4px;
-    height: 4px;
-    border-radius: 999px;
-    background: var(--fl-led-idle);
-    box-shadow: 0 0 6px var(--fl-led-idle);
-}
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-corner {
-    background: var(--fl-led-work);
-    box-shadow: 0 0 6px var(--fl-led-work);
-}
-
-.landing-root .lp-fl-bot-body {
-    position: relative;
-    width: 34px;
-    height: 15px;
-    margin-top: 3px;
-    border-radius: 6px 6px 5px 5px;
-    background: linear-gradient(180deg, var(--fl-panel), var(--fl-panel-2));
-    border: 1px solid var(--fl-edge);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-.landing-root .lp-fl-bot-stripe {
-    position: absolute;
-    left: 50%;
-    top: 5px;
-    transform: translateX(-50%);
-    width: 14px;
-    height: 3px;
-    border-radius: 2px;
-    background: color-mix(in srgb, var(--fl-ac) 60%, transparent);
-}
-
-.landing-root .lp-fl-bot-legs {
-    display: flex;
-    gap: 7px;
-    margin-top: 1px;
-}
-.landing-root .lp-fl-bot-leg {
-    width: 5px;
-    height: 10px;
-    border-radius: 0 0 3px 3px;
-    background: var(--fl-leg);
-    transform-origin: top center;
-}
-/* Legs only step while the agent is actually walking somewhere. Idle and
-   stationed agents keep their legs planted. */
-.landing-root .lp-fl-bot[data-moving='true'] .lp-fl-bot-leg-a {
-    animation: flStepA 0.5s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-moving='true'] .lp-fl-bot-leg-b {
-    animation: flStepB 0.5s ease-in-out infinite;
-}
-
-/* Working agents bob gently in place; the bob keeps the billboard transform
-   so the standee stays camera-facing. */
-.landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-standee {
-    animation: flBob 3.4s ease-in-out infinite;
-}
-.landing-root .lp-fl-bot[data-receiving='true'] .lp-fl-bot-head {
-    animation: flHeadBob 0.6s ease-in-out infinite;
-}
-
-.landing-root .lp-fl-bot[data-selected='true'] .lp-fl-bot-plate {
-    border-color: color-mix(in srgb, var(--fl-ac) 55%, transparent);
-}
-.landing-root .lp-fl-bot[data-selected='true'] .lp-fl-bot-head {
-    border-color: var(--fl-ac);
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.08),
-        0 0 0 3px color-mix(in srgb, var(--fl-ac) 26%, transparent),
-        0 0 24px color-mix(in srgb, var(--fl-ac) 38%, transparent);
-}
-
-/* ── Workbench pads (where stationed agents work) ───────────────────── */
-.landing-root .lp-fl-pad {
-    position: absolute;
-    width: 0;
-    height: 0;
-    transform-style: preserve-3d;
-}
-.landing-root .lp-fl-pad-glow {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 210px;
-    height: 132px;
-    transform: translate(-50%, -50%);
-    border-radius: 26px;
-    background: radial-gradient(
-        closest-side,
-        color-mix(in srgb, var(--fl-ac) 14%, transparent),
-        transparent
-    );
-}
-.landing-root .lp-fl-pad-slab {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 176px;
-    height: 106px;
-    transform: translate(-50%, -50%);
-    border-radius: 18px;
-    overflow: hidden;
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 22%, var(--fl-edge));
-}
-.landing-root .lp-fl-pad-slab {
-    /* One step lighter than the floor (page bg) so the bench reads as a
-       raised platform — lifted further by its border + elevation shadow. */
-    transform: translate(-50%, -50%) translateZ(18px);
-    background: var(--lp-bg-soft);
-    border-color: color-mix(in srgb, var(--fl-ac) 26%, var(--fl-edge));
-    box-shadow:
-        inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        0 16px 26px var(--fl-shadow);
-}
-/* a light sweeping across the bench = work in progress */
-.landing-root .lp-fl-pad-scan {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 46%;
-    background: linear-gradient(
-        90deg,
-        transparent,
-        color-mix(in srgb, var(--fl-ac) 26%, transparent),
-        transparent
-    );
-    animation: flScanX 2.6s ease-in-out infinite;
-}
-
-/* ── Hand-off badge ─────────────────────────────────────────────────── */
-.landing-root .lp-fl-handoff {
-    position: absolute;
-    transform-origin: 50% 100%;
-    transform: translate(-50%, -100%) rotateX(-63deg) translateZ(118px);
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 4px 11px;
-    border-radius: var(--lp-r-pill);
-    white-space: nowrap;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--fl-ac-strong);
-    background: color-mix(in srgb, var(--fl-ac) 16%, var(--lp-paper));
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 55%, transparent);
-    box-shadow: 0 0 16px color-mix(in srgb, var(--fl-ac) 38%, transparent);
-    animation: flPulse 1.3s ease-in-out infinite;
-    z-index: 10;
-}
-
-/* ── Headline overlay ───────────────────────────────────────────────── */
-.landing-root .lp-floor-overlay {
-    position: relative;
-    z-index: 5;
-    flex: 1;
-    display: flex;
-    align-items: flex-start;
-    padding-top: clamp(20px, 3.5vh, 44px);
-    pointer-events: none;
-}
-
-.landing-root .lp-floor-overlay-inner {
-    width: 100%;
-}
-
-.landing-root .lp-floor-copy {
-    position: relative;
-    max-width: 520px;
-    pointer-events: auto;
-}
-.landing-root .lp-floor-copy::before {
-    content: '';
-    position: absolute;
-    inset: -28px -40px -28px -32px;
-    z-index: -1;
-    background: radial-gradient(
-        80% 70% at 22% 40%,
-        var(--lp-bg) 38%,
-        transparent 100%
-    );
-    opacity: 0.78;
-    pointer-events: none;
-}
-
-/* Same eyebrow chip as the classic hero (.lp-eyebrow + .lp-dot); this only
-   adds the floor spacing + entrance animation. */
-.landing-root .lp-floor-eyebrow {
-    margin-bottom: 18px;
-    animation: flRise 0.6s ease both;
-}
-
-.landing-root .lp-floor-h1 {
-    margin: 0;
-    font-weight: 700;
-    font-size: clamp(41px, 5.1vw, 68px);
-    line-height: 1;
-    letter-spacing: -0.04em;
-    color: var(--lp-ink);
-    text-wrap: balance;
-    animation: flRise 0.7s ease 0.04s both;
-}
-/* Brand gradient — same recipe as .lp-h-accent used across the site (light
-   top → info → info-strong), but keeping the hero's own bold sans font. */
-.landing-root .lp-floor-accent {
-    white-space: nowrap;
-    background: linear-gradient(
-        to bottom,
-        #d6e0e8 0%,
-        var(--lp-info) 55%,
-        var(--lp-info-strong) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    filter: drop-shadow(
-        0 0 22px color-mix(in srgb, var(--fl-ac) 32%, transparent)
-    );
-}
-html[data-theme='dark'] .landing-root .lp-floor-accent {
-    background: linear-gradient(
-        to bottom,
-        #e6eef5 0%,
-        var(--lp-info) 55%,
-        var(--lp-info-strong) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-}
-
-.landing-root .lp-floor-lead {
-    margin: 13px 0 0;
-    max-width: none;
-    white-space: nowrap;
-    font-size: clamp(15px, 1.1vw, 17px);
-    line-height: 1.5;
-    color: var(--lp-ink-soft);
-    animation: flRise 0.7s ease 0.1s both;
-}
-
-.landing-root .lp-floor-ctas {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    margin-top: 20px;
-    flex-wrap: wrap;
-    animation: flRise 0.7s ease 0.16s both;
-}
-
-/* ── Foot bar: fold control + claim caption ─────────────────────────── */
-/* Pinned to the bottom of the hero. Both faces share --fl-hero-h, so the
-   FOLD (front) and UNFOLD (back) bars land at the exact same spot. */
-.landing-root .lp-floor-footbar {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 6;
-    padding-bottom: clamp(22px, 4vh, 44px);
-}
-.landing-root .lp-unfold-bar {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-}
-
-.landing-root .lp-floor-footbar-inner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
-}
-
-/* FOLD / create-agent reuse the landing button system (.lp-btn +
-   -secondary / -primary) so font, shape and weight match the rest of the
-   page; these rules only tune the footbar size and the extras. */
-.landing-root .lp-floor-fold {
-    gap: 11px;
-    padding: 13px 24px;
-    font-size: 15px;
-}
-.landing-root .lp-floor-fold svg {
-    width: 17px;
-    height: 17px;
-    color: var(--fl-ac);
-}
-.landing-root .lp-floor-fold-label {
-    font-weight: 600;
-}
-
-.landing-root .lp-floor-claim {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--lp-subtle);
-}
-
-.landing-root .lp-floor-actions {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-}
-
-.landing-root .lp-floor-hint {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-muted);
-}
-.landing-root .lp-floor-hint-mark {
-    color: var(--fl-ac);
-}
-
-/* supported-agents strip: every framework the platform runs */
-.landing-root .lp-floor-brands {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 10px 20px;
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-brands-label {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--lp-subtle);
-}
-.landing-root .lp-floor-brands-label::after {
-    content: ' ·';
-    margin-left: 6px;
-}
-.landing-root .lp-floor-brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    font-family: var(--lp-mono);
-    font-size: 13px;
-    color: var(--lp-muted);
-}
-.landing-root .lp-floor-brand-ico {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
-    background: color-mix(in srgb, var(--lp-paper) 55%, transparent);
-    border: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-brand-ico svg {
-    width: 15px;
-    height: 15px;
-}
-
-/* Standalone WORKS WITH strip below the hero — phones only. Hidden on desktop,
-   where the strip lives in the hero footbar instead. */
-.landing-root .lp-floor-brands-mobile {
-    display: none;
-}
-.landing-root .lp-floor-brands-standalone {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
-    justify-content: flex-start;
-}
-
-/* selected-agent chip + create CTA */
-.landing-root .lp-floor-select {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-    animation: flRise 0.3s ease both;
-}
-.landing-root .lp-floor-select-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    padding: 6px 12px 6px 6px;
-    border-radius: var(--lp-r-pill);
-    background: color-mix(in srgb, var(--lp-paper) 80%, transparent);
-    border: 1px solid color-mix(in srgb, var(--fl-ac) 45%, var(--lp-line));
-    box-shadow: 0 0 22px color-mix(in srgb, var(--fl-ac) 14%, transparent);
-}
-.landing-root .lp-floor-select-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    border-radius: 7px;
-    background: var(--lp-bg-soft);
-    border: 1px solid var(--lp-line-soft);
-}
-.landing-root .lp-floor-select-icon svg {
-    width: 15px;
-    height: 15px;
-}
-.landing-root .lp-floor-select-name {
-    font-family: var(--lp-mono);
-    font-size: 12px;
-    color: var(--lp-ink);
-}
-.landing-root .lp-floor-select-fw {
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    color: var(--lp-muted);
-}
-
-.landing-root .lp-floor-create {
-    gap: 7px;
-    padding: 10px 18px;
-    font-size: 13.5px;
-    text-decoration: none;
-}
-.landing-root .lp-floor-create .lp-arr {
-    width: 15px;
-    height: 15px;
-}
-
-/* ── Responsive ─────────────────────────────────────────────────────── */
-/* Narrow viewports: do NOT shrink the scene to fit — that crowds the bots
-   and crushes the labels. Keep the standees at full size and let the floor
-   crop at the edges (the section already clips overflow). Only true phones
-   get a mild reduction so the composition isn't a single zoomed-in bot. */
-@media (max-width: 980px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-scene {
-        perspective-origin: 50% 26%;
-    }
-}
-
-@media (max-width: 720px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-overlay {
-        padding-top: clamp(20px, 4vh, 40px);
-    }
-    .landing-root .lp-floor-lead {
-        white-space: normal;
-        max-width: 30ch;
-    }
-    .landing-root .lp-floor-copy {
-        max-width: none;
-    }
-    .landing-root .lp-floor-copy::before {
-        inset: -22px -24px;
-        background: radial-gradient(
-            130% 76% at 28% 34%,
-            var(--lp-bg) 56%,
-            transparent 100%
-        );
-        opacity: 0.9;
-    }
-    .landing-root .lp-floor-claim,
-    .landing-root .lp-floor-hint {
-        display: none;
-    }
-    /* On phones the WORKS WITH strip is not pinned inside the hero (that would
-       squeeze the animation into a sliver). The in-footbar copy is hidden and a
-       standalone strip flows just below the hero instead — see
-       .lp-floor-brands-standalone. */
-    .landing-root .lp-floor-footbar .lp-floor-brands {
-        display: none;
-    }
-    .landing-root .lp-floor-brands-mobile {
-        display: block;
-        padding-top: 20px;
-        padding-bottom: 8px;
-    }
-}
-
-@media (max-width: 480px) {
-    .landing-root .lp-floor {
-        --fl-scale: 1;
-    }
-    .landing-root .lp-floor-h1 {
-        font-size: clamp(38px, 10vw, 52px);
-        line-height: 1.02;
-    }
-    .landing-root .lp-floor-select-fw {
-        display: none;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .landing-root .lp-hero-flip,
-    .landing-root .lp-hero-flip-inner {
-        transition: none;
-    }
-    .landing-root .lp-hero-face {
-        transition: none;
-    }
-    .landing-root .lp-fl-belt,
-    .landing-root .lp-fl-bot-led,
-    .landing-root .lp-fl-bot-leg,
-    .landing-root .lp-fl-bot[data-working='true'] .lp-fl-bot-standee,
-    .landing-root .lp-fl-bot[data-receiving='true'] .lp-fl-bot-head,
-    .landing-root .lp-fl-pad-scan,
-    .landing-root .lp-fl-handoff,
-    .landing-root .lp-fl-cab-case,
-    .landing-root .lp-fl-cab-scan,
-    .landing-root .lp-floor-eyebrow,
-    .landing-root .lp-floor-h1,
-    .landing-root .lp-floor-lead,
-    .landing-root .lp-floor-ctas {
-        animation: none !important;
-    }
-    .landing-root .lp-fl-bot {
-        transition: none;
-    }
-}
-
-/* ── No-JS landing snapshot ──────────────────────────────────────────
-   The crawler/no-JS view of `/` and `/zh/` (LandingSnapshot), which React
-   replaces with the interactive landing once it boots. Uses the landing
-   token system so the two read as the same page. */
-
-.landing-root .seo-hero {
-    padding-top: 96px;
-}
-
-.landing-root .seo-ctas {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-top: 28px;
-}
-
-.landing-root .seo-positioning,
-.landing-root .seo-brands {
-    color: var(--lp-ink-soft);
-    max-width: 64ch;
-    margin-top: 18px;
-    font-size: 15px;
-    line-height: 1.65;
-}
-
-.landing-root .seo-section {
-    padding-top: 40px;
-    padding-bottom: 40px;
-}
-
-.landing-root .seo-bullets {
-    margin: 20px 0 0;
-    padding: 0 0 0 1.2em;
-    max-width: 68ch;
-    display: grid;
-    gap: 10px;
-    color: var(--lp-ink-soft);
-    font-size: 15px;
-    line-height: 1.6;
-}
-
-.landing-root .seo-faq {
-    margin: 24px 0 0;
-    max-width: 68ch;
-    display: grid;
-    gap: 20px;
-}
-
-.landing-root .seo-faq dt {
-    font-weight: 600;
-    color: var(--lp-ink);
-}
-
-.landing-root .seo-faq dd {
-    margin: 6px 0 0;
-    color: var(--lp-ink-soft);
-    line-height: 1.65;
-}
-
-.landing-root .seo-links-label {
-    margin-top: 36px;
-    font-family: var(--lp-mono);
-    font-size: 11px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--lp-muted);
-}
-
-.landing-root .seo-links {
-    margin: 12px 0 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px 22px;
-}
-
-.landing-root .seo-links a {
-    color: var(--lp-ink-soft);
-    font-size: 14px;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.landing-root .seo-links a:hover {
-    color: var(--lp-ink);
-}
-
-/* The 10px uppercase HOSTED tags failed the contrast audit: --lp-info /
-   --lp-idle are status hues tuned for dots and fills, not small text on
-   --lp-paper. Darker same-hue text in light, brighter in dark. */
-.landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-info-strong);
-}
-
-html[data-theme='dark'] .landing-root .lp-step-host .lp-tile.lp-cloud .lp-l {
-    color: var(--lp-info);
-}
-
-.landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-muted);
-}
-
-html[data-theme='dark'] .landing-root .lp-step-host .lp-tile.lp-local .lp-l {
-    color: var(--lp-ink-soft);
 }
