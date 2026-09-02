@@ -49,7 +49,8 @@ const runSession = async (args: {
         { tunnel: async () => {} } as never,
         { tunnel: async () => {} } as never,
         { findById: args.findById } as never,
-        {} as never
+        {} as never,
+        { resolve: async () => null } as never
     )
     await (
         gateway as unknown as {

@@ -72,6 +72,9 @@ interface TerminalSession {
     kill(signal?: string): void
 }
 
+const shellQuoteArg = (value: string): string =>
+    `'${value.replace(/'/g, `'\\''`)}'`
+
 const ptySessions = new Map<string, TerminalSession>()
 
 const expandHome = (p: string): string =>
@@ -1417,9 +1420,25 @@ const handlers: Partial<
         })
         if (!backend) return openPipeTerminal({ shell, cwd, env }, ctx)
 
+        // A supplied command runs as the shell's argv rather than being typed
+        // in: there is no prompt-ready signal to wait for, and the trailing
+        // exec leaves the interactive shell the user would otherwise have had,
+        // so quitting whatever it started is not a dead end.
+        const command = Array.isArray(payload.command)
+            ? (payload.command as unknown[]).filter(
+                  (part): part is string => typeof part === 'string'
+              )
+            : []
+        const args = command.length
+            ? [
+                  '-ilc',
+                  `${command.map(shellQuoteArg).join(' ')}; exec ${shell} -il`
+              ]
+            : ['-il']
+
         const term = backend.spawn({
             shell,
-            args: ['-il'],
+            args,
             cwd,
             env,
             cols,

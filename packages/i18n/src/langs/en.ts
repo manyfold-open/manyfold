@@ -2866,7 +2866,13 @@ const en = {
         sessionView: {
             label: 'Session view',
             chat: 'Chat',
-            terminal: 'Terminal'
+            terminal: 'Terminal',
+            resumeNeedsCredentials:
+                'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
+            resumeNeedsSignIn:
+                'This is a plain shell: resuming the conversation here needs the coding CLI to be signed in on this runtime.',
+            resumeNeedsDaemonUpgrade:
+                'This is a plain shell: resuming the conversation here needs a newer Manyfold CLI on this computer.'
         },
         composer: {
             askPlaceholder: 'Ask {{target}} anything.',
@@ -4326,6 +4332,9 @@ const en = {
             terminal: 'Terminal',
             terminalDescription:
                 'Allow opening an interactive shell into this sandbox from the web.',
+            terminalModelCredentials: 'Model credentials in the terminal',
+            terminalModelCredentialsDescription:
+                'Let a terminal session carry this agent\'s model credentials, so a coding CLI can resume a chat session in its own interface. Anyone who can open this terminal can then read the key.',
             details: 'Details',
             spriteId: 'Sprite ID',
             created: 'Created',

@@ -143,6 +143,12 @@ export interface AppShellOutletContext {
         options?: OpenTerminalOptions
     ) => void
     refreshAgents: () => Promise<SdkAgent[]>
+    // The user's sandboxes, already loaded for the rail's capacity counters.
+    // Shared so a page can read a host-level opt-in without another request.
+    sandboxes: SandboxSummary[]
+    // Likewise for daemon hosts, whose declared capabilities decide what a
+    // page may offer for an agent running on one.
+    daemonHosts: DaemonHostSummary[]
     refreshSessionsForAgent: (agentId: string) => Promise<ChatSessionSummary[]>
     refreshSessions: () => Promise<ChatSessionSummary[]>
     runtimeAccess: RuntimeAccessSummary | null
@@ -4186,6 +4192,8 @@ const AppShell: FC = (): ReactNode => {
                                         setDrawerOpen(true),
                                     openTerminalForAgent,
                                     refreshAgents,
+                                    sandboxes,
+                                    daemonHosts,
                                     refreshSessionsForAgent,
                                     refreshSessions,
                                     runtimeAccess,

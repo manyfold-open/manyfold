@@ -12,11 +12,14 @@ import {
     API_TOKEN_SCOPE_FULL
 } from '@/modules/auth/api-token.service'
 
+import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
+
 export interface DaemonTerminalRequest {
     agent: Agent
     cols: number
     cwd?: string
     rows: number
+    resume?: ResolvedTerminalResume | null
     client: WsClient
     onClose: () => void
 }
@@ -37,7 +40,7 @@ export class DaemonTerminal {
     ) {}
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
-        const { agent, cols, cwd, rows, client, onClose } = req
+        const { agent, cols, cwd, rows, resume, client, onClose } = req
         if (!agent.daemonId)
             throw new NotFoundException('daemon agent missing daemonId')
         const daemonId = agent.daemonId
@@ -73,9 +76,16 @@ export class DaemonTerminal {
                     cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
                     cols,
                     rows,
+                    // Only sent to daemons declaring DAEMON_FEATURE_PTY_COMMAND
+                    // (checked by the gateway) — an older one would drop it and
+                    // open a plain shell under a UI that promised a resume.
+                    ...(resume?.command.length
+                        ? { command: resume.command }
+                        : {}),
                     env: {
                         ...envTextToRecord(envTextFromExtras(agent.extras)),
                         ...connectionEnv,
+                        ...(resume?.env ?? {}),
                         MF_AGENT_ID: agent.id,
                         MF_API_TOKEN: terminalToken.plaintext,
                         TERM: 'xterm-256color',

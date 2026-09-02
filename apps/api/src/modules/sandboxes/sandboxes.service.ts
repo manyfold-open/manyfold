@@ -14,7 +14,8 @@ import type {
     SandboxStopResponse,
     SandboxSummary,
     SandboxTaskSummary,
-    SetSandboxTerminalBody
+    SetSandboxTerminalBody,
+    SetSandboxTerminalModelCredentialsBody
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
 import {
@@ -193,6 +194,22 @@ export class SandboxesService {
     ): Promise<SandboxSummary> {
         const owner = await this.resolveOwner(userId, hostId, isAdmin)
         const ok = await this.runtimes.setSandboxTerminalEnabled(
+            owner,
+            hostId,
+            body.enabled
+        )
+        if (!ok) throw new NotFoundException(`sandbox ${hostId} not found`)
+        return this.get(owner, hostId)
+    }
+
+    async setTerminalModelCredentials(
+        userId: string,
+        hostId: string,
+        body: SetSandboxTerminalModelCredentialsBody,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const owner = await this.resolveOwner(userId, hostId, isAdmin)
+        const ok = await this.runtimes.setSandboxTerminalModelCredentials(
             owner,
             hostId,
             body.enabled
@@ -880,6 +897,7 @@ const toSandboxSummary = (
     spriteName: host.spriteName,
     spriteStatus: host.spriteStatus,
     terminalEnabled: host.terminalEnabled,
+    terminalModelCredentials: host.terminalModelCredentials,
     agentsCount,
     detectedFrameworks: host.detectedFrameworks,
     cliVersion: host.cliVersion,

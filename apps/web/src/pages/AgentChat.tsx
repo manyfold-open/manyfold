@@ -131,6 +131,7 @@ import {
     terminalAvailabilityForAgent,
     terminalBlockedLabel
 } from '@/lib/terminalAccess'
+import { terminalResumeAvailability } from '@/lib/terminalResume'
 import {
     applyRegeneratedUserMessage,
     mergeLatestMessages,
@@ -210,7 +211,9 @@ const AgentChat: FC = (): ReactNode => {
         openTerminalForAgent,
         refreshAgents,
         refreshSessionsForAgent,
+        daemonHosts,
         requestQuotaConflict,
+        sandboxes,
         sessions,
         sessionsLoading,
         toggleBackgroundTasks
@@ -1139,6 +1142,27 @@ const AgentChat: FC = (): ReactNode => {
         ? terminalAvailabilityForAgent(currentAgent)
         : { available: false, reason: 'agent-not-running' as const }
 
+    const sessionSandbox = currentAgent?.spriteName
+        ? (sandboxes.find((s) => s.spriteName === currentAgent.spriteName) ??
+          null)
+        : null
+    const sessionDaemon = currentAgent?.daemonId
+        ? (daemonHosts.find((h) => h.id === currentAgent.daemonId) ?? null)
+        : null
+    const resumeAvailability = currentAgent
+        ? terminalResumeAvailability({
+              framework: currentAgent.framework,
+              runtime: currentAgent.runtime,
+              daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
+              frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
+              modelSource: effectiveModelConfigView?.source ?? null,
+              runtimeLocalReady:
+                  effectiveModelConfigView?.runtimeLocal?.ready === true,
+              sandboxModelCredentials:
+                  sessionSandbox?.terminalModelCredentials === true
+          })
+        : { available: false, blocked: 'runtime-unsupported' as const }
+
     const handleSelectSessionView = useCallback(
         (next: SessionViewMode): void => {
             if (next === 'chat') {
@@ -1165,16 +1189,51 @@ const AgentChat: FC = (): ReactNode => {
                     framework: currentAgent.framework,
                     id: `session-terminal-${currentAgent.id}`,
                     index: 1,
+                    // Only on the mount that creates the terminal: quitting
+                    // the TUI leaves a shell in the same session, and a later
+                    // switch back must not seize it again.
+                    //
+                    // The id alone is the intent; the server owns every gate
+                    // (session ref, framework, runtime, daemon capability,
+                    // credentials) and opens a plain shell when it cannot
+                    // resume. Deciding here from resumeAvailability would race
+                    // its async inputs (daemonHosts, model config): a fast
+                    // switch before they load would strand a plain shell that
+                    // is never rebuilt. The id comes straight from the URL, so
+                    // it is always ready. resumeAvailability now drives only
+                    // the notice.
+                    ...(activeSessionId
+                        ? { resumeChatSessionId: activeSessionId }
+                        : {}),
                     runtime: currentAgent.runtime,
                     status: 'connecting'
                 })
                 setSessionView('terminal')
             })()
         },
-        [client, confirm, currentAgent, sessionTerminal, t]
+        [
+            activeSessionId,
+            client,
+            confirm,
+            currentAgent,
+            sessionTerminal,
+            t
+        ]
     )
 
     const noopTerminalStatusChange = useCallback((): void => {}, [])
+
+    /* Only the two blocked reasons the user can act on. A framework with no
+       resume form, or a session the CLI has not named yet, is not a problem
+       to report — the shell is simply a shell. */
+    const resumeNotice =
+        resumeAvailability.blocked === 'needs-credential-toggle'
+            ? t('web.sessionView.resumeNeedsCredentials')
+            : resumeAvailability.blocked === 'needs-runtime-signin'
+              ? t('web.sessionView.resumeNeedsSignIn')
+              : resumeAvailability.blocked === 'daemon-needs-upgrade'
+                ? t('web.sessionView.resumeNeedsDaemonUpgrade')
+                : null
 
     const createSession = useCallback(
         async (selectCreated = true): Promise<string | null> => {
@@ -2281,20 +2340,30 @@ const AgentChat: FC = (): ReactNode => {
                             <div
                                 className={
                                     sessionView === 'terminal'
-                                        ? 'absolute inset-0 z-20'
+                                        ? 'absolute inset-0 z-20 flex flex-col'
                                         : 'hidden'
                                 }
                             >
-                                <Suspense fallback={null}>
-                                    <SessionTerminal
-                                        active={sessionView === 'terminal'}
-                                        getToken={getToken}
-                                        onStatusChange={
-                                            noopTerminalStatusChange
-                                        }
-                                        tab={sessionTerminal}
-                                    />
-                                </Suspense>
+                                {/* Why this shell is not the session's TUI.
+                                    Without it a plain prompt reads as the
+                                    feature silently not working. */}
+                                {resumeNotice && (
+                                    <div className='border-divider/80 bg-surface text-caption text-muted shrink-0 border-b px-3 py-1.5'>
+                                        {resumeNotice}
+                                    </div>
+                                )}
+                                <div className='relative min-h-0 flex-1'>
+                                    <Suspense fallback={null}>
+                                        <SessionTerminal
+                                            active={sessionView === 'terminal'}
+                                            getToken={getToken}
+                                            onStatusChange={
+                                                noopTerminalStatusChange
+                                            }
+                                            tab={sessionTerminal}
+                                        />
+                                    </Suspense>
+                                </div>
                             </div>
                         )}
                     </div>

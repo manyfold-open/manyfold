@@ -2735,7 +2735,12 @@ const zh: Translations = {
         sessionView: {
             label: '会话视图',
             chat: '对话',
-            terminal: '终端'
+            terminal: '终端',
+            resumeNeedsCredentials:
+                '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
+            resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
+            resumeNeedsDaemonUpgrade:
+                '这是一个普通 shell：要在这里继续对话，需要这台电脑上的 Manyfold CLI 升级到更新的版本。'
         },
         composer: {
             askPlaceholder: '向 {{target}} 提问。',
@@ -4109,6 +4114,9 @@ const zh: Translations = {
             deleteTask: '删除任务',
             controls: '控制',
             terminal: '终端',
+            terminalModelCredentials: '终端内的模型凭证',
+            terminalModelCredentialsDescription:
+                '允许终端会话携带该智能体的模型凭证，让编程 CLI 能在自己的界面里继续某个对话。开启后，任何能打开该终端的人都能读到这个密钥。',
             terminalDescription: '允许从网页打开此沙箱中的交互式 Shell。',
             details: '详情',
             spriteId: 'Sprite ID',

@@ -1021,6 +1021,11 @@ const HostDetailPanel: FC<{
         enabled: boolean
     ) => void | Promise<void>
     togglingTerminal?: boolean
+    onToggleTerminalModelCredentials?: (
+        hostId: string,
+        enabled: boolean
+    ) => void | Promise<void>
+    togglingTerminalModelCredentials?: boolean
     onLoadServices?: (hostId: string) => Promise<SandboxServiceSummary[]>
     onDeleteService?: (hostId: string, name: string) => Promise<void>
     onLoadTasks?: (hostId: string) => Promise<SandboxTaskSummary[]>
@@ -1042,6 +1047,8 @@ const HostDetailPanel: FC<{
     onRename,
     onToggleTerminal,
     togglingTerminal,
+    onToggleTerminalModelCredentials,
+    togglingTerminalModelCredentials,
     onLoadServices,
     onDeleteService,
     onLoadTasks,
@@ -1744,6 +1751,32 @@ const HostDetailPanel: FC<{
                                 }}
                             />
                         )}
+                        {sandbox &&
+                            sandboxHostId &&
+                            sandbox.terminalEnabled &&
+                            onToggleTerminalModelCredentials && (
+                                <ControlRow
+                                    label={t(
+                                        'web.agentRuntimesList.terminalModelCredentials'
+                                    )}
+                                    description={t(
+                                        'web.agentRuntimesList.terminalModelCredentialsDescription'
+                                    )}
+                                    enabled={sandbox.terminalModelCredentials}
+                                    pending={Boolean(
+                                        togglingTerminalModelCredentials
+                                    )}
+                                    pendingLabel={t(
+                                        'web.runtimeDetail.updating'
+                                    )}
+                                    onToggle={(): void => {
+                                        void onToggleTerminalModelCredentials(
+                                            sandboxHostId,
+                                            !sandbox.terminalModelCredentials
+                                        )
+                                    }}
+                                />
+                            )}
                         {sandbox && (
                             <div className='settings-card-row'>
                                 <div className='min-w-0'>
@@ -1939,6 +1972,8 @@ const AgentRuntimesList: FC = (): ReactNode => {
     const [upgradingSandboxCliId, setUpgradingSandboxCliId] = useState<
         string | null
     >(null)
+    const [togglingTerminalCredentialsId, setTogglingTerminalCredentialsId] =
+        useState<string | null>(null)
     const [togglingTerminalId, setTogglingTerminalId] = useState<string | null>(
         null
     )
@@ -2301,6 +2336,28 @@ const AgentRuntimesList: FC = (): ReactNode => {
         [client, refresh, t]
     )
 
+    const handleToggleTerminalModelCredentials = useCallback(
+        async (hostId: string, enabled: boolean): Promise<void> => {
+            setTogglingTerminalCredentialsId(hostId)
+            setError(null)
+            try {
+                const updated =
+                    await client.sandboxes.setTerminalModelCredentials(
+                        hostId,
+                        enabled
+                    )
+                setSandboxRows((prev) =>
+                    prev.map((s) => (s.id === hostId ? updated : s))
+                )
+            } catch (e) {
+                setError((e as Error).message)
+            } finally {
+                setTogglingTerminalCredentialsId(null)
+            }
+        },
+        [client]
+    )
+
     const handleToggleTerminal = useCallback(
         async (hostId: string, enabled: boolean): Promise<void> => {
             setTogglingTerminalId(hostId)
@@ -2613,6 +2670,13 @@ const AgentRuntimesList: FC = (): ReactNode => {
                                 : undefined
                         }
                         onToggleTerminal={handleToggleTerminal}
+                        onToggleTerminalModelCredentials={
+                            handleToggleTerminalModelCredentials
+                        }
+                        togglingTerminalModelCredentials={
+                            togglingTerminalCredentialsId ===
+                            selectedVM.sandbox?.id
+                        }
                         togglingTerminal={
                             togglingTerminalId === selectedVM.sandbox?.id
                         }

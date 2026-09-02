@@ -91,6 +91,7 @@ import type {
     CliVersionCatalog,
     CreateSandboxBody,
     SetSandboxTerminalBody,
+    SetSandboxTerminalModelCredentialsBody,
     RenameBody,
     AgentSkillsGroup,
     AgentStorageUsageResponse,
@@ -581,6 +582,10 @@ export interface SandboxesClient {
     delete: (id: string) => Promise<void>
     rename: (id: string, name: string) => Promise<SandboxSummary>
     setTerminal: (id: string, enabled: boolean) => Promise<SandboxSummary>
+    setTerminalModelCredentials: (
+        id: string,
+        enabled: boolean
+    ) => Promise<SandboxSummary>
     detectFrameworks: (id: string) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
@@ -1108,6 +1113,7 @@ export interface NcaClient {
             | 'delete'
             | 'rename'
             | 'setTerminal'
+            | 'setTerminalModelCredentials'
             | 'detectFrameworks'
             | 'refreshStatus'
             | 'upgradeCli'
@@ -2342,6 +2348,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     method: 'PATCH',
                     body: JSON.stringify({ enabled } as SetSandboxTerminalBody)
                 }),
+            setTerminalModelCredentials: (id, enabled) =>
+                request<SandboxSummary>(
+                    apiPaths.SANDBOX_TERMINAL_MODEL_CREDENTIALS(id),
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            enabled
+                        } as SetSandboxTerminalModelCredentialsBody)
+                    }
+                ),
             detectFrameworks: (id) =>
                 request<SandboxSummary>(
                     apiPaths.SANDBOX_DETECT_FRAMEWORKS(id),
@@ -3524,6 +3540,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                             body: JSON.stringify({
                                 enabled
                             } as SetSandboxTerminalBody)
+                        }
+                    ),
+                setTerminalModelCredentials: (id, enabled) =>
+                    request<SandboxSummary>(
+                        apiPaths.ADMIN_SANDBOX_TERMINAL_MODEL_CREDENTIALS(id),
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                enabled
+                            } as SetSandboxTerminalModelCredentialsBody)
                         }
                     ),
                 detectFrameworks: (id) =>

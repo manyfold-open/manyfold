@@ -115,6 +115,9 @@ export interface DaemonHostSummary {
     updateAvailable: boolean
     canRemoteUpgrade: boolean
     canCrossChannelUpgrade: boolean
+    // This daemon's pty.open runs a supplied command as the shell's argv, so a
+    // terminal on it can open straight into a framework TUI.
+    canResumeInTerminal: boolean
     startupMethod: DaemonStartupMethod | null
     homeDir: string | null
     workspaceBaseDir: string | null
@@ -445,6 +448,14 @@ export const DAEMON_FEATURE_TURN_HERMES_OPTIONS = 'turn.hermes.options'
 // without this — silently running YOLO under a UI that claims "ask" would be
 // worse than refusing.
 export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
+// The pty.open handler honours a `command` array by running it as the shell's
+// argv (`shell -ilc '<cmd>; exec shell -il'`) instead of opening a bare login
+// shell. The API refuses to send a terminal-resume command to a daemon without
+// this: an older daemon ignores the field and opens a plain shell, which would
+// leave the user staring at a prompt under a UI that said it was resuming
+// their conversation.
+export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
+
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -460,5 +471,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
-    DAEMON_FEATURE_TURN_HERMES_PERMISSIONS
+    DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
+    DAEMON_FEATURE_PTY_COMMAND
 ]

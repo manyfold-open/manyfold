@@ -25,6 +25,10 @@ export interface TerminalTabModel {
     framework: SdkAgent['framework']
     id: string
     index: number
+    // Ask the API to open this terminal already inside the framework TUI for
+    // that chat session. Only the id travels: the API builds the argv from
+    // the session's own stored reference.
+    resumeChatSessionId?: string
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }
@@ -93,6 +97,8 @@ const buildWsUrl = (
     })
     if (tab.cwdPath) params.set('cwdPath', tab.cwdPath)
     if (tab.cwdRootId) params.set('cwdRootId', tab.cwdRootId)
+    if (tab.resumeChatSessionId)
+        params.set('resumeChatSessionId', tab.resumeChatSessionId)
 
     if (base.startsWith('http://') || base.startsWith('https://')) {
         const url = new URL(base)
@@ -294,7 +300,8 @@ const TerminalSession: FC<TerminalSessionProps> = ({
         t,
         tab.agentId,
         tab.cwdPath,
-        tab.cwdRootId
+        tab.cwdRootId,
+        tab.resumeChatSessionId
     ])
 
     useEffect(() => {

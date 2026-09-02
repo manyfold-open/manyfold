@@ -14,6 +14,8 @@ import { principalScopes } from '@/modules/auth/auth-principal'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
+import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
+import { DAEMON_FEATURE_PTY_COMMAND } from '@manyfold/shared'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
@@ -31,6 +33,7 @@ interface TerminalQuery {
     cols?: string
     cwdPath?: string
     cwdRootId?: string
+    resumeChatSessionId?: string
     rows?: string
 }
 
@@ -52,7 +55,8 @@ export class TerminalGateway implements OnModuleInit {
         private readonly k8s: K8sTerminal,
         private readonly daemon: DaemonTerminal,
         private readonly daemonHosts: DaemonHostService,
-        private readonly files: FilesContextBuilder
+        private readonly files: FilesContextBuilder,
+        private readonly resume: TerminalResumeService
     ) {}
 
     onModuleInit(): void {
@@ -164,6 +168,7 @@ export class TerminalGateway implements OnModuleInit {
         // Opt-in terminal: off by default for every sandbox (incl. existing
         // agents). Enable it on the sandbox first; doing so authorizes the
         // per-session user api.full token injected by SpritesTerminal.
+        let modelCredentialsAllowed = false
         if (agent.runtime === 'sprites') {
             const host = agent.hostId
                 ? await this.runtimes.findHostById(agent.hostId)
@@ -176,7 +181,43 @@ export class TerminalGateway implements OnModuleInit {
                 socket.close(4403, 'terminal disabled')
                 return
             }
+            modelCredentialsAllowed = host.terminalModelCredentials
         }
+
+        // Open straight into the framework TUI for this chat session when the
+        // client asked for it. The client sends only the session id — the argv
+        // is built here from the session's own framework_session_ref so no
+        // caller can choose what runs in the sandbox.
+        const resumeSessionId = query.resumeChatSessionId?.trim()
+        // A daemon runs on the user's own machine against the CLI sign-in that
+        // already lives there, so it needs no credential opt-in — but it does
+        // need to be new enough to run a command as its shell's argv, or it
+        // would open a plain shell while the UI promised a resumed session.
+        const daemonCanResume =
+            agent.runtime === 'daemon' && agent.daemonId
+                ? (
+                      (await this.daemonHosts.findById(agent.daemonId))
+                          ?.clientFeatures ?? []
+                  ).includes(DAEMON_FEATURE_PTY_COMMAND)
+                : false
+        const resumeSupported =
+            agent.runtime === 'sprites' ||
+            (agent.runtime === 'daemon' && daemonCanResume)
+        const resume =
+            resumeSessionId && resumeSupported
+                ? await this.resume.resolve({
+                      agentId: agent.id,
+                      runtimeId: agent.runtimeId,
+                      framework: agent.framework,
+                      chatSessionId: resumeSessionId,
+                      // Sandboxes are shared ground and the key is the
+                      // platform's to hand out, so they gate it; the daemon's
+                      // own on-disk sign-in needs no such consent.
+                      modelCredentialsAllowed:
+                          agent.runtime === 'daemon' || modelCredentialsAllowed,
+                      injectModelCredentials: agent.runtime === 'sprites'
+                  })
+                : null
 
         let cwd: string | undefined
         try {
@@ -242,6 +283,7 @@ export class TerminalGateway implements OnModuleInit {
                     cols,
                     cwd: terminalCwd,
                     rows,
+                    resume,
                     client: socket,
                     onClose
                 })
@@ -251,6 +293,7 @@ export class TerminalGateway implements OnModuleInit {
                     cols,
                     cwd: terminalCwd,
                     rows,
+                    resume,
                     client: socket,
                     onClose
                 })

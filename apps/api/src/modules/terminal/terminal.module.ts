@@ -7,6 +7,8 @@ import { TerminalGateway } from '@/modules/terminal/terminal.gateway'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
+import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
+import { SecretsModule } from '@/modules/secrets/secrets.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { FilesModule } from '@/modules/agents/files/files.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
@@ -23,8 +25,15 @@ import { ConnectionsModule } from '@/modules/connections/connections.module'
         FilesModule,
         RuntimeAccessModule,
         SpriteStorageModule,
-        ConnectionsModule
+        ConnectionsModule,
+        SecretsModule
     ],
-    providers: [TerminalGateway, SpritesTerminal, K8sTerminal, DaemonTerminal]
+    providers: [
+        TerminalGateway,
+        SpritesTerminal,
+        K8sTerminal,
+        DaemonTerminal,
+        TerminalResumeService
+    ]
 })
 export class TerminalModule {}

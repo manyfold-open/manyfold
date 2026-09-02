@@ -22,7 +22,8 @@ import { SandboxesService } from './sandboxes.service'
 import {
     CliUpgradeDto,
     RenameSandboxDto,
-    SetSandboxTerminalDto
+    SetSandboxTerminalDto,
+    SetSandboxTerminalModelCredentialsDto
 } from './dto/sandbox.dto'
 
 @Controller('admin/sandboxes')
@@ -59,6 +60,20 @@ export class AdminSandboxesController {
         @Body() body: SetSandboxTerminalDto
     ): Promise<SandboxSummary> {
         return this.sandboxes.setTerminal(user.userId, id, body, true)
+    }
+
+    @Patch(':id/terminal-model-credentials')
+    setTerminalModelCredentials(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Body() body: SetSandboxTerminalModelCredentialsDto
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.setTerminalModelCredentials(
+            user.userId,
+            id,
+            body,
+            true
+        )
     }
 
     @Patch(':id/name')

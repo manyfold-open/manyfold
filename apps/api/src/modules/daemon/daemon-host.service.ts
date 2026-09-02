@@ -1,6 +1,7 @@
 import {
     DAEMON_FEATURE_DAEMON_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
+    DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_ONLINE_THRESHOLD_MS,
     DaemonHostSummary,
     DaemonStartupMethod,
@@ -443,6 +444,9 @@ export class DaemonHostService {
                 isInitUnitStartup(host.startupMethod) &&
                 host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE),
             canCrossChannelUpgrade: this.crossChannelAllowed(host),
+            canResumeInTerminal: host.clientFeatures.includes(
+                DAEMON_FEATURE_PTY_COMMAND
+            ),
             startupMethod: host.startupMethod,
             homeDir: host.homeDir,
             workspaceBaseDir: host.workspaceBaseDir,
