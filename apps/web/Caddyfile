@@ -51,9 +51,11 @@
             /connect /connect/* \
             /grant-permission /grant-permission/* \
             /invite /invite/* \
+            /account /account/* \
             /workspace /workspace/* \
             /agents /agents/* \
             /automations /automations/* \
+            /updates /updates/* \
             /skills /skills/* \
             /mcp /mcp/* \
             /connections /connections/* \
