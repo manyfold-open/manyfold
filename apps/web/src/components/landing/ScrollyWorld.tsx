@@ -1738,7 +1738,7 @@ export const ScrollyWorld: FC<{
                     {/* Two soft lights down the trunk — one spilling from
                         under the control plane where the cable passes through
                         it, one hazing the cable itself — so the descent reads
-                        as a length rather than as a stripe of constant value. */}
+                        as a length rather than as a band of constant value. */}
                     <ellipse
                         cx='378'
                         cy='684'

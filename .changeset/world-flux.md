@@ -10,7 +10,7 @@ hairlines of one uniform alpha with flat discs sliding along them, and the
 mismatch is what made the lower half read as unfinished. The connective tissue
 now uses the same language as the bodies: each wire is a soft bloom under a
 crisp core whose stroke is a gradient fading with distance, so a cable has a
-length instead of being a stripe of constant value.
+length instead of being a band of constant value.
 
 Below the control plane the three trunk strands splay where they leave the
 plate and gather into a junction, so the bundle has a round cross-section

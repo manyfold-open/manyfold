@@ -2161,10 +2161,13 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
     --lp-display-lh: 1;
     --lp-display-scale: 1;
 
-    /* The product's --shadow-focus resolves --color-focus off :root, so
-       without this override every ring inside the landing stays the old
-       steel blue while everything around it turned Iris. */
-    --shadow-focus:
+    /* The landing's own focus recipe. It is not a redeclaration of the
+       product's --shadow-focus: that token resolves --color-focus off :root,
+       one recipe per theme, and it propagates to the docs baseline as a pair —
+       a third scoped value would silently opt this register out of that
+       contract. The landing is hand-written .lp-* CSS rather than product
+       utilities, so it names its ring explicitly. */
+    --lp-shadow-focus:
         rgb(var(--lp-focus-rgb)) 0 0 0 1px,
         rgb(var(--lp-focus-rgb) / 0.18) 0 0 0 4px;
 
