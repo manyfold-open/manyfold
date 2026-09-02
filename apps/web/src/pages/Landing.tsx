@@ -594,11 +594,7 @@ const PricingCard: FC<{
     )
 
     return (
-        <article
-            className={
-                tier.popular ? 'lp-price-card lp-price-hot' : 'lp-price-card'
-            }
-        >
+        <article className='lp-price-card'>
             <div className='lp-price-head'>
                 <span className='lp-price-name'>{name}</span>
                 {billing?.currentPlanId === tier.id ? (
@@ -606,7 +602,7 @@ const PricingCard: FC<{
                         {t('web.pricing.currentBadge')}
                     </span>
                 ) : tier.popular ? (
-                    <span className='lp-price-badge lp-price-popular'>
+                    <span className='lp-price-badge'>
                         {t('web.landing.pricingPopular')}
                     </span>
                 ) : null}

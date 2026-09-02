@@ -2032,7 +2032,12 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
     --lp-w-box-l: #ecedf0;
     --lp-w-box-r: #e0e1e6;
     --lp-w-box-edge: rgba(16, 16, 22, 0.16);
-    --lp-w-box-accent: #f4f5f8;
+    /* The accent top is the landmark box's top lifted a step above an
+       ordinary one. On paper an ordinary top is already white, so the step
+       has nowhere left to go and the accent tops out there too; stepping it
+       the other way instead is what made the landmark the one grey box in a
+       scene of white ones. */
+    --lp-w-box-accent: #ffffff;
     --lp-w-screen: #f0f1f4;
     --lp-w-socket: #e2e3e8;
     --lp-w-chip: #e7e9ef;
@@ -3197,16 +3202,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     .landing-root .lp-price-grid {
         grid-template-columns: 1fr;
     }
-}
-
-.landing-root .lp-price-card.lp-price-hot {
-    box-shadow:
-        var(--lp-shadow-lg),
-        inset 0 0 0 1.5px color-mix(in srgb, var(--lp-info) 62%, transparent);
-}
-
-.landing-root .lp-price-badge.lp-price-popular {
-    background: var(--lp-info);
 }
 
 .landing-root .lp-price-card {
