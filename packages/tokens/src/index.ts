@@ -57,3 +57,13 @@ export {
     type IrisStep
 } from './palette'
 export { landingColors } from './landing-colors'
+export {
+    docsSizes,
+    headingWeight,
+    lineHeight,
+    productSizeCss,
+    productSizes,
+    tracking,
+    type DisplayMode,
+    type ProductRung
+} from './typography'

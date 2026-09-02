@@ -1,9 +1,12 @@
 import {
     fontStacks,
+    headingWeight,
+    lineHeight,
     px,
     radius,
     radiusDefaultTier,
-    radiusPill
+    radiusPill,
+    tracking
 } from '@manyfold/tokens'
 import type { Config } from 'tailwindcss'
 import typography from '@tailwindcss/typography'
@@ -125,40 +128,49 @@ const config: Config = {
                 display: [
                     'var(--text-display)',
                     {
-                        lineHeight: '1.15',
-                        letterSpacing: '-0.025em',
-                        fontWeight: '500'
+                        lineHeight: lineHeight.product.display,
+                        letterSpacing: tracking.display,
+                        fontWeight: String(headingWeight.product)
                     }
                 ],
                 h1: [
                     'var(--text-h1)',
                     {
-                        lineHeight: '1.25',
-                        letterSpacing: '-0.02em',
-                        fontWeight: '500'
+                        lineHeight: lineHeight.product.h1,
+                        letterSpacing: tracking.h1,
+                        fontWeight: String(headingWeight.product)
                     }
                 ],
                 h2: [
                     'var(--text-h2)',
                     {
-                        lineHeight: '1.3',
-                        letterSpacing: '-0.015em',
-                        fontWeight: '500'
+                        lineHeight: lineHeight.product.h2,
+                        letterSpacing: tracking.h2,
+                        fontWeight: String(headingWeight.product)
                     }
                 ],
                 h3: [
                     'var(--text-h3)',
                     {
-                        lineHeight: '1.4',
-                        letterSpacing: '-0.01em',
-                        fontWeight: '500'
+                        lineHeight: lineHeight.product.h3,
+                        letterSpacing: tracking.h3,
+                        fontWeight: String(headingWeight.product)
                     }
                 ],
-                body: ['var(--text-body)', { lineHeight: '1.5' }],
+                body: [
+                    'var(--text-body)',
+                    { lineHeight: lineHeight.product.body }
+                ],
                 chat: 'var(--text-chat)',
-                ui: ['var(--text-ui)', { lineHeight: '1.43' }],
-                caption: ['var(--text-caption)', { lineHeight: '1.33' }],
-                code: ['var(--text-code)', { lineHeight: '1.6' }]
+                ui: ['var(--text-ui)', { lineHeight: lineHeight.product.ui }],
+                caption: [
+                    'var(--text-caption)',
+                    { lineHeight: lineHeight.product.caption }
+                ],
+                code: [
+                    'var(--text-code)',
+                    { lineHeight: lineHeight.product.code }
+                ]
             },
             /* Product radius scale (DESIGN.md §6.1).
                Three working tiers — 14 / 10 / 8 — with Pill on top.

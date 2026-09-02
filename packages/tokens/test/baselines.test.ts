@@ -5,6 +5,12 @@ import { describe, it } from 'node:test'
 import { formatValue, listDrift } from '../src/emit'
 import { landingColors } from '../src/landing-colors'
 import { coolBiasAt, iris } from '../src/palette'
+import {
+    headingWeight,
+    lineHeight,
+    productSizes,
+    tracking
+} from '../src/typography'
 import { normalizeValue, parseColorTokens } from '../src/parse'
 import { productColors } from '../src/product-colors'
 
@@ -119,5 +125,47 @@ describe('the shared ramp is what both registers point at', () => {
             'mid-grey dark bias should peak near 10'
         )
         assert.equal(coolBiasAt(5, 'dark'), 1)
+    })
+})
+
+describe('typography', () => {
+    it('shares tracking across both registers', () => {
+        // Measured [2026-09-02]: the two baselines already agreed on all
+        // five rungs. Declared once so they cannot stop agreeing.
+        assert.equal(tracking.display, '-0.025em')
+        assert.equal(tracking.h1, '-0.02em')
+        assert.equal(tracking.h4, '-0.005em')
+    })
+
+    it('shares line-height from the body rung down', () => {
+        // Heading tiers legitimately differ (the sizes do); below them the
+        // rungs carry the same size for the same job, so they must match.
+        for (const rung of ['body', 'ui', 'caption', 'code'] as const) {
+            assert.equal(
+                lineHeight.product[rung],
+                lineHeight.docs[rung],
+                `line-height diverged at the ${rung} rung`
+            )
+        }
+    })
+
+    it('caps product heading weight at 500', () => {
+        // DESIGN.md §5: never 600, never 700 on a product surface.
+        assert.equal(headingWeight.product, 500)
+    })
+
+    it('records docs 600 headings as drift, not as licence', () => {
+        assert.equal(headingWeight.docs.value, 600)
+        assert.equal(headingWeight.docs.drift, true)
+        assert.ok(headingWeight.docs.reason.includes('DESIGN.md §5'))
+    })
+
+    it('keeps the compact column below the default column', () => {
+        for (const [rung, col] of Object.entries(productSizes)) {
+            assert.ok(
+                col.compact < col.default && col.default < col.large,
+                `${rung} column is not ascending`
+            )
+        }
     })
 })

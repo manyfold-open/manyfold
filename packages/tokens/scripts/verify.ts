@@ -28,6 +28,16 @@ import {
 import { landingColors } from '../src/landing-colors'
 import { productColors } from '../src/product-colors'
 import { fontStackCss, radius, radiusPill } from '../src/scale'
+import {
+    docsSizes,
+    headingWeight,
+    lineHeight,
+    productSizeCss,
+    productSizes,
+    tracking,
+    type DisplayMode,
+    type ProductRung
+} from '../src/typography'
 import { isRaw, type Consumer, type Theme } from '../src/index'
 
 const oss = resolve(__dirname, '../../..')
@@ -258,6 +268,95 @@ for (const { label, actual, role } of STACKS) {
         problems.push(
             `${label}\n      css declares : ${actual}\n      tokens expect: ${want}`
         )
+}
+
+// ───────────────────────── type ramps ─────────────────────────
+// The two ramps are meant to differ; what must not is anything that is not
+// a size. Sizes are checked too, so a rung cannot be nudged in a stylesheet
+// without the package agreeing.
+{
+    const stripped = webCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    for (const mode of ['compact', 'default', 'large'] as DisplayMode[]) {
+        const block = new RegExp(
+            `html\\[data-font-size='${mode}'\\]\\s*\\{([\\s\\S]*?)\\n    \\}`
+        ).exec(stripped)
+        if (!block) {
+            problems.push(
+                `apps/web/src/styles.css has no [data-font-size='${mode}'] block`
+            )
+            continue
+        }
+        for (const rung of Object.keys(productSizes) as ProductRung[]) {
+            const m = new RegExp(`--text-${rung}\\s*:\\s*([^;]+);`).exec(
+                block[1]
+            )
+            if (!m) {
+                problems.push(
+                    `apps/web/src/styles.css [${mode}] is missing --text-${rung}`
+                )
+                continue
+            }
+            compared++
+            const want = productSizeCss(rung, mode)
+            if (m[1].trim() !== want)
+                problems.push(
+                    `apps/web/src/styles.css [${mode}] --text-${rung} is ${m[1].trim()}, @manyfold/tokens declares ${want}`
+                )
+        }
+    }
+
+    const docsStripped = docsCss.replace(/\/\*[\s\S]*?\*\//g, '')
+    for (const [rung, size] of Object.entries(docsSizes)) {
+        const m = new RegExp(`--text-${rung}\\s*:\\s*([^;]+);`).exec(
+            docsStripped
+        )
+        if (!m) {
+            problems.push(`apps/docs is missing --text-${rung}`)
+            continue
+        }
+        compared++
+        if (m[1].trim() !== size)
+            problems.push(
+                `apps/docs --text-${rung} is ${m[1].trim()}, @manyfold/tokens declares ${size}`
+            )
+    }
+
+    for (const [rung, value] of Object.entries(tracking)) {
+        const m = new RegExp(
+            `--text-${rung}--letter-spacing\\s*:\\s*([^;]+);`
+        ).exec(docsStripped)
+        if (!m) continue
+        compared++
+        if (m[1].trim() !== value)
+            problems.push(
+                `apps/docs --text-${rung}--letter-spacing is ${m[1].trim()}, @manyfold/tokens declares ${value} (tracking is shared by both registers)`
+            )
+    }
+
+    for (const [rung, value] of Object.entries(lineHeight.docs)) {
+        const m = new RegExp(
+            `--text-${rung}--line-height\\s*:\\s*([^;]+);`
+        ).exec(docsStripped)
+        if (!m) continue
+        compared++
+        if (m[1].trim() !== value)
+            problems.push(
+                `apps/docs --text-${rung}--line-height is ${m[1].trim()}, @manyfold/tokens declares ${value}`
+            )
+    }
+
+    for (const rung of ['h1', 'h2', 'h3', 'h4'] as const) {
+        const m = new RegExp(
+            `--text-${rung}--font-weight\\s*:\\s*([^;]+);`
+        ).exec(docsStripped)
+        if (!m) continue
+        compared++
+        const want = String(headingWeight.docs.value)
+        if (m[1].trim() !== want)
+            problems.push(
+                `apps/docs --text-${rung}--font-weight is ${m[1].trim()}, @manyfold/tokens records ${want}`
+            )
+    }
 }
 
 if (problems.length) {
