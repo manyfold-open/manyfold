@@ -769,13 +769,14 @@ DOM 形状：
 
 ### 6.2 焦点环 —— 有一个必须修的缺陷
 
-产品的 `--shadow-focus` 定义成 `rgb(var(--color-focus)) 0 0 0 1px, rgb(var(--color-focus) / .18) 0 0 0 4px`，而 `--color-focus` 是 **`:root` 上的产品 token**。也就是说：**landing 换成 Iris 之后，焦点环仍然是旧的钢蓝。** 必须在 landing 作用域内覆盖：
+产品的 `--shadow-focus` 定义成 `rgb(var(--color-focus)) 0 0 0 1px, rgb(var(--color-focus) / .18) 0 0 0 4px`，而 `--color-focus` 是 **`:root` 上的产品 token**。也就是说：**landing 换成 Iris 之后，产品那枚焦点环仍然是旧的钢蓝。**
+
+不要在 `.landing-root` 里重新声明 `--shadow-focus`。那枚 token 每个模式只允许一份配方，并且要和 `apps/docs` 的基线成对传播；作用域内再写一份，等于让 landing 悄悄退出那份契约。landing 是手写的 `.lp-*` CSS、不走产品的 Tailwind utility，所以它自己命名这枚环：
 
 ```css
 .landing-root {
-    /* --lp-focus-rgb 在 §1.3 里已按模式定义好，这里只是把产品的
-       --shadow-focus 在 landing 作用域内重新指向它。 */
-    --shadow-focus:
+    /* --lp-focus-rgb 在 §1.3 里已按模式定义好。 */
+    --lp-shadow-focus:
         rgb(var(--lp-focus-rgb)) 0 0 0 1px,
         rgb(var(--lp-focus-rgb) / 0.18) 0 0 0 4px;
 }
@@ -786,6 +787,8 @@ DOM 形状：
     --lp-focus-rgb: var(--lp-iris-300-rgb);
 }
 ```
+
+上表里标了「焦点环」的控件用 `box-shadow: var(--lp-shadow-focus)`。**目前只有手风琴接了焦点态**（`.lp-faq-q:focus-visible` 走的是下划线替代方案），按钮、可点卡片、链接、输入框还没有接 —— 这是待补的缺口，不是设计意图。
 
 三条硬规则：
 
