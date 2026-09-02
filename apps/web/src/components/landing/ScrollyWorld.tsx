@@ -1656,7 +1656,7 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='550'
+                        x='529'
                         y='825'
                         fontSize='7.5'
                         letterSpacing='0.11em'
@@ -1686,7 +1686,7 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='297'
+                        x='303'
                         y='735'
                         fontSize='7.5'
                         letterSpacing='0.11em'
@@ -1716,7 +1716,7 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='181'
+                        x='207'
                         y='809'
                         fontSize='7.5'
                         letterSpacing='0.11em'
@@ -1727,15 +1727,15 @@ export const ScrollyWorld: FC<{
                         {t('web.landing.worldSurfaceTerminalVia')}
                     </text>
                     <path
-                        d='M 378,970 L 378,1012 L 398,1012'
+                        d='M 385,982 L 385,1052 L 395,1052'
                         fill='none'
                         stroke='var(--lp-w-lead)'
                         strokeWidth='0.7'
                         opacity='0.45'
                     />
                     <text
-                        x='403'
-                        y='1015'
+                        x='400'
+                        y='1055'
                         fontSize='10.5'
                         fontWeight='500'
                         letterSpacing='0.005em'
@@ -1746,8 +1746,8 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='421'
-                        y='1025'
+                        x='400'
+                        y='1065'
                         fontSize='7.5'
                         letterSpacing='0.11em'
                         fill='var(--lp-w-ground-lab)'
@@ -1759,7 +1759,7 @@ export const ScrollyWorld: FC<{
                     </g>
                     <g data-layer-title='c' opacity='0'>
                     <text
-                        transform='matrix(0.866,0.5,-0.866,0.5,179.1,974.0)'
+                        transform='matrix(0.866,0.5,-0.866,0.5,199.9,986.0)'
                         textAnchor='middle'
                         fontSize='16'
                         fontWeight='650'
@@ -2612,7 +2612,7 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='445'
+                        x='432'
                         y='497'
                         fontSize='7.5'
                         letterSpacing='0.11em'
@@ -2625,7 +2625,7 @@ export const ScrollyWorld: FC<{
                     </g>
                     <g data-layer-title='b' opacity='0'>
                     <text
-                        transform='matrix(0.866,0.5,-0.866,0.5,179.1,614.0)'
+                        transform='matrix(0.866,0.5,-0.866,0.5,244.9,652.0)'
                         textAnchor='middle'
                         fontSize='16'
                         fontWeight='650'
@@ -3030,7 +3030,7 @@ export const ScrollyWorld: FC<{
                     {/* Annotations reveal only while the camera is on this plane; ScrollyStage drives the opacity. */}
                     <g data-notes='a' opacity='0'>
                     <path
-                        d='M 338,72 L 338,46 L 328,46'
+                        d='M 338,72 L 338,42 L 328,42'
                         fill='none'
                         stroke='var(--lp-w-lead)'
                         strokeWidth='0.7'
@@ -3038,7 +3038,7 @@ export const ScrollyWorld: FC<{
                     />
                     <text
                         x='323'
-                        y='49'
+                        y='45'
                         fontSize='10.5'
                         fontWeight='500'
                         letterSpacing='0.005em'
@@ -3049,8 +3049,8 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='310'
-                        y='59'
+                        x='323'
+                        y='55'
                         fontSize='7.5'
                         letterSpacing='0.11em'
                         fill='var(--lp-w-ground-lab)'
@@ -3079,7 +3079,7 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='569'
+                        x='521'
                         y='71'
                         fontSize='7.5'
                         letterSpacing='0.11em'
@@ -3090,7 +3090,7 @@ export const ScrollyWorld: FC<{
                         {t('web.landing.worldRuntimeCloudSub')}
                     </text>
                     <path
-                        d='M 215,172 L 215,150 L 205,150'
+                        d='M 215,172 L 215,126 L 205,126'
                         fill='none'
                         stroke='var(--lp-w-lead)'
                         strokeWidth='0.7'
@@ -3098,7 +3098,7 @@ export const ScrollyWorld: FC<{
                     />
                     <text
                         x='200'
-                        y='153'
+                        y='129'
                         fontSize='10.5'
                         fontWeight='500'
                         letterSpacing='0.005em'
@@ -3109,8 +3109,8 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='152'
-                        y='163'
+                        x='200'
+                        y='139'
                         fontSize='7.5'
                         letterSpacing='0.11em'
                         fill='var(--lp-w-ground-lab)'
@@ -3120,7 +3120,7 @@ export const ScrollyWorld: FC<{
                         {t('web.landing.worldRuntimeOwnSub')}
                     </text>
                     <path
-                        d='M 395,300 L 395,313 L 405,313'
+                        d='M 395,300 L 395,370 L 405,370'
                         fill='none'
                         stroke='var(--lp-w-lead)'
                         strokeWidth='0.7'
@@ -3128,7 +3128,7 @@ export const ScrollyWorld: FC<{
                     />
                     <text
                         x='410'
-                        y='316'
+                        y='373'
                         fontSize='10.5'
                         fontWeight='500'
                         letterSpacing='0.005em'
@@ -3139,8 +3139,8 @@ export const ScrollyWorld: FC<{
                     </text>
                     <text
                         className='lp-mono lp-w-sub'
-                        x='418'
-                        y='326'
+                        x='410'
+                        y='383'
                         fontSize='7.5'
                         letterSpacing='0.11em'
                         fill='var(--lp-w-ground-lab)'
