@@ -176,9 +176,12 @@
            at workbench density (DESIGN.md §4.1 / §10.6). Five clearly
            separated hues, each with -fg (solid), -bg (low-alpha tint),
            and -strong (saturated pressed/highlight). */
-        --color-info: 59 130 201; /* #3B82C9 — cool blue: active / brand / running */
-        --color-info-bg: 232 240 249; /* 0.10 alpha flattened on paper for opaque chips */
-        --color-info-strong: 38 102 173;
+        --color-info: var(--color-iris-600); /* #3560eb — brand / active / running; 4.96:1 on the canvas */
+        --color-info-bg: 231 235 250; /* iris-600 at 0.10 flattened on the canvas, for opaque chips */
+        --color-info-strong: var(--color-iris-700); /* #1842d8 — pressed, hovered links */
+        /* Fill-only tier (DESIGN.md §4.3): progress bars, chart marks, large
+           blocks. Cleared for WCAG 1.4.11 non-text (3:1), never for text. */
+        --color-info-vivid: var(--color-iris-500);
         --color-success: 46 158 110; /* #2E9E6E — teal-green: done / shipped */
         --color-success-bg: 230 244 237;
         --color-success-strong: 31 126 84;
@@ -339,9 +342,14 @@
         --color-strong-fg: 14 17 21;
         /* Status spectrum — dark variant: same hues brightened so
            perceived saturation matches light mode (DESIGN.md §4.2). */
-        --color-info: 123 182 232; /* #7BB6E8 */
-        --color-info-bg: 24 38 56; /* deep slate-blue, opaque equivalent of 0.16 alpha */
-        --color-info-strong: 92 153 210;
+        /* Aliases step UP the ramp; the ramp itself does not change. Landing
+           takes iris-400 here, the product takes 300: product brand colour
+           sits on card surfaces (35 36 40) far more often than landing's
+           does, and 400 only reaches 4.33:1 there — under AA for text. */
+        --color-info: var(--color-iris-300); /* #8ca5f9 — 7.57:1 canvas, 6.55:1 surface */
+        --color-info-bg: 33 40 60; /* iris-400 at 0.16 flattened on the canvas */
+        --color-info-strong: var(--color-iris-200); /* #b9c8fd */
+        --color-info-vivid: var(--color-iris-400);
         --color-success: 91 197 152; /* #5BC598 */
         --color-success-bg: 22 50 38;
         --color-success-strong: 58 166 122;
