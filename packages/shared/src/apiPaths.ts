@@ -67,6 +67,8 @@ export const apiPaths = {
         `/agents/${agentId}/runtime-sessions/rebuild-parsed`,
     AGENT_RUNTIME_SESSION_RESTORE: (agentId: string) =>
         `/agents/${agentId}/runtime-sessions/restore`,
+    AGENT_RUNTIME_SESSION_SYNC: (agentId: string) =>
+        `/agents/${agentId}/runtime-sessions/sync`,
     AGENT_MESSAGES: (agentId: string) => `/agents/${agentId}/messages`,
     AGENT_CONTEXT_DOC: (agentId: string) => `/agents/${agentId}/context-doc`,
     AGENT_CONTEXT_DOC_REFRESH: (agentId: string) =>

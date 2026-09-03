@@ -714,6 +714,7 @@ export type {
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRestoreResponse,
+    RuntimeSessionSyncResponse,
     ShareChatSessionResult,
     GetChatSessionShareResult,
     SharedChatMessage,

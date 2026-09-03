@@ -757,6 +757,46 @@ export class ChatRepository {
         })
     }
 
+    // Append recovered messages onto an EXISTING session without disturbing
+    // what is already there — used to fold a terminal TUI's own transcript
+    // back into the cloud session. Locks the session and refuses while a live
+    // turn holds it, the same idle contract as replaceSessionMessages; the
+    // caller guarantees idempotency by only passing the diff against the
+    // current cloud messages.
+    async appendRecoveredMessages(
+        sessionId: string,
+        rows: NewChatMessage[],
+        sources: NewChatMessageSource[]
+    ): Promise<{
+        appended: number
+        conflicted: boolean
+        upsertedSources: number
+    }> {
+        if (rows.length === 0)
+            return { appended: 0, conflicted: false, upsertedSources: 0 }
+        return this.db.transaction(async (tx) => {
+            const [session] = await tx
+                .select({ inflightMessageId: chatSessions.inflightMessageId })
+                .from(chatSessions)
+                .where(eq(chatSessions.id, sessionId))
+                .limit(1)
+                .for('update')
+            if (!session || session.inflightMessageId !== null)
+                return { appended: 0, conflicted: true, upsertedSources: 0 }
+            await insertMessagesTx(tx, rows)
+            await upsertMessageSourcesTx(tx, sources)
+            await tx
+                .update(chatSessions)
+                .set({ updatedAt: new Date() })
+                .where(eq(chatSessions.id, sessionId))
+            return {
+                appended: rows.length,
+                conflicted: false,
+                upsertedSources: sources.length
+            }
+        })
+    }
+
     async upsertMessageSources(
         rows: NewChatMessageSource[],
         fence?: TurnExecutionFence

@@ -8,6 +8,7 @@ import type {
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
+    RuntimeSessionSyncResponse,
     RuntimeSessionViewResponse
 } from '@manyfold/shared'
 import {
@@ -527,6 +528,152 @@ export class SessionRecoveryService {
             rebuiltMessageCount: messageRows.length,
             recoveredSourceCount: replaced.upsertedSources,
             warnings: result.warnings
+        }
+    }
+
+    // Fold a framework CLI's own transcript back into an existing cloud
+    // session. The chat view is fed by Postgres, written only during turns the
+    // API dispatches; a terminal TUI that resumed the session writes solely to
+    // the CLI's local file. This reads that file, diffs it against the current
+    // cloud messages, and appends only what the TUI added. Every non-actionable
+    // state (no ref, no reader, live turn, nothing new) returns appended:0, so
+    // the caller may fire it freely — on every switch back to chat and on
+    // session open.
+    async syncRuntimeSessionIntoCloud(
+        userId: string,
+        agentId: string,
+        sessionId: string
+    ): Promise<RuntimeSessionSyncResponse> {
+        const { session, agent } = await this.loadContext(
+            userId,
+            agentId,
+            sessionId
+        )
+        const ref = session.frameworkSessionRef?.trim()
+        if (!ref)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'no-session-ref',
+                warnings: []
+            }
+        const reader = this.readers.get(agent.framework)
+        if (!reader)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'unsupported',
+                warnings: []
+            }
+        // A live turn is already the authoritative writer; appending under it
+        // would interleave with the stream it is persisting.
+        if (session.inflightMessageId !== null)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'inflight',
+                warnings: []
+            }
+
+        const existingRows = await this.repo.listMessages(session.id)
+        const existingMessages = existingRows.map(toApiMessage)
+        const handle = await this.recoveryFsOrUnavailable(agent.id)
+        const openclawRpc =
+            agent.framework === 'openclaw'
+                ? await this.drivers.openclawRpcForAgent(agent.id)
+                : null
+        let result: {
+            messages: RecoveredMessage[]
+            warnings: string[]
+            sourceFile: string | null
+        }
+        try {
+            result = await this.runReader(() =>
+                reader.readMessages({
+                    fs: handle.fs,
+                    agentId: agent.id,
+                    frameworkSessionRef: ref,
+                    openclawRpc
+                })
+            )
+        } finally {
+            openclawRpc?.disconnect()
+        }
+
+        const comparison = compareRecoveryMessages(
+            result.messages,
+            existingMessages,
+            session.id
+        )
+        const missing = comparison.missingRecoveredMessages
+        const warnings = [...result.warnings]
+        if (comparison.degraded)
+            warnings.push(
+                'session too large for an exact diff; some terminal messages may not have synced'
+            )
+        if (missing.length === 0)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: null,
+                warnings
+            }
+
+        // Order the appended messages after everything already stored, then let
+        // their own transcript timestamps sequence them among themselves.
+        const lastExistingMs = existingRows.reduce(
+            (max, row) => Math.max(max, row.createdAt.getTime()),
+            0
+        )
+        const fallback = new Date(Math.max(Date.now(), lastExistingMs + 1))
+        const messageCreatedAts = orderedRecoveredMessageDates(
+            missing,
+            fallback
+        )
+        const messageRows = missing.map(
+            (msg, index): NewChatMessage => ({
+                id: randomUUID(),
+                sessionId: session.id,
+                role: msg.role,
+                contentBlocksJson: collapseTextBlocks(msg.contentBlocks),
+                capabilityEventsJson: recoveredMessageMetadata({
+                    sourceRef: ref,
+                    sourceFile: result.sourceFile,
+                    externalId: msg.externalId,
+                    model: msg.model ?? null
+                }),
+                createdAt: messageCreatedAts[index]
+            })
+        )
+        const sourceRows = buildRecoverySourceRowsForMessages({
+            recoveredMessages: missing,
+            messageRows,
+            sessionId: session.id,
+            framework: agent.framework,
+            runtime: agent.runtime,
+            sourceRef: ref,
+            sourceFile: result.sourceFile
+        })
+        const appendResult = await this.repo.appendRecoveredMessages(
+            session.id,
+            messageRows,
+            sourceRows
+        )
+        if (appendResult.conflicted)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'inflight',
+                warnings
+            }
+        this.log.log(
+            `synced runtime session into cloud session=${session.id} framework=${agent.framework} appended=${appendResult.appended} from=${result.sourceFile}`
+        )
+        return {
+            appended: appendResult.appended,
+            recoveredSourceCount: appendResult.upsertedSources,
+            skipped: null,
+            warnings
         }
     }
 

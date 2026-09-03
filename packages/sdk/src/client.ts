@@ -234,6 +234,7 @@ import type {
     UpdateNotificationWebhookBody,
     SendTestNotificationResult,
     RuntimeSessionRestoreResponse,
+    RuntimeSessionSyncResponse,
     RuntimeSessionViewResponse,
     SkillRepoSummary,
     UpdateSpritesAccountBody,
@@ -1412,6 +1413,10 @@ export interface NcaClient {
             agentId: string,
             sessionRef: string
         ) => Promise<RuntimeSessionRestoreResponse>
+        runtimeSessionSync: (
+            agentId: string,
+            body: { sessionId: string }
+        ) => Promise<RuntimeSessionSyncResponse>
     }
     health: () => Promise<{ status: string; db: string; version: string }>
 }
@@ -3320,6 +3325,14 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     {
                         method: 'POST',
                         body: JSON.stringify({ sessionRef })
+                    }
+                ),
+            runtimeSessionSync: (agentId, body) =>
+                request<RuntimeSessionSyncResponse>(
+                    apiPaths.AGENT_RUNTIME_SESSION_SYNC(agentId),
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
                     }
                 )
         },

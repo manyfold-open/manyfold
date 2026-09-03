@@ -173,6 +173,10 @@ const MIN_RUNTIME_SESSION_PANEL_WIDTH = 420
 const MAX_RUNTIME_SESSION_PANEL_WIDTH = 900
 const CHAT_MESSAGES_PAGE_SIZE = CHAT_MESSAGE_SOFT_LIMIT
 
+// Don't re-read the runtime transcript more than once per this window on the
+// throttled (session-open) path; a forced switch-back sync ignores it.
+const RUNTIME_SYNC_THROTTLE_MS = 15_000
+
 // A rejected cancel POST is undone immediately by cancelRequestFailed. This
 // covers the other case: the POST was accepted (or is still hanging) and no
 // terminal event followed, so re-arm the stop control rather than leaving the
@@ -281,6 +285,9 @@ const AgentChat: FC = (): ReactNode => {
     const loadedMessagesAgentIdRef = useRef<string | null>(null)
     const loadedMessagesSessionIdRef = useRef<string | null>(null)
     const messagesLengthRef = useRef(0)
+    // When a session was last folded from its runtime transcript, per session.
+    // Throttles the open-session sync so re-renders don't re-read the CLI file.
+    const runtimeSyncAtRef = useRef<Map<string, number>>(new Map())
     const filePreviewRequestIdRef = useRef(0)
     const modelInitializedAgentRef = useRef<string | null>(null)
     const cleanupInFlightRef = useRef<Set<string>>(new Set())
@@ -864,6 +871,60 @@ const AgentChat: FC = (): ReactNode => {
         }
     }, [activeSessionId, agentId, client, requestMessageScroll])
 
+    // Fold a resumed terminal TUI's own messages back into this session. The
+    // TUI writes only to the CLI's local transcript, so the chat view never
+    // sees them until this reads that file and appends the diff server-side.
+    // The server no-ops on anything unsyncable, so this is safe to call on
+    // session open (throttled) and on every switch back from the terminal
+    // (forced). Only appended>0 warrants a reload.
+    const syncRuntimeSessionAndReload = useCallback(
+        async (force: boolean): Promise<void> => {
+            const sid = activeSessionIdRef.current
+            const aid = agentIdRef.current
+            if (!aid || !sid || !currentAgent) return
+            if (
+                currentAgent.framework !== 'claude-code' &&
+                currentAgent.framework !== 'codex'
+            )
+                return
+            if (currentAgent.runtime === 'external') return
+            // The server owns the real gate (session ref, reader, inflight);
+            // it returns quickly when there is nothing to sync. Gating on the
+            // client's session cache here would over-skip when that cache is
+            // stale about the framework_session_ref.
+            if (!force) {
+                const last = runtimeSyncAtRef.current.get(sid) ?? 0
+                if (Date.now() - last < RUNTIME_SYNC_THROTTLE_MS) return
+            }
+            runtimeSyncAtRef.current.set(sid, Date.now())
+            try {
+                const res = await client.chat.runtimeSessionSync(aid, {
+                    sessionId: sid
+                })
+                if (
+                    res.appended > 0 &&
+                    activeSessionIdRef.current === sid &&
+                    agentIdRef.current === aid
+                )
+                    await reloadSessionMessages()
+            } catch {
+                // Best-effort: a failed sync just leaves the chat as it was.
+            }
+        },
+        [client, currentAgent, reloadSessionMessages]
+    )
+
+    // On session open: once the initial page has loaded, pull anything a
+    // terminal TUI added while we were away.
+    useEffect(() => {
+        if (loadedMessagesSessionId && loadedMessagesSessionId === activeSessionId)
+            void syncRuntimeSessionAndReload(false)
+    }, [
+        activeSessionId,
+        loadedMessagesSessionId,
+        syncRuntimeSessionAndReload
+    ])
+
     const loadOlderMessages = useCallback(async (): Promise<void> => {
         if (
             !agentId ||
@@ -1164,6 +1225,9 @@ const AgentChat: FC = (): ReactNode => {
         (next: SessionViewMode): void => {
             if (next === 'chat') {
                 setSessionView('chat')
+                // Coming back from the terminal is the moment to fold in
+                // whatever was said in the TUI. Forced past the throttle.
+                if (sessionTerminal) void syncRuntimeSessionAndReload(true)
                 return
             }
             if (!currentAgent) return
@@ -1214,6 +1278,7 @@ const AgentChat: FC = (): ReactNode => {
             confirm,
             currentAgent,
             sessionTerminal,
+            syncRuntimeSessionAndReload,
             t
         ]
     )
