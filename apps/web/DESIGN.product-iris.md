@@ -665,31 +665,11 @@ html[lang^='zh'] .docs-h1 {
 
 ---
 
-## 10. 四个不在本轮的问题
+## 10. 不在本轮的问题
 
-### 10.1 `DESIGN.landing.md` §2.2–§2.4 需要一个修正 PR
+> §10.1–10.3 原本记录 `DESIGN.landing.md` 的三处错误与 `styles.css` 的一处矛盾注释。**它们已经随本文档同一个 PR 修完了** —— 字体族（Fraunces → Source Serif 4）、判定色表（浅色 fill 档不存在）、冷偏口径（2–4 单位只对背景成立）。保留这段是为了记住它们存在过：本文档的第一版和 mock 的第一版都是照着错的文档写的，`SOFT 50` 那个静默无效的声明肉眼几乎看不出来。
 
-那三节描述的字体（Fraunces / SOFT 50 / WONK 0 / 字重 300 / tracking −0.014em / lh 0.98）与 `src/styles.css` 的实现（Source Serif 4 / 无可变轴 / 400 / −0.018em / 1）**整段不符**，见 §4.0 的对照表。字号阶梯是对的，其余全错。
-
-这不在本轮范围，但**应该尽快单独修**，因为它正在误导实现：本文档的第一版就是照着它写的，mock 的第一版也照着它加载了 Fraunces 并写了 `SOFT 50` —— 而那个声明在 Source Serif 4 上静默无效，肉眼几乎察觉不到。**任何照着那三节写代码的人都会踩同一个坑。**
-
-修的时候连带确认两处文档里没有、实现里有的东西：`text-wrap: balance`（`styles.css:2379`）与 CJK 的 `word-break: keep-all`（`styles.css:3725`）。
-
-### 10.2 `DESIGN.landing.md` §1.4 的判定色表也是错的
-
-那张表的表头是「浅色 fill / text」，把 `#22c46f` / `#e9a23b` / `#f2554b` 列成浅色的 fill 档。**代码里没有浅色 fill 档** —— 浅色的 `--lp-success` 就是单值 `#12a75c`；那三个 hex 实际是**深色模式的 `-strong`**（`styles.css:2293/2296/2299`）。
-
-同一节还写着 `fill = 500 · numeral = 400 · label = ink-3` 这条「一支色两个亮度」的规则，读起来像是浅色也有两档 —— 实际上代码里的三档是 `-{hue}` / `-bg` / `-strong`，没有 fill/numeral 的分离。
-
-顺带：`-bg` 的 alpha 在表里没写，实际是 info .10 / success .10 / warning .10 / **error .09** / **idle .13**，深色另一组。
-
-### 10.3 `styles.css` 的 `.landing-root` 注释自相矛盾
-
-`styles.css:1994` 的注释写着 _Only 2–4 units of cool bias (B a little above R) to cancel the yellow cast of warm displays; no hue is readable_。但同一个块里往下 20 行，`--lp-muted: #5c5e66` 的 B−R 是 **10**，`--lp-subtle: #8d8f97` 也是 10。
-
-那句话只对**背景五档**成立。这条注释就是本文档 §1.2 那个坑的源头 —— 它读起来像是整个 Ash 系统的规则。建议改成「背景档 0–3 单位，墨阶在中灰区最多 10 单位」。
-
-### 10.4 两份文档最终要合并
+### 10.1 两份文档最终要合并
 
 `DESIGN.md` 与 `DESIGN.landing.md` 迁移完成后会有大量重复内容（阴影解剖、运动、状态矩阵、链接规则都变成逐字相同）。`DESIGN.landing.md` §12 第 4 条要求那时把两份文档合并。
 
