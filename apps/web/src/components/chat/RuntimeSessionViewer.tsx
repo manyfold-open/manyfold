@@ -5,7 +5,7 @@ import type {
     RuntimeSessionCandidate,
     RuntimeSessionViewResponse
 } from '@manyfold/shared'
-import type { CSSProperties, FC, ReactNode } from 'react'
+import type { FC, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import EmptyState from '@/components/EmptyState'
 import { MessageBubble } from '@/components/chat/MessageList'
@@ -27,7 +27,6 @@ import type { TFn } from '@/lib/i18n'
 interface RuntimeSessionViewerProps {
     agentId: string
     sessionId: string | null
-    width: number
     onClose: () => void
     onApplied: (sessionId?: string) => void
 }
@@ -35,7 +34,6 @@ interface RuntimeSessionViewerProps {
 const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
     agentId,
     sessionId,
-    width,
     onClose,
     onApplied
 }): ReactNode => {
@@ -244,13 +242,8 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
     })
 
     return (
-        <aside
-            className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--runtime-session-viewer-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
-            style={
-                {
-                    '--runtime-session-viewer-width': `${width}px`
-                } as CSSProperties
-            }
+        <div
+            className='flex min-h-0 w-full flex-1 flex-col'
             aria-label={t('web.runtimeSession.viewerLabel')}
         >
             <header className='border-divider/80 flex min-h-11 shrink-0 items-center gap-2 border-b px-3'>
@@ -338,7 +331,7 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
                     </span>
                 </ShortcutTooltip>
             </footer>
-        </aside>
+        </div>
     )
 }
 

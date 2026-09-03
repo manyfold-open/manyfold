@@ -16,6 +16,7 @@ import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-sto
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
+import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 
 export interface SpritesTerminalRequest {
     // Either an agent terminal or a bare-sandbox terminal. sessionKey is the
@@ -32,6 +33,9 @@ export interface SpritesTerminalRequest {
     cols: number
     cwd?: string
     rows: number
+    // Set to open straight into a framework TUI instead of a bare login
+    // shell. The argv is built server-side by TerminalResumeService.
+    resume?: ResolvedTerminalResume | null
     client: WsClient
     onClose: () => void
 }
@@ -39,6 +43,23 @@ export interface SpritesTerminalRequest {
 // The interactive terminal runs as the USER, so it carries a short-lived
 // api.full token injected per-session (never on the VM profile). TTL bounds
 // exposure if the close-time delete or the process is lost.
+const shellQuote = (value: string): string =>
+    `'${value.replace(/'/g, `'\\''`)}'`
+
+/* A login shell, or the resume argv followed by one. `exec bash -il` rather
+   than letting the shell end: quitting the TUI then drops the user into the
+   interactive shell they would otherwise have had, instead of closing the
+   websocket out from under them. Running the command AS the shell's argv is
+   what keeps this race-free — there is no "is the prompt ready yet" guess,
+   which is the only reliable way to inject a command into a fresh pty. */
+export const terminalShellCommand = (
+    resume?: { command: string[] } | null
+): string[] => {
+    if (!resume?.command.length) return ['bash', '-il']
+    const quoted = resume.command.map(shellQuote).join(' ')
+    return ['bash', '-ilc', `${quoted}; exec bash -il`]
+}
+
 const TERMINAL_TOKEN_TTL_SECONDS = 12 * 60 * 60
 const TERMINAL_HANDSHAKE_RETRY_DELAYS_MS = [250, 750] as const
 
@@ -77,6 +98,7 @@ export class SpritesTerminal {
             cols,
             cwd,
             rows,
+            resume,
             client,
             onClose
         } = req
@@ -114,7 +136,7 @@ export class SpritesTerminal {
             spritesClient.wsBaseUrl,
             spriteName,
             {
-                cmd: ['bash', '-il'],
+                cmd: terminalShellCommand(resume),
                 dir: cwd ?? mountPath,
                 cols,
                 rows,
@@ -122,6 +144,7 @@ export class SpritesTerminal {
                     ...envTextToRecord(envTextFromExtras(extras)),
                     ...connectionEnv,
                     ...(agentId ? { MF_AGENT_ID: agentId } : {}),
+                    ...(resume?.env ?? {}),
                     MF_API_TOKEN: terminalToken.plaintext,
                     TERM: 'xterm-256color',
                     LANG: 'C.UTF-8',

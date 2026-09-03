@@ -91,6 +91,7 @@ import type {
     CliVersionCatalog,
     CreateSandboxBody,
     SetSandboxTerminalBody,
+    SetSandboxTerminalModelCredentialsBody,
     RenameBody,
     AgentSkillsGroup,
     AgentStorageUsageResponse,
@@ -234,6 +235,7 @@ import type {
     UpdateNotificationWebhookBody,
     SendTestNotificationResult,
     RuntimeSessionRestoreResponse,
+    RuntimeSessionSyncResponse,
     RuntimeSessionViewResponse,
     SkillRepoSummary,
     UpdateSpritesAccountBody,
@@ -587,6 +589,10 @@ export interface SandboxesClient {
     delete: (id: string) => Promise<void>
     rename: (id: string, name: string) => Promise<SandboxSummary>
     setTerminal: (id: string, enabled: boolean) => Promise<SandboxSummary>
+    setTerminalModelCredentials: (
+        id: string,
+        enabled: boolean
+    ) => Promise<SandboxSummary>
     detectFrameworks: (id: string) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
@@ -1114,6 +1120,7 @@ export interface NcaClient {
             | 'delete'
             | 'rename'
             | 'setTerminal'
+            | 'setTerminalModelCredentials'
             | 'detectFrameworks'
             | 'refreshStatus'
             | 'upgradeCli'
@@ -1412,6 +1419,10 @@ export interface NcaClient {
             agentId: string,
             sessionRef: string
         ) => Promise<RuntimeSessionRestoreResponse>
+        runtimeSessionSync: (
+            agentId: string,
+            body: { sessionId: string }
+        ) => Promise<RuntimeSessionSyncResponse>
     }
     health: () => Promise<{ status: string; db: string; version: string }>
 }
@@ -2356,6 +2367,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     method: 'PATCH',
                     body: JSON.stringify({ enabled } as SetSandboxTerminalBody)
                 }),
+            setTerminalModelCredentials: (id, enabled) =>
+                request<SandboxSummary>(
+                    apiPaths.SANDBOX_TERMINAL_MODEL_CREDENTIALS(id),
+                    {
+                        method: 'PATCH',
+                        body: JSON.stringify({
+                            enabled
+                        } as SetSandboxTerminalModelCredentialsBody)
+                    }
+                ),
             detectFrameworks: (id) =>
                 request<SandboxSummary>(
                     apiPaths.SANDBOX_DETECT_FRAMEWORKS(id),
@@ -3319,6 +3340,14 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         method: 'POST',
                         body: JSON.stringify({ sessionRef })
                     }
+                ),
+            runtimeSessionSync: (agentId, body) =>
+                request<RuntimeSessionSyncResponse>(
+                    apiPaths.AGENT_RUNTIME_SESSION_SYNC(agentId),
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body)
+                    }
                 )
         },
         frameworkCatalog: {
@@ -3538,6 +3567,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
                             body: JSON.stringify({
                                 enabled
                             } as SetSandboxTerminalBody)
+                        }
+                    ),
+                setTerminalModelCredentials: (id, enabled) =>
+                    request<SandboxSummary>(
+                        apiPaths.ADMIN_SANDBOX_TERMINAL_MODEL_CREDENTIALS(id),
+                        {
+                            method: 'PATCH',
+                            body: JSON.stringify({
+                                enabled
+                            } as SetSandboxTerminalModelCredentialsBody)
                         }
                     ),
                 detectFrameworks: (id) =>

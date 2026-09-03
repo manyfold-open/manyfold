@@ -61,6 +61,7 @@ const sandbox = (patch: Partial<SandboxSummary> = {}): SandboxSummary => ({
     spriteName: 'sprite-1',
     spriteStatus: 'running',
     terminalEnabled: false,
+    terminalModelCredentials: false,
     activeSecondsThisPeriod: 0,
     agentsCount: 0,
     detectedFrameworks: [],

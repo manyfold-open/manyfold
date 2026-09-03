@@ -57,6 +57,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { likeNeedle } from '@/common/catalog-query'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { nonTerminalStreamEventInsert } from './stream-event-insert'
+import { dedupRecoveredRowsBySourceKey } from './recovered-dedup'
 import { createAssistantBlockBuffer } from './assistant-blocks'
 import { TurnFenceLostError, type TurnExecutionFence } from './turn-fence'
 
@@ -722,6 +723,7 @@ export class ChatRepository {
                 .delete(chatMessages)
                 .where(eq(chatMessages.sessionId, sessionId))
             await insertMessagesTx(tx, rows)
+            await insertRecoveredTerminalsTx(tx, rows)
             await upsertMessageSourcesTx(tx, sources)
             await tx
                 .update(chatSessions)
@@ -752,8 +754,94 @@ export class ChatRepository {
                 .values(input.session)
                 .returning()
             await insertMessagesTx(tx, input.messages)
+            await insertRecoveredTerminalsTx(tx, input.messages)
             await upsertMessageSourcesTx(tx, input.sources)
             return { session: created, upsertedSources: input.sources.length }
+        })
+    }
+
+    // Append recovered messages onto an EXISTING session without disturbing
+    // what is already there — used to fold a terminal TUI's own transcript
+    // back into the cloud session. Locks the session and refuses while a live
+    // turn holds it, the same idle contract as replaceSessionMessages; the
+    // caller guarantees idempotency by only passing the diff against the
+    // current cloud messages.
+    async appendRecoveredMessages(
+        sessionId: string,
+        rows: NewChatMessage[],
+        sources: NewChatMessageSource[]
+    ): Promise<{
+        appended: number
+        conflicted: boolean
+        upsertedSources: number
+    }> {
+        if (rows.length === 0)
+            return { appended: 0, conflicted: false, upsertedSources: 0 }
+        return this.db.transaction(async (tx) => {
+            const [session] = await tx
+                .select({ inflightMessageId: chatSessions.inflightMessageId })
+                .from(chatSessions)
+                .where(eq(chatSessions.id, sessionId))
+                .limit(1)
+                .for('update')
+            if (!session || session.inflightMessageId !== null)
+                return { appended: 0, conflicted: true, upsertedSources: 0 }
+
+            // Idempotency: message rows carry random ids, so only the stable
+            // per-transcript-line source_event_key can tell a re-sync from a
+            // fresh one. Under the session lock, drop any message whose key is
+            // already stored — this makes the append safe to fire on every
+            // switch-back and to overlap (the lock serializes; the second sync
+            // sees the first's keys) without ever duplicating a terminal
+            // message.
+            const incomingKeys = [
+                ...new Set(
+                    sources
+                        .map((source) => source.sourceEventKey)
+                        .filter((key): key is string => key != null)
+                )
+            ]
+            const existingRows = incomingKeys.length
+                ? await tx
+                      .select({
+                          sourceEventKey: chatMessageSources.sourceEventKey
+                      })
+                      .from(chatMessageSources)
+                      .where(
+                          and(
+                              eq(chatMessageSources.sessionId, sessionId),
+                              inArray(
+                                  chatMessageSources.sourceEventKey,
+                                  incomingKeys
+                              )
+                          )
+                      )
+                : []
+            const existingKeys = new Set(
+                existingRows
+                    .map((row) => row.sourceEventKey)
+                    .filter((key): key is string => key != null)
+            )
+            const { messageRows, sourceRows } = dedupRecoveredRowsBySourceKey(
+                rows,
+                sources,
+                existingKeys
+            )
+            if (messageRows.length === 0)
+                return { appended: 0, conflicted: false, upsertedSources: 0 }
+
+            await insertMessagesTx(tx, messageRows)
+            await insertRecoveredTerminalsTx(tx, messageRows)
+            await upsertMessageSourcesTx(tx, sourceRows)
+            await tx
+                .update(chatSessions)
+                .set({ updatedAt: new Date() })
+                .where(eq(chatSessions.id, sessionId))
+            return {
+                appended: messageRows.length,
+                conflicted: false,
+                upsertedSources: sourceRows.length
+            }
         })
     }
 
@@ -2765,6 +2853,32 @@ const insertMessagesTx = async (
 ): Promise<void> => {
     for (const chunk of chunkRows(rows, MESSAGE_INSERT_CHUNK))
         await tx.insert(chatMessages).values(chunk.map(sanitizeMessageRow))
+}
+
+// Recovery-written assistant rows never had a live stream, so nothing else
+// ever closes them. Without a done/error row the dead-turn predicate
+// (noTerminalStreamEvent) reads each one as an interrupted inflight turn, and
+// the next page load stamps a retryable server_restart over a turn that in
+// fact completed in the TUI. Stamping the terminal in the same transaction
+// means no reader can ever observe a recovered assistant message without it.
+const insertRecoveredTerminalsTx = async (
+    tx: DatabaseTx,
+    rows: NewChatMessage[]
+): Promise<void> => {
+    const terminals = rows
+        .filter((row) => row.role === 'assistant')
+        .map(
+            (row): NewChatStreamEventRow => ({
+                sessionId: row.sessionId,
+                messageId: row.id,
+                seq: 1,
+                eventType: 'done',
+                payloadJson: { type: 'done', finalMessageId: row.id },
+                createdAt: row.createdAt ?? new Date()
+            })
+        )
+    if (terminals.length === 0) return
+    await tx.insert(chatStreamEvents).values(terminals)
 }
 
 const fenceHolds = async (

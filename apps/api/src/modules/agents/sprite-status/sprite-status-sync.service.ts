@@ -27,6 +27,7 @@ import {
 import {
     createClient as createSpritesClient,
     SpritesError,
+    type ExecSessionInfo,
     type ListSpritesResponse,
     type SpritesClient,
     type SpritesLogger
@@ -76,6 +77,22 @@ const SYNC_LEASE_TTL_MS = 45_000
 // reset it; only attaching an agent (which clears emptied_at) does.
 const REAP_EMPTY_AGE_MS = 7 * 24 * 60 * 60_000
 const REAPER_BATCH = 50
+// Backstop for exec sessions nobody is attached to any more. sprites.dev keeps
+// a session's process alive after the client socket goes away, so an exec that
+// died without killing its session leaves the process running — and a live exec
+// session pins the VM `running`, which bills active hours forever. Seen on prod
+// [2026-09-03]: a free-plan sandbox burned 52h against a 5h quota over three
+// days on two `cat` sessions left by one cancelled upload, and no other sweep
+// could touch it (no agents, no runtimes, no services, no tasks).
+const EXEC_SESSION_REAPER_INTERVAL_MS = 10 * 60_000
+// Must stay clear of the longest legitimate exec. The turn watchdog's default
+// ceiling is 2h (DEFAULT_TURN_MAX_DURATION_MS), so this leaves 3x headroom;
+// widen it alongside MF_TURN_MAX_DURATION_MS if that is ever raised past 2h.
+const EXEC_SESSION_MAX_IDLE_MS = 6 * 60 * 60_000
+// sprites.dev reports "no activity recorded" as the zero time rather than
+// omitting the field, and it is genuinely absent on some sprites — a session
+// with no usable last_activity is aged from `created` instead.
+const EXEC_SESSION_EPOCH_FLOOR_MS = Date.UTC(1971, 0, 1)
 
 const hourFloor = (epochMs: number): number =>
     Math.floor(epochMs / 3_600_000) * 3_600_000
@@ -133,6 +150,50 @@ interface FailureState {
     lastMessage: string
 }
 
+export interface AbandonedExecSession {
+    session: ExecSessionInfo
+    idleMs: number
+}
+
+// Last sign of life for an exec session. sprites.dev reports "no activity
+// recorded" as the zero time and omits the field entirely on some sprites, so
+// an unusable last_activity falls back to `created`; read literally, year 1
+// would make every session look infinitely idle and reap live turns.
+const execSessionLastSeenMs = (session: ExecSessionInfo): number | null => {
+    const stamps = [session.last_activity, session.created]
+        .map((raw) => (raw ? Date.parse(raw) : Number.NaN))
+        .filter(
+            (ms) => Number.isFinite(ms) && ms >= EXEC_SESSION_EPOCH_FLOOR_MS
+        )
+    return stamps.length > 0 ? Math.max(...stamps) : null
+}
+
+// Sessions sprites.dev still counts as active but that nothing has touched for
+// longer than any legitimate exec. A session with no usable timestamp at all is
+// deliberately left alone: with no age there is no evidence of abandonment, and
+// killing a live turn is far worse than waiting for the next tick.
+export const abandonedExecSessions = (
+    sessions: readonly ExecSessionInfo[],
+    now: number,
+    maxIdleMs: number
+): AbandonedExecSession[] => {
+    const out: AbandonedExecSession[] = []
+    for (const session of sessions) {
+        if (session.is_active !== true) continue
+        const lastSeen = execSessionLastSeenMs(session)
+        if (lastSeen === null) continue
+        const idleMs = now - lastSeen
+        if (idleMs > maxIdleMs) out.push({ session, idleMs })
+    }
+    return out
+}
+
+// Only the argv head. The arguments carry user file paths — the leak that
+// motivated this reaper was `cat > …/all_files 02.zip.mf-part` — while the
+// binary name alone is what identifies which exec path leaked.
+const execCommandHead = (command: string | undefined): string =>
+    (command ?? '').trim().split(/\s+/)[0] || 'unknown'
+
 const backoffMs = (count: number): number =>
     Math.min(SPRITE_SLOW_INTERVAL_MS * 2 ** Math.min(count, 5), MAX_BACKOFF_MS)
 
@@ -156,6 +217,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     private nextSnapshotAt = 0
     private nextKeepAliveReconcileAt = 0
     private nextReaperAt = 0
+    private nextExecSessionReaperAt = 0
     private nextQuotaWarningsAt = 0
     private readonly leaseHolderId =
         process.env.FLY_MACHINE_ID || process.env.HOSTNAME || randomUUID()
@@ -204,6 +266,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             await this.tickSprites()
             await this.tickKeepAliveReconcile()
             await this.tickReaper()
+            await this.tickExecSessionReaper()
             await this.tickK8s()
             await this.tickQuotaWarnings()
             await this.tickSnapshot()
@@ -369,6 +432,101 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     `reap failed for sandbox host ${c.id}: ${describeError(err)}`
                 )
             }
+        }
+    }
+
+    // Kill exec sessions nothing is attached to any more. Scoped to sandbox
+    // hosts sprites.dev currently reports `running`: that is both the
+    // population that bills active hours and the only one where a live session
+    // can still be the thing holding the VM up. Note that SandboxesService.stop
+    // cannot do this job — it only removes agents, runtimes, services and
+    // tasks, so a host with none of those (the prod case) has nothing it can
+    // pull, and there is no vendor API to suspend a sprite outright.
+    private async tickExecSessionReaper(): Promise<void> {
+        const now = Date.now()
+        if (now < this.nextExecSessionReaperAt) return
+        this.nextExecSessionReaperAt = now + EXEC_SESSION_REAPER_INTERVAL_MS
+        let hosts: Array<{
+            id: string
+            userId: string
+            accountId: string | null
+            spriteName: string | null
+        }>
+        try {
+            hosts = await this.db
+                .select({
+                    id: runtimeHosts.id,
+                    userId: runtimeHosts.userId,
+                    accountId: runtimeHosts.accountId,
+                    spriteName: runtimeHosts.spriteName
+                })
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.spriteStatus, 'running')
+                    )
+                )
+                .limit(REAPER_BATCH)
+        } catch (err) {
+            this.log.warn(
+                `exec-session reaper scan failed: ${describeError(err)}`
+            )
+            return
+        }
+        for (const host of hosts) {
+            if (!host.accountId || !host.spriteName) continue
+            try {
+                await this.reapExecSessionsOnHost({
+                    id: host.id,
+                    userId: host.userId,
+                    accountId: host.accountId,
+                    spriteName: host.spriteName
+                })
+            } catch (err) {
+                // A sprite the row still points at may already be gone; every
+                // other failure is worth a line so a persistently unreapable
+                // host is visible instead of silently billing.
+                if (err instanceof SpritesError && err.code === 'not_found')
+                    continue
+                this.log.warn(
+                    `exec-session reap failed for host ${host.id}: ${describeError(err)}`
+                )
+            }
+        }
+    }
+
+    private async reapExecSessionsOnHost(host: {
+        id: string
+        userId: string
+        accountId: string
+        spriteName: string
+    }): Promise<void> {
+        const account = await this.accounts.getById(host.accountId)
+        if (!account) return
+        const client = this.clientFor(account)
+        const abandoned = abandonedExecSessions(
+            await client.listExecSessions(host.spriteName),
+            Date.now(),
+            EXEC_SESSION_MAX_IDLE_MS
+        )
+        for (const { session, idleMs } of abandoned) {
+            await client.killExecSession(host.spriteName, session.id)
+            const command = execCommandHead(session.command)
+            // warn, not log: each one is a session that got past the
+            // client-side kill in @manyfold/sprites, so it wants to be findable
+            this.log.warn(
+                `killed abandoned exec session ${session.id} on ${host.spriteName} (host=${host.id} cmd=${command} idle=${Math.round(idleMs / 60_000)}m)`
+            )
+            this.telemetry.event('sprite_exec_session.reaped', {
+                hostId: host.id,
+                userId: host.userId,
+                spriteName: host.spriteName,
+                sessionId: session.id,
+                command,
+                tty: session.tty === true,
+                idleMs
+            })
         }
     }
 

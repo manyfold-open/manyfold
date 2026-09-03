@@ -2282,6 +2282,10 @@ export interface SandboxSummary {
     spriteName: string | null
     spriteStatus: SpriteStatus | null
     terminalEnabled: boolean
+    // Second, separate consent: may a terminal session carry this agent's
+    // model-provider credentials so a framework TUI can resume a chat
+    // session. Off by default.
+    terminalModelCredentials: boolean
     agentsCount: number
     detectedFrameworks: DetectedFramework[]
     cliVersion: string | null
@@ -2362,6 +2366,10 @@ export interface CreateSandboxBody {
 }
 
 export interface SetSandboxTerminalBody {
+    enabled: boolean
+}
+
+export interface SetSandboxTerminalModelCredentialsBody {
     enabled: boolean
 }
 

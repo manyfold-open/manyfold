@@ -64,7 +64,6 @@ interface RunExecStreamParams {
     tty: boolean
     cols?: number
     rows?: number
-    maxRunAfterDisconnectSeconds?: number
     reattachEnabled: boolean
     maxReattachAttempts: number
     initialConnectRetryEnabled: boolean
@@ -198,11 +197,8 @@ const runExecStream = (
     // Absolute wall-clock backstop; spans reconnects and is never reset.
     const timer = setTimeout(() => {
         if (settled) return
-        bestEffortKill('timeout')
-        try {
-            currentWs.close(1000, 'timeout')
-        } catch {}
-        settleFail(
+        failClientSide(
+            'timeout',
             new SpritesError(
                 'transient',
                 `execSpriteStream timed out after ${timeoutMs}ms`,
@@ -428,9 +424,13 @@ const runExecStream = (
                     )
                 } catch {}
             }
-            params.startStdin?.(ws, settleFail, () => {
-                stdinEofSent = true
-            })
+            params.startStdin?.(
+                ws,
+                (err) => failClientSide('stdin_error', err),
+                () => {
+                    stdinEofSent = true
+                }
+            )
         })
 
         ws.on('message', (data, isBinary) => {
@@ -672,16 +672,21 @@ const runExecStream = (
         })
     }
 
-    // Client-initiated terminations (abort/timeout) must explicitly kill the
-    // remote process: with maxRunAfterDisconnectSeconds set, closing the socket
-    // alone would leave it running for the full detach window. Transient
-    // failures (liveness, transport error, server close) never kill — surviving
-    // those is what the detach window is for.
+    // Client-initiated terminations must explicitly kill the remote process,
+    // because closing the socket does not stop it. With
+    // maxRunAfterDisconnectSeconds it survives the whole detach window, and
+    // without the option it survives indefinitely — Seen on prod [2026-09-03]:
+    // two `cat` sessions left by a cancelled upload were still `is_active`
+    // three days later, which pinned the sprite `running` and billed active
+    // hours the entire time. So this is NOT gated on the detach option.
+    // Transient failures (liveness, transport error, server close) still never
+    // kill — surviving those is what reattach and the detach window are for,
+    // and the API-side session reaper is the backstop for what they orphan.
     const bestEffortKill = (reason: string): void => {
-        if (params.maxRunAfterDisconnectSeconds === undefined) return
         if (typeof exitCode === 'number') return
         if (!sessionId) {
-            // session_info not received yet; the detach window bounds the leak
+            // session_info not received yet, so there is nothing addressable to
+            // kill; the reaper collects it if the process outlives us
             logger.warn('sprites.exec.kill.skipped', { spriteName, reason })
             return
         }
@@ -697,13 +702,25 @@ const runExecStream = (
             )
     }
 
-    const abort = (): void => {
+    // Kill, close, settle — in that order, for every termination this client
+    // decides on itself (timeout, abort, a stdin pump that failed mid-body).
+    // A path that only settles orphans the remote process: that is exactly how
+    // the leaked `cat` sessions above got there, since the stdin error handler
+    // used to be settleFail on its own.
+    const failClientSide = (reason: string, err: Error): void => {
         if (settled) return
-        bestEffortKill('abort')
+        bestEffortKill(reason)
         try {
-            currentWs.close(1000, 'abort')
+            currentWs.close(1000, reason)
         } catch {}
-        settleFail(new SpritesError('transient', 'execSpriteStream aborted'))
+        settleFail(err)
+    }
+
+    const abort = (): void => {
+        failClientSide(
+            'abort',
+            new SpritesError('transient', 'execSpriteStream aborted')
+        )
     }
 
     const detach = (): void => {
@@ -757,7 +774,6 @@ export const execSpriteStream = (
             tty: opts.tty === true,
             cols: opts.cols,
             rows: opts.rows,
-            maxRunAfterDisconnectSeconds: opts.maxRunAfterDisconnectSeconds,
             reattachEnabled: opts.reattach !== undefined && opts.tty !== true,
             maxReattachAttempts:
                 opts.reattach?.maxAttempts ?? DEFAULT_REATTACH_ATTEMPTS,

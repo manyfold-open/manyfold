@@ -24,10 +24,8 @@ import {
 } from '@manyfold/shared'
 import {
     Suspense,
-    type CSSProperties,
     type FC,
     type MouseEvent as ReactMouseEvent,
-    type PointerEvent as ReactPointerEvent,
     type ReactNode
 } from 'react'
 import {
@@ -45,17 +43,7 @@ import {
     useParams,
     useSearchParams
 } from 'react-router-dom'
-import {
-    FolderIcon,
-    FolderOpenIcon,
-    HistoryIcon,
-    MenuIcon,
-    PreviewIcon,
-    RefreshIcon,
-    ShareIcon,
-    TasksIcon,
-    TerminalIcon
-} from '@/components/icons'
+import { MenuIcon } from '@/components/icons'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
@@ -112,6 +100,7 @@ import Composer, {
     type ComposerSendHelpers
 } from '@/components/chat/Composer'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { ChatGrantProvider } from '@/components/chat/ChatGrantContext'
 import type { MarkdownLinkClickHandler } from '@/components/chat/MarkdownText'
 import type { MessageScrollAction } from '@/components/chat/MessageList'
@@ -121,6 +110,18 @@ import type {
     WorkspaceFileTerminalRequest
 } from '@/components/chat/WorkspaceFiles'
 import { resolveWorkspaceFileLink } from '@/components/chat/fileLinkPreview'
+import SidePane, {
+    type SidePaneKind,
+    type SidePaneOption
+} from '@/components/chat/SidePane'
+import type { TerminalTabModel } from '@/components/TerminalSession'
+import { useProductConfirm } from '@/components/ProductConfirmDialog'
+import {
+    ensureSandboxTerminalEnabled,
+    terminalAvailabilityForAgent,
+    terminalBlockedLabel
+} from '@/lib/terminalAccess'
+import { terminalResumeAvailability } from '@/lib/terminalResume'
 import {
     applyRegeneratedUserMessage,
     mergeLatestMessages,
@@ -128,11 +129,15 @@ import {
 } from '@/lib/chatMessages'
 
 const MessageList = lazyChunk(() => import('@/components/chat/MessageList'))
+const SessionTerminal = lazyChunk(() => import('@/components/TerminalSession'))
 const WorkspaceFiles = lazyChunk(
     () => import('@/components/chat/WorkspaceFiles')
 )
 const RuntimeSessionViewer = lazyChunk(
     () => import('@/components/chat/RuntimeSessionViewer')
+)
+const BackgroundTasksBody = lazyChunk(
+    () => import('@/components/BackgroundTasksPanel')
 )
 
 // The page's inflight turn as a resumable pair, or null if it did not carry
@@ -159,10 +164,14 @@ const CODEX_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.codexPermissionMode.'
 const HERMES_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.hermesPermissionMode.'
 const DRAFT_STORAGE_PREFIX = 'nca.chat.draft.'
 const DRAFT_NEW_SLOT = 'new'
-const DEFAULT_RUNTIME_SESSION_PANEL_WIDTH = 560
-const MIN_RUNTIME_SESSION_PANEL_WIDTH = 420
-const MAX_RUNTIME_SESSION_PANEL_WIDTH = 900
 const CHAT_MESSAGES_PAGE_SIZE = CHAT_MESSAGE_SOFT_LIMIT
+
+// The two representations of one session; the Chat/Terminal switch flips it.
+type SessionViewMode = 'chat' | 'terminal'
+
+// Don't re-read the runtime transcript more than once per this window on the
+// throttled (session-open) path; a forced switch-back sync ignores it.
+const RUNTIME_SYNC_THROTTLE_MS = 15_000
 
 // A rejected cancel POST is undone immediately by cancelRequestFailed. This
 // covers the other case: the POST was accepted (or is still hanging) and no
@@ -189,19 +198,20 @@ const AgentChat: FC = (): ReactNode => {
     const navigate = useNavigate()
     const client = useApiClient()
     const { getToken, sessionKey } = useAppAuth()
+    const { confirm, confirmDialog } = useProductConfirm()
     const {
         agents,
         agentsLoading,
-        bgTasksVisible,
         currentAgent,
         openMobileSidebar,
         openTerminalForAgent,
         refreshAgents,
         refreshSessionsForAgent,
+        daemonHosts,
         requestQuotaConflict,
+        sandboxes,
         sessions,
-        sessionsLoading,
-        toggleBackgroundTasks
+        sessionsLoading
     } = useAppShellContext()
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [error, setError] = useState<string | null>(null)
@@ -223,9 +233,10 @@ const AgentChat: FC = (): ReactNode => {
     const [messageScrollAction, setMessageScrollAction] =
         useState<MessageScrollAction | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [filesVisible, setFilesVisible] = useState(false)
+    const [activePane, setActivePane] = useState<SidePaneKind | null>(null)
     const [filePreviewVisible, setFilePreviewVisible] = useState(false)
     const [filePreviewAvailable, setFilePreviewAvailable] = useState(false)
+    const [filesTreeVisible, setFilesTreeVisible] = useState(true)
     const [filePreviewRequest, setFilePreviewRequest] =
         useState<WorkspaceFilePreviewRequest | null>(null)
     const [composerContextRefs, setComposerContextRefs] = useState<
@@ -248,11 +259,12 @@ const AgentChat: FC = (): ReactNode => {
         useState<AgentModelConfigSource>('platform')
     const [modelConfigLoading, setModelConfigLoading] = useState(false)
     const [modelConfigRefreshing, setModelConfigRefreshing] = useState(false)
-    const [runtimeSessionViewerOpen, setRuntimeSessionViewerOpen] =
-        useState(false)
-    const [runtimeSessionPanelWidth, setRuntimeSessionPanelWidth] = useState(
-        DEFAULT_RUNTIME_SESSION_PANEL_WIDTH
-    )
+    const [sessionView, setSessionView] = useState<SessionViewMode>('chat')
+    /* Created on the first switch to Terminal and kept afterwards: the chat
+       and terminal panes both stay mounted so toggling back does not tear
+       down the websocket, the pty or the scrollback. */
+    const [sessionTerminal, setSessionTerminal] =
+        useState<TerminalTabModel | null>(null)
     const sendInFlightRef = useRef(false)
     const chatWindowRef = useRef<HTMLDivElement>(null)
     const composerDockRef = useRef<HTMLDivElement>(null)
@@ -263,6 +275,14 @@ const AgentChat: FC = (): ReactNode => {
     const loadedMessagesAgentIdRef = useRef<string | null>(null)
     const loadedMessagesSessionIdRef = useRef<string | null>(null)
     const messagesLengthRef = useRef(0)
+    const lastMessageIdRef = useRef<string | null>(null)
+    // Bumped whenever the session terminal is rebuilt for the SAME session so
+    // the tab id (= SessionTerminal key) changes and the TUI re-resumes.
+    const terminalGenerationRef = useRef(0)
+    // When a session was last folded from its runtime transcript, per session.
+    // Throttles the open-session sync so re-renders don't re-read the CLI file.
+    const runtimeSyncAtRef = useRef<Map<string, number>>(new Map())
+    const runtimeSyncInFlightRef = useRef<Set<string>>(new Set())
     const filePreviewRequestIdRef = useRef(0)
     const modelInitializedAgentRef = useRef<string | null>(null)
     const cleanupInFlightRef = useRef<Set<string>>(new Set())
@@ -335,6 +355,11 @@ const AgentChat: FC = (): ReactNode => {
     useEffect(() => {
         messagesLengthRef.current = messages.length
     }, [messages.length])
+
+    useEffect(() => {
+        lastMessageIdRef.current =
+            messages.length > 0 ? messages[messages.length - 1].id : null
+    }, [messages])
 
     const disabled = !chatAvailability.ready
     const modelSwitchingSupported = supportsModelOverride(currentAgent)
@@ -817,34 +842,113 @@ const AgentChat: FC = (): ReactNode => {
     // (rebuild replaces every message id); merging the latest page would keep
     // ghost rows and a pagination cursor pointing at deleted ids, so reload
     // the first page wholesale instead.
-    const reloadSessionMessages = useCallback(async (): Promise<void> => {
-        if (!agentId || !activeSessionId) return
-        const requestAgentId = agentId
-        const requestSessionId = activeSessionId
-        try {
-            const page = await client.chat.listMessagePage(
-                requestAgentId,
-                requestSessionId,
-                { limit: CHAT_MESSAGES_PAGE_SIZE }
-            )
+    const reloadSessionMessages =
+        useCallback(async (): Promise<ChatMessagesPage | null> => {
+            if (!agentId || !activeSessionId) return null
+            const requestAgentId = agentId
+            const requestSessionId = activeSessionId
+            try {
+                const page = await client.chat.listMessagePage(
+                    requestAgentId,
+                    requestSessionId,
+                    { limit: CHAT_MESSAGES_PAGE_SIZE }
+                )
+                if (
+                    agentIdRef.current !== requestAgentId ||
+                    activeSessionIdRef.current !== requestSessionId
+                )
+                    return null
+                setMessages(page.messages)
+                setMessagesHasMore(page.hasMore)
+                setMessagesNextBefore(page.nextBefore)
+                setInflightAssistantMessageId(page.inflightAssistantMessageId)
+                setInflightCheckpoint(checkpointFromPage(page))
+                setStreamCursorEventId(page.streamCursorEventId)
+                loadedMessagesAgentIdRef.current = requestAgentId
+                setLoadedMessagesSessionId(requestSessionId)
+                requestMessageScroll(CHAT_SCROLL_BOTTOM)
+                return page
+            } catch (err) {
+                setError(apiErrorMessage(err))
+                return null
+            }
+        }, [activeSessionId, agentId, client, requestMessageScroll])
+
+    // Fold a resumed terminal TUI's own messages back into this session. The
+    // TUI writes only to the CLI's local transcript, so the chat view never
+    // sees them until this reads that file and appends the diff server-side.
+    // The server no-ops on anything unsyncable, so this is safe to call on
+    // session open (throttled) and on every switch back from the terminal
+    // (forced). Only appended>0 warrants a reload.
+    const syncRuntimeSessionAndReload = useCallback(
+        async (force: boolean): Promise<void> => {
+            const sid = activeSessionIdRef.current
+            const aid = agentIdRef.current
+            if (!aid || !sid || !currentAgent) return
             if (
-                agentIdRef.current !== requestAgentId ||
-                activeSessionIdRef.current !== requestSessionId
+                currentAgent.framework !== 'claude-code' &&
+                currentAgent.framework !== 'codex'
             )
                 return
-            setMessages(page.messages)
-            setMessagesHasMore(page.hasMore)
-            setMessagesNextBefore(page.nextBefore)
-            setInflightAssistantMessageId(page.inflightAssistantMessageId)
-            setInflightCheckpoint(checkpointFromPage(page))
-            setStreamCursorEventId(page.streamCursorEventId)
-            loadedMessagesAgentIdRef.current = requestAgentId
-            setLoadedMessagesSessionId(requestSessionId)
-            requestMessageScroll(CHAT_SCROLL_BOTTOM)
-        } catch (err) {
-            setError(apiErrorMessage(err))
-        }
-    }, [activeSessionId, agentId, client, requestMessageScroll])
+            if (currentAgent.runtime === 'external') return
+            // The server owns the real gate (session ref, reader, inflight);
+            // it returns quickly when there is nothing to sync. Gating on the
+            // client's session cache here would over-skip when that cache is
+            // stale about the framework_session_ref.
+            if (!force) {
+                const last = runtimeSyncAtRef.current.get(sid) ?? 0
+                if (Date.now() - last < RUNTIME_SYNC_THROTTLE_MS) return
+            }
+            // One sync per session at a time: overlapping calls (rapid
+            // switch-backs) would diff against the same pre-append state and
+            // race the same delta in twice.
+            if (runtimeSyncInFlightRef.current.has(sid)) return
+            runtimeSyncInFlightRef.current.add(sid)
+            runtimeSyncAtRef.current.set(sid, Date.now())
+            try {
+                const res = await client.chat.runtimeSessionSync(aid, {
+                    sessionId: sid
+                })
+                if (
+                    res.appended > 0 &&
+                    activeSessionIdRef.current === sid &&
+                    agentIdRef.current === aid
+                ) {
+                    const page = await reloadSessionMessages()
+                    // Messages the sync appended came out of the TUI's own
+                    // transcript — the TUI already shows them. Advancing the
+                    // tab's seed to the reloaded tip stops the next switch
+                    // from rebuilding a terminal that is not actually stale.
+                    const tip =
+                        page && page.messages.length > 0
+                            ? page.messages[page.messages.length - 1].id
+                            : null
+                    if (tip)
+                        setSessionTerminal((prev) =>
+                            prev && prev.resumeChatSessionId === sid
+                                ? { ...prev, seedMessageId: tip }
+                                : prev
+                        )
+                }
+            } catch {
+                // Best-effort: a failed sync just leaves the chat as it was.
+            } finally {
+                runtimeSyncInFlightRef.current.delete(sid)
+            }
+        },
+        [client, currentAgent, reloadSessionMessages]
+    )
+
+    // On session open: once the initial page has loaded, pull anything a
+    // terminal TUI added while we were away.
+    useEffect(() => {
+        if (loadedMessagesSessionId && loadedMessagesSessionId === activeSessionId)
+            void syncRuntimeSessionAndReload(false)
+    }, [
+        activeSessionId,
+        loadedMessagesSessionId,
+        syncRuntimeSessionAndReload
+    ])
 
     const loadOlderMessages = useCallback(async (): Promise<void> => {
         if (
@@ -1092,7 +1196,7 @@ const AgentChat: FC = (): ReactNode => {
     // Stable references: the viewer holds multi-MB state, and fresh inline
     // closures would re-render it on every streaming token of the main chat.
     const handleRuntimeViewerClose = useCallback((): void => {
-        setRuntimeSessionViewerOpen(false)
+        setActivePane((pane) => (pane === 'runtime' ? null : pane))
     }, [])
 
     const handleRuntimeViewerApplied = useCallback(
@@ -1108,6 +1212,175 @@ const AgentChat: FC = (): ReactNode => {
         },
         [agentId, refreshSessionsForAgent, reloadSessionMessages, selectSession]
     )
+
+    /* A terminal is bound to one agent's sandbox, so switching agents must
+       drop it rather than show the previous agent's shell under a new
+       header. */
+    useEffect(() => {
+        setSessionView('chat')
+        setSessionTerminal(null)
+    }, [agentId])
+
+    // Switching sessions in the sidebar re-points the terminal at the newly
+    // selected session so the TUI resumes there. The session-scoped id makes
+    // SessionTerminal remount (fresh xterm) rather than append onto the
+    // previous session's scrollback.
+    useEffect(() => {
+        if (!currentAgent) return
+        setSessionTerminal((prev) => {
+            if (!prev) return prev
+            const base = `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}`
+            // Advance-rebuilds append a `-g<N>` generation to the same base;
+            // only an actual session change may retarget the terminal.
+            if (prev.id === base || prev.id.startsWith(`${base}-g`))
+                return prev
+            return {
+                ...prev,
+                id: base,
+                status: 'connecting',
+                seedMessageId: null,
+                resumeChatSessionId: activeSessionId ?? undefined
+            }
+        })
+    }, [activeSessionId, currentAgent])
+
+    const terminalAvailability = currentAgent
+        ? terminalAvailabilityForAgent(currentAgent)
+        : { available: false, reason: 'agent-not-running' as const }
+
+    const sessionSandbox = currentAgent?.spriteName
+        ? (sandboxes.find((s) => s.spriteName === currentAgent.spriteName) ??
+          null)
+        : null
+    const sessionDaemon = currentAgent?.daemonId
+        ? (daemonHosts.find((h) => h.id === currentAgent.daemonId) ?? null)
+        : null
+    const resumeAvailability = currentAgent
+        ? terminalResumeAvailability({
+              framework: currentAgent.framework,
+              runtime: currentAgent.runtime,
+              daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
+              frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
+              modelSource: effectiveModelConfigView?.source ?? null,
+              runtimeLocalReady:
+                  effectiveModelConfigView?.runtimeLocal?.ready === true,
+              sandboxModelCredentials:
+                  sessionSandbox?.terminalModelCredentials === true
+          })
+        : { available: false, blocked: 'runtime-unsupported' as const }
+
+    const handleSelectSessionView = useCallback(
+        (next: SessionViewMode): void => {
+            if (next === 'chat') {
+                setSessionView('chat')
+                // Coming back from the terminal is the moment to fold in
+                // whatever was said in the TUI. Forced past the throttle.
+                if (sessionTerminal) void syncRuntimeSessionAndReload(true)
+                return
+            }
+            if (!currentAgent) return
+            if (!terminalAvailabilityForAgent(currentAgent).available) return
+            if (sessionTerminal) {
+                // A running TUI read the transcript once at startup; messages
+                // sent from the chat since then (each cloud turn appends to the
+                // same CLI file) are invisible to it. If the conversation moved
+                // past the tab's seed, rebuild it — the new id remounts the
+                // terminal, the old pty is killed on disconnect, and the fresh
+                // resume loads the full transcript. A null seed means the tab
+                // was just (re)built from an unloaded state: adopt the current
+                // tip instead of paying a pointless restart. Never rebuild
+                // mid-stream — the daemon's own CLI process is still writing
+                // that turn.
+                const lastId = lastMessageIdRef.current
+                const messagesReady =
+                    loadedMessagesSessionId === activeSessionId
+                const streaming = isLiveStreamStatus(stream.status)
+                if (messagesReady && !streaming) {
+                    if (
+                        sessionTerminal.seedMessageId != null &&
+                        sessionTerminal.seedMessageId !== lastId
+                    ) {
+                        terminalGenerationRef.current += 1
+                        setSessionTerminal({
+                            ...sessionTerminal,
+                            id: `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}-g${terminalGenerationRef.current}`,
+                            status: 'connecting',
+                            seedMessageId: lastId,
+                            resumeChatSessionId: activeSessionId ?? undefined
+                        })
+                    } else if (sessionTerminal.seedMessageId == null) {
+                        setSessionTerminal({
+                            ...sessionTerminal,
+                            seedMessageId: lastId
+                        })
+                    }
+                }
+                setSessionView('terminal')
+                return
+            }
+            void (async (): Promise<void> => {
+                const allowed = await ensureSandboxTerminalEnabled({
+                    agent: currentAgent,
+                    client,
+                    confirm,
+                    t
+                })
+                if (!allowed) return
+                setSessionTerminal({
+                    agentId: currentAgent.id,
+                    agentName: currentAgent.name,
+                    framework: currentAgent.framework,
+                    id: `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}`,
+                    index: 1,
+                    // Only on the mount that creates the terminal: quitting
+                    // the TUI leaves a shell in the same session, and a later
+                    // switch back must not seize it again.
+                    //
+                    // The id alone is the intent; the server owns every gate
+                    // (session ref, framework, runtime, daemon capability,
+                    // credentials) and opens a plain shell when it cannot
+                    // resume. Deciding here from resumeAvailability would race
+                    // its async inputs (daemonHosts, model config): a fast
+                    // switch before they load would strand a plain shell that
+                    // is never rebuilt. The id comes straight from the URL, so
+                    // it is always ready. resumeAvailability now drives only
+                    // the notice.
+                    ...(activeSessionId
+                        ? { resumeChatSessionId: activeSessionId }
+                        : {}),
+                    seedMessageId: lastMessageIdRef.current,
+                    runtime: currentAgent.runtime,
+                    status: 'connecting'
+                })
+                setSessionView('terminal')
+            })()
+        },
+        [
+            activeSessionId,
+            client,
+            confirm,
+            currentAgent,
+            loadedMessagesSessionId,
+            sessionTerminal,
+            stream.status,
+            syncRuntimeSessionAndReload,
+            t
+        ]
+    )
+
+    const noopTerminalStatusChange = useCallback((): void => {}, [])
+
+    /* Only the two blocked reasons the user can act on. A framework with no
+       resume form, or a session the CLI has not named yet, is not a problem
+       to report — the shell is simply a shell. */
+    const resumeNotice =
+        resumeAvailability.blocked === 'needs-credential-toggle'
+            ? t('web.sessionView.resumeNeedsCredentials')
+            : resumeAvailability.blocked === 'needs-runtime-signin'
+              ? t('web.sessionView.resumeNeedsSignIn')
+              : resumeAvailability.blocked === 'daemon-needs-upgrade'
+                ? t('web.sessionView.resumeNeedsDaemonUpgrade')
+                : null
 
     const createSession = useCallback(
         async (selectCreated = true): Promise<string | null> => {
@@ -1573,8 +1846,7 @@ const AgentChat: FC = (): ReactNode => {
             if (!target) return false
 
             filePreviewRequestIdRef.current += 1
-            setRuntimeSessionViewerOpen(false)
-            setFilesVisible(true)
+            setActivePane('files')
             setFilePreviewVisible(true)
             setFilePreviewRequest({
                 id: filePreviewRequestIdRef.current,
@@ -1664,58 +1936,50 @@ const AgentChat: FC = (): ReactNode => {
     )
 
     useEffect(() => {
-        setRuntimeSessionViewerOpen(false)
+        // The runtime session viewer is scoped to one session; switching the
+        // session invalidates it. Files / Background tasks can stay open.
+        setActivePane((pane) => (pane === 'runtime' ? null : pane))
     }, [agentId, activeSessionId])
 
-    const toggleFilesVisible = useCallback((): void => {
+    // Leaving the Files pane drops its preview sub-state, so a stale preview
+    // neither re-opens the pane nor lights the header's preview toggle.
+    useEffect(() => {
+        if (activePane !== 'files') {
+            setFilePreviewVisible(false)
+            setFilePreviewAvailable(false)
+            setFilePreviewRequest(null)
+        }
+    }, [activePane])
+
+    // The tree collapses only while a preview stands in for it; the moment the
+    // preview is gone, bring the tree back so the Files pane is never empty.
+    useEffect(() => {
+        if (!(filePreviewAvailable && filePreviewVisible))
+            setFilesTreeVisible(true)
+    }, [filePreviewAvailable, filePreviewVisible])
+
+    // Open the Files panel by default on first entering a workspace-capable
+    // chat. Keyed by agent id so a manual close sticks for that agent, but
+    // switching to a different agent opens Files again.
+    const autoOpenedFilesRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (!currentAgent || currentAgent.runtime === 'external') return
+        if (autoOpenedFilesRef.current === currentAgent.id) return
+        autoOpenedFilesRef.current = currentAgent.id
+        setActivePane('files')
+    }, [currentAgent])
+
+    const toggleFiles = useCallback((): void => {
         if (!workspaceToolsAvailable) return
-        setRuntimeSessionViewerOpen(false)
-        setFilesVisible((value) => !value)
+        setActivePane((pane) => (pane === 'files' ? null : 'files'))
     }, [workspaceToolsAvailable])
 
     const toggleFilePreviewVisible = useCallback((): void => {
         if (!workspaceToolsAvailable) return
         if (!filePreviewAvailable) return
-        setRuntimeSessionViewerOpen(false)
+        setActivePane('files')
         setFilePreviewVisible((value) => !value)
     }, [filePreviewAvailable, workspaceToolsAvailable])
-
-    const startRuntimeSessionPanelResize = useCallback(
-        (event: ReactPointerEvent<HTMLDivElement>): void => {
-            if (event.button !== 0) return
-            event.preventDefault()
-            const startX = event.clientX
-            const startWidth = runtimeSessionPanelWidth
-            const previousCursor = document.body.style.cursor
-            const previousUserSelect = document.body.style.userSelect
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-
-            const onMove = (moveEvent: PointerEvent): void => {
-                const dx = moveEvent.clientX - startX
-                setRuntimeSessionPanelWidth(
-                    clamp(
-                        startWidth - dx,
-                        MIN_RUNTIME_SESSION_PANEL_WIDTH,
-                        MAX_RUNTIME_SESSION_PANEL_WIDTH
-                    )
-                )
-            }
-
-            const onUp = (): void => {
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-                window.removeEventListener('pointercancel', onUp)
-                document.body.style.cursor = previousCursor
-                document.body.style.userSelect = previousUserSelect
-            }
-
-            window.addEventListener('pointermove', onMove)
-            window.addEventListener('pointerup', onUp)
-            window.addEventListener('pointercancel', onUp)
-        },
-        [runtimeSessionPanelWidth]
-    )
 
     useEffect(() => {
         setFilePreviewAvailable(false)
@@ -1725,7 +1989,8 @@ const AgentChat: FC = (): ReactNode => {
     }, [agentId])
 
     useEffect(() => {
-        if (!workspaceToolsAvailable) setFilesVisible(false)
+        if (!workspaceToolsAvailable)
+            setActivePane((pane) => (pane === 'files' ? null : pane))
     }, [workspaceToolsAvailable])
 
     const handleDraftAgentSelect = useCallback(
@@ -1751,7 +2016,7 @@ const AgentChat: FC = (): ReactNode => {
                 })
             ) {
                 event.preventDefault()
-                toggleFilesVisible()
+                toggleFiles()
                 return
             }
 
@@ -1772,7 +2037,7 @@ const AgentChat: FC = (): ReactNode => {
         return () => {
             document.removeEventListener('keydown', handleKeyDown, true)
         }
-    }, [toggleFilePreviewVisible, toggleFilesVisible])
+    }, [toggleFilePreviewVisible, toggleFiles])
 
     const isStreaming = isLiveStreamStatus(stream.status)
     const isCancelling = stream.status === 'cancelling'
@@ -1837,13 +2102,23 @@ const AgentChat: FC = (): ReactNode => {
         softLimitHit ||
         Boolean(error) ||
         runtimeSignInVisible
-    const shouldMountWorkspaceFiles =
-        workspaceToolsAvailable &&
-        !runtimeSessionViewerOpen &&
-        (filesVisible ||
-            filePreviewVisible ||
-            filePreviewAvailable ||
-            Boolean(filePreviewRequest))
+    const paneOptions: SidePaneOption[] = [
+        ...(workspaceToolsAvailable
+            ? [{ kind: 'files' as const, label: t('web.chat.pane.files') }]
+            : []),
+        {
+            kind: 'background-tasks',
+            label: t('web.chat.pane.backgroundTasks')
+        },
+        ...(currentAgent && currentAgent.runtime !== 'external'
+            ? [
+                  {
+                      kind: 'runtime' as const,
+                      label: t('web.chat.pane.runtimeSession')
+                  }
+              ]
+            : [])
+    ]
 
     if (agentsLoading && !currentAgent) {
         return (
@@ -1973,39 +2248,37 @@ const AgentChat: FC = (): ReactNode => {
     )
 
     return (
-        <div className='chat-workspace-shell flex h-full min-h-0 flex-col overflow-hidden'>
+        <div className='flex h-full min-h-0 overflow-hidden'>
+        <div className='chat-workspace-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
             <AgentChatHeader
                 agent={currentAgent}
-                filesVisible={filesVisible}
-                previewAvailable={filePreviewAvailable}
-                previewVisible={filePreviewVisible}
                 refreshing={workspaceRefreshing}
-                runtimeSessionViewerEnabled={
-                    currentAgent.runtime !== 'external'
-                }
-                runtimeSessionViewerOpen={runtimeSessionViewerOpen}
                 onOpenMobileMenu={openMobileSidebar}
-                onToggleRuntimeSessionViewer={() =>
-                    setRuntimeSessionViewerOpen((value) => {
-                        const next = !value
-                        if (next) {
-                            setFilesVisible(false)
-                            setFilePreviewVisible(false)
-                        }
-                        return next
-                    })
-                }
                 onOpenTerminal={() => openTerminalForAgent(currentAgent)}
+                sessionView={sessionView}
+                terminalDisabledReason={
+                    terminalAvailability.reason
+                        ? terminalBlockedLabel(terminalAvailability.reason, t)
+                        : null
+                }
+                onSelectSessionView={handleSelectSessionView}
                 onShare={
                     shareableSession
                         ? () => setShareSessionOpen(true)
                         : null
                 }
                 onRefresh={handleRefreshWorkspace}
-                onToggleFiles={toggleFilesVisible}
-                onTogglePreview={toggleFilePreviewVisible}
-                onToggleBackgroundTasks={toggleBackgroundTasks}
-                backgroundTasksOpen={bgTasksVisible}
+                onOpenFiles={
+                    workspaceToolsAvailable
+                        ? () => setActivePane('files')
+                        : null
+                }
+                onOpenBackgroundTasks={() => setActivePane('background-tasks')}
+                onOpenRuntimeViewer={
+                    currentAgent.runtime !== 'external'
+                        ? () => setActivePane('runtime')
+                        : null
+                }
             />
             {shareSessionOpen && shareableSession && (
                 <ShareChatSessionDialog
@@ -2198,41 +2471,76 @@ const AgentChat: FC = (): ReactNode => {
                                 </div>
                             </div>
                         </div>
-                    </div>
-                </div>
-                {runtimeSessionViewerOpen && agentId && (
-                    <RuntimeSessionResizeHandle
-                        label={t('web.chat.header.resizeRuntimeViewer')}
-                        onPointerDown={startRuntimeSessionPanelResize}
-                    />
-                )}
-                {runtimeSessionViewerOpen && agentId && (
-                    <Suspense
-                        fallback={
-                            <aside
-                                className='border-divider/80 bg-surface order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--runtime-session-panel-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
-                                style={
-                                    {
-                                        '--runtime-session-panel-width': `${runtimeSessionPanelWidth}px`
-                                    } as CSSProperties
+                        {/* Kept mounted once opened, and only hidden when the
+                            chat tab is active: unmounting would drop the
+                            websocket, the pty and the scrollback, and the
+                            message list underneath would lose its reading
+                            position if it were the side that got hidden. */}
+                        {sessionTerminal && (
+                            <div
+                                className={
+                                    sessionView === 'terminal'
+                                        ? 'absolute inset-0 z-20 flex flex-col'
+                                        : 'hidden'
                                 }
                             >
-                                <div className='text-ui text-muted flex h-full items-center justify-center px-6 text-center'>
-                                    {t('web.chat.loadingRuntimeViewer')}
+                                {/* Why this shell is not the session's TUI.
+                                    Without it a plain prompt reads as the
+                                    feature silently not working. */}
+                                {resumeNotice && (
+                                    <div className='border-divider/80 bg-surface text-caption text-muted shrink-0 border-b px-3 py-1.5'>
+                                        {resumeNotice}
+                                    </div>
+                                )}
+                                <div className='relative min-h-0 flex-1'>
+                                    <Suspense fallback={null}>
+                                        <SessionTerminal
+                                            key={sessionTerminal.id}
+                                            active={sessionView === 'terminal'}
+                                            getToken={getToken}
+                                            onStatusChange={
+                                                noopTerminalStatusChange
+                                            }
+                                            tab={sessionTerminal}
+                                        />
+                                    </Suspense>
                                 </div>
-                            </aside>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+            {confirmDialog}
+        </div>
+        {activePane && (
+            <SidePane
+                activeKind={activePane}
+                options={paneOptions}
+                onSelectKind={setActivePane}
+                onClose={() => setActivePane(null)}
+            >
+                {activePane === 'background-tasks' && (
+                    <Suspense fallback={null}>
+                        <BackgroundTasksBody agent={currentAgent} />
+                    </Suspense>
+                )}
+                {activePane === 'runtime' && agentId && (
+                    <Suspense
+                        fallback={
+                            <div className='text-ui text-muted flex h-full items-center justify-center px-6 text-center'>
+                                {t('web.chat.loadingRuntimeViewer')}
+                            </div>
                         }
                     >
                         <RuntimeSessionViewer
                             agentId={agentId}
                             sessionId={activeSessionId}
-                            width={runtimeSessionPanelWidth}
                             onClose={handleRuntimeViewerClose}
                             onApplied={handleRuntimeViewerApplied}
                         />
                     </Suspense>
                 )}
-                {shouldMountWorkspaceFiles && (
+                {activePane === 'files' && (
                     <Suspense fallback={null}>
                         <WorkspaceFiles
                             key={currentAgent.id}
@@ -2246,55 +2554,50 @@ const AgentChat: FC = (): ReactNode => {
                                 )
                             }}
                             onPreviewVisibleChange={setFilePreviewVisible}
+                            onToggleTree={() =>
+                                setFilesTreeVisible((value) => !value)
+                            }
                             previewRequest={filePreviewRequest}
                             previewVisible={filePreviewVisible}
                             refreshKey={workspaceRefreshKey}
-                            visible={filesVisible}
+                            visible={filesTreeVisible}
                         />
                     </Suspense>
                 )}
-            </div>
-
+            </SidePane>
+        )}
         </div>
     )
 }
 
 interface AgentChatHeaderProps {
     agent: SdkAgent
-    filesVisible: boolean
-    previewAvailable: boolean
-    previewVisible: boolean
     refreshing: boolean
-    runtimeSessionViewerEnabled: boolean
-    runtimeSessionViewerOpen: boolean
     onOpenMobileMenu: () => void
-    onToggleRuntimeSessionViewer: () => void
     onOpenTerminal: () => void
+    sessionView: SessionViewMode
+    terminalDisabledReason: string | null
+    onSelectSessionView: (mode: SessionViewMode) => void
     onShare: (() => void) | null
     onRefresh: () => void
-    onToggleFiles: () => void
-    onTogglePreview: () => void
-    onToggleBackgroundTasks: () => void
-    backgroundTasksOpen: boolean
+    onOpenFiles: (() => void) | null
+    onOpenBackgroundTasks: () => void
+    onOpenRuntimeViewer: (() => void) | null
 }
 
 const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     agent,
-    filesVisible,
-    previewAvailable,
-    previewVisible,
     refreshing,
-    runtimeSessionViewerEnabled,
-    runtimeSessionViewerOpen,
     onOpenMobileMenu,
-    onToggleRuntimeSessionViewer,
     onOpenTerminal,
+    sessionView,
+    terminalDisabledReason,
+    onSelectSessionView,
     onShare,
     onRefresh,
-    onToggleFiles,
-    onTogglePreview,
-    onToggleBackgroundTasks,
-    backgroundTasksOpen
+    onOpenFiles,
+    onOpenBackgroundTasks,
+    onOpenRuntimeViewer
 }): ReactNode => {
     const { t } = useI18n()
     const navigate = useNavigate()
@@ -2307,17 +2610,61 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                 ? 'bg-surface-hover text-fg hover:bg-soft-hover'
                 : 'bg-surface text-muted hover:bg-surface-hover'
         ].join(' ')
-    const FileToggleIcon = filesVisible ? FolderOpenIcon : FolderIcon
-    const previewOpen = previewAvailable && previewVisible
-    const filesLabel = filesVisible
-        ? t('web.chat.header.hideFileTree')
-        : t('web.chat.header.showFileTree')
-    const previewLabel = previewOpen
-        ? t('web.chat.header.hideFilePreview')
-        : t('web.chat.header.showFilePreview')
-    const runtimeSessionLabel = runtimeSessionViewerOpen
-        ? t('web.chat.header.hideRuntimeViewer')
-        : t('web.chat.header.runtimeViewer')
+
+    // Every non-primary chat action lives in this one overflow menu: the
+    // Chat/Terminal view switch (its label flips with the current view), the
+    // three side-panel openers, then share / terminal dock / refresh.
+    const overflowItems: OverflowMenuEntry[] = [
+        {
+            label:
+                sessionView === 'chat'
+                    ? t('web.sessionView.switchToTerminal')
+                    : t('web.sessionView.switchToChat'),
+            onSelect: () =>
+                onSelectSessionView(
+                    sessionView === 'chat' ? 'terminal' : 'chat'
+                ),
+            disabled: sessionView === 'chat' && terminalDisabledReason !== null,
+            disabledReason:
+                sessionView === 'chat'
+                    ? (terminalDisabledReason ?? undefined)
+                    : undefined
+        },
+        { separator: true },
+        ...(onOpenFiles
+            ? [{ label: t('web.chat.pane.files'), onSelect: onOpenFiles }]
+            : []),
+        {
+            label: t('web.chat.pane.backgroundTasks'),
+            onSelect: onOpenBackgroundTasks
+        },
+        ...(onOpenRuntimeViewer
+            ? [
+                  {
+                      label: t('web.chat.pane.runtimeSession'),
+                      onSelect: onOpenRuntimeViewer
+                  }
+              ]
+            : []),
+        { separator: true },
+        ...(onShare
+            ? [{ label: t('web.chat.header.share'), onSelect: onShare }]
+            : []),
+        ...(agent.runtime !== 'external'
+            ? [
+                  {
+                      label: t('web.chat.header.openTerminal'),
+                      onSelect: onOpenTerminal,
+                      disabled: agent.status !== 'running'
+                  }
+              ]
+            : []),
+        {
+            label: t('web.chat.header.refresh'),
+            onSelect: onRefresh,
+            disabled: refreshing
+        }
+    ]
 
     return (
         <header className='bg-main relative z-[80] flex h-14 shrink-0 items-center justify-between gap-3 px-4 md:px-5'>
@@ -2422,145 +2769,14 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
             </div>
 
             <div className='flex shrink-0 items-center gap-1.5'>
-                {onShare && (
-                    <ShortcutTooltip
-                        label={t('web.chat.header.share')}
-                        placement='bottom-end'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass()} inline-flex`}
-                            aria-label={t('web.chat.header.share')}
-                            onClick={onShare}
-                        >
-                            <ShareIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={t('web.chat.header.openTerminal')}
-                        placement='bottom-end'
-                        shortcut='Cmd+J'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass()} inline-flex`}
-                            disabled={agent.status !== 'running'}
-                            aria-label={t('web.chat.header.openTerminal')}
-                            onClick={onOpenTerminal}
-                        >
-                            <TerminalIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                <ShortcutTooltip
-                    label={t('web.chat.header.refresh')}
-                    placement='bottom-end'
-                >
-                    <button
-                        type='button'
-                        className={`${actionButtonClass()} inline-flex`}
-                        disabled={refreshing}
-                        aria-label={t('web.chat.header.refresh')}
-                        onClick={onRefresh}
-                    >
-                        <RefreshIcon
-                            className={[
-                                'h-4 w-4',
-                                refreshing ? 'loading-spin' : ''
-                            ].join(' ')}
-                        />
-                    </button>
-                </ShortcutTooltip>
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={runtimeSessionLabel}
-                        placement='bottom-end'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass(runtimeSessionViewerOpen)} inline-flex`}
-                            disabled={!runtimeSessionViewerEnabled}
-                            aria-label={runtimeSessionLabel}
-                            aria-pressed={runtimeSessionViewerOpen}
-                            onClick={onToggleRuntimeSessionViewer}
-                        >
-                            <HistoryIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={filesLabel}
-                        placement='bottom-end'
-                        shortcut='Shift+Cmd+E'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass(filesVisible)} inline-flex`}
-                            aria-label={filesLabel}
-                            aria-expanded={filesVisible}
-                            aria-pressed={filesVisible}
-                            onClick={onToggleFiles}
-                        >
-                            <FileToggleIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                {agent.runtime !== 'external' && (
-                    <ShortcutTooltip
-                        label={previewLabel}
-                        placement='bottom-end'
-                        shortcut='Option+Cmd+B'
-                    >
-                        <button
-                            type='button'
-                            className={`${actionButtonClass(previewOpen)} inline-flex`}
-                            disabled={!previewAvailable}
-                            aria-label={previewLabel}
-                            aria-expanded={previewOpen}
-                            aria-pressed={previewOpen}
-                            onClick={onTogglePreview}
-                        >
-                            <PreviewIcon className='h-4 w-4' />
-                        </button>
-                    </ShortcutTooltip>
-                )}
-                <ShortcutTooltip
-                    label={t('web.chat.header.backgroundTasks')}
-                    placement='bottom-end'
-                >
-                    <button
-                        type='button'
-                        className={`${actionButtonClass(backgroundTasksOpen)} inline-flex`}
-                        aria-label={t('web.chat.header.backgroundTasks')}
-                        aria-pressed={backgroundTasksOpen}
-                        onClick={onToggleBackgroundTasks}
-                    >
-                        <TasksIcon className='h-4 w-4' />
-                    </button>
-                </ShortcutTooltip>
+                <OverflowMenu
+                    items={overflowItems}
+                    triggerClassName={`${actionButtonClass()} inline-flex`}
+                />
             </div>
         </header>
     )
 }
-
-const RuntimeSessionResizeHandle: FC<{
-    label: string
-    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
-}> = ({ label, onPointerDown }): ReactNode => (
-    <div
-        aria-label={label}
-        aria-orientation='vertical'
-        className='group hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center lg:flex'
-        role='separator'
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-    >
-        <span className='group-hover:bg-placeholder group-focus-visible:bg-placeholder my-auto h-12 w-px rounded-full bg-transparent transition-colors' />
-    </div>
-)
 
 export default AgentChat
 
@@ -2886,6 +3102,3 @@ const formatStatusLabel = (status: string, t: TFn): string => {
             return t('web.chat.agentStatus.unknown')
     }
 }
-
-const clamp = (value: number, min: number, max: number): number =>
-    Math.min(max, Math.max(min, value))

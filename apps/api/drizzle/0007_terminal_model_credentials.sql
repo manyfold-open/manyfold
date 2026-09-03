@@ -1,0 +1,1 @@
+ALTER TABLE "runtime_hosts" ADD COLUMN "terminal_model_credentials" boolean DEFAULT false NOT NULL;

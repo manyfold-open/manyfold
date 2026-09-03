@@ -23,7 +23,8 @@ import {
     CliUpgradeDto,
     CreateSandboxDto,
     RenameSandboxDto,
-    SetSandboxTerminalDto
+    SetSandboxTerminalDto,
+    SetSandboxTerminalModelCredentialsDto
 } from './dto/sandbox.dto'
 
 @Controller('sandboxes')
@@ -73,6 +74,16 @@ export class SandboxesController {
         @Body() body: SetSandboxTerminalDto
     ): Promise<SandboxSummary> {
         return this.sandboxes.setTerminal(user.userId, id, body)
+    }
+
+    @Patch(':id/terminal-model-credentials')
+    @RequireApiTokenScope('sandboxes:edit')
+    async setTerminalModelCredentials(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Body() body: SetSandboxTerminalModelCredentialsDto
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.setTerminalModelCredentials(user.userId, id, body)
     }
 
     @Patch(':id/name')

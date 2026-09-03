@@ -215,6 +215,12 @@ export class ActiveHoursEnforcementService
         keepAliveRuntimes: Array<{ id: string; hostId: string | null }>
     }): Promise<void> {
         const stopped: string[] = []
+        // A stop that threw is visibly broken; a stop that returned having
+        // removed nothing is the dangerous one, because the retry loop reads
+        // it as success and says so in its own log. Kept separate so a host
+        // this sweep cannot actually put to sleep is legible from one line
+        // instead of from correlating three days of audit rows.
+        const unresolved: string[] = []
         for (const hostId of input.runningHostIds) {
             try {
                 // Bare-host terminal sessions register under the host id and
@@ -223,9 +229,12 @@ export class ActiveHoursEnforcementService
                     hostId,
                     'active-hours-quota'
                 )
-                await this.sandboxes.stop(input.userId, hostId)
-                stopped.push(hostId)
+                const res = await this.sandboxes.stop(input.userId, hostId)
+                if (res.status === 'noop' || res.warnings.length > 0)
+                    unresolved.push(hostId)
+                else stopped.push(hostId)
             } catch (err) {
+                unresolved.push(hostId)
                 this.log.warn(
                     `force-sleep failed for user=${input.userId} host=${hostId}: ${(err as Error).message}`
                 )
@@ -257,12 +266,16 @@ export class ActiveHoursEnforcementService
         this.telemetry.event('active_hours.force_sleep', {
             userId: input.userId,
             stoppedHosts: stopped.length,
+            unresolvedHosts: unresolved.length,
             keepAliveDisabled: input.keepAliveRuntimes.length,
             usedHours: input.usedHours,
             limitHours: input.limitHours
         })
-        this.log.log(
-            `active-hours quota enforced user=${input.userId} used=${input.usedHours}h limit=${input.limitHours}h stopped=${stopped.join(',') || 'none'}`
-        )
+        const line = `active-hours quota enforced user=${input.userId} used=${input.usedHours}h limit=${input.limitHours}h stopped=${stopped.join(',') || 'none'} unresolved=${unresolved.join(',') || 'none'}`
+        // warn when the sweep could not put every running host to sleep: the
+        // user keeps accruing past the limit, which is the opposite of what
+        // this sweep exists to do, and it will keep quietly retrying forever.
+        if (unresolved.length > 0) this.log.warn(line)
+        else this.log.log(line)
     }
 }
