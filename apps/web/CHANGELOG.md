@@ -1,5 +1,104 @@
 # @manyfold/web
 
+## 0.55.0
+
+### Minor Changes
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Land Fraunces as the landing's display face.
+
+    The spec has said Fraunces since it was written — SOFT 50, WONK 0, weight 300
+    — but `styles.css` imported Source Serif 4, and had since the register was
+    built. A plan was written down and never executed, and the two are not the
+    same kind of serif: Fraunces is a high-contrast display face drawn for large
+    sizes, Source Serif 4 is a low-contrast text face Adobe drew for screen body
+    copy. Every rule downstream of that choice — weight, tracking, the optical
+    size cut a heading lands on — was tuned for a face the page was not using.
+
+    The page now loads `@fontsource-variable/fraunces/full.css`, not `opsz.css`:
+    Fraunces carries four axes and this register uses SOFT, which the narrower
+    file would leave inert with no error. Weight drops to 300, which is where a
+    display serif sits at the same visual mass a text serif needs 400 for, with
+    `.lp-h3` overridden back to 400 — at 24-29px the thin strokes stop carrying.
+
+    The social cards follow, since they reproduce the hero: someone who clicks a
+    shared link must not meet a different face on arrival. The zh card gains a
+    pinned Noto Serif SC so its headline is a serif too, matching the landing's
+    CJK fallback rather than staying on the sans it had. Cards ship as v5.
+
+    Source Serif 4 is removed; nothing else used it.
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Retire the ALL-CAPS micro-label.
+
+    Kickers, stat labels, table heads, landing eyebrows and badges all ran
+    uppercase at `tracking-[0.18em]`. At workbench density that reads as
+    shouting, and it made the same label look like a different kind of thing
+    depending on which surface it landed on. They are now sentence case at
+    normal tracking — the rule the tag family (DESIGN.md §8.3) has always
+    followed, now binding on every label in the product and on landing.
+
+    Caps and wide tracking come out together: the tracking only ever existed to
+    give capital letterforms air, so it has nothing to do once the caps are
+    gone. Source strings were already authored in sentence case (`Cost`, `Input
+tokens`, `Manyfold · agent hosting & delivery`), so nothing needed
+    retranslating and the label now reads the same in the DOM, on screen and to
+    a screen reader.
+
+    DESIGN.md §5 and DESIGN.landing.md §5.3 carry the rule; the two registers
+    agree on it.
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Move the product register onto the landing visual system.
+
+    Colour: the neutral axis is re-hued from cool graphite to Ash on landing's
+    cool-bias curve while keeping every tier's luminance, so the workbench's
+    volume hierarchy and hover contract are untouched; the brand colour moves
+    from steel blue to the Iris ramp (which both registers now share); the four
+    judgment colours take landing's hues at product contrast, and every status
+    text colour clears WCAG AA where none did before.
+
+    The radius scale itself is unchanged at 8 / 10 / 14. What changes is docs:
+    its header controls and buttons were pill-shaped off the scale entirely and
+    now sit on it, so a docs button and a workbench button are the same shape.
+
+    Every page title now sits on the `text-h1` rung; docs headings drop from 600
+    to the 500 cap. The product stays in Geist throughout.
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Repaint the social cards onto the Iris palette.
+
+    Both were left behind by the product migration, in two different directions.
+    The generated card behind changelog entries was still teal (`#0f8c6f`) — the
+    accent from two brand colours ago. The static poster every other page shares
+    was still the pre-Iris steel blue, on a ground (`#dde0e3`) darker than the
+    landing has used since the neutral axis moved. Sharing a link produced a
+    preview in a colour the page it opened did not contain.
+
+    The poster's headline also stopped etching itself. `.lp-h-accent` dropped its
+    metal gradient when the landing went flat; the poster kept reproducing it,
+    including a gradient stop (`#d6e0e8`) that belonged to no palette. It now
+    paints flat `--lp-info`, as the page does.
+
+    Cards ship as v5. v3 is frozen into `RETIRED_CARDS`, so a link shared before
+    this still resolves to the exact bytes it was shared with.
+
+    The colours in both cards are still written literally rather than imported —
+    that is deliberate, so a CSS refactor cannot silently repaint every card that
+    is already in circulation — but each constant now names the token it mirrors,
+    which is what was missing when they drifted.
+
+### Patch Changes
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Stop the viewport flashing grey before the app paints.
+
+    `html` / `body` painted `--color-app-bg`, the chassis colour. Since the
+    neutral axis inverted, the chassis sits 24 levels below the canvas in light
+    mode (and 14 above it in dark), so every cold load showed a grey viewport
+    that then jumped to near-white the moment boot rendered — boot fills with
+    `bg-main`, and the ground underneath it did not match.
+
+    They now paint `--color-main-bg`, the canvas boot actually fills with. The
+    chassis is unaffected: `AppShell` already paints it on its own root, as do
+    the other eleven top-level surfaces paint theirs, so this layer was only
+    ever visible in the gap between stylesheet and first paint.
+
 ## 0.54.0
 
 ### Minor Changes
