@@ -195,12 +195,7 @@ const browseGroups = grouped
             <div class="mt-4 grid gap-3">
                 {
                     copy.runtimes.map((card, index) => (
-                        <article
-                            class:list={[
-                                'docs-panel p-4 md:p-5',
-                                index === 0 && 'dash-default'
-                            ]}
-                        >
+                        <article class="docs-panel p-4 md:p-5">
                             {/* The mark says where the work happens before the
                                 title is read: the reader's own machine, a
                                 sandbox and a long-running cloud host differ by
@@ -347,15 +342,12 @@ const browseGroups = grouped
        nothing else on the site renders a runtime option grid. Every value is
        a design token; no new colour, radius, shadow or type step. */
 
-    /* The default choice is one elevation step above its two siblings, which
-       is the whole "recommended" signal. No badge colour on the card itself,
-       no border, same fill. */
-    .dash-default {
-        box-shadow: var(--shadow-elevated);
-    }
-
-    /* The one tinted pill on the page, on the LED/info hue the rest of the
-       docs already uses for an active state. */
+    /* The one tinted pill on the page, on the info hue the rest of the docs
+       already uses for an active state — and the whole "recommended"
+       signal. The card itself stays at --shadow-card like its siblings:
+       these three are peers at rest, and --shadow-elevated means "floating
+       above the canvas" (DESIGN.md §7.1), not "pick me". Emphasis on a peer
+       is carried by colour and a label (§10.6), never by a tier. */
     .dash-badge {
         background: var(--color-info-bg);
         color: var(--color-info-strong);
