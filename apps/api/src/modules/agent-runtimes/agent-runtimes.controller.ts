@@ -2,6 +2,7 @@ import { isExternal } from '@manyfold/shared'
 import type {
     AgentControlUiUrlResponse,
     AgentRuntimeSummary,
+    RuntimeAccountView,
     SetControlUiBody,
     SetDashboardBody,
     SetKeepAliveBody
@@ -43,6 +44,7 @@ import { RenameRuntimeDto } from './dto/rename-runtime.dto'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
+import { RuntimeAccountService } from './account/runtime-account.service'
 
 @Controller('agent-runtimes')
 @UseGuards(AuthGuard)
@@ -57,7 +59,10 @@ export class AgentRuntimesController {
         // working; absence means the open default (no-op teardown hook).
         @Optional()
         @Inject(CLOUD_COMPUTER_PORT)
-        private readonly cloudComputer?: CloudComputerPort
+        private readonly cloudComputer?: CloudComputerPort,
+        // Same convention; absent only in positional test construction.
+        @Optional()
+        private readonly account?: RuntimeAccountService
     ) {}
 
     @Get()
@@ -181,6 +186,27 @@ export class AgentRuntimesController {
         @Query('agentId') agentId?: string
     ): Promise<AgentControlUiUrlResponse> {
         return this.dashboard.getControlUiUrl(id, user.userId, false, agentId)
+    }
+
+    // Who is signed in to the runtime's CLI and what that account has used.
+    // A page open must not wake a sleeping sandbox; `wake=1` is the user's
+    // explicit click and the only thing that starts the VM.
+    @Get(':id/account')
+    @HttpCode(200)
+    @RequireApiTokenScope('agent-runtimes:read')
+    @SubjectAgentFromResource('agentRuntime', 'id')
+    async getAccount(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Query('wake') wake?: string
+    ): Promise<RuntimeAccountView> {
+        if (!this.account)
+            throw new InternalServerErrorException(
+                'runtime account service unavailable'
+            )
+        return this.account.getView(user.userId, id, {
+            wake: wake === '1' || wake === 'true'
+        })
     }
 
     @Patch(':id/dashboard')

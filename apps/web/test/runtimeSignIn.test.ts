@@ -96,7 +96,10 @@ test('sign-in card hides for platform source and non-coding frameworks', () => {
 })
 
 test('per-framework sign-in commands cover exactly the coding CLIs', () => {
-    assert.equal(runtimeSignInCommandFor('claude-code'), 'claude')
+    assert.equal(
+        runtimeSignInCommandFor('claude-code'),
+        'claude auth login --claudeai'
+    )
     assert.equal(runtimeSignInCommandFor('codex'), 'codex login --device-auth')
     assert.equal(runtimeSignInCommandFor('gemini-cli'), 'NO_BROWSER=true gemini')
     assert.equal(runtimeSignInCommandFor('hermes'), null)
