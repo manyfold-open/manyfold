@@ -21,7 +21,7 @@ const session = (over: Partial<ExecSessionInfo> = {}): ExecSessionInfo => ({
     ...over
 })
 
-// The exact prod payload shape (nca-api, sprite sbx-agqftt5t…, 2026-09-03): a
+// The exact payload shape seen on prod (sprite sbx-agqftt5t…, 2026-09-03): a
 // `cat` left by a cancelled upload, is_active with the zero last_activity, and
 // the sibling `rm` cleanup session that had already finished.
 test('an is_active session idle past the window is abandoned, a finished one is not', () => {
