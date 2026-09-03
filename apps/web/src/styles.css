@@ -428,11 +428,18 @@
         --ghost-sheen: rgba(255, 255, 255, 0.05);
     }
 
+    /* The canvas, not the chassis. Every top-level surface paints its own
+       ground — AppShell the chassis, and the other eleven (login, the shared
+       and standalone pages, boot) the canvas — so this one is only ever seen
+       in the gap between stylesheet and first paint. Painting --color-app-bg
+       there made that gap a flash: since the neutral axis inverted, the
+       chassis sits 24 levels below the canvas in light mode, so the viewport
+       went grey and then lit up. Boot fills with bg-main; this now matches it. */
     html {
         font-feature-settings: 'liga' on;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        background: rgb(var(--color-app-bg));
+        background: rgb(var(--color-main-bg));
     }
 
     /* The three display modes are an explicit per-mode type ramp, not a
@@ -503,7 +510,7 @@
             Arial,
             sans-serif;
         color: rgb(var(--color-fg));
-        background: rgb(var(--color-app-bg));
+        background: rgb(var(--color-main-bg));
     }
 
     code,
