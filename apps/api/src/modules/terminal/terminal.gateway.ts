@@ -29,6 +29,7 @@ import {
 interface TerminalQuery {
     agentId?: string
     sandboxId?: string
+    runtimeId?: string
     token?: string
     cols?: string
     cwdPath?: string
@@ -98,12 +99,13 @@ export class TerminalGateway implements OnModuleInit {
         const query = (req.query ?? {}) as TerminalQuery
         const agentId = query.agentId?.trim()
         const sandboxId = query.sandboxId?.trim()
+        const runtimeId = query.runtimeId?.trim()
         const token = query.token?.trim()
         const cols = clampDim(query.cols, 80, 20, 500)
         const rows = clampDim(query.rows, 24, 5, 200)
 
-        if (!token || (!agentId && !sandboxId)) {
-            sendError(socket, 'missing token or agentId/sandboxId')
+        if (!token || (!agentId && !sandboxId && !runtimeId)) {
+            sendError(socket, 'missing token or agentId/sandboxId/runtimeId')
             socket.close(4400, 'bad request')
             return
         }
@@ -133,6 +135,17 @@ export class TerminalGateway implements OnModuleInit {
         if (sandboxId && !agentId) {
             await this.handleSandboxSession(socket, {
                 sandboxId,
+                userId: auth.userId,
+                cols,
+                rows
+            })
+            return
+        }
+        // Bare-runtime terminal: the runtime page's sign-in shell, addressed
+        // by runtime so it works with zero agents on the host.
+        if (runtimeId && !agentId) {
+            await this.handleRuntimeSession(socket, {
+                runtimeId,
                 userId: auth.userId,
                 cols,
                 rows
@@ -375,6 +388,84 @@ export class TerminalGateway implements OnModuleInit {
                 extras: {},
                 cols: args.cols,
                 cwd: SANDBOX_TERMINAL_CWD,
+                rows: args.rows,
+                client: socket,
+                onClose
+            })
+        } catch (err) {
+            const message = (err as Error).message
+            this.log.warn(`terminal.tunnel_failed ${message}`)
+            sendError(socket, message)
+            try {
+                socket.close(1011, 'tunnel failed')
+            } catch {}
+        }
+    }
+
+    // Bare-runtime terminal: resolves the runtime to its host. A sandbox
+    // reuses the bare-sandbox flow (same opt-in gate); a daemon machine gets a
+    // host shell with no agent env. Other kinds have no host shell to offer.
+    private async handleRuntimeSession(
+        socket: WsClient,
+        args: { runtimeId: string; userId: string; cols: number; rows: number }
+    ): Promise<void> {
+        const row = await this.runtimes.findById(args.runtimeId)
+        if (!row || row.userId !== args.userId) {
+            sendError(socket, 'runtime not found for this user')
+            socket.close(4404, 'not found')
+            return
+        }
+        if (row.kind === 'sprites' && row.hostId) {
+            await this.handleSandboxSession(socket, {
+                sandboxId: row.hostId,
+                userId: args.userId,
+                cols: args.cols,
+                rows: args.rows
+            })
+            return
+        }
+        if (row.kind !== 'daemon' || !row.daemonId) {
+            sendError(socket, 'this runtime has no host terminal')
+            socket.close(4404, 'not supported')
+            return
+        }
+        const host = await this.daemonHosts.findById(row.daemonId)
+        if (!host || host.userId !== args.userId || host.status !== 'active') {
+            sendError(socket, 'daemon host not found for this user')
+            socket.close(4404, 'not found')
+            return
+        }
+        if (!this.daemonHosts.isOnline(host)) {
+            sendError(socket, 'the machine is offline; start its daemon first')
+            socket.close(4409, 'offline')
+            return
+        }
+        try {
+            socket.send(
+                JSON.stringify({
+                    type: 'session_info',
+                    runtime_id: row.id,
+                    runtime: 'daemon',
+                    framework: row.framework,
+                    cwd: host.homeDir,
+                    cols: args.cols,
+                    rows: args.rows,
+                    terminal_pty: host.terminalPty ?? null
+                })
+            )
+        } catch {}
+
+        const connectedAt = Date.now()
+        this.attachHeartbeat(socket, `runtime=${row.id}`)
+        const onClose = (): void => {
+            this.log.log(
+                `terminal.closed runtime=${row.id} runtime_kind=daemon durationMs=${Date.now() - connectedAt}`
+            )
+        }
+        try {
+            await this.daemon.tunnelHost({
+                daemonId: host.id,
+                cols: args.cols,
                 rows: args.rows,
                 client: socket,
                 onClose

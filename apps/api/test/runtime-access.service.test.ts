@@ -1266,10 +1266,16 @@ test('RuntimeAccessService.reserveActiveSlot lifts the limit by the per-user hou
     )
 })
 
-test('RuntimeAccessService.reserveActiveSlot fast path still skips the hours check on a running host', async () => {
-    // Pins the documented trade-off: consecutive turns on an already-running
-    // VM are not re-checked; the enforcement sweep force-sleeps the host and
-    // the next cold admission re-checks everything.
+// Replaces a test that pinned the opposite ("fast path still skips the hours
+// check"). Its stated justification was that the enforcement sweep force-sleeps
+// the host and the next cold admission re-checks everything — a guarantee that
+// does not hold. Seen on prod [2026-09-03]: a leaked exec session pinned a free
+// sandbox `running`, so SandboxesService.stop() had nothing it could remove, the
+// sweep no-op'd every 6 minutes for three days, the host never went cold, and
+// this path kept admitting turns at 52h against a 5h plan. Concurrency and the
+// org cap stay skipped — those are about a slot this host already holds — but
+// hours are CONSUMED by it staying running, so they have to be re-read.
+test('RuntimeAccessService.reserveActiveSlot rejects an exhausted user even on the fast path', async () => {
     const db = new FakeRuntimeAccessDb()
     db.users.push(userRow({ planId: 'free' }))
     db.hostRows.push(
@@ -1279,7 +1285,49 @@ test('RuntimeAccessService.reserveActiveSlot fast path still skips the hours che
             activeAccrualSince: now
         })
     )
-    const service = makeService(db, { activeSeconds: 100 * 3600 })
+    const exhausted = makeService(db, { activeSeconds: 100 * 3600 })
+
+    await assert.rejects(
+        () =>
+            exhausted.reserveActiveSlot({
+                userId: 'user-1',
+                hostId: 'host-running'
+            }),
+        (err) =>
+            err instanceof ForbiddenException &&
+            (err.getResponse() as { code?: string }).code ===
+                'ACTIVE_HOURS_QUOTA_REACHED'
+    )
+
+    // Same host, same fast path, user under the limit: still admitted without
+    // the advisory-lock transaction — so the rejection above is the hours
+    // check, not the fast path having been removed.
+    const withinQuota = makeService(db, { activeSeconds: 60 })
+    const result = await withinQuota.reserveActiveSlot({
+        userId: 'user-1',
+        hostId: 'host-running'
+    })
+    assert.equal(result.fastPath, true)
+    assert.equal(db.lockCount, 0)
+})
+
+// WHY: the fast path is one indexed read in the default configuration and must
+// stay that way for self-hosters — the hours check has to bail on the cached
+// toggle read before it queries anything.
+test('RuntimeAccessService.reserveActiveSlot fast path skips the hours check when enforcement is off', async () => {
+    const db = new FakeRuntimeAccessDb()
+    db.users.push(userRow({ planId: 'free' }))
+    db.hostRows.push(
+        hostRow({
+            id: 'host-running',
+            spriteStatus: 'running',
+            activeAccrualSince: now
+        })
+    )
+    const service = makeService(db, {
+        activeSeconds: 100 * 3600,
+        featureEnabled: { active_hours_enforcement: false }
+    })
 
     const result = await service.reserveActiveSlot({
         userId: 'user-1',

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { agentRuntimes, runtimeHosts, users } from '@manyfold/db'
+import type { SandboxStopResponse } from '@manyfold/shared'
 import { ActiveHoursEnforcementService } from '../src/modules/sandboxes/active-hours-enforcement.service'
 
 interface LimitRow {
@@ -60,6 +61,10 @@ const makeHarness = (opts: {
     toggleOn?: boolean
     leaseGranted?: boolean
     stopError?: (hostId: string) => boolean
+    // Whatever stop() reports back for a host. The default is a stop that
+    // actually removed something; a real SandboxStopResponse shape matters
+    // here because the sweep now reads `status` and `warnings` off it.
+    stopResult?: (hostId: string) => Partial<SandboxStopResponse>
 }) => {
     const stops: Array<{ userId: string; hostId: string }> = []
     const closed: string[] = []
@@ -67,13 +72,25 @@ const makeHarness = (opts: {
     const events: Array<{ userId: string; code: string; usage: number }> = []
     const telemetry: Array<{ name: string; attrs: Record<string, unknown> }> =
         []
+    const logs: Array<{ level: 'log' | 'warn'; message: string }> = []
     const service = new ActiveHoursEnforcementService(
         opts.db as never,
         {
-            stop: async (userId: string, hostId: string) => {
+            stop: async (
+                userId: string,
+                hostId: string
+            ): Promise<SandboxStopResponse> => {
                 if (opts.stopError?.(hostId)) throw new Error('stop failed')
                 stops.push({ userId, hostId })
-                return { status: 'pending' }
+                return {
+                    status: 'pending',
+                    stoppedAgents: 1,
+                    stoppedServices: [],
+                    deletedTasks: [],
+                    estimatedReadyInSec: 35,
+                    warnings: [],
+                    ...opts.stopResult?.(hostId)
+                }
             }
         } as never,
         {
@@ -117,7 +134,11 @@ const makeHarness = (opts: {
                   release: async () => {}
               } as never)
     )
-    return { service, stops, closed, flips, events, telemetry }
+    service['log' as never] = {
+        log: (message: string) => logs.push({ level: 'log', message }),
+        warn: (message: string) => logs.push({ level: 'warn', message })
+    } as never
+    return { service, stops, closed, flips, events, telemetry, logs }
 }
 
 test('sweep force-sleeps running hosts of over-quota users and emits the hard event', async () => {
@@ -308,4 +329,94 @@ test('sweep keeps going when one host stop fails', async () => {
 
     assert.deepEqual(h.stops, [{ userId: 'u-over', hostId: 'host-good' }])
     assert.equal(h.events.length, 1, 'hard event still emitted')
+})
+
+const overQuotaDb = (hostId: string): FakeSweepDb => {
+    const db = new FakeSweepDb()
+    db.hosts.push({ id: hostId, userId: 'u-over' })
+    db.limits.push({
+        id: 'u-over',
+        activeHoursBonus: 0,
+        planName: 'Free',
+        monthlyActiveHoursIncluded: 5
+    })
+    return db
+}
+
+// WHY this test exists: this sweep's whole job is to make the accrual stop, and
+// a stop() that returns having removed nothing does not make it stop. Reporting
+// that host as `stopped=` is how three days of prod over-billing looked like a
+// working enforcement loop in the logs (2026-09-03). The distinction has to be
+// on the line an operator reads, not inferable only by joining audit rows.
+test('a stop that could not do anything is reported unresolved, not stopped', async () => {
+    const h = makeHarness({
+        db: overQuotaDb('host-pinned'),
+        secondsByUser: { 'u-over': 6 * 3600 },
+        stopResult: () => ({
+            stoppedAgents: 0,
+            warnings: ['nothing on this sandbox could be stopped: …']
+        })
+    })
+
+    await h.service.tick()
+
+    const [ev] = h.telemetry
+    assert.equal(ev.name, 'active_hours.force_sleep')
+    assert.equal(ev.attrs.unresolvedHosts, 1)
+    assert.equal(ev.attrs.stoppedHosts, 0)
+    const line = h.logs.find((l) => l.message.includes('quota enforced'))
+    assert.equal(line?.level, 'warn', 'an unresolved host must warn, not log')
+    assert.match(line!.message, /stopped=none/)
+    assert.match(line!.message, /unresolved=host-pinned/)
+})
+
+// A stop on a host that is no longer running is not a failure — but it is not
+// an enforcement action either, so it must not be counted as one.
+test('a noop stop counts as unresolved', async () => {
+    const h = makeHarness({
+        db: overQuotaDb('host-warm'),
+        secondsByUser: { 'u-over': 6 * 3600 },
+        stopResult: () => ({ status: 'noop', stoppedAgents: 0 })
+    })
+
+    await h.service.tick()
+
+    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
+    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 0)
+})
+
+// The other side of the same line: a sweep that worked stays at log level, so
+// the warn above is a signal rather than noise on every tick.
+test('a stop that removed something is reported stopped and does not warn', async () => {
+    const h = makeHarness({
+        db: overQuotaDb('host-1'),
+        secondsByUser: { 'u-over': 6 * 3600 }
+    })
+
+    await h.service.tick()
+
+    assert.equal(h.telemetry[0]?.attrs.stoppedHosts, 1)
+    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 0)
+    const line = h.logs.find((l) => l.message.includes('quota enforced'))
+    assert.equal(line?.level, 'log')
+    assert.match(line!.message, /stopped=host-1 unresolved=none/)
+})
+
+// A throwing stop was already logged, but it never reached the summary line —
+// so a host the sweep could not even attempt looked identical to a host it put
+// to sleep.
+test('a throwing stop is unresolved too', async () => {
+    const h = makeHarness({
+        db: overQuotaDb('host-bad'),
+        secondsByUser: { 'u-over': 6 * 3600 },
+        stopError: () => true
+    })
+
+    await h.service.tick()
+
+    assert.equal(h.telemetry[0]?.attrs.unresolvedHosts, 1)
+    assert.match(
+        h.logs.find((l) => l.message.includes('quota enforced'))!.message,
+        /unresolved=host-bad/
+    )
 })

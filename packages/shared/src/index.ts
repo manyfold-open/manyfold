@@ -588,6 +588,25 @@ export type {
     RuntimeLocalCredentialReason,
     RuntimeLocalCredentialStatus
 } from './runtime-local-credentials'
+export {
+    runtimeAccountSupport,
+    parseRuntimeAccountProbe,
+    runtimeAccountUsage
+} from './runtime-account'
+export type {
+    RuntimeAccountFetchErrorKind,
+    RuntimeAccountIdentity,
+    RuntimeAccountProbe,
+    RuntimeAccountSupport,
+    RuntimeAccountTokenSource,
+    RuntimeAccountUsage,
+    RuntimeAccountUsageErrorKind,
+    RuntimeAccountUsageFetch,
+    RuntimeAccountUsageWindow,
+    RuntimeAccountVendor,
+    RuntimeAccountView,
+    RuntimeAccountViewStatus
+} from './runtime-account'
 export type {
     AgentModelConfig,
     AgentModelConfigSource,
@@ -799,6 +818,7 @@ export {
     DAEMON_FEATURE_FS_WRITE_MODE,
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
+    DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'

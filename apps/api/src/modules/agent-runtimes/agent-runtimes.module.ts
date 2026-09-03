@@ -26,6 +26,7 @@ import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-dur
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
+import { RuntimeAccountService } from './account/runtime-account.service'
 
 @Module({
     imports: [
@@ -59,7 +60,8 @@ import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
         OpenClawSpriteBootstrap,
         NarraNexusSpriteBootstrap,
         SpriteKeepAliveLeaseService,
-        McpConfigMaterializer
+        McpConfigMaterializer,
+        RuntimeAccountService
     ],
     exports: [
         AgentRuntimesService,

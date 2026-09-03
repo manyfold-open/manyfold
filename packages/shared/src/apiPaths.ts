@@ -180,6 +180,7 @@ export const apiPaths = {
     AGENT_RUNTIME_KEEP_ALIVE: (id: string) =>
         `/agent-runtimes/${id}/keep-alive`,
     AGENT_RUNTIME_RENAME: (id: string) => `/agent-runtimes/${id}/name`,
+    AGENT_RUNTIME_ACCOUNT: (id: string) => `/agent-runtimes/${id}/account`,
     SANDBOXES: '/sandboxes',
     SANDBOX_BY_ID: (id: string) => `/sandboxes/${id}`,
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,

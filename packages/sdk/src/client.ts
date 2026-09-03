@@ -135,6 +135,7 @@ import type {
     RefreshAgentModelConfigModelsBody,
     RefreshAgentModelConfigModelsResponse,
     RuntimeAccessSummary,
+    RuntimeAccountView,
     Plan,
     PlanId,
     SandboxUsageBreakdown,
@@ -574,6 +575,11 @@ export interface AgentRuntimesClient {
         runtimeId: string,
         enabled: boolean
     ) => Promise<AgentRuntimeSummary>
+    // wake: exec on a sleeping sandbox (starts the VM); a plain read never does.
+    getAccount: (
+        runtimeId: string,
+        opts?: { wake?: boolean }
+    ) => Promise<RuntimeAccountView>
 }
 
 export interface SandboxesClient {
@@ -2087,6 +2093,7 @@ export const createClient = (options: ClientOptions): NcaClient => {
         dashboard: (id: string) => string
         keepAlive: (id: string) => string
         rename: (id: string) => string
+        account: (id: string) => string
     }): AgentRuntimesClient => ({
         list: () => request<AgentRuntimeSummary[]>(paths.list),
         get: (id) => request<AgentRuntimeSummary>(paths.byId(id)),
@@ -2150,7 +2157,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
             request<AgentRuntimeSummary>(paths.keepAlive(runtimeId), {
                 method: 'PATCH',
                 body: JSON.stringify({ enabled })
-            })
+            }),
+        getAccount: (runtimeId, opts) =>
+            request<RuntimeAccountView>(
+                `${paths.account(runtimeId)}${opts?.wake ? '?wake=1' : ''}`
+            )
     })
 
     const buildBackupsClient = (paths: {
@@ -2193,7 +2204,8 @@ export const createClient = (options: ClientOptions): NcaClient => {
         controlUiUrl: apiPaths.AGENT_RUNTIME_CONTROL_UI_URL,
         dashboard: apiPaths.AGENT_RUNTIME_DASHBOARD,
         keepAlive: apiPaths.AGENT_RUNTIME_KEEP_ALIVE,
-        rename: apiPaths.AGENT_RUNTIME_RENAME
+        rename: apiPaths.AGENT_RUNTIME_RENAME,
+        account: apiPaths.AGENT_RUNTIME_ACCOUNT
     })
     const backups = buildBackupsClient({
         list: apiPaths.BACKUPS,
@@ -2213,7 +2225,9 @@ export const createClient = (options: ClientOptions): NcaClient => {
         dashboard: apiPaths.ADMIN_AGENT_RUNTIME_DASHBOARD,
         keepAlive: apiPaths.ADMIN_AGENT_RUNTIME_KEEP_ALIVE,
         // no admin rename endpoint either: reuses the user path (ownership-checked)
-        rename: apiPaths.AGENT_RUNTIME_RENAME
+        rename: apiPaths.AGENT_RUNTIME_RENAME,
+        // no admin account endpoint: a user's vendor sign-in is not an operator concern
+        account: apiPaths.AGENT_RUNTIME_ACCOUNT
     })
     const adminBackups = buildBackupsClient({
         list: apiPaths.ADMIN_BACKUPS,

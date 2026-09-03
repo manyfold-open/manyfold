@@ -175,6 +175,7 @@ export type DaemonRpcMethod =
     | 'turn.start'
     | 'turn.permission'
     | 'model.inspect'
+    | 'account.inspect'
     | 'pty.open'
     | 'pty.input'
     | 'pty.resize'
@@ -456,6 +457,11 @@ export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
 // their conversation.
 export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
 
+// The daemon answers `account.inspect` (who is signed in on this machine per
+// coding CLI, plus the raw vendor usage response). The API must check this
+// before calling: an older daemon answers `not_implemented`, which the runtime
+// page has to render as "upgrade the CLI", not as a probe failure.
+export const DAEMON_FEATURE_ACCOUNT_INSPECT = 'account.inspect'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -472,5 +478,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
-    DAEMON_FEATURE_PTY_COMMAND
+    DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_ACCOUNT_INSPECT
 ]

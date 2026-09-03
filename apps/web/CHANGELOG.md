@@ -1,5 +1,51 @@
 # @manyfold/web
 
+## 0.53.0
+
+### Minor Changes
+
+- [#144](https://github.com/manyfold-open/manyfold/pull/144) [`6ee91e5`](https://github.com/manyfold-open/manyfold/commit/6ee91e5679ad9e22f9f999b0b87663df5586f85a) Thanks [@yingca1](https://github.com/yingca1)! - Show the signed-in account and its usage on the runtime page, and sign in from there.
+
+    The runtime detail page (`/settings/runtimes/<runtimeId>`) gains an Account section for Claude Code, Codex and Gemini CLI runtimes on self-owned machines and sandboxes: the signed-in identity (email, organization, plan), the sign-in status, and the subscription usage windows with their reset countdowns (Claude 5h/7d, Codex primary/secondary, Gemini per-model quota). The host reads the CLI's own credential files and calls the vendor usage endpoint itself; only the response and non-secret identity fields ever leave the machine.
+
+    - CLI daemon: new `account.inspect` RPC, advertised through the `account.inspect` client feature. Runtime pages of daemons on older CLIs show an update prompt instead of a probe failure.
+    - API: `GET /agent-runtimes/:id/account` (`?wake=1` to probe a sleeping sandbox, which starts the VM and reserves an active slot), plus a `runtimeId` target on the terminal websocket for a bare host shell.
+    - Web: when the runtime is not signed in, "Sign in" opens an inline terminal on the host that starts the CLI's own headless sign-in (`claude auth login --claudeai`, `codex login --device-auth`, `NO_BROWSER=true gemini`); closing it re-checks the account. The chat sign-in card now recommends `claude auth login --claudeai` too.
+    - On macOS machines the Claude and Gemini tokens live in the Keychain, which the daemon deliberately does not read, so identity shows but usage does not.
+
+### Patch Changes
+
+- [#142](https://github.com/manyfold-open/manyfold/pull/142) [`f55932a`](https://github.com/manyfold-open/manyfold/commit/f55932a2303b3970f03361f40a7c67cac591a70d) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing's popular pricing tier is marked by its tag alone.
+
+    The Plus card also carried a 1.5px iris ring inset over its shadow, which put
+    two markers on one tier and made the card itself look selected next to the
+    three plain ones — on a page where the signed-in cards already use a badge to
+    say which plan is current. The ring is gone and every card now renders the same
+    frame; the POPULAR tag is the whole signal.
+
+    Its `.lp-price-badge.lp-price-popular` rule went with it: `--lp-terracotta`,
+    which the base badge paints with, has been an alias of `--lp-info` since the
+    palette consolidated, so the override resolved to the colour it was already
+    painting.
+
+- [#142](https://github.com/manyfold-open/manyfold/pull/142) [`f55932a`](https://github.com/manyfold-open/manyfold/commit/f55932a2303b3970f03361f40a7c67cac591a70d) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - The landing world's solids now all take the same light in light mode.
+
+    Two boxes were reading against the scene's own key light, which falls from the
+    upper left — tops brightest, left faces a step above right ones. The archive
+    plane's three cabinets are authored facing the other way and mirrored into
+    place, and the mirror had been added without swapping their side shading back,
+    so each one was lit from the right while everything around it was lit from the
+    left. The delivery cube's top used `--lp-w-box-accent`, the landmark step above
+    an ordinary top: in dark mode that is a lighter face, but on paper an ordinary
+    top is already white, so the light value had been stepped the other way and the
+    landmark rendered as the one grey box in a scene of white ones.
+
+    The cabinets swap their two side tokens inside the mirrored group, and the
+    accent tops out at white where it has nowhere brighter to go. Dark mode is
+    untouched: its accent still sits a step above its ordinary tops. Checked in
+    both themes — every left face on the stage is now the lit one, and every box
+    top matches its neighbours.
+
 ## 0.52.1
 
 ### Patch Changes

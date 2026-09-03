@@ -75,6 +75,10 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
             ),
             'the client declares model.inspect responses carry credentialFacts'
         )
+        assert.ok(
+            (hello.clientFeatures as string[]).includes('account.inspect'),
+            'the client declares it answers account.inspect for the runtime page'
+        )
     } finally {
         client.stop()
         wss.close()

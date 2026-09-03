@@ -16,6 +16,20 @@ export type TerminalConnectionStatus =
     | 'closed'
     | 'error'
 
+// What a session connects to: an agent's shell (the dock tabs) or a bare host
+// shell addressed by runtime (the runtime page's sign-in terminal).
+export interface TerminalSessionTarget {
+    id: string
+    agentId?: string
+    runtimeId?: string
+    cwdPath?: string
+    cwdRootId?: string
+    // Ask the API to open this terminal already inside the framework TUI for
+    // that chat session. Only the id travels: the API builds the argv from
+    // the session's own stored reference.
+    resumeChatSessionId?: string
+}
+
 export interface TerminalTabModel {
     agentId: string
     agentName: string
@@ -25,9 +39,6 @@ export interface TerminalTabModel {
     framework: SdkAgent['framework']
     id: string
     index: number
-    // Ask the API to open this terminal already inside the framework TUI for
-    // that chat session. Only the id travels: the API builds the argv from
-    // the session's own stored reference.
     resumeChatSessionId?: string
     // The chat's last message id when this terminal was (re)seeded. A resumed
     // TUI reads the transcript once at startup and never tails it, so when the
@@ -43,7 +54,10 @@ interface TerminalSessionProps {
     active: boolean
     getToken: () => Promise<string>
     onStatusChange: (tabId: string, status: TerminalConnectionStatus) => void
-    tab: TerminalTabModel
+    tab: TerminalSessionTarget
+    // Typed into the shell once, on its first output (the prompt). Any
+    // earlier and the daemon's PTY is not open yet to receive it.
+    initialInput?: string
 }
 
 const lightTheme = {
@@ -88,19 +102,29 @@ const darkTheme = {
     brightWhite: '#ffffff'
 }
 
+// The wire frame for keystrokes: a 0x00 tag byte, then UTF-8.
+const encodeTerminalInput = (data: string): Uint8Array => {
+    const encoded = new TextEncoder().encode(data)
+    const frame = new Uint8Array(encoded.length + 1)
+    frame[0] = 0x00
+    frame.set(encoded, 1)
+    return frame
+}
+
 const buildWsUrl = (
-    tab: TerminalTabModel,
+    tab: TerminalSessionTarget,
     token: string,
     cols: number,
     rows: number
 ): string => {
     const base = import.meta.env.VITE_API_URL ?? '/api'
     const params = new URLSearchParams({
-        agentId: tab.agentId,
         token,
         cols: String(cols),
         rows: String(rows)
     })
+    if (tab.runtimeId) params.set('runtimeId', tab.runtimeId)
+    else if (tab.agentId) params.set('agentId', tab.agentId)
     if (tab.cwdPath) params.set('cwdPath', tab.cwdPath)
     if (tab.cwdRootId) params.set('cwdRootId', tab.cwdRootId)
     if (tab.resumeChatSessionId)
@@ -132,11 +156,13 @@ const statusLabel = (status: TerminalConnectionStatus, t: TFn): string => {
     }
 }
 
-const TerminalSession: FC<TerminalSessionProps> = ({
+
+export const TerminalSession: FC<TerminalSessionProps> = ({
     active,
     getToken,
     onStatusChange,
-    tab
+    tab,
+    initialInput
 }): ReactNode => {
     const { t } = useI18n()
     const { theme } = useTheme()
@@ -154,6 +180,9 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     const fontSizeRef = useRef(fontSize)
     const retriesRef = useRef(0)
     const reconnectTimerRef = useRef<number | null>(null)
+    const initialInputRef = useRef(initialInput)
+    // Once per mount, not per connection: a reconnect must not re-run it.
+    const initialInputSentRef = useRef(false)
     const [status, setStatus] = useState<TerminalConnectionStatus>('connecting')
     const [errorMessage, setErrorMessage] = useState<string | null>(null)
     const [limitedTerminal, setLimitedTerminal] = useState(false)
@@ -266,15 +295,25 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                 return
             }
 
+            const flushInitialInput = (): void => {
+                const input = initialInputRef.current
+                if (!input || initialInputSentRef.current) return
+                initialInputSentRef.current = true
+                try {
+                    ws.send(encodeTerminalInput(input))
+                } catch {}
+            }
             if (event.data instanceof Blob) {
                 void event.data.arrayBuffer().then((buffer) => {
                     if (disposedRef.current || wsRef.current !== ws) return
                     term.write(new Uint8Array(buffer))
+                    flushInitialInput()
                 })
                 return
             }
 
             term.write(new Uint8Array(event.data as ArrayBuffer))
+            flushInitialInput()
         }
 
         ws.onerror = (): void => {
@@ -305,6 +344,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
         setConnectionStatus,
         t,
         tab.agentId,
+        tab.runtimeId,
         tab.cwdPath,
         tab.cwdRootId,
         tab.resumeChatSessionId
@@ -333,11 +373,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
         term.onData((data): void => {
             const ws = wsRef.current
             if (!ws || ws.readyState !== WebSocket.OPEN) return
-            const encoded = new TextEncoder().encode(data)
-            const frame = new Uint8Array(encoded.length + 1)
-            frame[0] = 0x00
-            frame.set(encoded, 1)
-            ws.send(frame)
+            ws.send(encodeTerminalInput(data))
         })
 
         term.onResize(({ cols, rows }): void => {
@@ -468,5 +504,6 @@ const handleTerminalTextFrame = (
         }
     } catch {}
 }
+
 
 export default TerminalSession

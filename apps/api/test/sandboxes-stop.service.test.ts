@@ -188,6 +188,9 @@ const makeStop = (opts: {
     }
 }
 
+const auditMeta = (h: StopHarness): Record<string, unknown> =>
+    h.auditRows[0].meta as Record<string, unknown>
+
 test('stop is a noop on a non-running sandbox and touches nothing', async () => {
     const h = makeStop({ host: baseHost({ spriteStatus: 'warm' }) })
 
@@ -399,4 +402,72 @@ test('stop warns when the status refresh fails and still audits', async () => {
     assert.equal(h.auditRows.length, 1)
     assert.equal(h.auditRows[0].action, 'sandbox.stop')
     assert.equal(h.auditRows[0].subject, 'sbx_1')
+})
+
+// WHY this test exists: agents, runtimes, services and tasks are every lever a
+// stop has. A running VM with none of them is being held awake by something
+// out of reach, so the stop cannot work — and saying `pending` with empty
+// arrays is how prod hid that for three days (2026-09-03: 60 audited stops in
+// one day on a sandbox billing 52h against a 5h quota, because a leaked exec
+// session was holding it and the agent had already been deleted).
+test('a running sandbox with nothing registered on it says so instead of reporting a clean stop', async () => {
+    const h = makeStop({})
+
+    const res = await h.svc.stop('u1', 'sbx_1')
+
+    assert.equal(res.status, 'pending')
+    assert.equal(res.stoppedAgents, 0)
+    assert.match(
+        res.warnings.join('\n'),
+        /nothing on this sandbox could be stopped/
+    )
+    assert.equal(auditMeta(h).hasNoLevers, true)
+})
+
+// The other half: a stop with something to work on must not carry the warning,
+// or it becomes noise on every ordinary stop and stops meaning anything.
+test('a sandbox with an agent on it gets no such warning', async () => {
+    const h = makeStop({ agents: [{ id: 'agt_1', runtimeId: 'rt_1' }] })
+
+    const res = await h.svc.stop('u1', 'sbx_1')
+
+    assert.equal(res.stoppedAgents, 1)
+    assert.deepEqual(res.warnings, [])
+    assert.equal(auditMeta(h).hasNoLevers, false)
+})
+
+// Registered-but-unstoppable is NOT the same fault: the levers exist, one of
+// them refused. That case already surfaces its own warning and must not also
+// claim there was nothing to stop.
+test('a service that refuses to stop is not reported as having no levers', async () => {
+    const h = makeStop({
+        services: [service('deck', 'running')],
+        stopService: (name) => service(name, 'running')
+    })
+
+    const res = await h.svc.stop('u1', 'sbx_1')
+
+    assert.match(res.warnings.join('\n'), /refused to stop/)
+    assert.ok(
+        !res.warnings.join('\n').includes('nothing on this sandbox'),
+        'a present-but-stuck service is a different diagnosis'
+    )
+    assert.equal(auditMeta(h).hasNoLevers, false)
+})
+
+// A task the platform owns (a keep-alive lease) is deliberately not deleted by
+// stop(), so deletedTasks stays empty — but the task is exactly the explanation
+// for the VM being up, so this is not the no-levers case either.
+test('a platform task on the sprite counts as a lever even though stop leaves it alone', async () => {
+    const h = makeStop({})
+    h.svc.execResults = [ok('{"tasks":[{"name":"nca-claude-code-abc-1"}]}')]
+
+    const res = await h.svc.stop('u1', 'sbx_1')
+
+    assert.deepEqual(res.deletedTasks, [])
+    assert.ok(
+        !res.warnings.join('\n').includes('nothing on this sandbox'),
+        'a platform keep-alive task explains the running VM'
+    )
+    assert.equal(auditMeta(h).hasNoLevers, false)
 })

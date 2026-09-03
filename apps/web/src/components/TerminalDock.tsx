@@ -13,12 +13,12 @@ import {
     TerminalIcon
 } from '@/components/icons'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { useI18n } from '@/lib/i18n'
 import TerminalSession from '@/components/TerminalSession'
 import type {
     TerminalConnectionStatus,
     TerminalTabModel
 } from '@/components/TerminalSession'
-import { useI18n } from '@/lib/i18n'
 
 interface TerminalDockProps {
     activeTabId: string | null
@@ -381,5 +381,6 @@ const TerminalDock: FC<TerminalDockProps> = ({
         </section>
     )
 }
+
 
 export default TerminalDock

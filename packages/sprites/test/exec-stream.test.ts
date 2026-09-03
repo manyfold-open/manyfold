@@ -474,7 +474,15 @@ test('detach: abort after a received exit does not kill (settled guard)', async 
     }
 })
 
-test('detach: abort never kills when the option is unset (back-compat)', async () => {
+// Replaces an earlier test that asserted the opposite ("abort never kills when
+// the option is unset"). That encoded the assumption that without a detach
+// window, closing the socket is enough to stop the process. Seen on prod
+// [2026-09-03]: two `cat` sessions from a cancelled upload — no detach option
+// anywhere on the write path — were still is_active three days later, pinning
+// the sandbox `running` and billing active hours against a 5h free quota. Every
+// exec except a chat turn leaves maxRunAfterDisconnectSeconds unset, so gating
+// the kill on it made the kill inert for all of them.
+test('abort kills the remote session even without the detach option', async () => {
     const kills: KillCall[] = []
     const server = await startServer((ws) => {
         ws.send(sessionInfoText('sess-6'))
@@ -492,6 +500,70 @@ test('detach: abort never kills when the option is unset (back-compat)', async (
         void drain(handle.stdout)
         await delay(100)
         handle.abort()
+        await delay(20)
+        assert.deepEqual(kills, [{ spriteName: 'sprite', sessionId: 'sess-6' }])
+    } finally {
+        await server.close()
+    }
+})
+
+// The exact prod shape: a body stream that dies part-way through the upload.
+// The stdin pump's failure used to settle the result and nothing else, so the
+// remote `cat` kept blocking on a stdin that would never arrive.
+test('a stdin pump failure kills the remote session', async () => {
+    const kills: KillCall[] = []
+    const server = await startServer((ws) => {
+        ws.send(sessionInfoText('sess-stdin'))
+    })
+    try {
+        const body = (async function* () {
+            yield Buffer.from('first chunk')
+            throw new Error('upload cancelled')
+        })()
+        const handle = execSpriteStream(
+            fakeClient(server.port, kills),
+            'sprite',
+            {
+                cmd: ['bash', '-c', 'cat > /tmp/x'],
+                stdin: body,
+                timeoutMs: 5_000
+            }
+        )
+        void drain(handle.stdout)
+        await assert.rejects(handle.result, /upload cancelled/)
+        await delay(20)
+        assert.deepEqual(kills, [
+            { spriteName: 'sprite', sessionId: 'sess-stdin' }
+        ])
+    } finally {
+        await server.close()
+    }
+})
+
+// A stdin failure before session_info has nothing addressable to kill, and must
+// still surface the original error rather than a kill failure.
+test('a stdin pump failure before session_info still rejects with the cause', async () => {
+    const kills: KillCall[] = []
+    const server = await startServer(() => {})
+    try {
+        // Rejects on the very first pull, so the pump fails before any frame
+        // — and therefore before session_info could have arrived.
+        const body: AsyncIterable<Buffer> = {
+            [Symbol.asyncIterator]: () => ({
+                next: () => Promise.reject(new Error('body exploded'))
+            })
+        }
+        const handle = execSpriteStream(
+            fakeClient(server.port, kills),
+            'sprite',
+            {
+                cmd: ['bash', '-c', 'cat > /tmp/x'],
+                stdin: body,
+                timeoutMs: 5_000
+            }
+        )
+        void drain(handle.stdout)
+        await assert.rejects(handle.result, /body exploded/)
         await delay(20)
         assert.equal(kills.length, 0)
     } finally {
