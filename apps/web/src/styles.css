@@ -80,23 +80,23 @@
            instead of the fill alone. Anything that should read as
            recessed against the canvas (tool blocks, code, the user's own
            message) steps down to `surface-subtle`. */
-        --color-fg: 10 12 15;
-        --color-muted: 82 88 97;
-        --color-subtle: 109 116 126;
-        --color-placeholder: 130 136 145;
+        --color-fg: 12 12 15;
+        --color-muted: 85 87 94;
+        --color-subtle: 113 115 123;
+        --color-placeholder: 133 135 143;
         /* Anchored to `surface` (the tier dividers are most often drawn
            on) at the ratio the old 218-on-242 pair held. Left at 218 it
            would have turned into a hard 29-unit rule once the surfaces
            moved up. */
-        --color-divider: 225 229 234;
-        --color-surface: 251 252 254;
+        --color-divider: 228 229 231;
+        --color-surface: 252 252 253;
         /* The recessed tier, and the one doing the most work after the
            canvas moved: on `surface` it is a δ-14 inset panel (unchanged
            from the old 228-on-242), and on the near-white canvas it is a
            δ-11 chip — the step ChatGPT and Claude both use for the user's
            own message bubble on a white thread. */
-        --color-surface-subtle: 235 238 241;
-        --color-surface-elevated: 253 254 255;
+        --color-surface-subtle: 237 238 240;
+        --color-surface-elevated: 254 254 254;
         /* Hover fills are tuned PER BACKGROUND TIER (DESIGN.md §8.10).
            Each background sits at a different absolute lightness, so a
            single global hover token reads "too dark" on some surfaces
@@ -118,21 +118,21 @@
            floor, never below it. Earlier values dipped *below* app-bg and
            made the hovered row read as a depression in the sidebar rather
            than a quiet acknowledgement. */
-        --color-surface-hover: 233 237 241;
-        --color-rail-hover: 223 227 232;
-        --color-app-bg: 222 226 230;
-        --color-main-bg: 247 249 251;
-        --color-settings-bg: 247 249 251;
-        --color-settings-rail: 235 238 241;
-        --color-rail: 235 238 241;
+        --color-surface-hover: 236 237 239;
+        --color-rail-hover: 226 227 229;
+        --color-app-bg: 224 225 228;
+        --color-main-bg: 249 249 251;
+        --color-settings-bg: 249 249 251;
+        --color-settings-rail: 237 238 240;
+        --color-rail: 237 238 240;
         /* Soft fill (popover-item hover/active, DESIGN.md §8.10 class L).
            Sits on `--color-surface-elevated` (253) at δ-19, which is
            the same perceived contrast as the other hover deltas but
            larger in RGB units because the elevated surface is brighter.
            Do not use --color-soft on `--color-rail` or `--color-surface`
            backgrounds — those tiers have their own hover tokens. */
-        --color-soft: 234 237 241;
-        --color-soft-hover: 226 230 234;
+        --color-soft: 236 237 239;
+        --color-soft-hover: 229 230 232;
         /* Neutral tag fill (§8.3 tag family). Tags are ringless, so the
            fill alone must hold the edge on every parent a tag lands on
            (surface 251 / chat canvas 247 / rail 235 / soft hover-rows
@@ -151,8 +151,8 @@
            sidebar's two states (hover, active) on the same visual rail
            rather than introducing a third tone. */
         --color-active-session: var(--color-rail-hover);
-        --color-strong: 10 12 15;
-        --color-strong-hover: 42 49 56;
+        --color-strong: 12 12 15;
+        --color-strong-hover: 47 48 53;
         --color-strong-fg: 255 255 255;
         /* Iris — the brand ramp, the same ten steps the landing register
            carries as --lp-iris-*. Calibrated in OKLCH rather than HSL: hue
@@ -211,11 +211,11 @@
         --color-workflow-develop: var(--color-info);
         --color-workflow-preview: var(--color-warning);
         --color-workflow-ship: var(--color-error);
-        --color-avatar-bg: 220 224 228;
-        --color-avatar-fg: 31 36 44;
-        --color-icon-bg: 220 226 232;
-        --color-icon-fg: 60 68 78;
-        --color-disabled-control: 200 204 209;
+        --color-avatar-bg: 222 223 226;
+        --color-avatar-fg: 35 36 40;
+        --color-icon-bg: 224 225 228;
+        --color-icon-fg: 66 67 74;
+        --color-disabled-control: 202 203 207;
         --color-link: var(--color-info);
         --color-focus: var(--color-info);
         --color-badge-bg: var(--color-info-bg);
@@ -285,26 +285,26 @@
            recession — a fill below the canvas reads as a hole — so
            `surface-subtle` sits just ABOVE the canvas here while sitting
            below it in light mode. */
-        --color-fg: 228 231 236;
-        --color-muted: 185 190 198;
-        --color-subtle: 124 131 140;
-        --color-placeholder: 105 112 122;
+        --color-fg: 231 231 233;
+        --color-muted: 188 189 194;
+        --color-subtle: 128 130 138;
+        --color-placeholder: 109 111 118;
         /* Sits +16 above --color-surface-elevated (42), the lightest working
            tone popovers/dropdowns are painted on. The old 42 46 52 collided
            with that surface exactly, so a separator (drawn at /0.7) vanished
            inside any menu. +16 is the same perceptual step the dark-mode
            hover tokens use against their backgrounds — a clear hairline, not
            a hard rule. */
-        --color-divider: 58 63 70;
-        --color-surface: 32 36 42;
+        --color-divider: 60 62 68;
+        --color-surface: 35 36 40;
         /* Lifted with the canvas (was 18, when the canvas was 14). Tool
            blocks, code, and thinking blocks paint on this and sit
            directly on the chat canvas — left at 18 they would have gone
            2 units BELOW the new canvas and read as holes. At 26 the same
            token is a δ+7 lift on the canvas and still a δ-6 inset inside
            a card, which is the pair of jobs it has to hold. */
-        --color-surface-subtle: 26 30 36;
-        --color-surface-elevated: 42 47 54;
+        --color-surface-subtle: 29 30 34;
+        --color-surface-elevated: 45 46 51;
         /* Dark-mode hover tokens (DESIGN.md §8.10). Each hover is
            brighter than its background, tier-specific:
 
@@ -327,18 +327,18 @@
            card. 28 keeps it clearly above the rail, 9 above the canvas
            (between Discord's +4 and ChatGPT's +14), and safely under the
            card tier. */
-        --color-surface-hover: 48 53 60;
-        --color-rail-hover: 28 32 38;
-        --color-app-bg: 7 9 12;
-        --color-main-bg: 20 23 27;
-        --color-settings-bg: 20 23 27;
-        --color-settings-rail: 13 16 20;
-        --color-rail: 13 16 20;
+        --color-surface-hover: 51 53 58;
+        --color-rail-hover: 31 32 36;
+        --color-app-bg: 9 9 11;
+        --color-main-bg: 22 23 25;
+        --color-settings-bg: 22 23 25;
+        --color-settings-rail: 15 15 18;
+        --color-rail: 15 15 18;
         /* Soft fill — popover-item hover on --color-surface-elevated (42).
            Sits at δ+16 — brighter than the popover surface by the same
            perceived step as the other hover tokens. */
-        --color-soft: 58 63 71;
-        --color-soft-hover: 70 76 84;
+        --color-soft: 61 63 69;
+        --color-soft-hover: 73 75 81;
         /* Neutral tag fill — in dark the wash is platinum (--color-fg
            is light), so the tag sits *lighter* than its parents
            (surface 32 / elevated 42 / soft rows 58), mirroring the
@@ -347,9 +347,9 @@
         /* Aliased to --color-rail-hover (see light-mode block for
            rationale) — active fill = hover fill. */
         --color-active-session: var(--color-rail-hover);
-        --color-strong: 228 231 236;
-        --color-strong-hover: 200 206 214;
-        --color-strong-fg: 14 17 21;
+        --color-strong: 231 231 233;
+        --color-strong-hover: 204 205 209;
+        --color-strong-fg: 14 15 17;
         /* Status spectrum — dark variant: same hues brightened so
            perceived saturation matches light mode (DESIGN.md §4.2). */
         /* Aliases step UP the ramp; the ramp itself does not change. Landing
@@ -383,11 +383,11 @@
         --color-workflow-develop: var(--color-info);
         --color-workflow-preview: var(--color-warning);
         --color-workflow-ship: var(--color-error);
-        --color-avatar-bg: 44 50 58;
-        --color-avatar-fg: 228 231 236;
-        --color-icon-bg: 38 43 50;
-        --color-icon-fg: 185 190 198;
-        --color-disabled-control: 64 70 78;
+        --color-avatar-bg: 48 50 55;
+        --color-avatar-fg: 231 231 233;
+        --color-icon-bg: 41 42 47;
+        --color-icon-fg: 188 189 194;
+        --color-disabled-control: 67 69 75;
         --color-link: var(--color-info);
         --color-focus: var(--color-info);
         --color-badge-bg: var(--color-info-bg);
