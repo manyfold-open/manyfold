@@ -24,10 +24,8 @@ import {
 } from '@manyfold/shared'
 import {
     Suspense,
-    type CSSProperties,
     type FC,
     type MouseEvent as ReactMouseEvent,
-    type PointerEvent as ReactPointerEvent,
     type ReactNode
 } from 'react'
 import {
@@ -121,6 +119,10 @@ import { resolveWorkspaceFileLink } from '@/components/chat/fileLinkPreview'
 import SessionViewSwitch, {
     type SessionViewMode
 } from '@/components/chat/SessionViewSwitch'
+import SidePane, {
+    type SidePaneKind,
+    type SidePaneOption
+} from '@/components/chat/SidePane'
 import type { TerminalTabModel } from '@/components/TerminalSession'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import {
@@ -142,6 +144,9 @@ const WorkspaceFiles = lazyChunk(
 )
 const RuntimeSessionViewer = lazyChunk(
     () => import('@/components/chat/RuntimeSessionViewer')
+)
+const BackgroundTasksBody = lazyChunk(
+    () => import('@/components/BackgroundTasksPanel')
 )
 
 // The page's inflight turn as a resumable pair, or null if it did not carry
@@ -168,9 +173,6 @@ const CODEX_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.codexPermissionMode.'
 const HERMES_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.hermesPermissionMode.'
 const DRAFT_STORAGE_PREFIX = 'nca.chat.draft.'
 const DRAFT_NEW_SLOT = 'new'
-const DEFAULT_RUNTIME_SESSION_PANEL_WIDTH = 560
-const MIN_RUNTIME_SESSION_PANEL_WIDTH = 420
-const MAX_RUNTIME_SESSION_PANEL_WIDTH = 900
 const CHAT_MESSAGES_PAGE_SIZE = CHAT_MESSAGE_SOFT_LIMIT
 
 // Don't re-read the runtime transcript more than once per this window on the
@@ -206,7 +208,6 @@ const AgentChat: FC = (): ReactNode => {
     const {
         agents,
         agentsLoading,
-        bgTasksVisible,
         currentAgent,
         openMobileSidebar,
         openTerminalForAgent,
@@ -216,8 +217,7 @@ const AgentChat: FC = (): ReactNode => {
         requestQuotaConflict,
         sandboxes,
         sessions,
-        sessionsLoading,
-        toggleBackgroundTasks
+        sessionsLoading
     } = useAppShellContext()
     const [messages, setMessages] = useState<ChatMessage[]>([])
     const [error, setError] = useState<string | null>(null)
@@ -239,7 +239,7 @@ const AgentChat: FC = (): ReactNode => {
     const [messageScrollAction, setMessageScrollAction] =
         useState<MessageScrollAction | null>(null)
     const [isSubmitting, setIsSubmitting] = useState(false)
-    const [filesVisible, setFilesVisible] = useState(false)
+    const [activePane, setActivePane] = useState<SidePaneKind | null>(null)
     const [filePreviewVisible, setFilePreviewVisible] = useState(false)
     const [filePreviewAvailable, setFilePreviewAvailable] = useState(false)
     const [filePreviewRequest, setFilePreviewRequest] =
@@ -264,11 +264,6 @@ const AgentChat: FC = (): ReactNode => {
         useState<AgentModelConfigSource>('platform')
     const [modelConfigLoading, setModelConfigLoading] = useState(false)
     const [modelConfigRefreshing, setModelConfigRefreshing] = useState(false)
-    const [runtimeSessionViewerOpen, setRuntimeSessionViewerOpen] =
-        useState(false)
-    const [runtimeSessionPanelWidth, setRuntimeSessionPanelWidth] = useState(
-        DEFAULT_RUNTIME_SESSION_PANEL_WIDTH
-    )
     const [sessionView, setSessionView] = useState<SessionViewMode>('chat')
     /* Created on the first switch to Terminal and kept afterwards: the chat
        and terminal panes both stay mounted so toggling back does not tear
@@ -1171,7 +1166,7 @@ const AgentChat: FC = (): ReactNode => {
     // Stable references: the viewer holds multi-MB state, and fresh inline
     // closures would re-render it on every streaming token of the main chat.
     const handleRuntimeViewerClose = useCallback((): void => {
-        setRuntimeSessionViewerOpen(false)
+        setActivePane((pane) => (pane === 'runtime' ? null : pane))
     }, [])
 
     const handleRuntimeViewerApplied = useCallback(
@@ -1761,8 +1756,7 @@ const AgentChat: FC = (): ReactNode => {
             if (!target) return false
 
             filePreviewRequestIdRef.current += 1
-            setRuntimeSessionViewerOpen(false)
-            setFilesVisible(true)
+            setActivePane('files')
             setFilePreviewVisible(true)
             setFilePreviewRequest({
                 id: filePreviewRequestIdRef.current,
@@ -1852,58 +1846,32 @@ const AgentChat: FC = (): ReactNode => {
     )
 
     useEffect(() => {
-        setRuntimeSessionViewerOpen(false)
+        // The runtime session viewer is scoped to one session; switching the
+        // session invalidates it. Files / Background tasks can stay open.
+        setActivePane((pane) => (pane === 'runtime' ? null : pane))
     }, [agentId, activeSessionId])
 
-    const toggleFilesVisible = useCallback((): void => {
+    // Leaving the Files pane drops its preview sub-state, so a stale preview
+    // neither re-opens the pane nor lights the header's preview toggle.
+    useEffect(() => {
+        if (activePane !== 'files') {
+            setFilePreviewVisible(false)
+            setFilePreviewAvailable(false)
+            setFilePreviewRequest(null)
+        }
+    }, [activePane])
+
+    const toggleFiles = useCallback((): void => {
         if (!workspaceToolsAvailable) return
-        setRuntimeSessionViewerOpen(false)
-        setFilesVisible((value) => !value)
+        setActivePane((pane) => (pane === 'files' ? null : 'files'))
     }, [workspaceToolsAvailable])
 
     const toggleFilePreviewVisible = useCallback((): void => {
         if (!workspaceToolsAvailable) return
         if (!filePreviewAvailable) return
-        setRuntimeSessionViewerOpen(false)
+        setActivePane('files')
         setFilePreviewVisible((value) => !value)
     }, [filePreviewAvailable, workspaceToolsAvailable])
-
-    const startRuntimeSessionPanelResize = useCallback(
-        (event: ReactPointerEvent<HTMLDivElement>): void => {
-            if (event.button !== 0) return
-            event.preventDefault()
-            const startX = event.clientX
-            const startWidth = runtimeSessionPanelWidth
-            const previousCursor = document.body.style.cursor
-            const previousUserSelect = document.body.style.userSelect
-            document.body.style.cursor = 'col-resize'
-            document.body.style.userSelect = 'none'
-
-            const onMove = (moveEvent: PointerEvent): void => {
-                const dx = moveEvent.clientX - startX
-                setRuntimeSessionPanelWidth(
-                    clamp(
-                        startWidth - dx,
-                        MIN_RUNTIME_SESSION_PANEL_WIDTH,
-                        MAX_RUNTIME_SESSION_PANEL_WIDTH
-                    )
-                )
-            }
-
-            const onUp = (): void => {
-                window.removeEventListener('pointermove', onMove)
-                window.removeEventListener('pointerup', onUp)
-                window.removeEventListener('pointercancel', onUp)
-                document.body.style.cursor = previousCursor
-                document.body.style.userSelect = previousUserSelect
-            }
-
-            window.addEventListener('pointermove', onMove)
-            window.addEventListener('pointerup', onUp)
-            window.addEventListener('pointercancel', onUp)
-        },
-        [runtimeSessionPanelWidth]
-    )
 
     useEffect(() => {
         setFilePreviewAvailable(false)
@@ -1913,7 +1881,8 @@ const AgentChat: FC = (): ReactNode => {
     }, [agentId])
 
     useEffect(() => {
-        if (!workspaceToolsAvailable) setFilesVisible(false)
+        if (!workspaceToolsAvailable)
+            setActivePane((pane) => (pane === 'files' ? null : pane))
     }, [workspaceToolsAvailable])
 
     const handleDraftAgentSelect = useCallback(
@@ -1939,7 +1908,7 @@ const AgentChat: FC = (): ReactNode => {
                 })
             ) {
                 event.preventDefault()
-                toggleFilesVisible()
+                toggleFiles()
                 return
             }
 
@@ -1960,7 +1929,7 @@ const AgentChat: FC = (): ReactNode => {
         return () => {
             document.removeEventListener('keydown', handleKeyDown, true)
         }
-    }, [toggleFilePreviewVisible, toggleFilesVisible])
+    }, [toggleFilePreviewVisible, toggleFiles])
 
     const isStreaming = isLiveStreamStatus(stream.status)
     const isCancelling = stream.status === 'cancelling'
@@ -2025,13 +1994,23 @@ const AgentChat: FC = (): ReactNode => {
         softLimitHit ||
         Boolean(error) ||
         runtimeSignInVisible
-    const shouldMountWorkspaceFiles =
-        workspaceToolsAvailable &&
-        !runtimeSessionViewerOpen &&
-        (filesVisible ||
-            filePreviewVisible ||
-            filePreviewAvailable ||
-            Boolean(filePreviewRequest))
+    const paneOptions: SidePaneOption[] = [
+        {
+            kind: 'background-tasks',
+            label: t('web.chat.pane.backgroundTasks')
+        },
+        ...(workspaceToolsAvailable
+            ? [{ kind: 'files' as const, label: t('web.chat.pane.files') }]
+            : []),
+        ...(currentAgent && currentAgent.runtime !== 'external'
+            ? [
+                  {
+                      kind: 'runtime' as const,
+                      label: t('web.chat.pane.runtimeSession')
+                  }
+              ]
+            : [])
+    ]
 
     if (agentsLoading && !currentAgent) {
         return (
@@ -2161,27 +2140,23 @@ const AgentChat: FC = (): ReactNode => {
     )
 
     return (
-        <div className='chat-workspace-shell flex h-full min-h-0 flex-col overflow-hidden'>
+        <div className='flex h-full min-h-0 overflow-hidden'>
+        <div className='chat-workspace-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden'>
             <AgentChatHeader
                 agent={currentAgent}
-                filesVisible={filesVisible}
+                filesVisible={activePane === 'files'}
                 previewAvailable={filePreviewAvailable}
                 previewVisible={filePreviewVisible}
                 refreshing={workspaceRefreshing}
                 runtimeSessionViewerEnabled={
                     currentAgent.runtime !== 'external'
                 }
-                runtimeSessionViewerOpen={runtimeSessionViewerOpen}
+                runtimeSessionViewerOpen={activePane === 'runtime'}
                 onOpenMobileMenu={openMobileSidebar}
                 onToggleRuntimeSessionViewer={() =>
-                    setRuntimeSessionViewerOpen((value) => {
-                        const next = !value
-                        if (next) {
-                            setFilesVisible(false)
-                            setFilePreviewVisible(false)
-                        }
-                        return next
-                    })
+                    setActivePane((pane) =>
+                        pane === 'runtime' ? null : 'runtime'
+                    )
                 }
                 onOpenTerminal={() => openTerminalForAgent(currentAgent)}
                 sessionView={sessionView}
@@ -2197,10 +2172,14 @@ const AgentChat: FC = (): ReactNode => {
                         : null
                 }
                 onRefresh={handleRefreshWorkspace}
-                onToggleFiles={toggleFilesVisible}
+                onToggleFiles={toggleFiles}
                 onTogglePreview={toggleFilePreviewVisible}
-                onToggleBackgroundTasks={toggleBackgroundTasks}
-                backgroundTasksOpen={bgTasksVisible}
+                onToggleBackgroundTasks={() =>
+                    setActivePane((pane) =>
+                        pane === 'background-tasks' ? null : 'background-tasks'
+                    )
+                }
+                backgroundTasksOpen={activePane === 'background-tasks'}
             />
             {shareSessionOpen && shareableSession && (
                 <ShareChatSessionDialog
@@ -2430,39 +2409,38 @@ const AgentChat: FC = (): ReactNode => {
                         )}
                     </div>
                 </div>
-                {runtimeSessionViewerOpen && agentId && (
-                    <RuntimeSessionResizeHandle
-                        label={t('web.chat.header.resizeRuntimeViewer')}
-                        onPointerDown={startRuntimeSessionPanelResize}
-                    />
+            </div>
+            {confirmDialog}
+        </div>
+        {activePane && (
+            <SidePane
+                activeKind={activePane}
+                options={paneOptions}
+                onSelectKind={setActivePane}
+                onClose={() => setActivePane(null)}
+            >
+                {activePane === 'background-tasks' && (
+                    <Suspense fallback={null}>
+                        <BackgroundTasksBody agent={currentAgent} />
+                    </Suspense>
                 )}
-                {runtimeSessionViewerOpen && agentId && (
+                {activePane === 'runtime' && agentId && (
                     <Suspense
                         fallback={
-                            <aside
-                                className='border-divider/80 bg-surface order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--runtime-session-panel-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
-                                style={
-                                    {
-                                        '--runtime-session-panel-width': `${runtimeSessionPanelWidth}px`
-                                    } as CSSProperties
-                                }
-                            >
-                                <div className='text-ui text-muted flex h-full items-center justify-center px-6 text-center'>
-                                    {t('web.chat.loadingRuntimeViewer')}
-                                </div>
-                            </aside>
+                            <div className='text-ui text-muted flex h-full items-center justify-center px-6 text-center'>
+                                {t('web.chat.loadingRuntimeViewer')}
+                            </div>
                         }
                     >
                         <RuntimeSessionViewer
                             agentId={agentId}
                             sessionId={activeSessionId}
-                            width={runtimeSessionPanelWidth}
                             onClose={handleRuntimeViewerClose}
                             onApplied={handleRuntimeViewerApplied}
                         />
                     </Suspense>
                 )}
-                {shouldMountWorkspaceFiles && (
+                {activePane === 'files' && (
                     <Suspense fallback={null}>
                         <WorkspaceFiles
                             key={currentAgent.id}
@@ -2479,12 +2457,12 @@ const AgentChat: FC = (): ReactNode => {
                             previewRequest={filePreviewRequest}
                             previewVisible={filePreviewVisible}
                             refreshKey={workspaceRefreshKey}
-                            visible={filesVisible}
+                            visible
                         />
                     </Suspense>
                 )}
-            </div>
-            {confirmDialog}
+            </SidePane>
+        )}
         </div>
     )
 }
@@ -2755,22 +2733,6 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
         </header>
     )
 }
-
-const RuntimeSessionResizeHandle: FC<{
-    label: string
-    onPointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void
-}> = ({ label, onPointerDown }): ReactNode => (
-    <div
-        aria-label={label}
-        aria-orientation='vertical'
-        className='group hidden w-2 shrink-0 cursor-col-resize items-stretch justify-center lg:flex'
-        role='separator'
-        tabIndex={0}
-        onPointerDown={onPointerDown}
-    >
-        <span className='group-hover:bg-placeholder group-focus-visible:bg-placeholder my-auto h-12 w-px rounded-full bg-transparent transition-colors' />
-    </div>
-)
 
 export default AgentChat
 
@@ -3096,6 +3058,3 @@ const formatStatusLabel = (status: string, t: TFn): string => {
             return t('web.chat.agentStatus.unknown')
     }
 }
-
-const clamp = (value: number, min: number, max: number): number =>
-    Math.min(max, Math.max(min, value))

@@ -730,7 +730,6 @@ const zh: Translations = {
             many: '{{count}} 台机器需要升级 CLI'
         },
         backgroundTasks: {
-            title: '后台任务',
             running: '运行中',
             finished: '已完成',
             clear: '清除',
@@ -740,9 +739,7 @@ const zh: Translations = {
             viewTranscript: '查看记录',
             transcriptUnavailable: '暂无任务记录。',
             loadingTranscript: '正在加载记录…',
-            close: '关闭',
             back: '返回',
-            resize: '调整后台任务面板宽度',
             type: 'A2A',
             tokens: '{{count}} tokens',
             direction: {
@@ -2383,7 +2380,6 @@ const zh: Translations = {
                 answerFailed: '应答发送失败：{{message}}'
             },
             header: {
-                resizeRuntimeViewer: '调整聊天与 Runtime 会话查看器大小',
                 openMenu: '打开菜单',
                 share: '分享聊天',
                 openTerminal: '打开终端',
@@ -2395,6 +2391,15 @@ const zh: Translations = {
                 hideRuntimeViewer: '隐藏 Runtime 会话查看器',
                 runtimeViewer: 'Runtime 会话查看器',
                 backgroundTasks: '后台任务'
+            },
+            pane: {
+                label: '聊天侧边面板',
+                select: '选择面板',
+                close: '关闭面板',
+                resize: '调整面板宽度',
+                backgroundTasks: '后台任务',
+                files: '文件',
+                runtimeSession: 'Runtime 会话'
             },
             agentStatus: {
                 pending: '等待中',

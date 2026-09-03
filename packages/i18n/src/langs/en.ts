@@ -745,7 +745,6 @@ const en = {
             many: '{{count}} machines need a CLI upgrade'
         },
         backgroundTasks: {
-            title: 'Background tasks',
             running: 'Running',
             finished: 'Finished',
             clear: 'Clear',
@@ -755,9 +754,7 @@ const en = {
             viewTranscript: 'View transcript',
             transcriptUnavailable: 'Transcript not available.',
             loadingTranscript: 'Loading transcript…',
-            close: 'Close',
             back: 'Back',
-            resize: 'Resize background tasks panel',
             type: 'A2A',
             tokens: '{{count}} tokens',
             direction: {
@@ -2457,7 +2454,6 @@ const en = {
                 answerFailed: 'Could not deliver the answer: {{message}}'
             },
             header: {
-                resizeRuntimeViewer: 'Resize chat and runtime session viewer',
                 openMenu: 'Open menu',
                 share: 'Share chat',
                 openTerminal: 'Open terminal',
@@ -2469,6 +2465,15 @@ const en = {
                 hideRuntimeViewer: 'Hide runtime session viewer',
                 runtimeViewer: 'Runtime session viewer',
                 backgroundTasks: 'Background tasks'
+            },
+            pane: {
+                label: 'Chat side panel',
+                select: 'Select panel',
+                close: 'Close panel',
+                resize: 'Resize panel',
+                backgroundTasks: 'Background tasks',
+                files: 'Files',
+                runtimeSession: 'Runtime session'
             },
             agentStatus: {
                 pending: 'Pending',

@@ -104,7 +104,6 @@ import {
     ensureSandboxTerminalEnabled,
     terminalAvailabilityForAgent
 } from '@/lib/terminalAccess'
-import BackgroundTasksPanel from '@/components/BackgroundTasksPanel'
 import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import { BrandMark } from '@/components/Brand'
 import QuotaBanner from '@/components/QuotaBanner'
@@ -157,8 +156,6 @@ export interface AppShellOutletContext {
     dismissQuotaWarning: (code: string) => void
     requestQuotaConflict: (request: QuotaConflictRequest) => void
     markAgentReleasing: (agentId: string) => void
-    bgTasksVisible: boolean
-    toggleBackgroundTasks: () => void
     sessions: ChatSessionSummary[]
     sessionsError: string | null
     sessionsLoading: boolean
@@ -2301,7 +2298,6 @@ const AppShell: FC = (): ReactNode => {
         null
     )
     const [terminalDockVisible, setTerminalDockVisible] = useState(false)
-    const [bgTasksVisible, setBgTasksVisible] = useState(false)
     const [credentialsAgent, setCredentialsAgent] = useState<SdkAgent | null>(
         null
     )
@@ -4202,9 +4198,6 @@ const AppShell: FC = (): ReactNode => {
                                     dismissQuotaWarning,
                                     requestQuotaConflict,
                                     markAgentReleasing,
-                                    bgTasksVisible,
-                                    toggleBackgroundTasks: () =>
-                                        setBgTasksVisible((value) => !value),
                                     sessions,
                                     sessionsError,
                                     sessionsLoading
@@ -4259,12 +4252,6 @@ const AppShell: FC = (): ReactNode => {
                     />
                 )}
             </div>
-            {bgTasksVisible && (
-                <BackgroundTasksPanel
-                    agent={currentAgent}
-                    onClose={() => setBgTasksVisible(false)}
-                />
-            )}
         </div>
     )
 }
