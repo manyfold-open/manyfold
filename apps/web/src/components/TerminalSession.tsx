@@ -157,7 +157,7 @@ const statusLabel = (status: TerminalConnectionStatus, t: TFn): string => {
 }
 
 
-export const TerminalSession: FC<TerminalSessionProps> = ({
+const TerminalSession: FC<TerminalSessionProps> = ({
     active,
     getToken,
     onStatusChange,

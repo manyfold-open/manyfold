@@ -2,10 +2,8 @@ import { useRef, useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import type { AgentFramework } from '@manyfold/shared'
 import { CopyButton } from '@/components/RuntimeDetailPanel'
-import {
-    TerminalSession,
-    type TerminalConnectionStatus
-} from '@/components/TerminalSession'
+import TerminalSession from '@/components/TerminalSession'
+import type { TerminalConnectionStatus } from '@/components/TerminalSession'
 import { useAppAuth } from '@/lib/auth'
 import { useI18n } from '@/lib/i18n'
 import { runtimeSignInCommandFor } from '@/lib/runtimeSignIn'
