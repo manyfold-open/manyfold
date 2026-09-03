@@ -182,22 +182,32 @@
         /* Fill-only tier (DESIGN.md §4.3): progress bars, chart marks, large
            blocks. Cleared for WCAG 1.4.11 non-text (3:1), never for text. */
         --color-info-vivid: var(--color-iris-500);
-        --color-success: 46 158 110; /* #2E9E6E — teal-green: done / shipped */
-        --color-success-bg: 230 244 237;
-        --color-success-strong: 31 126 84;
-        --color-warning: 200 148 54; /* #C89436 — amber-ochre: queued / pending */
-        --color-warning-bg: 248 240 224;
-        --color-warning-strong: 160 115 33;
-        --color-error: 196 76 58; /* #C44C3A — brick-red: failed / destructive */
-        --color-error-bg: 247 226 222;
-        --color-error-strong: 154 53 39;
-        --color-idle: 138 144 153; /* #8A9099 — neutral grey: idle / disabled */
-        --color-idle-bg: 234 235 237;
+        /* Judgment colours take landing's hue and chroma but re-solve
+           lightness to product contrast: every -fg is used as TEXT (93 call
+           sites), so it clears AA 4.5:1 on the canvas; -strong clears it on
+           its own -bg; -vivid is the fill-only tier at 3:1. The -bg wash
+           alphas are landing's — error .09 and idle .13, not a flat .10. */
+        --color-success: 6 131 70; /* #068346 — jade: done / shipped; 4.60:1 */
+        --color-success-bg: 225 241 235;
+        --color-success-strong: 3 104 54;
+        --color-success-vivid: 13 165 90;
+        --color-warning: 161 100 4; /* #a16404 — amber: queued / pending; 4.60:1 */
+        --color-warning-bg: 244 237 229;
+        --color-warning-strong: 127 79 2;
+        --color-warning-vivid: 199 128 27;
+        --color-error: 212 52 44; /* #d4342c — coral: failed / destructive; 4.62:1 */
+        --color-error-bg: 249 235 235;
+        --color-error-strong: 182 5 13;
+        --color-error-vivid: 249 89 76;
+        --color-idle: 110 113 132; /* #6e7184 — violet-grey (Iris family): idle / disabled; 4.58:1 */
+        --color-idle-bg: 235 235 240;
+        --color-idle-strong: 86 89 108;
+        --color-idle-vivid: 140 143 163;
         /* Legacy aliases — `--color-workflow-*` and `--color-danger-*`
            predate the unified status spectrum. Kept so existing call
            sites resolve; new code should use the status-named tokens. */
         --color-danger-bg: var(--color-error-bg);
-        --color-danger-hover: 245 220 216;
+        --color-danger-hover: 249 220 220; /* error-vivid at 0.18 on the canvas */
         --color-workflow-develop: var(--color-info);
         --color-workflow-preview: var(--color-warning);
         --color-workflow-ship: var(--color-error);
@@ -350,19 +360,26 @@
         --color-info-bg: 33 40 60; /* iris-400 at 0.16 flattened on the canvas */
         --color-info-strong: var(--color-iris-200); /* #b9c8fd */
         --color-info-vivid: var(--color-iris-400);
-        --color-success: 91 197 152; /* #5BC598 */
-        --color-success-bg: 22 50 38;
-        --color-success-strong: 58 166 122;
-        --color-warning: 228 185 104; /* #E4B968 */
-        --color-warning-bg: 56 44 22;
-        --color-warning-strong: 195 153 69;
-        --color-error: 224 122 106; /* #E07A6A */
-        --color-error-bg: 64 36 34;
-        --color-error-strong: 191 89 70;
-        --color-idle: 110 118 130; /* #6E7682 */
-        --color-idle-bg: 36 40 46;
+        /* Dark -fg is solved to 6:1 on the canvas so it still holds 5.2:1
+           on the brighter card surface. */
+        --color-success: 11 171 100; /* #0bab64 */
+        --color-success-bg: 20 40 33;
+        --color-success-strong: 37 197 118;
+        --color-success-vivid: 7 141 81;
+        --color-warning: 195 138 48; /* #c38a30 */
+        --color-warning-bg: 45 37 22;
+        --color-warning-strong: 221 163 76;
+        --color-warning-vivid: 166 111 5;
+        --color-error: 240 108 99; /* #f06c63 */
+        --color-error-bg: 46 30 31;
+        --color-error-strong: 254 141 131;
+        --color-error-vivid: 208 80 73;
+        --color-idle: 145 148 170; /* #9194aa */
+        --color-idle-bg: 37 39 44;
+        --color-idle-strong: 169 172 195;
+        --color-idle-vivid: 118 121 143;
         --color-danger-bg: var(--color-error-bg);
-        --color-danger-hover: 82 44 40;
+        --color-danger-hover: 70 38 37; /* error-vivid at 0.26 on the canvas */
         --color-workflow-develop: var(--color-info);
         --color-workflow-preview: var(--color-warning);
         --color-workflow-ship: var(--color-error);
