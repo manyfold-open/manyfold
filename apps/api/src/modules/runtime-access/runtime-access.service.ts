@@ -350,6 +350,49 @@ export class RuntimeAccessService {
         })
     }
 
+    // The one quota the reserveActiveSlot fast path cannot skip. Concurrency
+    // and the org cap are about acquiring a slot that a still-running host
+    // already holds, so re-testing them on that host would be meaningless.
+    // Active hours are the opposite: the host staying `running` is what
+    // CONSUMES them, so an exhausted user's next turn has to be refused even
+    // though — especially though — the VM is already up. Seen on prod
+    // [2026-09-03]: a free sandbox pinned `running` by a leaked exec session
+    // went on admitting turns while the meter read 52h against a 5h plan,
+    // because every one of those turns took this path and never looked.
+    //
+    // Costs nothing in the default configuration: the toggle read is cached
+    // and returns before any query. A user with no plan row is not gated
+    // here, matching isActiveHoursExhausted — the slow path is where a broken
+    // planId surfaces as an error, and inventing a second failure mode for it
+    // on the turn-admission hot path would trade a billing leak for an outage.
+    private async assertActiveHoursOnRunningHost(
+        userId: string
+    ): Promise<void> {
+        if (
+            !(await this.adminSettings.isFeatureEnabled(
+                FEATURE_TOGGLE_KEYS.ACTIVE_HOURS_ENFORCEMENT
+            ))
+        )
+            return
+        const [row] = await this.db
+            .select({
+                planName: plans.name,
+                activeHoursBonus: users.activeHoursBonus,
+                monthlyActiveHoursIncluded: plans.monthlyActiveHoursIncluded
+            })
+            .from(users)
+            .innerJoin(plans, eq(plans.id, users.planId))
+            .where(eq(users.id, userId))
+            .limit(1)
+        if (!row) return
+        await this.assertActiveHoursAvailable({
+            userId,
+            planName: row.planName,
+            monthlyActiveHoursIncluded: row.monthlyActiveHoursIncluded,
+            activeHoursBonus: row.activeHoursBonus
+        })
+    }
+
     // Non-throwing probe for fire-and-forget wake paths. Fails open: a
     // metering hiccup must degrade to "not exhausted", never block wakes.
     async isActiveHoursExhausted(userId: string): Promise<boolean> {
@@ -1149,10 +1192,11 @@ export class RuntimeAccessService {
         // watermark, so this admission adds no VM — both COUNTs below exclude
         // the target host and the committed-running write would be a no-op.
         // Consecutive turns in an active conversation drop from an advisory-
-        // lock transaction (~5 statements) to one indexed read. Trade-off: a
-        // plan downgrade mid-conversation is not re-checked while the VM stays
-        // running — the slot is already held, and the next admission after the
-        // sync loop settles the host back to warm re-checks everything.
+        // lock transaction (~5 statements) to one indexed read plus the hours
+        // check below. Trade-off: a plan downgrade mid-conversation is not
+        // re-checked while the VM stays running — the slot is already held, and
+        // the next admission after the sync loop settles the host back to warm
+        // re-checks everything.
         const [existing] = await this.db
             .select({
                 spriteStatus: runtimeHosts.spriteStatus,
@@ -1169,13 +1213,15 @@ export class RuntimeAccessService {
         if (
             existing?.spriteStatus === 'running' &&
             existing.activeAccrualSince
-        )
+        ) {
+            await this.assertActiveHoursOnRunningHost(input.userId)
             return {
                 plan: null,
                 activeCount: 0,
                 wholesale: null,
                 fastPath: true
             }
+        }
 
         const cap = await this.adminSettings.getCachedSpritesEffectiveCap()
         return this.db.transaction(async (tx) => {
