@@ -1,5 +1,103 @@
 # @manyfold/api
 
+## 0.63.0
+
+### Minor Changes
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Switching a session to Terminal can now land you straight in the coding CLI's
+  own interactive interface, resumed on that same conversation, instead of at a
+  bare prompt. The chat view and the TUI become two front ends over one session.
+  Works on sandbox and self-hosted (daemon) agents alike; a daemon needs a CLI
+  new enough to advertise the `pty.command` capability, and one that is not says
+  so rather than opening a plain shell under a UI that promised a resume.
+
+    The command runs as the shell's argv rather than being typed into the pty, so
+    there is no guessing whether the prompt is ready yet, and quitting the TUI
+    leaves the interactive shell you would otherwise have had. Only the chat
+    session id travels from the browser: the API looks up that session's own
+    recorded reference and builds the argv, so no caller chooses what runs in the
+    sandbox. Claude Code and Codex are supported; Gemini's resume takes a session
+    index rather than an id, so it opens a normal shell.
+
+    The resumed TUI opens in full-access mode (`--dangerously-skip-permissions` for
+    Claude Code, `--dangerously-bypass-approvals-and-sandbox` for Codex) and forces
+    transcript persistence on, so continuing the conversation there stays in sync
+    with the chat view rather than prompting for every action or silently
+    discarding what you did. The runtime is already the trust boundary — your own
+    daemon machine, or an externally-sandboxed sprite.
+
+    Codex needs nothing further — it signs in on the sandbox at creation and its
+    credentials are already on disk. Claude Code's are injected per turn and never
+    persist, so its TUI has nothing to authenticate with unless you turn on the
+    new per-sandbox **Model credentials in the terminal**, which is off by default
+    and separate from the existing terminal switch. It is worth reading before
+    enabling: anyone who can open that terminal can then read the key, which the
+    API otherwise only ever returns masked. A runtime-local agent needs no such
+    opt-in, only its CLI sign-in. When resuming is unavailable the terminal still
+    opens as a shell and says which of the two things it was missing.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Messages you write in the resumed terminal TUI now appear back in the chat
+  view. The TUI writes only to the framework CLI's own transcript, which the
+  cloud chat never read, so continuing a conversation there used to vanish from
+  the structured view. The chat now folds that transcript's additions back into
+  the session — on switching back from the terminal, and on opening the session —
+  by diffing the CLI's file against the stored messages and appending only what
+  is new. Idempotent and skipped while a live turn is running, so it is safe to
+  run automatically. Claude Code and Codex; the API endpoint is
+  `POST /agents/:id/runtime-sessions/sync`.
+
+### Patch Changes
+
+- [#147](https://github.com/manyfold-open/manyfold/pull/147) [`f704917`](https://github.com/manyfold-open/manyfold/commit/f704917ad0ddd3e1d3c3f99c617f4a509161676f) Thanks [@yingca1](https://github.com/yingca1)! - Active-hours enforcement now holds on a sandbox that is already awake, and says
+  so when it cannot.
+
+    Turns on a running sandbox were admitted through a fast path that skipped the
+    hours check, on the reasoning that the background sweep would put an over-quota
+    sandbox to sleep and the next cold start would re-check everything. When the
+    sweep cannot reach whatever is keeping a sandbox awake that never happens, so an
+    over-quota sandbox kept accepting work indefinitely — on production, ten times
+    its included hours. Over-quota users are now refused on that path too, with the
+    same message and the same relief (a plan change or an hours bonus unblocks them
+    immediately). Users within their quota see no change, and installations with
+    enforcement turned off are unaffected.
+
+    Stopping a sandbox also no longer reports a clean result when it had nothing it
+    could act on. A running sandbox with no agents, runtimes, services or tasks
+    registered on it is being held awake by something out of reach, so the stop
+    cannot work; that now comes back as a warning, is recorded on the audit entry,
+    and is logged. The enforcement sweep reports those hosts separately from the
+    ones it actually put to sleep, so a sandbox it is powerless to stop shows up the
+    first time instead of after days of apparently successful retries.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Fixes for folding a resumed TUI's messages back into the chat. Appended
+  messages now carry their `done` terminal in the same transaction (all recovery
+  writers), so a page reload no longer mistakes a synced turn for a dead inflight
+  one and stamps `server_restart` over it. The append is idempotent by
+  `source_event_key`, so repeated Chat↔TUI switches can no longer duplicate
+  messages, and a TUI turn that is still streaming is left for the next sync
+  instead of being frozen as an empty bubble. The session terminal now follows
+  the sidebar's session switch, resuming the newly selected session — and the
+  sync runs the other way too: messages sent from the chat after the TUI was
+  opened rebuild it on the next switch, so the resumed TUI always shows the
+  whole conversation.
+
+- [#145](https://github.com/manyfold-open/manyfold/pull/145) [`4263614`](https://github.com/manyfold-open/manyfold/commit/4263614d876d52f9c5290fe25fe1fa7b6b451933) Thanks [@yingca1](https://github.com/yingca1)! - A sandbox no longer stays awake — and no longer bills active hours — because of
+  an exec session nobody is attached to. sprites.dev keeps a session's process
+  running after its client socket goes away, so an upload or command that died
+  mid-stream could leave a process blocked forever, and a live exec session pins
+  the VM `running`. On production this let one free-plan sandbox accrue 52 hours
+  against a 5-hour quota over three days: the sandbox had no agents, runtimes,
+  services or tasks left, so the active-hours enforcement sweep found nothing to
+  stop and reported success on every pass.
+
+    Two changes: a command that ends on the client's terms (timeout, cancellation,
+    or a request body that failed part-way) now terminates its remote session
+    instead of only closing the connection, and the sandbox sync loop reaps
+    sessions on running sandboxes that nothing has touched for six hours — well
+    clear of the longest permitted chat turn. Reaped sessions are logged and
+    counted so a sandbox that cannot be put back to sleep is visible instead of
+    quietly accruing.
+
 ## 0.62.0
 
 ### Minor Changes
