@@ -14,5 +14,5 @@ text colour clears WCAG AA where none did before.
 Radius tightens to 6 / 8 / 12 — the third pass of the same ruling. Popovers
 and menus stay concentric because `sm` and `md` both drop 2.
 
-Type: `text-display` and `text-h1` wear Source Serif 4 at 400, the face the
-landing page uses. Everything smaller stays Geist.
+Every page title now sits on the `text-h1` rung; docs headings drop from 600
+to the 500 cap. The product stays in Geist throughout.

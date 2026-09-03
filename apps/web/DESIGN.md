@@ -2,12 +2,12 @@
 
 This document is the source of truth for the visual and interaction language of `@manyfold/web` — and of `@manyfold/docs`, which is the same register at a different surface tier. It describes the **design intent** (the why) and the **implementation reference** (the how). Token values live in `src/styles.css` and `tailwind.config.ts`; this document explains what each token means and when to use it.
 
-The landing page (`.landing-root`, `.lp-*`) is a separate register with its own spec, [`DESIGN.landing.md`](./DESIGN.landing.md). The two share one brand: the same Ash neutral curve, the same Iris ramp, the same serif display face. They differ in **density** — landing is sculptural and read once; the product is a workbench read for hours — and that is where radius, type scale and shadow weight are allowed to diverge. Nothing in this document applies inside `.landing-root`.
+The landing page (`.landing-root`, `.lp-*`) is a separate register with its own spec, [`DESIGN.landing.md`](./DESIGN.landing.md). The two share one brand — the same Ash neutral curve, the same Iris ramp. They differ in **density** — landing is sculptural and read once; the product is a workbench read for hours — and that is where radius, type scale and shadow weight are allowed to diverge. Nothing in this document applies inside `.landing-root`.
 
 Three commitments, one line each:
 
 - **Colour** — a genuinely neutral ground (Ash) with a single accent (Iris). Paper feel comes from near-white lightness and narrow steps between tiers, never from tinting the ground.
-- **Type** — three families with three jobs: Geist for everything, Geist Mono for technical signal, Source Serif 4 for the two display rungs only.
+- **Type** — two families with two jobs: Geist for everything, Geist Mono for technical signal. No serif in the product; landing's display face stays on landing.
 - **Shape** — flat finish: a solid fill, one 1px hairline ring, an optional quiet drop. Radius runs 6 / 8 / 12 and never above 12 except the chat composer.
 
 The reference moods: Linear / Vercel for the calm of the neutral ground and the single accent; Codex (macOS) for the workbench posture inside chat and settings.
@@ -64,7 +64,7 @@ These tokens are not standalone surfaces — never paint a region in `--color-so
 
 **The chat composer floats on the canvas, not on a shelf.** The composer card uses `--color-surface`, but the strip around the composer (`.chat-composer-dock`) is transparent — the chat canvas shows through. Painting a separate tinted band around the input fractures the page into two surfaces and breaks the volume hierarchy. The composer's milled-chassis shadow (§7.2) is what separates it from the canvas, not a background fill.
 
-**There is one display face, and it stops at the page title.** Source Serif 4 — the face landing sets its `.lp-h*` in — carries `text-display` and `text-h1`; every other rung, every control and every markdown heading is Geist, with Geist Mono for technical signal (§5).
+**There is no display face in the product.** Every rung is Geist, with Geist Mono for technical signal (§5). Landing's serif (`.lp-h*`, Source Serif 4) is a marketing register and does not cross into the workbench or docs — a page title here is `text-h1` in Geist.
 
 ## 3. Implementation contract
 
@@ -204,14 +204,14 @@ The docs baseline (`apps/docs/src/styles/global.css`) carries the same values as
 
 ## 5. Typography
 
-Three families, each with one job:
+Two families, each with one job:
 
 | Family       | When                                                                                                                                                                                                                 |
 | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Geist`      | All UI text — body, h2 and below, labels, controls. Every page.                                                                                                                                                      |
+| `Geist`      | All UI text — every heading rung, body, labels, controls. Every page.                                                                                                                                                |
 | `Geist Mono` | **Only** technical signal: agent IDs, framework names, runtime status, code, CLI, container names, paths, hex values. Not timestamps, not labels, not body copy — if everything is mono, nothing reads as technical. |
 
-The serif stops at the page title on purpose. h2 and h3 on a dense page are **scanned, not read**; a serif slows the scan. It also stops at controls: an `<input>` styled as a page title (AutomationDetail's editable name) pins itself back with `font-sans`, because a serif inside a control reads as decoration.
+The serif landing sets its headlines in (`Source Serif 4`, `.lp-h*`) is deliberately **not** used here. A workbench is read for hours at close range and its headings are scanned, not read; the product carries hierarchy with size, tracking, colour and space, in one sans family. The face is still loaded globally by `styles.css` because landing needs it — that is not an invitation.
 
 ### Type scale
 
@@ -279,13 +279,12 @@ The rung takes the value the _inline_ case needs, because only inline carries a 
 
 The weight rule is **scoped by family**, not by size.
 
-- **Geist on product surfaces caps at 500. No exception.** Body sits at 400, so a 500 heading, label or `<strong>` already reads as a clear step up without going heavy; at workbench density 600 reads as shouting. Hierarchy is carried by size, tracking, colour and space — never weight. Do not re-pin `font-semibold` on a `text-h*` element.
-- **The serif rungs sit at 400, fixed.** Source Serif 4's weight is not a knob: its display cut carries mass through size and contrast, and 500+ turns it cheap. `text-display` and `text-h1` are 400 in both apps; docs' h2–h4, which once shipped at 600, are 500.
+- **Product surfaces cap at 500. No exception.** Body sits at 400, so a 500 heading, label or `<strong>` already reads as a clear step up without going heavy; at workbench density 600 reads as shouting. Hierarchy is carried by size, tracking, colour and space — never weight. Do not re-pin `font-semibold` on a `text-h*` element.
+- **Docs headings are 500 too.** h1–h4 there once shipped at 600; they now sit at the same cap as the webapp.
 - **Windows CJK keeps 600 on `<strong>` only.** Microsoft YaHei ships 400 and 700 and nothing between, so a CJK run at 500 resolves to Regular; `<strong>` has no other signal, so `data-cjk-weights="coarse"` pins it to 600 there. Headings are left alone — size and space still carry them.
 - **Product _chrome_ headings descend one step in colour** to `--color-muted` rather than pure ink: a page or panel title is structure, not the thing being read. **Headings inside a content flow keep full ink** — markdown headings in a chat message, article headings in docs.
 - **Inline code always renders at 400.** Mono has a uniform stroke and a large x-height, so at equal numeric weight it reads bolder than Geist; the prose theme overrides `code` back to 400 even inside `<strong>`.
-- **Tracking tightens as size grows, and loosens on the serif.** Geist: body 0, h3 −0.01em, h2 −0.015em. Serif: h1 −0.008em, display −0.012em — serif letterforms are already tight, and the −0.025em a `tracking-tight` utility would add squeezes them badly; that utility is forbidden on the two serif rungs.
-- **Han glyphs on the serif rungs** take letter-spacing 0, line-height 1.15 and `word-break: keep-all` under `html[lang^='zh']` — the same override landing carries for `.lp-h*`.
+- **Tracking tightens as size grows:** body 0, h3 −0.01em, h2 −0.015em, h1 −0.02em, display −0.025em. It is declared in the `fontSize` tuples, so do not stack `tracking-tight` on a heading rung — the tuple already carries the right value.
 
 ## 6. Shape & radius
 
@@ -1353,7 +1352,7 @@ A new surface is aligned with the system if all of the following are true:
 - Don't paint a tinted band around the composer (e.g. `bg-surface` on `.chat-composer-dock`). The composer card already lifts off the canvas via its shadow; adding a backdrop fractures the chat into a "shelf" + "input" instead of a single canvas with an input floating on it.
 - Don't put shadows on pills / badges / avatars — a product tag gets only its contrast-budgeted fill (§8.3), an avatar gets a bare fill.
 - Don't combine a top-edge hairline with a full ring — the top will read thinner than the other three sides.
-- Don't use the serif below `text-h1`, inside a control, or in a markdown heading. Two rungs, upright, 400 — that is the whole allowance (§5).
+- Don't bring landing's serif into the product — not on a page title, not on the new-chat greeting. Every product rung is Geist (§5).
 - Don't trail long-distance shadow stops below an element — they read as smudge, not lift. Cap drop reach at ~54px on the largest tier.
 - Don't terminate the inset top gleam or bottom edge tuck with `0` blur — hard horizontal seams read as chrome. Use a 5–7px blur so the lit edge fades into the fill.
 - Don't paint a vertical gradient into a button or card fill on top of the inset gleam — it double-counts "lit from above" and reads plasticky.
@@ -1388,7 +1387,7 @@ Out of scope here — landing has its own register and its own recipes in `DESIG
 ### Workspace home / empty state
 
 ```
-Design a workspace home empty state per §9.3 app shell. One text-display question, one paragraph, one primary + one secondary action, three operational shortcut cards (flat Md 12 cards — `--shadow-card`, no inset gleam, no texture). Compact density per §9.2. Serif on the `text-display` question only; everything else Geist (§5). Accent colors map per §10.6.
+Design a workspace home empty state per §9.3 app shell. One text-display question, one paragraph, one primary + one secondary action, three operational shortcut cards (flat Md 12 cards — `--shadow-card`, no inset gleam, no texture). Compact density per §9.2. Geist throughout (§5). Accent colors map per §10.6.
 ```
 
 ### Chat canvas
@@ -1414,7 +1413,7 @@ Design a new elevated component. Pick its radius tier per §6.1 (Md 12 for any c
 A proposal is aligned with this system if:
 
 - Color: only tokens from §4, no ad-hoc hex.
-- Typography: Geist everywhere below `text-h1`; Mono only for technical signal; Source Serif 4, upright, 400, on `text-display` and `text-h1` only.
+- Typography: Geist on every rung; Mono only for technical signal; no serif anywhere in the product.
 - Radius: Md 12 (the ceiling) / Sm 8 / Xs 6 / Pill via `border-radius` inside the product, with the composer (18) the lone exception; landing keeps the full 8 → 32 scale (§6.1). No `corner-shape` / squircle (§6.4).
 - Shadow: flat surfaces use `--shadow-card` (resting) or `--shadow-elevated` (floating); the composer keeps its own milled stack. None on pills / badges / avatars / tags.
 - Flat surfaces (cards, popovers, dropdowns, tooltips, modals) carry **no** inset gleam or chamfer band — solid fill + ring + optional drop only. On the composer, the inset gleam + cool-platinum chamfer band + bottom edge tuck all carry a small blur (no hard horizontal seams).

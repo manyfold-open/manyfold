@@ -5,8 +5,8 @@ self-contained spec: @DESIGN.landing.md. Use that one — not DESIGN.md — for
 anything inside `.landing-root`, and for the Fieldwork ASCII field components in
 `src/components/field/`.
 
-The two registers share one brand — the Ash neutral curve, the Iris ramp and the
-Source Serif 4 display face are the same on both sides — and differ on purpose
-in density: radius, type scale and shadow weight. DESIGN.md §4–§6 says where and
+The two registers share one brand — the Ash neutral curve and the Iris ramp are
+the same on both sides — and differ on purpose in density: radius, type scale,
+shadow weight, and the serif display face, which is landing-only. DESIGN.md §4–§6 says where and
 why. Change a shared value in both `styles.css` blocks and in
 `apps/docs/src/styles/global.css` together; there is no generator.
