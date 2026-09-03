@@ -1,5 +1,89 @@
 # @manyfold/web
 
+## 0.54.0
+
+### Minor Changes
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - The chat header carries a Chat / Terminal switch, so a session's terminal is a
+  full-height view of that session rather than only a dock along the bottom. Both
+  panes stay mounted: switching back to Chat keeps the reading position, and
+  switching back to Terminal keeps the shell, its scrollback and its websocket, so
+  the toggle costs nothing on either side. The terminal segment is refused with a
+  reason for an external-provider agent (no shell exists to attach to) and for a
+  stopped one, and a sprites sandbox with the terminal turned off still asks
+  before enabling it. The bottom dock is unchanged: it remains the place for
+  several shells at once, for a shell opened at a particular directory from the
+  file tree, and for one that must outlive the page you opened it on.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Switching a session to Terminal can now land you straight in the coding CLI's
+  own interactive interface, resumed on that same conversation, instead of at a
+  bare prompt. The chat view and the TUI become two front ends over one session.
+  Works on sandbox and self-hosted (daemon) agents alike; a daemon needs a CLI
+  new enough to advertise the `pty.command` capability, and one that is not says
+  so rather than opening a plain shell under a UI that promised a resume.
+
+    The command runs as the shell's argv rather than being typed into the pty, so
+    there is no guessing whether the prompt is ready yet, and quitting the TUI
+    leaves the interactive shell you would otherwise have had. Only the chat
+    session id travels from the browser: the API looks up that session's own
+    recorded reference and builds the argv, so no caller chooses what runs in the
+    sandbox. Claude Code and Codex are supported; Gemini's resume takes a session
+    index rather than an id, so it opens a normal shell.
+
+    The resumed TUI opens in full-access mode (`--dangerously-skip-permissions` for
+    Claude Code, `--dangerously-bypass-approvals-and-sandbox` for Codex) and forces
+    transcript persistence on, so continuing the conversation there stays in sync
+    with the chat view rather than prompting for every action or silently
+    discarding what you did. The runtime is already the trust boundary — your own
+    daemon machine, or an externally-sandboxed sprite.
+
+    Codex needs nothing further — it signs in on the sandbox at creation and its
+    credentials are already on disk. Claude Code's are injected per turn and never
+    persist, so its TUI has nothing to authenticate with unless you turn on the
+    new per-sandbox **Model credentials in the terminal**, which is off by default
+    and separate from the existing terminal switch. It is worth reading before
+    enabling: anyone who can open that terminal can then read the key, which the
+    API otherwise only ever returns masked. A runtime-local agent needs no such
+    opt-in, only its CLI sign-in. When resuming is unavailable the terminal still
+    opens as a shell and says which of the two things it was missing.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Messages you write in the resumed terminal TUI now appear back in the chat
+  view. The TUI writes only to the framework CLI's own transcript, which the
+  cloud chat never read, so continuing a conversation there used to vanish from
+  the structured view. The chat now folds that transcript's additions back into
+  the session — on switching back from the terminal, and on opening the session —
+  by diffing the CLI's file against the stored messages and appending only what
+  is new. Idempotent and skipped while a live turn is running, so it is safe to
+  run automatically. Claude Code and Codex; the API endpoint is
+  `POST /agents/:id/runtime-sessions/sync`.
+
+### Patch Changes
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - The chat header's lower-frequency actions — share, open terminal, refresh, and
+  the runtime session viewer — collapse into a single overflow (⋯) menu, leaving
+  the bar to the Chat / Terminal view switch and the file / preview / tasks panel
+  toggles. Fewer competing icons, and the "open terminal" dock action no longer
+  sits confusingly next to the Chat / Terminal view switch.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - Fixes for folding a resumed TUI's messages back into the chat. Appended
+  messages now carry their `done` terminal in the same transaction (all recovery
+  writers), so a page reload no longer mistakes a synced turn for a dead inflight
+  one and stamps `server_restart` over it. The append is idempotent by
+  `source_event_key`, so repeated Chat↔TUI switches can no longer duplicate
+  messages, and a TUI turn that is still streaming is left for the next sync
+  instead of being frozen as an empty bubble. The session terminal now follows
+  the sidebar's session switch, resuming the newly selected session — and the
+  sync runs the other way too: messages sent from the chat after the TUI was
+  opened rebuild it on the next switch, so the resumed TUI always shows the
+  whole conversation.
+
+- [#143](https://github.com/manyfold-open/manyfold/pull/143) [`d33315f`](https://github.com/manyfold-open/manyfold/commit/d33315f21fc026403638529d45e0aec7553ead08) Thanks [@yingca1](https://github.com/yingca1)! - The chat's right-hand panels — background tasks, the workspace files (tree +
+  preview), and the runtime session viewer — now share one side pane whose title
+  is a dropdown that switches between them, instead of three separate overlapping
+  panels living at two different layers. Only one is open at a time; the header
+  buttons and the Shift+Cmd+E / Option+Cmd+B shortcuts open the pane to their
+  panel, and each single-column panel remembers its own width.
+
 ## 0.53.0
 
 ### Minor Changes
