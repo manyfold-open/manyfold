@@ -72,9 +72,7 @@ const SubagentContainer: FC<Props> = ({
                 <span
                     className={[
                         'text-caption font-mono',
-                        compact
-                            ? 'text-current'
-                            : 'text-subtle uppercase tracking-wider'
+                        compact ? 'text-current' : 'text-subtle'
                     ].join(' ')}
                 >
                     {t('web.chat.tools.subagent')}
@@ -180,7 +178,7 @@ const SubagentSummary: FC<{ result: unknown }> = ({ result }) => {
             <button
                 type='button'
                 onClick={() => setOpen(!open)}
-                className='text-caption text-subtle hover:text-fg font-mono uppercase tracking-wider'
+                className='text-caption text-subtle hover:text-fg font-mono'
             >
                 {open ? '−' : '+'} {t('web.chat.tools.summary')}
             </button>

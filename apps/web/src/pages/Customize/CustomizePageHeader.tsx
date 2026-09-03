@@ -67,7 +67,7 @@ const CustomizePageHeader: FC<CustomizePageHeaderProps> = ({
         <header className='mb-6'>
             <div className='flex flex-wrap items-start justify-between gap-3'>
                 <div className='min-w-0'>
-                    <h1 className='text-h2 text-fg tracking-tight'>
+                    <h1 className='text-h1 text-fg'>
                         {t(meta.titleKey)}
                     </h1>
                     <p className='text-ui text-muted mt-1'>{t(meta.descKey)}</p>

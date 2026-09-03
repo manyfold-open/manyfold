@@ -19,7 +19,10 @@ import { repoRoot, installedFile } from './paths'
 
 export interface FontPin {
     family: string
-    weight: number
+    // A range ('100 900') for a variable face: @font-face has to advertise the
+    // wght axis, or the browser picks the default instance and synthesises the
+    // rest, which on a display serif shows as smeared stems.
+    weight: number | string
     sha256: string
     // A workspace dependency, or a pinned upstream file fetched on demand.
     source:
@@ -28,6 +31,25 @@ export interface FontPin {
 }
 
 export const FONT_PINS: readonly FontPin[] = [
+    {
+        family: 'Fraunces Variable',
+        weight: '100 900',
+        sha256: '7e744849028e2219e2aa1bc467dc4032980dc4487c9c3da3010081cd72d3b103',
+        source: {
+            kind: 'package',
+            file: '@fontsource-variable/fraunces/files/fraunces-latin-full-normal.woff2'
+        }
+    },
+    {
+        family: 'Noto Serif SC',
+        weight: 400,
+        sha256: '7dd5aea2df4644e916c2eb558bc8ed6ad6d8925c2c8e251fe68f7206da211696',
+        source: {
+            kind: 'remote',
+            url: 'https://cdn.jsdelivr.net/npm/@fontsource/noto-serif-sc@5.3.0/files/noto-serif-sc-chinese-simplified-400-normal.woff2',
+            cache: 'noto-serif-sc-chinese-simplified-400-normal.woff2'
+        }
+    },
     {
         family: 'Geist',
         weight: 400,
@@ -78,7 +100,7 @@ export const FONT_PINS: readonly FontPin[] = [
 ]
 
 // Latin-only locales do not pay for the 1.1MB CJK faces.
-export const LATIN_FAMILIES = ['Geist', 'Geist Mono']
+export const LATIN_FAMILIES = ['Geist', 'Geist Mono', 'Fraunces Variable']
 
 export const fontsForLocale = (locale: 'en' | 'zh'): readonly FontPin[] =>
     locale === 'zh'

@@ -92,7 +92,7 @@ const Shell: FC<{ children: ReactNode }> = ({ children }): ReactNode => {
             <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
                 <div className='space-y-5'>
                     <div>
-                        <h1 className='text-h2'>
+                        <h1 className='text-h1 text-fg'>
                             {t('web.permissions.pageTitle')}
                         </h1>
                         <p className='text-muted text-ui mt-1'>

@@ -198,7 +198,7 @@ const UsageTab: FC<UsageTabProps> = ({ scope, id }): ReactNode => {
                         </Heading>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             Model
@@ -275,7 +275,7 @@ const UsageTab: FC<UsageTabProps> = ({ scope, id }): ReactNode => {
                     ) : (
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             Time

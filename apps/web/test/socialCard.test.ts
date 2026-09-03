@@ -499,8 +499,8 @@ test('a published version is either current or frozen', () => {
                     files.set('manyfold-og-zh-v1.png', '3'.repeat(64))
             })
         ),
-        'manyfold-og-zh-v1.png is published, is not the current v3 card, and is not ' +
-            'in the retired freeze in apps/web/scripts/og/poster.ts'
+        `manyfold-og-zh-v1.png is published, is not the current ${POSTER_VERSION} ` +
+            'card, and is not in the retired freeze in apps/web/scripts/og/poster.ts'
     )
     mentions(
         publishedFailures(

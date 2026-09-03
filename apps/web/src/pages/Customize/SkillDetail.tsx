@@ -377,7 +377,7 @@ const SkillDetail: FC = (): ReactNode => {
 
                             {meta && meta.secrets.length > 0 && (
                                 <div className='bg-warning-bg shadow-ring-light rounded-md p-4'>
-                                    <div className='text-warning-strong text-caption mb-2 flex items-center gap-1.5 font-medium uppercase tracking-wide'>
+                                    <div className='text-warning-strong text-caption mb-2 flex items-center gap-1.5 font-medium'>
                                         <ShieldAlertIcon className='h-3.5 w-3.5' />
                                         {t('web.customize.requirementsTitle')}
                                     </div>

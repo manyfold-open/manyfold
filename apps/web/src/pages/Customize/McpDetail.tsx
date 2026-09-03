@@ -152,7 +152,7 @@ const McpDetail: FC = (): ReactNode => {
                             </div>
                             <div className='min-w-0'>
                                 <div className='flex flex-wrap items-center gap-2'>
-                                    <h1 className='text-h2 text-fg tracking-tight'>
+                                    <h1 className='text-h1 text-fg'>
                                         {entry.name}
                                     </h1>
                                     <span className='bg-soft text-caption text-subtle rounded-md px-2 py-0.5'>

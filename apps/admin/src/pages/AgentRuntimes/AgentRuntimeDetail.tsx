@@ -742,7 +742,7 @@ const AgentRuntimeDetail: FC = (): ReactNode => {
                                 >
                                     <div className='overflow-x-auto'>
                                         <table className='admin-table w-full min-w-[960px] text-left'>
-                                            <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                            <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                                 <tr>
                                                     <th className='px-2 py-1.5 font-normal'>
                                                         {t(

@@ -652,7 +652,7 @@ const ErrorBubble: FC<ErrorBubbleProps> = ({ error }): ReactNode => {
             role='alert'
             className='text-ui text-workflow-ship shadow-ring-light bg-danger-bg mr-auto w-full max-w-full rounded-md px-3.5 py-3'
         >
-            <div className='text-caption font-mono uppercase tracking-wide'>
+            <div className='text-caption font-mono'>
                 {error.code}
                 {error.retryable ? ' · retryable' : ''}
             </div>

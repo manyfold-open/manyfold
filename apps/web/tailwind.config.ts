@@ -35,7 +35,8 @@ const config: Config = {
                 /* Active session fill — used inside an active agent
                    block to mark the currently-open chat. Tone lifts
                    above the block in both themes. */
-                'active-session': 'rgb(var(--color-active-session) / <alpha-value>)',
+                'active-session':
+                    'rgb(var(--color-active-session) / <alpha-value>)',
                 strong: {
                     DEFAULT: 'rgb(var(--color-strong) / <alpha-value>)',
                     hover: 'rgb(var(--color-strong-hover) / <alpha-value>)',
@@ -182,6 +183,10 @@ const config: Config = {
                         stat / choice cards
                  Lg / Xl / 2xl / 3xl  collapse to 14 — the product has
                         no surface rounder than 14 (the composer excepted).
+               Pulled in over two passes (20/16/12 → 18 → 14):
+               on a dense page split into many cards, larger corners read
+               bubbly. Landing keeps 8/12/16 at the same tier names: colour
+               and type converge on it, radius stays apart to mark density.
                Concentric nesting (§6.3): the tight binding case is the
                dropdown — panel 14 − 4px gutter = inner 10. Cards use
                generous padding, so the rule there is informational.
@@ -230,8 +235,7 @@ const config: Config = {
                         '--tw-prose-bullets': 'rgb(var(--color-subtle))',
                         '--tw-prose-hr': 'rgb(var(--color-divider))',
                         '--tw-prose-quotes': 'rgb(var(--color-muted))',
-                        '--tw-prose-quote-borders':
-                            'rgb(var(--color-divider))',
+                        '--tw-prose-quote-borders': 'rgb(var(--color-divider))',
                         '--tw-prose-captions': 'rgb(var(--color-subtle))',
                         '--tw-prose-code': 'rgb(var(--color-fg))',
                         '--tw-prose-th-borders': 'rgb(var(--color-divider))',

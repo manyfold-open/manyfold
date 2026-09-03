@@ -144,7 +144,7 @@ const UsageEventsTable: FC<Props> = ({
             <div className='overflow-x-auto'>
                 <table className='workbench-table min-w-[820px] whitespace-nowrap'>
                     <thead className='workbench-table-head'>
-                        <tr className='text-caption text-muted uppercase tracking-wider'>
+                        <tr className='text-caption text-muted'>
                             <th className='px-5 py-3 font-medium'>
                                 {t('web.usage.time')}
                             </th>

@@ -78,7 +78,7 @@ const SkillsRepos: FC = (): ReactNode => {
     return (
         <>
             <header className='mb-6'>
-                <h1 className='text-h2 text-fg tracking-tight'>
+                <h1 className='text-h1 text-fg'>
                     {t('web.skills.reposTab')}
                 </h1>
                 <p className='text-ui text-muted mt-1'>
