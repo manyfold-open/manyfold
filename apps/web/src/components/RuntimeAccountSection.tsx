@@ -99,7 +99,9 @@ const UsageWindowRow: FC<{ window: RuntimeAccountUsageWindow; now: number }> = (
 }): ReactNode => {
     const { t } = useI18n()
     const labelKey = usageWindowLabelKey(window.key)
-    const label = labelKey ? t(labelKey) : window.key
+    const label = [labelKey ? t(labelKey) : window.key, window.scope]
+        .filter((part): part is string => Boolean(part))
+        .join(' · ')
     const tone = usageTone(window.usedPercent)
     const resetsIn = formatResetsIn(window.resetsAt, now)
     return (
@@ -316,7 +318,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                     </div>
                     {view.usage?.windows.map((window) => (
                         <UsageWindowRow
-                            key={window.key}
+                            key={`${window.key}:${window.scope ?? ''}`}
                             window={window}
                             now={now}
                         />

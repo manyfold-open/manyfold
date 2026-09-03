@@ -118,6 +118,47 @@ describe('runtimeAccountUsage: codex', () => {
         )
     })
 
+    it('surfaces per-model limits as scoped windows next to the account-wide one', () => {
+        const usage = runtimeAccountUsage(
+            probe({
+                body: {
+                    plan_type: 'pro',
+                    rate_limit: {
+                        primary_window: {
+                            used_percent: 0,
+                            limit_window_seconds: 604800,
+                            reset_at: 1_788_748_272
+                        },
+                        secondary_window: null
+                    },
+                    additional_rate_limits: [
+                        {
+                            limit_name: 'GPT-5.3-Codex-Spark',
+                            rate_limit: {
+                                primary_window: {
+                                    used_percent: 12,
+                                    limit_window_seconds: 18000
+                                },
+                                secondary_window: {
+                                    used_percent: 3,
+                                    limit_window_seconds: 604800
+                                }
+                            }
+                        }
+                    ]
+                }
+            })
+        )
+        assert.deepEqual(
+            usage?.windows.map((w) => [w.key, w.usedPercent, w.scope]),
+            [
+                ['seven_day', 0, null],
+                ['five_hour', 12, 'GPT-5.3-Codex-Spark'],
+                ['seven_day', 3, 'GPT-5.3-Codex-Spark']
+            ]
+        )
+    })
+
     it('names an unfamiliar window by its length instead of guessing', () => {
         const usage = runtimeAccountUsage(
             probe({

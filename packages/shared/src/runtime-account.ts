@@ -63,6 +63,10 @@ export interface RuntimeAccountUsageWindow {
     usedPercent: number
     resetsAt: string | null
     windowSeconds: number | null
+    // A vendor limit that applies to one model or feature rather than the
+    // whole account (Codex `additional_rate_limits[].limit_name`); null for
+    // the account-wide window.
+    scope: string | null
 }
 
 export type RuntimeAccountUsageErrorKind =
@@ -266,7 +270,8 @@ const anthropicWindows = (
             key,
             usedPercent: clampPercent(utilization),
             resetsAt: isoOrNull(raw.resets_at),
-            windowSeconds: windowSecondsForKey(key)
+            windowSeconds: windowSecondsForKey(key),
+            scope: null
         })
     }
     return windows
@@ -287,11 +292,11 @@ const codexWindowKey = (seconds: number | null): string => {
     return seconds === null ? 'window' : `window_${seconds}s`
 }
 
-const codexWindows = (
-    body: Record<string, unknown>
+const codexRateLimitWindows = (
+    rateLimit: unknown,
+    scope: string | null
 ): RuntimeAccountUsageWindow[] => {
-    const rateLimit = isRecord(body.rate_limit) ? body.rate_limit : null
-    if (!rateLimit) return []
+    if (!isRecord(rateLimit)) return []
     const windows: RuntimeAccountUsageWindow[] = []
     for (const slot of ['primary_window', 'secondary_window']) {
         const raw = rateLimit[slot]
@@ -303,9 +308,31 @@ const codexWindows = (
             key: codexWindowKey(seconds),
             usedPercent: clampPercent(used),
             resetsAt: epochToIso(raw.reset_at),
-            windowSeconds: seconds
+            windowSeconds: seconds,
+            scope
         })
     }
+    return windows
+}
+
+// Measured on a Pro account [2026-09-03]: `rate_limit` carried a single
+// weekly primary window and a null secondary, while per-model limits
+// (GPT-5.3-Codex-Spark's 5h + 7d) arrived under `additional_rate_limits`, so
+// those are windows too, scoped by their limit name.
+const codexWindows = (
+    body: Record<string, unknown>
+): RuntimeAccountUsageWindow[] => {
+    const windows = codexRateLimitWindows(body.rate_limit, null)
+    if (Array.isArray(body.additional_rate_limits))
+        for (const entry of body.additional_rate_limits.slice(0, 20)) {
+            if (!isRecord(entry)) continue
+            windows.push(
+                ...codexRateLimitWindows(
+                    entry.rate_limit,
+                    optionalString(entry.limit_name)
+                )
+            )
+        }
     return windows
 }
 
@@ -354,7 +381,8 @@ const geminiWindows = (
             key,
             usedPercent: clampPercent((1 - entry.remaining) * 100),
             resetsAt: entry.resetsAt,
-            windowSeconds: null
+            windowSeconds: null,
+            scope: null
         }
     })
 }
