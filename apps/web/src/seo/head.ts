@@ -12,8 +12,8 @@ import { tForLanguage } from '@manyfold/i18n'
 // exporter live in apps/web/scripts/og; these paths must match POSTER_VERSION
 // there, and `pnpm social-card:check` fails while they disagree.
 export const OG_IMAGE_PATH: Record<SeoPageEntry['language'], string> = {
-    en: '/social/manyfold-og-v3.png',
-    zh: '/social/manyfold-og-zh-v3.png'
+    en: '/social/manyfold-og-v4.png',
+    zh: '/social/manyfold-og-zh-v4.png'
 }
 export const ORG_LOGO_PATH = '/social/manyfold-logo-512.png'
 

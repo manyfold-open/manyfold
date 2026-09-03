@@ -18,14 +18,14 @@
      22px into 9px. */
 
 :root {
-    --lp-bg: #dde0e3;
-    --lp-ink: #0a0c0f;
-    --lp-ink-soft: #1f242c;
-    --lp-muted: #525861;
-    --lp-subtle: #828891;
-    --lp-line: rgba(10, 12, 15, 0.18);
-    --lp-info: #3b82c9;
-    --lp-info-strong: #2666ad;
+    --lp-bg: #f4f4f6;
+    --lp-ink: #101013;
+    --lp-ink-soft: #2a2b30;
+    --lp-muted: #5c5e66;
+    --lp-subtle: #8d8f97;
+    --lp-line: rgba(16, 16, 22, 0.12);
+    --lp-info: #3560eb;
+    --lp-info-strong: #1842d8;
 }
 
 * {
@@ -68,10 +68,10 @@ body {
     background-image:
         repeating-linear-gradient(
             90deg,
-            rgba(10, 12, 15, 0) 0,
-            rgba(10, 12, 15, 0) 1px,
-            rgba(10, 12, 15, 0.026) 1px,
-            rgba(10, 12, 15, 0.026) 2px
+            rgba(16, 16, 22, 0) 0,
+            rgba(16, 16, 22, 0) 1px,
+            rgba(16, 16, 22, 0.026) 1px,
+            rgba(16, 16, 22, 0.026) 2px
         ),
         url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.08 0 0 0 0 0.1 0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
     mix-blend-mode: multiply;
@@ -94,8 +94,8 @@ body {
         ),
         radial-gradient(
             80% 60% at 100% 100%,
-            rgba(10, 12, 15, 0.09) 0%,
-            rgba(10, 12, 15, 0) 46%
+            rgba(16, 16, 22, 0.09) 0%,
+            rgba(16, 16, 22, 0) 46%
         );
 }
 
@@ -108,7 +108,7 @@ body {
     box-shadow:
         inset 0 2px 0 rgba(255, 255, 255, 0.55),
         inset 2px 0 0 rgba(255, 255, 255, 0.2),
-        inset -2px 0 0 rgba(10, 12, 15, 0.1),
+        inset -2px 0 0 rgba(16, 16, 22, 0.1),
         inset 0 0 0 1px var(--lp-line);
 }
 
@@ -123,9 +123,9 @@ body {
     z-index: 0;
     background-image: linear-gradient(
         to bottom,
-        rgba(10, 12, 15, 0) 0%,
-        rgba(10, 12, 15, 0.05) 55%,
-        rgba(10, 12, 15, 0.11) 88%,
+        rgba(16, 16, 22, 0) 0%,
+        rgba(16, 16, 22, 0.05) 55%,
+        rgba(16, 16, 22, 0.11) 88%,
         rgba(255, 255, 255, 0.5) 94%,
         rgba(255, 255, 255, 0.62) 100%
     );
@@ -140,8 +140,8 @@ body {
     z-index: 0;
     background-image: linear-gradient(
         to bottom,
-        rgba(10, 12, 15, 0.14) 0,
-        rgba(10, 12, 15, 0.14) 1px,
+        rgba(16, 16, 22, 0.14) 0,
+        rgba(16, 16, 22, 0.14) 1px,
         rgba(255, 255, 255, 0.55) 1px,
         rgba(255, 255, 255, 0.55) 2px
     );
@@ -157,32 +157,32 @@ body {
     background-image:
         radial-gradient(
             circle at center,
-            rgba(10, 12, 15, 0.5) 0,
-            rgba(10, 12, 15, 0.5) 3px,
+            rgba(16, 16, 22, 0.5) 0,
+            rgba(16, 16, 22, 0.5) 3px,
             rgba(255, 255, 255, 0.7) 3px,
             rgba(255, 255, 255, 0.7) 4.4px,
             rgba(255, 255, 255, 0) 6px
         ),
         radial-gradient(
             circle at center,
-            rgba(10, 12, 15, 0.5) 0,
-            rgba(10, 12, 15, 0.5) 3px,
+            rgba(16, 16, 22, 0.5) 0,
+            rgba(16, 16, 22, 0.5) 3px,
             rgba(255, 255, 255, 0.7) 3px,
             rgba(255, 255, 255, 0.7) 4.4px,
             rgba(255, 255, 255, 0) 6px
         ),
         radial-gradient(
             circle at center,
-            rgba(10, 12, 15, 0.5) 0,
-            rgba(10, 12, 15, 0.5) 3px,
+            rgba(16, 16, 22, 0.5) 0,
+            rgba(16, 16, 22, 0.5) 3px,
             rgba(255, 255, 255, 0.7) 3px,
             rgba(255, 255, 255, 0.7) 4.4px,
             rgba(255, 255, 255, 0) 6px
         ),
         radial-gradient(
             circle at center,
-            rgba(10, 12, 15, 0.5) 0,
-            rgba(10, 12, 15, 0.5) 3px,
+            rgba(16, 16, 22, 0.5) 0,
+            rgba(16, 16, 22, 0.5) 3px,
             rgba(255, 255, 255, 0.7) 3px,
             rgba(255, 255, 255, 0.7) 4.4px,
             rgba(255, 255, 255, 0) 6px
@@ -244,22 +244,11 @@ body {
     color: var(--lp-ink);
 }
 
-/* Etched metal on the headline's own face, inheriting weight and tracking from
-   .p-h1 — what .lp-h-accent does once styles.css:2707 drops it back to Geist
-   normal. Stops are the landing's own 0/55/100. */
+/* Flat, not etched. The landing dropped the metal gradient on .lp-h-accent —
+   it now paints flat var(--lp-info) — so the poster follows rather than
+   reproducing an effect the page no longer has. */
 .p-accent {
-    background: linear-gradient(
-        to bottom,
-        #d6e0e8 0%,
-        var(--lp-info) 55%,
-        var(--lp-info-strong) 100%
-    );
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
-    color: transparent;
-    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.5))
-        drop-shadow(0 0 1px rgba(10, 12, 15, 0.18));
+    color: var(--lp-info);
 }
 
 .p-sub {

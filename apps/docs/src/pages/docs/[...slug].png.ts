@@ -39,11 +39,11 @@ const HEIGHT = 630
 
 // Brand tokens, kept literal rather than imported from global.css so a CSS refactor
 // cannot silently change every social card. Update both together on purpose.
-const INK = '#111827'
-const MUTED = '#536073'
-const TEAL = '#0f8c6f'
-const LINE = '#dbe3ee'
-const SURFACE = '#ffffff'
+const INK = '#0c0c0f' /* --color-fg      */
+const MUTED = '#55575e' /* --color-muted   */
+const IRIS = '#3560eb' /* --color-info === --color-iris-600 */
+const LINE = '#d1d1d2' /* --color-divider, flattened onto SURFACE */
+const SURFACE = '#fcfcfd' /* --color-surface */
 
 // Satori needs real font buffers; it cannot resolve a font-family name. This
 // originally read Inter from apps/docs/src/assets/fonts/, which does not exist:
@@ -90,7 +90,7 @@ const card = (eyebrow: string, title: string, description: string) =>
                 backgroundColor: SURFACE,
                 // A teal rule down the left edge is the cheapest way to make the card
                 // recognisable at thumbnail size without a logo file.
-                borderLeft: `16px solid ${TEAL}`,
+                borderLeft: `16px solid ${IRIS}`,
                 fontFamily: 'Geist'
             }
         },
@@ -103,7 +103,7 @@ const card = (eyebrow: string, title: string, description: string) =>
                     style: {
                         fontSize: 26,
                         fontWeight: 600,
-                        color: TEAL,
+                        color: IRIS,
                         marginBottom: 28
                     }
                 },

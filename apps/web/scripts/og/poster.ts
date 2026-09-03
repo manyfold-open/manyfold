@@ -30,7 +30,7 @@ export const HTML_LANG: Record<PosterLocale, string> = {
 // fails until they agree. Changed bytes are always a bump: a retired version
 // keeps its own filename and its own bytes, because clients cache by URL and
 // rewriting one is a lie.
-export const POSTER_VERSION = 'v3'
+export const POSTER_VERSION = 'v4'
 
 export const posterFile = (locale: PosterLocale): string =>
     locale === 'en'
@@ -52,7 +52,11 @@ export const RETIRED_CARDS: RetiredCards = {
     'manyfold-og-v2.png':
         'a4e8f781d4aec10b94c77777e1657156387f4e9092064c7f9b8811caadbe5093',
     'manyfold-og-zh-v2.png':
-        '98a903df29f37ff93255fc9fad6d9caed6e50bad36520f7cf8201a29b963d620'
+        '98a903df29f37ff93255fc9fad6d9caed6e50bad36520f7cf8201a29b963d620',
+    'manyfold-og-v3.png':
+        '9f63be3fc7f2365a48f086515b6f430e9c766d8858fdce6dcf9c34d0841f4e34',
+    'manyfold-og-zh-v3.png':
+        '558115ecdb6bb8085a26729fed26f6b2064e94843541f44ea9aa88c9e03649cd'
 }
 
 // The unversioned name predates the suffix. No page emits it, but pasted links
