@@ -154,6 +154,24 @@
         --color-strong: 10 12 15;
         --color-strong-hover: 42 49 56;
         --color-strong-fg: 255 255 255;
+        /* Iris — the brand ramp, the same ten steps the landing register
+           carries as --lp-iris-*. Calibrated in OKLCH rather than HSL: hue
+           sits near 266°, and chroma traces an arc that peaks around step
+           700 because blue's usable chroma maxes out near L 0.47. The whole
+           ramp is exposed on purpose — a pricing ring or a focus ring on a
+           dark ground needs step 300, and a step that is not a token is a
+           step someone writes as a bare hex. Theme-invariant: the dark
+           block only moves the semantic aliases. */
+        --color-iris-50: 237 241 255;
+        --color-iris-100: 219 227 255;
+        --color-iris-200: 185 200 253;
+        --color-iris-300: 140 165 249;
+        --color-iris-400: 93 128 244;
+        --color-iris-500: 66 107 240;
+        --color-iris-600: 53 96 235;
+        --color-iris-700: 24 66 216;
+        --color-iris-800: 24 51 160;
+        --color-iris-900: 21 36 102;
         /* Status spectrum — product mirrors the landing --lp-* hues
            at workbench density (DESIGN.md §4.1 / §10.6). Five clearly
            separated hues, each with -fg (solid), -bg (low-alpha tint),
