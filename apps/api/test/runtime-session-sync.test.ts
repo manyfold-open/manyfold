@@ -209,6 +209,33 @@ test('a second sync of the same transcript appends nothing', async () => {
     assert.equal(h.messages.length, 4)
 })
 
+// A switch-back can catch the TUI mid-turn: the transcript already holds the
+// user line but the assistant entry carries no text yet. Storing that shell
+// would freeze an empty bubble (the finished turn later diffs as a NEW
+// message), so the sync takes the user line and leaves the shell for the next
+// pass.
+test('skips an assistant entry the TUI has not finished writing', async () => {
+    const h = makeHarness({
+        localMessages: [
+            recovered('l-user-1', 'user', 'hello', 1),
+            recovered('l-asst-1', 'assistant', 'hi there', 2),
+            recovered('l-user-2', 'user', 'and now from the terminal', 3),
+            recovered('l-asst-2', 'assistant', '', 4)
+        ]
+    })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.appended, 1)
+    assert.equal(h.messages.length, 3)
+    const texts = h.messages
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        .map((m) => (m.contentBlocksJson[0] as { text: string }).text)
+    assert.deepEqual(texts, ['hello', 'hi there', 'and now from the terminal'])
+})
+
 test('nothing new means appended:0 and no append call', async () => {
     const h = makeHarness({
         localMessages: [

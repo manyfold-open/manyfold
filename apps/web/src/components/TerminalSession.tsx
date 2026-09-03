@@ -29,6 +29,12 @@ export interface TerminalTabModel {
     // that chat session. Only the id travels: the API builds the argv from
     // the session's own stored reference.
     resumeChatSessionId?: string
+    // The chat's last message id when this terminal was (re)seeded. A resumed
+    // TUI reads the transcript once at startup and never tails it, so when the
+    // chat moves past this watermark the tab must be rebuilt (fresh resume) to
+    // show those turns. null = unknown yet (messages still loading); the next
+    // switch adopts the current id instead of rebuilding.
+    seedMessageId?: string | null
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }

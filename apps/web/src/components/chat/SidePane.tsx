@@ -4,9 +4,20 @@ import type {
     PointerEvent as ReactPointerEvent,
     ReactNode
 } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+    createContext,
+    useCallback,
+    useEffect,
+    useRef,
+    useState
+} from 'react'
 import { ChevronDownIcon, CloseIcon } from '@/components/icons'
 import { useI18n } from '@/lib/i18n'
+
+// A pane body can hand its own toolbar (e.g. the workspace file tabs) up into
+// the shared header row beside the dropdown, instead of spending a second row
+// on it. The active body portals into this element when the pane provides one.
+export const SidePaneHeaderSlotContext = createContext<HTMLElement | null>(null)
 
 // The one right-hand pane the chat exposes: background tasks, the workspace
 // files (tree + preview), or the runtime session viewer — one at a time,
@@ -29,10 +40,12 @@ interface SidePaneProps {
     children: ReactNode
 }
 
-const MIN_WIDTH = 320
-const MAX_WIDTH = 720
-const DEFAULT_WIDTH = 420
-const WIDTH_KEY_PREFIX = 'nca:side-pane-width:'
+const MIN_WIDTH = 380
+const MAX_WIDTH = 960
+const DEFAULT_WIDTH = 560
+// One width for the whole pane: the content behind the dropdown changes, but
+// the frame does not move — switching panels never resizes the column.
+const WIDTH_KEY = 'nca:side-pane-width'
 
 const ICON_BTN =
     'text-muted hover:bg-surface-hover hover:text-fg inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-pill transition-colors'
@@ -40,9 +53,9 @@ const ICON_BTN =
 const clamp = (value: number, min: number, max: number): number =>
     Math.min(Math.max(value, min), max)
 
-const readWidth = (kind: SidePaneKind): number => {
+const readWidth = (): number => {
     try {
-        const raw = window.localStorage.getItem(WIDTH_KEY_PREFIX + kind)
+        const raw = window.localStorage.getItem(WIDTH_KEY)
         if (raw)
             return clamp(
                 Number.parseInt(raw, 10) || DEFAULT_WIDTH,
@@ -84,7 +97,7 @@ const PaneTitleDropdown: FC<{
     const active = options.find((option) => option.kind === activeKind)
 
     return (
-        <div ref={rootRef} className='relative min-w-0'>
+        <div ref={rootRef} className='relative shrink-0'>
             <button
                 type='button'
                 aria-haspopup='menu'
@@ -141,26 +154,16 @@ const SidePane: FC<SidePaneProps> = ({
     children
 }): ReactNode => {
     const { t } = useI18n()
-    const isFiles = activeKind === 'files'
-    const [width, setWidth] = useState(() => readWidth(activeKind))
-
-    // Each single-column kind keeps its own remembered width; Files is sized by
-    // its own two-column body, so the pane leaves its width alone.
-    useEffect(() => {
-        if (!isFiles) setWidth(readWidth(activeKind))
-    }, [activeKind, isFiles])
+    const [width, setWidth] = useState(readWidth)
+    const [slotEl, setSlotEl] = useState<HTMLDivElement | null>(null)
 
     useEffect(() => {
-        if (isFiles) return
         try {
-            window.localStorage.setItem(
-                WIDTH_KEY_PREFIX + activeKind,
-                String(width)
-            )
+            window.localStorage.setItem(WIDTH_KEY, String(width))
         } catch {
             // best-effort persistence
         }
-    }, [width, activeKind, isFiles])
+    }, [width])
 
     const startResize = useCallback(
         (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -196,12 +199,16 @@ const SidePane: FC<SidePaneProps> = ({
     )
 
     const header = (
-        <div className='border-divider/80 flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3'>
+        <div className='border-divider/80 flex h-12 shrink-0 items-center gap-2 border-b px-3'>
             <PaneTitleDropdown
                 activeKind={activeKind}
                 options={options}
                 onSelect={onSelectKind}
                 ariaLabel={t('web.chat.pane.select')}
+            />
+            <div
+                ref={setSlotEl}
+                className='flex min-w-0 flex-1 items-center overflow-hidden'
             />
             <button
                 type='button'
@@ -213,22 +220,6 @@ const SidePane: FC<SidePaneProps> = ({
             </button>
         </div>
     )
-
-    // Files supplies its own chat|files resize handle and per-column widths, so
-    // the pane is width:auto and only stacks the shared header above it.
-    if (isFiles) {
-        return (
-            <aside
-                aria-label={t('web.chat.pane.label')}
-                className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-auto lg:flex-none lg:border-t-0'
-            >
-                {header}
-                <div className='flex min-h-0 flex-1 overflow-hidden'>
-                    {children}
-                </div>
-            </aside>
-        )
-    }
 
     return (
         <>
@@ -248,9 +239,11 @@ const SidePane: FC<SidePaneProps> = ({
                 className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--side-pane-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
             >
                 {header}
-                <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
-                    {children}
-                </div>
+                <SidePaneHeaderSlotContext.Provider value={slotEl}>
+                    <div className='flex min-h-0 flex-1 flex-col overflow-hidden'>
+                        {children}
+                    </div>
+                </SidePaneHeaderSlotContext.Provider>
             </aside>
         </>
     )

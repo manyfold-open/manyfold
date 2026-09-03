@@ -2457,14 +2457,7 @@ const en = {
                 openMenu: 'Open menu',
                 share: 'Share chat',
                 openTerminal: 'Open terminal',
-                refresh: 'Refresh chat and files',
-                hideFileTree: 'Hide file tree',
-                showFileTree: 'Show file tree',
-                hideFilePreview: 'Hide file preview',
-                showFilePreview: 'Show file preview',
-                hideRuntimeViewer: 'Hide runtime session viewer',
-                runtimeViewer: 'Runtime session viewer',
-                backgroundTasks: 'Background tasks'
+                refresh: 'Refresh chat and files'
             },
             pane: {
                 label: 'Chat side panel',
@@ -2869,9 +2862,8 @@ const en = {
             unavailableStopped: 'Start the agent to open its terminal.'
         },
         sessionView: {
-            label: 'Session view',
-            chat: 'Chat',
-            terminal: 'Terminal',
+            switchToTerminal: 'Switch to TUI',
+            switchToChat: 'Switch to Chat UI',
             resumeNeedsCredentials:
                 'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
             resumeNeedsSignIn:
@@ -3092,10 +3084,10 @@ const en = {
             openInTerminal: 'Open in terminal',
             downloadFile: 'Download file',
             uploadFile: 'Upload file',
-            resizeChatPreview: 'Resize chat and preview',
             resizeFilesPreview: 'Resize files and preview',
             resizePreviewFiles: 'Resize preview and files',
-            resizeChatFiles: 'Resize chat and files',
+            hideTree: 'Hide file tree',
+            showTree: 'Show file tree',
             workspaceLabel: 'Workspace',
             readOnly: 'read-only',
             previewLoading: 'Loading preview…',

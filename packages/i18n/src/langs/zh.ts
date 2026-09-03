@@ -2383,14 +2383,7 @@ const zh: Translations = {
                 openMenu: '打开菜单',
                 share: '分享聊天',
                 openTerminal: '打开终端',
-                refresh: '刷新聊天和文件',
-                hideFileTree: '隐藏文件树',
-                showFileTree: '显示文件树',
-                hideFilePreview: '隐藏文件预览',
-                showFilePreview: '显示文件预览',
-                hideRuntimeViewer: '隐藏 Runtime 会话查看器',
-                runtimeViewer: 'Runtime 会话查看器',
-                backgroundTasks: '后台任务'
+                refresh: '刷新聊天和文件'
             },
             pane: {
                 label: '聊天侧边面板',
@@ -2738,9 +2731,8 @@ const zh: Translations = {
             unavailableStopped: '启动该智能体后即可打开它的终端。'
         },
         sessionView: {
-            label: '会话视图',
-            chat: '对话',
-            terminal: '终端',
+            switchToTerminal: '切换到TUI',
+            switchToChat: '切换到Chat UI',
             resumeNeedsCredentials:
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
             resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
@@ -2952,10 +2944,10 @@ const zh: Translations = {
             openInTerminal: '在终端中打开',
             downloadFile: '下载文件',
             uploadFile: '上传文件',
-            resizeChatPreview: '调整聊天和预览大小',
             resizeFilesPreview: '调整文件和预览大小',
             resizePreviewFiles: '调整预览和文件大小',
-            resizeChatFiles: '调整聊天和文件大小',
+            hideTree: '隐藏文件树',
+            showTree: '显示文件树',
             workspaceLabel: '工作区',
             readOnly: '只读',
             previewLoading: '加载预览中…',

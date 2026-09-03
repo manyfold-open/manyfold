@@ -605,7 +605,14 @@ export class SessionRecoveryService {
             existingMessages,
             session.id
         )
-        const missing = comparison.missingRecoveredMessages
+        // A TUI turn that is still streaming has already written its user line
+        // but an assistant entry with no text yet; storing that shell would
+        // freeze an empty bubble (the finished turn later diffs as a NEW
+        // message, so the shell never fills in). Skip anything that collapses
+        // to no content — the next sync picks the finished turn up whole.
+        const missing = comparison.missingRecoveredMessages.filter(
+            (msg) => collapseTextBlocks(msg.contentBlocks).length > 0
+        )
         const warnings = [...result.warnings]
         if (comparison.degraded)
             warnings.push(
