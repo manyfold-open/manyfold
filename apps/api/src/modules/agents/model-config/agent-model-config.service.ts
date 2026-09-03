@@ -1630,7 +1630,7 @@ const isFrameworkModelConfigurable = (
 // read (macOS keeps the Claude token in the Keychain). A sandbox or cloud
 // computer is one we provisioned: its framework config dir comes from our own
 // bootstrap, so it is never evidence of a login.
-const credentialContextFor = (
+export const credentialContextFor = (
     runtime: Agent['runtime']
 ): RuntimeLocalCredentialContext => ({
     configPresenceIsEvidence: runtime === 'daemon'

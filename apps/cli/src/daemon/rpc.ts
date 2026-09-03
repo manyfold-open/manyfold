@@ -32,6 +32,7 @@ import {
     codexSpeeds,
     geminiAutoModelKey,
     geminiLocalModelCatalog,
+    isConfigurableFramework,
     type ClaudeCredentialFacts,
     type CodexCredentialFacts,
     type CodexCustomProviderFact,
@@ -65,6 +66,16 @@ import {
     type IdleUpdateOutcome
 } from './update-drain'
 import { MF_CLI_VERSION } from '@/version'
+import {
+    codexHomeDir,
+    expandHome,
+    jwtExpiryMs,
+    nestedRecord,
+    nonEmptyString,
+    parseJsonRecord,
+    readTextIfPresent
+} from './inspect-fs'
+import { inspectRuntimeAccount } from './account-inspect'
 
 interface TerminalSession {
     write(data: string): void
@@ -73,9 +84,6 @@ interface TerminalSession {
 }
 
 const ptySessions = new Map<string, TerminalSession>()
-
-const expandHome = (p: string): string =>
-    p.startsWith('~') ? p.replace(/^~/, homedir()) : p
 
 // ADR-0014: the managed workspace root is whatever this daemon's
 // registration declared (workspaceBaseDir); the machine-scoped shared root is
@@ -323,18 +331,6 @@ const commandVersion = (cmd: string): Promise<string | null> =>
         child.on('close', () => resolveVersion(output.trim() || null))
     })
 
-const readTextIfPresent = async (
-    path: string
-): Promise<{ ok: boolean; text: string | null; error: string | null }> => {
-    try {
-        return { ok: true, text: await readFile(path, 'utf8'), error: null }
-    } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code
-        if (code === 'ENOENT') return { ok: false, text: null, error: null }
-        return { ok: false, text: null, error: (err as Error).message }
-    }
-}
-
 const readablePath = async (path: string): Promise<boolean> => {
     try {
         await access(path, fsConstants.R_OK)
@@ -347,56 +343,6 @@ const readablePath = async (path: string): Promise<boolean> => {
 const tomlString = (text: string, key: string): string | null => {
     const pattern = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, 'm')
     return pattern.exec(text)?.[1]?.trim() || null
-}
-
-const codexHomeDir = (): string => {
-    const raw = process.env.CODEX_HOME?.trim()
-    return raw ? resolve(expandHome(raw)) : join(homedir(), '.codex')
-}
-
-const parseJsonRecord = (text: string | null): Record<string, unknown> | null => {
-    if (!text?.trim()) return null
-    try {
-        const parsed = JSON.parse(text) as unknown
-        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            ? (parsed as Record<string, unknown>)
-            : null
-    } catch {
-        return null
-    }
-}
-
-const nestedRecord = (
-    record: Record<string, unknown> | null,
-    key: string
-): Record<string, unknown> | null => {
-    const value = record?.[key]
-    return value && typeof value === 'object' && !Array.isArray(value)
-        ? (value as Record<string, unknown>)
-        : null
-}
-
-const nonEmptyString = (value: unknown): boolean =>
-    typeof value === 'string' && value.trim().length > 0
-
-// Reads the `exp` claim without verifying the signature: the daemon only needs
-// to know when the CLI will consider the token stale, not to trust it.
-const jwtExpiryMs = (value: unknown): number | null => {
-    if (typeof value !== 'string') return null
-    const payload = value.split('.')[1]
-    if (!payload) return null
-    try {
-        const json = Buffer.from(
-            payload.replace(/-/g, '+').replace(/_/g, '/'),
-            'base64'
-        ).toString('utf8')
-        const exp = (JSON.parse(json) as Record<string, unknown>).exp
-        return typeof exp === 'number' && Number.isFinite(exp)
-            ? Math.round(exp * 1000)
-            : null
-    } catch {
-        return null
-    }
 }
 
 const tomlScalar = (raw: string): string => {
@@ -1141,6 +1087,26 @@ const handlers: Partial<
         ok: true,
         payload: inspectResultToRecord(await inspectModelCapability(payload))
     }),
+    'account.inspect': async (payload) => {
+        const framework = String(payload.framework ?? '')
+        if (!isConfigurableFramework(framework))
+            return { ok: false, error: `unsupported framework: ${framework}` }
+        // The credential facts ride along so the API judges "signed in" with
+        // the same evaluator it already trusts for model.inspect.
+        const capability = (
+            await inspectModelCapability({ framework })
+        ).frameworks.find((item) => item.framework === framework)
+        const account = await inspectRuntimeAccount(framework, {
+            cliVersion: capability?.cliVersion?.match(/\d+\.\d+\.\d+/)?.[0] ?? null
+        })
+        return {
+            ok: true,
+            payload: {
+                ...account,
+                credentialFacts: capability?.credentialFacts ?? null
+            }
+        }
+    },
     'daemon.update': async (payload) => {
         if (detectStartupMethod() === 'manual')
             return {

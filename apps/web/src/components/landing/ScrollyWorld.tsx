@@ -1920,16 +1920,20 @@ export const ScrollyWorld: FC<{
                         ry='82'
                         fill='url(#lp-spill)'
                     />
+                    {/* The cabinets are drawn facing the other way and mirrored into
+                        place, so the side shading is swapped back inside each group: the
+                        light sits in the world, not in the group, and the left face stays
+                        the lit one. */}
                     <g transform='translate(611.2 0) scale(-1 1)'>
                     <path
                         d='M 303.8,432.0 L 279.6,446.0 L 279.6,486.0 L 303.8,472.0 Z'
-                        fill='var(--lp-w-box-r)'
+                        fill='var(--lp-w-box-l)'
                         stroke='none'
                         strokeWidth='0.9'
                     />
                     <path
                         d='M 255.4,432.0 L 279.6,446.0 L 279.6,486.0 L 255.4,472.0 Z'
-                        fill='var(--lp-w-box-l)'
+                        fill='var(--lp-w-box-r)'
                         stroke='none'
                         strokeWidth='0.9'
                     />
@@ -1994,13 +1998,13 @@ export const ScrollyWorld: FC<{
                     <g transform='translate(611.2 0) scale(-1 1)'>
                     <path
                         d='M 329.8,447.0 L 305.6,461.0 L 305.6,501.0 L 329.8,487.0 Z'
-                        fill='var(--lp-w-box-r)'
+                        fill='var(--lp-w-box-l)'
                         stroke='none'
                         strokeWidth='0.9'
                     />
                     <path
                         d='M 281.4,447.0 L 305.6,461.0 L 305.6,501.0 L 281.4,487.0 Z'
-                        fill='var(--lp-w-box-l)'
+                        fill='var(--lp-w-box-r)'
                         stroke='none'
                         strokeWidth='0.9'
                     />
@@ -2065,13 +2069,13 @@ export const ScrollyWorld: FC<{
                     <g transform='translate(611.2 0) scale(-1 1)'>
                     <path
                         d='M 355.7,462.0 L 331.5,476.0 L 331.5,516.0 L 355.7,502.0 Z'
-                        fill='var(--lp-w-box-r)'
+                        fill='var(--lp-w-box-l)'
                         stroke='none'
                         strokeWidth='0.9'
                     />
                     <path
                         d='M 307.3,462.0 L 331.5,476.0 L 331.5,516.0 L 307.3,502.0 Z'
-                        fill='var(--lp-w-box-l)'
+                        fill='var(--lp-w-box-r)'
                         stroke='none'
                         strokeWidth='0.9'
                     />

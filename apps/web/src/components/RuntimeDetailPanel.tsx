@@ -2,6 +2,7 @@ import {
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
     isUpgradeableFramework,
+    runtimeAccountSupport,
     runtimeKindLabel
 } from '@manyfold/shared'
 import type {
@@ -40,6 +41,7 @@ import {
 import ProductDialog from '@/components/ProductDialog'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import RenameDialog from '@/components/RenameDialog'
+import RuntimeAccountSection from '@/components/RuntimeAccountSection'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
@@ -814,6 +816,10 @@ const RuntimeDetailPanel: FC<{
                     </div>
                 )}
             </Section>
+
+            {runtimeAccountSupport(runtime.framework, runtime.kind) === 'ok' && (
+                <RuntimeAccountSection key={runtime.id} runtime={runtime} />
+            )}
 
             {(runtime.kind === 'sprites' ||
                 runtime.framework === 'openclaw') && (
