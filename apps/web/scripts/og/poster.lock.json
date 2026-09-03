@@ -1,5 +1,5 @@
 {
-    "version": "v4",
+    "version": "v5",
     "renderer": {
         "runtime": "container",
         "image": "mcr.microsoft.com/playwright:v1.60.0-noble@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9",
@@ -24,13 +24,13 @@
         ]
     },
     "template": "f02d8e0c19e2f080a05bec166611ba402f17049fe81688fd11c32c3d744e7d19",
-    "css": "7ab5e002b876e539aa8ce583d92e0d5efb2327f7a07c38317c738d0c1c990c3d",
+    "css": "7afb60d2294aeb1cbcabbc58d509cbf4270e097051a550f9f0d7534db39ed056",
     "generator": {
         "apps/web/scripts/og/canonical.ts": "3b7189b7094256ef4bfc7f74ec7f72993c470e4ad4d5ab62f60647a4a091c49e",
         "apps/web/scripts/og/contract.ts": "b464b48e9b4eef5371682ce14624578afb232b067a5a999b7d3ff6a341946c93",
-        "apps/web/scripts/og/fonts.ts": "b752e1564d2364ad3354bfe6721b3da2be56e67627514cf60ffcec1585ed69b7",
+        "apps/web/scripts/og/fonts.ts": "1d4268453b3d455a6bb3c840afd194d8586387c94669c6e38de239847e8f6c83",
         "apps/web/scripts/og/paths.ts": "acb283c9a2638f8a199fc7130edff94e96e7a0d59bcdcd23c6a0db741e8d4f1d",
-        "apps/web/scripts/og/poster.ts": "102911795f45c7aa7bbcc56832e3e762b3b26e0098532f98530603d71f6963ca",
+        "apps/web/scripts/og/poster.ts": "a86b68c8ad69efe9f726aea26668ef31837e8d4c0cf4efd2dfdafc2a586688d1",
         "apps/web/scripts/og/render.ts": "39886404463de061fdf03196ecc189c016e0e9bb560ab1fb7575d22f389e1b8d",
         "apps/web/scripts/og/runtime.ts": "c0f3807b3b671726e2d4685a4a01f853ce533dc8bec83e6f21edccacb3f08eaa"
     },
@@ -48,7 +48,7 @@
     ],
     "locales": {
         "en": {
-            "file": "manyfold-og-v4.png",
+            "file": "manyfold-og-v5.png",
             "copy": {
                 "web.landing.heroTitleBefore": "Host your agents.",
                 "web.landing.heroTitleAfter": "Your work,",
@@ -56,6 +56,11 @@
                 "web.landing.heroTagline": "Claude Code, Codex and your own agents, always on and delivering into your product."
             },
             "fonts": [
+                {
+                    "family": "Fraunces Variable",
+                    "weight": "100 900",
+                    "sha256": "7e744849028e2219e2aa1bc467dc4032980dc4487c9c3da3010081cd72d3b103"
+                },
                 {
                     "family": "Geist",
                     "weight": 400,
@@ -73,14 +78,14 @@
                 }
             ],
             "layout": {
-                "bodyBottom": 489.8125,
+                "bodyBottom": 507.09375,
                 "minFontPx": 23
             },
-            "bytes": 417181,
-            "sha256": "6ece78c8b713582be4215a0d84a3e0df620d47776b6e8c52c24404471dd06af5"
+            "bytes": 423255,
+            "sha256": "669a8fdfc2bec8ab3b749231725309506163a16f2faa9b880c44a3f1b8dfd453"
         },
         "zh": {
-            "file": "manyfold-og-zh-v4.png",
+            "file": "manyfold-og-zh-v5.png",
             "copy": {
                 "web.landing.heroTitleBefore": "托管你的智能体。",
                 "web.landing.heroTitleAfter": "你的产出，",
@@ -88,6 +93,16 @@
                 "web.landing.heroTagline": "Claude Code、Codex，以及你自己的智能体，始终在线并持续交付。"
             },
             "fonts": [
+                {
+                    "family": "Fraunces Variable",
+                    "weight": "100 900",
+                    "sha256": "7e744849028e2219e2aa1bc467dc4032980dc4487c9c3da3010081cd72d3b103"
+                },
+                {
+                    "family": "Noto Serif SC",
+                    "weight": 400,
+                    "sha256": "7dd5aea2df4644e916c2eb558bc8ed6ad6d8925c2c8e251fe68f7206da211696"
+                },
                 {
                     "family": "Geist",
                     "weight": 400,
@@ -118,8 +133,8 @@
                 "bodyBottom": 492.53125,
                 "minFontPx": 23
             },
-            "bytes": 424610,
-            "sha256": "7a3bef1ee28d2ff87176aeeb69ec1085ea03079b9b8eb43c3aa259298967a1c2"
+            "bytes": 435032,
+            "sha256": "91a728d9f0f1c81f8b849594d2a29febfae4a383afa3063e1381771316483cf1"
         }
     }
 }

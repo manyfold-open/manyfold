@@ -238,9 +238,15 @@ body {
 .p-h1 {
     margin: 0;
     font-size: 108px;
-    font-weight: 500;
-    line-height: 0.92;
-    letter-spacing: -0.05em;
+    /* The landing's display register, verbatim (DESIGN.landing.md §2.2): the
+       card reproduces its hero, so a reader who clicks through must not meet a
+       different face. Only the CJK fallback is shorter — the render pins Noto
+       Serif SC and nothing before it. */
+    font-family: 'Fraunces Variable', 'Noto Serif SC';
+    font-weight: 300;
+    font-variation-settings: 'SOFT' 50, 'WONK' 0;
+    line-height: 1;
+    letter-spacing: -0.018em;
     color: var(--lp-ink);
 }
 

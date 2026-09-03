@@ -30,7 +30,7 @@ export const HTML_LANG: Record<PosterLocale, string> = {
 // fails until they agree. Changed bytes are always a bump: a retired version
 // keeps its own filename and its own bytes, because clients cache by URL and
 // rewriting one is a lie.
-export const POSTER_VERSION = 'v4'
+export const POSTER_VERSION = 'v5'
 
 export const posterFile = (locale: PosterLocale): string =>
     locale === 'en'

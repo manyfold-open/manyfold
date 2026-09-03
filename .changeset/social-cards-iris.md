@@ -16,7 +16,7 @@ metal gradient when the landing went flat; the poster kept reproducing it,
 including a gradient stop (`#d6e0e8`) that belonged to no palette. It now
 paints flat `--lp-info`, as the page does.
 
-Cards ship as v4. v3 is frozen into `RETIRED_CARDS`, so a link shared before
+Cards ship as v5. v3 is frozen into `RETIRED_CARDS`, so a link shared before
 this still resolves to the exact bytes it was shared with.
 
 The colours in both cards are still written literally rather than imported —

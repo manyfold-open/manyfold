@@ -64,7 +64,7 @@ These tokens are not standalone surfaces — never paint a region in `--color-so
 
 **The chat composer floats on the canvas, not on a shelf.** The composer card uses `--color-surface`, but the strip around the composer (`.chat-composer-dock`) is transparent — the chat canvas shows through. Painting a separate tinted band around the input fractures the page into two surfaces and breaks the volume hierarchy. The composer's milled-chassis shadow (§7.2) is what separates it from the canvas, not a background fill.
 
-**There is no display face in the product.** Every rung is Geist, with Geist Mono for technical signal (§5). Landing's serif (`.lp-h*`, Source Serif 4) is a marketing register and does not cross into the workbench or docs — a page title here is `text-h1` in Geist.
+**There is no display face in the product.** Every rung is Geist, with Geist Mono for technical signal (§5). Landing's serif (`.lp-h*`, Fraunces) is a marketing register and does not cross into the workbench or docs — a page title here is `text-h1` in Geist.
 
 ## 3. Implementation contract
 
@@ -211,7 +211,7 @@ Two families, each with one job:
 | `Geist`      | All UI text — every heading rung, body, labels, controls. Every page.                                                                                                                                                |
 | `Geist Mono` | **Only** technical signal: agent IDs, framework names, runtime status, code, CLI, container names, paths, hex values. Not timestamps, not labels, not body copy — if everything is mono, nothing reads as technical. |
 
-The serif landing sets its headlines in (`Source Serif 4`, `.lp-h*`) is deliberately **not** used here. A workbench is read for hours at close range and its headings are scanned, not read; the product carries hierarchy with size, tracking, colour and space, in one sans family. The face is still loaded globally by `styles.css` because landing needs it — that is not an invitation.
+The serif landing sets its headlines in (`Fraunces`, `.lp-h*`) is deliberately **not** used here. A workbench is read for hours at close range and its headings are scanned, not read; the product carries hierarchy with size, tracking, colour and space, in one sans family. The face is still loaded globally by `styles.css` because landing needs it — that is not an invitation.
 
 ### Type scale
 

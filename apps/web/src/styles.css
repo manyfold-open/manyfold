@@ -8,11 +8,12 @@
 @import '@fontsource/geist/600.css';
 @import '@fontsource/geist-mono/400.css';
 @import '@fontsource/geist-mono/500.css';
-/* Display register for the landing only (DESIGN.landing.md §2.2). opsz.css
-   carries the optical-size axis, so the hero takes the display cut and card
-   titles the text cut off one file. The family name is 'Source Serif 4
-   Variable' — dropping the suffix falls back to a CJK serif in silence. */
-@import '@fontsource-variable/source-serif-4/opsz.css';
+/* Display register for the landing only (DESIGN.landing.md §2.2). full.css,
+   not opsz.css: Fraunces carries four axes and the register uses SOFT as well
+   as opsz, so the narrower file would leave SOFT inert with no error. The
+   family name is 'Fraunces Variable' — dropping the suffix falls back to a CJK
+   serif in silence. */
+@import '@fontsource-variable/fraunces/full.css';
 
 @tailwind base;
 @tailwind components;
@@ -2208,15 +2209,18 @@ html[data-theme='dark'] .markdown-code-block .hljs-deletion {
 
     /* Display register (DESIGN.landing.md §2.3). Sizes are ladder × family
        factor, so swapping the face later does not mean re-tuning every
-       clamp(). Source Serif 4 is a transitional: vertical stress, flat
-       serifs, terminals that stop rather than curl — the same rationale as
-       the printed world beside it. Weight 400 is not bolding; at matching
-       visual mass this face sits a step lighter than a display serif, and
-       the hero has to win the first fixation against a screened plate. */
+       clamp(). Fraunces is a display serif with an oversized x-height and
+       real modulation — it carries the headline on its own, which is what the
+       hero needs to win the first fixation against a screened plate. SOFT 50
+       rounds the terminals just off the blade, so the face reads warm rather
+       than editorial-severe; WONK stays 0 because its alternate g and italic-
+       leaning forms are a voice this page does not use. Weight 300, not 400:
+       a display serif already sits heavier than a text one at equal mass. */
     --lp-display:
-        'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
+        'Fraunces Variable', 'Source Han Serif SC', 'Noto Serif SC',
         'Songti SC', 'SimSun', serif;
-    --lp-display-weight: 400;
+    --lp-display-vars: 'SOFT' 50, 'WONK' 0;
+    --lp-display-weight: 300;
     --lp-display-track: -0.018em;
     --lp-display-lh: 1;
     --lp-display-scale: 1;
@@ -2433,6 +2437,7 @@ html[data-theme='dark'] .landing-root {
 .landing-root .lp-price-num {
     font-family: var(--lp-display);
     font-weight: var(--lp-display-weight);
+    font-variation-settings: var(--lp-display-vars);
     letter-spacing: var(--lp-display-track);
     line-height: var(--lp-display-lh);
     font-optical-sizing: auto;
@@ -2576,8 +2581,12 @@ html[data-theme='dark'] .landing-root .lp-eyebrow .lp-dot {
 
 /* Card titles hold at 400 and never drop below 24px: a high-contrast serif
    breaks into grey crumbs at small sizes (T1). */
+/* The one display element that does not take the base weight. At 24-29px a
+   display serif's thin strokes stop carrying: 300 reads as a hairline the
+   hero's 100px can afford and a card title cannot. */
 .landing-root .lp-h3 {
     font-size: calc(clamp(24px, 1.9vw, 29px) * var(--lp-display-scale));
+    font-weight: 400;
     letter-spacing: -0.008em;
     line-height: 1.14;
     color: var(--lp-ink);
@@ -3869,6 +3878,7 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 
 .landing-root .lp-world [data-layer-title] text {
     font-family: var(--lp-display);
+    font-variation-settings: var(--lp-display-vars);
     font-size: 14px;
     font-weight: 500;
     letter-spacing: -0.01em;

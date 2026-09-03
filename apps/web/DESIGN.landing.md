@@ -277,7 +277,7 @@ landing 的真身在 `oss/`（公共仓库 `manyfold-open/manyfold`）。按 `AG
 
 | 家族                      | 何时用                                                                                                          |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `Source Serif 4 Variable` | 只有 hero、分区标题、故事卡标题、大数字、引文。**≥24px 才允许出现。**                                           |
+| `Fraunces Variable`       | 只有 hero、分区标题、故事卡标题、大数字、引文。**≥24px 才允许出现。**                                           |
 | `Geist`                   | 其余一切：lead、正文、按钮、导航、标签、表头、徽章。字重只用 400 / 500。                                        |
 | `Geist Mono`              | 技术信号（框架名、runtime 状态、CLI、路径、hex）、eyebrow、表格数字，外加一个新职务：**Fieldwork 的字形字体**。 |
 
@@ -285,44 +285,30 @@ landing 的真身在 `oss/`（公共仓库 `manyfold-open/manyfold`）。按 `AG
 
 ### 2.2 字体加载
 
-**已落地：Source Serif 4，字重 400，opsz 轴交给浏览器。**
+**已落地：Fraunces，字重 300，`SOFT` 50 / `WONK` 0，opsz 轴交给浏览器。**
 
-> **这一节曾经写的是 Fraunces（SOFT 50 / WONK 0 / 字重 300），与实现不符。** 那是一份未落地的早期方案；`styles.css:15` 导入的一直是 Source Serif 4，`package.json` 里也只有它。以此为准。两者不是同一类衬线，差别会传导到下面每一条规则：Fraunces 是高对比 display serif（细笔画极细，为大字号设计），Source Serif 4 是 Adobe 为**屏幕正文**设计的过渡型衬线，笔画对比低、x 高度大。
+> **这一节曾经与实现不符，方向相反。** 规范一直写的是 Fraunces，`styles.css` 导入的却是 Source Serif 4 —— 一份写下了但没落地的方案。二者不是同一类衬线：Fraunces 是高对比 display serif（细笔画极细，为大字号设计），Source Serif 4 是 Adobe 为屏幕正文设计的过渡型衬线，笔画对比低、x 高度大。现已按规范落地 Fraunces；本节以下为实现。
 
 ```bash
-pnpm --filter @manyfold/web add @fontsource-variable/source-serif-4
+pnpm --filter @manyfold/web add @fontsource-variable/fraunces
 ```
 
 ```css
 /* styles.css 顶部，紧跟现有的 geist 导入 */
-@import '@fontsource-variable/source-serif-4/opsz.css';
+@import '@fontsource-variable/fraunces/full.css';
 ```
 
 三个必须知道的实现细节：
 
-1. **family 名是 `'Source Serif 4 Variable'`，不是 `'Source Serif 4'`。** 写错了会静默回退到 CJK 宋体 —— 中文页面上完全看不出来，英文页面上才暴露。
-2. **必须用 `opsz.css`。** 它带光学尺寸轴，所以 hero（clamp 上限 100px）自动取到高对比的 display 切，卡片标题（26px）取到笔画更稳的正文切 —— 一支字两种表现，不用手动分配。配 `font-optical-sizing: auto`；一旦在 `font-variation-settings` 里显式写 `'opsz'`，`auto` 就失效。
-3. **不要写 `font-variation-settings`。** Source Serif 4 只有 `opsz` 与 `wght` 两轴，**没有 `SOFT` / `WONK`** —— 那是 Fraunces 的轴。写上去是静默无效的，肉眼几乎察觉不到，这个坑已经踩过一次。
+1. **family 名是 `'Fraunces Variable'`，不是 `'Fraunces'`。** 写错了会静默回退到 CJK 宋体 —— 中文页面上完全看不出来，英文页面上才暴露。
+2. **必须用 `full.css`，不是 `opsz.css`。** Fraunces 有四条轴，这个语域用到 `SOFT`；`opsz.css` 只带光学尺寸与字重两轴，`SOFT` 会静默失效而不报错。`full.css` 同样带 opsz，所以 hero（clamp 上限 100px）自动取到高对比的 display 切、卡片标题（≥24px）取到笔画更稳的正文切 —— 配 `font-optical-sizing: auto`；一旦在 `font-variation-settings` 里显式写 `'opsz'`，`auto` 就失效。
+3. **必须写 `font-variation-settings: 'SOFT' 50, 'WONK' 0`。** 这两条是 Fraunces 的非默认轴，不写就拿不到：`SOFT` 把末端从刀锋磨圆一点，字面读起来是"暖"而不是"编辑部式的锐"；`WONK` 归零是因为它那套异体 g 和倾斜字形是本页不用的一种腔调。轴名区分大小写。
 
 **斜体不加载。** 整个 landing 只有引文 `.lp-quote` 会用到斜体，而它目前没有任何调用点。
 
-字体预算：latin 子集 normal **119KB**。latin-ext / vietnamese 子集有独立的 `unicode-range`，只在页面真的出现那些字符时才下载。
+字体预算：latin 全轴子集 **121KB**（`fraunces-latin-full-normal.woff2`）。latin-ext / vietnamese 子集有独立的 `unicode-range`，只在页面真的出现那些字符时才下载。
 
-Tailwind 侧加一个 family：
-
-```ts
-// tailwind.config.ts
-fontFamily: {
-    display: [
-        'Source Serif 4 Variable',
-        'Source Han Serif SC',
-        'Noto Serif SC',
-        'Songti SC',
-        'SimSun',
-        'serif'
-    ]
-}
-```
+**Tailwind 侧不加 family。** display 语域只经 `--lp-display` 这一个 CSS 变量走，`tailwind.config.ts` 里没有也不需要 `fontFamily.display` —— 多一处定义就多一处会漂的地方。
 
 ### 2.3 族参数 token
 
@@ -331,18 +317,19 @@ fontFamily: {
 ```css
 .landing-root {
     --lp-display:
-        'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
+        'Fraunces Variable', 'Source Han Serif SC', 'Noto Serif SC',
         'Songti SC', 'SimSun', serif;
-    --lp-display-weight: 400;
+    --lp-display-vars: 'SOFT' 50, 'WONK' 0;
+    --lp-display-weight: 300;
     --lp-display-track: -0.018em;
     --lp-display-lh: 1;
     /* 同一个视觉分量，不同字面需要不同的实际字号：x 高度大的族要调小，
-       纤细族要调大。Source Serif 4 取 1。 */
+       纤细族要调大。Fraunces 取 1。 */
     --lp-display-scale: 1;
 }
 ```
 
-**没有 `--lp-display-vary`。** Source Serif 4 没有可钉的额外轴（§2.2 第 3 条）。
+**`--lp-display-vars` 与家族同级。** 换字体时轴设定必须跟着换 —— 把 Fraunces 的 `SOFT` 留给一支没有这条轴的字体，是静默失效（§2.2 第 3 条）。
 
 所有 display 元素统一：
 
@@ -365,18 +352,18 @@ fontFamily: {
 
 ### 2.4 Display 阶梯
 
-字号阶梯与实现一致；**字重 / tracking / lh 以下表为准**（本节原先记的 300 / -0.014em / 0.98 属于那份未落地的 Fraunces 方案）：
+字号阶梯与实现一致；**字重 / tracking / lh 以下表为准**：
 
 | 角色       | 类                               | 字号                                                        | 字重       | tracking | lh   |
 | ---------- | -------------------------------- | ----------------------------------------------------------- | ---------- | -------- | ---- |
-| Hero       | `.lp-h1`                         | `calc(clamp(46px, 6.6vw, 100px) * var(--lp-display-scale))` | 400        | -0.018em | 1    |
-| 分区标题   | `.lp-h2`                         | `calc(clamp(34px, 4.2vw, 60px) * var(--lp-display-scale))`  | 400        | -0.018em | 1    |
-| 分区标题   | `.lp-h2` ≤720px                  | `clamp(30px, 7vw, 44px)`                                    | 400        | -0.012em | 1    |
+| Hero       | `.lp-h1`                         | `calc(clamp(46px, 6.6vw, 100px) * var(--lp-display-scale))` | 300        | -0.018em | 1    |
+| 分区标题   | `.lp-h2`                         | `calc(clamp(34px, 4.2vw, 60px) * var(--lp-display-scale))`  | 300        | -0.018em | 1    |
+| 分区标题   | `.lp-h2` ≤720px                  | `clamp(30px, 7vw, 44px)`                                    | 300        | -0.012em | 1    |
 | 故事卡标题 | `.lp-h3`                         | `calc(clamp(24px, 1.9vw, 29px) * var(--lp-display-scale))`  | 400        | -0.008em | 1.14 |
-| 大数字     | `.lp-price-num` / `.lp-step-num` | 现值不动                                                    | 400        | -0.018em | 1    |
+| 大数字     | `.lp-price-num` / `.lp-step-num` | 现值不动                                                    | 300        | -0.018em | 1    |
 | 引文       | 新 `.lp-quote`                   | `clamp(22px, 2vw, 28px)`                                    | 400 italic | 0        | 1.35 |
 
-**字重全档统一 400，不再分 300 / 400。** Source Serif 4 的 300 在任何 display 尺寸上都撑不住，而它的 400 本身就比 Fraunces 的 400 轻。
+**字重 300，卡片标题除外。** Fraunces 是 display serif，同一个数值上它比正文衬线重一档；hero 在 100px 上要的是笔画的对比而不是分量，300 给的正是这个。唯一的例外是 `.lp-h3`：24–29px 上 300 的细笔画已经撑不住，`styles.css` 单独把它覆盖成 400。
 
 **斜体只在引文里出现，别处一律没有。** 引文是"另一个人在说话"，换字形是它的本义；标题里的强调是同一个人加重语气，换字形就跑题了。CJK 引文同样不用斜体（宋体没有真斜体），改用左侧一条 `--lp-info` 竖线。
 
@@ -1095,7 +1082,7 @@ DOM 形状：
 
 ## 12. 后续
 
-1. ~~**webapp** —— 产品语域换 Iris + 中性底。~~ **已落地。** 产品固定每个 token 的相对亮度、在本文 §1.2 的冷偏曲线上重解色相，hover δ 契约自动守恒；判定色取本文的色相彩度、按产品的 AA 需求重解亮度。**「产品不引入衬线」维持原判**：曾试过把 Source Serif 4 接到产品的 `text-display` / `text-h1`，随后撤回 —— 工作面的标题是被扫读的，衬线在那里拖慢扫读；这支字留在 landing。
+1. ~~**webapp** —— 产品语域换 Iris + 中性底。~~ **已落地。** 产品固定每个 token 的相对亮度、在本文 §1.2 的冷偏曲线上重解色相，hover δ 契约自动守恒；判定色取本文的色相彩度、按产品的 AA 需求重解亮度。**「产品不引入衬线」维持原判**：曾试过把 衬线接到产品的 `text-display` / `text-h1`，随后撤回 —— 工作面的标题是被扫读的，衬线在那里拖慢扫读；这支字留在 landing。
 2. ~~**docs**~~ **已落地**，与 webapp 同版同值（Tailwind 4 的 `@theme` 要求完整 `rgb()`，数值相同）。docs 自有的几个 token（`--color-ink-soft`、半透明 `--color-divider`、深色更暗的 `muted` / `subtle`）是有意分歧，`DESIGN.md` §4.4 末尾列了。
 3. **Fieldwork 进 webapp** —— §3.9 的五个落点。sigil 替换头像会碰到全站 avatar，需要单独评估。
 4. **文档合并** —— 两个语域的阴影解剖、状态矩阵、运动、链接规则已逐字趋同，本文 §1.5 / §5.5 / §6.1 / §6.3 可以并回 `DESIGN.md` 只留差异。等迁移跑过一到两个发布周期再做，单独一个纯文档 PR。
