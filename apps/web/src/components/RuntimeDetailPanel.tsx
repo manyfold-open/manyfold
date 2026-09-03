@@ -174,7 +174,7 @@ export const IdentityHeader: FC<{
         </div>
         <div className='min-w-0 flex-1'>
             <div className='flex flex-wrap items-center gap-3'>
-                <h1 className='text-h1 text-fg min-w-0 break-words tracking-tight'>
+                <h1 className='text-h1 text-fg min-w-0 break-words'>
                     {title}
                 </h1>
                 {badge}

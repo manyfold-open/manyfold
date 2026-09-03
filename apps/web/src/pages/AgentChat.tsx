@@ -2457,7 +2457,7 @@ const AgentChat: FC = (): ReactNode => {
                             <div className='w-full'>
                                 {showEmptyState && (
                                     <div className='mx-auto mb-7 max-w-3xl text-center'>
-                                        <h2 className='text-display text-fg tracking-tight'>
+                                        <h2 className='text-display text-fg'>
                                             {t('web.chat.whatNext', {
                                                 name: currentAgent.name
                                             })}

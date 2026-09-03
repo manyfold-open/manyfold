@@ -47,6 +47,28 @@
     display: none;
 }
 
+@layer utilities {
+    /* The display register: text-display and text-h1 wear the serif. Family
+       comes from the Tailwind theme so it is declared once; size, tracking,
+       weight and leading come from the fontSize tuples. Anything smaller
+       stays Geist — h2/h3 on a dense page are scanned, not read. */
+    .text-display,
+    .text-h1 {
+        font-family: var(--font-display);
+        font-optical-sizing: auto;
+        text-wrap: balance;
+    }
+
+    /* Han glyphs jam at Latin tracking and the serif fallback needs the
+       extra leading — same override landing carries for .lp-h*. */
+    html[lang^='zh'] .text-display,
+    html[lang^='zh'] .text-h1 {
+        letter-spacing: 0;
+        line-height: 1.15;
+        word-break: keep-all;
+    }
+}
+
 @layer base {
     :root {
         color-scheme: light;
@@ -63,6 +85,16 @@
         --text-ui: 14px;
         --text-caption: 12px;
         --text-code: 12px;
+        /* The display serif, declared once here. tailwind.config.ts points
+           fontFamily.display at this variable rather than repeating the list,
+           and the .text-display / .text-h1 rule below reads it. Never pass
+           the list through theme() in CSS: Tailwind emits it unquoted, and a
+           bare "4" in a family name is a parse error that drops the whole
+           declaration — measured on the dev server, the h1 silently fell
+           back to Geist. */
+        --font-display:
+            'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
+            'Songti SC', 'SimSun', serif;
         /* Cool-graphite chassis — product surfaces at workbench volume.
            Hues align with the landing --lp-* palette (DESIGN.md §4.1)
            but stay one shade lighter so compact UI text and chips read

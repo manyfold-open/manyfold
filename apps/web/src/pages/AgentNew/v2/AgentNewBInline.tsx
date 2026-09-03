@@ -952,7 +952,7 @@ const AgentNewBInline: FC = (): ReactNode => {
         <div className='bg-main min-h-full'>
             <header className='bg-main sticky top-0 z-20'>
                 <div className='mx-auto flex w-full max-w-6xl items-center justify-between gap-3 px-5 pb-4 pt-7 md:px-6 md:pt-8'>
-                    <h1 className='text-fg text-h1 truncate tracking-tight'>
+                    <h1 className='text-fg text-h1 truncate'>
                         {t('web.agentNew.title')}
                     </h1>
                     <div className='flex items-center gap-2'>

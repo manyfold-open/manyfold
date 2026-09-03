@@ -595,7 +595,7 @@ const AutomationDetail: FC = (): ReactNode => {
             <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
-                className='text-h1 text-fg focus-visible:shadow-focus rounded-xs -mx-1.5 -my-0.5 w-full bg-transparent px-1.5 py-0.5 transition-shadow focus:outline-none'
+                className='text-h1 text-fg focus-visible:shadow-focus rounded-xs -mx-1.5 -my-0.5 w-full bg-transparent px-1.5 py-0.5 font-sans transition-shadow focus:outline-none'
             />
 
             <div className='text-ui text-muted mb-7 mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 tabular-nums'>
