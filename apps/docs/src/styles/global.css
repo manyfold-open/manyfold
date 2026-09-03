@@ -30,18 +30,18 @@
 
 @theme {
     /* === Text === */
-    --color-fg: rgb(10 12 15);                  /* --lp-ink         */
-    --color-ink-soft: rgb(31 36 44);            /* --lp-ink-soft    */
-    --color-muted: rgb(82 88 97);               /* --lp-muted       */
-    --color-subtle: rgb(130 136 145);           /* --lp-subtle      */
-    --color-placeholder: rgb(155 161 170);
+    --color-fg: rgb(12 12 15);                  /* --lp-ink         */
+    --color-ink-soft: rgb(35 36 40);            /* --lp-ink-soft    */
+    --color-muted: rgb(85 87 94);               /* --lp-muted       */
+    --color-subtle: rgb(133 135 143);           /* --lp-subtle      */
+    --color-placeholder: rgb(158 160 167);
 
     /* === Lines / dividers === */
-    --color-divider: rgba(10, 12, 15, 0.18);    /* --lp-line        */
+    --color-divider: rgba(12, 12, 15, 0.18);    /* --lp-line        */
     /* Half-strength rule, for lines that group rather than separate: the
        hairline down a nav subtree runs the height of the rail, and at
        --color-divider it read as a second border beside the column rule. */
-    --color-divider-soft: rgba(10, 12, 15, 0.09); /* --lp-line-soft */
+    --color-divider-soft: rgba(12, 12, 15, 0.09); /* --lp-line-soft */
 
     /* === Workbench surface ramp ===
        Same-hue cool graphite stepping, values shared with the product
@@ -49,23 +49,23 @@
        and the docs never sees the ground change under them. Verified
        identical: --color-app-bg 222 226 230, --color-main-bg 247 249 251,
        --color-surface 251 252 254. */
-    --color-app: rgb(222 226 230);              /* floor — overscroll only */
-    --color-main: rgb(247 249 251);             /* docs canvas === chat canvas */
-    --color-rail: rgb(235 238 241);             /* the mobile drawer; aligned to the product rail */
-    --color-soft: rgb(234 237 241);             /* list-row hover */
-    --color-soft-hover: rgb(226 230 234);       /* one step down, toward the floor */
-    --color-surface: rgb(251 252 254);          /* code blocks, cards, popovers */
-    --color-surface-subtle: rgb(235 238 241);   /* recessed inside surface */
-    --color-surface-elevated: rgb(253 254 255); /* top-most popover */
-    --color-surface-hover: rgb(233 237 241);
+    --color-app: rgb(224 225 228);              /* floor — overscroll only */
+    --color-main: rgb(249 249 251);             /* docs canvas === chat canvas === --lp-bg-soft */
+    --color-rail: rgb(237 238 240);             /* the mobile drawer; aligned to the product rail */
+    --color-soft: rgb(236 237 239);             /* list-row hover */
+    --color-soft-hover: rgb(229 230 232);       /* one step down, toward the floor */
+    --color-surface: rgb(252 252 253);          /* code blocks, cards, popovers === --lp-paper */
+    --color-surface-subtle: rgb(237 238 240);   /* recessed inside surface */
+    --color-surface-elevated: rgb(254 254 254); /* top-most popover */
+    --color-surface-hover: rgb(236 237 239);
 
     /* === Primary button (class P, DESIGN.md §8.1 / §8.10) ===
        Dark fill in light mode; hover steps up the graphite ramp.
        Text stays pure white — no filter:brightness, no text-color
        change on hover. */
-    --color-strong: rgb(10 12 15);              /* --lp-ink */
-    --color-strong-hover: rgb(42 49 56);        /* graphite mid-tone */
-    --color-strong-fg: rgb(236 240 243);        /* --lp-paper, not pure white */
+    --color-strong: rgb(12 12 15);              /* --lp-ink */
+    --color-strong-hover: rgb(47 48 53);        /* one step up the Ash ramp */
+    --color-strong-fg: rgb(239 239 241);        /* near-white, not pure white */
 
     /* === Status spectrum (DESIGN.md §4.1 / §10.6) ===
        Five clearly-separated hues with adequate saturation
@@ -73,27 +73,46 @@
        distinguishable. Each role has -fg (solid color),
        -bg (low-alpha tint for banners/badges), -strong
        (saturated pressed/highlight). */
-    --color-info: rgb(59 130 201);              /* #3B82C9 — cool blue: active / brand / info */
-    --color-info-bg: rgb(232 240 249);
-    --color-info-strong: rgb(38 102 173);
-    --color-success: rgb(46 158 110);           /* #2E9E6E — teal-green: confirmed / shipped */
-    --color-success-bg: rgb(230 244 237);
-    --color-success-strong: rgb(31 126 84);
-    --color-warning: rgb(200 148 54);           /* #C89436 — amber-ochre: queued / pending */
-    --color-warning-bg: rgb(248 240 224);
-    --color-warning-strong: rgb(160 115 33);
-    --color-error: rgb(196 76 58);              /* #C44C3A — brick-red: failed / destructive */
-    --color-error-bg: rgb(247 226 222);
-    --color-error-strong: rgb(154 53 39);
-    --color-idle: rgb(138 144 153);             /* #8A9099 — neutral grey: idle / disabled */
-    --color-idle-bg: rgb(234 235 237);
+    /* Iris ramp — the same ten steps the webapp and landing carry. Tailwind 4's
+       @theme needs complete colour values, so these are rgb() rather than the
+       webapp's bare triplets; the numbers are identical. */
+    --color-iris-50: rgb(237 241 255);
+    --color-iris-100: rgb(219 227 255);
+    --color-iris-200: rgb(185 200 253);
+    --color-iris-300: rgb(140 165 249);
+    --color-iris-400: rgb(93 128 244);
+    --color-iris-500: rgb(66 107 240);
+    --color-iris-600: rgb(53 96 235);
+    --color-iris-700: rgb(24 66 216);
+    --color-iris-800: rgb(24 51 160);
+    --color-iris-900: rgb(21 36 102);
+    --color-info: var(--color-iris-600);        /* #3560eb — brand / active / info; 4.96:1 on the canvas */
+    --color-info-bg: rgb(231 235 250);
+    --color-info-strong: var(--color-iris-700);
+    --color-info-vivid: var(--color-iris-500);  /* fill-only tier: bars, marks, blocks */
+    --color-success: rgb(6 131 70);             /* #068346 — jade: confirmed / shipped */
+    --color-success-bg: rgb(225 241 235);
+    --color-success-strong: rgb(3 104 54);
+    --color-success-vivid: rgb(13 165 90);
+    --color-warning: rgb(161 100 4);            /* #a16404 — amber: queued / pending */
+    --color-warning-bg: rgb(244 237 229);
+    --color-warning-strong: rgb(127 79 2);
+    --color-warning-vivid: rgb(199 128 27);
+    --color-error: rgb(212 52 44);              /* #d4342c — coral: failed / destructive */
+    --color-error-bg: rgb(249 235 235);
+    --color-error-strong: rgb(182 5 13);
+    --color-error-vivid: rgb(249 89 76);
+    --color-idle: rgb(110 113 132);             /* #6e7184 — violet-grey: idle / disabled */
+    --color-idle-bg: rgb(235 235 240);
+    --color-idle-strong: rgb(86 89 108);
+    --color-idle-vivid: rgb(140 143 163);
 
     /* === Legacy aliases ===
        Existing rules reference --color-danger-*, --color-workflow-*,
        --color-badge-*. Aliased to the new spectrum so call sites
        keep working; new rules should use the status-named tokens. */
     --color-danger-bg: var(--color-error-bg);
-    --color-danger-hover: rgb(244 218 213);
+    --color-danger-hover: rgb(249 220 220);
     --color-danger-fg: var(--color-error-strong);
     --color-workflow-develop: var(--color-info);      /* active / running */
     --color-workflow-preview: var(--color-warning);   /* queued */
@@ -281,11 +300,11 @@
     html[data-theme='dark'] {
         color-scheme: dark;
 
-        --color-fg: rgb(228 231 236);              /* --lp-ink */
-        --color-ink-soft: rgb(185 190 198);        /* --lp-ink-soft */
-        --color-muted: rgb(124 131 140);
-        --color-subtle: rgb(80 85 92);
-        --color-placeholder: rgb(100 106 114);
+        --color-fg: rgb(231 231 233);              /* --lp-ink */
+        --color-ink-soft: rgb(188 189 194);        /* --lp-ink-soft */
+        --color-muted: rgb(128 130 138);
+        --color-subtle: rgb(82 84 91);
+        --color-placeholder: rgb(103 105 112);
 
         --color-divider: rgba(255, 255, 255, 0.13);
         --color-divider-soft: rgba(255, 255, 255, 0.06);
@@ -301,40 +320,49 @@
            The anchor and its marker draw from --color-muted and still clear
            the 3:1 floor a control has to hold, with less headroom than
            before. Light mode improved instead: muted goes 5.41 to 6.80. */
-        --color-app: rgb(7 9 12);                  /* floor — overscroll only */
-        --color-main: rgb(20 23 27);               /* docs canvas === chat canvas */
-        --color-rail: rgb(13 16 20);               /* the mobile drawer */
-        --color-soft: rgb(28 32 38);               /* list-row hover — lifts off the canvas */
-        --color-soft-hover: rgb(38 43 50);
-        --color-surface: rgb(32 36 42);            /* code blocks, cards, popovers */
-        --color-surface-subtle: rgb(26 30 36);
-        --color-surface-elevated: rgb(42 47 54);
-        --color-surface-hover: rgb(48 53 60);
+        --color-app: rgb(9 9 11);                  /* floor — overscroll only */
+        --color-main: rgb(22 23 25);               /* docs canvas === chat canvas === --lp-paper */
+        --color-rail: rgb(15 15 18);               /* the mobile drawer */
+        --color-soft: rgb(31 32 36);               /* list-row hover — lifts off the canvas */
+        --color-soft-hover: rgb(41 42 47);
+        --color-surface: rgb(35 36 40);            /* code blocks, cards, popovers */
+        --color-surface-subtle: rgb(29 30 34);
+        --color-surface-elevated: rgb(45 46 51);
+        --color-surface-hover: rgb(51 53 58);
 
         /* Primary button flips: cool platinum fill, deep-ink text */
-        --color-strong: rgb(230 233 236);
-        --color-strong-hover: rgb(244 246 248);
-        --color-strong-fg: rgb(15 17 20);
+        --color-strong: rgb(232 232 234);
+        --color-strong-hover: rgb(246 246 248);
+        --color-strong-fg: rgb(17 17 20);
 
         /* Status spectrum — dark variant (DESIGN.md §4.2). Hues
            brightened so perceived saturation matches light mode. */
-        --color-info: rgb(123 182 232);              /* #7BB6E8 */
-        --color-info-bg: rgb(24 38 56);
-        --color-info-strong: rgb(92 153 210);
-        --color-success: rgb(91 197 152);            /* #5BC598 */
-        --color-success-bg: rgb(22 50 38);
-        --color-success-strong: rgb(58 166 122);
-        --color-warning: rgb(228 185 104);           /* #E4B968 */
-        --color-warning-bg: rgb(56 44 22);
-        --color-warning-strong: rgb(195 153 69);
-        --color-error: rgb(224 122 106);             /* #E07A6A */
-        --color-error-bg: rgb(64 36 34);
-        --color-error-strong: rgb(191 89 70);
-        --color-idle: rgb(110 118 130);              /* #6E7682 */
-        --color-idle-bg: rgb(36 40 46);
+        /* Aliases step up the ramp; the ramp itself is theme-invariant. 300
+           rather than landing's 400: brand colour lands on card surfaces where
+           400 only reaches 4.33:1. */
+        --color-info: var(--color-iris-300);         /* #8ca5f9 */
+        --color-info-bg: rgb(33 40 60);
+        --color-info-strong: var(--color-iris-200);
+        --color-info-vivid: var(--color-iris-400);
+        --color-success: rgb(11 171 100);            /* #0bab64 */
+        --color-success-bg: rgb(20 40 33);
+        --color-success-strong: rgb(37 197 118);
+        --color-success-vivid: rgb(7 141 81);
+        --color-warning: rgb(195 138 48);            /* #c38a30 */
+        --color-warning-bg: rgb(45 37 22);
+        --color-warning-strong: rgb(221 163 76);
+        --color-warning-vivid: rgb(166 111 5);
+        --color-error: rgb(240 108 99);              /* #f06c63 */
+        --color-error-bg: rgb(46 30 31);
+        --color-error-strong: rgb(254 141 131);
+        --color-error-vivid: rgb(208 80 73);
+        --color-idle: rgb(145 148 170);              /* #9194aa */
+        --color-idle-bg: rgb(37 39 44);
+        --color-idle-strong: rgb(169 172 195);
+        --color-idle-vivid: rgb(118 121 143);
 
         --color-danger-bg: var(--color-error-bg);
-        --color-danger-hover: rgb(82 44 40);
+        --color-danger-hover: rgb(70 38 37);
         --color-danger-fg: var(--color-error);
         --color-workflow-develop: var(--color-info);
         --color-workflow-preview: var(--color-warning);
