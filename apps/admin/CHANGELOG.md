@@ -1,5 +1,28 @@
 # @manyfold/admin
 
+## 0.28.2
+
+### Patch Changes
+
+- [#155](https://github.com/manyfold-open/manyfold/pull/155) [`f052ae2`](https://github.com/manyfold-open/manyfold/commit/f052ae2fad5ff5146b0217d001b5b4e4abf410c5) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Retire the ALL-CAPS micro-label.
+
+    Kickers, stat labels, table heads, landing eyebrows and badges all ran
+    uppercase at `tracking-[0.18em]`. At workbench density that reads as
+    shouting, and it made the same label look like a different kind of thing
+    depending on which surface it landed on. They are now sentence case at
+    normal tracking — the rule the tag family (DESIGN.md §8.3) has always
+    followed, now binding on every label in the product and on landing.
+
+    Caps and wide tracking come out together: the tracking only ever existed to
+    give capital letterforms air, so it has nothing to do once the caps are
+    gone. Source strings were already authored in sentence case (`Cost`, `Input
+tokens`, `Manyfold · agent hosting & delivery`), so nothing needed
+    retranslating and the label now reads the same in the DOM, on screen and to
+    a screen reader.
+
+    DESIGN.md §5 and DESIGN.landing.md §5.3 carry the rule; the two registers
+    agree on it.
+
 ## 0.28.1
 
 ### Patch Changes
