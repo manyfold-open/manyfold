@@ -560,7 +560,8 @@ export class SandboxesService {
 
         let stoppedAgents = 0
         const handledRuntimeIds = new Set<string>()
-        for (const a of await this.runtimes.listAgentsByHost(hostId)) {
+        const agentsOnHost = await this.runtimes.listAgentsByHost(hostId)
+        for (const a of agentsOnHost) {
             try {
                 const res = await this.agents.stopSprite(a.id, userId, isAdmin)
                 if (res.status === 'pending') {
@@ -584,7 +585,8 @@ export class SandboxesService {
         // Orphan runtimes (no agent row) and agents whose lagging status row
         // made stopSprite noop are invisible to the loop above AND to both
         // keep-alive reconcile passes — release them directly.
-        for (const rt of await this.runtimes.listRuntimesByHost(hostId)) {
+        const runtimesOnHost = await this.runtimes.listRuntimesByHost(hostId)
+        for (const rt of runtimesOnHost) {
             if (handledRuntimeIds.has(rt.id)) continue
             try {
                 if (rt.keepAliveEnabled)
@@ -659,7 +661,8 @@ export class SandboxesService {
         // released with their renewers killed above; deleting a stray one here
         // would just be resurrected by its in-VM renew loop.
         const deletedTasks: string[] = []
-        for (const t of await this.readTasksOnSprite(client, spriteName)) {
+        const tasksOnSprite = await this.readTasksOnSprite(client, spriteName)
+        for (const t of tasksOnSprite) {
             if (typeof t.name !== 'string' || isPlatformTaskName(t.name))
                 continue
             const remaining = await this.deleteTaskOnSprite(
@@ -679,6 +682,30 @@ export class SandboxesService {
             .catch((err: Error) => {
                 warnings.push(`status refresh failed: ${err.message}`)
             })
+
+        // Agents, runtimes, services and tasks are the complete set of levers a
+        // stop has, and none of them existed on this running VM. Whatever is
+        // keeping it awake is out of reach, so this stop cannot put it to sleep
+        // however successful its counters look. Said out loud last, as a
+        // verdict on the whole attempt, because a caller retrying on a timer
+        // otherwise never learns it is powerless — Seen on prod [2026-09-03]: a
+        // free-plan sandbox with a deleted agent and two leaked exec sessions
+        // absorbed 60 of these in one day, each audited as `pending` with empty
+        // arrays, while it billed 52h against a 5h quota.
+        const hasNoLevers =
+            agentsOnHost.length === 0 &&
+            runtimesOnHost.length === 0 &&
+            services.length === 0 &&
+            tasksOnSprite.length === 0
+        if (hasNoLevers) {
+            warnings.push(
+                'nothing on this sandbox could be stopped: it is running with no agents, runtimes, services or tasks registered on it, so something out of reach is holding it awake and it will not sleep'
+            )
+            this.log.warn(
+                `sandbox stop has no levers host=${hostId} sprite=${spriteName} user=${host.userId} — running with nothing registered on it`
+            )
+        }
+
         try {
             await this.db.insert(auditLogs).values({
                 id: randomUUID(),
@@ -690,6 +717,7 @@ export class SandboxesService {
                     stoppedAgents,
                     stoppedServices,
                     deletedTasks,
+                    hasNoLevers,
                     warnings: warnings.length,
                     onBehalfOf:
                         isAdmin && host.userId !== userId ? host.userId : null
