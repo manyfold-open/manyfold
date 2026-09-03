@@ -108,7 +108,7 @@ const Shell: FC<{ title: string; children: ReactNode }> = ({
     <div className='text-fg bg-main flex min-h-screen items-center justify-center px-5 py-10'>
         <main className='workbench-panel w-full max-w-[34rem] px-6 py-6'>
             <div className='space-y-5'>
-                <h1 className='text-h2'>{title}</h1>
+                <h1 className='text-h1 text-fg'>{title}</h1>
                 {children}
             </div>
         </main>
