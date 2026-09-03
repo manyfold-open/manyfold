@@ -17,13 +17,14 @@ export const shouldShowRuntimeSignIn = (
 }
 
 // The CLI's own sign-in, phrased for a terminal without a local browser:
-// claude prints a URL from /login and takes a pasted code; codex needs the
+// claude's auth subcommand prints the URL and takes the pasted code (older
+// builds without it: run `claude` and type /login); codex needs the
 // device-code flow because its standard login listens on localhost:1455;
 // gemini's NO_BROWSER flow prints the URL instead of spawning a browser.
 export const runtimeSignInCommandFor = (
     framework: AgentFramework
 ): string | null => {
-    if (framework === 'claude-code') return 'claude'
+    if (framework === 'claude-code') return 'claude auth login --claudeai'
     if (framework === 'codex') return 'codex login --device-auth'
     if (framework === 'gemini-cli') return 'NO_BROWSER=true gemini'
     return null

@@ -21,10 +21,28 @@ export interface DaemonTerminalRequest {
     onClose: () => void
 }
 
+// A shell on the machine itself, addressed by host instead of agent. It gets
+// no agent env and no user API token: its one job is running a coding CLI's
+// own sign-in from the runtime page, which needs neither, so the shell holds
+// nothing worth leaking. cwd is left to the daemon (its home directory).
+export interface DaemonHostTerminalRequest {
+    daemonId: string
+    cols: number
+    rows: number
+    client: WsClient
+    onClose: () => void
+}
+
 // Same posture as the sprites terminal: the session acts as the USER, so it
 // carries a short-lived api.full token injected per session, hard-deleted on
 // close, with the TTL bounding exposure if the delete is lost.
 const TERMINAL_TOKEN_TTL_SECONDS = 12 * 60 * 60
+
+const TERMINAL_BASE_ENV = {
+    TERM: 'xterm-256color',
+    LANG: 'C.UTF-8',
+    COLORTERM: 'truecolor'
+}
 
 @Injectable()
 export class DaemonTerminal {
@@ -63,6 +81,49 @@ export class DaemonTerminal {
                 })
                 .catch(() => {})
         }
+        await this.openPty({
+            daemonId,
+            cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
+            env: {
+                ...envTextToRecord(envTextFromExtras(agent.extras)),
+                ...connectionEnv,
+                MF_AGENT_ID: agent.id,
+                MF_API_TOKEN: terminalToken.plaintext,
+                ...TERMINAL_BASE_ENV
+            },
+            cols,
+            rows,
+            client,
+            onClose,
+            release: dropTerminalToken
+        })
+    }
+
+    async tunnelHost(req: DaemonHostTerminalRequest): Promise<void> {
+        await this.openPty({
+            daemonId: req.daemonId,
+            cwd: undefined,
+            env: { ...TERMINAL_BASE_ENV },
+            cols: req.cols,
+            rows: req.rows,
+            client: req.client,
+            onClose: req.onClose,
+            release: () => {}
+        })
+    }
+
+    private async openPty(args: {
+        daemonId: string
+        cwd: string | undefined
+        env: Record<string, string>
+        cols: number
+        rows: number
+        client: WsClient
+        onClose: () => void
+        release: () => void
+    }): Promise<void> {
+        const { daemonId, cwd, env, cols, rows, client, onClose, release } =
+            args
         let closed = false
         let stream: ReturnType<DaemonRegistryService['streamRpc']>
         try {
@@ -70,18 +131,10 @@ export class DaemonTerminal {
                 daemonId,
                 method: 'pty.open',
                 payload: {
-                    cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
+                    ...(cwd ? { cwd } : {}),
                     cols,
                     rows,
-                    env: {
-                        ...envTextToRecord(envTextFromExtras(agent.extras)),
-                        ...connectionEnv,
-                        MF_AGENT_ID: agent.id,
-                        MF_API_TOKEN: terminalToken.plaintext,
-                        TERM: 'xterm-256color',
-                        LANG: 'C.UTF-8',
-                        COLORTERM: 'truecolor'
-                    }
+                    env
                 },
                 timeoutMs: 24 * 3600 * 1000,
                 onEvent: (kind, data) => {
@@ -104,7 +157,7 @@ export class DaemonTerminal {
             try {
                 client.close(4503, 'daemon unavailable')
             } catch {}
-            dropTerminalToken()
+            release()
             onClose()
             return
         }
@@ -158,7 +211,7 @@ export class DaemonTerminal {
             if (closed) return
             closed = true
             stream.cancel()
-            dropTerminalToken()
+            release()
             onClose()
         }
         client.on('close', cleanup)
@@ -185,7 +238,7 @@ export class DaemonTerminal {
                     try {
                         client.close(1000, 'pty closed')
                     } catch {}
-                    dropTerminalToken()
+                    release()
                     onClose()
                 }
             })

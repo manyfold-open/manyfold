@@ -726,7 +726,7 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'lib/i18n.tsx': ['zh'],
     // Shell commands the sign-in card shows verbatim, not display copy.
     'lib/runtimeSignIn.ts': [
-        'claude',
+        'claude auth login --claudeai',
         'codex login --device-auth',
         'NO_BROWSER=true gemini'
     ],
