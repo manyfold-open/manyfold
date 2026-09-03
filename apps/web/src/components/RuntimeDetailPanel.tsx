@@ -174,7 +174,7 @@ export const IdentityHeader: FC<{
         </div>
         <div className='min-w-0 flex-1'>
             <div className='flex flex-wrap items-center gap-3'>
-                <h1 className='text-h1 text-fg min-w-0 break-words tracking-tight'>
+                <h1 className='text-h1 text-fg min-w-0 break-words'>
                     {title}
                 </h1>
                 {badge}
@@ -211,7 +211,7 @@ export const Info: FC<{
     mono?: boolean
 }> = ({ label, value, mono }): ReactNode => (
     <div className='grid gap-2 px-5 py-4 md:grid-cols-[11rem_minmax(0,1fr)] md:items-baseline'>
-        <dt className='text-caption text-subtle uppercase tracking-wider'>
+        <dt className='text-caption text-subtle'>
             {label}
         </dt>
         <dd

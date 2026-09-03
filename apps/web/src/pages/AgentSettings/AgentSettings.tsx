@@ -129,7 +129,7 @@ const Info: FC<{ label: string; value: ReactNode; mono?: boolean }> = ({
     value
 }): ReactNode => (
     <div className='grid gap-2 px-5 py-4 md:grid-cols-[11rem_minmax(0,1fr)] md:items-baseline'>
-        <dt className='text-caption text-subtle uppercase tracking-wider'>
+        <dt className='text-caption text-subtle'>
             {label}
         </dt>
         <dd
@@ -152,7 +152,7 @@ const Fact: FC<{ label: string; value: ReactNode; mono?: boolean }> = ({
     value
 }): ReactNode => (
     <div className='min-w-0 px-5 py-4'>
-        <dt className='text-caption text-subtle uppercase tracking-wider'>
+        <dt className='text-caption text-subtle'>
             {label}
         </dt>
         <dd
@@ -1392,7 +1392,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             {agent.runtime !== 'external' && (
                                 <div className='flex flex-wrap items-center justify-between gap-3 px-5 py-4'>
                                     <div className='min-w-0'>
-                                        <dt className='text-caption text-subtle uppercase tracking-wider'>
+                                        <dt className='text-caption text-subtle'>
                                             {t(
                                                 'web.agents.detail.storage.title'
                                             )}
@@ -1432,7 +1432,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                 reached", with the counts that matter and a way
                                 into each. */}
                             <div className='px-5 py-4'>
-                                <dt className='text-caption text-subtle uppercase tracking-wider'>
+                                <dt className='text-caption text-subtle'>
                                     {t(
                                         'web.agentSettings.overview.interfaces'
                                     )}
@@ -1947,7 +1947,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     <div className='overflow-x-auto'>
                                         <table className='workbench-table min-w-[860px]'>
                                             <thead className='workbench-table-head'>
-                                                <tr className='text-caption text-muted uppercase tracking-wider'>
+                                                <tr className='text-caption text-muted'>
                                                     <th className='px-5 py-3 font-medium'>
                                                         {t(
                                                             'web.agents.detail.created'
@@ -2185,7 +2185,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                 {usesFrameworkModelConfig &&
                                     (modelSourceSwitchable ? (
                                         <div className='grid gap-2 px-5 py-4 md:grid-cols-[11rem_minmax(0,1fr)] md:items-start'>
-                                            <dt className='text-caption text-subtle pt-1 uppercase tracking-wider'>
+                                            <dt className='text-caption text-subtle pt-1'>
                                                 {t(
                                                     'web.agents.detail.modelProvider.source'
                                                 )}

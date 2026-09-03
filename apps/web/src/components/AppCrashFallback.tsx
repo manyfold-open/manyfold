@@ -8,7 +8,7 @@ const AppCrashFallback: FC = () => (
         role='alert'
         className='bg-main flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center'
     >
-        <h1 className='text-fg text-lg font-medium'>
+        <h1 className='text-h1 text-fg'>
             {t('errors.appCrash.title')}
         </h1>
         <p className='text-muted max-w-prose text-sm'>

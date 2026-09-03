@@ -62,9 +62,7 @@ const OneLineDisplay: FC<Props> = ({
             <span
                 className={[
                     'text-caption font-mono',
-                    compact
-                        ? 'text-current'
-                        : 'text-subtle uppercase tracking-wider'
+                    compact ? 'text-current' : 'text-subtle'
                 ].join(' ')}
             >
                 {toolName}

@@ -160,7 +160,7 @@ const CollapsibleToolBlock: FC<{
                         'text-caption shrink-0 font-mono',
                         compact
                             ? 'text-current'
-                            : 'text-subtle uppercase tracking-wider'
+                            : 'text-subtle'
                     ].join(' ')}
                 >
                     {call.toolName}
@@ -317,12 +317,7 @@ const TodoToolBlock: FC<{
             }
         >
             <div className='mb-2 flex items-center gap-2.5'>
-                <span
-                    className={[
-                        'text-caption text-subtle font-mono',
-                        compact ? '' : 'uppercase tracking-wider'
-                    ].join(' ')}
-                >
+                <span className='text-caption text-subtle font-mono'>
                     {call.toolName}
                 </span>
                 <span className='text-ui text-fg flex-1'>

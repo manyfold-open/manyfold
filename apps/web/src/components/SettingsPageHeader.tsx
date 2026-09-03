@@ -29,7 +29,7 @@ const SettingsPageHeader: FC<SettingsPageHeaderProps> = ({
             )}
             <div className='settings-page-header-row'>
                 <div className='min-w-0'>
-                    <h1 className='text-h1 text-fg hidden tracking-tight lg:block'>
+                    <h1 className='text-h1 text-fg hidden lg:block'>
                         {title}
                     </h1>
                     {description && (

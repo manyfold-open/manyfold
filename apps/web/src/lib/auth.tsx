@@ -208,7 +208,7 @@ export const AuthSignIn: FC<{
         return (
             <div className='shadow-card border-divider bg-surface w-full rounded-md border p-6'>
                 <div className='space-y-1'>
-                    <h1 className='text-fg text-h2'>
+                    <h1 className='text-h1 text-fg'>
                         {t('web.auth.setupRequired')}
                     </h1>
                     <p className='text-muted text-sm'>
@@ -659,7 +659,7 @@ const NativeCredentialForm: FC<{
     return (
         <div className='shadow-card border-divider bg-surface w-full rounded-md border p-6'>
             <div className='mb-5 space-y-1'>
-                <h1 className='text-fg text-h2'>{title}</h1>
+                <h1 className='text-h1 text-fg'>{title}</h1>
                 <p className='text-muted text-sm'>{subtitle}</p>
             </div>
 
@@ -931,7 +931,7 @@ const AuthShellMessage: FC<{ title: string; body: string }> = ({
 }) => (
     <div className='login-shell text-fg flex min-h-screen items-center justify-center p-5'>
         <div className='shadow-card border-divider bg-surface w-full max-w-sm rounded-md border p-6'>
-            <h1 className='text-fg text-h2'>{title}</h1>
+            <h1 className='text-h1 text-fg'>{title}</h1>
             <p className='text-muted mt-2 text-sm'>{body}</p>
         </div>
     </div>

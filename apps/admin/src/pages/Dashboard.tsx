@@ -245,7 +245,7 @@ const Dashboard: FC = (): ReactNode => {
                     <Card elevation='ambient' className='overflow-hidden'>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             User
@@ -302,7 +302,7 @@ const Dashboard: FC = (): ReactNode => {
                     <Card elevation='ambient' className='overflow-hidden'>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             Agent
@@ -381,7 +381,7 @@ const Dashboard: FC = (): ReactNode => {
                     <Card elevation='ambient' className='overflow-hidden'>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             Email
@@ -435,7 +435,7 @@ const Dashboard: FC = (): ReactNode => {
                     <Card elevation='ambient' className='overflow-hidden'>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full text-left'>
-                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                     <tr>
                                         <th className='px-3 py-2 font-normal'>
                                             Agent
