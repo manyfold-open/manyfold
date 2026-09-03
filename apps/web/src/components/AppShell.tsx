@@ -95,11 +95,15 @@ import {
     FrameworkLogo,
     frameworkLabel as frameworkDisplayLabel
 } from '@/lib/frameworkMeta'
-import TerminalDock, {
-    type TerminalConnectionStatus,
-    type TerminalTabModel
-} from '@/components/TerminalDock'
-import BackgroundTasksPanel from '@/components/BackgroundTasksPanel'
+import TerminalDock from '@/components/TerminalDock'
+import type {
+    TerminalConnectionStatus,
+    TerminalTabModel
+} from '@/components/TerminalSession'
+import {
+    ensureSandboxTerminalEnabled,
+    terminalAvailabilityForAgent
+} from '@/lib/terminalAccess'
 import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import { BrandMark } from '@/components/Brand'
 import QuotaBanner from '@/components/QuotaBanner'
@@ -138,6 +142,12 @@ export interface AppShellOutletContext {
         options?: OpenTerminalOptions
     ) => void
     refreshAgents: () => Promise<SdkAgent[]>
+    // The user's sandboxes, already loaded for the rail's capacity counters.
+    // Shared so a page can read a host-level opt-in without another request.
+    sandboxes: SandboxSummary[]
+    // Likewise for daemon hosts, whose declared capabilities decide what a
+    // page may offer for an agent running on one.
+    daemonHosts: DaemonHostSummary[]
     refreshSessionsForAgent: (agentId: string) => Promise<ChatSessionSummary[]>
     refreshSessions: () => Promise<ChatSessionSummary[]>
     runtimeAccess: RuntimeAccessSummary | null
@@ -146,8 +156,6 @@ export interface AppShellOutletContext {
     dismissQuotaWarning: (code: string) => void
     requestQuotaConflict: (request: QuotaConflictRequest) => void
     markAgentReleasing: (agentId: string) => void
-    bgTasksVisible: boolean
-    toggleBackgroundTasks: () => void
     sessions: ChatSessionSummary[]
     sessionsError: string | null
     sessionsLoading: boolean
@@ -2290,7 +2298,6 @@ const AppShell: FC = (): ReactNode => {
         null
     )
     const [terminalDockVisible, setTerminalDockVisible] = useState(false)
-    const [bgTasksVisible, setBgTasksVisible] = useState(false)
     const [credentialsAgent, setCredentialsAgent] = useState<SdkAgent | null>(
         null
     )
@@ -2567,8 +2574,7 @@ const AppShell: FC = (): ReactNode => {
 
     const openTerminalForAgent = useCallback(
         (agent: SdkAgent, options: OpenTerminalOptions = {}): void => {
-            if (agent.status !== 'running') return
-            if (agent.runtime === 'external') return
+            if (!terminalAvailabilityForAgent(agent).available) return
 
             const openTab = (): void => {
                 const index = terminalSerialRef.current + 1
@@ -2592,44 +2598,14 @@ const AppShell: FC = (): ReactNode => {
                 setTerminalDockVisible(true)
             }
 
-            // Terminal is opt-in per sandbox (sprites runtime only). Rather than
-            // opening the dock and letting the websocket surface a cryptic
-            // "terminal is disabled" error, ask first and enable on confirm.
-            if (agent.runtime !== 'sprites') {
-                openTab()
-                return
-            }
-
             void (async (): Promise<void> => {
-                let sandbox: SandboxSummary | null = null
-                try {
-                    const sandboxes = await client.sandboxes.list()
-                    sandbox = agent.spriteName
-                        ? (sandboxes.find(
-                              (s) => s.spriteName === agent.spriteName
-                          ) ?? null)
-                        : null
-                } catch {
-                    sandbox = null
-                }
-
-                if (sandbox && !sandbox.terminalEnabled) {
-                    const confirmed = await confirm({
-                        title: t('web.terminal.enablePromptTitle'),
-                        description: t('web.terminal.enablePromptBody'),
-                        confirmLabel: t('web.terminal.enablePromptConfirm'),
-                        cancelLabel: t('web.terminal.enablePromptCancel')
-                    })
-                    if (!confirmed) return
-                    try {
-                        await client.sandboxes.setTerminal(sandbox.id, true)
-                    } catch {
-                        // Enable failed; open anyway so the websocket surfaces
-                        // the underlying error instead of failing silently.
-                    }
-                }
-
-                openTab()
+                const allowed = await ensureSandboxTerminalEnabled({
+                    agent,
+                    client,
+                    confirm,
+                    t
+                })
+                if (allowed) openTab()
             })()
         },
         [client, confirm, t]
@@ -4212,6 +4188,8 @@ const AppShell: FC = (): ReactNode => {
                                         setDrawerOpen(true),
                                     openTerminalForAgent,
                                     refreshAgents,
+                                    sandboxes,
+                                    daemonHosts,
                                     refreshSessionsForAgent,
                                     refreshSessions,
                                     runtimeAccess,
@@ -4220,9 +4198,6 @@ const AppShell: FC = (): ReactNode => {
                                     dismissQuotaWarning,
                                     requestQuotaConflict,
                                     markAgentReleasing,
-                                    bgTasksVisible,
-                                    toggleBackgroundTasks: () =>
-                                        setBgTasksVisible((value) => !value),
                                     sessions,
                                     sessionsError,
                                     sessionsLoading
@@ -4277,12 +4252,6 @@ const AppShell: FC = (): ReactNode => {
                     />
                 )}
             </div>
-            {bgTasksVisible && (
-                <BackgroundTasksPanel
-                    agent={currentAgent}
-                    onClose={() => setBgTasksVisible(false)}
-                />
-            )}
         </div>
     )
 }

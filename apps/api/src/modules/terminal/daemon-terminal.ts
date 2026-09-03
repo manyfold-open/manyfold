@@ -12,11 +12,14 @@ import {
     API_TOKEN_SCOPE_FULL
 } from '@/modules/auth/api-token.service'
 
+import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
+
 export interface DaemonTerminalRequest {
     agent: Agent
     cols: number
     cwd?: string
     rows: number
+    resume?: ResolvedTerminalResume | null
     client: WsClient
     onClose: () => void
 }
@@ -55,7 +58,7 @@ export class DaemonTerminal {
     ) {}
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
-        const { agent, cols, cwd, rows, client, onClose } = req
+        const { agent, cols, cwd, rows, resume, client, onClose } = req
         if (!agent.daemonId)
             throw new NotFoundException('daemon agent missing daemonId')
         const daemonId = agent.daemonId
@@ -87,10 +90,14 @@ export class DaemonTerminal {
             env: {
                 ...envTextToRecord(envTextFromExtras(agent.extras)),
                 ...connectionEnv,
+                // Resume credentials sit under the platform's own vars: a
+                // session must not be able to rebind MF_API_TOKEN or TERM.
+                ...(resume?.env ?? {}),
                 MF_AGENT_ID: agent.id,
                 MF_API_TOKEN: terminalToken.plaintext,
                 ...TERMINAL_BASE_ENV
             },
+            ...(resume?.command.length ? { command: resume.command } : {}),
             cols,
             rows,
             client,
@@ -116,14 +123,25 @@ export class DaemonTerminal {
         daemonId: string
         cwd: string | undefined
         env: Record<string, string>
+        // Run the TUI resume as the shell's argv instead of a bare login shell.
+        command?: string[]
         cols: number
         rows: number
         client: WsClient
         onClose: () => void
         release: () => void
     }): Promise<void> {
-        const { daemonId, cwd, env, cols, rows, client, onClose, release } =
-            args
+        const {
+            daemonId,
+            cwd,
+            env,
+            command,
+            cols,
+            rows,
+            client,
+            onClose,
+            release
+        } = args
         let closed = false
         let stream: ReturnType<DaemonRegistryService['streamRpc']>
         try {
@@ -134,6 +152,10 @@ export class DaemonTerminal {
                     ...(cwd ? { cwd } : {}),
                     cols,
                     rows,
+                    // Only sent to daemons declaring DAEMON_FEATURE_PTY_COMMAND
+                    // (checked by the gateway) — an older one would drop it and
+                    // open a plain shell under a UI that promised a resume.
+                    ...(command?.length ? { command } : {}),
                     env
                 },
                 timeoutMs: 24 * 3600 * 1000,

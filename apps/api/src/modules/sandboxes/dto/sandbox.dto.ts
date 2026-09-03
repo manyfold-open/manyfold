@@ -2,7 +2,8 @@ import type {
     CliUpgradeBody,
     CreateSandboxBody,
     RenameBody,
-    SetSandboxTerminalBody
+    SetSandboxTerminalBody,
+    SetSandboxTerminalModelCredentialsBody
 } from '@manyfold/shared'
 import { IsBoolean, IsOptional, IsString, Length } from 'class-validator'
 import {
@@ -24,6 +25,13 @@ export class CreateSandboxDto implements CreateSandboxBody {
 }
 
 export class SetSandboxTerminalDto implements SetSandboxTerminalBody {
+    @IsBoolean()
+    enabled!: boolean
+}
+
+export class SetSandboxTerminalModelCredentialsDto
+    implements SetSandboxTerminalModelCredentialsBody
+{
     @IsBoolean()
     enabled!: boolean
 }

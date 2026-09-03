@@ -777,7 +777,6 @@ const en = {
             many: '{{count}} machines need a CLI upgrade'
         },
         backgroundTasks: {
-            title: 'Background tasks',
             running: 'Running',
             finished: 'Finished',
             clear: 'Clear',
@@ -787,9 +786,7 @@ const en = {
             viewTranscript: 'View transcript',
             transcriptUnavailable: 'Transcript not available.',
             loadingTranscript: 'Loading transcript…',
-            close: 'Close',
             back: 'Back',
-            resize: 'Resize background tasks panel',
             type: 'A2A',
             tokens: '{{count}} tokens',
             direction: {
@@ -2489,18 +2486,19 @@ const en = {
                 answerFailed: 'Could not deliver the answer: {{message}}'
             },
             header: {
-                resizeRuntimeViewer: 'Resize chat and runtime session viewer',
                 openMenu: 'Open menu',
                 share: 'Share chat',
                 openTerminal: 'Open terminal',
-                refresh: 'Refresh chat and files',
-                hideFileTree: 'Hide file tree',
-                showFileTree: 'Show file tree',
-                hideFilePreview: 'Hide file preview',
-                showFilePreview: 'Show file preview',
-                hideRuntimeViewer: 'Hide runtime session viewer',
-                runtimeViewer: 'Runtime session viewer',
-                backgroundTasks: 'Background tasks'
+                refresh: 'Refresh chat and files'
+            },
+            pane: {
+                label: 'Chat side panel',
+                select: 'Select panel',
+                close: 'Close panel',
+                resize: 'Resize panel',
+                backgroundTasks: 'Background tasks',
+                files: 'Files',
+                runtimeSession: 'Runtime session'
             },
             agentStatus: {
                 pending: 'Pending',
@@ -2890,7 +2888,20 @@ const en = {
             enablePromptBody:
                 'The terminal is turned off for this sandbox. Enable it to open an interactive shell. You can turn it off again anytime in the sandbox settings.',
             enablePromptConfirm: 'Enable terminal',
-            enablePromptCancel: 'Cancel'
+            enablePromptCancel: 'Cancel',
+            unavailableExternal:
+                'This agent runs on an external provider, so it has no terminal.',
+            unavailableStopped: 'Start the agent to open its terminal.'
+        },
+        sessionView: {
+            switchToTerminal: 'Switch to TUI',
+            switchToChat: 'Switch to Chat UI',
+            resumeNeedsCredentials:
+                'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
+            resumeNeedsSignIn:
+                'This is a plain shell: resuming the conversation here needs the coding CLI to be signed in on this runtime.',
+            resumeNeedsDaemonUpgrade:
+                'This is a plain shell: resuming the conversation here needs a newer Manyfold CLI on this computer.'
         },
         composer: {
             askPlaceholder: 'Ask {{target}} anything.',
@@ -3105,10 +3116,10 @@ const en = {
             openInTerminal: 'Open in terminal',
             downloadFile: 'Download file',
             uploadFile: 'Upload file',
-            resizeChatPreview: 'Resize chat and preview',
             resizeFilesPreview: 'Resize files and preview',
             resizePreviewFiles: 'Resize preview and files',
-            resizeChatFiles: 'Resize chat and files',
+            hideTree: 'Hide file tree',
+            showTree: 'Show file tree',
             workspaceLabel: 'Workspace',
             readOnly: 'read-only',
             previewLoading: 'Loading preview…',
@@ -4350,6 +4361,9 @@ const en = {
             terminal: 'Terminal',
             terminalDescription:
                 'Allow opening an interactive shell into this sandbox from the web.',
+            terminalModelCredentials: 'Model credentials in the terminal',
+            terminalModelCredentialsDescription:
+                'Let a terminal session carry this agent\'s model credentials, so a coding CLI can resume a chat session in its own interface. Anyone who can open this terminal can then read the key.',
             details: 'Details',
             spriteId: 'Sprite ID',
             created: 'Created',

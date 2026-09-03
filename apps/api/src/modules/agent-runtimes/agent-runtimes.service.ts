@@ -597,6 +597,28 @@ export class AgentRuntimesService {
         return updated.length > 0
     }
 
+    async setSandboxTerminalModelCredentials(
+        userId: string,
+        hostId: string,
+        enabled: boolean
+    ): Promise<boolean> {
+        const updated = await this.db
+            .update(runtimeHosts)
+            .set({
+                terminalModelCredentials: enabled,
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(runtimeHosts.id, hostId),
+                    eq(runtimeHosts.userId, userId),
+                    eq(runtimeHosts.kind, 'sandbox')
+                )
+            )
+            .returning({ id: runtimeHosts.id })
+        return updated.length > 0
+    }
+
     async setSandboxHostName(
         userId: string,
         hostId: string,

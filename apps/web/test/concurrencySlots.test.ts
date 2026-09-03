@@ -71,6 +71,7 @@ const makeSandbox = (over: Partial<SandboxSummary> = {}): SandboxSummary => {
         spriteName: null,
         spriteStatus: 'running',
         terminalEnabled: false,
+        terminalModelCredentials: false,
         agentsCount: 0,
         detectedFrameworks: [],
         cliVersion: null,

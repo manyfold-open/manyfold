@@ -113,6 +113,16 @@ export const runtimeHosts = pgTable(
         // sandbox-only: opt-in terminal, off by default globally. Enabling
         // injects the user's api.full token per terminal session.
         terminalEnabled: boolean('terminal_enabled').notNull().default(false),
+        // sandbox-only: a SECOND, separate consent — off by default. Enabling
+        // lets a terminal session carry the agent's model-provider credentials
+        // so the framework CLI's interactive TUI can resume a chat session.
+        // Deliberately not folded into terminal_enabled: that one exposes the
+        // user's own api.full token, this one exposes a provider key the API
+        // otherwise only ever returns masked, so the two are consented apart.
+        // Only claude-code needs it — codex logs in on-disk at bootstrap.
+        terminalModelCredentials: boolean('terminal_model_credentials')
+            .notNull()
+            .default(false),
         // sandbox-only: when the host last became agent-less (0 runtimes). Null
         // while occupied; set on emptying or standalone create. The reaper
         // deletes the VM once this is older than the 7-day cutoff.

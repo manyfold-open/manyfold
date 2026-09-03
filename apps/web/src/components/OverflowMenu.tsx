@@ -30,7 +30,16 @@ const OverflowMenu: FC<{
     ariaLabel?: string
     items: OverflowMenuEntry[]
     compact?: boolean
-}> = ({ ariaLabel = t('common.moreActions'), items, compact = false }): ReactNode => {
+    // Override the trigger's styling so it can match a host bar's other
+    // buttons (e.g. the chat header's ringed action pills). Defaults to the
+    // bare icon-button look.
+    triggerClassName?: string
+}> = ({
+    ariaLabel = t('common.moreActions'),
+    items,
+    compact = false,
+    triggerClassName
+}): ReactNode => {
     const [open, setOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement>(null)
 
@@ -71,9 +80,12 @@ const OverflowMenu: FC<{
                 aria-haspopup='menu'
                 aria-expanded={open}
                 onClick={() => setOpen((v) => !v)}
-                className={`text-muted hover:bg-surface-hover flex items-center justify-center transition-colors ${
-                    compact ? 'h-8 w-8 rounded-md' : 'rounded-pill h-9 w-9'
-                }`}
+                className={
+                    triggerClassName ??
+                    `text-muted hover:bg-surface-hover flex items-center justify-center transition-colors ${
+                        compact ? 'h-8 w-8 rounded-md' : 'rounded-pill h-9 w-9'
+                    }`
+                }
             >
                 <EllipsisHorizontalIcon className='h-4 w-4' />
             </button>

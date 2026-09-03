@@ -2,6 +2,7 @@ import type {
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
+    RuntimeSessionSyncResponse,
     RuntimeSessionViewResponse
 } from '@manyfold/shared'
 import {
@@ -34,6 +35,10 @@ interface RuntimeSessionRecoverRawBody {
 interface RuntimeSessionRebuildParsedBody {
     sessionId?: string
     sessionRef?: string
+}
+
+interface RuntimeSessionSyncBody {
+    sessionId?: string
 }
 
 @Controller('agents/:agentId/runtime-sessions')
@@ -98,6 +103,20 @@ export class RuntimeSessionController {
             user.userId,
             agentId,
             body?.sessionRef?.trim() || ''
+        )
+    }
+
+    @Post('sync')
+    @HttpCode(200)
+    async sync(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('agentId') agentId: string,
+        @Body() body: RuntimeSessionSyncBody | undefined
+    ): Promise<RuntimeSessionSyncResponse> {
+        return this.recovery.syncRuntimeSessionIntoCloud(
+            user.userId,
+            agentId,
+            body?.sessionId?.trim() || ''
         )
     }
 }

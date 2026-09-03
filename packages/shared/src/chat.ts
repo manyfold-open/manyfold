@@ -611,6 +611,20 @@ export interface RuntimeSessionRestoreResponse {
     warnings: string[]
 }
 
+// Appending the messages a framework CLI wrote to its own transcript (e.g. a
+// terminal TUI that resumed the session) back into an existing cloud session,
+// so the chat view reflects them. Idempotent: only the diff against the
+// current cloud messages is appended, so it is safe to call on every switch
+// back to chat and on session open.
+export interface RuntimeSessionSyncResponse {
+    appended: number
+    recoveredSourceCount: number
+    // 'inflight' when a live turn holds the session; 'no-session-ref' /
+    // 'unsupported' when there is nothing to read. null when a read ran.
+    skipped: 'inflight' | 'no-session-ref' | 'unsupported' | null
+    warnings: string[]
+}
+
 export interface ShareChatSessionResult {
     id: string
     sessionId: string

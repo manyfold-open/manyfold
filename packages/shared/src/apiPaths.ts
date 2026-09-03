@@ -67,6 +67,8 @@ export const apiPaths = {
         `/agents/${agentId}/runtime-sessions/rebuild-parsed`,
     AGENT_RUNTIME_SESSION_RESTORE: (agentId: string) =>
         `/agents/${agentId}/runtime-sessions/restore`,
+    AGENT_RUNTIME_SESSION_SYNC: (agentId: string) =>
+        `/agents/${agentId}/runtime-sessions/sync`,
     AGENT_MESSAGES: (agentId: string) => `/agents/${agentId}/messages`,
     AGENT_CONTEXT_DOC: (agentId: string) => `/agents/${agentId}/context-doc`,
     AGENT_CONTEXT_DOC_REFRESH: (agentId: string) =>
@@ -182,6 +184,8 @@ export const apiPaths = {
     SANDBOXES: '/sandboxes',
     SANDBOX_BY_ID: (id: string) => `/sandboxes/${id}`,
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,
+    SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
+        `/sandboxes/${id}/terminal-model-credentials`,
     SANDBOX_DETECT_FRAMEWORKS: (id: string) =>
         `/sandboxes/${id}/detect-frameworks`,
     SANDBOX_REFRESH_STATUS: (id: string) => `/sandboxes/${id}/refresh-status`,
@@ -280,6 +284,8 @@ export const apiPaths = {
     ADMIN_SANDBOXES: '/admin/sandboxes',
     ADMIN_SANDBOX_BY_ID: (id: string) => `/admin/sandboxes/${id}`,
     ADMIN_SANDBOX_TERMINAL: (id: string) => `/admin/sandboxes/${id}/terminal`,
+    ADMIN_SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
+        `/admin/sandboxes/${id}/terminal-model-credentials`,
     ADMIN_SANDBOX_DETECT_FRAMEWORKS: (id: string) =>
         `/admin/sandboxes/${id}/detect-frameworks`,
     ADMIN_SANDBOX_REFRESH_STATUS: (id: string) =>

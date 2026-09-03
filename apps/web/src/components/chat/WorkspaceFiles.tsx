@@ -6,6 +6,7 @@ import type {
 import type { CSSProperties, FC, ReactNode } from 'react'
 import {
     useCallback,
+    useContext,
     useEffect,
     useMemo,
     useRef,
@@ -14,6 +15,8 @@ import {
     type PointerEvent as ReactPointerEvent,
     useState
 } from 'react'
+import { createPortal } from 'react-dom'
+import { SidePaneHeaderSlotContext } from '@/components/chat/SidePane'
 import type { ContextMenuItem, ContextMenuOpenContext } from '@pierre/trees'
 import { FileTree, useFileTree } from '@pierre/trees/react'
 import type { FilesClient, SdkAgent } from '@manyfold/sdk'
@@ -28,6 +31,7 @@ import {
     FileIcon,
     PaperclipIcon,
     SearchIcon,
+    SidebarToggleIcon,
     TerminalIcon,
     UploadIcon
 } from '@/components/icons'
@@ -67,6 +71,7 @@ interface WorkspaceFilesProps {
     onPreviewAvailableChange?: (available: boolean) => void
     onPreviewRequestHandled?: (requestId: number) => void
     onPreviewVisibleChange?: (visible: boolean) => void
+    onToggleTree?: () => void
     previewRequest?: WorkspaceFilePreviewRequest | null
     previewVisible?: boolean
     refreshKey?: number
@@ -105,8 +110,6 @@ interface UploadTarget {
     rootId: string
 }
 
-type ResizeMode = 'files-left' | 'preview-left' | 'preview-files'
-
 type PreviewContent =
     | { kind: 'empty' }
     | { kind: 'text'; text: string }
@@ -133,9 +136,6 @@ const MAX_IMAGE_PREVIEW_BYTES = 5_000_000
 const DEFAULT_FILES_PANEL_WIDTH = 352
 const MIN_FILES_PANEL_WIDTH = 260
 const MAX_FILES_PANEL_WIDTH = 560
-const DEFAULT_PREVIEW_PANEL_WIDTH = 640
-const MIN_PREVIEW_PANEL_WIDTH = 420
-const MAX_PREVIEW_PANEL_WIDTH = 900
 const DEFAULT_STACK_FILES_RATIO = 0.52
 const MIN_STACK_FILES_RATIO = 0.28
 const MAX_STACK_FILES_RATIO = 0.72
@@ -181,6 +181,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
     onPreviewAvailableChange,
     onPreviewRequestHandled,
     onPreviewVisibleChange,
+    onToggleTree,
     previewRequest = null,
     previewVisible = true,
     refreshKey = 0,
@@ -197,9 +198,6 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
     const filesPanelRef = useRef<HTMLElement | null>(null)
     const [filesPanelWidth, setFilesPanelWidth] = useState(
         DEFAULT_FILES_PANEL_WIDTH
-    )
-    const [previewPanelWidth, setPreviewPanelWidth] = useState(
-        DEFAULT_PREVIEW_PANEL_WIDTH
     )
     const [stackFilesRatio, setStackFilesRatio] = useState(
         DEFAULT_STACK_FILES_RATIO
@@ -611,62 +609,38 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
     )
 
     const startPanelResize = useCallback(
-        (mode: ResizeMode) =>
-            (event: ReactPointerEvent<HTMLDivElement>): void => {
-                if (event.button !== 0) return
-                event.preventDefault()
-                const startX = event.clientX
-                const startFilesWidth = filesPanelWidth
-                const startPreviewWidth = previewPanelWidth
-                const previousCursor = document.body.style.cursor
-                const previousUserSelect = document.body.style.userSelect
-                document.body.style.cursor = 'col-resize'
-                document.body.style.userSelect = 'none'
+        (event: ReactPointerEvent<HTMLDivElement>): void => {
+            if (event.button !== 0) return
+            event.preventDefault()
+            const startX = event.clientX
+            const startFilesWidth = filesPanelWidth
+            const previousCursor = document.body.style.cursor
+            const previousUserSelect = document.body.style.userSelect
+            document.body.style.cursor = 'col-resize'
+            document.body.style.userSelect = 'none'
 
-                const onMove = (moveEvent: PointerEvent): void => {
-                    const dx = moveEvent.clientX - startX
-                    if (mode === 'files-left') {
-                        setFilesPanelWidth(
-                            clamp(
-                                startFilesWidth - dx,
-                                MIN_FILES_PANEL_WIDTH,
-                                MAX_FILES_PANEL_WIDTH
-                            )
-                        )
-                        return
-                    }
-                    if (mode === 'preview-left') {
-                        setPreviewPanelWidth(
-                            clamp(
-                                startPreviewWidth - dx,
-                                MIN_PREVIEW_PANEL_WIDTH,
-                                MAX_PREVIEW_PANEL_WIDTH
-                            )
-                        )
-                        return
-                    }
-
-                    const total = startFilesWidth + startPreviewWidth
-                    const nextPreviewWidth = clamp(
-                        startPreviewWidth + dx,
-                        MIN_PREVIEW_PANEL_WIDTH,
-                        total - MIN_FILES_PANEL_WIDTH
+            const onMove = (moveEvent: PointerEvent): void => {
+                const dx = moveEvent.clientX - startX
+                setFilesPanelWidth(
+                    clamp(
+                        startFilesWidth + dx,
+                        MIN_FILES_PANEL_WIDTH,
+                        MAX_FILES_PANEL_WIDTH
                     )
-                    setPreviewPanelWidth(nextPreviewWidth)
-                    setFilesPanelWidth(total - nextPreviewWidth)
-                }
+                )
+            }
 
-                const onUp = (): void => {
-                    window.removeEventListener('pointermove', onMove)
-                    window.removeEventListener('pointerup', onUp)
-                    document.body.style.cursor = previousCursor
-                    document.body.style.userSelect = previousUserSelect
-                }
+            const onUp = (): void => {
+                window.removeEventListener('pointermove', onMove)
+                window.removeEventListener('pointerup', onUp)
+                document.body.style.cursor = previousCursor
+                document.body.style.userSelect = previousUserSelect
+            }
 
-                window.addEventListener('pointermove', onMove)
-                window.addEventListener('pointerup', onUp)
-            },
-        [filesPanelWidth, previewPanelWidth]
+            window.addEventListener('pointermove', onMove)
+            window.addEventListener('pointerup', onUp)
+        },
+        [filesPanelWidth]
     )
 
     const startStackResize = useCallback(
@@ -727,27 +701,24 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
     const firstDirError = firstRecordEntry(dirErrors)
 
     const filesPanelClass = [
-        'border-divider/80 bg-main order-1 flex min-h-0 w-full flex-col border-l lg:order-none lg:w-[var(--workspace-files-width)]',
+        'bg-main order-1 flex min-h-0 w-full flex-col lg:order-none',
         previewOpen
-            ? 'basis-[var(--workspace-files-basis)] shrink lg:basis-auto lg:shrink-0'
-            : 'flex-1 shrink-0 lg:flex-none'
+            ? 'basis-[var(--workspace-files-basis)] shrink lg:basis-auto lg:w-[var(--workspace-files-width)] lg:max-w-[55%] lg:flex-none lg:shrink-0'
+            : 'flex-1'
     ].join(' ')
 
     return (
-        <div className='flex min-h-0 w-full shrink-0 flex-col lg:w-auto lg:flex-row'>
+        <div className='flex min-h-0 w-full flex-1 flex-col lg:flex-row'>
             {previewOpen && activePreviewPath && (
                 <>
-                    <WorkspaceResizeHandle
-                        label={t('web.workspaceFiles.resizeChatPreview')}
-                        onPointerDown={startPanelResize('preview-left')}
-                    />
                     <WorkspaceFilePreview
                         activeRelPath={activePreviewPath}
                         agentId={agent.id}
                         filesApi={client.files}
                         onCloseTab={closePreviewTab}
                         onSelectTab={selectPreviewTab}
-                        previewWidth={previewPanelWidth}
+                        treeVisible={visible}
+                        onToggleTree={onToggleTree}
                         rootId={rootId}
                         rootLabel={rootLabel}
                         rootPath={rootPath}
@@ -765,19 +736,11 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
                                 label={t(
                                     'web.workspaceFiles.resizePreviewFiles'
                                 )}
-                                onPointerDown={startPanelResize(
-                                    'preview-files'
-                                )}
+                                onPointerDown={startPanelResize}
                             />
                         </>
                     )}
                 </>
-            )}
-            {visible && !previewOpen && (
-                <WorkspaceResizeHandle
-                    label={t('web.workspaceFiles.resizeChatFiles')}
-                    onPointerDown={startPanelResize('files-left')}
-                />
             )}
             {visible && (
                 <aside
@@ -790,7 +753,7 @@ const WorkspaceFiles: FC<WorkspaceFilesProps> = ({
                         } as CSSProperties
                     }
                 >
-                    <div className='border-divider/80 text-caption text-placeholder flex min-h-9 shrink-0 items-center gap-2 border-b px-4'>
+                    <div className='border-divider/80 text-caption text-placeholder flex h-11 shrink-0 items-center gap-2 border-b px-4'>
                         <div className='min-w-0 flex-1'>
                             <WorkspaceRootPicker
                                 roots={roots}
@@ -1371,7 +1334,7 @@ const WorkspaceResizeHandle: FC<WorkspaceResizeHandleProps> = ({
         tabIndex={0}
         onPointerDown={onPointerDown}
     >
-        <span className='group-hover:bg-placeholder group-focus-visible:bg-placeholder my-auto h-12 w-px rounded-full bg-transparent transition-colors' />
+        <span className='bg-divider group-hover:bg-placeholder group-focus-visible:bg-placeholder h-full w-px transition-colors' />
     </div>
 )
 
@@ -1397,7 +1360,8 @@ interface WorkspaceFilePreviewProps {
     filesApi: FilesClient
     onCloseTab: (path: string) => void
     onSelectTab: (path: string) => void
-    previewWidth: number
+    treeVisible?: boolean
+    onToggleTree?: () => void
     rootId: string
     rootLabel: string
     rootPath: string
@@ -1410,13 +1374,15 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
     filesApi,
     onCloseTab,
     onSelectTab,
-    previewWidth,
+    treeVisible = true,
+    onToggleTree,
     rootId,
     rootLabel,
     rootPath,
     tabs
 }): ReactNode => {
     const { t } = useI18n()
+    const headerSlot = useContext(SidePaneHeaderSlotContext)
     const [stat, setStat] = useState<FsStatResponse | null>(null)
     const [content, setContent] = useState<PreviewContent>({ kind: 'empty' })
     const [loading, setLoading] = useState(false)
@@ -1574,64 +1540,61 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
         }
     }, [absPath, activeRelPath, agentId, filesApi, rootId])
 
-    return (
-        <section
-            className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--workspace-preview-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
-            style={
-                {
-                    '--workspace-preview-width': `${previewWidth}px`
-                } as CSSProperties
-            }
-        >
-            <div className='border-divider/80 flex h-14 shrink-0 items-center justify-between gap-3 border-b px-4'>
-                <div className='scrollbar-hidden flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
-                    {tabs.map((tab) => {
-                        const active = tab === activeRelPath
-                        return (
-                            <div
-                                key={tab}
-                                className={[
-                                    'text-ui inline-flex h-8 min-w-0 shrink-0 items-center rounded-md transition-colors',
-                                    active
-                                        ? 'text-fg shadow-ring-light bg-soft'
-                                        : 'text-muted hover:text-fg hover:bg-soft'
-                                ].join(' ')}
+    // The open-file tabs live in the shared pane header (portaled into the
+    // SidePane header slot), not on their own row — one less bar above the
+    // preview. Nothing renders there until the slot element exists.
+    const tabBar = (
+        <div className='scrollbar-hidden flex min-w-0 flex-1 items-center gap-1 overflow-x-auto'>
+            {tabs.map((tab) => {
+                const active = tab === activeRelPath
+                return (
+                    <div
+                        key={tab}
+                        className={[
+                            'text-ui inline-flex h-8 min-w-0 shrink-0 items-center rounded-md transition-colors',
+                            active
+                                ? 'text-fg shadow-ring-light bg-soft'
+                                : 'text-muted hover:text-fg hover:bg-soft'
+                        ].join(' ')}
+                    >
+                        <ShortcutTooltip
+                            label={joinPath(rootPath, tab)}
+                            className='min-w-0'
+                        >
+                            <button
+                                type='button'
+                                className='flex min-w-0 max-w-[14rem] items-center gap-2 px-2.5 font-medium'
+                                onClick={() => onSelectTab(tab)}
                             >
-                                <ShortcutTooltip
-                                    label={joinPath(rootPath, tab)}
-                                    className='min-w-0'
-                                >
-                                    <button
-                                        type='button'
-                                        className='flex min-w-0 max-w-[14rem] items-center gap-2 px-2.5 font-medium'
-                                        onClick={() => onSelectTab(tab)}
-                                    >
-                                        <FileIcon className='text-placeholder h-4 w-4 shrink-0' />
-                                        <span className='truncate'>
-                                            {basename(tab)}
-                                        </span>
-                                    </button>
-                                </ShortcutTooltip>
-                                <ShortcutTooltip
-                                    label={t(
-                                        'web.workspaceFiles.previewCloseTab',
-                                        { name: basename(tab) }
-                                    )}
-                                    className='shrink-0'
-                                >
-                                    <button
-                                        type='button'
-                                        className='text-placeholder rounded-pill hover:bg-surface-hover mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center transition-colors'
-                                        onClick={() => onCloseTab(tab)}
-                                    >
-                                        <CloseIcon className='h-3.5 w-3.5' />
-                                    </button>
-                                </ShortcutTooltip>
-                            </div>
-                        )
-                    })}
-                </div>
-            </div>
+                                <FileIcon className='text-placeholder h-4 w-4 shrink-0' />
+                                <span className='truncate'>
+                                    {basename(tab)}
+                                </span>
+                            </button>
+                        </ShortcutTooltip>
+                        <ShortcutTooltip
+                            label={t('web.workspaceFiles.previewCloseTab', {
+                                name: basename(tab)
+                            })}
+                            className='shrink-0'
+                        >
+                            <button
+                                type='button'
+                                className='text-placeholder rounded-pill hover:bg-surface-hover mr-1 inline-flex h-6 w-6 shrink-0 items-center justify-center transition-colors'
+                                onClick={() => onCloseTab(tab)}
+                            >
+                                <CloseIcon className='h-3.5 w-3.5' />
+                            </button>
+                        </ShortcutTooltip>
+                    </div>
+                )
+            })}
+        </div>
+    )
+
+    return (
+        <section className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:min-w-0 lg:border-t-0'>
+            {headerSlot && createPortal(tabBar, headerSlot)}
             <div className='border-divider/80 text-caption text-muted flex h-11 shrink-0 items-center justify-between gap-3 border-b px-5'>
                 <div className='flex min-w-0 items-center gap-1.5'>
                     {breadcrumbs.map((crumb, index) => (
@@ -1660,6 +1623,7 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
                         </span>
                     ))}
                 </div>
+                <div className='flex shrink-0 items-center gap-1.5'>
                 <ShortcutTooltip
                     label={rawToggleTitle(content, rawView, t)}
                     placement='bottom-end'
@@ -1680,6 +1644,30 @@ const WorkspaceFilePreview: FC<WorkspaceFilePreviewProps> = ({
                         {t('web.workspaceFiles.previewRaw')}
                     </button>
                 </ShortcutTooltip>
+                <ShortcutTooltip
+                    label={
+                        treeVisible
+                            ? t('web.workspaceFiles.hideTree')
+                            : t('web.workspaceFiles.showTree')
+                    }
+                    placement='bottom-end'
+                    className='shrink-0'
+                >
+                    <button
+                        type='button'
+                        onClick={onToggleTree}
+                        aria-pressed={!treeVisible}
+                        aria-label={
+                            treeVisible
+                                ? t('web.workspaceFiles.hideTree')
+                                : t('web.workspaceFiles.showTree')
+                        }
+                        className='text-muted hover:bg-surface-hover hover:text-fg inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors'
+                    >
+                        <SidebarToggleIcon className='h-4 w-4' />
+                    </button>
+                </ShortcutTooltip>
+                </div>
             </div>
             <div className='min-h-0 flex-1 overflow-auto px-8 py-6'>
                 {loading ? (

@@ -762,7 +762,6 @@ const zh: Translations = {
             many: '{{count}} 台机器需要升级 CLI'
         },
         backgroundTasks: {
-            title: '后台任务',
             running: '运行中',
             finished: '已完成',
             clear: '清除',
@@ -772,9 +771,7 @@ const zh: Translations = {
             viewTranscript: '查看记录',
             transcriptUnavailable: '暂无任务记录。',
             loadingTranscript: '正在加载记录…',
-            close: '关闭',
             back: '返回',
-            resize: '调整后台任务面板宽度',
             type: 'A2A',
             tokens: '{{count}} tokens',
             direction: {
@@ -2415,18 +2412,19 @@ const zh: Translations = {
                 answerFailed: '应答发送失败：{{message}}'
             },
             header: {
-                resizeRuntimeViewer: '调整聊天与 Runtime 会话查看器大小',
                 openMenu: '打开菜单',
                 share: '分享聊天',
                 openTerminal: '打开终端',
-                refresh: '刷新聊天和文件',
-                hideFileTree: '隐藏文件树',
-                showFileTree: '显示文件树',
-                hideFilePreview: '隐藏文件预览',
-                showFilePreview: '显示文件预览',
-                hideRuntimeViewer: '隐藏 Runtime 会话查看器',
-                runtimeViewer: 'Runtime 会话查看器',
-                backgroundTasks: '后台任务'
+                refresh: '刷新聊天和文件'
+            },
+            pane: {
+                label: '聊天侧边面板',
+                select: '选择面板',
+                close: '关闭面板',
+                resize: '调整面板宽度',
+                backgroundTasks: '后台任务',
+                files: '文件',
+                runtimeSession: 'Runtime 会话'
             },
             agentStatus: {
                 pending: '等待中',
@@ -2760,7 +2758,18 @@ const zh: Translations = {
             enablePromptBody:
                 '该沙箱的终端尚未开启。开启后即可打开交互式终端。你可以随时在沙箱设置中再次关闭。',
             enablePromptConfirm: '开启终端',
-            enablePromptCancel: '取消'
+            enablePromptCancel: '取消',
+            unavailableExternal: '该智能体运行在外部提供方，因此没有终端。',
+            unavailableStopped: '启动该智能体后即可打开它的终端。'
+        },
+        sessionView: {
+            switchToTerminal: '切换到TUI',
+            switchToChat: '切换到Chat UI',
+            resumeNeedsCredentials:
+                '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
+            resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
+            resumeNeedsDaemonUpgrade:
+                '这是一个普通 shell：要在这里继续对话，需要这台电脑上的 Manyfold CLI 升级到更新的版本。'
         },
         composer: {
             askPlaceholder: '向 {{target}} 提问。',
@@ -2967,10 +2976,10 @@ const zh: Translations = {
             openInTerminal: '在终端中打开',
             downloadFile: '下载文件',
             uploadFile: '上传文件',
-            resizeChatPreview: '调整聊天和预览大小',
             resizeFilesPreview: '调整文件和预览大小',
             resizePreviewFiles: '调整预览和文件大小',
-            resizeChatFiles: '调整聊天和文件大小',
+            hideTree: '隐藏文件树',
+            showTree: '显示文件树',
             workspaceLabel: '工作区',
             readOnly: '只读',
             previewLoading: '加载预览中…',
@@ -4134,6 +4143,9 @@ const zh: Translations = {
             deleteTask: '删除任务',
             controls: '控制',
             terminal: '终端',
+            terminalModelCredentials: '终端内的模型凭证',
+            terminalModelCredentialsDescription:
+                '允许终端会话携带该智能体的模型凭证，让编程 CLI 能在自己的界面里继续某个对话。开启后，任何能打开该终端的人都能读到这个密钥。',
             terminalDescription: '允许从网页打开此沙箱中的交互式 Shell。',
             details: '详情',
             spriteId: 'Sprite ID',

@@ -50,6 +50,13 @@
       "when": 1788043591157,
       "tag": "0006_chat_permission_answers",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1788359801069,
+      "tag": "0007_terminal_model_credentials",
+      "breakpoints": true
     }
   ]
 }
