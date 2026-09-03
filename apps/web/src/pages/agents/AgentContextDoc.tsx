@@ -163,7 +163,7 @@ export const AgentContextDoc: FC<Props> = ({ agent }) => {
 
 const Row: FC<{ label: string; value: ReactNode }> = ({ label, value }) => (
     <div className='grid gap-2 px-5 py-4 md:grid-cols-[11rem_minmax(0,1fr)] md:items-baseline'>
-        <dt className='text-caption text-subtle uppercase tracking-wider'>
+        <dt className='text-caption text-subtle'>
             {label}
         </dt>
         <dd className='text-ui text-fg break-all'>{value}</dd>

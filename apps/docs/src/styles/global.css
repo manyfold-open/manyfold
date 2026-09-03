@@ -532,7 +532,7 @@
     }
 
     .docs-kicker {
-        @apply font-mono text-caption text-subtle tracking-[0.18em] uppercase;
+        @apply font-mono text-caption text-subtle;
     }
 
     .docs-copy {
@@ -1138,7 +1138,7 @@
     }
 
     .docs-codebar-lang {
-        @apply text-subtle font-mono text-[0.6875rem] uppercase tracking-[0.08em];
+        @apply text-subtle font-mono text-[0.6875rem];
     }
 
     /* Callout — full-ring recessed panel (no colored side-stripe). */
@@ -1206,7 +1206,7 @@
     }
 
     .prose-doc thead th {
-        @apply text-subtle text-caption font-medium uppercase tracking-[0.05em];
+        @apply text-subtle text-caption font-medium;
     }
 
     .prose-doc tbody tr:last-child td {
@@ -1245,9 +1245,9 @@
     }
 
     /* Beta pill sitting after the wordmark — mirrors the landing
-       `.lp-brand-beta`: info-tinted capsule, uppercase, 1px inset ring. */
+       `.lp-brand-beta`: info-tinted capsule, 1px inset ring. */
     .docs-brand-beta {
-        @apply text-link inline-flex flex-shrink-0 items-center rounded-pill px-2 py-0.5 text-[0.65625rem] font-medium uppercase leading-none tracking-[0.04em];
+        @apply text-link inline-flex flex-shrink-0 items-center rounded-pill px-2 py-0.5 text-[0.65625rem] font-medium leading-none;
         background: var(--color-info-bg);
         box-shadow: inset 0 0 0 1px
             color-mix(in srgb, var(--color-link) 40%, transparent);

@@ -11,8 +11,9 @@ from steel blue to the Iris ramp (which both registers now share); the four
 judgment colours take landing's hues at product contrast, and every status
 text colour clears WCAG AA where none did before.
 
-Radius tightens to 6 / 8 / 12 — the third pass of the same ruling. Popovers
-and menus stay concentric because `sm` and `md` both drop 2.
+The radius scale itself is unchanged at 8 / 10 / 14. What changes is docs:
+its header controls and buttons were pill-shaped off the scale entirely and
+now sit on it, so a docs button and a workbench button are the same shape.
 
 Every page title now sits on the `text-h1` rung; docs headings drop from 600
 to the 500 cap. The product stays in Geist throughout.

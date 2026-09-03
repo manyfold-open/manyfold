@@ -587,7 +587,7 @@ const UpdateCenter: FC = (): ReactNode => {
                     <div className='overflow-x-auto'>
                         <table className='workbench-table min-w-[760px]'>
                             <thead className='workbench-table-head'>
-                                <tr className='text-caption text-muted tracking-wider uppercase'>
+                                <tr className='text-caption text-muted'>
                                     <th className='w-10 px-4 py-3'>
                                         <input
                                             type='checkbox'

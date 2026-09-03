@@ -284,6 +284,7 @@ The weight rule is **scoped by family**, not by size.
 - **Windows CJK keeps 600 on `<strong>` only.** Microsoft YaHei ships 400 and 700 and nothing between, so a CJK run at 500 resolves to Regular; `<strong>` has no other signal, so `data-cjk-weights="coarse"` pins it to 600 there. Headings are left alone — size and space still carry them.
 - **Product _chrome_ headings descend one step in colour** to `--color-muted` rather than pure ink: a page or panel title is structure, not the thing being read. **Headings inside a content flow keep full ink** — markdown headings in a chat message, article headings in docs.
 - **Inline code always renders at 400.** Mono has a uniform stroke and a large x-height, so at equal numeric weight it reads bolder than Geist; the prose theme overrides `code` back to 400 even inside `<strong>`.
+- **Micro-labels are sentence case at normal tracking.** Kickers, stat labels, table heads, eyebrows, badges — the family that used to run ALL-CAPS at `tracking-[0.18em]`. Caps and wide tracking are one unit rather than two choices: the tracking only ever existed to give capital letterforms air, so it does not survive the caps. Source strings stay authored in sentence case (`Cost`, `Input tokens`), so the label reads the same in the DOM, on screen and to a screen reader.
 - **Tracking tightens as size grows:** body 0, h3 −0.01em, h2 −0.015em, h1 −0.02em, display −0.025em. It is declared in the `fontSize` tuples, so do not stack `tracking-tight` on a heading rung — the tuple already carries the right value.
 
 ## 6. Shape & radius
@@ -479,7 +480,7 @@ If a tag ever looks like it's missing an edge, the fix is to retune these fills 
 
 **What the family kills (do not reintroduce):**
 
-- ALL-CAPS + `tracking-wider` on any tag — §8.12's no-shouting rule, now binding product-wide.
+- ALL-CAPS + `tracking-wider` on any tag — §8.12's no-shouting rule, which §5 now binds across every label in the product, not tags alone.
 - `font-mono` on a human-readable label (`RUNNING`, `Managed`, `ok`) — mono is content-driven, not decoration.
 - Hardcoded status hexes (`#ecfdf3`, `#047857`, `#fff7ed`, `#fff7f5`) and raw Tailwind palette colors (`bg-green-100`) — tones come from the §10.6 tokens only.
 - Per-page tone maps. One `statusTone()` / `riskTone` mapping; a page never redefines which hue "failed" is.

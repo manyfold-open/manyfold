@@ -244,7 +244,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     <Card elevation='ambient' className='overflow-hidden'>
                         <div className='overflow-x-auto'>
                             <table className='admin-table w-full min-w-[1200px] text-left'>
-                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                                <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                     <tr>
                                         <SortHeader
                                             sortKey='name'

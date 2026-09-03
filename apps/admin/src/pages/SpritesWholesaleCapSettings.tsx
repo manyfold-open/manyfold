@@ -44,7 +44,7 @@ const VendorCapacityPanel: FC<{ vendor: SpritesVendorCapacityView | null }> = ({
             ) : (
                 <table className='w-full'>
                     <thead>
-                        <tr className='text-caption-sm text-body text-left uppercase'>
+                        <tr className='text-caption-sm text-body text-left'>
                             <th className='py-1 font-normal'>Account</th>
                             <th className='py-1 font-normal'>Running</th>
                             <th className='py-1 font-normal'>Warm</th>

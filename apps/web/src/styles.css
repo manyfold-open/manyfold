@@ -654,8 +654,12 @@
         @apply mx-auto w-full max-w-2xl px-5 py-7 md:px-6 md:py-8;
     }
 
+    /* Micro-labels — kickers, stat labels, table heads, eyebrows, badges —
+       are sentence case at normal tracking, like the tag family above. Caps
+       plus wide tracking is one unit: the tracking only ever existed to give
+       capital letterforms air, so neither survives alone. */
     .workbench-kicker {
-        @apply text-caption text-subtle uppercase tracking-[0.18em];
+        @apply text-caption text-subtle;
     }
 
     .workbench-copy {
@@ -1610,7 +1614,7 @@
     }
 
     .workbench-table-head {
-        @apply bg-surface-subtle shadow-ring-light text-caption text-subtle uppercase tracking-[0.18em];
+        @apply bg-surface-subtle shadow-ring-light text-caption text-subtle;
     }
 
     .workbench-stat-grid {
@@ -1757,7 +1761,7 @@
     }
 
     .settings-stat-label {
-        @apply text-caption text-subtle uppercase tracking-[0.18em];
+        @apply text-caption text-subtle;
     }
 
     .settings-stat-value {
@@ -2508,8 +2512,8 @@ html[data-theme='dark'] .landing-root .lp-btn-primary {
 
 /* One eyebrow for the whole page. The section heads used to wear a pill and a
    short accent rule above it, neither of which the hero's scene eyebrows have
-   — three treatments for one role. This is the scene form: mono, uppercase,
-   brand colour, nothing around it. */
+   — three treatments for one role. This is the scene form: mono, sentence
+   case, brand colour, nothing around it. */
 .landing-root .lp-eyebrow {
     display: inline-flex;
     align-items: center;
@@ -2518,8 +2522,6 @@ html[data-theme='dark'] .landing-root .lp-btn-primary {
     font-size: 10.5px;
     font-weight: 500;
     color: var(--lp-info);
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     background: none;
     box-shadow: none;
     padding: 0;
@@ -3295,8 +3297,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     flex-shrink: 0;
     font-family: var(--lp-mono);
     font-size: 10px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
     color: var(--lp-bg);
     background: var(--lp-terracotta);
     border-radius: var(--lp-r-pill);
@@ -3749,8 +3749,6 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
 .landing-root .lp-scene-eyebrow {
     font-family: var(--lp-mono);
     font-size: 10.5px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     color: var(--lp-info);
     margin-bottom: 14px;
 }
@@ -3830,8 +3828,6 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     margin-top: 34px;
     font-family: var(--lp-mono);
     font-size: 10.5px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
     color: var(--lp-subtle);
 }
 
@@ -3885,7 +3881,6 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 /* The world's leader-line captions are set in caps; the terminal glyphs
    drawn on the same mono face are not. */
 .landing-root .lp-world .lp-w-sub {
-    text-transform: uppercase;
 }
 
 /* The top plane at work.
@@ -4329,8 +4324,6 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 .landing-root .lp-ww-k {
     font-family: var(--lp-mono);
     font-size: 10px;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
     color: var(--lp-subtle);
 }
 
@@ -4605,8 +4598,6 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 
 .landing-root .lp-ob-tag {
     font-size: 10px;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
     padding: 3px 7px;
     border-radius: var(--lp-r-xs);
     white-space: nowrap;

@@ -103,8 +103,6 @@ const card = (eyebrow: string, title: string, description: string) =>
                     style: {
                         fontSize: 26,
                         fontWeight: 600,
-                        letterSpacing: '0.12em',
-                        textTransform: 'uppercase',
                         color: TEAL,
                         marginBottom: 28
                     }

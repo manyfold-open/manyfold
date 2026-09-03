@@ -275,7 +275,7 @@ const SandboxesList: FC = (): ReactNode => {
                 <Card elevation='ambient' className='overflow-hidden'>
                     <div className='overflow-x-auto'>
                         <table className='admin-table w-full min-w-[900px] text-left'>
-                            <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b tracking-wider uppercase'>
+                            <thead className='border-border bg-surface-subtle text-caption-sm text-body border-b'>
                                 <tr>
                                     <th className='px-2 py-1.5 font-normal'>
                                         Name
@@ -424,7 +424,7 @@ const SandboxesList: FC = (): ReactNode => {
                                                 colSpan={isAdmin ? 9 : 8}
                                                 className='px-2 py-2'
                                             >
-                                                <div className='text-caption-sm text-body mb-1 tracking-wider uppercase'>
+                                                <div className='text-caption-sm text-body mb-1'>
                                                     Services
                                                 </div>
                                                 {servicesLoading ? (
@@ -500,7 +500,7 @@ const SandboxesList: FC = (): ReactNode => {
                                                         )}
                                                     </div>
                                                 )}
-                                                <div className='text-caption-sm text-body mt-3 mb-1 tracking-wider uppercase'>
+                                                <div className='text-caption-sm text-body mt-3 mb-1'>
                                                     Tasks
                                                 </div>
                                                 {servicesLoading ? (

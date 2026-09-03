@@ -10,7 +10,7 @@
     }
 
     .admin-table thead {
-        @apply border-border bg-surface-subtle text-caption-sm border-b tracking-wider uppercase;
+        @apply border-border bg-surface-subtle text-caption-sm border-b;
         color: #64748d;
     }
 
