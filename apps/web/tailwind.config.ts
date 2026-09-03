@@ -181,17 +181,21 @@ const config: Config = {
                         modals, the chat shell, settings & content cards,
                         stat / choice cards
                  Lg / Xl / 2xl / 3xl  collapse to 14 — the product has
-                        no surface rounder than 14 (the composer excepted).
+                        no surface rounder than 12 (the composer excepted).
+               Third tightening of the same ruling (20/16/12 → 18 → 14 → 12):
+               on a dense page split into many cards, larger corners read
+               bubbly. Radius diverges from landing on purpose while colour
+               and type converge — one brand, two densities.
                Concentric nesting (§6.3): the tight binding case is the
-               dropdown — panel 14 − 4px gutter = inner 10. Cards use
+               dropdown — panel 12 − 4px gutter = inner 8. Cards use
                generous padding, so the rule there is informational.
                Landing (`.lp-*`) reads `--lp-r-*` directly from styles.css
                and keeps its 24 / 28 / 32 hero tiers — see DESIGN.md §6.1. */
             borderRadius: {
-                DEFAULT: '10px',
-                xs: '8px',
-                sm: '10px',
-                md: '14px',
+                DEFAULT: '8px',
+                xs: '6px',
+                sm: '8px',
+                md: '12px',
                 lg: '20px',
                 xl: '24px',
                 '2xl': '28px',

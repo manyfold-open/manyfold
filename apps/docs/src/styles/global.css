@@ -200,10 +200,10 @@
        larger steps (matching the webapp's landing tiers) but docs, being
        a dense product surface with no hero-scale or composer surface,
        never climbs above Md — see DESIGN.md §6.1 for the split. */
-    --radius-DEFAULT: 10px;
-    --radius-xs: 8px;
-    --radius-sm: 10px;
-    --radius-md: 14px;
+    --radius-DEFAULT: 8px;
+    --radius-xs: 6px;
+    --radius-sm: 8px;
+    --radius-md: 12px;
     --radius-lg: 20px;
     --radius-xl: 24px;
     --radius-2xl: 28px;
