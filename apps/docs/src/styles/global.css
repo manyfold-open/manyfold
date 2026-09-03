@@ -4,10 +4,6 @@
 @import '@fontsource/geist/600.css';
 @import '@fontsource/geist-mono/400.css';
 @import '@fontsource/geist-mono/500.css';
-/* Display serif for h1 and the focal display rung — the same face and file the
-   landing register loads. The family name is 'Source Serif 4 Variable'; dropping
-   the suffix falls through to a CJK serif in silence. */
-@import '@fontsource-variable/source-serif-4/opsz.css';
 
 @custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
 
@@ -144,14 +140,11 @@
     --font-mono:
         'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Monaco,
         'Courier New', monospace;
-    --font-display:
-        'Source Serif 4 Variable', 'Source Han Serif SC', 'Noto Serif SC',
-        'Songti SC', 'SimSun', serif;
 
     --text-display: 2.5rem;
-    --text-display--line-height: 1.15;
-    --text-display--letter-spacing: -0.014em;
-    --text-display--font-weight: 400;
+    --text-display--line-height: 1.05;
+    --text-display--letter-spacing: -0.025em;
+    --text-display--font-weight: 500;
 
     /* 600, not 500, and the same for h2 and h3 below. The docs had two h1
        paths: .docs-page-title was Tailwind's generic text-3xl plus
@@ -165,9 +158,9 @@
        treatments, so unifying them shrank no title on any page. Both call
        sites use this token now; nothing reaches for a generic Tailwind step. */
     --text-h1: 1.875rem;
-    --text-h1--line-height: 1.15;
-    --text-h1--letter-spacing: -0.014em;
-    --text-h1--font-weight: 400;
+    --text-h1--line-height: 1.1;
+    --text-h1--letter-spacing: -0.02em;
+    --text-h1--font-weight: 500;
 
     --text-h2: 1.375rem;
     --text-h2--line-height: 1.3;
@@ -453,22 +446,8 @@
        margin, 12 bare `text-h1`, plus 404's, which is exactly one per page and
        nothing else. There is no hero or marketing h1 here with a different
        intent. */
-    /* The display register (DESIGN.md §5): Source Serif 4 at 400, opsz left to
-       the browser. Only h1 and the display rung — h2 down stay Geist so the
-       small headings on a dense page can be scanned, not read. Never write
-       font-variation-settings for this face: it has no SOFT/WONK axis. */
-    h1,
-    .text-display {
-        font-family: var(--font-display);
-        font-optical-sizing: auto;
+    h1 {
         text-wrap: balance;
-    }
-
-    html[lang^='zh'] h1,
-    html[lang^='zh'] .text-display {
-        letter-spacing: 0;
-        line-height: 1.15;
-        word-break: keep-all;
     }
 
     code,

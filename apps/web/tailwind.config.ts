@@ -117,11 +117,7 @@ const config: Config = {
                     'Monaco',
                     'Courier New',
                     'monospace'
-                ],
-                /* Display serif — the same face landing loads. The family list
-                   lives once, as --font-display in styles.css; text-display and
-                   text-h1 bind it there. Everything smaller stays Geist. */
-                display: ['var(--font-display)']
+                ]
             },
             /* Sizes come from the per-mode ramp in styles.css, not from
                scaling one base — see the [data-font-size] blocks there for
@@ -129,24 +125,20 @@ const config: Config = {
                and weight stay here: they are unitless or em, so they follow
                whatever size the mode resolves to. */
             fontSize: {
-                /* display and h1 are the serif rungs. Serif letterforms are
-                   already tight, so tracking loosens from the Geist values and
-                   weight sits at the face's own 400 — Geist's 500 cap is a
-                   different rule for a different family. */
                 display: [
                     'var(--text-display)',
                     {
-                        lineHeight: '1.12',
-                        letterSpacing: '-0.012em',
-                        fontWeight: '400'
+                        lineHeight: '1.15',
+                        letterSpacing: '-0.025em',
+                        fontWeight: '500'
                     }
                 ],
                 h1: [
                     'var(--text-h1)',
                     {
-                        lineHeight: '1.22',
-                        letterSpacing: '-0.008em',
-                        fontWeight: '400'
+                        lineHeight: '1.25',
+                        letterSpacing: '-0.02em',
+                        fontWeight: '500'
                     }
                 ],
                 h2: [

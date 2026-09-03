@@ -17,7 +17,6 @@
         "@astrojs/markdown-remark": "^7.2.0",
         "@astrojs/mdx": "^5.0.4",
         "@astrojs/sitemap": "^3.7.2",
-        "@fontsource-variable/source-serif-4": "^5.3.0",
         "@fontsource/geist": "^5.3.0",
         "@fontsource/geist-mono": "^5.3.0",
         "@lucide/astro": "^1.11.0",
