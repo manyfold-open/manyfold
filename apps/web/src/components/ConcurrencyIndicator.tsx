@@ -67,6 +67,11 @@ interface Props {
     activeHoursLimit?: number | null
     usagePeriodEnd?: string | null
     onSetKeepAlive?: (runtimeId: string, enabled: boolean) => Promise<void>
+    /* Collapsed rail: 58px cannot hold "0/10", and dropping the chip there is
+       what made this indicator invisible whenever the sidebar was collapsed.
+       The glyph keeps its tone, so the reading survives; the numbers come back
+       in the tooltip and in the panel. */
+    compact?: boolean
 }
 
 const ConcurrencyIndicator: FC<Props> = ({
@@ -78,7 +83,8 @@ const ConcurrencyIndicator: FC<Props> = ({
     activeHoursThisPeriod,
     activeHoursLimit,
     usagePeriodEnd,
-    onSetKeepAlive
+    onSetKeepAlive,
+    compact = false
 }) => {
     const { t } = useI18n()
     const [open, setOpen] = useState(false)
@@ -522,10 +528,14 @@ const ConcurrencyIndicator: FC<Props> = ({
                     aria-label={describe}
                     aria-haspopup='dialog'
                     aria-expanded={open}
-                    className={`shadow-ring-light rounded-pill text-caption inline-flex shrink-0 items-center gap-1 px-2 py-0.5 font-mono font-medium tabular-nums transition-colors ${chipToneClass[tone]}${hasReleasing ? 'animate-pulse' : ''}`}
+                    className={`shadow-ring-light rounded-pill text-caption inline-flex shrink-0 items-center gap-1 font-mono font-medium tabular-nums transition-colors ${compact ? 'h-6 w-6 justify-center' : 'px-2 py-0.5'} ${chipToneClass[tone]}${hasReleasing ? 'animate-pulse' : ''}`}
                 >
                     <BoxIcon className='h-3.5 w-3.5' />
-                    {active}/{limit}
+                    {!compact && (
+                        <>
+                            {active}/{limit}
+                        </>
+                    )}
                 </button>
             </ShortcutTooltip>
             {panel}
