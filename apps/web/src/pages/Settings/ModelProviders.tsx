@@ -510,7 +510,7 @@ const ProviderSidebar: FC<ProviderSidebarProps> = ({
                         aria-current={selected === null ? 'page' : undefined}
                         className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
                     >
-                        <h2 className='text-h3 text-fg tracking-tight'>
+                        <h2 className='text-h3 text-fg'>
                             {t('web.settingsLayout.providers')}
                         </h2>
                         <span className='tag tag-neutral tabular-nums'>
@@ -736,7 +736,7 @@ const BuiltInSetupView: FC<{
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='space-y-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {entry.label}
                     </h2>
                     <span className='tag tag-neutral'>
@@ -899,7 +899,7 @@ const CustomNewView: FC<{
     return (
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header>
-                <h2 className='text-h3 text-fg tracking-tight'>
+                <h2 className='text-h3 text-fg'>
                     {t('web.modelProviders.createCustom')}
                 </h2>
                 <p className='text-caption text-muted mt-1'>
@@ -1063,7 +1063,7 @@ const BuiltInEditCard: FC<{
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='space-y-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {row.providerName}
                     </h2>
                     <span className='tag tag-neutral'>
@@ -1263,7 +1263,7 @@ const CustomEditCard: FC<{
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='flex flex-wrap items-center justify-between gap-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {row.providerName}
                     </h2>
                     <span className='tag tag-neutral'>

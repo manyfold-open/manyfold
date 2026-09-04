@@ -60,7 +60,7 @@ const UpgradeQuotaDialog: FC<{
             <div className='bg-surface-elevated shadow-elevated rounded-md w-full max-w-lg p-6'>
                 <h2
                     id='quota-conflict-title'
-                    className='text-h2 text-fg mb-2 tracking-tight'
+                    className='text-h2 text-fg mb-2'
                 >
                     {request.code === 'ACTIVE_HOURS_QUOTA_REACHED'
                         ? t('web.quotaConflict.activeHoursUsed')
@@ -198,7 +198,7 @@ const QuotaConflictModal: FC<Props> = ({ request, onClose }) => {
             <div className='bg-surface-elevated shadow-elevated rounded-md w-full max-w-lg p-6'>
                 <h2
                     id='quota-conflict-title'
-                    className='text-h2 text-fg mb-2 tracking-tight'
+                    className='text-h2 text-fg mb-2'
                 >
                     {t('web.quotaConflict.concurrentTitle')}
                 </h2>

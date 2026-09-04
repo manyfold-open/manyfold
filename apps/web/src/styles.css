@@ -1773,7 +1773,7 @@
     }
 
     .settings-stat-value {
-        @apply text-h2 text-fg mt-2 tabular-nums tracking-tight;
+        @apply text-h2 text-fg mt-2 tabular-nums;
     }
 
     .settings-choice-grid {

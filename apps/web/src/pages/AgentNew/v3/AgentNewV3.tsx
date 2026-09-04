@@ -258,7 +258,7 @@ const CardHeader: FC<{ title: string; right?: ReactNode }> = ({
     right
 }) => (
     <div className='mb-4 flex items-center justify-between gap-2'>
-        <h2 className='text-fg text-h3 tracking-tight'>{title}</h2>
+        <h2 className='text-fg text-h3'>{title}</h2>
         {right}
     </div>
 )
@@ -2434,7 +2434,7 @@ const AgentNewV3: FC = (): ReactNode => {
                                 <Spinner size={20} className='text-info mt-1' />
                             )}
                             <div className='min-w-0 flex-1'>
-                                <h3 className='text-fg text-h3 tracking-tight'>
+                                <h3 className='text-fg text-h3'>
                                     {t('web.agentNew.creatingTitle')}{' '}
                                     <code className='font-mono'>
                                         {normalizedName}
