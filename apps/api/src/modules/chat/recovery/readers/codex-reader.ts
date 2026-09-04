@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -13,14 +14,18 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    CANDIDATE_SCAN_LIMIT,
     candidateExcerpt,
     candidateTailLines,
     mtimeIso,
-    scanCandidateFiles
+    scanCandidates,
+    type CandidateFileHead
 } from './candidate-scan'
 
 const CODEX_RECOVERY_PARSER_NAME = 'codex-session-jsonl'
 const CODEX_RECOVERY_PARSER_VERSION = '1'
+
+const CODEX_FIND = `find "$HOME"/.codex/sessions -type f -name 'rollout-*.jsonl'`
 
 export class CodexSessionReader implements SessionReader {
     readonly framework: AgentFramework = 'codex'
@@ -67,36 +72,43 @@ export class CodexSessionReader implements SessionReader {
         return { sourceFile, messages, warnings }
     }
 
-    async listCandidates(ctx: CandidateContext): Promise<CandidateSession[]> {
-        const heads = await scanCandidateFiles(
-            ctx.fs,
-            `find "$HOME"/.codex/sessions -type f -name 'rollout-*.jsonl'`
-        )
-        const out: CandidateSession[] = []
-        for (const head of heads) {
-            const summary = summarizeCodexJsonl(head.headText)
-            const latest = latestCodexEntries(candidateTailLines(head))
-            if (summary.sessionRef)
-                out.push({
-                    sessionRef: summary.sessionRef,
-                    sourceFile: head.path,
-                    firstUserMessage: summary.firstUserMessage,
-                    lastAssistantMessage: latest.lastAssistantMessage,
-                    timestamp: summary.timestamp ?? mtimeIso(head),
-                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
-                    messageCount: head.truncated
-                        ? head.lineCount
-                        : summary.messageCount,
-                    // The model is announced near the start of a rollout, so a
-                    // tail window usually has none; fall back to the head
-                    // rather than to config.toml, which would cost a second
-                    // remote read per candidate.
-                    model:
-                        latest.model ??
-                        latestCodexEntries(head.headText.split('\n')).model
-                })
-        }
-        return out
+    async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
+        return scanCandidates(ctx.fs, CODEX_FIND, {
+            agentId: ctx.agentId,
+            limit: ctx.limit ?? CANDIDATE_SCAN_LIMIT,
+            cache: ctx.cache,
+            summarize: summarizeCodexCandidate,
+            refFromPath: codexRefFromPath
+        })
+    }
+}
+
+// rollout-<timestamp>-<thread id>.jsonl; readMessages locates a thread by the
+// same substring.
+const ROLLOUT_THREAD_ID =
+    /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+export const codexRefFromPath = (path: string): string | null =>
+    path.match(ROLLOUT_THREAD_ID)?.[1] ?? null
+
+const summarizeCodexCandidate = (
+    head: CandidateFileHead
+): CandidateSession | null => {
+    const summary = summarizeCodexJsonl(head.headText)
+    if (!summary.sessionRef) return null
+    const latest = latestCodexEntries(candidateTailLines(head))
+    return {
+        sessionRef: summary.sessionRef,
+        sourceFile: head.path,
+        firstUserMessage: summary.firstUserMessage,
+        lastAssistantMessage: latest.lastAssistantMessage,
+        timestamp: summary.timestamp ?? mtimeIso(head),
+        lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+        messageCount: head.truncated ? head.lineCount : summary.messageCount,
+        // The model is announced near the start of a rollout, so a tail
+        // window usually has none; fall back to the head rather than to
+        // config.toml, which would cost a second remote read per candidate.
+        model:
+            latest.model ?? latestCodexEntries(head.headText.split('\n')).model
     }
 }
 

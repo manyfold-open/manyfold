@@ -581,8 +581,9 @@ export interface AgentSessionListItem {
     // The cloud session's title when there is one, else the first user prompt
     // recovered from the transcript.
     title: string | null
-    // Only ever set from a scanned transcript, so the reader can tell "this
-    // session has no reply" from "we did not read this session's messages".
+    // The newest assistant reply: from the scanned transcript when there is
+    // one, otherwise from the cloud's own messages. Null only for a session
+    // with no reply on either side.
     lastAssistantMessage: string | null
     lastActiveAt: string | null
     messageCount: number
@@ -592,8 +593,26 @@ export interface AgentSessionListItem {
 
 // Whether the runtime's transcripts could be read at all. A stopped sandbox or
 // an offline daemon degrades to the cloud half of the list instead of failing
-// the whole panel, and `inLocal` is then unknown rather than false.
-export type AgentSessionLocalScan = 'ok' | 'unavailable'
+// the whole panel, and `inLocal` is then unknown rather than false. 'skipped'
+// is the caller's choice: the cloud half alone, answered without touching the
+// runtime, for a panel that wants rows on screen before the scan lands.
+export type AgentSessionLocalScan = 'ok' | 'unavailable' | 'skipped'
+
+// How many of the runtime's transcripts one list call summarizes, newest
+// first. The first page is small because every transcript costs up to
+// 128 KiB of windows shipped off the runtime; a caller asks for more with a
+// larger localLimit, and the server re-reads only what changed since.
+export const agentSessionListLimits = {
+    firstPage: 25,
+    step: 50,
+    maxLocal: 500
+} as const
+
+export interface AgentSessionListBody {
+    // 'skip' answers with the cloud sessions alone and localScan 'skipped'.
+    local?: 'scan' | 'skip'
+    localLimit?: number
+}
 
 // Lives in the runtime-session family because the bounded runtime scan is the
 // expensive thing it exists to do once; it marks cloud presence on top of it.
@@ -601,6 +620,11 @@ export interface AgentSessionListResponse {
     framework: AgentFramework
     runtime: AgentRuntime
     localScan: AgentSessionLocalScan
+    // Transcripts found on the runtime before the limit; null unless the scan
+    // ran. `localListed` is how many of the newest ones the rows account for —
+    // below localTotal means a larger localLimit shows more.
+    localTotal: number | null
+    localListed: number
     sessions: AgentSessionListItem[]
     warnings: string[]
 }

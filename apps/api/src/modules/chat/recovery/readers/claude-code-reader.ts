@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -12,16 +13,22 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    CANDIDATE_SCAN_LIMIT,
     candidateExcerpt,
     candidateTailLines,
     mtimeIso,
-    scanCandidateFiles
+    scanCandidates,
+    type CandidateFileHead
 } from './candidate-scan'
 
 const CLAUDE_RECOVERY_PARSER_NAME = 'claude-code-session-jsonl'
 const CLAUDE_RECOVERY_PARSER_VERSION = '1'
 
-const CLAUDE_FIND = `find "$HOME"/.claude/projects -type f -name '*.jsonl'`
+// Subagent transcripts live under <session>/subagents/ and carry the parent's
+// sessionId on every line, so listing them shows the same session again with
+// a helper's last reply as its own. Measured on macOS dev [2026-09-04]: 489
+// of 943 files, 11 of the newest 50.
+const CLAUDE_FIND = `find "$HOME"/.claude/projects -type f -name '*.jsonl' -not -path '*/subagents/*'`
 
 // The transcript filename is the sessionId, so try the cheap filename match
 // first; the content grep (fixed-string, not a pattern — the ref must never be
@@ -80,27 +87,39 @@ export class ClaudeCodeSessionReader implements SessionReader {
         return { sourceFile, messages, warnings }
     }
 
-    async listCandidates(ctx: CandidateContext): Promise<CandidateSession[]> {
-        const heads = await scanCandidateFiles(ctx.fs, CLAUDE_FIND)
-        const out: CandidateSession[] = []
-        for (const head of heads) {
-            const summary = summarizeClaudeJsonl(head.headText)
-            const latest = latestClaudeEntries(candidateTailLines(head))
-            if (summary.sessionRef)
-                out.push({
-                    sessionRef: summary.sessionRef,
-                    sourceFile: head.path,
-                    firstUserMessage: summary.firstUserMessage,
-                    lastAssistantMessage: latest.lastAssistantMessage,
-                    timestamp: summary.timestamp ?? mtimeIso(head),
-                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
-                    messageCount: head.truncated
-                        ? head.lineCount
-                        : summary.messageCount,
-                    model: latest.model
-                })
-        }
-        return out
+    async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
+        return scanCandidates(ctx.fs, CLAUDE_FIND, {
+            agentId: ctx.agentId,
+            limit: ctx.limit ?? CANDIDATE_SCAN_LIMIT,
+            cache: ctx.cache,
+            summarize: summarizeClaudeCandidate,
+            refFromPath: claudeRefFromPath
+        })
+    }
+}
+
+// The CLI names a transcript after its sessionId — the same fact the locate
+// script's cheap path relies on — so the filename alone proves presence.
+const UUID_BASENAME =
+    /\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i
+export const claudeRefFromPath = (path: string): string | null =>
+    path.match(UUID_BASENAME)?.[1] ?? null
+
+const summarizeClaudeCandidate = (
+    head: CandidateFileHead
+): CandidateSession | null => {
+    const summary = summarizeClaudeJsonl(head.headText)
+    if (!summary.sessionRef) return null
+    const latest = latestClaudeEntries(candidateTailLines(head))
+    return {
+        sessionRef: summary.sessionRef,
+        sourceFile: head.path,
+        firstUserMessage: summary.firstUserMessage,
+        lastAssistantMessage: latest.lastAssistantMessage,
+        timestamp: summary.timestamp ?? mtimeIso(head),
+        lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+        messageCount: head.truncated ? head.lineCount : summary.messageCount,
+        model: latest.model
     }
 }
 

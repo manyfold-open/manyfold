@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -13,10 +14,13 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    CANDIDATE_SCAN_LIMIT,
     candidateExcerpt,
+    candidateListing,
     jsonStringField,
     mtimeIso,
-    scanCandidateFiles
+    scanCandidates,
+    type CandidateFileHead
 } from './candidate-scan'
 import {
     listHermesSqliteCandidates,
@@ -83,36 +87,42 @@ export class HermesSessionReader implements SessionReader {
         }
     }
 
-    async listCandidates(ctx: CandidateContext): Promise<CandidateSession[]> {
+    async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
         const sqliteCandidates = await listHermesSqliteCandidates(ctx.fs)
-        if (sqliteCandidates.length > 0) return sqliteCandidates
+        if (sqliteCandidates.length > 0)
+            return candidateListing(sqliteCandidates)
 
-        const heads = await scanCandidateFiles(
-            ctx.fs,
-            `find "$HOME"/.hermes/sessions -type f -name 'session_*.json'`
-        )
-        const out: CandidateSession[] = []
-        for (const head of heads) {
-            const summary = head.truncated
-                ? summarizeHermesHead(head.headText)
-                : summarizeHermes(head.headText)
-            const latest = head.truncated
-                ? EMPTY_HERMES_LATEST
-                : latestHermesJson(head.headText)
-            if (summary.sessionRef)
-                out.push({
-                    sessionRef: summary.sessionRef,
-                    sourceFile: head.path,
-                    firstUserMessage: summary.firstUserMessage,
-                    lastAssistantMessage: latest.lastAssistantMessage,
-                    timestamp: summary.timestamp ?? mtimeIso(head),
-                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
-                    messageCount: summary.messageCount,
-                    // The session JSON records no model per message.
-                    model: null
-                })
-        }
-        return out
+        return scanCandidates(ctx.fs, HERMES_FIND, {
+            agentId: ctx.agentId,
+            limit: ctx.limit ?? CANDIDATE_SCAN_LIMIT,
+            cache: ctx.cache,
+            summarize: summarizeHermesCandidate
+        })
+    }
+}
+
+const HERMES_FIND = `find "$HOME"/.hermes/sessions -type f -name 'session_*.json'`
+
+const summarizeHermesCandidate = (
+    head: CandidateFileHead
+): CandidateSession | null => {
+    const summary = head.truncated
+        ? summarizeHermesHead(head.headText)
+        : summarizeHermes(head.headText)
+    if (!summary.sessionRef) return null
+    const latest = head.truncated
+        ? EMPTY_HERMES_LATEST
+        : latestHermesJson(head.headText)
+    return {
+        sessionRef: summary.sessionRef,
+        sourceFile: head.path,
+        firstUserMessage: summary.firstUserMessage,
+        lastAssistantMessage: latest.lastAssistantMessage,
+        timestamp: summary.timestamp ?? mtimeIso(head),
+        lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+        messageCount: summary.messageCount,
+        // The session JSON records no model per message.
+        model: null
     }
 }
 

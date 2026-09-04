@@ -2,6 +2,7 @@ import type { ChatContentBlock, ChatRole } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
+import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
 import type { RecoveredMessage } from '../src/modules/chat/recovery/readers'
 
 interface DbMsg {
@@ -141,7 +142,12 @@ const makeHarness = (
             warnings: [],
             messages: options.localMessages ?? []
         }),
-        listCandidates: async () => []
+        listCandidates: async () => ({
+            candidates: [],
+            total: 0,
+            listed: 0,
+            filesByRef: new Map()
+        })
     }
     const readers = {
         get: () => (options.hasReader === false ? undefined : reader)
@@ -150,7 +156,8 @@ const makeHarness = (
         db as never,
         repo as never,
         drivers as never,
-        readers as never
+        readers as never,
+        new CandidateScanCache()
     )
     return {
         service,
