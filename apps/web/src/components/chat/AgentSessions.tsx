@@ -1,15 +1,17 @@
-import { chatCapabilitiesByFramework } from '@manyfold/shared'
+import { chatCapabilitiesByFramework, frameworkResumeCommandLine } from '@manyfold/shared'
 import type {
+    AgentFramework,
+    AgentSessionListItem,
+    AgentSessionListResponse,
     ChatCapabilities,
     ChatMessage,
-    RuntimeSessionCandidate,
-    RuntimeSessionListResponse,
     RuntimeSessionViewResponse
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import EmptyState from '@/components/EmptyState'
 import { MessageBubble } from '@/components/chat/MessageList'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     ArrowLeftIcon,
@@ -27,14 +29,14 @@ import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
 import { timeAgo } from '@/lib/timeAgo'
 
-interface AgentSessionHistoryProps {
+interface AgentSessionsProps {
     agentId: string
     sessionId: string | null
     onClose: () => void
     onApplied: (sessionId?: string) => void
 }
 
-const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
+const AgentSessions: FC<AgentSessionsProps> = ({
     agentId,
     sessionId,
     onClose,
@@ -42,13 +44,29 @@ const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
 }): ReactNode => {
     const client = useApiClient()
     const { t } = useI18n()
-    const [openCandidate, setOpenCandidate] =
-        useState<RuntimeSessionCandidate | null>(null)
+    // Only a session with a runtime transcript has anything to read; a
+    // cloud-only row's "open" is simply switching the chat to it.
+    const [openSession, setOpenSession] = useState<{
+        item: AgentSessionListItem
+        sessionRef: string
+    } | null>(null)
+
+    const handleOpen = useCallback(
+        (item: AgentSessionListItem): void => {
+            if (item.sessionRef) {
+                setOpenSession({ item, sessionRef: item.sessionRef })
+                return
+            }
+            if (item.cloudSessionId) {
+                onApplied(item.cloudSessionId)
+                onClose()
+            }
+        },
+        [onApplied, onClose]
+    )
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [result, setResult] = useState<RuntimeSessionListResponse | null>(
-        null
-    )
+    const [result, setResult] = useState<AgentSessionListResponse | null>(null)
 
     // The scan belongs to the panel, not to the list view: it walks every
     // transcript on the runtime, so opening a session and coming back must not
@@ -59,11 +77,9 @@ const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
         setError(null)
         void (async (): Promise<void> => {
             try {
-                const res = await client.chat.runtimeSessionList(
-                    agentId,
-                    sessionId ? { sessionId } : {},
-                    { signal: controller.signal }
-                )
+                const res = await client.chat.agentSessionList(agentId, {
+                    signal: controller.signal
+                })
                 if (controller.signal.aborted) return
                 setResult(res)
             } catch (err) {
@@ -74,7 +90,7 @@ const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
             }
         })()
         return (): void => controller.abort()
-    }, [agentId, client, sessionId])
+    }, [agentId, client])
 
     return (
         <div
@@ -85,24 +101,26 @@ const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
                 free, refetching it is not, and it keeps its scroll position. */}
             <div
                 className={
-                    openCandidate
+                    openSession
                         ? 'hidden'
                         : 'flex min-h-0 w-full flex-1 flex-col'
                 }
             >
                 <SessionList
+                    currentCloudSessionId={sessionId}
                     error={error}
                     loading={loading}
-                    onOpen={setOpenCandidate}
+                    onOpen={handleOpen}
                     result={result}
                 />
             </div>
-            {openCandidate && (
+            {openSession && (
                 <SessionDetail
                     agentId={agentId}
-                    candidate={openCandidate}
+                    session={openSession.item}
+                    sessionRef={openSession.sessionRef}
                     sessionId={sessionId}
-                    onBack={() => setOpenCandidate(null)}
+                    onBack={() => setOpenSession(null)}
                     onClose={onClose}
                     onApplied={onApplied}
                 />
@@ -112,11 +130,18 @@ const AgentSessionHistory: FC<AgentSessionHistoryProps> = ({
 }
 
 const SessionList: FC<{
+    currentCloudSessionId: string | null
     error: string | null
     loading: boolean
-    onOpen: (candidate: RuntimeSessionCandidate) => void
-    result: RuntimeSessionListResponse | null
-}> = ({ error, loading, onOpen, result }): ReactNode => {
+    onOpen: (session: AgentSessionListItem) => void
+    result: AgentSessionListResponse | null
+}> = ({
+    currentCloudSessionId,
+    error,
+    loading,
+    onOpen,
+    result
+}): ReactNode => {
     const { t } = useI18n()
 
     if (loading)
@@ -134,8 +159,8 @@ const SessionList: FC<{
             </div>
         )
 
-    const candidates = result?.candidates ?? []
-    if (candidates.length === 0)
+    const sessions = result?.sessions ?? []
+    if (sessions.length === 0)
         return (
             <EmptyState
                 kind='all-clear'
@@ -147,16 +172,25 @@ const SessionList: FC<{
 
     return (
         <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3'>
+            {/* Said once for the whole list rather than per row: without it a
+                missing Local tag reads as "not on the runtime" when the truth
+                is that nothing could be read. */}
+            {result?.localScan === 'unavailable' && (
+                <div className='text-caption text-muted border-divider mb-2 rounded-md border border-dashed px-3 py-2'>
+                    {t('web.runtimeSession.localScanUnavailable')}
+                </div>
+            )}
             <ol className='space-y-2'>
-                {candidates.map((candidate) => (
-                    <li key={candidate.sessionRef}>
+                {sessions.map((session) => (
+                    <li key={sessionKey(session)}>
                         <SessionRow
-                            candidate={candidate}
+                            framework={result?.framework ?? null}
                             isCurrent={
-                                candidate.sessionRef ===
-                                result?.currentSessionRef
+                                session.cloudSessionId !== null &&
+                                session.cloudSessionId === currentCloudSessionId
                             }
-                            onOpen={() => onOpen(candidate)}
+                            onOpen={() => onOpen(session)}
+                            session={session}
                             t={t}
                         />
                     </li>
@@ -166,77 +200,144 @@ const SessionList: FC<{
     )
 }
 
+// A row exists on at least one side, so one of the two ids is always present.
+const sessionKey = (session: AgentSessionListItem): string =>
+    session.cloudSessionId ?? session.sessionRef ?? ''
+
+const copy = (value: string): void => {
+    void navigator.clipboard?.writeText(value)
+}
+
 const SessionRow: FC<{
-    candidate: RuntimeSessionCandidate
+    framework: AgentFramework | null
     isCurrent: boolean
     onOpen: () => void
+    session: AgentSessionListItem
     t: TFn
-}> = ({ candidate, isCurrent, onOpen, t }): ReactNode => {
-    const lastActive = candidate.lastActiveAt ?? candidate.timestamp
+}> = ({ framework, isCurrent, onOpen, session, t }): ReactNode => {
+    const resumeCommand =
+        framework && session.sessionRef
+            ? frameworkResumeCommandLine(framework, session.sessionRef)
+            : null
+    // The runtime id is the one the resume command and the file path belong
+    // to; a session that only exists in the cloud has only its cloud id.
+    const copyableId = session.sessionRef ?? session.cloudSessionId
+
+    const items: OverflowMenuEntry[] = [
+        {
+            label: t('web.runtimeSession.copyResumeCommand'),
+            onSelect: () => resumeCommand && copy(resumeCommand),
+            disabled: !resumeCommand,
+            disabledReason: session.sessionRef
+                ? t('web.runtimeSession.resumeUnsupported')
+                : t('web.runtimeSession.notOnRuntime')
+        },
+        {
+            label: t('web.runtimeSession.copySessionId'),
+            onSelect: () => copyableId && copy(copyableId),
+            disabled: !copyableId
+        },
+        {
+            label: t('web.runtimeSession.copyFilePath'),
+            onSelect: () => session.sourceFile && copy(session.sourceFile),
+            disabled: !session.sourceFile,
+            disabledReason: t('web.runtimeSession.notOnRuntime')
+        }
+    ]
+
     return (
-        <button
-            type='button'
-            onClick={onOpen}
-            className='bg-surface hover:bg-surface-hover shadow-ring-light flex w-full flex-col gap-1 rounded-md px-3 py-2.5 text-left transition-colors'
-        >
-            <span className='flex w-full items-center gap-2'>
-                <span
-                    className={[
-                        'text-ui text-fg min-w-0 flex-1 truncate font-medium',
-                        candidate.firstUserMessage ? '' : 'font-mono'
-                    ].join(' ')}
-                >
-                    {candidate.firstUserMessage ?? candidate.sessionRef}
+        <div className='bg-surface hover:bg-surface-hover shadow-ring-light relative rounded-md transition-colors'>
+            <button
+                type='button'
+                onClick={onOpen}
+                className='flex w-full flex-col gap-1 px-3 py-2.5 text-left'
+            >
+                {/* Right padding reserves the menu's corner so a long title
+                    never runs underneath it. */}
+                <span className='flex w-full items-center gap-2 pr-7'>
+                    <span
+                        className={[
+                            'text-ui text-fg min-w-0 flex-1 truncate font-medium',
+                            session.title ? '' : 'font-mono'
+                        ].join(' ')}
+                    >
+                        {session.title ?? sessionKey(session)}
+                    </span>
+                    {isCurrent && (
+                        <span className='tag tag-neutral shrink-0'>
+                            {t('web.runtimeSession.currentWebSession')}
+                        </span>
+                    )}
                 </span>
-                {isCurrent && (
-                    <span className='tag tag-neutral shrink-0'>
-                        {t('web.runtimeSession.currentWebSession')}
+                {/* Only a scanned transcript can say there is no reply; a
+                    cloud row we never read stays silent instead of lying. */}
+                {(session.lastAssistantMessage || session.inLocal) && (
+                    <span className='text-caption text-muted line-clamp-2'>
+                        {session.lastAssistantMessage ??
+                            t('web.runtimeSession.noAssistantReply')}
                     </span>
                 )}
-            </span>
-            <span className='text-caption text-muted line-clamp-2'>
-                {candidate.lastAssistantMessage ??
-                    t('web.runtimeSession.noAssistantReply')}
-            </span>
-            <span className='text-caption text-subtle flex flex-wrap items-center gap-x-1.5'>
-                {candidate.model && (
-                    <>
-                        <span className='truncate font-mono'>
-                            {candidate.model}
+                <span className='text-caption text-subtle flex flex-wrap items-center gap-x-1.5 gap-y-1'>
+                    {session.inCloud && (
+                        <span className='tag tag-neutral'>
+                            {t('web.runtimeSession.inCloud')}
                         </span>
-                        <span aria-hidden='true'>·</span>
-                    </>
-                )}
-                <span className='tabular-nums'>
-                    {t('web.runtimeSession.messageCount', {
-                        count: candidate.messageCount
-                    })}
-                </span>
-                {lastActive && (
-                    <>
-                        <span aria-hidden='true'>·</span>
-                        <ShortcutTooltip label={formatDateTime(lastActive)}>
-                            <span className='tabular-nums'>
-                                {timeAgo(lastActive)}
+                    )}
+                    {session.inLocal && (
+                        <span className='tag tag-neutral'>
+                            {t('web.runtimeSession.inLocal')}
+                        </span>
+                    )}
+                    {session.model && (
+                        <>
+                            <span className='truncate font-mono'>
+                                {session.model}
                             </span>
-                        </ShortcutTooltip>
-                    </>
-                )}
-            </span>
-        </button>
+                            <span aria-hidden='true'>·</span>
+                        </>
+                    )}
+                    <span className='tabular-nums'>
+                        {t('web.runtimeSession.messageCount', {
+                            count: session.messageCount
+                        })}
+                    </span>
+                    {session.lastActiveAt && (
+                        <>
+                            <span aria-hidden='true'>·</span>
+                            <ShortcutTooltip
+                                label={formatDateTime(session.lastActiveAt)}
+                            >
+                                <span className='tabular-nums'>
+                                    {timeAgo(session.lastActiveAt)}
+                                </span>
+                            </ShortcutTooltip>
+                        </>
+                    )}
+                </span>
+            </button>
+            <div className='absolute right-1.5 top-1.5'>
+                <OverflowMenu
+                    ariaLabel={t('web.runtimeSession.sessionActions')}
+                    compact
+                    items={items}
+                />
+            </div>
+        </div>
     )
 }
 
 const SessionDetail: FC<{
     agentId: string
-    candidate: RuntimeSessionCandidate
+    session: AgentSessionListItem
+    sessionRef: string
     sessionId: string | null
     onBack: () => void
     onClose: () => void
     onApplied: (sessionId?: string) => void
 }> = ({
     agentId,
-    candidate,
+    session,
+    sessionRef,
     sessionId,
     onBack,
     onClose,
@@ -269,7 +370,6 @@ const SessionDetail: FC<{
         []
     )
 
-    const sessionRef = candidate.sessionRef
 
     const loadRuntimeSession = useCallback(async (): Promise<void> => {
         abortRef.current?.abort()
@@ -416,8 +516,8 @@ const SessionDetail: FC<{
     })
     const messageCount = result
         ? result.parsedLocalMessages.length
-        : candidate.messageCount
-    const lastActive = candidate.lastActiveAt ?? candidate.timestamp
+        : session.messageCount
+    const lastActive = session.lastActiveAt
 
     return (
         <>
@@ -433,10 +533,10 @@ const SessionDetail: FC<{
                 <span
                     className={[
                         'text-ui text-fg min-w-0 flex-1 truncate font-medium',
-                        candidate.firstUserMessage ? '' : 'font-mono'
+                        session.title ? '' : 'font-mono'
                     ].join(' ')}
                 >
-                    {candidate.firstUserMessage ?? candidate.sessionRef}
+                    {session.title ?? session.sessionRef}
                 </span>
                 <RuntimeSessionMenu
                     applying={applying}
@@ -452,9 +552,9 @@ const SessionDetail: FC<{
             </header>
 
             <div className='border-divider/60 text-caption text-subtle flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2'>
-                {candidate.model && (
+                {session.model && (
                     <span className='truncate font-mono'>
-                        {candidate.model}
+                        {session.model}
                     </span>
                 )}
                 <span className='tabular-nums'>
@@ -468,12 +568,10 @@ const SessionDetail: FC<{
                     </span>
                 )}
                 <ShortcutTooltip
-                    label={candidate.sessionRef}
+                    label={sessionRef}
                     className='ml-auto min-w-0'
                 >
-                    <span className='truncate font-mono'>
-                        {candidate.sessionRef}
-                    </span>
+                    <span className='truncate font-mono'>{sessionRef}</span>
                 </ShortcutTooltip>
             </div>
 
@@ -504,12 +602,12 @@ const SessionDetail: FC<{
 
             <footer className='border-divider/80 text-caption text-placeholder flex min-h-9 shrink-0 items-center gap-3 border-t px-4'>
                 <ShortcutTooltip
-                    label={result?.sourceFile ?? candidate.sourceFile}
+                    label={result?.sourceFile ?? session.sourceFile ?? undefined}
                     placement='top'
                     className='min-w-0'
                 >
                     <span className='w-full truncate font-mono'>
-                        {result?.sourceFile ?? candidate.sourceFile}
+                        {result?.sourceFile ?? session.sourceFile}
                     </span>
                 </ShortcutTooltip>
             </footer>
@@ -847,4 +945,4 @@ const EmptyContent: FC<{ text: string }> = ({ text }): ReactNode => (
     <EmptyState kind='no-results' tier='line' body={text} className='py-4' />
 )
 
-export default memo(AgentSessionHistory)
+export default memo(AgentSessions)

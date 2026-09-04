@@ -236,7 +236,7 @@ import type {
     SendTestNotificationResult,
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
-    RuntimeSessionListResponse,
+    AgentSessionListResponse,
     RuntimeSessionViewResponse,
     SkillRepoSummary,
     UpdateSpritesAccountBody,
@@ -1399,11 +1399,10 @@ export interface NcaClient {
                 signal?: AbortSignal
             }
         ) => Promise<SharedChatMessagesPage>
-        runtimeSessionList: (
+        agentSessionList: (
             agentId: string,
-            body?: { sessionId?: string },
             opts?: { signal?: AbortSignal }
-        ) => Promise<RuntimeSessionListResponse>
+        ) => Promise<AgentSessionListResponse>
         runtimeSessionView: (
             agentId: string,
             body?: {
@@ -3314,12 +3313,12 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     { signal: opts?.signal }
                 )
             },
-            runtimeSessionList: (agentId, body, opts) =>
-                request<RuntimeSessionListResponse>(
+            agentSessionList: (agentId, opts) =>
+                request<AgentSessionListResponse>(
                     apiPaths.AGENT_RUNTIME_SESSION_LIST(agentId),
                     {
                         method: 'POST',
-                        body: JSON.stringify(body ?? {}),
+                        body: '{}',
                         signal: opts?.signal
                     }
                 ),

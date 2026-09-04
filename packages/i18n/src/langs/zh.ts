@@ -2329,7 +2329,7 @@ const zh: Translations = {
             readmeMissing: '该 skill 暂无说明文档。'
         },
         runtimeSession: {
-            viewerLabel: 'Agent 会话历史',
+            viewerLabel: 'Agent 会话',
             sessionActions: '会话操作',
             loadingList: '正在扫描 runtime 上的会话…',
             loadingParsing: '正在读取所选会话…',
@@ -2340,10 +2340,20 @@ const zh: Translations = {
             noAssistantReply: '暂无回复',
             back: '返回会话列表',
             emptyTitle: '没有会话',
-            emptyBody: '该 agent 在 runtime 上运行过的会话会显示在这里。',
+            emptyBody:
+                '与该 agent 的对话都会显示在这里，无论是在 web 端发起的，还是在 runtime 上运行的。',
+            localScanUnavailable:
+                '无法连接 runtime，这里只列出云端保存的会话。runtime 上可能还有其他会话。',
+            inCloud: '云端',
+            inLocal: '本地',
+            copyResumeCommand: '复制 resume 命令',
+            copySessionId: '复制 session ID',
+            copyFilePath: '复制文件路径',
+            resumeUnsupported: '该框架的 CLI 无法通过 id 恢复会话。',
+            notOnRuntime: '该会话不在 runtime 上。',
             emptyParsedMessages: 'local session 没有解析出消息',
             emptyRawContent: 'local session 没有 raw content',
-            currentWebSession: '当前对话',
+            currentWebSession: '当前',
             viewSection: '查看',
             preview: '预览',
             raw: '原始',
@@ -2419,7 +2429,7 @@ const zh: Translations = {
                 resize: '调整面板宽度',
                 backgroundTasks: '后台任务',
                 files: '文件',
-                runtimeSession: 'Agent 会话历史'
+                runtimeSession: 'Agent 会话'
             },
             agentStatus: {
                 pending: '等待中',
@@ -2449,7 +2459,7 @@ const zh: Translations = {
             thought: '已思考',
             thoughtFor: '思考了 {{elapsed}}',
             loadingConversation: '加载对话中…',
-            loadingRuntimeViewer: '加载 Agent 会话历史中…',
+            loadingRuntimeViewer: '加载 Agent 会话中…',
             loadingModelOptions: '加载模型选项中…',
             savingDraftAndSending: '保存草稿并发送中…',
             stoppingResponse: '停止回复中…',

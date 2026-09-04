@@ -314,6 +314,7 @@ const makeHarness = (
         frameworkSessionRef?: string | null
         recoveredMessages?: RecoveredMessage[]
         candidates?: CandidateSession[]
+        recoveryFsError?: Error
     } = {}
 ) => {
     const listCandidateCalls = { count: 0 }
@@ -360,6 +361,19 @@ const makeHarness = (
         })
     }
     const repo = {
+        listSessions: async () => sessions,
+        sessionMessageStats: async (ids: string[]) =>
+            new Map(
+                ids.map((id) => [
+                    id,
+                    {
+                        messageCount: (messagesBySession.get(id) ?? []).length,
+                        lastMessageAt:
+                            (messagesBySession.get(id) ?? []).at(-1)
+                                ?.createdAt ?? null
+                    }
+                ])
+            ),
         getSession: async (sessionId: string) =>
             sessions.find((s) => s.id === sessionId) ?? null,
         findSessionByFrameworkSessionRef: async (
@@ -509,7 +523,10 @@ const makeHarness = (
         }
     }
     const drivers = {
-        recoveryFsForAgent: async () => ({ fs: {} })
+        recoveryFsForAgent: async () => {
+            if (options.recoveryFsError) throw options.recoveryFsError
+            return { fs: {} }
+        }
     }
     const reader = {
         readMessages: async (ctx: { frameworkSessionRef: string }) => {
@@ -634,37 +651,84 @@ const candidate = (
     ...over
 })
 
-test('SessionRecoveryService listRuntimeSessions returns the scan and marks the current ref', async () => {
-    const harness = makeHarness({
-        candidates: [candidate('local-ref'), candidate('other-ref')]
-    })
+test('agent session list joins a cloud session to its runtime transcript', async () => {
+    // session-1's framework_session_ref is 'local-ref', so the two sides are
+    // one row rather than two.
+    const harness = makeHarness({ candidates: [candidate('local-ref')] })
 
-    const listed = await harness.service.listRuntimeSessions(
-        'user-1',
-        'agent-1',
-        'session-1'
-    )
+    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
 
-    assert.equal(listed.currentSessionRef, 'local-ref')
-    assert.deepEqual(
-        listed.candidates.map((c) => c.sessionRef),
-        ['local-ref', 'other-ref']
-    )
-    assert.equal(listed.candidates[0].lastAssistantMessage, 'a reply')
-    assert.equal(listed.candidates[0].lastActiveAt, '2026-05-10T12:00:00.000Z')
-    assert.equal(listed.candidates[0].model, 'gpt-5.4')
+    assert.equal(listed.localScan, 'ok')
+    assert.equal(listed.sessions.length, 1)
+    const row = listed.sessions[0]
+    assert.equal(row.cloudSessionId, 'session-1')
+    assert.equal(row.sessionRef, 'local-ref')
+    assert.equal(row.inCloud, true)
+    assert.equal(row.inLocal, true)
+    // The transcript is the fuller record, so its fields win on a joined row.
+    assert.equal(row.lastAssistantMessage, 'a reply')
+    assert.equal(row.lastActiveAt, '2026-05-10T12:00:00.000Z')
+    assert.equal(row.model, 'gpt-5.4')
 })
 
-test('SessionRecoveryService listRuntimeSessions works without a cloud session', async () => {
-    const harness = makeHarness({ candidates: [candidate('other-ref')] })
+test('agent session list keeps local-only and cloud-only sessions apart', async () => {
+    const harness = makeHarness({
+        // 'other-ref' matches no cloud session; session-1 stays cloud-side
+        // with its own 'local-ref' unscanned.
+        candidates: [candidate('other-ref')]
+    })
 
-    const listed = await harness.service.listRuntimeSessions(
-        'user-1',
-        'agent-1'
+    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+
+    assert.equal(listed.sessions.length, 2)
+    const localOnly = listed.sessions.find((r) => r.sessionRef === 'other-ref')
+    assert.ok(localOnly)
+    assert.equal(localOnly!.inLocal, true)
+    assert.equal(localOnly!.inCloud, false)
+    assert.equal(localOnly!.cloudSessionId, null)
+
+    const cloudOnly = listed.sessions.find(
+        (r) => r.cloudSessionId === 'session-1'
     )
+    assert.ok(cloudOnly)
+    assert.equal(cloudOnly!.inCloud, true)
+    assert.equal(cloudOnly!.inLocal, false)
+    // Nothing was read for it, so it must not claim the agent never replied.
+    assert.equal(cloudOnly!.lastAssistantMessage, null)
+    assert.equal(cloudOnly!.messageCount, 1)
+})
 
-    assert.equal(listed.currentSessionRef, null)
-    assert.equal(listed.candidates.length, 1)
+test('agent session list is newest first across both sides', async () => {
+    const harness = makeHarness({
+        candidates: [
+            candidate('older-ref', { lastActiveAt: '2026-05-01T00:00:00.000Z' }),
+            candidate('newest-ref', { lastActiveAt: '2026-06-01T00:00:00.000Z' })
+        ]
+    })
+
+    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+
+    const order = listed.sessions.map((r) => r.lastActiveAt ?? '')
+    assert.deepEqual(order, [...order].sort().reverse())
+    assert.equal(listed.sessions[0].sessionRef, 'newest-ref')
+})
+
+// A stopped sandbox used to 503 the whole panel. The cloud half is still
+// knowable, and absence on the local side becomes unknown rather than false.
+test('an unreachable runtime degrades the list instead of failing it', async () => {
+    const harness = makeHarness({
+        candidates: [candidate('local-ref')],
+        recoveryFsError: new Error('sandbox is stopped')
+    })
+
+    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+
+    assert.equal(listed.localScan, 'unavailable')
+    assert.equal(listed.sessions.length, 1)
+    assert.equal(listed.sessions[0].cloudSessionId, 'session-1')
+    assert.equal(listed.sessions[0].inCloud, true)
+    assert.equal(listed.sessions[0].inLocal, false)
+    assert.match(listed.warnings.join(' '), /sandbox is stopped/)
 })
 
 // Opening a session from the list must not re-scan every other transcript:

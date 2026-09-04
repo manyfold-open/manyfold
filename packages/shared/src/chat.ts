@@ -561,6 +561,50 @@ export const isAllowedChatAttachment = (file: {
 
 export const CHAT_MESSAGE_SOFT_LIMIT = 50
 
+// One row of an agent's session list: the union of what the cloud database
+// holds and what the framework left on the runtime, joined on the runtime's
+// own session id (chat_sessions.framework_session_ref ↔ sessionRef). A session
+// can be on either side or both — a conversation started in the web app before
+// its CLI wrote a transcript is cloud-only, one run directly in the terminal is
+// local-only, and the usual case is both.
+export interface AgentSessionListItem {
+    // The runtime's own session id. Null for a cloud session that has not been
+    // bound to one yet.
+    sessionRef: string | null
+    // The cloud chat session id, and what the chat view opens. Null for a
+    // transcript that only exists on the runtime.
+    cloudSessionId: string | null
+    inCloud: boolean
+    // Only meaningful when the response's localScan is 'ok'; a scan that never
+    // ran cannot tell absence from unknown.
+    inLocal: boolean
+    // The cloud session's title when there is one, else the first user prompt
+    // recovered from the transcript.
+    title: string | null
+    // Only ever set from a scanned transcript, so the reader can tell "this
+    // session has no reply" from "we did not read this session's messages".
+    lastAssistantMessage: string | null
+    lastActiveAt: string | null
+    messageCount: number
+    model: string | null
+    sourceFile: string | null
+}
+
+// Whether the runtime's transcripts could be read at all. A stopped sandbox or
+// an offline daemon degrades to the cloud half of the list instead of failing
+// the whole panel, and `inLocal` is then unknown rather than false.
+export type AgentSessionLocalScan = 'ok' | 'unavailable'
+
+// Lives in the runtime-session family because the bounded runtime scan is the
+// expensive thing it exists to do once; it marks cloud presence on top of it.
+export interface AgentSessionListResponse {
+    framework: AgentFramework
+    runtime: AgentRuntime
+    localScan: AgentSessionLocalScan
+    sessions: AgentSessionListItem[]
+    warnings: string[]
+}
+
 export interface RuntimeSessionCandidate {
     sessionRef: string
     sourceFile: string
@@ -576,18 +620,6 @@ export interface RuntimeSessionCandidate {
     // The model on the newest assistant entry. Null for frameworks whose
     // transcripts do not record one.
     model: string | null
-}
-
-// The sessions a framework wrote on the runtime, cheap enough to open a list
-// with: one bounded scan, no transcript read. Reading one of them is
-// RuntimeSessionViewResponse.
-export interface RuntimeSessionListResponse {
-    framework: AgentFramework
-    runtime: AgentRuntime
-    // The runtime session the current cloud session is bound to, so the list
-    // can mark it.
-    currentSessionRef: string | null
-    candidates: RuntimeSessionCandidate[]
 }
 
 export interface RuntimeSessionViewResponse {

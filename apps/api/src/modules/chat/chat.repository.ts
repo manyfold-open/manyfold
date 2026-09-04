@@ -1365,7 +1365,7 @@ export class ChatRepository {
             .limit(opts.limit)
     }
 
-    async adminSessionMessageStats(
+    async sessionMessageStats(
         sessionIds: string[]
     ): Promise<
         Map<string, { messageCount: number; lastMessageAt: Date | null }>

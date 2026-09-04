@@ -2400,7 +2400,7 @@ const en = {
             readmeMissing: 'No documentation available for this skill yet.'
         },
         runtimeSession: {
-            viewerLabel: 'Agent session history',
+            viewerLabel: 'Agent sessions',
             sessionActions: 'Session actions',
             loadingList: 'Scanning sessions on the runtime…',
             loadingParsing: 'Reading the selected session…',
@@ -2413,10 +2413,20 @@ const en = {
             back: 'Back to sessions',
             emptyTitle: 'No sessions',
             emptyBody:
-                'Sessions this agent runs on its runtime will show up here.',
+                'Conversations with this agent show up here, whether they were started in the web app or run on its runtime.',
+            localScanUnavailable:
+                'The runtime could not be reached, so this list shows what the cloud holds. Sessions may also exist on the runtime.',
+            inCloud: 'Cloud',
+            inLocal: 'Local',
+            copyResumeCommand: 'Copy resume command',
+            copySessionId: 'Copy session ID',
+            copyFilePath: 'Copy file path',
+            resumeUnsupported:
+                'This framework CLI cannot be pointed at a session by id.',
+            notOnRuntime: 'This session is not on the runtime.',
             emptyParsedMessages: 'No messages parsed from this local session.',
             emptyRawContent: 'No raw content in this local session.',
-            currentWebSession: 'Current chat',
+            currentWebSession: 'Current',
             viewSection: 'View',
             preview: 'Preview',
             raw: 'Raw',
@@ -2494,7 +2504,7 @@ const en = {
                 resize: 'Resize panel',
                 backgroundTasks: 'Background tasks',
                 files: 'Files',
-                runtimeSession: 'Agent session history'
+                runtimeSession: 'Agent sessions'
             },
             agentStatus: {
                 pending: 'Pending',
@@ -2524,7 +2534,7 @@ const en = {
             thought: 'Thought',
             thoughtFor: 'Thought for {{elapsed}}',
             loadingConversation: 'Loading conversation…',
-            loadingRuntimeViewer: 'Loading agent session history…',
+            loadingRuntimeViewer: 'Loading agent sessions…',
             loadingModelOptions: 'Loading model options…',
             savingDraftAndSending: 'Saving draft and sending…',
             stoppingResponse: 'Stopping response…',

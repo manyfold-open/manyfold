@@ -133,8 +133,8 @@ const SessionTerminal = lazyChunk(() => import('@/components/TerminalSession'))
 const WorkspaceFiles = lazyChunk(
     () => import('@/components/chat/WorkspaceFiles')
 )
-const AgentSessionHistory = lazyChunk(
-    () => import('@/components/chat/AgentSessionHistory')
+const AgentSessions = lazyChunk(
+    () => import('@/components/chat/AgentSessions')
 )
 const BackgroundTasksBody = lazyChunk(
     () => import('@/components/BackgroundTasksPanel')
@@ -2532,7 +2532,7 @@ const AgentChat: FC = (): ReactNode => {
                             </div>
                         }
                     >
-                        <AgentSessionHistory
+                        <AgentSessions
                             agentId={agentId}
                             sessionId={activeSessionId}
                             onClose={handleRuntimeViewerClose}
