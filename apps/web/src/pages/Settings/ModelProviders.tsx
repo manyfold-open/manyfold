@@ -29,6 +29,7 @@ import {
 import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
+import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     BoxIcon,
     ChevronDownIcon,
@@ -36,6 +37,7 @@ import {
     ListViewIcon,
     PlugIcon,
     PlusIcon,
+    RefreshIcon,
     ZapIcon
 } from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
@@ -108,6 +110,12 @@ import {
     type Selection
 } from '@/pages/Settings/modelProviderSelection'
 
+import {
+    buildModelGroups,
+    countModelPairs,
+    enabledPairCount,
+    type ModelGroup
+} from '@/lib/modelListView'
 import {
     flattenProtocolMap,
     ModelPricePanel,
@@ -1332,6 +1340,7 @@ const ModelListSection: FC<{
     const { t } = useI18n()
     const client = useApiClient()
     const [activeTab, setActiveTab] = useState<string>(ALL_TAB_KEY)
+    const [query, setQuery] = useState('')
     const [enabled, setEnabled] = useState<Record<string, Set<string> | 'all'>>(
         {}
     )
@@ -1572,40 +1581,93 @@ const ModelListSection: FC<{
 
     const tabs = [ALL_TAB_KEY, ...protocols]
     const showAll = activeTab === ALL_TAB_KEY
+    const allGroups = buildModelGroups(row.lastTestModels, query)
+    const visibleGroups = showAll
+        ? allGroups
+        : allGroups.filter((group) => group.protocol === activeTab)
+    const shownPairs = countModelPairs(visibleGroups)
+    const totalPairs = countModelPairs(
+        buildModelGroups(row.lastTestModels, '')
+    )
+    const enabledPairs = enabledPairCount(visibleGroups, enabled)
+    const searching = query.trim() !== ''
 
     return (
         <section className='settings-section'>
             <div className='mb-3 flex flex-wrap items-center justify-between gap-3'>
-                <div className='min-w-0'>
-                    <h3 className='settings-section-label mb-0'>
-                        {t('web.modelProviders.models')}
-                    </h3>
+                <div className='min-w-0 flex-1'>
+                    <div className='flex flex-wrap items-baseline gap-x-3 gap-y-1'>
+                        <h3 className='settings-section-label mb-0'>
+                            {t('web.modelProviders.models')}
+                        </h3>
+                        <span className='text-caption text-subtle tabular-nums'>
+                            {searching
+                                ? t('web.modelProviders.searchCount', {
+                                      shown: shownPairs,
+                                      total: totalPairs
+                                  })
+                                : t('web.modelProviders.enabledCount', {
+                                      enabled: enabledPairs,
+                                      total: shownPairs
+                                  })}
+                        </span>
+                    </div>
                     <p className='text-caption text-muted mt-1'>
                         {lastTestedLine}
                     </p>
                 </div>
-                <div className='flex flex-wrap gap-2'>
-                    <button
-                        type='button'
-                        onClick={() => void refresh()}
-                        disabled={testing}
-                        aria-busy={testing}
-                        className='workbench-button-secondary h-9'
+                {/* Search, refresh and save travel as one group: below the
+                    breakpoint the whole group wraps onto its own full-width
+                    line and the search field flexes into it, because the three
+                    of them at their desktop widths (160 + 135 + 64 + gaps) are
+                    wider than a 375-px column and pushed Save off the edge. */}
+                <div className='flex w-full items-center gap-2 sm:w-auto sm:shrink-0'>
+                    <input
+                        value={query}
+                        onChange={(event) => setQuery(event.target.value)}
+                        placeholder={t('web.modelProviders.searchModels')}
+                        aria-label={t('web.modelProviders.searchModels')}
+                        autoComplete='off'
+                        className='workbench-input h-9 min-w-0 flex-1 sm:w-56 sm:flex-none'
+                    />
+                    {/* Refresh drops to its icon on a narrow column — the
+                        widest of the three and the least urgent, since the list
+                        refreshes itself on load. The label stays reachable as
+                        the tooltip and the aria-label. */}
+                    <ShortcutTooltip
+                        label={t('web.modelProviders.refreshModels')}
+                        className='shrink-0'
                     >
-                        {testing ? (
-                            <>
-                                <Spinner size={16} className='mr-2' />
-                                {t('web.modelProviders.refreshing')}
-                            </>
-                        ) : (
-                            t('web.modelProviders.refreshModels')
-                        )}
-                    </button>
+                        <button
+                            type='button'
+                            onClick={() => void refresh()}
+                            disabled={testing}
+                            aria-busy={testing}
+                            aria-label={t('web.modelProviders.refreshModels')}
+                            className='workbench-button-secondary h-9'
+                        >
+                            {testing ? (
+                                <>
+                                    <Spinner size={16} className='sm:mr-2' />
+                                    <span className='hidden sm:inline'>
+                                        {t('web.modelProviders.refreshing')}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <RefreshIcon className='h-4 w-4 sm:hidden' />
+                                    <span className='hidden sm:inline'>
+                                        {t('web.modelProviders.refreshModels')}
+                                    </span>
+                                </>
+                            )}
+                        </button>
+                    </ShortcutTooltip>
                     <button
                         type='button'
                         onClick={() => void save()}
                         disabled={busy || !dirty}
-                        className='workbench-button-primary h-9'
+                        className='workbench-button-primary h-9 shrink-0'
                     >
                         {busy ? (
                             <>
@@ -1625,13 +1687,15 @@ const ModelListSection: FC<{
                     </pre>
                 </div>
             )}
-            <div className='border-divider/70 mb-3 flex flex-wrap gap-1 border-b'>
+            {/* Scrolls rather than wraps: a wrapped row of tabs reads as two
+                rows of buttons instead of one segmented control. */}
+            <div className='border-divider/70 mb-3 flex gap-1 overflow-x-auto whitespace-nowrap border-b'>
                 {tabs.map((tab) => {
                     const isActive = tab === activeTab
                     const label =
                         tab === ALL_TAB_KEY
                             ? t('web.modelProviders.allModels', {
-                                  count: allModels.length
+                                  count: totalPairs
                               })
                             : `${inferenceProtocolLabel[tab as InferenceProtocol] ?? tab} (${(row.lastTestModels?.[tab] ?? []).length})`
                     return (
@@ -1640,7 +1704,7 @@ const ModelListSection: FC<{
                             type='button'
                             onClick={() => setActiveTab(tab)}
                             className={[
-                                'text-caption -mb-px border-b-2 px-3 py-2 transition-colors',
+                                'text-caption -mb-px shrink-0 border-b-2 px-3 py-2 transition-colors',
                                 isActive
                                     ? 'border-link text-fg font-medium'
                                     : 'text-muted hover:text-fg border-transparent'
@@ -1651,12 +1715,22 @@ const ModelListSection: FC<{
                     )
                 })}
             </div>
-            {showAll ? (
+            {searching && shownPairs === 0 ? (
+                <EmptyState
+                    kind='no-results'
+                    tier='stack'
+                    title={t('web.emptyState.modelSearchTitle', { query })}
+                    body={t('web.emptyState.modelSearchBody')}
+                />
+            ) : (
                 <ProtocolModelGrid
                     models={allModels}
                     rowMap={row.lastTestModels}
                     enabledMap={enabled}
                     onToggle={toggle}
+                    groups={visibleGroups}
+                    onEnableAllProtocol={enableAll}
+                    onDisableAllProtocol={disableAll}
                     priceCell={(modelId) => (
                         <ModelPriceSummary
                             entry={prices?.get(modelId)}
@@ -1682,15 +1756,6 @@ const ModelListSection: FC<{
                             />
                         ) : null
                     }
-                />
-            ) : (
-                <SingleProtocolModels
-                    protocol={activeTab as InferenceProtocol}
-                    models={row.lastTestModels?.[activeTab] ?? []}
-                    enabled={enabled[activeTab]}
-                    onToggle={(modelId) => toggle(activeTab, modelId)}
-                    onEnableAll={() => enableAll(activeTab)}
-                    onDisableAll={() => disableAll(activeTab)}
                 />
             )}
         </section>
@@ -1761,7 +1826,14 @@ export const SingleProtocolModels: FC<{
     onToggle: (modelId: string) => void
     onEnableAll: () => void
     onDisableAll: () => void
-}> = ({ models, enabled, onToggle, onEnableAll, onDisableAll }): ReactNode => {
+}> = ({
+    protocol,
+    models,
+    enabled,
+    onToggle,
+    onEnableAll,
+    onDisableAll
+}): ReactNode => {
     const { t } = useI18n()
     const isAll = enabled === 'all'
     const enabledCount = isAll
@@ -1801,35 +1873,12 @@ export const SingleProtocolModels: FC<{
                     </button>
                 </div>
             </div>
-            {models.length === 0 ? (
-                <div className='text-caption text-muted'>
-                    {t('web.modelProviders.noModels')}
-                </div>
-            ) : (
-                <div className='settings-card overflow-visible'>
-                    {models.map((modelId) => {
-                        const checked = isAll
-                            ? true
-                            : enabled instanceof Set
-                              ? enabled.has(modelId)
-                              : false
-                        return (
-                            <label
-                                key={modelId}
-                                className='settings-card-row flex cursor-pointer items-center gap-3'
-                            >
-                                <Switch
-                                    checked={checked}
-                                    onChange={() => onToggle(modelId)}
-                                />
-                                <span className='text-ui break-all font-mono'>
-                                    {modelId}
-                                </span>
-                            </label>
-                        )
-                    })}
-                </div>
-            )}
+            <ProtocolModelGrid
+                models={models}
+                rowMap={{ [protocol]: models }}
+                enabledMap={{ [protocol]: enabled ?? new Set<string>() }}
+                onToggle={(_p, modelId) => onToggle(modelId)}
+            />
         </div>
     )
 }
@@ -1839,6 +1888,13 @@ export const ProtocolModelGrid: FC<{
     rowMap: ProtocolModelMap | null
     enabledMap: Record<string, Set<string> | 'all'>
     onToggle: (protocol: string, modelId: string) => void
+    // Pre-built groups (already filtered by a search box, say). Omitted by
+    // callers that just hand over the provider's whole map; they get the same
+    // grouped view, derived here, rather than a flat list needing a protocol
+    // tag on every row.
+    groups?: ModelGroup[]
+    onEnableAllProtocol?: (protocol: InferenceProtocol) => void
+    onDisableAllProtocol?: (protocol: InferenceProtocol) => void
     // Per-model price affordances, injected by the owning section so the grid
     // stays agnostic of where the prices come from.
     priceCell?: (modelId: string) => ReactNode
@@ -1848,79 +1904,114 @@ export const ProtocolModelGrid: FC<{
     rowMap,
     enabledMap,
     onToggle,
+    groups,
+    onEnableAllProtocol,
+    onDisableAllProtocol,
     priceCell,
     pricePanel
 }): ReactNode => {
     const { t } = useI18n()
-    if (models.length === 0)
+    const resolvedGroups =
+        groups ??
+        buildModelGroups(rowMap).map((group) => ({
+            ...group,
+            // A caller passing `models` has already decided what to show; keep
+            // its order and membership, just grouped.
+            models: group.models.filter((modelId) => models.includes(modelId))
+        }))
+    const visible = resolvedGroups.filter((group) => group.models.length > 0)
+    if (visible.length === 0)
         return (
             <div className='text-caption text-muted'>
                 {t('web.modelProviders.noModels')}
             </div>
         )
-    const protocolsForModel = (modelId: string): InferenceProtocol[] => {
-        if (!rowMap) return []
-        const out: InferenceProtocol[] = []
-        for (const [protocol, list] of Object.entries(rowMap)) {
-            if (list.includes(modelId)) out.push(protocol as InferenceProtocol)
-        }
-        return out
-    }
     const isEnabled = (protocol: string, modelId: string): boolean => {
         const state = enabledMap[protocol]
         if (state === 'all') return true
         if (state instanceof Set) return state.has(modelId)
         return false
     }
+    const showGroupHeads = visible.length > 1
     return (
         <div className='settings-card overflow-visible'>
-            {models.map((modelId) => {
-                const protocols = protocolsForModel(modelId)
-                const enabledFlags = protocols.map((p) => isEnabled(p, modelId))
-                const allEnabled =
-                    enabledFlags.length > 0 && enabledFlags.every(Boolean)
-                const noneEnabled = enabledFlags.every((flag) => !flag)
-                const indeterminate = !allEnabled && !noneEnabled
-                const handleToggleAll = (): void => {
-                    if (noneEnabled) {
-                        for (const p of protocols) onToggle(p, modelId)
-                    } else {
-                        for (const p of protocols) {
-                            if (isEnabled(p, modelId)) onToggle(p, modelId)
-                        }
-                    }
-                }
+            {visible.map((group) => {
+                const enabledHere = group.models.filter((modelId) =>
+                    isEnabled(group.protocol, modelId)
+                ).length
                 return (
-                    <div key={modelId}>
-                        <label className='settings-card-row flex cursor-pointer flex-wrap items-center gap-3'>
-                            <Switch
-                                checked={allEnabled}
-                                indeterminate={indeterminate}
-                                disabled={protocols.length === 0}
-                                onChange={handleToggleAll}
-                            />
-                            <span className='text-ui min-w-0 flex-1 break-all font-mono'>
-                                {modelId}
-                            </span>
-                            {priceCell?.(modelId)}
-                            <div className='flex flex-wrap gap-1'>
-                                {protocols.map((protocol) => (
-                                    <span
-                                        key={protocol}
-                                        className={[
-                                            'tag tag-neutral',
-                                            isEnabled(protocol, modelId)
-                                                ? ''
-                                                : 'line-through'
-                                        ].join(' ')}
-                                    >
-                                        {inferenceProtocolLabel[protocol] ??
-                                            protocol}
-                                    </span>
-                                ))}
+                    <div key={group.protocol}>
+                        {showGroupHeads && (
+                            <div className='border-divider/60 bg-surface-subtle/60 flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-t px-4 py-2 first:border-t-0'>
+                                <span className='text-caption text-muted font-medium'>
+                                    {inferenceProtocolLabel[group.protocol] ??
+                                        group.protocol}
+                                </span>
+                                <span className='text-caption text-subtle tabular-nums'>
+                                    {t('web.modelProviders.enabledCount', {
+                                        enabled: enabledHere,
+                                        total: group.models.length
+                                    })}
+                                </span>
+                                {onEnableAllProtocol &&
+                                    onDisableAllProtocol && (
+                                        <span className='text-caption ml-auto flex gap-3'>
+                                            <button
+                                                type='button'
+                                                onClick={() =>
+                                                    onEnableAllProtocol(
+                                                        group.protocol
+                                                    )
+                                                }
+                                                className='text-link hover:underline'
+                                            >
+                                                {t(
+                                                    'web.modelProviders.enableAll'
+                                                )}
+                                            </button>
+                                            <button
+                                                type='button'
+                                                onClick={() =>
+                                                    onDisableAllProtocol(
+                                                        group.protocol
+                                                    )
+                                                }
+                                                className='text-link hover:underline'
+                                            >
+                                                {t(
+                                                    'web.modelProviders.disableAll'
+                                                )}
+                                            </button>
+                                        </span>
+                                    )}
                             </div>
-                        </label>
-                        {pricePanel?.(modelId)}
+                        )}
+                        {group.models.map((modelId) => (
+                            <div key={`${group.protocol}:${modelId}`}>
+                                <label className='settings-card-row flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1'>
+                                    <Switch
+                                        checked={isEnabled(
+                                            group.protocol,
+                                            modelId
+                                        )}
+                                        onChange={() =>
+                                            onToggle(group.protocol, modelId)
+                                        }
+                                    />
+                                    <span className='text-ui min-w-0 flex-1 break-all font-mono'>
+                                        {modelId}
+                                    </span>
+                                    {/* Wide: the price sits on the row's right
+                                        edge, one scannable column. Narrow: it
+                                        drops under the id rather than truncating
+                                        an id whose tail is the version. */}
+                                    <span className='w-full shrink-0 sm:ml-auto sm:w-auto sm:text-right'>
+                                        {priceCell?.(modelId)}
+                                    </span>
+                                </label>
+                                {pricePanel?.(modelId)}
+                            </div>
+                        ))}
                     </div>
                 )
             })}

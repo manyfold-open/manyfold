@@ -816,6 +816,9 @@ const zh: Translations = {
             usageNoCostBody: '试试其他时间范围。',
             modelsTitle: '未发现模型',
             modelsBody: '刷新模型以重新查询该提供商。',
+            modelSearchTitle: '没有匹配“{{query}}”的模型',
+            modelSearchBody:
+                '列表来自该提供商的模型目录。清空搜索，或刷新模型以获取新发布的条目。',
             connectionsTitle: '还没有连接',
             connectionsBody:
                 '关联 GitHub、Cloudflare 或 Composio，agent 即可自动完成认证。',
@@ -4068,6 +4071,8 @@ const zh: Translations = {
             requests: '{{count}} 个请求',
             tokens: '{{count}} 个 token',
             allModels: '全部（{{count}}）',
+            searchModels: '搜索模型',
+            searchCount: '{{shown}} / {{total}}',
             newProviderButton: '新建模型 Provider',
             lastTested: '最近测试于 {{time}}',
             statusReady: '就绪',
