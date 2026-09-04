@@ -5,7 +5,7 @@
     "type": "module",
     "scripts": {
         "dev": "turbo dev",
-        "dev:api": "pnpm --filter @manyfold/api start:dev",
+        "dev:api": "turbo run build --filter='@manyfold/api^...' && pnpm --filter @manyfold/api start:dev",
         "dev:admin": "pnpm --filter @manyfold/admin dev",
         "dev:web": "pnpm --filter @manyfold/web dev",
         "dev:cli": "pnpm --filter @manyfold/cli dev",
