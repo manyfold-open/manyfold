@@ -20,7 +20,7 @@ import { useI18n } from '@/lib/i18n'
 export const SidePaneHeaderSlotContext = createContext<HTMLElement | null>(null)
 
 // The one right-hand pane the chat exposes: background tasks, the workspace
-// files (tree + preview), or the runtime session viewer — one at a time,
+// files (tree + preview), or the agent session history — one at a time,
 // picked from the header dropdown. Files brings its own two-column body and
 // internal resize, so the pane only frames it; the single-column kinds get a
 // pane-owned width + left-edge resize instead.

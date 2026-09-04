@@ -12,7 +12,12 @@ import type {
     SessionReader
 } from './types'
 import { shellEscape } from '../recovery-fs'
-import { mtimeIso, scanCandidateFiles } from './candidate-scan'
+import {
+    candidateExcerpt,
+    candidateTailLines,
+    mtimeIso,
+    scanCandidateFiles
+} from './candidate-scan'
 
 const FIND_BASE = `find "$HOME"/.openclaw/agents/*/sessions -type f -name '*.jsonl' ! -name '*.bak-*' ! -name '*.trajectory.jsonl'`
 const OPENCLAW_RPC_RECOVERY_PARSER_NAME = 'openclaw-sessions-history'
@@ -133,18 +138,53 @@ const listViaFileScan = async (
     const out: CandidateSession[] = []
     for (const head of heads) {
         const summary = summarizeOpenclawJsonl(head.headText, head.path)
+        const latest = latestOpenclawEntries(candidateTailLines(head))
         if (summary.sessionRef)
             out.push({
                 sessionRef: summary.sessionRef,
                 sourceFile: head.path,
                 firstUserMessage: summary.firstUserMessage,
+                lastAssistantMessage: latest.lastAssistantMessage,
                 timestamp: summary.timestamp ?? mtimeIso(head),
+                lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
                 messageCount: head.truncated
                     ? head.lineCount
-                    : summary.messageCount
+                    : summary.messageCount,
+                // A message event carries no model; the model_change event
+                // does, but its payload shape is not pinned by any fixture, so
+                // the list stays silent rather than guessing.
+                model: null
             })
     }
     return out
+}
+
+const latestOpenclawEntries = (
+    lines: string[]
+): { lastAssistantMessage: string | null; lastActiveAt: string | null } => {
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim()
+        if (!line) continue
+        let row: OpenclawEvent
+        try {
+            row = JSON.parse(line) as OpenclawEvent
+        } catch {
+            continue
+        }
+        if (row.type !== 'message') continue
+        const role = row.message?.role
+        if (role !== 'user' && role !== 'assistant') continue
+        if (!lastActiveAt && row.timestamp) lastActiveAt = row.timestamp
+        if (role !== 'assistant') continue
+        if (!lastAssistantMessage)
+            lastAssistantMessage = candidateExcerpt(
+                extractText(row.message?.content)
+            )
+        if (lastAssistantMessage && lastActiveAt) break
+    }
+    return { lastAssistantMessage, lastActiveAt }
 }
 
 interface OpenclawSessionsHistoryItem {
@@ -311,12 +351,19 @@ const parseSessionListResponse = (payload: unknown): CandidateSession[] => {
                 (typeof item.firstUserMessage === 'string' &&
                     item.firstUserMessage) ||
                 labelOrPeer,
+            // sessions.list summarizes; it carries no reply text and no model.
+            lastAssistantMessage: null,
             timestamp:
                 typeof item.lastActivity === 'string'
                     ? item.lastActivity
                     : null,
+            lastActiveAt:
+                typeof item.lastActivity === 'string'
+                    ? item.lastActivity
+                    : null,
             messageCount:
-                typeof item.messageCount === 'number' ? item.messageCount : 0
+                typeof item.messageCount === 'number' ? item.messageCount : 0,
+            model: null
         })
     }
     out.sort((a, b) => (b.timestamp ?? '').localeCompare(a.timestamp ?? ''))

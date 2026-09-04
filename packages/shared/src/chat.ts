@@ -565,8 +565,29 @@ export interface RuntimeSessionCandidate {
     sessionRef: string
     sourceFile: string
     firstUserMessage: string | null
+    // The newest assistant reply, as one collapsed line. Null where the format
+    // carries no assistant text the scan can reach.
+    lastAssistantMessage: string | null
+    // When the session started; falls back to the transcript's mtime.
     timestamp: string | null
+    // When the session last produced a message; falls back to the mtime.
+    lastActiveAt: string | null
     messageCount: number
+    // The model on the newest assistant entry. Null for frameworks whose
+    // transcripts do not record one.
+    model: string | null
+}
+
+// The sessions a framework wrote on the runtime, cheap enough to open a list
+// with: one bounded scan, no transcript read. Reading one of them is
+// RuntimeSessionViewResponse.
+export interface RuntimeSessionListResponse {
+    framework: AgentFramework
+    runtime: AgentRuntime
+    // The runtime session the current cloud session is bound to, so the list
+    // can mark it.
+    currentSessionRef: string | null
+    candidates: RuntimeSessionCandidate[]
 }
 
 export interface RuntimeSessionViewResponse {
@@ -583,6 +604,8 @@ export interface RuntimeSessionViewResponse {
     parsedLocalMessages: ChatMessage[]
     warnings: string[]
     needsCandidatePick: boolean
+    // Only when the server had to pick the session itself. A view of a named
+    // sessionRef scans nothing and returns an empty list.
     candidates: RuntimeSessionCandidate[]
 }
 

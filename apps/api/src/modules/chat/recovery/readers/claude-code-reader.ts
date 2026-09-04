@@ -11,7 +11,12 @@ import type {
     SessionReader
 } from './types'
 import { shellEscape } from '../recovery-fs'
-import { mtimeIso, scanCandidateFiles } from './candidate-scan'
+import {
+    candidateExcerpt,
+    candidateTailLines,
+    mtimeIso,
+    scanCandidateFiles
+} from './candidate-scan'
 
 const CLAUDE_RECOVERY_PARSER_NAME = 'claude-code-session-jsonl'
 const CLAUDE_RECOVERY_PARSER_VERSION = '1'
@@ -80,19 +85,58 @@ export class ClaudeCodeSessionReader implements SessionReader {
         const out: CandidateSession[] = []
         for (const head of heads) {
             const summary = summarizeClaudeJsonl(head.headText)
+            const latest = latestClaudeEntries(candidateTailLines(head))
             if (summary.sessionRef)
                 out.push({
                     sessionRef: summary.sessionRef,
                     sourceFile: head.path,
                     firstUserMessage: summary.firstUserMessage,
+                    lastAssistantMessage: latest.lastAssistantMessage,
                     timestamp: summary.timestamp ?? mtimeIso(head),
+                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
                     messageCount: head.truncated
                         ? head.lineCount
-                        : summary.messageCount
+                        : summary.messageCount,
+                    model: latest.model
                 })
         }
         return out
     }
+}
+
+// Read backwards over whatever window the scan produced: the newest reply, when
+// it landed, and the model that wrote it.
+const latestClaudeEntries = (
+    lines: string[]
+): {
+    lastAssistantMessage: string | null
+    lastActiveAt: string | null
+    model: string | null
+} => {
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    let model: string | null = null
+    const { entries } = parseClaudeJsonlEntries(lines.join('\n'))
+    for (let i = entries.length - 1; i >= 0; i--) {
+        const { parsed } = entries[i]
+        if (!parsed.type || !KEEP_TYPES.has(parsed.type)) continue
+        const role = parsed.message?.role
+        if (role !== 'user' && role !== 'assistant' && role !== 'system')
+            continue
+        const blocks = mapClaudeContent(parsed.message?.content)
+        if (blocks.length === 0) continue
+        if (!lastActiveAt && parsed.timestamp) lastActiveAt = parsed.timestamp
+        if (role !== 'assistant') continue
+        if (!model && typeof parsed.message?.model === 'string')
+            model = parsed.message.model
+        if (!lastAssistantMessage) {
+            const textBlock = blocks.find((b) => b.type === 'text')
+            if (textBlock && textBlock.type === 'text')
+                lastAssistantMessage = candidateExcerpt(textBlock.text)
+        }
+        if (lastAssistantMessage && model && lastActiveAt) break
+    }
+    return { lastAssistantMessage, lastActiveAt, model }
 }
 
 const summarizeClaudeJsonl = (

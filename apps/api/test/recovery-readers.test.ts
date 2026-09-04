@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseClaudeJsonl } from '../src/modules/chat/recovery/readers/claude-code-reader'
-import { parseCodexJsonl } from '../src/modules/chat/recovery/readers/codex-reader'
+import {
+    ClaudeCodeSessionReader,
+    parseClaudeJsonl
+} from '../src/modules/chat/recovery/readers/claude-code-reader'
+import {
+    CodexSessionReader,
+    parseCodexJsonl
+} from '../src/modules/chat/recovery/readers/codex-reader'
 import {
     GeminiCliSessionReader,
     geminiReaderLocateScript,
@@ -16,6 +22,7 @@ import {
 import { parseHermesJson } from '../src/modules/chat/recovery/readers/hermes-reader'
 import {
     candidateScanScript,
+    candidateTailLines,
     parseCandidateScan
 } from '../src/modules/chat/recovery/readers/candidate-scan'
 import { claudeSessionLocateScript } from '../src/modules/chat/recovery/readers/claude-code-reader'
@@ -26,8 +33,12 @@ const formatCandidateScanRecord = (record: {
     size: number
     lineCount: number
     headText: string
+    tailText?: string
 }): string =>
-    `-----MF-RECOVERY-CANDIDATE-----\t${record.path}\t${record.mtimeSec}\t${record.size}\t${record.lineCount}\n${record.headText}\n`
+    `-----MF-RECOVERY-CANDIDATE-----\t${record.path}\t${record.mtimeSec}\t${record.size}\t${record.lineCount}\n${record.headText}\n` +
+    (record.tailText === undefined
+        ? ''
+        : `-----MF-RECOVERY-CANDIDATE-TAIL-----\t${record.path}\n${record.tailText}\n`)
 
 test('parseClaudeJsonl skips system/snapshot rows and keeps user/assistant', () => {
     const lines = [
@@ -1028,9 +1039,16 @@ test('gemini listCandidates dispatches .jsonl summaries and skips session_contex
     assert.equal(jl!.firstUserMessage, 'why is blue calming?')
     assert.equal(jl!.messageCount, 2)
     assert.equal(jl!.timestamp, '2026-07-24T13:48:44.717Z')
+    // Last-wins: the superseded 'partial…' record must not become the reply.
+    assert.equal(jl!.lastAssistantMessage, 'Blue is calming because…')
+    assert.equal(jl!.lastActiveAt, '2026-07-24T13:48:52.000Z')
+    assert.equal(jl!.model, 'gemini-2.5-flash')
     const old = candidates.find((c) => c.sessionRef === 'sess-old-1')
     assert.ok(old)
     assert.equal(old!.firstUserMessage, 'old question')
+    assert.equal(old!.lastAssistantMessage, 'old answer')
+    // The legacy whole-file format records no per-message model.
+    assert.equal(old!.model, null)
 })
 
 // Executed via bash -lc (the same invocation RecoveryFs.locate uses): string
@@ -1212,4 +1230,380 @@ test('openclaw readMessages falls back to the session file when the rpc fails or
         openclawRpc: emptyRpc as never
     })
     assert.equal(viaEmpty.messages.length, 1)
+})
+
+// The list row's newest-activity fields come from the END of a transcript, and
+// only a real bash run can show whether the tail window is emitted, where it is
+// cut, and that a short file never pays for one.
+test('candidate scan emits a tail window only past the head window', async () => {
+    const { spawnSync } = await import('node:child_process')
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import(
+        'node:fs'
+    )
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+
+    const home = mkdtempSync(join(tmpdir(), 'candidate-tail-'))
+    const dir = join(home, '.claude', 'projects', 'proj-a')
+    mkdirSync(dir, { recursive: true })
+
+    const small = join(dir, 'small.jsonl')
+    writeFileSync(small, 'first\nlast\n')
+
+    // 100 filler lines of 1000 chars each puts the 64 KiB cut inside line 34,
+    // so the tail's own first line is a fragment the reader must drop.
+    const big = join(dir, 'big.jsonl')
+    const filler = Array.from(
+        { length: 100 },
+        (_, i) => `filler-${i}-${'x'.repeat(990)}`
+    ).join('\n')
+    writeFileSync(big, `HEAD-ONLY-MARKER\n${filler}\nTAIL-ONLY-MARKER\n`)
+
+    const res = spawnSync(
+        'bash',
+        [
+            '-lc',
+            candidateScanScript(
+                `find "$HOME"/.claude/projects -type f -name '*.jsonl'`,
+                10
+            )
+        ],
+        { env: { ...process.env, HOME: home }, encoding: 'utf8' }
+    )
+    const heads = parseCandidateScan(res.stdout)
+    const smallHead = heads.find((h) => h.path === small)
+    const bigHead = heads.find((h) => h.path === big)
+    assert.ok(smallHead)
+    assert.ok(bigHead)
+
+    // The head already IS the whole small file; a second window would double
+    // the payload for nothing.
+    assert.equal(smallHead!.tailText, null)
+    assert.equal(smallHead!.truncated, false)
+    assert.deepEqual(candidateTailLines(smallHead!).slice(0, 2), [
+        'first',
+        'last'
+    ])
+
+    assert.equal(bigHead!.truncated, true)
+    assert.notEqual(bigHead!.tailText, null)
+    assert.ok(bigHead!.headText.includes('HEAD-ONLY-MARKER'))
+    assert.ok(!bigHead!.headText.includes('TAIL-ONLY-MARKER'))
+    assert.ok(bigHead!.tailText!.includes('TAIL-ONLY-MARKER'))
+    assert.ok(!bigHead!.tailText!.includes('HEAD-ONLY-MARKER'))
+
+    const tailLines = candidateTailLines(bigHead!)
+    // The straddled fragment is gone, and every surviving line is whole.
+    assert.ok(tailLines.every((line) => line === '' || /^(filler-\d+-x|TAIL-ONLY-MARKER)/.test(line)))
+    assert.ok(tailLines.includes('TAIL-ONLY-MARKER'))
+    assert.ok(bigHead!.tailText!.split('\n')[0].startsWith('x'))
+
+    rmSync(home, { recursive: true, force: true })
+})
+
+const scanFs = (files: Record<string, { head: string; tail?: string }>) => ({
+    locate: async (): Promise<string | null> => null,
+    listFiles: async (): Promise<string[]> => Object.keys(files),
+    exec: async (): Promise<string | null> =>
+        Object.entries(files)
+            .map(([path, { head, tail }]) =>
+                formatCandidateScanRecord({
+                    path,
+                    mtimeSec: 1753364924,
+                    size: tail === undefined ? Buffer.byteLength(head) : 999999,
+                    lineCount: head.split('\n').length,
+                    headText: head,
+                    ...(tail === undefined ? {} : { tailText: tail })
+                })
+            )
+            .join(''),
+    readFile: async (): Promise<string | null> => null,
+    readBinary: async (): Promise<Buffer> => Buffer.alloc(0)
+})
+
+test('claude listCandidates reads the newest reply, activity and model from the tail', async () => {
+    const reader = new ClaudeCodeSessionReader()
+    const head = [
+        JSON.stringify({
+            uuid: 'u1',
+            sessionId: 'sess-tail',
+            type: 'user',
+            timestamp: '2026-07-01T10:00:00.000Z',
+            message: { role: 'user', content: 'open a PR' }
+        }),
+        JSON.stringify({
+            uuid: 'a1',
+            sessionId: 'sess-tail',
+            type: 'assistant',
+            timestamp: '2026-07-01T10:00:05.000Z',
+            message: {
+                role: 'assistant',
+                model: 'claude-old-1',
+                content: [{ type: 'text', text: 'early answer' }]
+            }
+        })
+    ].join('\n')
+    const tail = [
+        '{"uuid":"frag',
+        JSON.stringify({
+            uuid: 'a9',
+            sessionId: 'sess-tail',
+            type: 'assistant',
+            timestamp: '2026-07-01T12:30:00.000Z',
+            message: {
+                role: 'assistant',
+                model: 'claude-fable-5-1',
+                content: [{ type: 'text', text: 'Opened  the\n  PR.' }]
+            }
+        })
+    ].join('\n')
+
+    const [candidate] = await reader.listCandidates({
+        fs: scanFs({ '/h/.claude/projects/p/sess-tail.jsonl': { head, tail } }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.sessionRef, 'sess-tail')
+    assert.equal(candidate.firstUserMessage, 'open a PR')
+    // From the tail, not the head's earlier turn — and collapsed to one line.
+    assert.equal(candidate.lastAssistantMessage, 'Opened the PR.')
+    assert.equal(candidate.lastActiveAt, '2026-07-01T12:30:00.000Z')
+    assert.equal(candidate.model, 'claude-fable-5-1')
+    assert.equal(candidate.timestamp, '2026-07-01T10:00:00.000Z')
+})
+
+test('claude listCandidates falls back to the head when the file has no tail', async () => {
+    const reader = new ClaudeCodeSessionReader()
+    const head = [
+        JSON.stringify({
+            uuid: 'u1',
+            sessionId: 'sess-small',
+            type: 'user',
+            timestamp: '2026-07-02T08:00:00.000Z',
+            message: { role: 'user', content: 'hello' }
+        }),
+        JSON.stringify({
+            uuid: 'a1',
+            sessionId: 'sess-small',
+            type: 'assistant',
+            timestamp: '2026-07-02T08:00:09.000Z',
+            message: {
+                role: 'assistant',
+                model: 'claude-opus-5',
+                content: [{ type: 'text', text: 'hi there' }]
+            }
+        })
+    ].join('\n')
+
+    const [candidate] = await reader.listCandidates({
+        fs: scanFs({ '/h/.claude/projects/p/sess-small.jsonl': { head } }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.lastAssistantMessage, 'hi there')
+    assert.equal(candidate.lastActiveAt, '2026-07-02T08:00:09.000Z')
+    assert.equal(candidate.model, 'claude-opus-5')
+})
+
+test('claude listCandidates reports no reply rather than inventing one', async () => {
+    const reader = new ClaudeCodeSessionReader()
+    const head = JSON.stringify({
+        uuid: 'u1',
+        sessionId: 'sess-quiet',
+        type: 'user',
+        timestamp: '2026-07-03T08:00:00.000Z',
+        message: { role: 'user', content: 'anyone there?' }
+    })
+
+    const [candidate] = await reader.listCandidates({
+        fs: scanFs({ '/h/.claude/projects/p/sess-quiet.jsonl': { head } }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.lastAssistantMessage, null)
+    assert.equal(candidate.model, null)
+    assert.equal(candidate.lastActiveAt, '2026-07-03T08:00:00.000Z')
+})
+
+test('codex listCandidates takes the model from the head when the tail has none', async () => {
+    const reader = new CodexSessionReader()
+    const head = [
+        JSON.stringify({
+            type: 'session_meta',
+            timestamp: '2026-07-04T09:00:00.000Z',
+            payload: { id: 'rollout-1' }
+        }),
+        JSON.stringify({
+            type: 'turn_context',
+            timestamp: '2026-07-04T09:00:00.000Z',
+            model: 'gpt-5.4',
+            payload: {}
+        }),
+        JSON.stringify({
+            type: 'response_item',
+            timestamp: '2026-07-04T09:00:01.000Z',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'refactor this' }]
+            }
+        })
+    ].join('\n')
+    const tail = [
+        '{"type":"response_i',
+        JSON.stringify({
+            type: 'response_item',
+            timestamp: '2026-07-04T11:45:00.000Z',
+            payload: {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Refactor done.' }]
+            }
+        })
+    ].join('\n')
+
+    const [candidate] = await reader.listCandidates({
+        fs: scanFs({ '/h/.codex/sessions/rollout-1.jsonl': { head, tail } }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.sessionRef, 'rollout-1')
+    assert.equal(candidate.lastAssistantMessage, 'Refactor done.')
+    assert.equal(candidate.lastActiveAt, '2026-07-04T11:45:00.000Z')
+    // The tail window carries no model event, so the head's turn_context is
+    // the only honest source.
+    assert.equal(candidate.model, 'gpt-5.4')
+})
+
+test('openclaw file listCandidates reads the tail and never guesses a model', async () => {
+    const reader = new OpenclawSessionReader()
+    const head = [
+        JSON.stringify({ type: 'session', id: 'oc-1' }),
+        JSON.stringify({
+            type: 'message',
+            id: 'u1',
+            timestamp: '2026-07-05T07:00:00.000Z',
+            message: { role: 'user', content: [{ type: 'text', text: 'ping' }] }
+        })
+    ].join('\n')
+    const tail = [
+        '{"type":"mess',
+        JSON.stringify({
+            type: 'message',
+            id: 'a9',
+            timestamp: '2026-07-05T07:20:00.000Z',
+            message: {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'pong' }]
+            }
+        })
+    ].join('\n')
+
+    const [candidate] = await reader.listCandidates({
+        fs: scanFs({
+            '/h/.openclaw/agents/a/sessions/oc-1.jsonl': { head, tail }
+        }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.sessionRef, 'oc-1')
+    assert.equal(candidate.lastAssistantMessage, 'pong')
+    assert.equal(candidate.lastActiveAt, '2026-07-05T07:20:00.000Z')
+    assert.equal(candidate.model, null)
+})
+
+test('openclaw rpc candidates report last activity and no reply text', async () => {
+    const reader = new OpenclawSessionReader()
+    const rpc = {
+        call: async (): Promise<unknown> => [
+            {
+                key: 'oc-rpc-1',
+                messageCount: 12,
+                lastActivity: '2026-07-06T06:00:00.000Z',
+                firstUserMessage: 'deploy staging'
+            }
+        ]
+    }
+
+    const candidates = await reader.listCandidates({
+        fs: scanFs({}),
+        agentId: 'agt',
+        openclawRpc: rpc as never
+    })
+
+    assert.equal(candidates.length, 1)
+    assert.equal(candidates[0].lastActiveAt, '2026-07-06T06:00:00.000Z')
+    assert.equal(candidates[0].timestamp, '2026-07-06T06:00:00.000Z')
+    // sessions.list summarizes; it carries neither reply text nor a model.
+    assert.equal(candidates[0].lastAssistantMessage, null)
+    assert.equal(candidates[0].model, null)
+})
+
+test('hermes sqlite candidates carry the newest reply and message time', async () => {
+    const Database = (
+        (await import('better-sqlite3')) as unknown as {
+            default: new (path: string) => {
+                exec: (sql: string) => void
+                prepare: (sql: string) => {
+                    run: (...args: unknown[]) => unknown
+                }
+                close: () => void
+            }
+        }
+    ).default
+    const { listHermesSqliteCandidates } = await import(
+        '../src/modules/chat/recovery/readers/hermes-sqlite-reader'
+    )
+    const { mkdtempSync, readFileSync, rmSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+
+    const dir = mkdtempSync(join(tmpdir(), 'nca-sqlite-list-'))
+    const dbPath = join(dir, 'state.db')
+    const db = new Database(dbPath)
+    db.exec(`
+        CREATE TABLE sessions (
+            id TEXT PRIMARY KEY, parent_session_id TEXT, started_at REAL,
+            ended_at REAL, end_reason TEXT, title TEXT, input_tokens INTEGER,
+            output_tokens INTEGER, estimated_cost_usd REAL, actual_cost_usd REAL
+        );
+        CREATE TABLE messages (
+            id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT,
+            tool_call_id TEXT, tool_calls TEXT, tool_name TEXT, timestamp REAL,
+            reasoning TEXT, reasoning_content TEXT
+        );
+    `)
+    db.prepare(
+        'INSERT INTO sessions (id, started_at) VALUES (?, ?)'
+    ).run('hs-list-1', 1700000000)
+    const insert = db.prepare(
+        'INSERT INTO messages (id, session_id, role, content, timestamp) VALUES (?, ?, ?, ?, ?)'
+    )
+    insert.run(1, 'hs-list-1', 'user', 'why is blue calming?', 1700000001)
+    insert.run(2, 'hs-list-1', 'assistant', 'An early answer.', 1700000002)
+    // A tool row with no content must not be mistaken for the newest reply.
+    insert.run(3, 'hs-list-1', 'tool', 'tool output', 1700000003)
+    insert.run(4, 'hs-list-1', 'assistant', 'Because of sky and water.', 1700000004)
+    insert.run(5, 'hs-list-1', 'assistant', '', 1700000005)
+    const mainBuf = readFileSync(dbPath)
+    db.close()
+
+    const fs = {
+        locate: async (): Promise<string> => dbPath,
+        listFiles: async (): Promise<string[]> => [],
+        exec: async (): Promise<string | null> => null,
+        readFile: async (): Promise<string | null> => null,
+        readBinary: async (p: string): Promise<Buffer | null> =>
+            p === dbPath ? mainBuf : null
+    }
+
+    const [candidate] = await listHermesSqliteCandidates(fs)
+    assert.equal(candidate.sessionRef, 'hs-list-1')
+    assert.equal(candidate.firstUserMessage, 'why is blue calming?')
+    assert.equal(candidate.lastAssistantMessage, 'Because of sky and water.')
+    assert.equal(candidate.messageCount, 5)
+    assert.equal(candidate.lastActiveAt, new Date(1700000005 * 1000).toISOString())
+    // The hermes schema records no model on a message row.
+    assert.equal(candidate.model, null)
+    rmSync(dir, { recursive: true, force: true })
 })

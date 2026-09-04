@@ -6,7 +6,10 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException } from '@nestjs/common'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
-import type { RecoveredMessage } from '../src/modules/chat/recovery/readers'
+import type {
+    CandidateSession,
+    RecoveredMessage
+} from '../src/modules/chat/recovery/readers'
 
 test('SessionRecoveryService recoverRuntimeSessionRawSources recovers only raw sources', async () => {
     const harness = makeHarness()
@@ -310,8 +313,10 @@ const makeHarness = (
     options: {
         frameworkSessionRef?: string | null
         recoveredMessages?: RecoveredMessage[]
+        candidates?: CandidateSession[]
     } = {}
 ) => {
+    const listCandidateCalls = { count: 0 }
     const session = {
         id: 'session-1',
         userId: 'user-1',
@@ -535,7 +540,10 @@ const makeHarness = (
                 ]
             }
         },
-        listCandidates: async () => []
+        listCandidates: async () => {
+            listCandidateCalls.count++
+            return options.candidates ?? []
+        }
     }
     const readers = {
         get: () => reader
@@ -546,7 +554,14 @@ const makeHarness = (
         drivers as never,
         readers as never
     )
-    return { service, messages, messagesBySession, sessions, sourceRows }
+    return {
+        service,
+        messages,
+        messagesBySession,
+        sessions,
+        sourceRows,
+        listCandidateCalls
+    }
 }
 
 const dbMessage = (
@@ -603,3 +618,73 @@ const recovered = (
         ]
     }
 }
+
+const candidate = (
+    sessionRef: string,
+    over: Partial<CandidateSession> = {}
+): CandidateSession => ({
+    sessionRef,
+    sourceFile: `/tmp/${sessionRef}.jsonl`,
+    firstUserMessage: 'hello',
+    lastAssistantMessage: 'a reply',
+    timestamp: '2026-05-10T10:00:00.000Z',
+    lastActiveAt: '2026-05-10T12:00:00.000Z',
+    messageCount: 4,
+    model: 'gpt-5.4',
+    ...over
+})
+
+test('SessionRecoveryService listRuntimeSessions returns the scan and marks the current ref', async () => {
+    const harness = makeHarness({
+        candidates: [candidate('local-ref'), candidate('other-ref')]
+    })
+
+    const listed = await harness.service.listRuntimeSessions(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+
+    assert.equal(listed.currentSessionRef, 'local-ref')
+    assert.deepEqual(
+        listed.candidates.map((c) => c.sessionRef),
+        ['local-ref', 'other-ref']
+    )
+    assert.equal(listed.candidates[0].lastAssistantMessage, 'a reply')
+    assert.equal(listed.candidates[0].lastActiveAt, '2026-05-10T12:00:00.000Z')
+    assert.equal(listed.candidates[0].model, 'gpt-5.4')
+})
+
+test('SessionRecoveryService listRuntimeSessions works without a cloud session', async () => {
+    const harness = makeHarness({ candidates: [candidate('other-ref')] })
+
+    const listed = await harness.service.listRuntimeSessions(
+        'user-1',
+        'agent-1'
+    )
+
+    assert.equal(listed.currentSessionRef, null)
+    assert.equal(listed.candidates.length, 1)
+})
+
+// Opening a session from the list must not re-scan every other transcript:
+// the caller already paid for that scan, and the scan is the expensive half.
+test('SessionRecoveryService viewRuntimeSession skips the scan when given a ref', async () => {
+    const harness = makeHarness({ candidates: [candidate('local-ref')] })
+
+    const viewed = await harness.service.viewRuntimeSession(
+        'user-1',
+        'agent-1',
+        'session-1',
+        'local-ref'
+    )
+
+    assert.equal(harness.listCandidateCalls.count, 0)
+    assert.deepEqual(viewed.candidates, [])
+    assert.equal(viewed.selectedSessionRef, 'local-ref')
+
+    // Control: with no ref the server still has to pick, so it still scans.
+    const control = makeHarness({ candidates: [candidate('local-ref')] })
+    await control.service.viewRuntimeSession('user-1', 'agent-1')
+    assert.equal(control.listCandidateCalls.count, 1)
+})

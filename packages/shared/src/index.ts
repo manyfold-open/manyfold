@@ -729,6 +729,7 @@ export type {
     RegenerateMessageRequest,
     RegenerateMessageResponse,
     RuntimeSessionCandidate,
+    RuntimeSessionListResponse,
     RuntimeSessionViewResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRebuildParsedResponse,

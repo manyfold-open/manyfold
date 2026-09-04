@@ -1,4 +1,5 @@
 import type {
+    RuntimeSessionListResponse,
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
@@ -19,6 +20,10 @@ import { SessionRecoveryService } from './session-recovery.service'
 
 interface RecoveryBody {
     sessionRef?: string
+}
+
+interface RuntimeSessionListBody {
+    sessionId?: string
 }
 
 interface RuntimeSessionViewBody {
@@ -45,6 +50,20 @@ interface RuntimeSessionSyncBody {
 @UseGuards(AuthGuard)
 export class RuntimeSessionController {
     constructor(private readonly recovery: SessionRecoveryService) {}
+
+    @Post('list')
+    @HttpCode(200)
+    async list(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('agentId') agentId: string,
+        @Body() body: RuntimeSessionListBody | undefined
+    ): Promise<RuntimeSessionListResponse> {
+        return this.recovery.listRuntimeSessions(
+            user.userId,
+            agentId,
+            body?.sessionId?.trim() || undefined
+        )
+    }
 
     @Post('view')
     @HttpCode(200)

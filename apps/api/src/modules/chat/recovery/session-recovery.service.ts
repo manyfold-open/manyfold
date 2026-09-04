@@ -5,6 +5,7 @@ import type {
     ChatContentBlock,
     ChatMessage,
     ChatSessionSummary,
+    RuntimeSessionListResponse,
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
@@ -195,6 +196,42 @@ export class SessionRecoveryService {
         }
     }
 
+    // The session list: one bounded scan of the runtime's transcripts, no
+    // transcript read. Opening one of them is viewRuntimeSession.
+    async listRuntimeSessions(
+        userId: string,
+        agentId: string,
+        sessionId?: string
+    ): Promise<RuntimeSessionListResponse> {
+        const agent = await this.loadAgentContext(userId, agentId)
+        const session = sessionId
+            ? await this.loadOptionalSessionContext(userId, agentId, sessionId)
+            : null
+        const reader = this.requireReader(agent.framework)
+        const handle = await this.recoveryFsOrUnavailable(agent.id)
+        const openclawRpc =
+            agent.framework === 'openclaw'
+                ? await this.drivers.openclawRpcForAgent(agent.id)
+                : null
+        try {
+            const candidates = await this.runReader(() =>
+                reader.listCandidates({
+                    fs: handle.fs,
+                    agentId: agent.id,
+                    openclawRpc
+                })
+            )
+            return {
+                framework: agent.framework,
+                runtime: agent.runtime,
+                currentSessionRef: session?.frameworkSessionRef ?? null,
+                candidates
+            }
+        } finally {
+            openclawRpc?.disconnect()
+        }
+    }
+
     async viewRuntimeSession(
         userId: string,
         agentId: string,
@@ -220,13 +257,18 @@ export class SessionRecoveryService {
                 ? await this.drivers.openclawRpcForAgent(agent.id)
                 : null
         try {
-            const candidates = await this.runReader(() =>
-                reader.listCandidates({
-                    fs: handle.fs,
-                    agentId: agent.id,
-                    openclawRpc
-                })
-            )
+            // A caller that names the session already has the list; scanning
+            // every other transcript again would double the runtime work of
+            // opening one.
+            const candidates = overrideRef
+                ? []
+                : await this.runReader(() =>
+                      reader.listCandidates({
+                          fs: handle.fs,
+                          agentId: agent.id,
+                          openclawRpc
+                      })
+                  )
             const ref =
                 overrideRef ??
                 session?.frameworkSessionRef ??
