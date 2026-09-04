@@ -50,7 +50,13 @@ export const CLOUD_TABLE_CONTRACT = [
     {
         table: 'deleted_user_billing_refs',
         dbExport: 'deletedUserBillingRefs'
-    }
+    },
+    // First top-up offer (2026-09-04): promotional credit is a commercial
+    // concept end to end — an OSS database has no campaigns to run and no
+    // bonuses to grant.
+    { table: 'credit_campaigns', dbExport: 'creditCampaigns' },
+    { table: 'credit_grants', dbExport: 'creditGrants' },
+    { table: 'offer_impressions', dbExport: 'offerImpressions' }
 ]
 
 export const CLOUD_TABLE_DB_EXPORTS = CLOUD_TABLE_CONTRACT.map(
