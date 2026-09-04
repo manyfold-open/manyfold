@@ -2,7 +2,20 @@ import type { Config } from 'tailwindcss'
 import typography from '@tailwindcss/typography'
 
 const config: Config = {
-    content: ['./index.html', './src/**/*.{ts,tsx}'],
+    content: [
+        './index.html',
+        './src/**/*.{ts,tsx}',
+        /* The editions overlay (vite-overlay.ts) shadows modules under ./src
+           by path from MF_WEB_OVERLAY_DIR, so a cloud build's markup lives
+           partly outside this app and has to be scanned as well. Without this
+           a utility that only the overlay uses is purged and its rule silently
+           never ships — `pl-7` on the managed top-up amount field went that
+           way, dropping the `$` prefix on top of the value. The variable is
+           unset in the public repo, where the spread contributes nothing. */
+        ...(process.env.MF_WEB_OVERLAY_DIR
+            ? [`${process.env.MF_WEB_OVERLAY_DIR}/**/*.{ts,tsx}`]
+            : [])
+    ],
     darkMode: ['selector', '[data-theme="dark"]'],
     theme: {
         extend: {
