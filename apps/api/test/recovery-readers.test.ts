@@ -6,6 +6,7 @@ import {
 } from '../src/modules/chat/recovery/readers/claude-code-reader'
 import {
     CodexSessionReader,
+    codexRefFromPath,
     parseCodexJsonl
 } from '../src/modules/chat/recovery/readers/codex-reader'
 import {
@@ -21,11 +22,20 @@ import {
 } from '../src/modules/chat/recovery/readers/openclaw-reader'
 import { parseHermesJson } from '../src/modules/chat/recovery/readers/hermes-reader'
 import {
-    candidateScanScript,
+    CANDIDATE_FETCH_LIMIT,
+    candidateFetchScript,
+    candidateIndexScript,
     candidateTailLines,
-    parseCandidateScan
+    parseCandidateIndex,
+    parseCandidateScan,
+    scanCandidates,
+    type CandidateFileHead
 } from '../src/modules/chat/recovery/readers/candidate-scan'
-import { claudeSessionLocateScript } from '../src/modules/chat/recovery/readers/claude-code-reader'
+import { CandidateScanCache } from '../src/modules/chat/recovery/readers/candidate-scan-cache'
+import {
+    claudeRefFromPath,
+    claudeSessionLocateScript
+} from '../src/modules/chat/recovery/readers/claude-code-reader'
 
 const formatCandidateScanRecord = (record: {
     path: string
@@ -1001,38 +1011,22 @@ test('parseGeminiJsonl reconstructs last-wins, skips session_context, maps block
 
 test('gemini listCandidates dispatches .jsonl summaries and skips session_context', async () => {
     const reader = new GeminiCliSessionReader()
-    const files: Record<string, string> = {
-        '/h/.gemini/tmp/a/chats/session-2026-07-24T13-48-sessjl1.jsonl':
-            geminiJsonlBlob(),
-        '/h/.gemini/tmp/b/chats/session-old.json': JSON.stringify({
-            sessionId: 'sess-old-1',
-            startTime: '2026-01-01T00:00:00.000Z',
-            messages: [
-                { id: 'm1', type: 'user', content: 'old question' },
-                { id: 'm2', type: 'gemini', content: 'old answer' }
-            ]
-        })
-    }
-    const fs = {
-        locate: async (): Promise<string | null> => null,
-        listFiles: async (): Promise<string[]> => Object.keys(files),
-        exec: async (): Promise<string | null> =>
-            Object.entries(files)
-                .map(([path, text]) =>
-                    formatCandidateScanRecord({
-                        path,
-                        mtimeSec: 1753364924,
-                        size: Buffer.byteLength(text),
-                        lineCount: text.split('\n').length,
-                        headText: text
-                    })
-                )
-                .join(''),
-        readFile: async (path: string): Promise<string | null> =>
-            files[path] ?? null,
-        readBinary: async (): Promise<Buffer> => Buffer.alloc(0)
-    }
-    const candidates = await reader.listCandidates({ fs, agentId: 'agt' })
+    const fs = scanFs({
+        '/h/.gemini/tmp/a/chats/session-2026-07-24T13-48-sessjl1.jsonl': {
+            head: geminiJsonlBlob()
+        },
+        '/h/.gemini/tmp/b/chats/session-old.json': {
+            head: JSON.stringify({
+                sessionId: 'sess-old-1',
+                startTime: '2026-01-01T00:00:00.000Z',
+                messages: [
+                    { id: 'm1', type: 'user', content: 'old question' },
+                    { id: 'm2', type: 'gemini', content: 'old answer' }
+                ]
+            })
+        }
+    })
+    const { candidates } = await reader.listCandidates({ fs, agentId: 'agt' })
     assert.equal(candidates.length, 2)
     const jl = candidates.find((c) => c.sessionRef === 'sess-jl-1')
     assert.ok(jl)
@@ -1121,17 +1115,60 @@ test('claude locate script prefers the filename match and greps as a fixed strin
     rmSync(home, { recursive: true, force: true })
 })
 
-test('candidate scan script emits mtime-sorted bounded heads', async () => {
+// A real bash run is the only thing that can show the batched stat works on
+// both stat dialects (BSD locally, GNU in CI), keeps a path with spaces whole,
+// sorts newest first, and answers an empty tree with nothing.
+test('candidate index lists every transcript newest first in one stat call', async () => {
     const { spawnSync } = await import('node:child_process')
     const { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } =
         await import('node:fs')
     const { join } = await import('node:path')
     const { tmpdir } = await import('node:os')
 
-    const home = mkdtempSync(join(tmpdir(), 'candidate-scan-'))
-    const dir = join(home, '.claude', 'projects', 'proj-a')
+    const home = mkdtempSync(join(tmpdir(), 'candidate-index-'))
+    const dir = join(home, '.claude', 'projects', 'proj a')
     mkdirSync(dir, { recursive: true })
-    const older = join(dir, 'older.jsonl')
+    const older = join(dir, 'older one.jsonl')
+    writeFileSync(older, 'line-1\nline-2\n')
+    utimesSync(older, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
+    const newer = join(dir, 'newer.jsonl')
+    writeFileSync(newer, 'x'.repeat(1001))
+    utimesSync(newer, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'))
+
+    const script = candidateIndexScript(
+        `find "$HOME"/.claude/projects -type f -name '*.jsonl'`
+    )
+    const run = (h: string) =>
+        spawnSync('bash', ['-lc', script], {
+            env: { ...process.env, HOME: h },
+            encoding: 'utf8'
+        })
+    assert.deepEqual(parseCandidateIndex(run(home).stdout), [
+        { path: newer, mtimeMs: Date.parse('2026-02-01T00:00:00Z'), size: 1001 },
+        { path: older, mtimeMs: Date.parse('2026-01-01T00:00:00Z'), size: 14 }
+    ])
+
+    const empty = mkdtempSync(join(tmpdir(), 'candidate-index-empty-'))
+    const res = run(empty)
+    assert.equal(res.status, 0)
+    assert.deepEqual(parseCandidateIndex(res.stdout), [])
+    rmSync(home, { recursive: true, force: true })
+    rmSync(empty, { recursive: true, force: true })
+})
+
+// The fetch reads exactly the paths it is given, re-stats each so the header
+// describes the bytes actually read, and leaves out a path that vanished.
+test('candidate fetch script reads the listed paths and re-stats each', async () => {
+    const { spawnSync } = await import('node:child_process')
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } =
+        await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+
+    const home = mkdtempSync(join(tmpdir(), 'candidate-fetch-'))
+    const dir = join(home, '.claude', 'projects', 'proj a')
+    mkdirSync(dir, { recursive: true })
+    const older = join(dir, 'older one.jsonl')
     writeFileSync(older, 'line-1\nline-2\n')
     utimesSync(older, new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T00:00:00Z'))
     const newer = join(dir, 'newer.jsonl')
@@ -1139,41 +1176,24 @@ test('candidate scan script emits mtime-sorted bounded heads', async () => {
     writeFileSync(newer, bigLine.repeat(80))
     utimesSync(newer, new Date('2026-02-01T00:00:00Z'), new Date('2026-02-01T00:00:00Z'))
 
-    const script = candidateScanScript(
-        `find "$HOME"/.claude/projects -type f -name '*.jsonl'`,
-        1
-    )
-    const res = spawnSync('bash', ['-lc', script], {
-        env: { ...process.env, HOME: home },
-        encoding: 'utf8'
-    })
-    const heads = parseCandidateScan(res.stdout)
-
-    // limit 1 must keep the NEWEST file, not an arbitrary one
-    assert.equal(heads.length, 1)
-    assert.equal(heads[0].path, newer)
-    assert.equal(heads[0].lineCount, 80)
-    assert.equal(heads[0].size, 80 * 1001)
-    assert.equal(heads[0].truncated, heads[0].size > 65536)
-    assert.ok(heads[0].headText.startsWith('x'))
-
-    const full = spawnSync(
+    const res = spawnSync(
         'bash',
-        [
-            '-lc',
-            candidateScanScript(
-                `find "$HOME"/.claude/projects -type f -name '*.jsonl'`,
-                10
-            )
-        ],
+        ['-lc', candidateFetchScript([newer, join(dir, 'gone.jsonl'), older])],
         { env: { ...process.env, HOME: home }, encoding: 'utf8' }
     )
-    const both = parseCandidateScan(full.stdout)
+    const heads = parseCandidateScan(res.stdout)
+
     assert.deepEqual(
-        both.map((h) => h.path),
+        heads.map((h) => h.path),
         [newer, older]
     )
-    assert.equal(both[1].headText.trim(), 'line-1\nline-2')
+    assert.equal(heads[0].lineCount, 80)
+    assert.equal(heads[0].size, 80 * 1001)
+    assert.equal(heads[0].mtimeMs, Date.parse('2026-02-01T00:00:00Z'))
+    assert.equal(heads[0].truncated, heads[0].size > 65536)
+    assert.ok(heads[0].headText.startsWith('x'))
+    assert.equal(heads[1].headText.trim(), 'line-1\nline-2')
+    assert.equal(heads[1].mtimeMs, Date.parse('2026-01-01T00:00:00Z'))
     rmSync(home, { recursive: true, force: true })
 })
 
@@ -1259,17 +1279,10 @@ test('candidate scan emits a tail window only past the head window', async () =>
     ).join('\n')
     writeFileSync(big, `HEAD-ONLY-MARKER\n${filler}\nTAIL-ONLY-MARKER\n`)
 
-    const res = spawnSync(
-        'bash',
-        [
-            '-lc',
-            candidateScanScript(
-                `find "$HOME"/.claude/projects -type f -name '*.jsonl'`,
-                10
-            )
-        ],
-        { env: { ...process.env, HOME: home }, encoding: 'utf8' }
-    )
+    const res = spawnSync('bash', ['-lc', candidateFetchScript([small, big])], {
+        env: { ...process.env, HOME: home },
+        encoding: 'utf8'
+    })
     const heads = parseCandidateScan(res.stdout)
     const smallHead = heads.find((h) => h.path === small)
     const bigHead = heads.find((h) => h.path === big)
@@ -1301,24 +1314,278 @@ test('candidate scan emits a tail window only past the head window', async () =>
     rmSync(home, { recursive: true, force: true })
 })
 
-const scanFs = (files: Record<string, { head: string; tail?: string }>) => ({
-    locate: async (): Promise<string | null> => null,
-    listFiles: async (): Promise<string[]> => Object.keys(files),
-    exec: async (): Promise<string | null> =>
-        Object.entries(files)
-            .map(([path, { head, tail }]) =>
-                formatCandidateScanRecord({
-                    path,
-                    mtimeSec: 1753364924,
-                    size: tail === undefined ? Buffer.byteLength(head) : 999999,
-                    lineCount: head.split('\n').length,
-                    headText: head,
-                    ...(tail === undefined ? {} : { tailText: tail })
+// A fake runtime for the two-exec scan: the index script is answered from the
+// file map, the fetch script only for the paths it names, and every script is
+// kept so a test can count execs and see which files were read.
+const scanFs = (
+    files: Record<string, { head: string; tail?: string; mtimeSec?: number }>
+) => {
+    const scripts: string[] = []
+    const entry = (path: string) => {
+        const file = files[path]
+        return {
+            mtimeSec: file.mtimeSec ?? 1753364924,
+            size:
+                file.tail === undefined ? Buffer.byteLength(file.head) : 999999
+        }
+    }
+    return {
+        scripts,
+        locate: async (): Promise<string | null> => null,
+        listFiles: async (): Promise<string[]> => Object.keys(files),
+        exec: async (script: string): Promise<string | null> => {
+            scripts.push(script)
+            if (script.includes('xargs -0 stat'))
+                return Object.keys(files)
+                    .sort((a, b) => entry(b).mtimeSec - entry(a).mtimeSec)
+                    .map(
+                        (path) =>
+                            `${entry(path).mtimeSec} ${entry(path).size} ${path}`
+                    )
+                    .join('\n')
+            return script
+                .split('\n')
+                .filter((line) => line.startsWith('/') && files[line])
+                .map((path) => {
+                    const { head, tail } = files[path]
+                    return formatCandidateScanRecord({
+                        path,
+                        ...entry(path),
+                        lineCount: head.split('\n').length,
+                        headText: head,
+                        ...(tail === undefined ? {} : { tailText: tail })
+                    })
                 })
-            )
-            .join(''),
+                .join('')
+        },
+        readFile: async (): Promise<string | null> => null,
+        readBinary: async (): Promise<Buffer> => Buffer.alloc(0)
+    }
+}
+
+const fetchedPaths = (fs: { scripts: string[] }): string[][] =>
+    fs.scripts
+        .filter((script) => !script.includes('xargs -0 stat'))
+        .map((script) =>
+            script.split('\n').filter((line) => line.startsWith('/'))
+        )
+
+// A real bash on a real HOME, for the one behaviour a fake cannot show: what
+// the reader's own find leaves out.
+const bashFs = (home: string) => ({
+    locate: async (): Promise<string | null> => null,
+    listFiles: async (): Promise<string[]> => [],
+    exec: async (script: string): Promise<string | null> => {
+        const { spawnSync } = await import('node:child_process')
+        const res = spawnSync('bash', ['-lc', script], {
+            env: { ...process.env, HOME: home },
+            encoding: 'utf8'
+        })
+        return res.status === 0 ? res.stdout : null
+    },
     readFile: async (): Promise<string | null> => null,
     readBinary: async (): Promise<Buffer> => Buffer.alloc(0)
+})
+
+const refSummary = (head: CandidateFileHead): { sessionRef: string } | null => {
+    const ref = head.headText.trim().split('\n')[0]
+    return ref ? { sessionRef: ref } : null
+}
+
+test('scanCandidates reads only what the cache does not already describe', async () => {
+    const files: Record<string, { head: string; mtimeSec?: number }> = {
+        '/h/a.jsonl': { head: 'ref-a', mtimeSec: 300 },
+        '/h/b.jsonl': { head: 'ref-b', mtimeSec: 200 },
+        '/h/c.jsonl': { head: 'ref-c', mtimeSec: 100 }
+    }
+    const fs = scanFs(files)
+    const cache = new CandidateScanCache()
+    const opts = { agentId: 'agt', limit: 2, cache, summarize: refSummary }
+
+    const cold = await scanCandidates(fs, 'find x', opts)
+    assert.deepEqual(
+        cold.candidates.map((c) => c.sessionRef),
+        ['ref-a', 'ref-b']
+    )
+    assert.equal(cold.total, 3)
+    assert.equal(cold.listed, 2)
+    // The index, then one fetch of exactly the page.
+    assert.equal(fs.scripts.length, 2)
+    assert.deepEqual(fetchedPaths(fs), [['/h/a.jsonl', '/h/b.jsonl']])
+
+    // Nothing changed: the index alone answers.
+    const warm = await scanCandidates(fs, 'find x', opts)
+    assert.deepEqual(warm.candidates, cold.candidates)
+    assert.equal(fs.scripts.length, 3)
+
+    // b grew, so b is the only file read again.
+    files['/h/b.jsonl'] = { head: 'ref-b\nmore', mtimeSec: 200 }
+    const changed = await scanCandidates(fs, 'find x', opts)
+    assert.deepEqual(fetchedPaths(fs).at(-1), ['/h/b.jsonl'])
+    assert.deepEqual(
+        changed.candidates.map((c) => c.sessionRef),
+        ['ref-a', 'ref-b']
+    )
+
+    // a left the runtime: gone from the page, and c moves up into it.
+    delete files['/h/a.jsonl']
+    const gone = await scanCandidates(fs, 'find x', opts)
+    assert.deepEqual(
+        gone.candidates.map((c) => c.sessionRef),
+        ['ref-b', 'ref-c']
+    )
+    assert.equal(gone.total, 2)
+    assert.deepEqual(fetchedPaths(fs).at(-1), ['/h/c.jsonl'])
+})
+
+test('scanCandidates remembers a file that carried no session id', async () => {
+    const fs = scanFs({
+        '/h/junk.jsonl': { head: '', mtimeSec: 10 },
+        '/h/a.jsonl': { head: 'ref-a', mtimeSec: 5 }
+    })
+    const cache = new CandidateScanCache()
+    const opts = { agentId: 'agt', limit: 10, cache, summarize: refSummary }
+
+    const first = await scanCandidates(fs, 'find x', opts)
+    assert.deepEqual(
+        first.candidates.map((c) => c.sessionRef),
+        ['ref-a']
+    )
+    // Read, just not a session — it still counts as covered.
+    assert.equal(first.listed, 2)
+
+    await scanCandidates(fs, 'find x', opts)
+    assert.equal(fs.scripts.length, 3)
+})
+
+test('scanCandidates reports a page the fetch cap cut short', async () => {
+    const files: Record<string, { head: string; mtimeSec?: number }> = {}
+    const total = CANDIDATE_FETCH_LIMIT + 10
+    for (let i = 0; i < total; i++)
+        files[`/h/f${String(i).padStart(3, '0')}.jsonl`] = {
+            head: `ref-${i}`,
+            mtimeSec: 1000 - i
+        }
+    const fs = scanFs(files)
+    const cache = new CandidateScanCache()
+    const opts = { agentId: 'agt', limit: total, cache, summarize: refSummary }
+
+    const first = await scanCandidates(fs, 'find x', opts)
+    assert.equal(first.total, total)
+    assert.equal(first.listed, CANDIDATE_FETCH_LIMIT)
+    assert.equal(first.candidates.length, CANDIDATE_FETCH_LIMIT)
+    assert.equal(first.candidates[0].sessionRef, 'ref-0')
+
+    // The same call again covers the rest and reads only the rest.
+    const second = await scanCandidates(fs, 'find x', opts)
+    assert.equal(second.listed, total)
+    assert.equal(fetchedPaths(fs).at(-1)!.length, 10)
+})
+
+test('scanCandidates knows unread transcripts by filename when the reader can', async () => {
+    const readId = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const unreadId = 'aaaaaaaa-0000-4000-8000-000000000002'
+    const fs = scanFs({
+        [`/h/p/${readId}.jsonl`]: { head: 'content-ref-1', mtimeSec: 20 },
+        [`/h/p/${unreadId}.jsonl`]: { head: 'content-ref-2', mtimeSec: 10 }
+    })
+
+    const listing = await scanCandidates(fs, 'find x', {
+        agentId: 'agt',
+        limit: 1,
+        summarize: refSummary,
+        refFromPath: claudeRefFromPath
+    })
+
+    assert.deepEqual(
+        listing.candidates.map((c) => c.sessionRef),
+        ['content-ref-1']
+    )
+    // The read file is keyed by what it says, the unread one by its name.
+    assert.deepEqual(
+        [...listing.filesByRef.keys()].sort(),
+        [readId, unreadId, 'content-ref-1'].sort()
+    )
+    assert.equal(
+        listing.filesByRef.get(unreadId)?.path,
+        `/h/p/${unreadId}.jsonl`
+    )
+})
+
+test('a transcript filename proves its session id only when it is one', () => {
+    assert.equal(
+        claudeRefFromPath(
+            '/h/.claude/projects/p/9f3c1a20-7b4e-4d2a-9c11-5e8a2f0b6d34.jsonl'
+        ),
+        '9f3c1a20-7b4e-4d2a-9c11-5e8a2f0b6d34'
+    )
+    assert.equal(
+        claudeRefFromPath(
+            '/h/.claude/projects/p/9f3c1a20-7b4e-4d2a-9c11-5e8a2f0b6d34/subagents/agent-aa4750a8d3522dff8.jsonl'
+        ),
+        null
+    )
+    assert.equal(
+        codexRefFromPath(
+            '/h/.codex/sessions/2026/07/04/rollout-2026-07-04T09-00-00-019874d1-2b3c-4d5e-8f60-718293a4b5c6.jsonl'
+        ),
+        '019874d1-2b3c-4d5e-8f60-718293a4b5c6'
+    )
+    assert.equal(codexRefFromPath('/h/.codex/sessions/rollout-1.jsonl'), null)
+})
+
+// A subagent transcript carries the parent's sessionId on every line, so
+// listing it would show the parent again with the helper's reply as its own.
+test('claude listCandidates leaves subagent transcripts out of the list', async () => {
+    const { mkdtempSync, mkdirSync, writeFileSync, rmSync } = await import(
+        'node:fs'
+    )
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+
+    const home = mkdtempSync(join(tmpdir(), 'candidate-subagents-'))
+    const project = join(home, '.claude', 'projects', 'proj-a')
+    const sessionId = '9f3c1a20-7b4e-4d2a-9c11-5e8a2f0b6d34'
+    const subagents = join(project, sessionId, 'subagents')
+    mkdirSync(subagents, { recursive: true })
+    const line = (
+        role: 'user' | 'assistant',
+        text: string,
+        extra: Record<string, unknown> = {}
+    ): string =>
+        JSON.stringify({
+            uuid: `${role}-${text}`,
+            sessionId,
+            type: role,
+            timestamp: '2026-07-01T10:00:00.000Z',
+            message: { role, content: text },
+            ...extra
+        })
+    writeFileSync(
+        join(project, `${sessionId}.jsonl`),
+        [line('user', 'open a PR'), line('assistant', 'Opened.')].join('\n')
+    )
+    writeFileSync(
+        join(subagents, 'agent-aa4750a8d3522dff8.jsonl'),
+        [
+            line('user', 'ROLE: helper', { isSidechain: true }),
+            line('assistant', 'helper reply', { isSidechain: true })
+        ].join('\n')
+    )
+
+    const listing = await new ClaudeCodeSessionReader().listCandidates({
+        fs: bashFs(home),
+        agentId: 'agt'
+    })
+
+    assert.equal(listing.total, 1)
+    assert.deepEqual(
+        listing.candidates.map((c) => c.sessionRef),
+        [sessionId]
+    )
+    assert.equal(listing.candidates[0].lastAssistantMessage, 'Opened.')
+    assert.deepEqual([...listing.filesByRef.keys()], [sessionId])
+    rmSync(home, { recursive: true, force: true })
 })
 
 test('claude listCandidates reads the newest reply, activity and model from the tail', async () => {
@@ -1358,7 +1625,9 @@ test('claude listCandidates reads the newest reply, activity and model from the 
         })
     ].join('\n')
 
-    const [candidate] = await reader.listCandidates({
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
         fs: scanFs({ '/h/.claude/projects/p/sess-tail.jsonl': { head, tail } }),
         agentId: 'agt'
     })
@@ -1395,7 +1664,9 @@ test('claude listCandidates falls back to the head when the file has no tail', a
         })
     ].join('\n')
 
-    const [candidate] = await reader.listCandidates({
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
         fs: scanFs({ '/h/.claude/projects/p/sess-small.jsonl': { head } }),
         agentId: 'agt'
     })
@@ -1415,7 +1686,9 @@ test('claude listCandidates reports no reply rather than inventing one', async (
         message: { role: 'user', content: 'anyone there?' }
     })
 
-    const [candidate] = await reader.listCandidates({
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
         fs: scanFs({ '/h/.claude/projects/p/sess-quiet.jsonl': { head } }),
         agentId: 'agt'
     })
@@ -1462,7 +1735,9 @@ test('codex listCandidates takes the model from the head when the tail has none'
         })
     ].join('\n')
 
-    const [candidate] = await reader.listCandidates({
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
         fs: scanFs({ '/h/.codex/sessions/rollout-1.jsonl': { head, tail } }),
         agentId: 'agt'
     })
@@ -1499,7 +1774,9 @@ test('openclaw file listCandidates reads the tail and never guesses a model', as
         })
     ].join('\n')
 
-    const [candidate] = await reader.listCandidates({
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
         fs: scanFs({
             '/h/.openclaw/agents/a/sessions/oc-1.jsonl': { head, tail }
         }),
@@ -1525,7 +1802,7 @@ test('openclaw rpc candidates report last activity and no reply text', async () 
         ]
     }
 
-    const candidates = await reader.listCandidates({
+    const { candidates } = await reader.listCandidates({
         fs: scanFs({}),
         agentId: 'agt',
         openclawRpc: rpc as never

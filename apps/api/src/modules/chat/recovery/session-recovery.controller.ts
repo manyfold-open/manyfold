@@ -1,10 +1,12 @@
-import type {
-    AgentSessionListResponse,
-    RuntimeSessionRebuildParsedResponse,
-    RuntimeSessionRecoverRawResponse,
-    RuntimeSessionRestoreResponse,
-    RuntimeSessionSyncResponse,
-    RuntimeSessionViewResponse
+import {
+    agentSessionListLimits,
+    type AgentSessionListBody,
+    type AgentSessionListResponse,
+    type RuntimeSessionRebuildParsedResponse,
+    type RuntimeSessionRecoverRawResponse,
+    type RuntimeSessionRestoreResponse,
+    type RuntimeSessionSyncResponse,
+    type RuntimeSessionViewResponse
 } from '@manyfold/shared'
 import {
     Body,
@@ -42,6 +44,14 @@ interface RuntimeSessionSyncBody {
     sessionId?: string
 }
 
+const clampLocalLimit = (value: unknown): number => {
+    const requested =
+        typeof value === 'number' && Number.isFinite(value)
+            ? Math.floor(value)
+            : agentSessionListLimits.firstPage
+    return Math.min(Math.max(requested, 1), agentSessionListLimits.maxLocal)
+}
+
 @Controller('agents/:agentId/runtime-sessions')
 @UseGuards(AuthGuard)
 export class RuntimeSessionController {
@@ -51,9 +61,13 @@ export class RuntimeSessionController {
     @HttpCode(200)
     async list(
         @CurrentUser() user: AuthPrincipal,
-        @Param('agentId') agentId: string
+        @Param('agentId') agentId: string,
+        @Body() body: AgentSessionListBody | undefined
     ): Promise<AgentSessionListResponse> {
-        return this.recovery.listAgentSessions(user.userId, agentId)
+        return this.recovery.listAgentSessions(user.userId, agentId, {
+            local: body?.local === 'skip' ? 'skip' : 'scan',
+            localLimit: clampLocalLimit(body?.localLimit)
+        })
     }
 
     @Post('view')

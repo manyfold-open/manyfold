@@ -9,6 +9,7 @@ import type { SessionReader } from './types'
 
 export type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -18,6 +19,7 @@ export type {
     RecoverySummary,
     SessionReader
 } from './types'
+export { CandidateScanCache } from './candidate-scan-cache'
 
 @Injectable()
 export class SessionReaderRegistry {

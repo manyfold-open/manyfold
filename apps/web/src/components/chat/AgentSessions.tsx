@@ -1,4 +1,8 @@
-import { chatCapabilitiesByFramework, frameworkResumeCommandLine } from '@manyfold/shared'
+import {
+    agentSessionListLimits,
+    chatCapabilitiesByFramework,
+    frameworkResumeCommandLine
+} from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentSessionListItem,
@@ -19,10 +23,12 @@ import {
     EllipsisVerticalIcon,
     PreviewIcon,
     RawIcon,
+    RefreshIcon,
     RestoreIcon
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
-import { Spinner } from '@/components/Loading'
+import { Ghost, HairlineProgress, Spinner } from '@/components/Loading'
+import { useLoadingGate } from '@/components/useLoadingGate'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
@@ -35,6 +41,16 @@ interface AgentSessionsProps {
     onClose: () => void
     onApplied: (sessionId?: string) => void
 }
+
+// The last list each agent produced, for the life of the page. The panel
+// unmounts whenever it closes, and a reopen should show what it showed a
+// moment ago while the runtime is asked again behind it.
+const listCache = new Map<string, AgentSessionListResponse>()
+
+// Below lg the pane owns the whole screen (SidePane), so opening a session
+// from it has to hand the screen back; beside the chat it can stay.
+const paneCanStayOpen = (): boolean =>
+    window.matchMedia('(min-width: 1024px)').matches
 
 const AgentSessions: FC<AgentSessionsProps> = ({
     agentId,
@@ -59,38 +75,98 @@ const AgentSessions: FC<AgentSessionsProps> = ({
             }
             if (item.cloudSessionId) {
                 onApplied(item.cloudSessionId)
-                onClose()
+                if (!paneCanStayOpen()) onClose()
             }
         },
         [onApplied, onClose]
     )
-    const [loading, setLoading] = useState(true)
+    const [result, setResult] = useState<AgentSessionListResponse | null>(
+        () => listCache.get(agentId) ?? null
+    )
+    const [scanning, setScanning] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const [result, setResult] = useState<AgentSessionListResponse | null>(null)
+    const abortRef = useRef<AbortController | null>(null)
+    const seqRef = useRef(0)
 
-    // The scan belongs to the panel, not to the list view: it walks every
-    // transcript on the runtime, so opening a session and coming back must not
-    // pay for it twice.
+    // The scan belongs to the panel, not to the list view: it walks the
+    // runtime's transcripts, so opening a session and coming back must not
+    // pay for it twice. One scan in flight at a time; a newer request wins.
+    const runScan = useCallback(
+        (localLimit: number): void => {
+            abortRef.current?.abort()
+            const controller = new AbortController()
+            abortRef.current = controller
+            const seq = ++seqRef.current
+            setScanning(true)
+            setError(null)
+            void (async (): Promise<void> => {
+                try {
+                    const res = await client.chat.agentSessionList(
+                        agentId,
+                        { localLimit },
+                        { signal: controller.signal }
+                    )
+                    if (seq !== seqRef.current) return
+                    listCache.set(agentId, res)
+                    setResult(res)
+                } catch (err) {
+                    if (controller.signal.aborted || seq !== seqRef.current)
+                        return
+                    setError(apiErrorMessage(err))
+                } finally {
+                    if (seq === seqRef.current) setScanning(false)
+                }
+            })()
+        },
+        [agentId, client]
+    )
+
     useEffect(() => {
-        const controller = new AbortController()
-        setLoading(true)
+        const cached = listCache.get(agentId)
+        setResult(cached ?? null)
         setError(null)
-        void (async (): Promise<void> => {
-            try {
-                const res = await client.chat.agentSessionList(agentId, {
-                    signal: controller.signal
+        // A cold panel also asks for the cloud half alone, which the server
+        // answers without touching the runtime: rows are on screen in the
+        // time of one database read, and the full list replaces them when it
+        // lands. A warm panel already has rows; it only refreshes, keeping
+        // whatever depth the user had paged to.
+        const cloudFirst = cached ? null : new AbortController()
+        if (cloudFirst)
+            void client.chat
+                .agentSessionList(
+                    agentId,
+                    { local: 'skip' },
+                    { signal: cloudFirst.signal }
+                )
+                .then((res) => {
+                    if (!cloudFirst.signal.aborted)
+                        setResult((prev) => prev ?? res)
                 })
-                if (controller.signal.aborted) return
-                setResult(res)
-            } catch (err) {
-                if (controller.signal.aborted) return
-                setError(apiErrorMessage(err))
-            } finally {
-                if (!controller.signal.aborted) setLoading(false)
-            }
-        })()
-        return (): void => controller.abort()
-    }, [agentId, client])
+                // The full request is the one that reports a failure.
+                .catch(() => undefined)
+        runScan(
+            cached
+                ? Math.max(agentSessionListLimits.firstPage, cached.localListed)
+                : agentSessionListLimits.firstPage
+        )
+        return (): void => {
+            cloudFirst?.abort()
+            abortRef.current?.abort()
+        }
+    }, [agentId, client, runScan])
+
+    const listed = result?.localListed ?? 0
+    const handleRefresh = useCallback((): void => {
+        runScan(Math.max(agentSessionListLimits.firstPage, listed))
+    }, [listed, runScan])
+    const handleShowMore = useCallback((): void => {
+        runScan(
+            Math.min(
+                agentSessionListLimits.maxLocal,
+                listed + agentSessionListLimits.step
+            )
+        )
+    }, [listed, runScan])
 
     return (
         <div
@@ -109,8 +185,10 @@ const AgentSessions: FC<AgentSessionsProps> = ({
                 <SessionList
                     currentCloudSessionId={sessionId}
                     error={error}
-                    loading={loading}
+                    scanning={scanning}
                     onOpen={handleOpen}
+                    onRefresh={handleRefresh}
+                    onShowMore={handleShowMore}
                     result={result}
                 />
             </div>
@@ -132,73 +210,164 @@ const AgentSessions: FC<AgentSessionsProps> = ({
 const SessionList: FC<{
     currentCloudSessionId: string | null
     error: string | null
-    loading: boolean
+    scanning: boolean
     onOpen: (session: AgentSessionListItem) => void
+    onRefresh: () => void
+    onShowMore: () => void
     result: AgentSessionListResponse | null
 }> = ({
     currentCloudSessionId,
     error,
-    loading,
+    scanning,
     onOpen,
+    onRefresh,
+    onShowMore,
     result
 }): ReactNode => {
     const { t } = useI18n()
+    // Nothing has answered yet, not even the cloud half: ghosts, gated so a
+    // fast answer never flashes them (DESIGN.md §10.8).
+    const { showLoading } = useLoadingGate(result === null && error === null)
 
-    if (loading)
-        return (
-            <div className='text-ui text-muted flex items-center gap-2 px-4 py-4'>
-                <Spinner size={16} />
-                {t('web.runtimeSession.loadingList')}
-            </div>
-        )
+    if (!result) {
+        if (error)
+            return (
+                <div className='px-4 py-4'>
+                    <div className='workbench-alert-error'>{error}</div>
+                </div>
+            )
+        return showLoading ? <SessionListGhost /> : null
+    }
 
-    if (error)
-        return (
-            <div className='px-4 py-4'>
-                <div className='workbench-alert-error'>{error}</div>
-            </div>
-        )
-
-    const sessions = result?.sessions ?? []
-    if (sessions.length === 0)
-        return (
-            <EmptyState
-                kind='all-clear'
-                tier='stack'
-                title={t('web.runtimeSession.emptyTitle')}
-                body={t('web.runtimeSession.emptyBody')}
-            />
-        )
+    const sessions = result.sessions
+    const canShowMore =
+        result.localScan === 'ok' &&
+        result.localTotal !== null &&
+        result.localListed < result.localTotal
 
     return (
-        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3'>
+        <div
+            className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3'
+            aria-busy={scanning}
+        >
+            {/* The refresh signal never blanks rows: whatever is on screen
+                stays while the runtime answers again. Its height is
+                reserved so rows do not shift when it comes and goes. */}
+            {scanning ? (
+                <HairlineProgress className='mb-2' />
+            ) : (
+                <div className='mb-2 h-[2px]' aria-hidden='true' />
+            )}
+            <div className='text-caption text-subtle mb-2 flex items-center gap-2 px-1'>
+                <span className='flex min-w-0 flex-1 items-center gap-1.5 truncate'>
+                    {scanning || result.localScan === 'skipped' ? (
+                        <>
+                            <Spinner size={12} />
+                            {t('web.runtimeSession.loadingList')}
+                        </>
+                    ) : result.localScan === 'ok' &&
+                      result.localTotal !== null ? (
+                        t('web.runtimeSession.runtimeCount', {
+                            listed: result.localListed,
+                            total: result.localTotal
+                        })
+                    ) : null}
+                </span>
+                <button
+                    type='button'
+                    onClick={onRefresh}
+                    disabled={scanning}
+                    aria-label={t('web.runtimeSession.refresh')}
+                    className='text-muted hover:bg-surface-hover hover:text-fg rounded-pill inline-flex h-6 w-6 shrink-0 items-center justify-center transition-colors disabled:cursor-default disabled:opacity-45'
+                >
+                    <RefreshIcon className='h-3.5 w-3.5' />
+                </button>
+            </div>
             {/* Said once for the whole list rather than per row: without it a
                 missing Local tag reads as "not on the runtime" when the truth
                 is that nothing could be read. */}
-            {result?.localScan === 'unavailable' && (
+            {result.localScan === 'unavailable' && (
                 <div className='text-caption text-muted border-divider mb-2 rounded-md border border-dashed px-3 py-2'>
                     {t('web.runtimeSession.localScanUnavailable')}
                 </div>
             )}
-            <ol className='space-y-2'>
-                {sessions.map((session) => (
-                    <li key={sessionKey(session)}>
-                        <SessionRow
-                            framework={result?.framework ?? null}
-                            isCurrent={
-                                session.cloudSessionId !== null &&
-                                session.cloudSessionId === currentCloudSessionId
-                            }
-                            onOpen={() => onOpen(session)}
-                            session={session}
-                            t={t}
-                        />
-                    </li>
-                ))}
-            </ol>
+            {/* A failed refresh keeps the rows it could not replace. */}
+            {error && <div className='workbench-alert-error mb-2'>{error}</div>}
+            {sessions.length === 0 ? (
+                !scanning && (
+                    <EmptyState
+                        kind='all-clear'
+                        tier='stack'
+                        title={t('web.runtimeSession.emptyTitle')}
+                        body={t('web.runtimeSession.emptyBody')}
+                    />
+                )
+            ) : (
+                <ol className='space-y-2'>
+                    {sessions.map((session) => (
+                        <li key={sessionKey(session)}>
+                            <SessionRow
+                                framework={result.framework}
+                                isCurrent={
+                                    session.cloudSessionId !== null &&
+                                    session.cloudSessionId ===
+                                        currentCloudSessionId
+                                }
+                                onOpen={() => onOpen(session)}
+                                session={session}
+                                t={t}
+                            />
+                        </li>
+                    ))}
+                </ol>
+            )}
+            {canShowMore && (
+                <div className='flex justify-center pt-3'>
+                    <button
+                        type='button'
+                        onClick={onShowMore}
+                        disabled={scanning}
+                        className='text-caption text-muted hover:bg-surface-hover hover:text-fg rounded-sm px-2.5 py-1 transition-colors disabled:cursor-default disabled:opacity-45'
+                    >
+                        {t('web.runtimeSession.showMore')}
+                    </button>
+                </div>
+            )}
         </div>
     )
 }
+
+// The row's ghost twin (DESIGN.md §10.8): SessionRow's container with the
+// content slots ghosted at their text tiers, widths stepped so the column
+// reads as ragged text rather than a wall.
+const GHOST_TITLE_WIDTHS = ['w-3/5', 'w-2/3', 'w-1/2', 'w-3/4']
+
+const SessionRowGhost: FC<{ index: number }> = ({ index }): ReactNode => (
+    <div className='bg-surface shadow-ring-light flex flex-col gap-1.5 rounded-md px-3 py-2.5'>
+        <Ghost
+            variant='title'
+            className={GHOST_TITLE_WIDTHS[index % GHOST_TITLE_WIDTHS.length]}
+        />
+        <Ghost variant='line' className='w-full' />
+        <Ghost variant='line' className={index % 2 ? 'w-4/5' : 'w-2/3'} />
+        <Ghost variant='cap' className='w-1/3' />
+    </div>
+)
+
+const SessionListGhost: FC = (): ReactNode => (
+    <div
+        className='min-h-0 flex-1 overflow-hidden px-3 py-3'
+        aria-busy='true'
+    >
+        <ol className='space-y-2'>
+            {[0, 1, 2, 3].map((index) => (
+                <li key={index}>
+                    <SessionRowGhost index={index} />
+                </li>
+            ))}
+        </ol>
+    </div>
+)
 
 // A row exists on at least one side, so one of the two ids is always present.
 const sessionKey = (session: AgentSessionListItem): string =>
@@ -269,14 +438,12 @@ const SessionRow: FC<{
                         </span>
                     )}
                 </span>
-                {/* Only a scanned transcript can say there is no reply; a
-                    cloud row we never read stays silent instead of lying. */}
-                {(session.lastAssistantMessage || session.inLocal) && (
-                    <span className='text-caption text-muted line-clamp-2'>
-                        {session.lastAssistantMessage ??
-                            t('web.runtimeSession.noAssistantReply')}
-                    </span>
-                )}
+                {/* Every row knows its reply: a cloud row from the database,
+                    a runtime row from its transcript. */}
+                <span className='text-caption text-muted line-clamp-2'>
+                    {session.lastAssistantMessage ??
+                        t('web.runtimeSession.noAssistantReply')}
+                </span>
                 <span className='text-caption text-subtle flex flex-wrap items-center gap-x-1.5 gap-y-1'>
                     {session.inCloud && (
                         <span className='tag tag-neutral'>

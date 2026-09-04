@@ -46,12 +46,35 @@ import {
 } from '@/modules/chat/adapters/exec-driver-factory'
 import {
     SessionReaderRegistry,
+    CandidateScanCache,
+    type CandidateListing,
     type RecoveredMessage,
     type RecoveredRawSource,
     type SessionReader
 } from './readers'
+import { candidateExcerpt } from './readers/candidate-scan'
+import { modelFromMessageMetadata } from '../message-page'
 import type { OpenclawRpcClient } from '@/modules/chat/adapters/openclaw-rpc-client'
 import { buildChatMessageSourceRow } from '../raw-message-source'
+
+export interface AgentSessionListOptions {
+    local: 'scan' | 'skip'
+    // Newest transcripts to summarize; already clamped by the controller.
+    localLimit: number
+}
+
+interface LocalScanOutcome {
+    listing: CandidateListing
+    scan: AgentSessionLocalScan
+    warnings: string[]
+}
+
+const emptyListing = (): CandidateListing => ({
+    candidates: [],
+    total: 0,
+    listed: 0,
+    filesByRef: new Map()
+})
 
 export interface RecoveryDiffEntry {
     kind: 'common' | 'local-only' | 'cloud-only'
@@ -86,7 +109,8 @@ export class SessionRecoveryService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly repo: ChatRepository,
         private readonly drivers: ExecDriverFactory,
-        private readonly readers: SessionReaderRegistry
+        private readonly readers: SessionReaderRegistry,
+        private readonly scanCache: CandidateScanCache
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -202,25 +226,39 @@ export class SessionRecoveryService {
 
     // The agent's whole session list: the cloud sessions this user has for the
     // agent, unioned with the transcripts the framework left on the runtime and
-    // joined on framework_session_ref. One bounded scan, no transcript read —
-    // opening one of them is viewRuntimeSession.
+    // joined on framework_session_ref. The cloud half is complete on its own —
+    // title, newest reply and model all come from chat_messages — so a caller
+    // may skip the runtime scan and still show finished rows; the scan then
+    // adds presence, local-only transcripts, and the fuller record for
+    // sessions a terminal has written to since the last sync.
     //
     // The runtime half degrades instead of failing. A stopped sandbox or an
     // offline daemon used to 503 the whole panel; now the cloud half still
     // answers and `localScan` says the other half is unknown.
     async listAgentSessions(
         userId: string,
-        agentId: string
+        agentId: string,
+        opts: AgentSessionListOptions
     ): Promise<AgentSessionListResponse> {
         const agent = await this.loadAgentContext(userId, agentId)
         const cloudRows = await this.repo.listSessions(userId, agentId)
-        const stats = await this.repo.sessionMessageStats(
-            cloudRows.map((row) => row.id)
+        const cloudIds = cloudRows.map((row) => row.id)
+        const stats = await this.repo.sessionMessageStats(cloudIds)
+        const latestReplies =
+            await this.repo.latestAssistantMessagesBySession(cloudIds)
+        const firstPrompts = cloudRows.some((row) => !row.title)
+            ? await this.repo.listFirstUserMessages(cloudIds)
+            : []
+        const firstPromptBySession = new Map(
+            firstPrompts.map((row) => [row.sessionId, row])
         )
-        const local = await this.scanLocalCandidates(agent)
+        const local =
+            opts.local === 'skip'
+                ? { listing: emptyListing(), scan: 'skipped' as const, warnings: [] }
+                : await this.scanLocalCandidates(agent, opts.localLimit)
 
         const byRef = new Map<string, RuntimeSessionCandidate>()
-        for (const candidate of local.candidates)
+        for (const candidate of local.listing.candidates)
             byRef.set(candidate.sessionRef, candidate)
 
         const sessions: AgentSessionListItem[] = []
@@ -229,28 +267,45 @@ export class SessionRecoveryService {
             const ref = row.frameworkSessionRef?.trim() || null
             const candidate = ref ? (byRef.get(ref) ?? null) : null
             if (candidate) claimed.add(candidate.sessionRef)
+            // A transcript the index located by name but the page never read:
+            // presence and path are known, the rest stays the cloud's.
+            const file =
+                ref && !candidate
+                    ? (local.listing.filesByRef.get(ref) ?? null)
+                    : null
             const stat = stats.get(row.id)
+            const latestReply = latestReplies.get(row.id) ?? null
             sessions.push({
                 sessionRef: ref,
                 cloudSessionId: row.id,
                 inCloud: true,
-                inLocal: candidate !== null,
-                title: row.title ?? candidate?.firstUserMessage ?? null,
-                lastAssistantMessage: candidate?.lastAssistantMessage ?? null,
+                inLocal: candidate !== null || file !== null,
+                title:
+                    row.title ??
+                    candidate?.firstUserMessage ??
+                    messageExcerpt(firstPromptBySession.get(row.id)),
+                lastAssistantMessage:
+                    candidate?.lastAssistantMessage ??
+                    messageExcerpt(latestReply),
                 // The runtime transcript is the fuller record when both exist:
                 // a terminal turn lands there first and only reaches the cloud
-                // on the next sync.
+                // on the next sync — which is also why an unread transcript's
+                // mtime may outrank the cloud's newest message.
                 lastActiveAt:
                     candidate?.lastActiveAt ??
-                    stat?.lastMessageAt?.toISOString() ??
-                    row.updatedAt.toISOString(),
+                    latestIso([
+                        file?.mtimeMs ?? null,
+                        stat?.lastMessageAt ?? row.updatedAt
+                    ]),
                 messageCount: candidate?.messageCount ?? stat?.messageCount ?? 0,
-                model: candidate?.model ?? null,
-                sourceFile: candidate?.sourceFile ?? null
+                model:
+                    candidate?.model ??
+                    (latestReply ? modelFromMessageMetadata(latestReply) : null),
+                sourceFile: candidate?.sourceFile ?? file?.path ?? null
             })
         }
 
-        for (const candidate of local.candidates) {
+        for (const candidate of local.listing.candidates) {
             if (claimed.has(candidate.sessionRef)) continue
             sessions.push({
                 sessionRef: candidate.sessionRef,
@@ -271,45 +326,63 @@ export class SessionRecoveryService {
             framework: agent.framework,
             runtime: agent.runtime,
             localScan: local.scan,
+            localTotal: local.scan === 'ok' ? local.listing.total : null,
+            localListed: local.listing.listed,
             sessions,
             warnings: local.warnings
         }
     }
 
     // Never throws: an unreachable runtime is a degraded list, not a dead one.
-    private async scanLocalCandidates(agent: Agent): Promise<{
-        candidates: RuntimeSessionCandidate[]
-        scan: AgentSessionLocalScan
-        warnings: string[]
-    }> {
+    // One scan per (agent, page) at a time — two panels opening together
+    // share the execs instead of each running them.
+    private scanLocalCandidates(
+        agent: Agent,
+        limit: number
+    ): Promise<LocalScanOutcome> {
         const reader = this.readers.get(agent.framework)
         if (!reader)
-            return { candidates: [], scan: 'unavailable', warnings: [] }
-        let openclawRpc: OpenclawRpcClient | null = null
-        try {
-            const handle = await this.drivers.recoveryFsForAgent(agent.id)
-            openclawRpc =
-                agent.framework === 'openclaw'
-                    ? await this.drivers.openclawRpcForAgent(agent.id)
-                    : null
-            const candidates = await reader.listCandidates({
-                fs: handle.fs,
-                agentId: agent.id,
-                openclawRpc
-            })
-            return { candidates, scan: 'ok', warnings: [] }
-        } catch (err) {
-            this.log.warn(
-                `agent session list: runtime scan unavailable for ${agent.id}: ${(err as Error).message}`
-            )
-            return {
-                candidates: [],
+            return Promise.resolve({
+                listing: emptyListing(),
                 scan: 'unavailable',
-                warnings: [`runtime not reachable: ${(err as Error).message}`]
+                warnings: []
+            })
+        return this.scanCache.singleFlight(
+            `${agent.id}:${limit}`,
+            async (): Promise<LocalScanOutcome> => {
+                let openclawRpc: OpenclawRpcClient | null = null
+                try {
+                    const handle = await this.drivers.recoveryFsForAgent(
+                        agent.id
+                    )
+                    openclawRpc =
+                        agent.framework === 'openclaw'
+                            ? await this.drivers.openclawRpcForAgent(agent.id)
+                            : null
+                    const listing = await reader.listCandidates({
+                        fs: handle.fs,
+                        agentId: agent.id,
+                        openclawRpc,
+                        limit,
+                        cache: this.scanCache
+                    })
+                    return { listing, scan: 'ok', warnings: [] }
+                } catch (err) {
+                    this.log.warn(
+                        `agent session list: runtime scan unavailable for ${agent.id}: ${(err as Error).message}`
+                    )
+                    return {
+                        listing: emptyListing(),
+                        scan: 'unavailable',
+                        warnings: [
+                            `runtime not reachable: ${(err as Error).message}`
+                        ]
+                    }
+                } finally {
+                    openclawRpc?.disconnect()
+                }
             }
-        } finally {
-            openclawRpc?.disconnect()
-        }
+        )
     }
 
     async viewRuntimeSession(
@@ -342,13 +415,16 @@ export class SessionRecoveryService {
             // opening one.
             const candidates = overrideRef
                 ? []
-                : await this.runReader(() =>
-                      reader.listCandidates({
-                          fs: handle.fs,
-                          agentId: agent.id,
-                          openclawRpc
-                      })
-                  )
+                : (
+                      await this.runReader(() =>
+                          reader.listCandidates({
+                              fs: handle.fs,
+                              agentId: agent.id,
+                              openclawRpc,
+                              cache: this.scanCache
+                          })
+                      )
+                  ).candidates
             const ref =
                 overrideRef ??
                 session?.frameworkSessionRef ??
@@ -922,6 +998,28 @@ export class SessionRecoveryService {
             })
         }
     }
+}
+
+// The cloud's version of a transcript's one-line excerpt: the text of a stored
+// message, collapsed the same way.
+const messageExcerpt = (row: DbChatMessage | null | undefined): string | null => {
+    if (!row) return null
+    const blocks = (row.contentBlocksJson as ChatContentBlock[]) ?? []
+    const text = blocks
+        .filter((block) => block.type === 'text')
+        .map((block) => block.text)
+        .join(' ')
+    return candidateExcerpt(text)
+}
+
+const latestIso = (values: Array<number | Date | null>): string | null => {
+    let latest = Number.NEGATIVE_INFINITY
+    for (const value of values) {
+        if (value === null) continue
+        const ms = value instanceof Date ? value.getTime() : value
+        if (ms > latest) latest = ms
+    }
+    return Number.isFinite(latest) ? new Date(latest).toISOString() : null
 }
 
 // Newest first, whichever side the timestamp came from. A row with no

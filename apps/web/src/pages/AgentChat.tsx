@@ -1936,10 +1936,11 @@ const AgentChat: FC = (): ReactNode => {
     )
 
     useEffect(() => {
-        // The runtime session viewer is scoped to one session; switching the
-        // session invalidates it. Files / Background tasks can stay open.
+        // The sessions pane lists one agent, so switching agents invalidates
+        // it. Switching sessions only moves its Current tag, so it stays open
+        // — as Files / Background tasks always have.
         setActivePane((pane) => (pane === 'runtime' ? null : pane))
-    }, [agentId, activeSessionId])
+    }, [agentId])
 
     // Leaving the Files pane drops its preview sub-state, so a stale preview
     // neither re-opens the pane nor lights the header's preview toggle.
