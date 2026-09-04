@@ -3494,6 +3494,7 @@ const ar: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} رمز',
     'web.modelProviders.allModels': 'الكل ({{count}})',
     'web.modelProviders.searchModels': 'ابحث في النماذج',
+    'web.modelProviders.pricesFrom': 'الأسعار من {{source}}',
     'web.modelProviders.searchCount': '{{shown}} من {{total}}',
     'web.modelProviders.newProviderButton': 'موفّر نموذج جديد',
     'web.modelProviders.lastTested': 'آخر اختبار {{time}}',

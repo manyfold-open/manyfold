@@ -119,13 +119,19 @@ export const ModelPriceSummary: FC<{
     entry: ModelPriceEntryView | undefined
     expanded?: boolean
     onToggle?: () => void
-}> = ({ entry, expanded, onToggle }): ReactNode => {
+    // The scope tag every row in this list shares. A tag that is identical on
+    // all 62 rows tells a reader nothing they cannot read once in the panel
+    // footer, so it is dropped where it matches and kept where it deviates —
+    // `Custom`, `Platform` and `No price` are exactly the rows worth marking.
+    commonScopeTag?: string
+}> = ({ entry, expanded, onToggle, commonScopeTag }): ReactNode => {
     const { t } = useI18n()
+    const scopeTag = entry ? priceScopeTag(entry, t) : '…'
     const body = (
         <>
-            <span className='tag tag-neutral'>
-                {entry ? priceScopeTag(entry, t) : '…'}
-            </span>
+            {scopeTag !== commonScopeTag && (
+                <span className='tag tag-neutral'>{scopeTag}</span>
+            )}
             {entry?.resolvedPrice && (
                 <span className='text-caption text-muted tabular-nums'>
                     {perMillionRate(entry.resolvedPrice.inputCostPerToken)}{' '}
@@ -136,22 +142,22 @@ export const ModelPriceSummary: FC<{
             )}
         </>
     )
+    // Static rows carry the source link on the price itself rather than beside
+    // it: an arrow glyph repeated once per row is a second thing to skip past
+    // on the way to the number.
     if (!onToggle)
-        return (
-            <span className='flex items-center gap-1.5'>
+        return entry?.priceRef ? (
+            <a
+                href={entry.priceRef.url}
+                target='_blank'
+                rel='noreferrer'
+                onClick={(event) => event.stopPropagation()}
+                className='hover:decoration-muted flex items-center gap-1.5 hover:underline hover:decoration-dotted'
+            >
                 {body}
-                {entry?.priceRef && (
-                    <a
-                        href={entry.priceRef.url}
-                        target='_blank'
-                        rel='noreferrer'
-                        className='text-caption text-link hover:underline'
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        ↗
-                    </a>
-                )}
-            </span>
+            </a>
+        ) : (
+            <span className='flex items-center gap-1.5'>{body}</span>
         )
     return (
         <button

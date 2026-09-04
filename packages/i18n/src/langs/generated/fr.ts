@@ -3495,6 +3495,7 @@ const fr: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} jetons',
     'web.modelProviders.allModels': 'Tous ({{count}})',
     'web.modelProviders.searchModels': 'Rechercher des modèles',
+    'web.modelProviders.pricesFrom': 'Tarifs issus de {{source}}',
     'web.modelProviders.searchCount': '{{shown}} sur {{total}}',
     'web.modelProviders.newProviderButton': 'Nouveau fournisseur de modèles',
     'web.modelProviders.lastTested': 'Dernier test {{time}}',

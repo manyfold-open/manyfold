@@ -4288,6 +4288,7 @@ const en = {
             tokens: '{{count}} tokens',
             allModels: 'All ({{count}})',
             searchModels: 'Search models',
+            pricesFrom: 'Prices from {{source}}',
             searchCount: '{{shown}} of {{total}}',
             newProviderButton: 'New model provider',
             lastTested: 'Last tested {{time}}',

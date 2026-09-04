@@ -3495,6 +3495,7 @@ const ko: Record<string, string> = {
     "web.modelProviders.tokens": "{{count}}개 토큰",
     "web.modelProviders.allModels": "모두({{count}})",
     "web.modelProviders.searchModels": "모델 검색",
+    "web.modelProviders.pricesFrom": "가격 출처: {{source}}",
     "web.modelProviders.searchCount": "{{total}}개 중 {{shown}}개",
     "web.modelProviders.newProviderButton": "새 모델 공급자",
     "web.modelProviders.lastTested": "{{time}}에 마지막 테스트",
