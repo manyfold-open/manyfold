@@ -5,6 +5,8 @@ import type {
 } from '@manyfold/shared'
 import type { RawMessageSourcePayload } from '../../chat-adapter'
 import type { RecoveryFs } from '../recovery-fs'
+import type { CandidateIndexEntry } from './candidate-scan'
+import type { CandidateScanCache } from './candidate-scan-cache'
 import type { OpenclawRpcClient } from '@/modules/chat/adapters/openclaw-rpc-client'
 
 export type RecoveredRawSource = RawMessageSourcePayload
@@ -58,14 +60,28 @@ export interface CandidateSession {
     model: string | null
 }
 
+export interface CandidateListing {
+    candidates: CandidateSession[]
+    // Transcripts on the runtime before any limit, and how many of the newest
+    // ones `candidates` accounts for (a file read but carrying no session id
+    // still counts as listed).
+    total: number
+    listed: number
+    // Every transcript whose session id is known without reading it, for
+    // marking presence on the runtime beyond the listed page.
+    filesByRef: Map<string, CandidateIndexEntry>
+}
+
 export interface CandidateContext {
     fs: RecoveryFs
     agentId: string
     openclawRpc?: OpenclawRpcClient | null
+    limit?: number
+    cache?: CandidateScanCache
 }
 
 export interface SessionReader {
     readonly framework: AgentFramework
     readMessages(ctx: ReaderContext): Promise<ReaderResult>
-    listCandidates(ctx: CandidateContext): Promise<CandidateSession[]>
+    listCandidates(ctx: CandidateContext): Promise<CandidateListing>
 }

@@ -49,7 +49,10 @@ import {
 } from '@/modules/chat/recovery/session-recovery.controller'
 import { SessionRecoveryService } from '@/modules/chat/recovery/session-recovery.service'
 import { TurnAdoptionService } from '@/modules/chat/turn-adoption.service'
-import { SessionReaderRegistry } from '@/modules/chat/recovery/readers'
+import {
+    CandidateScanCache,
+    SessionReaderRegistry
+} from '@/modules/chat/recovery/readers'
 import { ChatUploadsModule } from '@/modules/chat/uploads/chat-uploads.module'
 import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.service'
 
@@ -107,6 +110,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         A2aChatAdapter,
         SessionRecoveryService,
         SessionReaderRegistry,
+        CandidateScanCache,
         ChatApiFileService
     ],
     exports: [

@@ -6,10 +6,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException } from '@nestjs/common'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
+import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
 import type {
     CandidateSession,
     RecoveredMessage
 } from '../src/modules/chat/recovery/readers'
+import type { CandidateIndexEntry } from '../src/modules/chat/recovery/readers/candidate-scan'
 
 test('SessionRecoveryService recoverRuntimeSessionRawSources recovers only raw sources', async () => {
     const harness = makeHarness()
@@ -314,6 +316,10 @@ const makeHarness = (
         frameworkSessionRef?: string | null
         recoveredMessages?: RecoveredMessage[]
         candidates?: CandidateSession[]
+        filesByRef?: Map<string, CandidateIndexEntry>
+        localTotal?: number
+        // Holds the fake scan open so a test can line up concurrent callers.
+        scanGate?: Promise<void>
         recoveryFsError?: Error
     } = {}
 ) => {
@@ -374,6 +380,22 @@ const makeHarness = (
                     }
                 ])
             ),
+        latestAssistantMessagesBySession: async (ids: string[]) =>
+            new Map(
+                ids.flatMap((id) => {
+                    const last = (messagesBySession.get(id) ?? [])
+                        .filter((row) => row.role === 'assistant')
+                        .at(-1)
+                    return last ? [[id, last] as const] : []
+                })
+            ),
+        listFirstUserMessages: async (ids: string[]) =>
+            ids.flatMap((id) => {
+                const first = (messagesBySession.get(id) ?? []).find(
+                    (row) => row.role === 'user'
+                )
+                return first ? [first] : []
+            }),
         getSession: async (sessionId: string) =>
             sessions.find((s) => s.id === sessionId) ?? null,
         findSessionByFrameworkSessionRef: async (
@@ -559,7 +581,14 @@ const makeHarness = (
         },
         listCandidates: async () => {
             listCandidateCalls.count++
-            return options.candidates ?? []
+            if (options.scanGate) await options.scanGate
+            const candidates = options.candidates ?? []
+            return {
+                candidates,
+                total: options.localTotal ?? candidates.length,
+                listed: candidates.length,
+                filesByRef: options.filesByRef ?? new Map()
+            }
         }
     }
     const readers = {
@@ -569,7 +598,8 @@ const makeHarness = (
         db as never,
         repo as never,
         drivers as never,
-        readers as never
+        readers as never,
+        new CandidateScanCache()
     )
     return {
         service,
@@ -584,13 +614,14 @@ const makeHarness = (
 const dbMessage = (
     id: string,
     role: ChatRole,
-    contentBlocksJson: ChatContentBlock[]
+    contentBlocksJson: ChatContentBlock[],
+    capabilityEventsJson: unknown = null
 ) => ({
     id,
     sessionId: 'session-1',
     role,
     contentBlocksJson,
-    capabilityEventsJson: null,
+    capabilityEventsJson,
     createdAt: new Date('2026-05-10T10:00:00Z')
 })
 
@@ -651,14 +682,22 @@ const candidate = (
     ...over
 })
 
+const scanOpts = { local: 'scan' as const, localLimit: 25 }
+
 test('agent session list joins a cloud session to its runtime transcript', async () => {
     // session-1's framework_session_ref is 'local-ref', so the two sides are
     // one row rather than two.
     const harness = makeHarness({ candidates: [candidate('local-ref')] })
 
-    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
 
     assert.equal(listed.localScan, 'ok')
+    assert.equal(listed.localTotal, 1)
+    assert.equal(listed.localListed, 1)
     assert.equal(listed.sessions.length, 1)
     const row = listed.sessions[0]
     assert.equal(row.cloudSessionId, 'session-1')
@@ -678,7 +717,11 @@ test('agent session list keeps local-only and cloud-only sessions apart', async 
         candidates: [candidate('other-ref')]
     })
 
-    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
 
     assert.equal(listed.sessions.length, 2)
     const localOnly = listed.sessions.find((r) => r.sessionRef === 'other-ref')
@@ -693,7 +736,8 @@ test('agent session list keeps local-only and cloud-only sessions apart', async 
     assert.ok(cloudOnly)
     assert.equal(cloudOnly!.inCloud, true)
     assert.equal(cloudOnly!.inLocal, false)
-    // Nothing was read for it, so it must not claim the agent never replied.
+    // The cloud holds one user message and no reply, so the row says so from
+    // the database rather than borrowing another transcript's.
     assert.equal(cloudOnly!.lastAssistantMessage, null)
     assert.equal(cloudOnly!.messageCount, 1)
 })
@@ -706,7 +750,11 @@ test('agent session list is newest first across both sides', async () => {
         ]
     })
 
-    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
 
     const order = listed.sessions.map((r) => r.lastActiveAt ?? '')
     assert.deepEqual(order, [...order].sort().reverse())
@@ -721,9 +769,14 @@ test('an unreachable runtime degrades the list instead of failing it', async () 
         recoveryFsError: new Error('sandbox is stopped')
     })
 
-    const listed = await harness.service.listAgentSessions('user-1', 'agent-1')
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
 
     assert.equal(listed.localScan, 'unavailable')
+    assert.equal(listed.localTotal, null)
     assert.equal(listed.sessions.length, 1)
     assert.equal(listed.sessions[0].cloudSessionId, 'session-1')
     assert.equal(listed.sessions[0].inCloud, true)
@@ -751,4 +804,104 @@ test('SessionRecoveryService viewRuntimeSession skips the scan when given a ref'
     const control = makeHarness({ candidates: [candidate('local-ref')] })
     await control.service.viewRuntimeSession('user-1', 'agent-1')
     assert.equal(control.listCandidateCalls.count, 1)
+})
+
+// A panel that wants rows on screen before the runtime answers asks for the
+// cloud half alone. That half is complete from the database — title, newest
+// reply and model — and touches no reader.
+test('agent session list can skip the runtime scan and still fill the row', async () => {
+    const harness = makeHarness({ candidates: [candidate('local-ref')] })
+    harness.messages.push(
+        dbMessage(
+            'cloud-assistant',
+            'assistant',
+            [{ type: 'text', text: 'Done.\n\nTwo   files changed.' }],
+            { model: 'claude-opus-5' }
+        )
+    )
+
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        { local: 'skip', localLimit: 25 }
+    )
+
+    assert.equal(harness.listCandidateCalls.count, 0)
+    assert.equal(listed.localScan, 'skipped')
+    assert.equal(listed.localTotal, null)
+    assert.equal(listed.localListed, 0)
+    const [row] = listed.sessions
+    assert.equal(row.inLocal, false)
+    assert.equal(row.title, 'hello')
+    assert.equal(row.lastAssistantMessage, 'Done. Two files changed.')
+    assert.equal(row.model, 'claude-opus-5')
+    assert.equal(row.messageCount, 2)
+})
+
+// The index knows a transcript by its filename even when the page never read
+// it, so a cloud session keeps its Local tag — and its path — past the first
+// page, while the reply stays the cloud's own.
+test('agent session list marks presence from the index beyond the scanned page', async () => {
+    const harness = makeHarness({
+        candidates: [candidate('other-ref')],
+        filesByRef: new Map([
+            [
+                'local-ref',
+                {
+                    path: '/h/.claude/projects/p/local-ref.jsonl',
+                    mtimeMs: Date.parse('2026-05-11T09:00:00.000Z'),
+                    size: 4096
+                }
+            ]
+        ]),
+        localTotal: 300
+    })
+
+    const listed = await harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
+
+    assert.equal(listed.localTotal, 300)
+    assert.equal(listed.localListed, 1)
+    const row = listed.sessions.find((r) => r.cloudSessionId === 'session-1')
+    assert.ok(row)
+    assert.equal(row!.inLocal, true)
+    assert.equal(row!.sourceFile, '/h/.claude/projects/p/local-ref.jsonl')
+    // The transcript moved after the cloud's last message, so it is the
+    // fuller record's time even though nothing in it was read.
+    assert.equal(row!.lastActiveAt, '2026-05-11T09:00:00.000Z')
+    assert.equal(row!.lastAssistantMessage, null)
+})
+
+// Two panels opening together must not run two scans against one runtime.
+test('concurrent agent session lists share one runtime scan', async () => {
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const harness = makeHarness({
+        candidates: [candidate('local-ref')],
+        scanGate: gate
+    })
+
+    const first = harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
+    const second = harness.service.listAgentSessions(
+        'user-1',
+        'agent-1',
+        scanOpts
+    )
+    // Let both callers get past their database reads and reach the scan.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    release()
+    const [a, b] = await Promise.all([first, second])
+
+    assert.equal(harness.listCandidateCalls.count, 1)
+    assert.equal(a.sessions.length, 1)
+    assert.deepEqual(b.sessions, a.sessions)
 })

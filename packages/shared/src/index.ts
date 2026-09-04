@@ -733,6 +733,7 @@ export type {
     RegenerateMessageRequest,
     RegenerateMessageResponse,
     RuntimeSessionCandidate,
+    AgentSessionListBody,
     AgentSessionListItem,
     AgentSessionListResponse,
     AgentSessionLocalScan,
@@ -768,7 +769,8 @@ export {
     codexPermissionModes,
     isCodexPermissionMode,
     hermesPermissionModes,
-    isHermesPermissionMode
+    isHermesPermissionMode,
+    agentSessionListLimits
 } from './chat'
 export type {
     ConversationListEnvelope,

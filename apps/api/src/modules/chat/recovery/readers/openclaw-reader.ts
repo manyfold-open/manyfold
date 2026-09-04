@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -13,10 +14,13 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    CANDIDATE_SCAN_LIMIT,
     candidateExcerpt,
+    candidateListing,
     candidateTailLines,
     mtimeIso,
-    scanCandidateFiles
+    scanCandidates,
+    type CandidateFileHead
 } from './candidate-scan'
 
 const FIND_BASE = `find "$HOME"/.openclaw/agents/*/sessions -type f -name '*.jsonl' ! -name '*.bak-*' ! -name '*.trajectory.jsonl'`
@@ -43,10 +47,11 @@ export class OpenclawSessionReader implements SessionReader {
         return readViaFileScan(ctx)
     }
 
-    async listCandidates(ctx: CandidateContext): Promise<CandidateSession[]> {
+    async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
         if (ctx.openclawRpc) {
             const rpcCandidates = await tryListViaRpc(ctx)
-            if (rpcCandidates && rpcCandidates.length > 0) return rpcCandidates
+            if (rpcCandidates && rpcCandidates.length > 0)
+                return candidateListing(rpcCandidates)
         }
         return listViaFileScan(ctx)
     }
@@ -133,30 +138,33 @@ const readViaFileScan = async (ctx: ReaderContext): Promise<ReaderResult> => {
 
 const listViaFileScan = async (
     ctx: CandidateContext
-): Promise<CandidateSession[]> => {
-    const heads = await scanCandidateFiles(ctx.fs, FIND_BASE)
-    const out: CandidateSession[] = []
-    for (const head of heads) {
-        const summary = summarizeOpenclawJsonl(head.headText, head.path)
-        const latest = latestOpenclawEntries(candidateTailLines(head))
-        if (summary.sessionRef)
-            out.push({
-                sessionRef: summary.sessionRef,
-                sourceFile: head.path,
-                firstUserMessage: summary.firstUserMessage,
-                lastAssistantMessage: latest.lastAssistantMessage,
-                timestamp: summary.timestamp ?? mtimeIso(head),
-                lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
-                messageCount: head.truncated
-                    ? head.lineCount
-                    : summary.messageCount,
-                // A message event carries no model; the model_change event
-                // does, but its payload shape is not pinned by any fixture, so
-                // the list stays silent rather than guessing.
-                model: null
-            })
+): Promise<CandidateListing> =>
+    scanCandidates(ctx.fs, FIND_BASE, {
+        agentId: ctx.agentId,
+        limit: ctx.limit ?? CANDIDATE_SCAN_LIMIT,
+        cache: ctx.cache,
+        summarize: summarizeOpenclawCandidate
+    })
+
+const summarizeOpenclawCandidate = (
+    head: CandidateFileHead
+): CandidateSession | null => {
+    const summary = summarizeOpenclawJsonl(head.headText, head.path)
+    if (!summary.sessionRef) return null
+    const latest = latestOpenclawEntries(candidateTailLines(head))
+    return {
+        sessionRef: summary.sessionRef,
+        sourceFile: head.path,
+        firstUserMessage: summary.firstUserMessage,
+        lastAssistantMessage: latest.lastAssistantMessage,
+        timestamp: summary.timestamp ?? mtimeIso(head),
+        lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+        messageCount: head.truncated ? head.lineCount : summary.messageCount,
+        // A message event carries no model; the model_change event does, but
+        // its payload shape is not pinned by any fixture, so the list stays
+        // silent rather than guessing.
+        model: null
     }
-    return out
 }
 
 const latestOpenclawEntries = (

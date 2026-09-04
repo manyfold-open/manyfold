@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type {
     CandidateContext,
+    CandidateListing,
     CandidateSession,
     ReaderContext,
     ReaderResult,
@@ -12,11 +13,13 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    CANDIDATE_SCAN_LIMIT,
     candidateExcerpt,
     candidateTailLines,
     jsonStringField,
     mtimeIso,
-    scanCandidateFiles
+    scanCandidates,
+    type CandidateFileHead
 } from './candidate-scan'
 import {
     geminiSessionLocateScript,
@@ -79,40 +82,43 @@ export class GeminiCliSessionReader implements SessionReader {
         return { sourceFile, messages, warnings }
     }
 
-    async listCandidates(ctx: CandidateContext): Promise<CandidateSession[]> {
-        const heads = await scanCandidateFiles(
-            ctx.fs,
-            `find "$HOME"/.gemini/tmp -type f -path '*chats/*' \\( -name 'session-*.json' -o -name 'session-*.jsonl' \\)`
-        )
-        const out: CandidateSession[] = []
-        for (const head of heads) {
-            const jsonl = head.path.endsWith('.jsonl')
-            const summary = jsonl
-                ? summarizeGeminiJsonl(head.headText)
-                : head.truncated
-                  ? summarizeGeminiHead(head.headText)
-                  : summarizeGemini(head.headText)
-            const latest = jsonl
-                ? latestGeminiJsonl(candidateTailLines(head))
-                : head.truncated
-                  ? EMPTY_LATEST
-                  : latestGeminiJson(head.headText)
-            if (summary.sessionRef)
-                out.push({
-                    sessionRef: summary.sessionRef,
-                    sourceFile: head.path,
-                    firstUserMessage: summary.firstUserMessage,
-                    lastAssistantMessage: latest.lastAssistantMessage,
-                    timestamp: summary.timestamp ?? mtimeIso(head),
-                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
-                    messageCount:
-                        head.truncated && jsonl
-                            ? head.lineCount
-                            : summary.messageCount,
-                    model: latest.model
-                })
-        }
-        return out
+    async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
+        return scanCandidates(ctx.fs, GEMINI_FIND, {
+            agentId: ctx.agentId,
+            limit: ctx.limit ?? CANDIDATE_SCAN_LIMIT,
+            cache: ctx.cache,
+            summarize: summarizeGeminiCandidate
+        })
+    }
+}
+
+const GEMINI_FIND = `find "$HOME"/.gemini/tmp -type f -path '*chats/*' \\( -name 'session-*.json' -o -name 'session-*.jsonl' \\)`
+
+const summarizeGeminiCandidate = (
+    head: CandidateFileHead
+): CandidateSession | null => {
+    const jsonl = head.path.endsWith('.jsonl')
+    const summary = jsonl
+        ? summarizeGeminiJsonl(head.headText)
+        : head.truncated
+          ? summarizeGeminiHead(head.headText)
+          : summarizeGemini(head.headText)
+    if (!summary.sessionRef) return null
+    const latest = jsonl
+        ? latestGeminiJsonl(candidateTailLines(head))
+        : head.truncated
+          ? EMPTY_LATEST
+          : latestGeminiJson(head.headText)
+    return {
+        sessionRef: summary.sessionRef,
+        sourceFile: head.path,
+        firstUserMessage: summary.firstUserMessage,
+        lastAssistantMessage: latest.lastAssistantMessage,
+        timestamp: summary.timestamp ?? mtimeIso(head),
+        lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+        messageCount:
+            head.truncated && jsonl ? head.lineCount : summary.messageCount,
+        model: latest.model
     }
 }
 
