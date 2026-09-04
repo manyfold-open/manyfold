@@ -1,5 +1,82 @@
 # @manyfold/web
 
+## 0.56.0
+
+### Minor Changes
+
+- [#159](https://github.com/manyfold-open/manyfold/pull/159) [`b8108e9`](https://github.com/manyfold-open/manyfold/commit/b8108e9bdc2ac76513b3d405192e98ffdba32309) Thanks [@yingca1](https://github.com/yingca1)! - The chat's right-hand runtime session panel becomes **Agent sessions**, and it
+  opens on a list of every conversation the agent has instead of dropping you into
+  one transcript.
+
+    The list is the union of both places a session can live. The cloud database
+    holds the conversations you started in the web app; the framework's own CLI
+    leaves transcripts on the runtime. They are joined on the runtime's session id,
+    so a conversation that exists on both sides is one row, and each row says which
+    sides it is on, whether it is the conversation currently open, how many messages
+    it holds, when it was last active, the model that wrote the newest reply and
+    what that reply said. A row we never read on the runtime stays silent about
+    replies rather than claiming there were none.
+
+    An unreachable runtime no longer fails the whole panel. A stopped sandbox or an
+    offline daemon now degrades to the cloud half of the list and says the local
+    side is unknown, instead of returning a service error.
+
+    Each row carries a menu to copy the framework's resume command, the session id
+    and the transcript's file path, refused with a reason where the row has no
+    runtime transcript or the framework's CLI cannot be pointed at a session by id.
+    The copied command is deliberately the plain `claude --resume <id>` /
+    `codex resume <id>` form: the terminal's own resume adds a permission-bypass
+    flag because it is entering a runtime that is already the trust boundary, and a
+    command on your clipboard runs wherever you paste it.
+
+    Opening the panel used to read a whole transcript before it could show anything.
+    The list is now its own endpoint, `POST /agents/:id/runtime-sessions/list`, which
+    runs one bounded scan and reads no transcript; opening a named session skips the
+    scan the caller already paid for. That scan now also reads the last 64 KiB of any
+    transcript past its head window, because the newest reply, its timestamp and its
+    model are at the end of the file. Frameworks whose transcripts record no model —
+    OpenClaw and Hermes — leave that field empty rather than showing a guess.
+
+    Two smaller things in the same panel. Arriving at a chat no longer opens the
+    Files panel for you — it used to open itself on first entry to any agent with a
+    workspace, taking the side of the screen before you asked for anything. And
+    below the large breakpoint the panel now covers the screen instead of sharing
+    the height with the conversation, which left both halves too short to use on a
+    phone.
+
+### Patch Changes
+
+- [#162](https://github.com/manyfold-open/manyfold/pull/162) [`e4ddda0`](https://github.com/manyfold-open/manyfold/commit/e4ddda0759688561f5adefc83afe6255c010f44d) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Let heading tracking come from the rung.
+
+    Every heading rung carries its own letter-spacing in the `fontSize` tuple —
+    h3 −0.01em, h2 −0.015em, h1 −0.02em, display −0.025em — because tracking has
+    to tighten as size grows and the tuple is the one place that knows the size.
+    34 headings then stacked `tracking-tight` on top of that. Both write
+    `letter-spacing`, and Tailwind emits the `tracking-*` utilities after the
+    `text-*` ones, so the utility won: an 18px panel title rendered at −0.025em,
+    the tightening reserved for 32px display copy, roughly a quarter-pixel per
+    letter too tight and a few pixels narrower over a title.
+
+    It read as inconsistency rather than as a bug — some titles tightened, some
+    not, depending on which page you were on. Removing the utility puts every
+    heading back on its rung's own value; nothing else changes.
+
+    `.settings-stat-value` had the same stack and is fixed with them. The one
+    `tracking-tight` that stays is on a mono caption in the chat footer, which is
+    not a heading rung — tightening a mono run there is a deliberate choice.
+
+- [#160](https://github.com/manyfold-open/manyfold/pull/160) [`daa8ad9`](https://github.com/manyfold-open/manyfold/commit/daa8ad9ee4774f88c9fce50f6dfd52ab0b4609c2) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Keep the landing copy on screen when the language changes.
+
+    Switching language on the landing page left the whole left-hand column blank —
+    nav and artwork intact, hero headline, tagline and CTAs gone — until the next
+    scroll brought them back. The five scrollytelling cards cross-fade, so
+    `.lp-scene` defaults to `opacity: 0` and the scroll loop writes the live
+    opacity in; but each card was keyed by its own eyebrow text, so a language
+    change gave every card a new key, React remounted all five, and the fresh
+    nodes came up with no inline style and nothing to repaint them. The cards are
+    now keyed by position: the copy swaps in place, and a switch made part-way
+    through the story keeps the scene the reader is on.
+
 ## 0.55.0
 
 ### Minor Changes
