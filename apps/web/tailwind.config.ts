@@ -1,8 +1,27 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Config } from 'tailwindcss'
 import typography from '@tailwindcss/typography'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+/* Editions same-path override (vite-overlay.ts): a cloud build points
+   MF_WEB_OVERLAY_DIR at its own src/, whose modules carry classes this tree
+   never uses. Tailwind scans files rather than the module graph, so an
+   unscanned overlay drops every utility only it references — the class sits in
+   the DOM, its rule is missing from the CSS, and no build step fails. Resolved
+   against this file the way vite.config.ts resolves the same value, because it
+   is written relative to this app. */
+const overlayDir = process.env.MF_WEB_OVERLAY_DIR
+
 const config: Config = {
-    content: ['./index.html', './src/**/*.{ts,tsx}'],
+    content: [
+        './index.html',
+        './src/**/*.{ts,tsx}',
+        ...(overlayDir
+            ? [`${resolve(__dirname, overlayDir)}/**/*.{ts,tsx}`]
+            : [])
+    ],
     darkMode: ['selector', '[data-theme="dark"]'],
     theme: {
         extend: {
