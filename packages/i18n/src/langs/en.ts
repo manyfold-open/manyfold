@@ -834,6 +834,9 @@ const en = {
             usageNoCostBody: 'Try a different time range.',
             modelsTitle: 'No models discovered',
             modelsBody: 'Refresh models to query this provider again.',
+            modelSearchTitle: 'No model matches “{{query}}”',
+            modelSearchBody:
+                'The list comes from this provider’s catalog. Clear the search, or refresh models to pick up newly published ones.',
             connectionsTitle: 'No connections yet',
             connectionsBody:
                 'Link GitHub, Cloudflare or Composio so agents authenticate automatically.',
@@ -4284,6 +4287,8 @@ const en = {
             requests: '{{count}} requests',
             tokens: '{{count}} tokens',
             allModels: 'All ({{count}})',
+            searchModels: 'Search models',
+            searchCount: '{{shown}} of {{total}}',
             newProviderButton: 'New model provider',
             lastTested: 'Last tested {{time}}',
             statusReady: 'Ready',
