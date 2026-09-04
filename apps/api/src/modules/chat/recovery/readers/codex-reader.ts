@@ -12,7 +12,12 @@ import type {
     SessionReader
 } from './types'
 import { shellEscape } from '../recovery-fs'
-import { mtimeIso, scanCandidateFiles } from './candidate-scan'
+import {
+    candidateExcerpt,
+    candidateTailLines,
+    mtimeIso,
+    scanCandidateFiles
+} from './candidate-scan'
 
 const CODEX_RECOVERY_PARSER_NAME = 'codex-session-jsonl'
 const CODEX_RECOVERY_PARSER_VERSION = '1'
@@ -70,19 +75,62 @@ export class CodexSessionReader implements SessionReader {
         const out: CandidateSession[] = []
         for (const head of heads) {
             const summary = summarizeCodexJsonl(head.headText)
+            const latest = latestCodexEntries(candidateTailLines(head))
             if (summary.sessionRef)
                 out.push({
                     sessionRef: summary.sessionRef,
                     sourceFile: head.path,
                     firstUserMessage: summary.firstUserMessage,
+                    lastAssistantMessage: latest.lastAssistantMessage,
                     timestamp: summary.timestamp ?? mtimeIso(head),
+                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
                     messageCount: head.truncated
                         ? head.lineCount
-                        : summary.messageCount
+                        : summary.messageCount,
+                    // The model is announced near the start of a rollout, so a
+                    // tail window usually has none; fall back to the head
+                    // rather than to config.toml, which would cost a second
+                    // remote read per candidate.
+                    model:
+                        latest.model ??
+                        latestCodexEntries(head.headText.split('\n')).model
                 })
         }
         return out
     }
+}
+
+const latestCodexEntries = (
+    lines: string[]
+): {
+    lastAssistantMessage: string | null
+    lastActiveAt: string | null
+    model: string | null
+} => {
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    let model: string | null = null
+    for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i].trim()
+        if (!line) continue
+        let row: CodexEvent
+        try {
+            row = JSON.parse(line) as CodexEvent
+        } catch {
+            continue
+        }
+        if (!model) model = extractCodexEventModel(row)
+        if (row.type !== 'response_item' || !isRecord(row.payload)) continue
+        if (!lastActiveAt && row.timestamp) lastActiveAt = row.timestamp
+        const payload = row.payload
+        if (stringField(payload, 'type') !== 'message') continue
+        if (stringField(payload, 'role') !== 'assistant') continue
+        if (!lastAssistantMessage)
+            lastAssistantMessage = candidateExcerpt(
+                extractCodexText(payload.content)
+            )
+    }
+    return { lastAssistantMessage, lastActiveAt, model }
 }
 
 const summarizeCodexJsonl = (

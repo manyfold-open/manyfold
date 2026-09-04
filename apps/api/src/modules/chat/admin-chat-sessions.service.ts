@@ -218,7 +218,7 @@ export class AdminChatSessionsService {
             latestAssistants,
             channels
         ] = await Promise.all([
-            this.repo.adminSessionMessageStats(sessionIds),
+            this.repo.sessionMessageStats(sessionIds),
             this.repo.adminSessionUsageSums(sessionIds),
             this.repo.latestTurnExecutionsBySession(sessionIds),
             this.repo.latestAssistantMessagesBySession(sessionIds),

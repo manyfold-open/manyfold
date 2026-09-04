@@ -5,6 +5,10 @@ import type {
     ChatContentBlock,
     ChatMessage,
     ChatSessionSummary,
+    AgentSessionListItem,
+    AgentSessionListResponse,
+    AgentSessionLocalScan,
+    RuntimeSessionCandidate,
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
@@ -46,6 +50,7 @@ import {
     type RecoveredRawSource,
     type SessionReader
 } from './readers'
+import type { OpenclawRpcClient } from '@/modules/chat/adapters/openclaw-rpc-client'
 import { buildChatMessageSourceRow } from '../raw-message-source'
 
 export interface RecoveryDiffEntry {
@@ -195,6 +200,118 @@ export class SessionRecoveryService {
         }
     }
 
+    // The agent's whole session list: the cloud sessions this user has for the
+    // agent, unioned with the transcripts the framework left on the runtime and
+    // joined on framework_session_ref. One bounded scan, no transcript read —
+    // opening one of them is viewRuntimeSession.
+    //
+    // The runtime half degrades instead of failing. A stopped sandbox or an
+    // offline daemon used to 503 the whole panel; now the cloud half still
+    // answers and `localScan` says the other half is unknown.
+    async listAgentSessions(
+        userId: string,
+        agentId: string
+    ): Promise<AgentSessionListResponse> {
+        const agent = await this.loadAgentContext(userId, agentId)
+        const cloudRows = await this.repo.listSessions(userId, agentId)
+        const stats = await this.repo.sessionMessageStats(
+            cloudRows.map((row) => row.id)
+        )
+        const local = await this.scanLocalCandidates(agent)
+
+        const byRef = new Map<string, RuntimeSessionCandidate>()
+        for (const candidate of local.candidates)
+            byRef.set(candidate.sessionRef, candidate)
+
+        const sessions: AgentSessionListItem[] = []
+        const claimed = new Set<string>()
+        for (const row of cloudRows) {
+            const ref = row.frameworkSessionRef?.trim() || null
+            const candidate = ref ? (byRef.get(ref) ?? null) : null
+            if (candidate) claimed.add(candidate.sessionRef)
+            const stat = stats.get(row.id)
+            sessions.push({
+                sessionRef: ref,
+                cloudSessionId: row.id,
+                inCloud: true,
+                inLocal: candidate !== null,
+                title: row.title ?? candidate?.firstUserMessage ?? null,
+                lastAssistantMessage: candidate?.lastAssistantMessage ?? null,
+                // The runtime transcript is the fuller record when both exist:
+                // a terminal turn lands there first and only reaches the cloud
+                // on the next sync.
+                lastActiveAt:
+                    candidate?.lastActiveAt ??
+                    stat?.lastMessageAt?.toISOString() ??
+                    row.updatedAt.toISOString(),
+                messageCount: candidate?.messageCount ?? stat?.messageCount ?? 0,
+                model: candidate?.model ?? null,
+                sourceFile: candidate?.sourceFile ?? null
+            })
+        }
+
+        for (const candidate of local.candidates) {
+            if (claimed.has(candidate.sessionRef)) continue
+            sessions.push({
+                sessionRef: candidate.sessionRef,
+                cloudSessionId: null,
+                inCloud: false,
+                inLocal: true,
+                title: candidate.firstUserMessage,
+                lastAssistantMessage: candidate.lastAssistantMessage,
+                lastActiveAt: candidate.lastActiveAt ?? candidate.timestamp,
+                messageCount: candidate.messageCount,
+                model: candidate.model,
+                sourceFile: candidate.sourceFile
+            })
+        }
+
+        sessions.sort(byLastActiveDesc)
+        return {
+            framework: agent.framework,
+            runtime: agent.runtime,
+            localScan: local.scan,
+            sessions,
+            warnings: local.warnings
+        }
+    }
+
+    // Never throws: an unreachable runtime is a degraded list, not a dead one.
+    private async scanLocalCandidates(agent: Agent): Promise<{
+        candidates: RuntimeSessionCandidate[]
+        scan: AgentSessionLocalScan
+        warnings: string[]
+    }> {
+        const reader = this.readers.get(agent.framework)
+        if (!reader)
+            return { candidates: [], scan: 'unavailable', warnings: [] }
+        let openclawRpc: OpenclawRpcClient | null = null
+        try {
+            const handle = await this.drivers.recoveryFsForAgent(agent.id)
+            openclawRpc =
+                agent.framework === 'openclaw'
+                    ? await this.drivers.openclawRpcForAgent(agent.id)
+                    : null
+            const candidates = await reader.listCandidates({
+                fs: handle.fs,
+                agentId: agent.id,
+                openclawRpc
+            })
+            return { candidates, scan: 'ok', warnings: [] }
+        } catch (err) {
+            this.log.warn(
+                `agent session list: runtime scan unavailable for ${agent.id}: ${(err as Error).message}`
+            )
+            return {
+                candidates: [],
+                scan: 'unavailable',
+                warnings: [`runtime not reachable: ${(err as Error).message}`]
+            }
+        } finally {
+            openclawRpc?.disconnect()
+        }
+    }
+
     async viewRuntimeSession(
         userId: string,
         agentId: string,
@@ -220,13 +337,18 @@ export class SessionRecoveryService {
                 ? await this.drivers.openclawRpcForAgent(agent.id)
                 : null
         try {
-            const candidates = await this.runReader(() =>
-                reader.listCandidates({
-                    fs: handle.fs,
-                    agentId: agent.id,
-                    openclawRpc
-                })
-            )
+            // A caller that names the session already has the list; scanning
+            // every other transcript again would double the runtime work of
+            // opening one.
+            const candidates = overrideRef
+                ? []
+                : await this.runReader(() =>
+                      reader.listCandidates({
+                          fs: handle.fs,
+                          agentId: agent.id,
+                          openclawRpc
+                      })
+                  )
             const ref =
                 overrideRef ??
                 session?.frameworkSessionRef ??
@@ -801,6 +923,13 @@ export class SessionRecoveryService {
         }
     }
 }
+
+// Newest first, whichever side the timestamp came from. A row with no
+// timestamp at all sorts last rather than jumping to the top.
+const byLastActiveDesc = (
+    a: AgentSessionListItem,
+    b: AgentSessionListItem
+): number => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? '')
 
 export const compareRecoveryMessages = (
     localRecoveredMessages: RecoveredMessage[],

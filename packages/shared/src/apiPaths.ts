@@ -59,6 +59,8 @@ export const apiPaths = {
         `/chat/shared/${encodeURIComponent(shareId)}`,
     CHAT_SHARED_MESSAGES: (shareId: string) =>
         `/chat/shared/${encodeURIComponent(shareId)}/messages`,
+    AGENT_RUNTIME_SESSION_LIST: (agentId: string) =>
+        `/agents/${agentId}/runtime-sessions/list`,
     AGENT_RUNTIME_SESSION_VIEW: (agentId: string) =>
         `/agents/${agentId}/runtime-sessions/view`,
     AGENT_RUNTIME_SESSION_RECOVER_RAW: (agentId: string) =>

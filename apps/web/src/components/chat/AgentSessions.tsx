@@ -1,17 +1,20 @@
-import { chatCapabilitiesByFramework } from '@manyfold/shared'
+import { chatCapabilitiesByFramework, frameworkResumeCommandLine } from '@manyfold/shared'
 import type {
+    AgentFramework,
+    AgentSessionListItem,
+    AgentSessionListResponse,
     ChatCapabilities,
     ChatMessage,
-    RuntimeSessionCandidate,
     RuntimeSessionViewResponse
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import EmptyState from '@/components/EmptyState'
 import { MessageBubble } from '@/components/chat/MessageList'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import WorkbenchSelect from '@/components/WorkbenchSelect'
 import {
+    ArrowLeftIcon,
     CheckIcon,
     EllipsisVerticalIcon,
     PreviewIcon,
@@ -20,20 +23,323 @@ import {
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
 import { Spinner } from '@/components/Loading'
+import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
+import { timeAgo } from '@/lib/timeAgo'
 
-interface RuntimeSessionViewerProps {
+interface AgentSessionsProps {
     agentId: string
     sessionId: string | null
     onClose: () => void
     onApplied: (sessionId?: string) => void
 }
 
-const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
+const AgentSessions: FC<AgentSessionsProps> = ({
     agentId,
     sessionId,
+    onClose,
+    onApplied
+}): ReactNode => {
+    const client = useApiClient()
+    const { t } = useI18n()
+    // Only a session with a runtime transcript has anything to read; a
+    // cloud-only row's "open" is simply switching the chat to it.
+    const [openSession, setOpenSession] = useState<{
+        item: AgentSessionListItem
+        sessionRef: string
+    } | null>(null)
+
+    const handleOpen = useCallback(
+        (item: AgentSessionListItem): void => {
+            if (item.sessionRef) {
+                setOpenSession({ item, sessionRef: item.sessionRef })
+                return
+            }
+            if (item.cloudSessionId) {
+                onApplied(item.cloudSessionId)
+                onClose()
+            }
+        },
+        [onApplied, onClose]
+    )
+    const [loading, setLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
+    const [result, setResult] = useState<AgentSessionListResponse | null>(null)
+
+    // The scan belongs to the panel, not to the list view: it walks every
+    // transcript on the runtime, so opening a session and coming back must not
+    // pay for it twice.
+    useEffect(() => {
+        const controller = new AbortController()
+        setLoading(true)
+        setError(null)
+        void (async (): Promise<void> => {
+            try {
+                const res = await client.chat.agentSessionList(agentId, {
+                    signal: controller.signal
+                })
+                if (controller.signal.aborted) return
+                setResult(res)
+            } catch (err) {
+                if (controller.signal.aborted) return
+                setError(apiErrorMessage(err))
+            } finally {
+                if (!controller.signal.aborted) setLoading(false)
+            }
+        })()
+        return (): void => controller.abort()
+    }, [agentId, client])
+
+    return (
+        <div
+            className='flex min-h-0 w-full flex-1 flex-col'
+            aria-label={t('web.runtimeSession.viewerLabel')}
+        >
+            {/* The list stays mounted behind the detail: re-rendering it is
+                free, refetching it is not, and it keeps its scroll position. */}
+            <div
+                className={
+                    openSession
+                        ? 'hidden'
+                        : 'flex min-h-0 w-full flex-1 flex-col'
+                }
+            >
+                <SessionList
+                    currentCloudSessionId={sessionId}
+                    error={error}
+                    loading={loading}
+                    onOpen={handleOpen}
+                    result={result}
+                />
+            </div>
+            {openSession && (
+                <SessionDetail
+                    agentId={agentId}
+                    session={openSession.item}
+                    sessionRef={openSession.sessionRef}
+                    sessionId={sessionId}
+                    onBack={() => setOpenSession(null)}
+                    onClose={onClose}
+                    onApplied={onApplied}
+                />
+            )}
+        </div>
+    )
+}
+
+const SessionList: FC<{
+    currentCloudSessionId: string | null
+    error: string | null
+    loading: boolean
+    onOpen: (session: AgentSessionListItem) => void
+    result: AgentSessionListResponse | null
+}> = ({
+    currentCloudSessionId,
+    error,
+    loading,
+    onOpen,
+    result
+}): ReactNode => {
+    const { t } = useI18n()
+
+    if (loading)
+        return (
+            <div className='text-ui text-muted flex items-center gap-2 px-4 py-4'>
+                <Spinner size={16} />
+                {t('web.runtimeSession.loadingList')}
+            </div>
+        )
+
+    if (error)
+        return (
+            <div className='px-4 py-4'>
+                <div className='workbench-alert-error'>{error}</div>
+            </div>
+        )
+
+    const sessions = result?.sessions ?? []
+    if (sessions.length === 0)
+        return (
+            <EmptyState
+                kind='all-clear'
+                tier='stack'
+                title={t('web.runtimeSession.emptyTitle')}
+                body={t('web.runtimeSession.emptyBody')}
+            />
+        )
+
+    return (
+        <div className='min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3'>
+            {/* Said once for the whole list rather than per row: without it a
+                missing Local tag reads as "not on the runtime" when the truth
+                is that nothing could be read. */}
+            {result?.localScan === 'unavailable' && (
+                <div className='text-caption text-muted border-divider mb-2 rounded-md border border-dashed px-3 py-2'>
+                    {t('web.runtimeSession.localScanUnavailable')}
+                </div>
+            )}
+            <ol className='space-y-2'>
+                {sessions.map((session) => (
+                    <li key={sessionKey(session)}>
+                        <SessionRow
+                            framework={result?.framework ?? null}
+                            isCurrent={
+                                session.cloudSessionId !== null &&
+                                session.cloudSessionId === currentCloudSessionId
+                            }
+                            onOpen={() => onOpen(session)}
+                            session={session}
+                            t={t}
+                        />
+                    </li>
+                ))}
+            </ol>
+        </div>
+    )
+}
+
+// A row exists on at least one side, so one of the two ids is always present.
+const sessionKey = (session: AgentSessionListItem): string =>
+    session.cloudSessionId ?? session.sessionRef ?? ''
+
+const copy = (value: string): void => {
+    void navigator.clipboard?.writeText(value)
+}
+
+const SessionRow: FC<{
+    framework: AgentFramework | null
+    isCurrent: boolean
+    onOpen: () => void
+    session: AgentSessionListItem
+    t: TFn
+}> = ({ framework, isCurrent, onOpen, session, t }): ReactNode => {
+    const resumeCommand =
+        framework && session.sessionRef
+            ? frameworkResumeCommandLine(framework, session.sessionRef)
+            : null
+    // The runtime id is the one the resume command and the file path belong
+    // to; a session that only exists in the cloud has only its cloud id.
+    const copyableId = session.sessionRef ?? session.cloudSessionId
+
+    const items: OverflowMenuEntry[] = [
+        {
+            label: t('web.runtimeSession.copyResumeCommand'),
+            onSelect: () => resumeCommand && copy(resumeCommand),
+            disabled: !resumeCommand,
+            disabledReason: session.sessionRef
+                ? t('web.runtimeSession.resumeUnsupported')
+                : t('web.runtimeSession.notOnRuntime')
+        },
+        {
+            label: t('web.runtimeSession.copySessionId'),
+            onSelect: () => copyableId && copy(copyableId),
+            disabled: !copyableId
+        },
+        {
+            label: t('web.runtimeSession.copyFilePath'),
+            onSelect: () => session.sourceFile && copy(session.sourceFile),
+            disabled: !session.sourceFile,
+            disabledReason: t('web.runtimeSession.notOnRuntime')
+        }
+    ]
+
+    return (
+        <div className='bg-surface hover:bg-surface-hover shadow-ring-light relative rounded-md transition-colors'>
+            <button
+                type='button'
+                onClick={onOpen}
+                className='flex w-full flex-col gap-1 px-3 py-2.5 text-left'
+            >
+                {/* Right padding reserves the menu's corner so a long title
+                    never runs underneath it. */}
+                <span className='flex w-full items-center gap-2 pr-7'>
+                    <span
+                        className={[
+                            'text-ui text-fg min-w-0 flex-1 truncate font-medium',
+                            session.title ? '' : 'font-mono'
+                        ].join(' ')}
+                    >
+                        {session.title ?? sessionKey(session)}
+                    </span>
+                    {isCurrent && (
+                        <span className='tag tag-neutral shrink-0'>
+                            {t('web.runtimeSession.currentWebSession')}
+                        </span>
+                    )}
+                </span>
+                {/* Only a scanned transcript can say there is no reply; a
+                    cloud row we never read stays silent instead of lying. */}
+                {(session.lastAssistantMessage || session.inLocal) && (
+                    <span className='text-caption text-muted line-clamp-2'>
+                        {session.lastAssistantMessage ??
+                            t('web.runtimeSession.noAssistantReply')}
+                    </span>
+                )}
+                <span className='text-caption text-subtle flex flex-wrap items-center gap-x-1.5 gap-y-1'>
+                    {session.inCloud && (
+                        <span className='tag tag-neutral'>
+                            {t('web.runtimeSession.inCloud')}
+                        </span>
+                    )}
+                    {session.inLocal && (
+                        <span className='tag tag-neutral'>
+                            {t('web.runtimeSession.inLocal')}
+                        </span>
+                    )}
+                    {session.model && (
+                        <>
+                            <span className='truncate font-mono'>
+                                {session.model}
+                            </span>
+                            <span aria-hidden='true'>·</span>
+                        </>
+                    )}
+                    <span className='tabular-nums'>
+                        {t('web.runtimeSession.messageCount', {
+                            count: session.messageCount
+                        })}
+                    </span>
+                    {session.lastActiveAt && (
+                        <>
+                            <span aria-hidden='true'>·</span>
+                            <ShortcutTooltip
+                                label={formatDateTime(session.lastActiveAt)}
+                            >
+                                <span className='tabular-nums'>
+                                    {timeAgo(session.lastActiveAt)}
+                                </span>
+                            </ShortcutTooltip>
+                        </>
+                    )}
+                </span>
+            </button>
+            <div className='absolute right-1.5 top-1.5'>
+                <OverflowMenu
+                    ariaLabel={t('web.runtimeSession.sessionActions')}
+                    compact
+                    items={items}
+                />
+            </div>
+        </div>
+    )
+}
+
+const SessionDetail: FC<{
+    agentId: string
+    session: AgentSessionListItem
+    sessionRef: string
+    sessionId: string | null
+    onBack: () => void
+    onClose: () => void
+    onApplied: (sessionId?: string) => void
+}> = ({
+    agentId,
+    session,
+    sessionRef,
+    sessionId,
+    onBack,
     onClose,
     onApplied
 }): ReactNode => {
@@ -45,10 +351,8 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
     const [result, setResult] = useState<RuntimeSessionViewResponse | null>(
         null
     )
-    const [pickedRef, setPickedRef] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [previewMode, setPreviewMode] = useState<'preview' | 'raw'>('preview')
-    const autoPickedRef = useRef(false)
     // Synchronous guards: `applying`/request state only lands after a React
     // re-render, and restore creates a NEW session server-side per call — a
     // double-click must be stopped before the state updates, not after.
@@ -66,105 +370,78 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
         []
     )
 
-    const loadRuntimeSession = useCallback(
-        async (sessionRef?: string): Promise<void> => {
-            abortRef.current?.abort()
-            const controller = new AbortController()
-            abortRef.current = controller
-            const seq = ++requestSeqRef.current
-            setLoading(true)
-            setError(null)
-            try {
-                const res = await client.chat.runtimeSessionView(
-                    agentId,
-                    {
-                        ...(sessionId ? { sessionId } : {}),
-                        ...(sessionRef ? { sessionRef } : {}),
-                        ...(previewModeRef.current === 'raw'
-                            ? { includeRaw: true }
-                            : {})
-                    },
-                    { signal: controller.signal }
-                )
-                if (seq !== requestSeqRef.current) return
-                setPickedRef(res.selectedSessionRef)
-                setResult(res)
-            } catch (err) {
-                if (controller.signal.aborted || seq !== requestSeqRef.current)
-                    return
-                setError(apiErrorMessage(err))
-            } finally {
-                if (seq === requestSeqRef.current) setLoading(false)
-            }
-        },
-        [agentId, client, sessionId]
-    )
+
+    const loadRuntimeSession = useCallback(async (): Promise<void> => {
+        abortRef.current?.abort()
+        const controller = new AbortController()
+        abortRef.current = controller
+        const seq = ++requestSeqRef.current
+        setLoading(true)
+        setError(null)
+        try {
+            const res = await client.chat.runtimeSessionView(
+                agentId,
+                {
+                    ...(sessionId ? { sessionId } : {}),
+                    sessionRef,
+                    ...(previewModeRef.current === 'raw'
+                        ? { includeRaw: true }
+                        : {})
+                },
+                { signal: controller.signal }
+            )
+            if (seq !== requestSeqRef.current) return
+            setResult(res)
+        } catch (err) {
+            if (controller.signal.aborted || seq !== requestSeqRef.current)
+                return
+            setError(apiErrorMessage(err))
+        } finally {
+            if (seq === requestSeqRef.current) setLoading(false)
+        }
+    }, [agentId, client, sessionId, sessionRef])
 
     useEffect(() => {
         void loadRuntimeSession()
     }, [loadRuntimeSession])
 
-    const loadRawContent = useCallback(
-        async (sessionRef: string): Promise<void> => {
-            rawAbortRef.current?.abort()
-            const controller = new AbortController()
-            rawAbortRef.current = controller
-            setRawLoading(true)
-            try {
-                const res = await client.chat.runtimeSessionView(
-                    agentId,
-                    {
-                        ...(sessionId ? { sessionId } : {}),
-                        sessionRef,
-                        includeRaw: true
-                    },
-                    { signal: controller.signal }
-                )
-                if (controller.signal.aborted) return
-                setResult((prev) =>
-                    prev && prev.selectedSessionRef === res.selectedSessionRef
-                        ? { ...prev, rawLocalText: res.rawLocalText }
-                        : prev
-                )
-            } catch (err) {
-                if (!controller.signal.aborted) setError(apiErrorMessage(err))
-            } finally {
-                if (!controller.signal.aborted) setRawLoading(false)
-            }
-        },
-        [agentId, client, sessionId]
-    )
+    const loadRawContent = useCallback(async (): Promise<void> => {
+        rawAbortRef.current?.abort()
+        const controller = new AbortController()
+        rawAbortRef.current = controller
+        setRawLoading(true)
+        try {
+            const res = await client.chat.runtimeSessionView(
+                agentId,
+                {
+                    ...(sessionId ? { sessionId } : {}),
+                    sessionRef,
+                    includeRaw: true
+                },
+                { signal: controller.signal }
+            )
+            if (controller.signal.aborted) return
+            setResult((prev) =>
+                prev && prev.selectedSessionRef === res.selectedSessionRef
+                    ? { ...prev, rawLocalText: res.rawLocalText }
+                    : prev
+            )
+        } catch (err) {
+            if (!controller.signal.aborted) setError(apiErrorMessage(err))
+        } finally {
+            if (!controller.signal.aborted) setRawLoading(false)
+        }
+    }, [agentId, client, sessionId, sessionRef])
 
     const handleModeChange = useCallback(
         (mode: 'preview' | 'raw'): void => {
             setPreviewMode(mode)
             previewModeRef.current = mode
-            if (
-                mode === 'raw' &&
-                result &&
-                result.rawLocalText == null &&
-                result.selectedSessionRef
-            )
-                void loadRawContent(result.selectedSessionRef)
+            if (mode === 'raw' && result && result.rawLocalText == null)
+                void loadRawContent()
         },
         [loadRawContent, result]
     )
-
-    const handlePick = useCallback(
-        async (candidate: RuntimeSessionCandidate): Promise<void> => {
-            setPickedRef(candidate.sessionRef)
-            await loadRuntimeSession(candidate.sessionRef)
-        },
-        [loadRuntimeSession]
-    )
-
-    useEffect(() => {
-        if (autoPickedRef.current) return
-        if (!result?.needsCandidatePick) return
-        if (result.candidates.length !== 1) return
-        autoPickedRef.current = true
-        void handlePick(result.candidates[0])
-    }, [result, handlePick])
 
     const handleRestore = useCallback(async (): Promise<void> => {
         if (!result?.selectedSessionRef) return
@@ -223,52 +500,47 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
         }
     }, [agentId, client, onApplied, onClose, result, sessionId])
 
-    const showPicker = result?.needsCandidatePick ?? false
-    const rawMissingCount = result?.rawMissingCount ?? 0
-    const selectedCloudSessionId = result?.selectedCloudSessionId ?? null
     const restoreAction = runtimeSessionAction({
         applying,
-        rawMissingCount,
-        selectedCloudSessionId,
+        rawMissingCount: result?.rawMissingCount ?? 0,
+        selectedCloudSessionId: result?.selectedCloudSessionId ?? null,
         selectedSessionRef: result?.selectedSessionRef ?? null,
         sessionId,
         t
     })
     const rebuildAction = runtimeSessionRebuildAction({
         applying,
-        selectedCloudSessionId,
+        selectedCloudSessionId: result?.selectedCloudSessionId ?? null,
         selectedSessionRef: result?.selectedSessionRef ?? null,
         t
     })
+    const messageCount = result
+        ? result.parsedLocalMessages.length
+        : session.messageCount
+    const lastActive = session.lastActiveAt
 
     return (
-        <div
-            className='flex min-h-0 w-full flex-1 flex-col'
-            aria-label={t('web.runtimeSession.viewerLabel')}
-        >
-            <header className='border-divider/80 flex min-h-11 shrink-0 items-center gap-2 border-b px-3'>
-                <div className='min-w-0 flex-1'>
-                    {!showPicker && result && !loading ? (
-                        <RuntimeSessionSelect
-                            candidates={result.candidates}
-                            currentSessionRef={
-                                result.selectedCloudSessionId === sessionId
-                                    ? result.currentSessionRef
-                                    : null
-                            }
-                            value={result.selectedSessionRef}
-                            onSelect={(ref) => void loadRuntimeSession(ref)}
-                            t={t}
-                        />
-                    ) : (
-                        <div className='text-ui text-fg truncate font-medium'>
-                            {t('web.runtimeSession.sessionLabel')}
-                        </div>
-                    )}
-                </div>
+        <>
+            <header className='border-divider/80 flex min-h-11 shrink-0 items-center gap-1 border-b px-2'>
+                <button
+                    type='button'
+                    onClick={onBack}
+                    aria-label={t('web.runtimeSession.back')}
+                    className='text-muted hover:bg-surface-hover hover:text-fg rounded-pill inline-flex h-8 w-8 shrink-0 items-center justify-center transition-colors'
+                >
+                    <ArrowLeftIcon className='h-4 w-4' />
+                </button>
+                <span
+                    className={[
+                        'text-ui text-fg min-w-0 flex-1 truncate font-medium',
+                        session.title ? '' : 'font-mono'
+                    ].join(' ')}
+                >
+                    {session.title ?? session.sessionRef}
+                </span>
                 <RuntimeSessionMenu
                     applying={applying}
-                    disabled={showPicker || !result || loading}
+                    disabled={!result || loading}
                     mode={previewMode}
                     rebuildAction={rebuildAction}
                     restoreAction={restoreAction}
@@ -279,15 +551,35 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
                 />
             </header>
 
+            <div className='border-divider/60 text-caption text-subtle flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2'>
+                {session.model && (
+                    <span className='truncate font-mono'>
+                        {session.model}
+                    </span>
+                )}
+                <span className='tabular-nums'>
+                    {t('web.runtimeSession.messageCount', {
+                        count: messageCount
+                    })}
+                </span>
+                {lastActive && (
+                    <span className='tabular-nums'>
+                        {formatDateTime(lastActive)}
+                    </span>
+                )}
+                <ShortcutTooltip
+                    label={sessionRef}
+                    className='ml-auto min-w-0'
+                >
+                    <span className='truncate font-mono'>{sessionRef}</span>
+                </ShortcutTooltip>
+            </div>
+
             <div className='min-h-0 flex-1 overflow-auto overscroll-contain px-4 py-4'>
                 {loading && (
-                    <div className='text-ui text-muted flex flex-col gap-1'>
-                        <div className='flex items-center gap-2'>
-                            <Spinner size={16} />
-                            {pickedRef
-                                ? t('web.runtimeSession.loadingParsing')
-                                : t('web.runtimeSession.loadingReading')}
-                        </div>
+                    <div className='text-ui text-muted flex items-center gap-2'>
+                        <Spinner size={16} />
+                        {t('web.runtimeSession.loadingParsing')}
                     </div>
                 )}
 
@@ -295,16 +587,7 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
                     <div className='workbench-alert-error'>{error}</div>
                 )}
 
-                {result && !loading && showPicker && (
-                    <CandidatePicker
-                        candidates={result.candidates}
-                        onPick={(c) => void handlePick(c)}
-                        pickedRef={pickedRef}
-                        t={t}
-                    />
-                )}
-
-                {result && !loading && !showPicker && (
+                {result && !loading && (
                     <LocalContent
                         result={result}
                         mode={previewMode}
@@ -319,27 +602,17 @@ const RuntimeSessionViewer: FC<RuntimeSessionViewerProps> = ({
 
             <footer className='border-divider/80 text-caption text-placeholder flex min-h-9 shrink-0 items-center gap-3 border-t px-4'>
                 <ShortcutTooltip
-                    label={result?.sourceFile ?? undefined}
+                    label={result?.sourceFile ?? session.sourceFile ?? undefined}
                     placement='top'
                     className='min-w-0'
                 >
                     <span className='w-full truncate font-mono'>
-                        {result?.sourceFile ??
-                            (loading
-                                ? t('web.runtimeSession.preparing')
-                                : t('web.runtimeSession.unavailable'))}
+                        {result?.sourceFile ?? session.sourceFile}
                     </span>
                 </ShortcutTooltip>
             </footer>
-        </div>
+        </>
     )
-}
-
-interface CandidatePickerProps {
-    candidates: RuntimeSessionCandidate[]
-    onPick: (candidate: RuntimeSessionCandidate) => void
-    pickedRef: string | null
-    t: TFn
 }
 
 const runtimeSessionAction = (input: {
@@ -393,134 +666,6 @@ const runtimeSessionRebuildAction = (input: {
         title: input.t('web.runtimeSession.rebuildParsedTitle')
     }
 }
-
-const RuntimeSessionSelect: FC<{
-    candidates: RuntimeSessionCandidate[]
-    currentSessionRef: string | null
-    value: string | null
-    onSelect: (sessionRef: string) => void
-    t: TFn
-}> = ({ candidates, currentSessionRef, value, onSelect, t }): ReactNode => {
-    const hasValue = value
-        ? candidates.some((candidate) => candidate.sessionRef === value)
-        : true
-    if (candidates.length === 0) {
-        return (
-            <div className='min-w-0 truncate font-mono'>
-                {value ?? t('web.runtimeSession.noRuntimeSessions')}
-            </div>
-        )
-    }
-    return (
-        <WorkbenchSelect
-            size='sm'
-            mono
-            className='w-full min-w-0'
-            ariaLabel={t('web.runtimeSession.selectPlaceholder')}
-            placeholder={t('web.runtimeSession.selectPlaceholder')}
-            value={value ?? ''}
-            onChange={(next) => {
-                if (next) onSelect(next)
-            }}
-            options={[
-                ...(value && !hasValue
-                    ? [
-                          {
-                              value,
-                              label: runtimeSessionOptionLabel({
-                                  currentSessionRef,
-                                  messageCount: null,
-                                  sessionRef: value,
-                                  t
-                              })
-                          }
-                      ]
-                    : []),
-                ...candidates.map((candidate) => ({
-                    value: candidate.sessionRef,
-                    label: runtimeSessionOptionLabel({
-                        currentSessionRef,
-                        messageCount: candidate.messageCount,
-                        sessionRef: candidate.sessionRef,
-                        t
-                    })
-                }))
-            ]}
-        />
-    )
-}
-
-const runtimeSessionOptionLabel = (input: {
-    currentSessionRef: string | null
-    messageCount: number | null
-    sessionRef: string
-    t: TFn
-}): string => {
-    const parts = [input.sessionRef]
-    if (input.messageCount && input.messageCount > 0)
-        parts.push(`(${input.messageCount})`)
-    if (input.currentSessionRef === input.sessionRef)
-        parts.push(input.t('web.runtimeSession.currentWebSession'))
-    return parts.join(' - ')
-}
-
-const CandidatePicker: FC<CandidatePickerProps> = ({
-    candidates,
-    onPick,
-    pickedRef,
-    t
-}): ReactNode => (
-    <div className='workbench-panel-subtle px-4 py-3'>
-        <div className='text-caption text-fg font-medium'>
-            {t('web.runtimeSession.selectOne')}
-        </div>
-        {candidates.length === 0 ? (
-            <div className='text-caption text-muted mt-2'>
-                {t('web.runtimeSession.noCandidatesFound')}
-            </div>
-        ) : (
-            <ol className='mt-2 space-y-1.5'>
-                {candidates.map((c, i) => (
-                    <li key={c.sessionRef}>
-                        <button
-                            type='button'
-                            className={[
-                                'shadow-ring-light flex w-full flex-col items-start gap-1 rounded-md bg-white px-3 py-2 text-left transition-colors',
-                                pickedRef === c.sessionRef
-                                    ? 'ring-link ring-2'
-                                    : 'hover:bg-surface-hover'
-                            ].join(' ')}
-                            onClick={() => onPick(c)}
-                        >
-                            <div className='text-caption text-muted flex w-full items-center justify-between font-mono'>
-                                <span className='truncate'>{c.sessionRef}</span>
-                                <span className='ml-2 flex shrink-0 items-center gap-2'>
-                                    {i === 0 && (
-                                        <span className='tag tag-neutral'>
-                                            {t('web.runtimeSession.recent')}
-                                        </span>
-                                    )}
-                                    <span>
-                                        {t('web.runtimeSession.messageCount', {
-                                            count: c.messageCount
-                                        })}
-                                    </span>
-                                </span>
-                            </div>
-                            <div className='text-caption text-fg whitespace-pre-wrap break-words'>
-                                {c.firstUserMessage ??
-                                    t('web.runtimeSession.noUserMessage')}
-                            </div>
-                            <div className='text-caption text-placeholder font-mono'>
-                                {c.timestamp ?? ''} · {c.sourceFile}
-                            </div>
-                        </button>
-                    </li>
-                ))}
-            </ol>
-        )}
-    </div>
-)
 
 const RuntimeSessionMenu: FC<{
     applying: boolean
@@ -800,4 +945,4 @@ const EmptyContent: FC<{ text: string }> = ({ text }): ReactNode => (
     <EmptyState kind='no-results' tier='line' body={text} className='py-4' />
 )
 
-export default memo(RuntimeSessionViewer)
+export default memo(AgentSessions)

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Logger } from '@nestjs/common'
 import type { RecoveryFs } from '../recovery-fs'
+import { candidateExcerpt } from './candidate-scan'
 import type {
     CandidateSession,
     ReaderResult,
@@ -242,10 +243,17 @@ export const listHermesSqliteCandidates = async (
         db = new sqlite.Database(materialized.local, { readonly: true })
         const rows = db
             .prepare(
-                `SELECT s.id, s.started_at, s.title,
+                `SELECT s.id, s.started_at, s.ended_at, s.title,
                         (SELECT content FROM messages m
                          WHERE m.session_id = s.id AND m.role = 'user'
                          ORDER BY m.timestamp, m.id LIMIT 1) AS first_user,
+                        (SELECT content FROM messages m
+                         WHERE m.session_id = s.id AND m.role = 'assistant'
+                           AND m.content IS NOT NULL AND m.content <> ''
+                         ORDER BY m.timestamp DESC, m.id DESC LIMIT 1)
+                            AS last_assistant,
+                        (SELECT MAX(m.timestamp) FROM messages m
+                         WHERE m.session_id = s.id) AS last_message_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS msg_count
                  FROM sessions s
                  ORDER BY COALESCE(s.ended_at, s.started_at) DESC
@@ -254,19 +262,28 @@ export const listHermesSqliteCandidates = async (
             .all(limit) as Array<{
             id: string
             started_at: number | null
+            ended_at: number | null
             title: string | null
             first_user: string | null
+            last_assistant: string | null
+            last_message_at: number | null
             msg_count: number
         }>
         return rows.map((r) => ({
             sessionRef: r.id,
             sourceFile: dbPath,
             firstUserMessage: r.first_user?.slice(0, 200) ?? r.title ?? null,
+            lastAssistantMessage: candidateExcerpt(r.last_assistant),
             timestamp:
                 r.started_at != null
                     ? new Date(r.started_at * 1000).toISOString()
                     : null,
-            messageCount: r.msg_count
+            lastActiveAt: isoFromUnixSeconds(
+                r.last_message_at ?? r.ended_at ?? r.started_at
+            ),
+            messageCount: r.msg_count,
+            // The hermes schema records no model on a message row.
+            model: null
         }))
     } catch (err) {
         log.warn(

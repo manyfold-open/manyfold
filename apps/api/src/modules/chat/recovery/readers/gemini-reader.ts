@@ -12,6 +12,8 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    candidateExcerpt,
+    candidateTailLines,
     jsonStringField,
     mtimeIso,
     scanCandidateFiles
@@ -84,24 +86,100 @@ export class GeminiCliSessionReader implements SessionReader {
         )
         const out: CandidateSession[] = []
         for (const head of heads) {
-            const summary = head.path.endsWith('.jsonl')
+            const jsonl = head.path.endsWith('.jsonl')
+            const summary = jsonl
                 ? summarizeGeminiJsonl(head.headText)
                 : head.truncated
                   ? summarizeGeminiHead(head.headText)
                   : summarizeGemini(head.headText)
+            const latest = jsonl
+                ? latestGeminiJsonl(candidateTailLines(head))
+                : head.truncated
+                  ? EMPTY_LATEST
+                  : latestGeminiJson(head.headText)
             if (summary.sessionRef)
                 out.push({
                     sessionRef: summary.sessionRef,
                     sourceFile: head.path,
                     firstUserMessage: summary.firstUserMessage,
+                    lastAssistantMessage: latest.lastAssistantMessage,
                     timestamp: summary.timestamp ?? mtimeIso(head),
+                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
                     messageCount:
-                        head.truncated && head.path.endsWith('.jsonl')
+                        head.truncated && jsonl
                             ? head.lineCount
-                            : summary.messageCount
+                            : summary.messageCount,
+                    model: latest.model
                 })
         }
         return out
+    }
+}
+
+interface LatestCandidateFields {
+    lastAssistantMessage: string | null
+    lastActiveAt: string | null
+    model: string | null
+}
+
+// A truncated whole-file JSON cannot be parsed at all, and its records carry no
+// line structure to walk backwards over, so the latest fields stay unknown
+// rather than guessed.
+const EMPTY_LATEST: LatestCandidateFields = {
+    lastAssistantMessage: null,
+    lastActiveAt: null,
+    model: null
+}
+
+const latestGeminiJsonl = (lines: string[]): LatestCandidateFields => {
+    const { messages } = reconstructGeminiSessionJsonl(lines.join('\n'))
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    let model: string | null = null
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (msg.type !== 'user' && msg.type !== 'gemini') continue
+        const text = extractGeminiText(msg.content)
+        if (msg.type === 'user' && isSessionContextText(text)) continue
+        if (!lastActiveAt && msg.timestamp) lastActiveAt = msg.timestamp
+        if (msg.type !== 'gemini') continue
+        if (!model && msg.model) model = msg.model
+        if (!lastAssistantMessage && text)
+            lastAssistantMessage = candidateExcerpt(text)
+        if (lastAssistantMessage && model && lastActiveAt) break
+    }
+    return { lastAssistantMessage, lastActiveAt, model }
+}
+
+const latestGeminiJson = (text: string): LatestCandidateFields => {
+    let parsed: GeminiSession
+    try {
+        parsed = JSON.parse(text) as GeminiSession
+    } catch {
+        return EMPTY_LATEST
+    }
+    const messages = Array.isArray(parsed.messages) ? parsed.messages : []
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i]
+        if (!isRecord(msg)) continue
+        const type = typeof msg.type === 'string' ? msg.type : ''
+        if (type !== 'user' && type !== 'gemini') continue
+        if (!lastActiveAt && typeof msg.timestamp === 'string')
+            lastActiveAt = msg.timestamp
+        if (type !== 'gemini') continue
+        if (!lastAssistantMessage)
+            lastAssistantMessage = candidateExcerpt(
+                extractGeminiText(msg.content)
+            )
+        if (lastAssistantMessage && lastActiveAt) break
+    }
+    return {
+        lastAssistantMessage,
+        lastActiveAt: lastActiveAt ?? parsed.lastUpdated ?? null,
+        // The legacy whole-file format records no model per message.
+        model: null
     }
 }
 
