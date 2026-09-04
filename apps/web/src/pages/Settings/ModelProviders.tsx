@@ -29,6 +29,7 @@ import {
 import { useI18n, type TFn } from '@/lib/i18n'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import Breadcrumb from '@/components/Breadcrumb'
+import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     BoxIcon,
     ChevronDownIcon,
@@ -36,6 +37,7 @@ import {
     ListViewIcon,
     PlugIcon,
     PlusIcon,
+    RefreshIcon,
     ZapIcon
 } from '@/components/icons'
 import { Ghost, Spinner } from '@/components/Loading'
@@ -1615,38 +1617,57 @@ const ModelListSection: FC<{
                     </p>
                 </div>
                 {/* Search, refresh and save travel as one group: below the
-                    breakpoint the whole group wraps, so save never ends up
-                    stranded on a line of its own. */}
-                <div className='flex shrink-0 items-center gap-2'>
+                    breakpoint the whole group wraps onto its own full-width
+                    line and the search field flexes into it, because the three
+                    of them at their desktop widths (160 + 135 + 64 + gaps) are
+                    wider than a 375-px column and pushed Save off the edge. */}
+                <div className='flex w-full items-center gap-2 sm:w-auto sm:shrink-0'>
                     <input
                         value={query}
                         onChange={(event) => setQuery(event.target.value)}
                         placeholder={t('web.modelProviders.searchModels')}
                         aria-label={t('web.modelProviders.searchModels')}
                         autoComplete='off'
-                        className='workbench-input h-9 w-40 min-w-0 sm:w-56'
+                        className='workbench-input h-9 min-w-0 flex-1 sm:w-56 sm:flex-none'
                     />
-                    <button
-                        type='button'
-                        onClick={() => void refresh()}
-                        disabled={testing}
-                        aria-busy={testing}
-                        className='workbench-button-secondary h-9'
+                    {/* Refresh drops to its icon on a narrow column — the
+                        widest of the three and the least urgent, since the list
+                        refreshes itself on load. The label stays reachable as
+                        the tooltip and the aria-label. */}
+                    <ShortcutTooltip
+                        label={t('web.modelProviders.refreshModels')}
+                        className='shrink-0'
                     >
-                        {testing ? (
-                            <>
-                                <Spinner size={16} className='mr-2' />
-                                {t('web.modelProviders.refreshing')}
-                            </>
-                        ) : (
-                            t('web.modelProviders.refreshModels')
-                        )}
-                    </button>
+                        <button
+                            type='button'
+                            onClick={() => void refresh()}
+                            disabled={testing}
+                            aria-busy={testing}
+                            aria-label={t('web.modelProviders.refreshModels')}
+                            className='workbench-button-secondary h-9'
+                        >
+                            {testing ? (
+                                <>
+                                    <Spinner size={16} className='sm:mr-2' />
+                                    <span className='hidden sm:inline'>
+                                        {t('web.modelProviders.refreshing')}
+                                    </span>
+                                </>
+                            ) : (
+                                <>
+                                    <RefreshIcon className='h-4 w-4 sm:hidden' />
+                                    <span className='hidden sm:inline'>
+                                        {t('web.modelProviders.refreshModels')}
+                                    </span>
+                                </>
+                            )}
+                        </button>
+                    </ShortcutTooltip>
                     <button
                         type='button'
                         onClick={() => void save()}
                         disabled={busy || !dirty}
-                        className='workbench-button-primary h-9'
+                        className='workbench-button-primary h-9 shrink-0'
                     >
                         {busy ? (
                             <>

@@ -28,9 +28,15 @@ explicitly is what a caller with its own search box does.
 `SingleProtocolModels` keeps its signature and delegates to the grid, so a
 single-protocol tab and the "All" tab render rows the same way.
 
-Two narrow-screen fixes ride along, both of which the search field would
+Three narrow-screen fixes ride along, all of which the search field would
 otherwise have made worse. The tab strip scrolls instead of wrapping — a
 wrapped row of tabs reads as two rows of buttons rather than one segmented
-control — and a row's price drops below the model id instead of squeezing it,
+control. A row's price drops below the model id instead of squeezing it,
 because the tail of `claude-haiku-4-5-20251001` is the part that identifies
-it and an ellipsis eats exactly that.
+it and an ellipsis eats exactly that. And the search / refresh / save group
+takes the full width of a narrow column with the field flexing into it, while
+`Refresh models` collapses to its icon: at their desktop widths the three come
+to 375px inside a 335px column, which pushed `Save` off the right edge and put
+20px of horizontal scroll on the page. Refresh is the one that gives up its
+label — the widest of the three, and the least urgent, since the list refreshes
+itself on load — and keeps it as the tooltip and the `aria-label`.
