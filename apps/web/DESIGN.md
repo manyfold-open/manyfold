@@ -282,7 +282,7 @@ The weight rule is **scoped by family**, not by size.
 - **Product surfaces cap at 500. No exception.** Body sits at 400, so a 500 heading, label or `<strong>` already reads as a clear step up without going heavy; at workbench density 600 reads as shouting. Hierarchy is carried by size, tracking, colour and space — never weight. Do not re-pin `font-semibold` on a `text-h*` element.
 - **Docs headings are 500 too.** h1–h4 there once shipped at 600; they now sit at the same cap as the webapp.
 - **Windows CJK keeps 600 on `<strong>` only.** Microsoft YaHei ships 400 and 700 and nothing between, so a CJK run at 500 resolves to Regular; `<strong>` has no other signal, so `data-cjk-weights="coarse"` pins it to 600 there. Headings are left alone — size and space still carry them.
-- **Product _chrome_ headings descend one step in colour** to `--color-muted` rather than pure ink: a page or panel title is structure, not the thing being read. **Headings inside a content flow keep full ink** — markdown headings in a chat message, article headings in docs.
+- **Headings keep full ink.** Every heading rung — page title, panel title, card title, modal title, and headings inside a content flow — sits at `--color-fg`; landing does the same on `--lp-ink`. What steps down is the copy _underneath_: a description, subtitle or lead goes to `--color-muted`, metadata and captions to `--color-subtle`. Dimming the heading itself buys no hierarchy — it is the shortest string on the surface, and at workbench density a muted title reads as disabled rather than as structure, which also costs the page its scan anchors.
 - **Inline code always renders at 400.** Mono has a uniform stroke and a large x-height, so at equal numeric weight it reads bolder than Geist; the prose theme overrides `code` back to 400 even inside `<strong>`.
 - **Micro-labels are sentence case at normal tracking.** Kickers, stat labels, table heads, eyebrows, badges — the family that used to run ALL-CAPS at `tracking-[0.18em]`. Caps and wide tracking are one unit rather than two choices: the tracking only ever existed to give capital letterforms air, so it does not survive the caps. Source strings stay authored in sentence case (`Cost`, `Input tokens`), so the label reads the same in the DOM, on screen and to a screen reader.
 - **Tracking tightens as size grows:** body 0, h3 −0.01em, h2 −0.015em, h1 −0.02em, display −0.025em. It is declared in the `fontSize` tuples, so do not stack `tracking-tight` on a heading rung — the tuple already carries the right value.
@@ -889,7 +889,7 @@ The dialog fill is the standard elevated surface — `--color-surface`. **Never*
 A modal has three header parts, in order:
 
 1. **Eyebrow chip** (optional) — a small pill that gives the modal its category ("Manyfold Beta · Invite-only", "Confirm sign-out"). A flat soft chip — `--color-surface-subtle` fill, no ring. Eyebrows are not required on every modal — skip them when the title alone reads cleanly.
-2. **Title** — `text-h2` size (1.5rem / 24px) at `--color-muted`, weight 500, letter-spacing -0.015em. One line preferred; two lines acceptable.
+2. **Title** — `text-h2` (20px, §5) at `--color-fg`, weight 500. The rung already carries its own letter-spacing (−0.015em) in the `fontSize` tuple, so do not stack `tracking-tight` on it. One line preferred; two lines acceptable.
 3. **Subtitle** (optional) — `text-body` (15–16px) at `--color-muted`, line-height 1.5. Up to two lines of clarifying context.
 
 The header takes a single block of vertical rhythm (gap-2 / 8px between eyebrow→title, title→subtitle). It is **not** visually separated from the body by a divider — modal bodies are short enough that one continuous reading flow works better than fractured sections.
@@ -1315,7 +1315,7 @@ A new surface is aligned with the system if all of the following are true:
 
 - All colors come from tokens. No ad-hoc hex.
 - Geist sans for everything. Geist Mono only for technical signal. No third display family anywhere — emphasis is carried by color, not by a font swap.
-- Headings (h2+, card titles) use `--color-muted`, not pure ink.
+- Headings — page, panel, card and modal titles — use `--color-fg`. `--color-muted` is for the supporting copy under them, not for the heading.
 - Cards / panels / popovers / modals use Md 14 (the product ceiling) or smaller (Sm 10 / Xs 8); only the chat composer is rounder (18). Never reach for a `rounded-lg`+ utility on a product surface — those tiers are honest hero values (20/24/28/32) reserved for landing and will visibly over-round a product card (§6.1). No `corner-shape` / squircle anywhere (§6.4).
 - Badges, tags, chips, avatars, status dots are pill / circle. Buttons follow the §6.2 register: pill on identity surfaces (rail / chat), Sm 10 on working surfaces; icon-only buttons are always circular.
 - Concentric nesting holds where there's tight inset framing: the binding case is the menu (14 − 4 = 10). Cards cap at 14 and use generous padding, so the rule there is informational.
@@ -1340,7 +1340,7 @@ A new surface is aligned with the system if all of the following are true:
 - Keep button and card fills flat. Lift lives in `box-shadow`, not in a background gradient inside the fill.
 - Use accent colors for state, never for decoration.
 - Classify every empty region by cause (first-use / no-results / no-selection / all-clear, §10.7) before styling it — the cause decides the copy and whether a CTA exists; render it through the shared `EmptyState` component.
-- Use `--color-muted` for non-hero headings.
+- Keep every heading at `--color-fg`, and step the copy _under_ it down to `--color-muted` / `--color-subtle`.
 - Use `background-color` changes — not `filter: brightness()` — for button hovers, so text/icon contrast stays intact.
 - Product tags carry no ring at all (§8.3) — the fill alone holds the edge on every ground it lands on.
 - Keep accent gradients symmetric about the vertical centerline (e.g. CTA card glow at `50% 0%` / `50% 100%`, never asymmetric corner washes).
@@ -1424,7 +1424,7 @@ A proposal is aligned with this system if:
 - Every product button is flat (solid fill + a 1px ring, no inset gleam). All follow the §6.2 shape register (pill on identity surfaces, Sm 10 on working surfaces; icon-only circular). Hover changes the fill (not `filter`, not text/icon color). Icons inside the button do not translate. Press translates 0.5px. Primary fill is _not_ swapped to brand color on hover.
 - Cards override fill with `background-color:` longhand, not `background:` shorthand.
 - A clickable card hovers by stepping its fill one tone (no translate, no shadow swap).
-- Heading hierarchy uses `--color-muted` (not pure ink) for everything below hero h1.
+- Heading hierarchy is carried by size, position and space: every heading rung stays at `--color-fg`, with its supporting copy at `--color-muted`.
 - Every accent state has a non-color signal.
 - Focus is visible on every interactive element.
 - Reduced-motion users get a static experience.
