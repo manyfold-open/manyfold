@@ -35,3 +35,10 @@ scan the caller already paid for. That scan now also reads the last 64 KiB of an
 transcript past its head window, because the newest reply, its timestamp and its
 model are at the end of the file. Frameworks whose transcripts record no model —
 OpenClaw and Hermes — leave that field empty rather than showing a guess.
+
+Two smaller things in the same panel. Arriving at a chat no longer opens the
+Files panel for you — it used to open itself on first entry to any agent with a
+workspace, taking the side of the screen before you asked for anything. And
+below the large breakpoint the panel now covers the screen instead of sharing
+the height with the conversation, which left both halves too short to use on a
+phone.

@@ -20,7 +20,7 @@ import { useI18n } from '@/lib/i18n'
 export const SidePaneHeaderSlotContext = createContext<HTMLElement | null>(null)
 
 // The one right-hand pane the chat exposes: background tasks, the workspace
-// files (tree + preview), or the agent session history — one at a time,
+// files (tree + preview), or the agent's sessions — one at a time,
 // picked from the header dropdown. Files brings its own two-column body and
 // internal resize, so the pane only frames it; the single-column kinds get a
 // pane-owned width + left-edge resize instead.
@@ -236,7 +236,15 @@ const SidePane: FC<SidePaneProps> = ({
             <aside
                 aria-label={t('web.chat.pane.label')}
                 style={{ '--side-pane-width': `${width}px` } as CSSProperties}
-                className='border-divider/80 bg-main order-3 flex min-h-0 w-full flex-1 flex-col border-t lg:order-none lg:w-[var(--side-pane-width)] lg:flex-none lg:shrink-0 lg:border-l lg:border-t-0'
+                className={[
+                    'border-divider/80 bg-main flex min-h-0 flex-col',
+                    // Below lg the pane owns the screen. Docked under the chat
+                    // it got roughly half a phone's height, which is too short
+                    // to read a transcript or walk a file tree in; above the
+                    // shell's own drawer (z-90) so nothing shows through.
+                    'fixed inset-0 z-[95]',
+                    'lg:static lg:inset-auto lg:z-auto lg:w-[var(--side-pane-width)] lg:flex-none lg:shrink-0 lg:border-l'
+                ].join(' ')}
             >
                 {header}
                 <SidePaneHeaderSlotContext.Provider value={slotEl}>

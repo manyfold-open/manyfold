@@ -1958,17 +1958,6 @@ const AgentChat: FC = (): ReactNode => {
             setFilesTreeVisible(true)
     }, [filePreviewAvailable, filePreviewVisible])
 
-    // Open the Files panel by default on first entering a workspace-capable
-    // chat. Keyed by agent id so a manual close sticks for that agent, but
-    // switching to a different agent opens Files again.
-    const autoOpenedFilesRef = useRef<string | null>(null)
-    useEffect(() => {
-        if (!currentAgent || currentAgent.runtime === 'external') return
-        if (autoOpenedFilesRef.current === currentAgent.id) return
-        autoOpenedFilesRef.current = currentAgent.id
-        setActivePane('files')
-    }, [currentAgent])
-
     const toggleFiles = useCallback((): void => {
         if (!workspaceToolsAvailable) return
         setActivePane((pane) => (pane === 'files' ? null : 'files'))
