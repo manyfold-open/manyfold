@@ -1111,7 +1111,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                             </span>
                             <div className='min-w-0 flex-1'>
                                 <div className='flex min-w-0 items-center gap-1'>
-                                    <h2 className='text-h3 text-fg min-w-0 truncate tracking-tight'>
+                                    <h2 className='text-h3 text-fg min-w-0 truncate'>
                                         {agent.name}
                                     </h2>
                                     <ShortcutTooltip
@@ -1818,7 +1818,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                     <section className='space-y-6'>
                         <div>
                             <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
-                                <h2 className='text-h3 text-fg tracking-tight'>
+                                <h2 className='text-h3 text-fg'>
                                     {t('web.agents.detail.storage.title')}
                                 </h2>
                                 <button
@@ -2123,7 +2123,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                     <AgentSkills agent={agent} />
                 ) : (
                     <section>
-                        <h2 className='text-h3 text-fg mb-4 tracking-tight'>
+                        <h2 className='text-h3 text-fg mb-4'>
                             {t('web.agents.detail.skills.title')}
                         </h2>
                         <div className='workbench-note'>
@@ -2141,7 +2141,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 return (
                     <section>
                         <header className='mb-4 flex flex-wrap items-center gap-x-3 gap-y-2'>
-                            <h2 className='text-h3 text-fg tracking-tight'>
+                            <h2 className='text-h3 text-fg'>
                                 {t('web.agents.detail.modelProvider.title')}
                             </h2>
                             <span className='flex-1' />

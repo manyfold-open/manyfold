@@ -83,7 +83,7 @@ export const AgentConnections: FC<Props> = ({ agent, onAgentUpdated }) => {
         <section>
             <header className='mb-4'>
                 <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {t('web.agents.detail.connections.title')}
                     </h2>
                     <span className='flex-1' />

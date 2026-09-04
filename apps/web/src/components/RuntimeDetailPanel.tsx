@@ -198,7 +198,7 @@ export const Section: FC<{
 }> = ({ title, action, children }): ReactNode => (
     <section>
         <div className='mb-4 flex flex-wrap items-center justify-between gap-3'>
-            <h2 className='text-h3 text-fg tracking-tight'>{title}</h2>
+            <h2 className='text-h3 text-fg'>{title}</h2>
             {action}
         </div>
         {children}

@@ -360,7 +360,7 @@ const ApiTokensList: FC = (): ReactNode => {
                                     }
                                     className='hover:bg-rail-hover -mx-1.5 flex min-w-0 items-center gap-2 rounded-sm px-1.5 py-1 transition-colors'
                                 >
-                                    <h2 className='text-h3 text-fg tracking-tight'>
+                                    <h2 className='text-h3 text-fg'>
                                         {t('web.apiTokens.title')}
                                     </h2>
                                     <span className='tag tag-neutral tabular-nums'>

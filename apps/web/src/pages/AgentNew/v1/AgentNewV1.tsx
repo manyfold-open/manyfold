@@ -1995,7 +1995,7 @@ const AgentNew: FC = (): ReactNode => {
                     {progress ? (
                         <div className='space-y-6'>
                             <div>
-                                <h2 className='text-h3 text-fg tracking-tight'>
+                                <h2 className='text-h3 text-fg'>
                                     {t('web.agentNew.creatingAgent')}
                                 </h2>
                                 <p className='text-caption text-muted mt-1 font-mono'>
