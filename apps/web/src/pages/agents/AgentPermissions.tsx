@@ -96,7 +96,7 @@ export const AgentPermissions: FC<AgentPermissionsProps> = ({
         return (
             <section>
                 <div className='mb-4 flex flex-wrap items-center gap-x-3 gap-y-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {t('web.agents.detail.permissions.title')}
                     </h2>
                     <span className='flex-1' />
@@ -120,7 +120,7 @@ export const AgentPermissions: FC<AgentPermissionsProps> = ({
         return (
             <section>
                 <div className='mb-4 flex flex-wrap items-center gap-x-3 gap-y-2'>
-                    <h2 className='text-h3 text-fg tracking-tight'>
+                    <h2 className='text-h3 text-fg'>
                         {t('web.agents.detail.permissions.title')}
                     </h2>
                     <span className='flex-1' />
@@ -138,7 +138,7 @@ export const AgentPermissions: FC<AgentPermissionsProps> = ({
             <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
                 <div className='min-w-0'>
                     <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
-                        <h2 className='text-h3 text-fg tracking-tight'>
+                        <h2 className='text-h3 text-fg'>
                             {t('web.agents.detail.permissions.title')}
                         </h2>
                         <span className='flex-1' />

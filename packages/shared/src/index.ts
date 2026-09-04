@@ -517,6 +517,10 @@ export type {
     McpScopeId
 } from './framework-capability'
 export {
+    frameworkResumeArgv,
+    frameworkResumeCommandLine
+} from './framework-resume'
+export {
     mcpConfigFromExtras,
     mcpDeliveryFromExtras,
     validateMcpJson
@@ -729,6 +733,9 @@ export type {
     RegenerateMessageRequest,
     RegenerateMessageResponse,
     RuntimeSessionCandidate,
+    AgentSessionListItem,
+    AgentSessionListResponse,
+    AgentSessionLocalScan,
     RuntimeSessionViewResponse,
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRebuildParsedResponse,

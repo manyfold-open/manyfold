@@ -75,7 +75,7 @@ const ApiTokenNew: FC<{ onCreated: () => Promise<void> }> = ({
                     // it, which is the property the old inline block lacked.
                     <div className='space-y-4'>
                         <div>
-                            <h2 className='text-h3 text-fg tracking-tight'>
+                            <h2 className='text-h3 text-fg'>
                                 {t('web.apiTokens.issuedTitle')}
                             </h2>
                             <p className='text-caption text-muted mt-1'>

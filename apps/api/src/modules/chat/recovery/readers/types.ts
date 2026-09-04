@@ -51,8 +51,11 @@ export interface CandidateSession {
     sessionRef: string
     sourceFile: string
     firstUserMessage: string | null
+    lastAssistantMessage: string | null
     timestamp: string | null
+    lastActiveAt: string | null
     messageCount: number
+    model: string | null
 }
 
 export interface CandidateContext {

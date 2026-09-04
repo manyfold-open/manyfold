@@ -13,6 +13,7 @@ import type {
 } from './types'
 import { shellEscape } from '../recovery-fs'
 import {
+    candidateExcerpt,
     jsonStringField,
     mtimeIso,
     scanCandidateFiles
@@ -95,16 +96,59 @@ export class HermesSessionReader implements SessionReader {
             const summary = head.truncated
                 ? summarizeHermesHead(head.headText)
                 : summarizeHermes(head.headText)
+            const latest = head.truncated
+                ? EMPTY_HERMES_LATEST
+                : latestHermesJson(head.headText)
             if (summary.sessionRef)
                 out.push({
                     sessionRef: summary.sessionRef,
                     sourceFile: head.path,
                     firstUserMessage: summary.firstUserMessage,
+                    lastAssistantMessage: latest.lastAssistantMessage,
                     timestamp: summary.timestamp ?? mtimeIso(head),
-                    messageCount: summary.messageCount
+                    lastActiveAt: latest.lastActiveAt ?? mtimeIso(head),
+                    messageCount: summary.messageCount,
+                    // The session JSON records no model per message.
+                    model: null
                 })
         }
         return out
+    }
+}
+
+// A truncated whole-file session JSON no longer parses, and its messages are
+// not line-delimited, so nothing can be read from its end.
+const EMPTY_HERMES_LATEST: {
+    lastAssistantMessage: string | null
+    lastActiveAt: string | null
+} = { lastAssistantMessage: null, lastActiveAt: null }
+
+const latestHermesJson = (
+    text: string
+): { lastAssistantMessage: string | null; lastActiveAt: string | null } => {
+    let parsed: HermesSession
+    try {
+        parsed = JSON.parse(text) as HermesSession
+    } catch {
+        return EMPTY_HERMES_LATEST
+    }
+    const list = Array.isArray(parsed.messages) ? parsed.messages : []
+    let lastAssistantMessage: string | null = null
+    let lastActiveAt: string | null = null
+    for (let i = list.length - 1; i >= 0; i--) {
+        const raw = list[i]
+        if (!isRecord(raw)) continue
+        const msg = raw as HermesMessage
+        if (msg.role !== 'user' && msg.role !== 'assistant') continue
+        if (!lastActiveAt && msg.timestamp) lastActiveAt = msg.timestamp
+        if (msg.role !== 'assistant') continue
+        if (!lastAssistantMessage)
+            lastAssistantMessage = candidateExcerpt(stringContent(msg.content))
+        if (lastAssistantMessage && lastActiveAt) break
+    }
+    return {
+        lastAssistantMessage,
+        lastActiveAt: lastActiveAt ?? parsed.last_updated ?? null
     }
 }
 

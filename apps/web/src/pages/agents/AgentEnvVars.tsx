@@ -152,7 +152,7 @@ export const AgentEnvVars: FC<Props> = ({ agent, onAgentUpdated }) => {
             <header className='mb-4 flex flex-wrap items-start justify-between gap-3'>
                 <div className='min-w-0'>
                     <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
-                        <h2 className='text-h3 text-fg tracking-tight'>
+                        <h2 className='text-h3 text-fg'>
                             {t('web.agents.detail.environment.title')}
                         </h2>
                         <span className='flex-1' />

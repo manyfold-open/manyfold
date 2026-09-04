@@ -1754,7 +1754,7 @@ const AgentNewBInline: FC = (): ReactNode => {
                                 <Spinner size={20} className='text-info mt-1' />
                             )}
                             <div className='min-w-0 flex-1'>
-                                <h3 className='text-fg text-h3 tracking-tight'>
+                                <h3 className='text-fg text-h3'>
                                     {t('web.agentNew.creatingTitle')}{' '}
                                     <code className='font-mono'>
                                         {normalizedName}

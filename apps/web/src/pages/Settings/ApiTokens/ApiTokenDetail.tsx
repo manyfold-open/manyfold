@@ -90,7 +90,7 @@ const ApiTokenDetail: FC<{
                                 API_TOKEN_STATUS_DOT[status]
                             ].join(' ')}
                         />
-                        <h2 className='text-h3 text-fg min-w-0 truncate tracking-tight'>
+                        <h2 className='text-h3 text-fg min-w-0 truncate'>
                             {token.name}
                         </h2>
                         <span className='tag tag-neutral'>
@@ -145,7 +145,7 @@ const ApiTokenDetail: FC<{
                 </section>
 
                 <section className='workbench-panel p-5 md:p-6'>
-                    <h2 className='text-h3 text-fg mb-1 tracking-tight'>
+                    <h2 className='text-h3 text-fg mb-1'>
                         {t('web.apiTokens.scopesTitle')}
                     </h2>
                     <p className='text-caption text-muted mb-4'>
@@ -184,7 +184,7 @@ const ApiTokenDetail: FC<{
                 </section>
 
                 <section className='workbench-panel p-5 md:p-6'>
-                    <h2 className='text-h3 text-fg mb-1 tracking-tight'>
+                    <h2 className='text-h3 text-fg mb-1'>
                         {t('web.apiTokens.usageTitle')}
                     </h2>
                     <p className='text-caption text-muted'>
