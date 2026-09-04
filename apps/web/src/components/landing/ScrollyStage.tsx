@@ -535,11 +535,19 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
             <div className='lp-stage'>
                 <div className='lp-stage-inner'>
                     <div className='lp-rail'>
+                        {/* Keyed by position, never by the copy inside. A
+                            card's opacity and offset live in inline styles the
+                            scroll loop writes, and `.lp-scene` defaults to
+                            opacity 0; a key that changes with the language
+                            remounts all five cards, and the fresh nodes carry
+                            no inline style, so the whole rail goes blank until
+                            the next scroll. The scene list is fixed in length
+                            and order, so the index is a stable identity. */}
                         {scenes.map((scene, index) => {
                             const Heading = index === 0 ? 'h1' : 'h2'
                             return (
                                 <div
-                                    key={scene.eyebrow}
+                                    key={index}
                                     className='lp-scene'
                                     ref={(el) => {
                                         cardsRef.current[index] = el
@@ -596,9 +604,9 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                 </div>
             </div>
             <div className='lp-progress' aria-hidden='true' ref={progressRef}>
-                {scenes.map((scene, index) => (
+                {scenes.map((_scene, index) => (
                     <span
-                        key={scene.eyebrow}
+                        key={index}
                         className={
                             index === active ? 'lp-pdot lp-on' : 'lp-pdot'
                         }
