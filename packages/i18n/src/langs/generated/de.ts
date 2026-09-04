@@ -3494,6 +3494,7 @@ const de: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} Tokens',
     'web.modelProviders.allModels': 'Alle ({{count}})',
     'web.modelProviders.searchModels': 'Modelle suchen',
+    'web.modelProviders.pricesFrom': 'Preise von {{source}}',
     'web.modelProviders.searchCount': '{{shown}} von {{total}}',
     'web.modelProviders.newProviderButton': 'Neuer Modellanbieter',
     'web.modelProviders.lastTested': 'Zuletzt getestet {{time}}',

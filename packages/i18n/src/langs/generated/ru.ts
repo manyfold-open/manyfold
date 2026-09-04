@@ -3495,6 +3495,7 @@ const ru: Record<string, string> = {
     'web.modelProviders.tokens': 'Токенов: {{count}}',
     'web.modelProviders.allModels': 'Все ({{count}})',
     'web.modelProviders.searchModels': 'Поиск моделей',
+    'web.modelProviders.pricesFrom': 'Цены из {{source}}',
     'web.modelProviders.searchCount': '{{shown}} из {{total}}',
     'web.modelProviders.newProviderButton': 'Новый провайдер моделей',
     'web.modelProviders.lastTested': 'Последняя проверка {{time}}',

@@ -3495,6 +3495,7 @@ const hi: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} टोकन',
     'web.modelProviders.allModels': 'सभी ({{count}})',
     'web.modelProviders.searchModels': 'मॉडल खोजें',
+    'web.modelProviders.pricesFrom': 'क़ीमतें {{source}} से',
     'web.modelProviders.searchCount': '{{total}} में से {{shown}}',
     'web.modelProviders.newProviderButton': 'नया मॉडल प्रदाता',
     'web.modelProviders.lastTested': 'अंतिम बार टेस्ट किया गया {{time}}',

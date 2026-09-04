@@ -4069,6 +4069,7 @@ const zh: Translations = {
             tokens: '{{count}} 个 token',
             allModels: '全部（{{count}}）',
             searchModels: '搜索模型',
+            pricesFrom: '价格来自 {{source}}',
             searchCount: '{{shown}} / {{total}}',
             newProviderButton: '新建模型 Provider',
             lastTested: '最近测试于 {{time}}',

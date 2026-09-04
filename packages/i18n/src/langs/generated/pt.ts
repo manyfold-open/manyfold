@@ -3495,6 +3495,7 @@ const pt: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} tokens',
     'web.modelProviders.allModels': 'Todos ({{count}})',
     'web.modelProviders.searchModels': 'Buscar modelos',
+    'web.modelProviders.pricesFrom': 'Preços de {{source}}',
     'web.modelProviders.searchCount': '{{shown}} de {{total}}',
     'web.modelProviders.newProviderButton': 'Novo provedor de modelo',
     'web.modelProviders.lastTested': 'Último teste {{time}}',

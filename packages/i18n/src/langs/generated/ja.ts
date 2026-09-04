@@ -3494,6 +3494,7 @@ const ja: Record<string, string> = {
     'web.modelProviders.tokens': '{{count}} トークン',
     'web.modelProviders.allModels': 'すべて ({{count}})',
     'web.modelProviders.searchModels': 'モデルを検索',
+    'web.modelProviders.pricesFrom': '価格は {{source}} 提供',
     'web.modelProviders.searchCount': '{{total}} 件中 {{shown}} 件',
     'web.modelProviders.newProviderButton': '新しいモデルプロバイダー',
     'web.modelProviders.lastTested': '最終テスト {{time}}',

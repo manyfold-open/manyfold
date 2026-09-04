@@ -32,6 +32,7 @@ import Breadcrumb from '@/components/Breadcrumb'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
     BoxIcon,
+    CheckIcon,
     ChevronDownIcon,
     ChevronUpIcon,
     ListViewIcon,
@@ -110,6 +111,7 @@ import {
     type Selection
 } from '@/pages/Settings/modelProviderSelection'
 
+import { priceScopeTag } from '@/pages/Settings/modelProviderPricing'
 import {
     buildModelGroups,
     countModelPairs,
@@ -1591,6 +1593,11 @@ const ModelListSection: FC<{
     )
     const enabledPairs = enabledPairCount(visibleGroups, enabled)
     const searching = query.trim() !== ''
+    const commonScopeTag = dominantScopeTag(
+        visibleGroups.flatMap((group) => group.models),
+        prices,
+        t
+    )
 
     return (
         <section className='settings-section'>
@@ -1734,6 +1741,7 @@ const ModelListSection: FC<{
                     priceCell={(modelId) => (
                         <ModelPriceSummary
                             entry={prices?.get(modelId)}
+                            commonScopeTag={commonScopeTag}
                             expanded={openPriceModel === modelId}
                             onToggle={() =>
                                 setOpenPriceModel((current) =>
@@ -1758,11 +1766,53 @@ const ModelListSection: FC<{
                     }
                 />
             )}
+            {commonScopeTag && (
+                <p className='text-caption text-subtle mt-2'>
+                    {t('web.modelProviders.pricesFrom', {
+                        source: commonScopeTag
+                    })}
+                </p>
+            )}
         </section>
     )
 }
 
-const Switch: FC<{
+// The scope tag most visible rows share, if one holds an outright majority.
+// Requiring unanimity would never fire on real data — a provider's price map
+// rarely covers every model it lists — and a majority is what the footer line
+// can honestly claim while the rows that deviate keep their own tag.
+const dominantScopeTag = (
+    modelIds: string[],
+    prices: Map<string, ModelPriceEntryView> | null,
+    t: TFn
+): string | undefined => {
+    if (!prices || modelIds.length === 0) return undefined
+    const counts = new Map<string, number>()
+    let priced = 0
+    for (const modelId of modelIds) {
+        const entry = prices.get(modelId)
+        if (!entry) continue
+        priced += 1
+        const tag = priceScopeTag(entry, t)
+        counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+    if (priced === 0) return undefined
+    let best: string | undefined
+    let bestCount = 0
+    for (const [tag, count] of counts)
+        if (count > bestCount) {
+            best = tag
+            bestCount = count
+        }
+    return bestCount * 2 > priced ? best : undefined
+}
+
+// Enabling a model is picking it into a set, not flipping a mode, and the list
+// asks the question 62 times over. A switch is the heaviest control in the
+// system — 62 of them were the darkest thing on the page, outweighing the model
+// names they belong to — so this is the tag family's selection idiom instead
+// (DESIGN.md §8.12): a check, one tone, no travelling thumb.
+const SelectBox: FC<{
     checked: boolean
     indeterminate?: boolean
     disabled?: boolean
@@ -1772,52 +1822,36 @@ const Switch: FC<{
     indeterminate = false,
     disabled = false,
     onChange
-}): ReactNode => {
-    const state = checked ? 'on' : indeterminate ? 'mid' : 'off'
-    const trackBg =
-        state === 'on'
-            ? 'bg-strong'
-            : state === 'mid'
-              ? 'bg-strong/40'
-              : 'bg-soft'
-    const thumbX =
-        state === 'on'
-            ? 'left-[18px]'
-            : state === 'mid'
-              ? 'left-[10px]'
-              : 'left-0.5'
-    return (
-        <span className='relative inline-block h-5 w-9 shrink-0'>
-            <input
-                type='checkbox'
-                role='switch'
-                aria-checked={indeterminate ? 'mixed' : checked}
-                checked={checked}
-                disabled={disabled}
-                ref={(el) => {
-                    if (el) el.indeterminate = indeterminate
-                }}
-                onChange={onChange}
-                className='absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-full disabled:cursor-not-allowed'
-            />
-            <span
-                aria-hidden
-                className={[
-                    'shadow-ring-light pointer-events-none absolute inset-0 rounded-full transition-colors',
-                    trackBg,
-                    disabled ? 'opacity-50' : ''
-                ].join(' ')}
-            />
-            <span
-                aria-hidden
-                className={[
-                    'pointer-events-none absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all',
-                    thumbX
-                ].join(' ')}
-            />
+}): ReactNode => (
+    <span className='relative inline-block h-4 w-4 shrink-0'>
+        <input
+            type='checkbox'
+            checked={checked}
+            disabled={disabled}
+            ref={(el) => {
+                if (el) el.indeterminate = indeterminate
+            }}
+            onChange={onChange}
+            className='absolute inset-0 h-full w-full cursor-pointer appearance-none rounded-xs disabled:cursor-not-allowed'
+        />
+        <span
+            aria-hidden
+            className={[
+                'pointer-events-none absolute inset-0 flex items-center justify-center rounded-xs transition-colors',
+                checked || indeterminate
+                    ? 'bg-info text-strong-fg'
+                    : 'shadow-ring-light bg-surface',
+                disabled ? 'opacity-50' : ''
+            ].join(' ')}
+        >
+            {checked ? (
+                <CheckIcon className='h-3 w-3' />
+            ) : indeterminate ? (
+                <span className='bg-strong-fg h-0.5 w-2 rounded-full' />
+            ) : null}
         </span>
-    )
-}
+    </span>
+)
 
 export const SingleProtocolModels: FC<{
     protocol: InferenceProtocol
@@ -1989,7 +2023,7 @@ export const ProtocolModelGrid: FC<{
                         {group.models.map((modelId) => (
                             <div key={`${group.protocol}:${modelId}`}>
                                 <label className='settings-card-row flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1'>
-                                    <Switch
+                                    <SelectBox
                                         checked={isEnabled(
                                             group.protocol,
                                             modelId
