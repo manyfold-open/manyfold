@@ -1,5 +1,96 @@
 # @manyfold/web
 
+## 0.58.0
+
+### Minor Changes
+
+- [#167](https://github.com/manyfold-open/manyfold/pull/167) [`0d6b7ed`](https://github.com/manyfold-open/manyfold/commit/0d6b7edd7e479b7b9da929b0647434d880fb1705) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Make the model list navigable, and stop tagging every row with its protocol.
+
+    A provider can expose 184 models and the list had no search, so finding
+    `claude-sonnet-4-6` meant reading. It has a search field now, filtering on the
+    model id, with the header count switching to `8 of 184` while a query is
+    active and the group counts following the filtered subset.
+
+    The deeper change is what a row is. "All" used to de-duplicate by model id, so
+    a row could stand for the same id served over two protocols with a different
+    enabled state on each — which is why every row carried a protocol tag, struck
+    through where that protocol was off, and why one switch had to toggle them all
+    at once with an indeterminate middle state. A row is now a single
+    (protocol, model) pair under a protocol group heading. The tag disappears
+    because the heading says it once, the switch means exactly what it looks like,
+    and the counts stop contradicting each other: `All` is the sum of its own tabs
+    (184 = 66 + 45 + 7 + 66), where the de-duplicated count never could be. Group
+    headings carry that protocol's enabled count and its own enable-all /
+    disable-all, so the batch controls sit next to what they act on.
+
+    `ProtocolModelGrid` derives the grouping itself when a caller passes the whole
+    protocol map, so existing callers — including the cloud edition's managed
+    panel — get the grouped view without changing their call. Passing `groups`
+    explicitly is what a caller with its own search box does.
+    `SingleProtocolModels` keeps its signature and delegates to the grid, so a
+    single-protocol tab and the "All" tab render rows the same way.
+
+    Three narrow-screen fixes ride along, all of which the search field would
+    otherwise have made worse. The tab strip scrolls instead of wrapping — a
+    wrapped row of tabs reads as two rows of buttons rather than one segmented
+    control. A row's price drops below the model id instead of squeezing it,
+    because the tail of `claude-haiku-4-5-20251001` is the part that identifies
+    it and an ellipsis eats exactly that. And the search / refresh / save group
+    takes the full width of a narrow column with the field flexing into it, while
+    `Refresh models` collapses to its icon: at their desktop widths the three come
+    to 375px inside a 335px column, which pushed `Save` off the right edge and put
+    20px of horizontal scroll on the page. Refresh is the one that gives up its
+    label — the widest of the three, and the least urgent, since the list refreshes
+    itself on load — and keeps it as the tooltip and the `aria-label`.
+
+- [#174](https://github.com/manyfold-open/manyfold/pull/174) [`ea49728`](https://github.com/manyfold-open/manyfold/commit/ea497284b2e6d091be3243c3ef9e7481da53b84d) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Move the resource meters to the foot of the rail.
+
+    The concurrency chip hung from the Agents section header, and that header is
+    not rendered at all when the rail is collapsed — so the one indicator telling
+    you whether another sandbox can start disappeared exactly when the rail was
+    narrow enough that you might want to check it without expanding anything.
+
+    It now sits in its own strip above the account row, which is where the question
+    it answers lives: not "what about these agents" but "how much of this account
+    is left". Collapsed, the chip keeps its tone and drops its numbers — 58px
+    cannot hold `0/10`, and a glyph that still reads red is worth more than no
+    glyph at all. The count comes back in the tooltip and in the panel.
+
+    The panel it opens now picks its side. It always dropped downward, which was
+    fine when the chip hung from a section header near the top of the rail and is
+    not fine at the foot of it — measured at a 950px window with no sandboxes
+    running, 140px of the panel fell below the fold, and the list inside it grows
+    by up to another 256px. It opens below when it fits there, flips above when it
+    does not, and is capped to whichever side it lands on so a long list scrolls
+    instead of running off the screen.
+
+    One editions extension point ships alongside it, contributing nothing in this
+    build and changing no layout: `src/shell-extra.tsx` names two regions of the
+    shell — the new meter strip and the shell root — that a distribution can mount
+    into by shadowing the module at its path. Regions, not features: this app does
+    not know what a distribution puts there.
+
+    `SidebarSectionHeader`'s `meta` slot is removed along with the move: it had
+    exactly one caller, and an unused extension point on a header that collapses
+    out of view is an invitation to repeat the bug.
+
+### Patch Changes
+
+- [#174](https://github.com/manyfold-open/manyfold/pull/174) [`ea49728`](https://github.com/manyfold-open/manyfold/commit/ea497284b2e6d091be3243c3ef9e7481da53b84d) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Scan the editions overlay directory for Tailwind classes.
+
+    `tailwind.config.ts` listed `./src` and nothing else, but a distribution that
+    sets `MF_WEB_OVERLAY_DIR` replaces modules under `./src` by path — so part of
+    the markup Tailwind is generating rules for lives outside the directory it was
+    looking at. Any utility used _only_ by an overlay module was therefore purged,
+    and the failure is silent: the class stays on the element, no rule is emitted,
+    nothing warns. A `pl-7` reserving room for an input's prefix adornment was
+    dropped this way, and the adornment landed on top of the value.
+
+    The config now appends `$MF_WEB_OVERLAY_DIR/**/*.{ts,tsx}` when that variable
+    is set — the same signal `vite.config.ts` already keys the overlay resolver
+    off, so the two agree on what the app is made of. Unset here, where the spread
+    contributes nothing and the content globs are byte-identical to before.
+
 ## 0.57.0
 
 ### Minor Changes
