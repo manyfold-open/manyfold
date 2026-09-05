@@ -63,6 +63,7 @@ import AgentStatusDot from '@/components/AgentStatusDot'
 import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import ConcurrencyIndicator from '@/components/ConcurrencyIndicator'
+import { extraShellOverlays, extraSidebarMeters } from '@/shell-extra'
 import { countActiveSandboxes } from '@/lib/concurrencySlots'
 import AgentSidebarControls from '@/components/AgentSidebarControls'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -573,9 +574,8 @@ const SidebarSectionHeader: FC<{
     action?: ReactNode
     collapsed: boolean
     label: string
-    meta?: ReactNode
     onToggle: () => void
-}> = ({ action, collapsed, label, meta, onToggle }): ReactNode => (
+}> = ({ action, collapsed, label, onToggle }): ReactNode => (
     <div className='mb-2 flex items-center justify-between gap-1 pl-2'>
         <div className='flex min-w-0 items-center gap-2'>
             <button
@@ -593,7 +593,6 @@ const SidebarSectionHeader: FC<{
                     ].join(' ')}
                 />
             </button>
-            {meta}
         </div>
         {action}
     </div>
@@ -3432,33 +3431,6 @@ const AppShell: FC = (): ReactNode => {
                                     onToggle={() => {
                                         toggleSidebarSection('agents')
                                     }}
-                                    meta={
-                                        <ConcurrencyIndicator
-                                            agents={agents}
-                                            sandboxes={sandboxes}
-                                            limit={
-                                                runtimeAccess?.plan
-                                                    .maxConcurrentActive ?? null
-                                            }
-                                            planName={
-                                                runtimeAccess?.plan.name ?? null
-                                            }
-                                            releasingIds={releasingAgentIds}
-                                            activeHoursThisPeriod={
-                                                runtimeAccess?.activeHoursThisPeriod ??
-                                                null
-                                            }
-                                            activeHoursLimit={
-                                                runtimeAccess?.activeHoursLimit ??
-                                                null
-                                            }
-                                            usagePeriodEnd={
-                                                runtimeAccess?.usagePeriod
-                                                    .end ?? null
-                                            }
-                                            onSetKeepAlive={handleSetKeepAlive}
-                                        />
-                                    }
                                     action={
                                         <div className='flex items-center gap-0.5'>
                                             {agents.length > 0 && (
@@ -4077,6 +4049,44 @@ const AppShell: FC = (): ReactNode => {
                         collapsed={collapsed}
                     />
                     <WorkspaceChallengeCard collapsed={collapsed} />
+                    {/* Account-level resource meters. They sit above the
+                        account row because that is the question they answer —
+                        how much of this account is left — and because the
+                        Agents section header they used to hang from is not
+                        rendered at all when the rail is collapsed, which hid
+                        the concurrency chip exactly when the rail was narrow
+                        enough to need it. */}
+                    <div
+                        className={
+                            collapsed
+                                ? 'flex flex-col items-center gap-1.5 pb-2'
+                                : 'flex flex-wrap items-center gap-1.5 px-2 pb-2'
+                        }
+                    >
+                        <ConcurrencyIndicator
+                            agents={agents}
+                            sandboxes={sandboxes}
+                            limit={
+                                runtimeAccess?.plan.maxConcurrentActive ?? null
+                            }
+                            planName={runtimeAccess?.plan.name ?? null}
+                            releasingIds={releasingAgentIds}
+                            activeHoursThisPeriod={
+                                runtimeAccess?.activeHoursThisPeriod ?? null
+                            }
+                            activeHoursLimit={
+                                runtimeAccess?.activeHoursLimit ?? null
+                            }
+                            usagePeriodEnd={
+                                runtimeAccess?.usagePeriod.end ?? null
+                            }
+                            onSetKeepAlive={handleSetKeepAlive}
+                            compact={collapsed}
+                        />
+                        {extraSidebarMeters.map(({ Component, id }) => (
+                            <Component key={id} collapsed={collapsed} />
+                        ))}
+                    </div>
                     <div className={collapsed ? 'flex justify-center' : ''}>
                         <SidebarSettingsMenu collapsed={collapsed} />
                     </div>
@@ -4087,6 +4097,14 @@ const AppShell: FC = (): ReactNode => {
 
     return (
         <div className='bg-app flex h-[100dvh] h-screen overflow-hidden overscroll-none'>
+            {/* Shell-level, deliberately outside renderSidebar: that helper
+                runs twice — once for the desktop rail, once for the mobile
+                drawer — so an overlay placed in it would portal two copies of
+                itself. The region names in `shell-extra` encode which is
+                which. */}
+            {extraShellOverlays.map(({ Component, id }) => (
+                <Component key={id} />
+            ))}
             {drawerOpen && (
                 <button
                     type='button'
