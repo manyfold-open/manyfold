@@ -1,5 +1,9 @@
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type { Config } from 'tailwindcss'
 import typography from '@tailwindcss/typography'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const config: Config = {
     content: [
@@ -12,9 +16,16 @@ const config: Config = {
            never ships — `pl-7` on an overlay-only input, reserving room for
            its prefix adornment, went that way and the adornment landed on top
            of the value. The variable is unset in this repository, where the
-           spread contributes nothing. */
+           spread contributes nothing.
+
+           Resolved against this file, not left relative: the value is written
+           relative to this app and `vite.config.ts` resolves it the same way,
+           whereas Tailwind resolves a relative content glob against
+           `process.cwd()` unless `content.relative` is set. Today every
+           invocation arrives through pnpm with the cwd already here, so the
+           two agree by coincidence rather than by construction. */
         ...(process.env.MF_WEB_OVERLAY_DIR
-            ? [`${process.env.MF_WEB_OVERLAY_DIR}/**/*.{ts,tsx}`]
+            ? [`${resolve(__dirname, process.env.MF_WEB_OVERLAY_DIR)}/**/*.{ts,tsx}`]
             : [])
     ],
     darkMode: ['selector', '[data-theme="dark"]'],
