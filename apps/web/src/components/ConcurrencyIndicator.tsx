@@ -28,6 +28,13 @@ import { BILLING_SURFACE } from '@/edition-capabilities'
 
 const SPRITES_RELEASE_SEC = 35
 const PANEL_WIDTH = 300
+// Gap between the chip and its panel, and the margin the panel keeps from the
+// viewport edge.
+const PANEL_GAP = 6
+const PANEL_MARGIN = 8
+// Below this the panel is not worth opening on the roomier side — it would be
+// a scroll area two rows tall. Better to overflow the margin slightly.
+const PANEL_MIN_HEIGHT = 160
 
 type Tone = 'success' | 'warning' | 'error'
 
@@ -97,16 +104,42 @@ const ConcurrencyIndicator: FC<Props> = ({
     const [keepAliveError, setKeepAliveError] = useState<string | null>(null)
     const btnRef = useRef<HTMLButtonElement>(null)
     const panelRef = useRef<HTMLDivElement>(null)
-    const [pos, setPos] = useState<{ left: number; top: number }>({
-        left: 0,
-        top: 0
-    })
+    const [pos, setPos] = useState<{
+        left: number
+        top?: number
+        bottom?: number
+        maxHeight: number
+    }>({ left: 0, top: 0, maxHeight: 0 })
 
+    /* The chip sits at the foot of the rail, so "always below" put the panel
+       off the bottom of the window — 140px of it, measured on an account with
+       no sandboxes at all, and the list inside grows to 256px more. It opens
+       below when it fits there and flips above when it does not, and it is
+       capped to whichever side it lands on so a long list scrolls instead of
+       running off the screen.
+
+       The flipped panel is anchored by its BOTTOM edge: content that grows
+       after it opens (expanding a runtime row) then extends upward, away from
+       the edge, rather than back down over the chip that opened it.
+
+       `scrollHeight` rather than `offsetHeight`, because the box is already
+       capped by the previous run — measuring the capped height would let the
+       choice oscillate between the two sides on every reposition. */
     const updatePos = useCallback((): void => {
         const rect = btnRef.current?.getBoundingClientRect()
         if (typeof window === 'undefined' || !rect) return
         const left = Math.min(rect.left, window.innerWidth - PANEL_WIDTH - 8)
-        setPos({ left: Math.max(8, left), top: rect.bottom + 6 })
+        const below = window.innerHeight - rect.bottom - PANEL_GAP - PANEL_MARGIN
+        const above = rect.top - PANEL_GAP - PANEL_MARGIN
+        const natural = panelRef.current?.scrollHeight ?? 0
+        const flip = natural > below && above > below
+        setPos({
+            left: Math.max(8, left),
+            ...(flip
+                ? { bottom: window.innerHeight - rect.top + PANEL_GAP }
+                : { top: rect.bottom + PANEL_GAP }),
+            maxHeight: Math.max(PANEL_MIN_HEIGHT, flip ? above : below)
+        })
     }, [])
 
     useLayoutEffect(() => {
@@ -201,8 +234,14 @@ const ConcurrencyIndicator: FC<Props> = ({
                   ref={panelRef}
                   role='dialog'
                   aria-label={t('web.shell.slotsPanelTitle')}
-                  className='popover-panel bg-surface-elevated shadow-elevated fixed z-[200] flex flex-col rounded-md p-1'
-                  style={{ left: pos.left, top: pos.top, width: PANEL_WIDTH }}
+                  className='popover-panel bg-surface-elevated shadow-elevated fixed z-[200] flex flex-col overflow-y-auto rounded-md p-1'
+                  style={{
+                      left: pos.left,
+                      top: pos.top,
+                      bottom: pos.bottom,
+                      width: PANEL_WIDTH,
+                      maxHeight: pos.maxHeight || undefined
+                  }}
               >
                   <div className='px-2.5 pb-2 pt-1.5'>
                       <div className='flex items-baseline justify-between gap-2'>

@@ -15,6 +15,14 @@ is left". Collapsed, the chip keeps its tone and drops its numbers — 58px
 cannot hold `0/10`, and a glyph that still reads red is worth more than no
 glyph at all. The count comes back in the tooltip and in the panel.
 
+The panel it opens now picks its side. It always dropped downward, which was
+fine when the chip hung from a section header near the top of the rail and is
+not fine at the foot of it — measured at a 950px window with no sandboxes
+running, 140px of the panel fell below the fold, and the list inside it grows
+by up to another 256px. It opens below when it fits there, flips above when it
+does not, and is capped to whichever side it lands on so a long list scrolls
+instead of running off the screen.
+
 One editions extension point ships alongside it, contributing nothing in this
 build and changing no layout: `src/shell-extra.tsx` names two regions of the
 shell — the new meter strip and the shell root — that a distribution can mount
