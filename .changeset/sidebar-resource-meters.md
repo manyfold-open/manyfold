@@ -15,11 +15,11 @@ is left". Collapsed, the chip keeps its tone and drops its numbers — 58px
 cannot hold `0/10`, and a glyph that still reads red is worth more than no
 glyph at all. The count comes back in the tooltip and in the panel.
 
-Two editions slots ship next to it, both rendering nothing here:
-`SidebarCreditMeter` (a balance chip beside the concurrency one) and
-`PostSignupOfferModal` (a shell-level mount for a first-visit modal). Open
-source has no billing, so the layout is unchanged; a distribution that does
-overlays them by path.
+One editions extension point ships alongside it, contributing nothing in this
+build and changing no layout: `src/shell-extra.tsx` names two regions of the
+shell — the new meter strip and the shell root — that a distribution can mount
+into by shadowing the module at its path. Regions, not features: this app does
+not know what a distribution puts there.
 
 `SidebarSectionHeader`'s `meta` slot is removed along with the move: it had
 exactly one caller, and an unused extension point on a header that collapses

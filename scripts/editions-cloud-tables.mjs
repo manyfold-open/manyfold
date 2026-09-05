@@ -51,9 +51,9 @@ export const CLOUD_TABLE_CONTRACT = [
         table: 'deleted_user_billing_refs',
         dbExport: 'deletedUserBillingRefs'
     },
-    // First top-up offer (2026-09-04): promotional credit is a commercial
-    // concept end to end — an OSS database has no campaigns to run and no
-    // bonuses to grant.
+    // Promotional credit (2026-09-04): campaigns, the grants they issue, and
+    // the impressions that make a one-per-account grant decidable. Commercial
+    // end to end — an OSS database has no campaigns to run.
     { table: 'credit_campaigns', dbExport: 'creditCampaigns' },
     { table: 'credit_grants', dbExport: 'creditGrants' },
     { table: 'offer_impressions', dbExport: 'offerImpressions' }

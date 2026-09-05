@@ -63,8 +63,7 @@ import AgentStatusDot from '@/components/AgentStatusDot'
 import { Ghost, GhostPageContent } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import ConcurrencyIndicator from '@/components/ConcurrencyIndicator'
-import SidebarCreditMeter from '@/components/SidebarCreditMeter'
-import PostSignupOfferModal from '@/components/PostSignupOfferModal'
+import { extraShellOverlays, extraSidebarMeters } from '@/shell-extra'
 import { countActiveSandboxes } from '@/lib/concurrencySlots'
 import AgentSidebarControls from '@/components/AgentSidebarControls'
 import SidebarResizeHandle from '@/components/SidebarResizeHandle'
@@ -4050,13 +4049,13 @@ const AppShell: FC = (): ReactNode => {
                         collapsed={collapsed}
                     />
                     <WorkspaceChallengeCard collapsed={collapsed} />
-                    {/* Account-level resource meters: concurrency and, in the
-                        cloud build, credit. They sit above the account row
-                        because that is what they are about — how much of this
-                        account is left — and because the Agents section header
-                        they used to hang from is not rendered at all when the
-                        rail is collapsed, which hid the concurrency chip
-                        exactly when the rail was narrow enough to need it. */}
+                    {/* Account-level resource meters. They sit above the
+                        account row because that is the question they answer —
+                        how much of this account is left — and because the
+                        Agents section header they used to hang from is not
+                        rendered at all when the rail is collapsed, which hid
+                        the concurrency chip exactly when the rail was narrow
+                        enough to need it. */}
                     <div
                         className={
                             collapsed
@@ -4084,7 +4083,9 @@ const AppShell: FC = (): ReactNode => {
                             onSetKeepAlive={handleSetKeepAlive}
                             compact={collapsed}
                         />
-                        <SidebarCreditMeter collapsed={collapsed} />
+                        {extraSidebarMeters.map(({ Component, id }) => (
+                            <Component key={id} collapsed={collapsed} />
+                        ))}
                     </div>
                     <div className={collapsed ? 'flex justify-center' : ''}>
                         <SidebarSettingsMenu collapsed={collapsed} />
@@ -4096,11 +4097,14 @@ const AppShell: FC = (): ReactNode => {
 
     return (
         <div className='bg-app flex h-[100dvh] h-screen overflow-hidden overscroll-none'>
-            {/* Shell-level, not inside renderSidebar: that helper runs twice —
-                once for the desktop rail, once for the mobile drawer — so an
-                overlay placed in it mounts twice and portals two copies of
-                itself. Nothing about it belongs to the rail anyway. */}
-            <PostSignupOfferModal />
+            {/* Shell-level, deliberately outside renderSidebar: that helper
+                runs twice — once for the desktop rail, once for the mobile
+                drawer — so an overlay placed in it would portal two copies of
+                itself. The region names in `shell-extra` encode which is
+                which. */}
+            {extraShellOverlays.map(({ Component, id }) => (
+                <Component key={id} />
+            ))}
             {drawerOpen && (
                 <button
                     type='button'
