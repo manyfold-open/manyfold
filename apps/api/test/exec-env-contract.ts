@@ -328,13 +328,13 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         runtime: 'sprites',
         transport: 'sprite-exec',
         gatedBy: ['MF_OPENCLAW_ACP'],
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
         providerCreds: 'service-env',
         path: 'wrapper-prepend',
         resume: 'none',
-        note: 'The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. Only OPENCLAW_GATEWAY_TOKEN rides the exec; the model call happens inside the resident gateway, which already holds the provider key, so extras and provider creds stay on the gateway service env. The API owning the client is exactly why it is not resumable.'
+        note: 'The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable.'
     },
     {
         framework: 'openclaw',

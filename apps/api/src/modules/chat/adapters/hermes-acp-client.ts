@@ -648,6 +648,3 @@ export class AcpTurn {
     }
 }
 
-// Back-compat alias: hermes.adapter and the ACP tests still say HermesAcpTurn.
-export const HermesAcpTurn = AcpTurn
-export type HermesAcpTurn = AcpTurn
