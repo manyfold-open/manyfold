@@ -1,5 +1,19 @@
 # @manyfold/api
 
+## 0.70.0
+
+### Minor Changes
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Add an API-driven ACP transport for openclaw chat turns on the sprites-no-runner and k8s cells, behind `MF_OPENCLAW_ACP` (default off). When enabled, the adapter drives `openclaw acp` — a bridge to the resident gateway — over the interactive exec transport using the shared `AcpTurn` client, replacing the stateless gateway-HTTP path (30-message resend) with the gateway's own server-side history keyed by a deterministic `_meta.sessionKey`. narranexus keeps the gateway-HTTP path (the ACP branch is guarded on `framework === 'openclaw'`). Non-resumable by construction; every failure is a retryable error, never suspended.
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Add per-message model switching for openclaw agents in the chat composer, matching hermes. The model list comes from the agent's provider-models cache (openclaw joins the model-config provider-detail allowlist), and the pick is applied to the openclaw ACP turn via an in-box `openclaw gateway call sessions.patch {model}` in the exec wrapper — probe-verified to change a live session's model from the next prompt, stick to the gateway session key, and route through to the provider even for models not pre-registered in the gateway config (so no catalog registration is needed). Behind `MF_OPENCLAW_ACP`; narranexus is unaffected.
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Add an openclaw permission mode (`default` / `dontAsk`, default `dontAsk`) to the chat API. `dontAsk` is exactly today's behaviour — the gateway ships `tools.exec.ask` off, so a turn that sends no mode sets nothing and never prompts. `default` turns exec approval on for the ACP turn: the adapter pre-patches the session's `execAsk` over the loopback gateway (`openclaw gateway call sessions.patch`, verified to upsert the deterministic session key and apply from the first turn), sets the ACP client to interactive, and registers with the shared permission coordinator, so `session/request_permission` relays to the chat as an interactive card answerable through the existing endpoint. Wired through the create-message DTO, ChatService, and the adapter; the openclaw ACP path is still behind `MF_OPENCLAW_ACP`.
+
+### Patch Changes
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Lift the framework-neutral ACP decoders (event mapping, permission-request decode, session-state decode, model matching, stderr classifiers, auto-approve / reject option pickers) into `@manyfold/shared` so the API-side and daemon-side ACP clients share one copy, and introduce an `AcpDialect` seam (error prefix, log tag, legacy auto-approve id, optional session/prompt `_meta`) so a second framework plugs into the same client. The API ACP client class is now `AcpTurn` (dialect-taking), with `HermesAcpTurn` kept as an alias. Pure internal refactor with no behaviour change: a live turn and a replayed turn decode through exactly one implementation, and hermes keeps its byte-identical error strings and defaults.
+
 ## 0.69.0
 
 ### Minor Changes
