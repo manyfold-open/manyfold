@@ -1,4 +1,8 @@
-import type { ChatSessionChannelSummary } from './chat'
+import type {
+    ChatContentBlock,
+    ChatRole,
+    ChatSessionChannelSummary
+} from './chat'
 
 export type AdminChatSessionStatus = 'running' | 'failed' | 'idle'
 
@@ -86,4 +90,31 @@ export interface AdminChatStreamEvent {
 export interface AdminChatStreamEventsPage {
     items: AdminChatStreamEvent[]
     nextCursor: string | null
+}
+
+export interface AdminChatTurnMessage {
+    id: string
+    role: ChatRole
+    contentBlocks: ChatContentBlock[]
+    createdAt: string
+}
+
+export interface AdminChatSessionTurnDetail {
+    turn: AdminChatSessionTurn
+    // Everything sent to the agent for this turn: the messages between the
+    // previous assistant turn and this one. Normally exactly one user
+    // message; a recovered transcript can carry a system preamble or a short
+    // user run. Empty is a real state and not a bug — retention deletes old
+    // chat_messages rows, and it deletes them in batches, so a turn can
+    // briefly outlive its own prompt.
+    input: AdminChatTurnMessage[]
+    // The assistant message's own blocks: what the user finally saw, after
+    // any `replace`. Still empty while the turn streams, because the blocks
+    // are written at the terminal event.
+    result: AdminChatTurnMessage
+}
+
+export interface AdminChatSessionTurnsPage {
+    items: AdminChatSessionTurnDetail[]
+    nextBefore: string | null
 }

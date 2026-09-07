@@ -189,6 +189,7 @@ import type {
     CreateUserMcpServerBody,
     UpdateUserMcpServerBody,
     AdminChatSessionDetail,
+    AdminChatSessionTurnsPage,
     AdminChatSessionsPage,
     AdminChatStreamEventsPage,
     AdminMcpCatalogEntry,
@@ -1160,6 +1161,13 @@ export interface NcaClient {
                     messageId?: string
                 }
             ) => Promise<AdminChatStreamEventsPage>
+            listTurns: (
+                id: string,
+                opts?: {
+                    limit?: number
+                    before?: string
+                }
+            ) => Promise<AdminChatSessionTurnsPage>
         }
         daemons: {
             listHosts: () => Promise<AdminDaemonHostSummary[]>
@@ -3689,6 +3697,15 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     const query = q.toString()
                     return request<AdminChatStreamEventsPage>(
                         `${apiPaths.ADMIN_CHAT_SESSION_EVENTS(id)}${query ? `?${query}` : ''}`
+                    )
+                },
+                listTurns: (id, opts) => {
+                    const q = new URLSearchParams()
+                    if (opts?.limit) q.set('limit', String(opts.limit))
+                    if (opts?.before) q.set('before', opts.before)
+                    const query = q.toString()
+                    return request<AdminChatSessionTurnsPage>(
+                        `${apiPaths.ADMIN_CHAT_SESSION_TURNS(id)}${query ? `?${query}` : ''}`
                     )
                 }
             },

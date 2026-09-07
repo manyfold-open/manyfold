@@ -854,7 +854,10 @@ export type {
     AdminChatSessionTurn,
     AdminChatSessionDetail,
     AdminChatStreamEvent,
-    AdminChatStreamEventsPage
+    AdminChatStreamEventsPage,
+    AdminChatTurnMessage,
+    AdminChatSessionTurnDetail,
+    AdminChatSessionTurnsPage
 } from './adminChatSessions'
 export {
     agentBaseUrl,

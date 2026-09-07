@@ -265,9 +265,16 @@ const ConcurrencyIndicator: FC<Props> = ({
                               const isReleasingBar =
                                   filled && index >= active - releasingCount
                               return (
+                                  // The space before each interpolation is
+                                  // load-bearing: without it the two class
+                                  // names fuse into one that matches nothing
+                                  // (`bg-successanimate-pulse`). Do not move
+                                  // it inside the branch either — the tailwind
+                                  // Prettier plugin trims a leading space out
+                                  // of a plain string there.
                                   <span
                                       key={index}
-                                      className={`h-2 flex-1 rounded-[3px] ${filled ? barFillClass[tone] : 'bg-soft'}${isReleasingBar ? 'animate-pulse opacity-60' : ''}`}
+                                      className={`h-2 flex-1 rounded-[3px] ${filled ? barFillClass[tone] : 'bg-soft'} ${isReleasingBar ? 'animate-pulse opacity-60' : ''}`}
                                   />
                               )
                           })}
@@ -567,7 +574,7 @@ const ConcurrencyIndicator: FC<Props> = ({
                     aria-label={describe}
                     aria-haspopup='dialog'
                     aria-expanded={open}
-                    className={`shadow-ring-light rounded-pill text-caption inline-flex shrink-0 items-center gap-1 font-mono font-medium tabular-nums transition-colors ${compact ? 'h-6 w-6 justify-center' : 'px-2 py-0.5'} ${chipToneClass[tone]}${hasReleasing ? 'animate-pulse' : ''}`}
+                    className={`shadow-ring-light rounded-pill text-caption inline-flex shrink-0 items-center gap-1 font-mono font-medium tabular-nums transition-colors ${compact ? 'h-6 w-6 justify-center' : 'px-2 py-0.5'} ${chipToneClass[tone]} ${hasReleasing ? 'animate-pulse' : ''}`}
                 >
                     <BoxIcon className='h-3.5 w-3.5' />
                     {!compact && (
