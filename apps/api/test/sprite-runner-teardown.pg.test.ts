@@ -25,9 +25,10 @@ import type { TelemetryService } from '../src/common/telemetry/telemetry.service
 // found live in prod on 2026-09-07). This proves deleteSandboxHost now removes
 // the runner together with its VM — and that the FK cascades (agent via
 // runtime, token via host) fire — which a fake-db suite structurally cannot
-// test. Env-gated like the other *.pg.test.ts:
+// test. Closes its postgres-js pool in `finally`, so the runner exits on its
+// own (no force-exit flag). Env-gated like the other *.pg.test.ts:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     pnpm --filter @manyfold/api test -- --test-force-exit
+//     pnpm --filter @manyfold/api test
 const RUN = process.env.RUN_PG_E2E === '1'
 
 const svc = (db: Database): AgentRuntimesService =>
