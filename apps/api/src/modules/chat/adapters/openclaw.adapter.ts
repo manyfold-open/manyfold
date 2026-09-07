@@ -127,13 +127,17 @@ const OPENCLAW_ACP_ARGS = ['acp', '--url', OPENCLAW_ACP_GATEWAY_URL, '--no-prefi
 const openclawAcpCmd = (opts: {
     sessionKey: string
     execAsk: string | null
+    model: string | null
 }): string[] => {
     const acp = ['openclaw', ...OPENCLAW_ACP_ARGS]
-    if (!opts.execAsk) return acp
-    const params = JSON.stringify({
-        key: opts.sessionKey,
-        execAsk: opts.execAsk
-    })
+    if (!opts.execAsk && !opts.model) return acp
+    const patchParams: Record<string, unknown> = { key: opts.sessionKey }
+    // The gateway registers each catalog model under the `primary` provider, so
+    // a pick routes as `primary/<model>`. Probe-verified [2026-09-07] to change
+    // a live session's model from the next prompt and stick to the key.
+    if (opts.model) patchParams.model = `primary/${opts.model}`
+    if (opts.execAsk) patchParams.execAsk = opts.execAsk
+    const params = JSON.stringify(patchParams)
     const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
     return ['bash', '-lc', `${patch}; exec ${acp.join(' ')}`]
 }
@@ -776,6 +780,9 @@ export class OpenclawAdapter implements ApiChatAdapter {
         // things" posture). The patch mechanism and the approval round-trip are
         // probe-verified; the exact enum is a tunable posture.
         const execAsk = interactive ? 'on-miss' : null
+        // The per-message model pick, applied via the same in-box patch. Null
+        // (the common case) leaves the session on its current/default model.
+        const modelOverride = ctx.modelOverride
 
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
@@ -790,7 +797,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             if (r) r()
         }
         const transport = streamInteractive({
-            cmd: openclawAcpCmd({ sessionKey, execAsk }),
+            cmd: openclawAcpCmd({ sessionKey, execAsk, model: modelOverride }),
             env: {
                 // The bridge authenticates to the loopback gateway with its own
                 // token; the model call happens inside that gateway, which

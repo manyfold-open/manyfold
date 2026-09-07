@@ -365,7 +365,12 @@ const AgentChat: FC = (): ReactNode => {
     const modelSwitchingSupported = supportsModelOverride(currentAgent)
     const currentAgentId = currentAgent?.id ?? null
     const currentAgentFramework = currentAgent?.framework ?? null
-    const hermesModelSwitching = currentAgentFramework === 'hermes'
+    // hermes and openclaw both source their model list from the provider-
+    // models cache and persist the pick in the runtime session (hermes state.db
+    // / openclaw gateway key), so they share the runtime model-switch path.
+    const runtimeModelSwitching =
+        currentAgentFramework === 'hermes' ||
+        currentAgentFramework === 'openclaw'
     const frameworkModelConfigSupported = frameworkUsesModelConfig(
         currentAgentFramework,
         currentAgent?.runtime
@@ -374,13 +379,13 @@ const AgentChat: FC = (): ReactNode => {
         () =>
             modelOptionsForAgent(currentAgent, [
                 modelOverride,
-                // hermes options come from the provider-models cache the
-                // model-config view carries; presets stay empty.
-                ...(hermesModelSwitching
+                // hermes/openclaw options come from the provider-models cache
+                // the model-config view carries; presets stay empty.
+                ...(runtimeModelSwitching
                     ? (modelConfigView?.providerModels ?? [])
                     : [])
             ]),
-        [currentAgent, modelOverride, hermesModelSwitching, modelConfigView]
+        [currentAgent, modelOverride, runtimeModelSwitching, modelConfigView]
     )
     const effectiveModelConfigView = useMemo(
         () =>
@@ -555,7 +560,7 @@ const AgentChat: FC = (): ReactNode => {
             currentAgentId !== agentId ||
             // hermes has no config drawer, but the view's providerModels feed
             // its model picker, so the fetch runs for it too.
-            !(frameworkModelConfigSupported || hermesModelSwitching)
+            !(frameworkModelConfigSupported || runtimeModelSwitching)
         ) {
             setModelConfigView(null)
             setModelConfigDraft(null)
@@ -627,13 +632,13 @@ const AgentChat: FC = (): ReactNode => {
             // claims the default.
             const normalized =
                 normalizeModelOverride(next) ??
-                (hermesModelSwitching
+                (runtimeModelSwitching
                     ? normalizeModelOverride(currentAgent?.model ?? null)
                     : null)
             setModelOverride(normalized)
             if (agentId) writeStoredModelOverride(agentId, normalized)
         },
-        [agentId, hermesModelSwitching, currentAgent]
+        [agentId, runtimeModelSwitching, currentAgent]
     )
 
     const handleRefreshModelConfig = useCallback(

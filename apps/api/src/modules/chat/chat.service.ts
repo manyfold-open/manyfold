@@ -6622,7 +6622,11 @@ const MESSAGE_MODEL_OVERRIDE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'gemini-cli',
     // Applied via ACP session/set_model — the session persists its model in
     // hermes's state.db, so this is the only lever that moves a live session.
-    'hermes'
+    'hermes',
+    // Applied via an in-box `sessions.patch {model}` in the openclaw ACP
+    // wrapper — probe-verified to stick to the gateway session key, so like
+    // hermes the pick persists across the session until changed.
+    'openclaw'
 ])
 
 const deriveTitleFromText = (text: string): string | null => {

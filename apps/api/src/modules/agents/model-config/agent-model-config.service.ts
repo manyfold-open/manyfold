@@ -1506,7 +1506,8 @@ export class AgentModelConfigService {
             agent.framework !== 'claude-code' &&
             agent.framework !== 'codex' &&
             agent.framework !== 'gemini-cli' &&
-            agent.framework !== 'hermes'
+            agent.framework !== 'hermes' &&
+            agent.framework !== 'openclaw'
         )
             return {
                 provider: null,
@@ -1564,6 +1565,22 @@ export class AgentModelConfigService {
                     (provider ? defaultProtocolForProvider(provider) : null),
                 apiKey: normalizeNullable(parsed.primaryModelApiKey),
                 baseUrl: normalizeNullable(parsed.primaryModelBaseUrl)
+            }
+        }
+        if (agent.framework === 'openclaw') {
+            // openclaw stores its provider under different field names than
+            // hermes (modelProvider / apiKey / baseUrl); OpenclawModelProvider
+            // is likewise a UserModelProvider subset.
+            const provider = normalizeNullable(
+                parsed.modelProvider
+            ) as UserModelProvider | null
+            return {
+                provider,
+                inferenceProtocol:
+                    storedProtocol ??
+                    (provider ? defaultProtocolForProvider(provider) : null),
+                apiKey: normalizeNullable(parsed.apiKey),
+                baseUrl: normalizeNullable(parsed.baseUrl)
             }
         }
         return {

@@ -438,3 +438,47 @@ test('the default permission mode patches execAsk in the wrapper and surfaces an
         delete process.env.MF_OPENCLAW_ACP
     }
 })
+
+test('a per-message model pick is applied via the wrapper sessions.patch', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        const rig = buildRig()
+        void (async () => {
+            const init = await rig.waitFor('initialize')
+            rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+            const create = await rig.waitFor('session/new')
+            rig.reply({
+                jsonrpc: '2.0',
+                id: create.id,
+                result: { sessionId: 'sess-model' }
+            })
+            const prompt = await rig.waitFor('session/prompt')
+            rig.reply({
+                jsonrpc: '2.0',
+                id: prompt.id,
+                result: { stopReason: 'end_turn' }
+            })
+        })()
+
+        await drain(
+            rig.adapter.sendMessage(
+                ctx({ modelOverride: 'anthropic/claude-x' }),
+                USER_MSG
+            )
+        )
+
+        const req = rig.requests[0]
+        assert.equal(req.cmd?.[0], 'bash')
+        // The gateway registers catalog models under the `primary` provider, so
+        // the pick routes as primary/<model>; the provider then serves it
+        // (verified passthrough, so no catalog registration is needed).
+        assert.match(
+            String(req.cmd?.[2]),
+            /sessions\.patch.*"model":"primary\/anthropic\/claude-x"/
+        )
+        // No ask mode was set, so execAsk is absent.
+        assert.ok(!String(req.cmd?.[2]).includes('execAsk'))
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
+})

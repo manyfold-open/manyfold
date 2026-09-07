@@ -54,7 +54,7 @@ test('ChatService rejects unsupported model override before inserting messages',
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [{ framework: 'openclaw' }]
+                    limit: async () => [{ framework: 'narranexus' }]
                 })
             })
         })
