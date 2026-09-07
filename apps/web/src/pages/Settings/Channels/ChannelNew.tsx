@@ -7,6 +7,7 @@ import type {
     LarkSubscriptionMode,
     LinearChannelConfig,
     LineChannelConfig,
+    GoogleChatChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -107,6 +108,8 @@ const ChannelNew: FC = (): ReactNode => {
         useState<WhatsappQuickCreateState>({ id: null, status: 'idle' })
     const [lineChannelSecret, setLineChannelSecret] = useState('')
     const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
+    const [googlechatServiceAccountJson, setGooglechatServiceAccountJson] =
+        useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     useEffect(() => {
@@ -287,7 +290,8 @@ const ChannelNew: FC = (): ReactNode => {
                 weixinAllowedUserIds,
                 weixinOperatorUserIds,
                 lineChannelSecret,
-                lineChannelAccessToken
+                lineChannelAccessToken,
+                googlechatServiceAccountJson
             })
             const created = await client.channels.create(body)
             onCreated(created.id)
@@ -709,6 +713,32 @@ const ChannelNew: FC = (): ReactNode => {
                             </Field>
                             <p className='text-ui text-muted -mt-2'>
                                 {t('web.channels.settings.help.lineCreate')}
+                            </p>
+                        </>
+                    )}
+
+                    {provider === 'googlechat' && (
+                        <>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.serviceAccountJson'
+                                )}
+                            >
+                                <textarea
+                                    className='workbench-input min-h-32 font-mono'
+                                    value={googlechatServiceAccountJson}
+                                    onChange={(e) =>
+                                        setGooglechatServiceAccountJson(
+                                            e.target.value
+                                        )
+                                    }
+                                    autoComplete='off'
+                                    spellCheck={false}
+                                    required
+                                />
+                            </Field>
+                            <p className='text-ui text-muted -mt-2'>
+                                {t('web.channels.settings.help.googlechatCreate')}
                             </p>
                         </>
                     )}
@@ -1199,6 +1229,7 @@ const buildBody = (input: {
     weixinOperatorUserIds: string
     lineChannelSecret: string
     lineChannelAccessToken: string
+    googlechatServiceAccountJson: string
 }): CreateChannelBody => {
     if (isLarkProviderChoice(input.provider)) {
         if (
@@ -1425,6 +1456,35 @@ const buildBody = (input: {
         return {
             agentId: input.agentId,
             provider: 'line',
+            label: input.label.trim(),
+            config,
+            credentials
+        }
+    }
+    if (input.provider === 'googlechat') {
+        const serviceAccountJson = input.googlechatServiceAccountJson.trim()
+        if (!serviceAccountJson)
+            throw new Error(
+                translate('web.channels.settings.errors.googlechatCredentials')
+            )
+        const config: GoogleChatChannelConfig = {
+            // Register captures the audience from the inbound URL Manyfold
+            // hands out, so the operator never has to retype it here.
+            audienceType: 'app-url',
+            audience: null,
+            allowedSpaceIds: [],
+            allowedUserIds: [],
+            operatorUserIds: [],
+            mentionOnly: true,
+            shareSessionInChannel: false,
+            threadIsolation: true,
+            autoThread: true,
+            progressMode: 'final'
+        }
+        const credentials: ChannelCredentials = { serviceAccountJson }
+        return {
+            agentId: input.agentId,
+            provider: 'googlechat',
             label: input.label.trim(),
             config,
             credentials

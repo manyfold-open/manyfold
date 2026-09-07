@@ -58,6 +58,31 @@ test('CreateChannelDto accepts discord provider', async () => {
     assert.deepEqual(errors, [])
 })
 
+test('CreateChannelDto accepts googlechat provider', async () => {
+    const dto = plainToInstance(CreateChannelDto, {
+        agentId: 'agent-1',
+        provider: 'googlechat',
+        label: 'Google Chat',
+        config: {
+            audienceType: 'app-url',
+            allowedSpaceIds: [],
+            allowedUserIds: [],
+            operatorUserIds: [],
+            mentionOnly: true,
+            shareSessionInChannel: false,
+            threadIsolation: true,
+            progressMode: 'final'
+        },
+        credentials: {
+            serviceAccountJson: '{"type":"service_account"}'
+        }
+    })
+
+    const errors = await validate(dto)
+
+    assert.deepEqual(errors, [])
+})
+
 test('CreateChannelDto accepts weixin provider', async () => {
     const dto = plainToInstance(CreateChannelDto, {
         agentId: 'agent-1',

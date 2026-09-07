@@ -264,7 +264,13 @@ export interface ChannelProvider {
         req: InboundRequest,
         ctx: ChannelContext
     ): NormalizedInboundEvent
-    verifySignature(req: InboundRequest, ctx: ChannelContext): SignatureCheck
+    // Google Chat authenticates inbound with a Google-signed JWT, so its check
+    // needs a (cached) key-set fetch. Every other provider answers from the
+    // request alone and keeps returning a plain value.
+    verifySignature(
+        req: InboundRequest,
+        ctx: ChannelContext
+    ): SignatureCheck | Promise<SignatureCheck>
     computeScopeKey(
         event: NormalizedInboundEvent,
         config: ChannelConfig

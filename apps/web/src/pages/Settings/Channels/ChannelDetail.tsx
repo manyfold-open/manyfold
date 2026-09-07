@@ -385,6 +385,7 @@ const ChannelDetail: FC = (): ReactNode => {
                                 channel.provider === 'linear' ||
                                 channel.provider === 'github' ||
                                 channel.provider === 'line' ||
+                                channel.provider === 'googlechat' ||
                                 channel.provider === 'lark') && (
                                 <ShortcutTooltip
                                     label={
@@ -414,9 +415,14 @@ const ChannelDetail: FC = (): ReactNode => {
                                                       ? t(
                                                             'web.channels.settings.tooltips.registerLine'
                                                         )
-                                                      : t(
-                                                            'web.channels.settings.tooltips.registerMatrix'
-                                                        )
+                                                      : channel.provider ===
+                                                          'googlechat'
+                                                        ? t(
+                                                              'web.channels.settings.tooltips.registerGooglechat'
+                                                          )
+                                                        : t(
+                                                              'web.channels.settings.tooltips.registerMatrix'
+                                                          )
                                     }
                                     className='w-full'
                                 >
@@ -518,9 +524,13 @@ const ChannelDetail: FC = (): ReactNode => {
                                     ? t(
                                           'web.channels.settings.webhookHelp.line'
                                       )
-                                    : t(
-                                          'web.channels.settings.webhookHelp.other'
-                                      )}
+                                    : channel.provider === 'googlechat'
+                                      ? t(
+                                            'web.channels.settings.webhookHelp.googlechat'
+                                        )
+                                      : t(
+                                            'web.channels.settings.webhookHelp.other'
+                                        )}
                     </p>
                 </section>
             ) : (
@@ -728,6 +738,7 @@ const providerLabel = (channel: ChannelDetailType): string => {
     if (channel.provider === 'linear') return 'Linear'
     if (channel.provider === 'github') return 'GitHub'
     if (channel.provider === 'line') return 'LINE'
+    if (channel.provider === 'googlechat') return 'Google Chat'
     return 'Fake (test)'
 }
 
