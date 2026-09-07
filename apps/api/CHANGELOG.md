@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 0.67.0
+
+### Minor Changes
+
+- [#188](https://github.com/manyfold-open/manyfold/pull/188) [`832cd55`](https://github.com/manyfold-open/manyfold/commit/832cd5569a38397c17a2e4602428d4bf89af88e0) Thanks [@yingca1](https://github.com/yingca1)! - Codex agents can now run GPT-6 Astra. It joins the model catalog at the head of the default preference scan (Astra → GPT-5.6 Sol → Terra → Luna → GPT-5.5 → …), matching the priority order Codex 0.153.4 ships, so a provider that serves Astra now defaults new agents to it while providers without it keep resolving as before. The `max` and `ultra` reasoning levels move from unexposed to selectable, gated per model — Astra, Sol and Terra reach `ultra`, Luna stops at `max`, GPT-5.5 and older stay at `xhigh`. GPT-5.3 Codex is deactivated in the catalog: it no longer exists in the upstream Codex model list.
+
+### Patch Changes
+
+- [#187](https://github.com/manyfold-open/manyfold/pull/187) [`2c45a5e`](https://github.com/manyfold-open/manyfold/commit/2c45a5e9b473d854672923826a82f71783698c07) Thanks [@yingca1](https://github.com/yingca1)! - Fix newly created OpenClaw sprite agents answering every request with `proxy_attribution_required`. OpenClaw 2026.8.1 and later attribute proxy-shaped traffic to a client IP before gateway auth and reject what they cannot attribute, so the loopback-only `trustedProxies` we wrote into `openclaw.json` made the sprite platform's own ingress untrusted — the agent's chat endpoint and its Control UI both returned 403 before the gateway token was ever read.
+
 ## 0.66.0
 
 ### Minor Changes
