@@ -3092,6 +3092,7 @@ const pt: Record<string, string> = {
     'web.composer.intelligence.high': 'Alto',
     'web.composer.intelligence.xhigh': 'Extra alto',
     'web.composer.intelligence.max': 'Máximo',
+    'web.composer.intelligence.ultra': 'Ultra',
     'web.composer.intelligence.unknown': 'Desconhecido',
     'web.composer.speedLabels.fast': 'Rápido',
     'web.composer.speedLabels.standard': 'Padrão',

@@ -89,11 +89,15 @@ const claudeCodeFullEfforts = [
 ] as const satisfies readonly ClaudeCodeEffort[]
 
 // Ordered by default preference: the first provider-available model wins
-// (GPT-5.6 Sol → Terra → Luna → GPT-5.5 → …). gpt-5.3-codex-spark is a
-// ChatGPT Pro research preview (supported_in_api=false upstream) and stays
-// out of this list until the product decision to expose it; its catalog row
-// is seeded inactive.
+// (GPT-6 Astra → GPT-5.6 Sol → Terra → Luna → GPT-5.5 → …), mirroring the
+// `priority` field of the upstream catalog. Deliberately absent from this
+// list: gpt-daybreak-blue/red-latest (visibility=hide, model_specialty=cyber,
+// gated behind OpenAI's Daybreak programme) and codex-auto-review (an internal
+// review model). gpt-5.3-codex and gpt-5.3-codex-spark are gone from the
+// upstream catalog entirely; 5.3-codex stays here only so agents already
+// configured with it keep validating.
 export const codexModels = [
+    'gpt-6-astra',
     'gpt-5.6-sol',
     'gpt-5.6-terra',
     'gpt-5.6-luna',
@@ -109,20 +113,45 @@ export const codexSpeeds = ['standard', 'fast'] as const
 export type CodexSpeed = (typeof codexSpeeds)[number]
 
 // `none` was removed: no current model supports it and the official
-// model_reasoning_effort enum never had it. max/ultra exist upstream on the
-// GPT-5.6 family but stay unexposed pending a product decision (ultra
-// auto-delegates work to subagents).
+// model_reasoning_effort enum never had it. `max` and `ultra` are real upstream
+// levels but only on the newest models, so the ceiling is per model rather than
+// global — see codexModelSpecs. `ultra` additionally auto-delegates work to
+// subagents, which is why it sits above `max` rather than beside it.
 export const codexIntelligenceLevels = [
     'low',
     'medium',
     'high',
-    'xhigh'
+    'xhigh',
+    'max',
+    'ultra'
 ] as const
 export type CodexIntelligence = (typeof codexIntelligenceLevels)[number]
 
 export const codexDefaultModel: CodexSupportedModel = 'gpt-5.5'
 export const codexDefaultSpeed: CodexSpeed = 'standard'
 export const codexDefaultIntelligence: CodexIntelligence = 'medium'
+
+const codexStandardIntelligence = [
+    'low',
+    'medium',
+    'high',
+    'xhigh'
+] as const satisfies readonly CodexIntelligence[]
+const codexMaxIntelligence = [
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max'
+] as const satisfies readonly CodexIntelligence[]
+const codexUltraIntelligence = [
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+    'ultra'
+] as const satisfies readonly CodexIntelligence[]
 
 interface CodexModelSpec {
     intelligence: readonly CodexIntelligence[]
@@ -131,46 +160,57 @@ interface CodexModelSpec {
     deprecated?: boolean
 }
 
-// Capability metadata per canonical model (codex debug models @ 0.144.1).
+// Capability metadata per canonical model.
+// Measured on codex 0.153.4 [2026-09-07] (`codex debug models`): the reasoning
+// ceiling is Astra/Sol/Terra → ultra, Luna → max, GPT-5.5 and older → xhigh.
+// `defaultIntelligence` deliberately stays `medium` everywhere rather than
+// mirroring upstream's `default_reasoning_level` (`low` for Astra and Sol):
+// the API path takes its default from the framework_enum_catalog row, which is
+// `medium`, and this field is only the fallback when that row is missing.
 const codexModelSpecs: Record<CodexSupportedModel, CodexModelSpec> = {
+    'gpt-6-astra': {
+        intelligence: codexUltraIntelligence,
+        defaultIntelligence: 'medium',
+        fast: true
+    },
     'gpt-5.6-sol': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexUltraIntelligence,
         defaultIntelligence: 'medium',
         fast: true
     },
     'gpt-5.6-terra': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexUltraIntelligence,
         defaultIntelligence: 'medium',
         fast: true
     },
     'gpt-5.6-luna': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexMaxIntelligence,
         defaultIntelligence: 'medium',
         fast: true
     },
     'gpt-5.5': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexStandardIntelligence,
         defaultIntelligence: 'medium',
         fast: true
     },
     'gpt-5.4': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexStandardIntelligence,
         defaultIntelligence: 'medium',
         fast: true
     },
     'gpt-5.4-mini': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexStandardIntelligence,
         defaultIntelligence: 'medium',
         fast: false
     },
     'gpt-5.3-codex': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexStandardIntelligence,
         defaultIntelligence: 'medium',
         fast: false,
         deprecated: true
     },
     'gpt-5.2': {
-        intelligence: codexIntelligenceLevels,
+        intelligence: codexStandardIntelligence,
         defaultIntelligence: 'medium',
         fast: false,
         deprecated: true
@@ -189,10 +229,14 @@ const codexModelSpecFor = (
     )
 }
 
+// A model with no spec is one the operator added to the catalog by hand, so
+// fall back to the levels every Codex model has ever supported rather than to
+// the full enum — `max` and `ultra` exist on the newest models only, and codex
+// rejects an unsupported model_reasoning_effort at the turn.
 export const codexIntelligenceLevelsForModel = (
     model: string | null | undefined
 ): readonly CodexIntelligence[] =>
-    codexModelSpecFor(model)?.intelligence ?? codexIntelligenceLevels
+    codexModelSpecFor(model)?.intelligence ?? codexStandardIntelligence
 
 export const codexDefaultIntelligenceForModel = (
     model: string | null | undefined

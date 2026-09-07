@@ -3091,6 +3091,7 @@ const ar: Record<string, string> = {
     'web.composer.intelligence.high': 'مرتفع',
     'web.composer.intelligence.xhigh': 'مرتفع جدًا',
     'web.composer.intelligence.max': 'الحد الأقصى',
+    'web.composer.intelligence.ultra': 'فائق',
     'web.composer.intelligence.unknown': 'غير معروف',
     'web.composer.speedLabels.fast': 'سريع',
     'web.composer.speedLabels.standard': 'قياسي',

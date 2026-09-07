@@ -2899,6 +2899,7 @@ const zh: Translations = {
                 high: '高',
                 xhigh: '超高',
                 max: '最高',
+                ultra: '至高',
                 unknown: '未知'
             },
             speedLabels: {

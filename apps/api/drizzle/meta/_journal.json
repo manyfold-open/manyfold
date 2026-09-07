@@ -57,6 +57,13 @@
       "when": 1788359801069,
       "tag": "0007_terminal_model_credentials",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1788787719476,
+      "tag": "0008_codex_gpt6_astra",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import type { ProtocolModelMap } from '@manyfold/shared'
+import type { CodexIntelligence, ProtocolModelMap } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { agentCredentials, agents } from '@manyfold/db'
@@ -467,6 +467,63 @@ test('AgentModelConfigService persists Codex defaults in agent extras', async ()
             intelligence: 'high'
         }
     })
+})
+
+test('AgentModelConfigService gates max and ultra per Codex model', async () => {
+    const providerModels = [
+        'provider/gpt-6-astra',
+        'provider/gpt-5.6-luna',
+        'provider/gpt-5.5'
+    ]
+    const save = async (
+        model: string,
+        intelligence: CodexIntelligence
+    ): Promise<FakeDb> => {
+        const db = new FakeDb(baseAgent)
+        db.credentialPayload = { openaiApiKey: 'sk-openai-test' }
+        const service = makeService(db, providerModels)
+        await service.updateForAgent(
+            'user-1',
+            'agent-1',
+            {
+                modelConfig: {
+                    framework: 'codex',
+                    model,
+                    speed: 'standard',
+                    intelligence
+                }
+            },
+            false
+        )
+        return db
+    }
+
+    const astra = await save('provider/gpt-6-astra', 'ultra')
+    assert.deepEqual(astra.lastAgentPatch?.extras?.modelConfig, {
+        source: 'platform',
+        codex: {
+            speed: 'standard',
+            intelligence: 'ultra'
+        }
+    })
+
+    const luna = await save('provider/gpt-5.6-luna', 'max')
+    assert.deepEqual(luna.lastAgentPatch?.extras?.modelConfig, {
+        source: 'platform',
+        codex: {
+            speed: 'standard',
+            intelligence: 'max'
+        }
+    })
+
+    await assert.rejects(
+        () => save('provider/gpt-5.6-luna', 'ultra'),
+        /does not support intelligence ultra/
+    )
+    await assert.rejects(
+        () => save('provider/gpt-5.5', 'max'),
+        /does not support intelligence max/
+    )
 })
 
 test('AgentModelConfigService rejects saves without tested provider models', async () => {
@@ -1679,6 +1736,12 @@ const makeFakeCatalog = () => {
         ],
         codex: [
             {
+                modelKey: 'gpt-6-astra',
+                kind: 'model',
+                capabilities: { fast: true },
+                isDefault: false
+            },
+            {
                 modelKey: 'gpt-5.6-sol',
                 kind: 'model',
                 capabilities: { fast: true },
@@ -1710,12 +1773,6 @@ const makeFakeCatalog = () => {
             },
             {
                 modelKey: 'gpt-5.4-mini',
-                kind: 'model',
-                capabilities: {},
-                isDefault: false
-            },
-            {
-                modelKey: 'gpt-5.3-codex',
                 kind: 'model',
                 capabilities: {},
                 isDefault: false
@@ -1764,7 +1821,9 @@ const makeFakeCatalog = () => {
                 { value: 'low', isDefault: false },
                 { value: 'medium', isDefault: true },
                 { value: 'high', isDefault: false },
-                { value: 'xhigh', isDefault: false }
+                { value: 'xhigh', isDefault: false },
+                { value: 'max', isDefault: false },
+                { value: 'ultra', isDefault: false }
             ]
         },
         'claude-code': {
