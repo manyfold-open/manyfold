@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ExecStreamResult, InteractiveExecHandle } from '../src/modules/chat/adapters/exec-driver'
 import {
-    HermesAcpTurn,
+    AcpTurn,
     type AcpEvent
 } from '../src/modules/chat/adapters/hermes-acp-client'
 
@@ -125,9 +125,9 @@ const waitFor = async (cond: () => boolean, what: string): Promise<void> => {
 
 const makeTurn = (
     fake: FakeTransport
-): { turn: HermesAcpTurn; events: AcpEvent[] } => {
+): { turn: AcpTurn; events: AcpEvent[] } => {
     const events: AcpEvent[] = []
-    const turn = new HermesAcpTurn({
+    const turn = new AcpTurn({
         transport: fake.handle,
         onEvent: (ev) => events.push(ev)
     })
@@ -328,7 +328,7 @@ test('close gives an EOF-deaf child a bounded grace, then tears it down', async 
         ...fake.handle,
         endInput: () => {}
     }
-    const turn = new HermesAcpTurn({
+    const turn = new AcpTurn({
         transport: stubborn,
         onEvent: () => {},
         closeGraceMs: 50
@@ -456,7 +456,7 @@ test('auto-approve picks from the request options, session-scoped grant first', 
 test('interactive policy forwards the ask, delivers the answer, and emits the resolution', async () => {
     const fake = makeFakeTransport()
     const events: AcpEvent[] = []
-    const turn = new HermesAcpTurn({
+    const turn = new AcpTurn({
         transport: fake.handle,
         onEvent: (ev) => events.push(ev),
         permissionPolicy: 'interactive',
@@ -519,7 +519,7 @@ test('interactive policy forwards the ask, delivers the answer, and emits the re
 test('an unanswered ask denies on timeout with the reject option', async () => {
     const fake = makeFakeTransport()
     const events: AcpEvent[] = []
-    const turn = new HermesAcpTurn({
+    const turn = new AcpTurn({
         transport: fake.handle,
         onEvent: (ev) => events.push(ev),
         permissionPolicy: 'interactive',
@@ -558,7 +558,7 @@ test('an unanswered ask denies on timeout with the reject option', async () => {
 test('a pending ask keeps the idle budget alive and close() cancels it', async () => {
     const fake = makeFakeTransport()
     const events: AcpEvent[] = []
-    const turn = new HermesAcpTurn({
+    const turn = new AcpTurn({
         transport: fake.handle,
         onEvent: (ev) => events.push(ev),
         permissionPolicy: 'interactive',

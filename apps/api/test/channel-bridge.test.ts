@@ -1515,6 +1515,7 @@ const makeHarness = (opts: MakeHarnessOptions = {}): Harness => {
             _claudeCodePermissionMode?: unknown,
             _codexPermissionMode?: unknown,
             _hermesPermissionMode?: unknown,
+            _openclawPermissionMode?: unknown,
             observer?: typeof pendingObserver,
             _contextRefs?: unknown,
             uploads?: unknown,

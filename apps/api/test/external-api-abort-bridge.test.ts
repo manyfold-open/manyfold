@@ -291,6 +291,7 @@ const ctx = (
         claudeCodePermissionMode: null,
         codexPermissionMode: null,
         hermesPermissionMode: null,
+        openclawPermissionMode: null,
         frameworkSessionRef: null,
         history: [],
         abortSignal

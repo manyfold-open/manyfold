@@ -324,6 +324,32 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         note: 'A daemon openclaw turn spawns the CLI rather than calling a gateway, and dispatches no env at all: the factory gates its base env to coding frameworks because this turn payload has no env channel a resident openclaw would read (#783 owns adding one). It resumes by replaying the buffered CLI stdout under the exec ref it pinned, which is the assistant message id (#666), so the replay is a second read of one run rather than a second run.'
     },
     {
+        framework: 'openclaw',
+        runtime: 'sprites',
+        transport: 'sprite-exec',
+        gatedBy: ['MF_OPENCLAW_ACP'],
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'service-env',
+        path: 'wrapper-prepend',
+        resume: 'none',
+        note: 'The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable.'
+    },
+    {
+        framework: 'openclaw',
+        runtime: 'k8s',
+        transport: 'pod-exec',
+        gatedBy: ['MF_OPENCLAW_ACP'],
+        identity: 'none',
+        connections: 'none',
+        extras: 'service-env',
+        providerCreds: 'service-env',
+        path: 'image-env',
+        resume: 'none',
+        note: 'The k8s ACP cell (ADR-0027): the API drives `openclaw acp` over an interactive pod exec. The gateway token is inherited from the pod Secret the resident gateway already reads, so the exec injects nothing; the model call runs inside that gateway with its provider key.'
+    },
+    {
         framework: 'hermes',
         runtime: 'sprites',
         transport: 'turn-rpc',

@@ -51,7 +51,7 @@ import { ExecDriverFactory, type ExecDriverHandle } from './exec-driver-factory'
 import {
     acpEventsFromFrame,
     acpModelMatches,
-    HermesAcpTurn,
+    AcpTurn,
     HERMES_ACP_CMD,
     type AcpEvent,
     type AcpRequestTimeouts,
@@ -1102,7 +1102,7 @@ export class HermesAdapter implements ApiChatAdapter {
             keepAliveMs: execTimeouts.keepAliveMs,
             livenessTimeoutMs: execTimeouts.livenessTimeoutMs
         })
-        const turn = new HermesAcpTurn({
+        const turn = new AcpTurn({
             transport,
             onEvent: enqueue,
             logger: this.logger,

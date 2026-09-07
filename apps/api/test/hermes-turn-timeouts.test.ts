@@ -1,7 +1,7 @@
 import type { ChatMessage } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { HermesAcpTurn } from '../src/modules/chat/adapters/hermes-acp-client'
+import { AcpTurn } from '../src/modules/chat/adapters/hermes-acp-client'
 import type { InteractiveExecHandle } from '../src/modules/chat/adapters/exec-driver'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import type {
@@ -57,7 +57,7 @@ const pushQueue = (): {
     }
 }
 
-const buildClient = (): { client: HermesAcpTurn; child: FakeChild } => {
+const buildClient = (): { client: AcpTurn; child: FakeChild } => {
     const sent: Array<Record<string, unknown>> = []
     const waiters: Array<{
         method: string
@@ -83,7 +83,7 @@ const buildClient = (): { client: HermesAcpTurn; child: FakeChild } => {
         result: new Promise(() => {}),
         abort: () => {}
     }
-    const client = new HermesAcpTurn({ transport, onEvent: () => {} })
+    const client = new AcpTurn({ transport, onEvent: () => {} })
     const emit = (kind: 'stdout' | 'stderr', data: string): void => {
         if (kind === 'stdout') stdout.push(data)
         else stderr.push(data)
@@ -115,7 +115,7 @@ const buildClient = (): { client: HermesAcpTurn; child: FakeChild } => {
 // Brings the client to the point where prompt() is legal, using the same
 // handshake the adapter performs.
 const handshake = async (
-    client: HermesAcpTurn,
+    client: AcpTurn,
     child: FakeChild
 ): Promise<void> => {
     const init = client.initialize(5_000)

@@ -1,4 +1,25 @@
 export { apiPaths } from './apiPaths'
+export {
+    ACP_PROTOCOL_VERSION,
+    asTimeouts,
+    pickAutoApproveOptionId,
+    pickRejectOptionId,
+    decodePermissionRequest,
+    acpEventsFromFrame,
+    decodeAcpSessionState,
+    acpModelMatches,
+    acpEventsFromNotification,
+    pickStderrErrorLine,
+    isFatalStderrLine
+} from './acp'
+export type {
+    AcpEvent,
+    AcpRequestTimeouts,
+    JsonRpcNotification,
+    AcpSessionState,
+    AcpDialect
+} from './acp'
+export { HERMES_ACP_DIALECT, OPENCLAW_ACP_DIALECT } from './acp'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'
 export {
     apiTokenScopes,
@@ -728,6 +749,7 @@ export type {
     ClaudeCodePermissionMode,
     CodexPermissionMode,
     HermesPermissionMode,
+    OpenclawPermissionMode,
     CreateSessionRequest,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
@@ -769,12 +791,15 @@ export {
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
+    DEFAULT_OPENCLAW_PERMISSION_MODE,
     claudeCodePermissionModes,
     isClaudeCodePermissionMode,
     codexPermissionModes,
     isCodexPermissionMode,
     hermesPermissionModes,
     isHermesPermissionMode,
+    openclawPermissionModes,
+    isOpenclawPermissionMode,
     agentSessionListLimits
 } from './chat'
 export type {

@@ -118,6 +118,7 @@ const fakeCtx = (
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
     hermesPermissionMode: null,
+    openclawPermissionMode: null,
     // truthy so the post-success session-ref backfill (a drivers/fs exec
     // outside preflight's scope) is skipped
     frameworkSessionRef: 'fsr-1',

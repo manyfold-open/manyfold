@@ -87,6 +87,7 @@ const fakeCtx = (
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
     hermesPermissionMode: null,
+    openclawPermissionMode: null,
     frameworkSessionRef: 'fsr-1',
     history: [],
     channelSource

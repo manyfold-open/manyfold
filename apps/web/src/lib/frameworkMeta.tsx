@@ -70,7 +70,9 @@ const frameworkMeta = {
         mono: false,
         iconSrc: null,
         iconSrcDark: null,
-        supportsModelOverride: false,
+        // Like hermes: options come from the agent's provider-models cache at
+        // runtime, applied via an in-box sessions.patch on the ACP turn.
+        supportsModelOverride: true,
         modelPresets: [],
         defaultProvider: 'anthropic'
     },
