@@ -1,4 +1,5 @@
 import { createObjectId } from '@manyfold/shared'
+import type { ChatContentBlock, ChatTextBlock } from '@manyfold/shared'
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
 import 'dotenv/config'
@@ -6,7 +7,11 @@ import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
 import test from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import {
+    BadRequestException,
+    ForbiddenException,
+    NotFoundException
+} from '@nestjs/common'
 import type { ExecutionContext } from '@nestjs/common'
 import {
     agentRuntimes,
@@ -138,19 +143,42 @@ const createSession = async (
     return id
 }
 
-const addAssistantMessage = async (
+const addMessage = async (
     h: Harness,
-    sessionId: string
+    sessionId: string,
+    role: 'user' | 'assistant' | 'system',
+    text: string
 ): Promise<string> => {
     const id = `msg_${randomUUID()}`
     await h.db.insert(chatMessages).values({
         id,
         sessionId,
-        role: 'assistant',
-        contentBlocksJson: [{ type: 'text', text: 'hi' }],
+        role,
+        contentBlocksJson: [{ type: 'text', text }],
         createdAt: tick()
     })
     return id
+}
+
+const addAssistantMessage = async (
+    h: Harness,
+    sessionId: string
+): Promise<string> => addMessage(h, sessionId, 'assistant', 'hi')
+
+const textOf = (message: { contentBlocks: ChatContentBlock[] }): string =>
+    message.contentBlocks
+        .filter((b): b is ChatTextBlock => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+
+// One turn per exchange, so a fixture reads the way the transcript does.
+const addTurn = async (
+    h: Harness,
+    sessionId: string,
+    n: number
+): Promise<string> => {
+    await addMessage(h, sessionId, 'user', `prompt ${n}`)
+    return addMessage(h, sessionId, 'assistant', `answer ${n}`)
 }
 
 const addEvent = async (
@@ -617,6 +645,205 @@ test('a turn reports the stream rows retention has already deleted', {
             detail.eventCounts.done,
             2,
             'the event counts still report only what is stored'
+        )
+    } finally {
+        await h.close()
+    }
+})
+
+// The transcript pairs each assistant turn with the messages that produced
+// it. There is no foreign key between the two — a turn's input is whatever
+// lies between the previous assistant message and this one — so every case
+// below is about that interval: the ordinary one-prompt-per-turn shape, the
+// page boundary where the interval's lower bound comes from the over-fetch,
+// a prompt retention has already deleted, and a run of several inputs.
+test('every turn is paired with its own prompt and its own answer', {
+    skip: !RUN && 'RUN_PG_E2E!=1'
+}, async () => {
+    const h = await buildHarness()
+    try {
+        const sessionId = await createSession(h, {
+            userId: h.memberId,
+            agentId: h.memberAgentId,
+            title: 'transcript session'
+        })
+        const first = await addTurn(h, sessionId, 1)
+        const second = await addTurn(h, sessionId, 2)
+        const third = await addTurn(h, sessionId, 3)
+
+        const page = await h.service.listTurns(sessionId, {
+            limit: 20,
+            before: null
+        })
+
+        assert.deepEqual(
+            page.items.map((i) => i.turn.messageId),
+            [third, second, first],
+            'newest first, like the Turns table above it'
+        )
+        assert.deepEqual(
+            page.items.map((i) => i.input.map(textOf)),
+            [['prompt 3'], ['prompt 2'], ['prompt 1']]
+        )
+        assert.deepEqual(
+            page.items.map((i) => textOf(i.result)),
+            ['answer 3', 'answer 2', 'answer 1']
+        )
+        assert.deepEqual(
+            page.items.map((i) => i.input.map((m) => m.role)),
+            [['user'], ['user'], ['user']]
+        )
+        assert.equal(page.nextBefore, null)
+
+        await assert.rejects(
+            () =>
+                h.service.listTurns(createObjectId('chatSession'), {
+                    limit: 20,
+                    before: null
+                }),
+            NotFoundException
+        )
+    } finally {
+        await h.close()
+    }
+})
+
+test('a page boundary does not separate a turn from its prompt', {
+    skip: !RUN && 'RUN_PG_E2E!=1'
+}, async () => {
+    const h = await buildHarness()
+    try {
+        const sessionId = await createSession(h, {
+            userId: h.memberId,
+            agentId: h.memberAgentId,
+            title: 'paged transcript'
+        })
+        const first = await addTurn(h, sessionId, 1)
+        const second = await addTurn(h, sessionId, 2)
+        const third = await addTurn(h, sessionId, 3)
+
+        const page1 = await h.service.listTurns(sessionId, {
+            limit: 2,
+            before: null
+        })
+        assert.deepEqual(
+            page1.items.map((i) => i.turn.messageId),
+            [third, second]
+        )
+        assert.deepEqual(
+            page1.items.map((i) => i.input.map(textOf)),
+            [['prompt 3'], ['prompt 2']],
+            'the oldest turn on the page still gets its own prompt, not the previous turn’s'
+        )
+        assert.ok(page1.nextBefore, 'a third turn is left to fetch')
+
+        const page2 = await h.service.listTurns(sessionId, {
+            limit: 2,
+            before: page1.nextBefore
+        })
+        assert.deepEqual(
+            page2.items.map((i) => i.turn.messageId),
+            [first],
+            'paging neither repeats the boundary turn nor skips the one after it'
+        )
+        assert.deepEqual(page2.items[0].input.map(textOf), ['prompt 1'])
+        assert.equal(page2.nextBefore, null)
+    } finally {
+        await h.close()
+    }
+})
+
+test('a turn whose prompt retention deleted reports no input, not the wrong one', {
+    skip: !RUN && 'RUN_PG_E2E!=1'
+}, async () => {
+    const h = await buildHarness()
+    try {
+        const sessionId = await createSession(h, {
+            userId: h.memberId,
+            agentId: h.memberAgentId,
+            title: 'half-retained transcript'
+        })
+        await addTurn(h, sessionId, 1)
+        const strandedPrompt = await addMessage(
+            h,
+            sessionId,
+            'user',
+            'prompt 2'
+        )
+        const second = await addMessage(h, sessionId, 'assistant', 'answer 2')
+        const third = await addTurn(h, sessionId, 3)
+
+        // Retention deletes chat_messages in batches, so a batch boundary can
+        // leave a turn whose own prompt is already gone.
+        await h.db
+            .delete(chatMessages)
+            .where(eq(chatMessages.id, strandedPrompt))
+
+        const page = await h.service.listTurns(sessionId, {
+            limit: 20,
+            before: null
+        })
+        const byId = new Map(page.items.map((i) => [i.turn.messageId, i]))
+
+        assert.deepEqual(
+            byId.get(second)?.input,
+            [],
+            'an empty input is the honest answer; borrowing the previous turn’s prompt would be a lie'
+        )
+        assert.equal(
+            textOf(byId.get(second)!.result),
+            'answer 2',
+            'the turn itself is still readable'
+        )
+        assert.deepEqual(
+            byId.get(third)?.input.map(textOf),
+            ['prompt 3'],
+            'the gap must not shift the next turn onto an older prompt'
+        )
+    } finally {
+        await h.close()
+    }
+})
+
+test('several inputs before one turn all land on that turn', {
+    skip: !RUN && 'RUN_PG_E2E!=1'
+}, async () => {
+    const h = await buildHarness()
+    try {
+        const sessionId = await createSession(h, {
+            userId: h.memberId,
+            agentId: h.memberAgentId,
+            title: 'batched transcript'
+        })
+        // A recovered runtime transcript can carry a system preamble and more
+        // than one user message before the assistant answers.
+        await addMessage(h, sessionId, 'system', 'you are helpful')
+        await addMessage(h, sessionId, 'user', 'prompt a')
+        await addMessage(h, sessionId, 'user', 'prompt b')
+        const answered = await addMessage(h, sessionId, 'assistant', 'answer ab')
+        await addMessage(h, sessionId, 'user', 'prompt c')
+        const later = await addMessage(h, sessionId, 'assistant', 'answer c')
+
+        const page = await h.service.listTurns(sessionId, {
+            limit: 20,
+            before: null
+        })
+        const byId = new Map(page.items.map((i) => [i.turn.messageId, i]))
+
+        assert.deepEqual(
+            byId.get(answered)?.input.map(textOf),
+            ['you are helpful', 'prompt a', 'prompt b'],
+            'in the order the agent received them'
+        )
+        assert.deepEqual(byId.get(answered)?.input.map((m) => m.role), [
+            'system',
+            'user',
+            'user'
+        ])
+        assert.deepEqual(
+            byId.get(later)?.input.map(textOf),
+            ['prompt c'],
+            'the run must not leak past the turn that consumed it'
         )
     } finally {
         await h.close()

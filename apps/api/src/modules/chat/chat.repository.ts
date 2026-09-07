@@ -1482,13 +1482,14 @@ export class ChatRepository {
 
     async listAssistantTurnsWithUsage(
         sessionId: string,
-        limit: number
+        opts: { limit: number; before?: MessageCursor | null }
     ): Promise<
         Array<{
             message: DbChatMessage
             usage: AgentUsageEventRow | null
         }>
     > {
+        const before = opts.before ?? null
         const rows = await this.db
             .select({
                 message: chatMessages,
@@ -1502,12 +1503,57 @@ export class ChatRepository {
             .where(
                 and(
                     eq(chatMessages.sessionId, sessionId),
-                    eq(chatMessages.role, 'assistant')
+                    eq(chatMessages.role, 'assistant'),
+                    before
+                        ? afterCondition(
+                              chatMessages.createdAt,
+                              chatMessages.id,
+                              before,
+                              'desc'
+                          )
+                        : undefined
                 )
             )
             .orderBy(desc(chatMessages.createdAt), desc(chatMessages.id))
-            .limit(limit)
+            .limit(opts.limit)
         return rows.map((r) => ({ message: r.message, usage: r.usage }))
+    }
+
+    // The messages a turn was given, where the turn is the assistant message
+    // at `before` and `after` is the assistant message before it. Both bounds
+    // come from adjacent assistant rows, so the interval is bounded by the
+    // conversation's own shape — one prompt per turn for a session driven by
+    // ChatService, a short run only where a recovered transcript has one.
+    // `after` is null for the session's first turn, where the interval opens
+    // at the session's first message.
+    async listTurnInputMessages(
+        sessionId: string,
+        opts: { after: MessageCursor | null; before: MessageCursor }
+    ): Promise<DbChatMessage[]> {
+        return this.db
+            .select()
+            .from(chatMessages)
+            .where(
+                and(
+                    eq(chatMessages.sessionId, sessionId),
+                    ne(chatMessages.role, 'assistant'),
+                    afterCondition(
+                        chatMessages.createdAt,
+                        chatMessages.id,
+                        opts.before,
+                        'desc'
+                    ),
+                    opts.after
+                        ? afterCondition(
+                              chatMessages.createdAt,
+                              chatMessages.id,
+                              opts.after,
+                              'asc'
+                          )
+                        : undefined
+                )
+            )
+            .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
     }
 
     async countSessionEventsByType(

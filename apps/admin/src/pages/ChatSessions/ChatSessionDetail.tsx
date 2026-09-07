@@ -18,8 +18,10 @@ import {
     Heading,
     type BadgeTone
 } from '@/ui'
+import { cn } from '@/ui/classNames'
 import { sessionCompaction, turnCompaction } from './compaction'
 import { sessionStatusTone, turnStateTone } from './tones'
+import TranscriptCard from './TranscriptCard'
 
 const EVENTS_PAGE_SIZE = 100
 
@@ -156,10 +158,12 @@ const ChatSessionDetail: FC = (): ReactNode => {
     const [types, setTypes] = useState<string[]>(DEFAULT_EVENT_TYPES)
     const [expandedId, setExpandedId] = useState<string | null>(null)
     const [lockedTurn, setLockedTurn] = useState<string | null>(null)
+    const [refreshToken, setRefreshToken] = useState(0)
 
     const refresh = useCallback((): void => {
         if (!id) return
         setError(null)
+        setRefreshToken((prev) => prev + 1)
         client.admin.chatSessions
             .get(id)
             .then(setDetail)
@@ -240,6 +244,9 @@ const ChatSessionDetail: FC = (): ReactNode => {
             turn: messageId
         })
     }
+
+    const toggleTurn = (messageId: string): void =>
+        lockTurn(lockedTurn === messageId ? null : messageId)
 
     const breadcrumbs = (
         <Breadcrumbs
@@ -444,18 +451,19 @@ const ChatSessionDetail: FC = (): ReactNode => {
                                             aria-selected={
                                                 lockedTurn === turn.messageId
                                             }
-                                            className={`hover:bg-surface-muted cursor-pointer transition-colors${
-                                                lockedTurn === turn.messageId
-                                                    ? 'bg-brand-subtle'
-                                                    : ''
-                                            }`}
+                                            // Not a template literal: the
+                                            // tailwind Prettier plugin strips
+                                            // the separating space out of an
+                                            // interpolated class, which is how
+                                            // this row's selected state came to
+                                            // emit `transition-colorsbg-brand-subtle`.
+                                            className={cn(
+                                                'hover:bg-surface-muted cursor-pointer transition-colors',
+                                                lockedTurn === turn.messageId &&
+                                                    'bg-brand-subtle'
+                                            )}
                                             onClick={() =>
-                                                lockTurn(
-                                                    lockedTurn ===
-                                                        turn.messageId
-                                                        ? null
-                                                        : turn.messageId
-                                                )
+                                                toggleTurn(turn.messageId)
                                             }
                                         >
                                             <td className='font-mono'>
@@ -539,6 +547,14 @@ const ChatSessionDetail: FC = (): ReactNode => {
                         </div>
                     )}
                 </Card>
+
+                <TranscriptCard
+                    sessionId={session.id}
+                    inflightMessageId={session.inflightMessageId}
+                    lockedTurn={lockedTurn}
+                    refreshToken={refreshToken}
+                    onTraceTurn={toggleTurn}
+                />
 
                 <Card elevation='ambient' className='overflow-hidden'>
                     <div className='border-border border-b px-4 py-2.5'>
