@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 0.67.1
+
+### Patch Changes
+
+- [#192](https://github.com/manyfold-open/manyfold/pull/192) [`ee7fae1`](https://github.com/manyfold-open/manyfold/commit/ee7fae1de098e6cc8433591f8cc802f4c05ed8b7) Thanks [@yingca1](https://github.com/yingca1)! - Stop sprite-runner sandboxes from minting a phantom duplicate agent, and remove the runner host when its sandbox is deleted. A sandbox VM runs a platform daemon (a "sprite-runner") to dispatch coding-agent turns; it was registering a daemon runtime for every framework it detected — including openclaw/hermes, whose real runtime is the sandbox one — and reconcile then adopted the framework's built-in `main`/`default` profile on it as a second, undeletable agent that the runtimes list hides. A sprite-runner now carries coding-framework runtimes only. Separately, the runner host hangs off `daemon_id` (not the sandbox's `host_id`), so deleting or reaping the sandbox left it and its runtimes stranded; sandbox teardown now removes the runner together with the VM.
+
 ## 0.67.0
 
 ### Minor Changes
