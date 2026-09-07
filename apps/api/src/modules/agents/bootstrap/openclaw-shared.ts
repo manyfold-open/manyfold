@@ -51,6 +51,19 @@ export const canonicalizeOpenclawBaseUrl = (
     return `${trimmed}/v1`
 }
 
+// Measured on staging sprites [2026-09-07]: the sprite platform terminates the
+// public ingress and proxies to the service from 10.0.0.2, rebuilding
+// `X-Forwarded-For` with the real client. OpenClaw >= 2026.8.1 attributes
+// proxy-shaped traffic before gateway auth and answers 403
+// `proxy_attribution_required` when the socket peer is not in `trustedProxies`,
+// so a loopback-only list takes down the Control UI *and* the
+// `/v1/chat/completions` endpoint the chat adapter calls — the agent is dead,
+// not just its dashboard. The peer address belongs to the platform rather than
+// to us, so trust the private range it comes from instead of that one host;
+// widening it only lets a same-network peer choose the client IP OpenClaw
+// rate-limits on, never the gateway token it still has to present.
+const SPRITE_TRUSTED_PROXIES = ['127.0.0.1', '::1', '10.0.0.0/8']
+
 interface OpenclawConfigOptions {
     gatewayPort: number
     gatewayToken: string
@@ -65,7 +78,10 @@ interface OpenclawConfigOptions {
 
 /**
  * The full `~/.openclaw/openclaw.json` mirrors `docker/openclaw/entrypoint.sh`
- * in the K8s runtime — see `skills/nca-kb-openclaw/references/runtime-image.md`.
+ * in the K8s runtime — see `skills/nca-kb-openclaw/references/runtime-image.md`
+ * — except for `trustedProxies`, which names this runtime's own ingress. The
+ * K8s image still pins an OpenClaw old enough not to attribute proxy traffic;
+ * bumping it needs the nginx ingress controller's pod range there.
  *
  * The `gateway.http.endpoints.chatCompletions.enabled = true` flag is what
  * exposes the OpenAI-compatible HTTP `/v1/chat/completions` endpoint that the
@@ -88,7 +104,7 @@ export const buildOpenclawConfigJson = (opts: OpenclawConfigOptions): string =>
                     allowedOrigins: ['*'],
                     dangerouslyDisableDeviceAuth: true
                 },
-                trustedProxies: ['127.0.0.1', '::1'],
+                trustedProxies: SPRITE_TRUSTED_PROXIES,
                 http: { endpoints: { chatCompletions: { enabled: true } } }
             },
             discovery: { mdns: { mode: 'off' } },
