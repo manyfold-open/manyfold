@@ -2882,6 +2882,8 @@ const claudeModelVersion = (model: string): string | null => {
 
 const formatCodexModelLabel = (model: string): string => {
     switch (codexCanonicalModelId(model)) {
+        case 'gpt-6-astra':
+            return 'GPT-6 Astra'
         case 'gpt-5.6-sol':
             return 'GPT-5.6 Sol'
         case 'gpt-5.6-terra':
@@ -2907,6 +2909,8 @@ const formatCodexModelLabel = (model: string): string => {
 
 const formatCodexShortModelLabel = (model: string): string => {
     switch (codexCanonicalModelId(model)) {
+        case 'gpt-6-astra':
+            return '6 Astra'
         case 'gpt-5.6-sol':
             return '5.6 Sol'
         case 'gpt-5.6-terra':

@@ -3092,6 +3092,7 @@ const hi: Record<string, string> = {
     'web.composer.intelligence.high': 'उच्च',
     'web.composer.intelligence.xhigh': 'बहुत उच्च',
     'web.composer.intelligence.max': 'अधिकतम',
+    'web.composer.intelligence.ultra': 'अल्ट्रा',
     'web.composer.intelligence.unknown': 'अज्ञात',
     'web.composer.speedLabels.fast': 'तेज़',
     'web.composer.speedLabels.standard': 'मानक',

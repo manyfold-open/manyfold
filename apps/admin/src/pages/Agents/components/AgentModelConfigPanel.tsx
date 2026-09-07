@@ -10,6 +10,7 @@ import type {
     AgentModelConfigView,
     ClaudeCodeEffort,
     ClaudeCodeModelMap,
+    CodexIntelligence,
     FrameworkCatalogView
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
@@ -354,11 +355,7 @@ const CodexForm: FC<FormProps> = ({
                         framework: 'codex',
                         model: model || null,
                         speed: speed as 'standard' | 'fast',
-                        intelligence: intelligence as
-                            | 'low'
-                            | 'medium'
-                            | 'high'
-                            | 'xhigh'
+                        intelligence: intelligence as CodexIntelligence
                     })
                 }
             >

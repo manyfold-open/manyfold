@@ -3092,6 +3092,7 @@ const ko: Record<string, string> = {
     "web.composer.intelligence.high": "높음",
     "web.composer.intelligence.xhigh": "매우 높음",
     "web.composer.intelligence.max": "최대",
+    "web.composer.intelligence.ultra": "울트라",
     "web.composer.intelligence.unknown": "알 수 없음",
     "web.composer.speedLabels.fast": "빠름",
     "web.composer.speedLabels.standard": "표준",
