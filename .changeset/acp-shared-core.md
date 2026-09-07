@@ -1,5 +1,4 @@
 ---
-'@manyfold/shared': patch
 '@manyfold/api': patch
 '@manyfold/cli': patch
 ---
