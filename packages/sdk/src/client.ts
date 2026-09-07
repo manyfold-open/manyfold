@@ -101,6 +101,7 @@ import type {
     AgentStopResponse,
     AgentSummary,
     QuotaWarningEvent,
+    ChatSessionsChangedEvent,
     SandboxQuotasOverview,
     SandboxQuotaTimeseriesRange,
     SandboxQuotaTimeseriesResponse,
@@ -344,6 +345,7 @@ export interface SpriteStatusStreamHandlers {
     onUpdate?: (update: SpriteStatusUpdate) => void
     onHostUpdate?: (update: SpriteHostStatusUpdate) => void
     onQuotaWarning?: (event: QuotaWarningEvent) => void
+    onSessionsChanged?: (event: ChatSessionsChangedEvent) => void
     onError?: (error: Error) => void
     onOpen?: () => void
     onClose?: () => void
@@ -1631,6 +1633,8 @@ const dispatchSpriteStatusFrame = (
         handlers.onHostUpdate?.(update)
     } else if (parsed.type === 'quota-warning') {
         handlers.onQuotaWarning?.(parsed)
+    } else if (parsed.type === 'chat-sessions-changed') {
+        handlers.onSessionsChanged?.(parsed)
     }
 }
 

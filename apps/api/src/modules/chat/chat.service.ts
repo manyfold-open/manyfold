@@ -25,6 +25,7 @@ import type {
     ChatMessagesPage,
     ChatRole,
     ChatSessionChannelSummary,
+    ChatSessionListChangeReason,
     ChatSessionSummary,
     ChatTurnStatusPhase,
     ChatUploadBlock,
@@ -103,6 +104,7 @@ import {
     resolveSafePath
 } from '@/modules/agents/files/files-context'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
+import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
@@ -638,7 +640,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         @Optional()
         private readonly permissionBus?: ChatPermissionBus,
         @Optional()
-        private readonly daemonRegistry?: DaemonRegistryService
+        private readonly daemonRegistry?: DaemonRegistryService,
+        // Same rule. Absent = no session-list push; the sidebar falls back to
+        // refreshing only on its own mutations.
+        @Optional()
+        private readonly statusBroadcaster?: SpriteStatusBroadcaster
     ) {
         // Registered here rather than in onApplicationBootstrap so a manually
         // constructed service (tests) gets the subscription without running
@@ -1558,6 +1564,21 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         )
     }
 
+    private emitSessionsChanged(
+        userId: string,
+        agentId: string,
+        sessionId: string,
+        reason: ChatSessionListChangeReason
+    ): void {
+        this.statusBroadcaster?.emitSessionsChanged(userId, {
+            type: 'chat-sessions-changed',
+            agentId,
+            sessionId,
+            reason,
+            at: new Date().toISOString()
+        })
+    }
+
     async createSession(
         userId: string,
         agentId: string,
@@ -1573,6 +1594,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             createdAt: new Date(),
             updatedAt: new Date()
         })
+        this.emitSessionsChanged(userId, agentId, created.id, 'created')
         return toApiSession(created, null)
     }
 
@@ -1988,13 +2010,23 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             if (session.title === null) {
                 const derived = deriveTitleFromBlocks(contentBlocks)
                 if (derived) {
-                    await this.repo
+                    const titled = await this.repo
                         .updateTitleIfEmpty(sessionId, derived)
                         .catch((err: Error) => {
                             this.logger.warn(
                                 `failed to set title for session=${sessionId}: ${err.message}`
                             )
+                            return false
                         })
+                    // Only the turn that actually flipped title IS NULL emits,
+                    // so racing turns notify the sidebar once.
+                    if (titled)
+                        this.emitSessionsChanged(
+                            userId,
+                            agentId,
+                            sessionId,
+                            'titled'
+                        )
                 }
             }
 
