@@ -3015,6 +3015,14 @@ const en = {
                     dontAsk: "Don't ask",
                     dontAskTitle: 'Run Hermes without approval prompts',
                     dontAskDescription: 'Everything is auto-approved'
+                },
+                openclaw: {
+                    ask: 'Ask for approval',
+                    askTitle: 'Ask before running risky commands',
+                    askDescription: 'Approval cards appear in the chat',
+                    dontAsk: "Don't ask",
+                    dontAskTitle: 'Run OpenClaw without approval prompts',
+                    dontAskDescription: 'Everything is auto-approved'
                 }
             },
             ready: 'Ready',

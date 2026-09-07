@@ -17,10 +17,13 @@ import {
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
+    DEFAULT_OPENCLAW_PERMISSION_MODE,
     chatCapabilitiesByFramework,
     isClaudeCodePermissionMode,
     isCodexPermissionMode,
-    isHermesPermissionMode
+    isHermesPermissionMode,
+    isOpenclawPermissionMode,
+    OpenclawPermissionMode
 } from '@manyfold/shared'
 import {
     Suspense,
@@ -162,6 +165,7 @@ const CLAUDE_CODE_PERMISSION_MODE_STORAGE_PREFIX =
     'nca.chat.claudeCodePermissionMode.'
 const CODEX_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.codexPermissionMode.'
 const HERMES_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.hermesPermissionMode.'
+const OPENCLAW_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.openclawPermissionMode.'
 const DRAFT_STORAGE_PREFIX = 'nca.chat.draft.'
 const DRAFT_NEW_SLOT = 'new'
 const CHAT_MESSAGES_PAGE_SIZE = CHAT_MESSAGE_SOFT_LIMIT
@@ -251,6 +255,8 @@ const AgentChat: FC = (): ReactNode => {
         useState<CodexPermissionMode>(DEFAULT_CODEX_PERMISSION_MODE)
     const [hermesPermissionMode, setHermesPermissionMode] =
         useState<HermesPermissionMode>(DEFAULT_HERMES_PERMISSION_MODE)
+    const [openclawPermissionMode, setOpenclawPermissionMode] =
+        useState<OpenclawPermissionMode>(DEFAULT_OPENCLAW_PERMISSION_MODE)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
     const [modelConfigDraft, setModelConfigDraft] =
@@ -487,6 +493,7 @@ const AgentChat: FC = (): ReactNode => {
             setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
             setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
             setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            setOpenclawPermissionMode(DEFAULT_OPENCLAW_PERMISSION_MODE)
             return
         }
         if (currentAgent.framework === 'claude-code') {
@@ -495,18 +502,28 @@ const AgentChat: FC = (): ReactNode => {
             )
             setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
             setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            setOpenclawPermissionMode(DEFAULT_OPENCLAW_PERMISSION_MODE)
             return
         }
         if (currentAgent.framework === 'codex') {
             setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
             setCodexPermissionMode(readStoredCodexPermissionMode(agentId))
             setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            setOpenclawPermissionMode(DEFAULT_OPENCLAW_PERMISSION_MODE)
             return
         }
         if (currentAgent.framework === 'hermes') {
             setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
             setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
             setHermesPermissionMode(readStoredHermesPermissionMode(agentId))
+            setOpenclawPermissionMode(DEFAULT_OPENCLAW_PERMISSION_MODE)
+            return
+        }
+        if (currentAgent.framework === 'openclaw') {
+            setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
+            setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
+            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            setOpenclawPermissionMode(readStoredOpenclawPermissionMode(agentId))
             return
         }
         setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
@@ -1576,6 +1593,9 @@ const AgentChat: FC = (): ReactNode => {
                     : {}),
                 ...(currentAgentFramework === 'hermes'
                     ? { hermesPermissionMode }
+                    : {}),
+                ...(currentAgentFramework === 'openclaw'
+                    ? { openclawPermissionMode }
                     : {})
             }
             const result = await client.chat.sendMessage(
@@ -1815,6 +1835,14 @@ const AgentChat: FC = (): ReactNode => {
         (mode: HermesPermissionMode): void => {
             setHermesPermissionMode(mode)
             if (agentId) writeStoredHermesPermissionMode(agentId, mode)
+        },
+        [agentId]
+    )
+
+    const handleOpenclawPermissionModeChange = useCallback(
+        (mode: OpenclawPermissionMode): void => {
+            setOpenclawPermissionMode(mode)
+            if (agentId) writeStoredOpenclawPermissionMode(agentId, mode)
         },
         [agentId]
     )
@@ -2211,6 +2239,12 @@ const AgentChat: FC = (): ReactNode => {
                     ? handleHermesPermissionModeChange
                     : undefined
             }
+            openclawPermissionMode={openclawPermissionMode}
+            onOpenclawPermissionModeChange={
+                currentAgent.framework === 'openclaw'
+                    ? handleOpenclawPermissionModeChange
+                    : undefined
+            }
             onModelConfigDraftChange={
                 frameworkModelConfigSupported ? setModelConfigDraft : undefined
             }
@@ -2429,7 +2463,10 @@ const AgentChat: FC = (): ReactNode => {
                                                 : undefined
                                         }
                                         onAnswerPermission={
-                                            currentAgent.framework === 'hermes'
+                                            currentAgent.framework ===
+                                                'hermes' ||
+                                            currentAgent.framework ===
+                                                'openclaw'
                                                 ? handleAnswerPermission
                                                 : undefined
                                         }
@@ -2864,6 +2901,35 @@ const writeStoredHermesPermissionMode = (
 ): void => {
     try {
         window.localStorage.setItem(hermesPermissionStorageKey(agentId), mode)
+    } catch {
+        /* ignore local storage failures */
+    }
+}
+
+const openclawPermissionStorageKey = (agentId: string): string =>
+    `${OPENCLAW_PERMISSION_MODE_STORAGE_PREFIX}${agentId}`
+
+const readStoredOpenclawPermissionMode = (
+    agentId: string
+): OpenclawPermissionMode => {
+    try {
+        const raw = window.localStorage.getItem(
+            openclawPermissionStorageKey(agentId)
+        )
+        return isOpenclawPermissionMode(raw)
+            ? raw
+            : DEFAULT_OPENCLAW_PERMISSION_MODE
+    } catch {
+        return DEFAULT_OPENCLAW_PERMISSION_MODE
+    }
+}
+
+const writeStoredOpenclawPermissionMode = (
+    agentId: string,
+    mode: OpenclawPermissionMode
+): void => {
+    try {
+        window.localStorage.setItem(openclawPermissionStorageKey(agentId), mode)
     } catch {
         /* ignore local storage failures */
     }
