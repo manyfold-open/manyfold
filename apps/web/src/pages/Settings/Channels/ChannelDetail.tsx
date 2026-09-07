@@ -173,6 +173,27 @@ const ChannelDetail: FC = (): ReactNode => {
         }
     }
 
+    // Teams takes an uploaded app package, not a pasted manifest, so this
+    // downloads manifest.json for the operator to zip with the two icons.
+    const downloadTeamsManifest = async (): Promise<void> => {
+        if (!channel) return
+        try {
+            const manifest = await client.channels.msTeamsManifest(channel.id)
+            const url = URL.createObjectURL(
+                new Blob([JSON.stringify(manifest, null, 2)], {
+                    type: 'application/json'
+                })
+            )
+            const link = document.createElement('a')
+            link.href = url
+            link.download = 'manifest.json'
+            link.click()
+            URL.revokeObjectURL(url)
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        }
+    }
+
     // Hands the browser to github.com: GitHub creates the app from our
     // manifest and redirects back to the API, which stores the credentials
     // and activates the channel.
@@ -386,6 +407,7 @@ const ChannelDetail: FC = (): ReactNode => {
                                 channel.provider === 'github' ||
                                 channel.provider === 'line' ||
                                 channel.provider === 'googlechat' ||
+                                channel.provider === 'msteams' ||
                                 channel.provider === 'lark') && (
                                 <ShortcutTooltip
                                     label={
@@ -420,9 +442,14 @@ const ChannelDetail: FC = (): ReactNode => {
                                                         ? t(
                                                               'web.channels.settings.tooltips.registerGooglechat'
                                                           )
-                                                        : t(
-                                                              'web.channels.settings.tooltips.registerMatrix'
-                                                          )
+                                                        : channel.provider ===
+                                                            'msteams'
+                                                          ? t(
+                                                                'web.channels.settings.tooltips.registerMsteams'
+                                                            )
+                                                          : t(
+                                                                'web.channels.settings.tooltips.registerMatrix'
+                                                            )
                                     }
                                     className='w-full'
                                 >
@@ -528,9 +555,13 @@ const ChannelDetail: FC = (): ReactNode => {
                                       ? t(
                                             'web.channels.settings.webhookHelp.googlechat'
                                         )
-                                      : t(
-                                            'web.channels.settings.webhookHelp.other'
-                                        )}
+                                      : channel.provider === 'msteams'
+                                        ? t(
+                                              'web.channels.settings.webhookHelp.msteams'
+                                          )
+                                        : t(
+                                              'web.channels.settings.webhookHelp.other'
+                                          )}
                     </p>
                 </section>
             ) : (
@@ -624,6 +655,26 @@ const ChannelDetail: FC = (): ReactNode => {
                             </div>
                         </>
                     )}
+                </section>
+            )}
+
+            {channel.provider === 'msteams' && (
+                <section className='workbench-panel mb-6 px-5 py-4'>
+                    <div className='mb-2 flex items-center justify-between'>
+                        <div className='workbench-kicker'>
+                            {t('web.channels.settings.msteams.manifest')}
+                        </div>
+                        <button
+                            type='button'
+                            onClick={downloadTeamsManifest}
+                            className='workbench-button-ghost shrink-0'
+                        >
+                            {t('web.channels.settings.msteams.downloadManifest')}
+                        </button>
+                    </div>
+                    <p className='text-ui text-muted'>
+                        {t('web.channels.settings.msteams.manifestHint')}
+                    </p>
                 </section>
             )}
 
@@ -739,6 +790,7 @@ const providerLabel = (channel: ChannelDetailType): string => {
     if (channel.provider === 'github') return 'GitHub'
     if (channel.provider === 'line') return 'LINE'
     if (channel.provider === 'googlechat') return 'Google Chat'
+    if (channel.provider === 'msteams') return 'Microsoft Teams'
     return 'Fake (test)'
 }
 

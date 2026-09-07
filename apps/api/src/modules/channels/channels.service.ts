@@ -14,6 +14,7 @@ import type {
     ChannelTestResult,
     CreateChannelBody,
     GithubAppManifestResponse,
+    MsTeamsChannelCredentials,
     UpdateChannelBody
 } from '@manyfold/shared'
 import {
@@ -48,6 +49,7 @@ import { ChannelSessionRouter } from './channel-session-router.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import type { ChannelProvider } from './channel-provider'
 import { buildSlackAppManifest } from './providers/slack.provider'
+import { buildMsTeamsAppManifest } from './providers/msteams.provider'
 import {
     buildGithubAppManifest,
     convertGithubAppManifestCode
@@ -192,6 +194,31 @@ export class ChannelsService {
         return buildSlackAppManifest({
             name: row.label,
             hooksUrl: this.inboundUrlFor(row)
+        })
+    }
+
+    async msTeamsManifest(
+        userId: string,
+        id: string,
+        isAdmin = false
+    ): Promise<Record<string, unknown>> {
+        const row = await this.loadOwned(userId, id, isAdmin)
+        if (row.provider !== 'msteams')
+            throw new BadRequestException('channel is not a Microsoft Teams channel')
+        const credentials = this.decryptCredentials(row) as
+            | MsTeamsChannelCredentials
+            | null
+        // The manifest is worthless without the bot id: Teams matches the
+        // uploaded package to the Azure Bot by it, so emitting a placeholder
+        // would produce a package that installs and then never responds.
+        if (!credentials?.appId)
+            throw new BadRequestException(
+                'add the Azure Bot app id to this channel before downloading the manifest'
+            )
+        return buildMsTeamsAppManifest({
+            name: row.label,
+            appId: credentials.appId,
+            inboundUrl: this.inboundUrlFor(row)
         })
     }
 

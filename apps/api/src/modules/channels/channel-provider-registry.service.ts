@@ -13,6 +13,7 @@ import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
 import { GoogleChatChannelProvider } from './providers/googlechat.provider'
+import { MsTeamsChannelProvider } from './providers/msteams.provider'
 
 @Injectable()
 export class ChannelProviderRegistry {
@@ -30,7 +31,8 @@ export class ChannelProviderRegistry {
         linear: LinearChannelProvider,
         github: GithubChannelProvider,
         line: LineChannelProvider,
-        googlechat: GoogleChatChannelProvider
+        googlechat: GoogleChatChannelProvider,
+        msteams: MsTeamsChannelProvider
     ) {
         this.providers.set('fake', fake)
         this.providers.set('lark', lark)
@@ -44,6 +46,7 @@ export class ChannelProviderRegistry {
         this.providers.set('github', github)
         this.providers.set('line', line)
         this.providers.set('googlechat', googlechat)
+        this.providers.set('msteams', msteams)
     }
 
     get(name: ChannelProviderName): ChannelProvider {

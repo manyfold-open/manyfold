@@ -26,6 +26,7 @@ Start by testing the agent in the [Manyfold web workspace](/docs/workspace/). Th
 | [Linear](/docs/channels/linear/)        | Signed webhook                  | One conversation per agent session on an issue      | None               | Agent is a workspace member you mention or delegate issues to; thinking, tool calls and a task list show on the session; stop requests; user allowlist. |
 | [GitHub](/docs/channels/github/)        | Signed webhook                  | One conversation per issue or pull request          | None               | Dedicated GitHub App created for you via the manifest flow; mention it on issues/PRs or delegate with a label; live-edited progress comment; reaction acknowledgements; association gate and login allowlists. |
 | [Google Chat](/docs/channels/googlechat/) | Google-signed token webhook | Direct messages and spaces | Inbound files only; no outbound files | Native mention marking; one session per thread, nested under the message that started it; audience must match the Chat API console; one write per second per space, so replies default to final-only. |
+| [Microsoft Teams](/docs/channels/msteams/) | Bot Framework token webhook | Personal chats, group chats, and team channels | Inbound files in personal chats only; no outbound files | Entra object-ID allowlists; one session per channel thread; live progress by message edit; channel and group-chat file contents need Graph admin consent and are not read. |
 
 ## Common setup pattern
 
@@ -99,5 +100,6 @@ Telegram currently passes only inbound text/captions, although an Agent can expl
 - [Linear](/docs/channels/linear/)
 - [GitHub](/docs/channels/github/)
 - [Google Chat](/docs/channels/googlechat/)
+- [Microsoft Teams](/docs/channels/msteams/)
 - [Send from an agent](/docs/channels/agent-send/)
 - [Session switching](/docs/channels/session-switching/)

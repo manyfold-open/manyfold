@@ -469,6 +469,8 @@ export type {
     GoogleChatAudienceType,
     GoogleChatChannelConfig,
     GoogleChatChannelCredentials,
+    MsTeamsChannelConfig,
+    MsTeamsChannelCredentials,
     ChannelCredentials,
     ChannelAgentSummary,
     ChannelSummary,
@@ -488,7 +490,11 @@ export type {
     AgentChannelSendBody,
     AgentChannelSendResult
 } from './channels'
-export { AGENT_SEND_PROVIDERS, describeChannelScope } from './channels'
+export {
+    AGENT_SEND_PROVIDERS,
+    MSTEAMS_DEFAULT_SERVICE_URL,
+    describeChannelScope
+} from './channels'
 export {
     agentCreateStep,
     spritesSteps,
