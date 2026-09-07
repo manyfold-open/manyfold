@@ -27,6 +27,14 @@ const quotaWarning = {
     at: '2026-06-12T00:00:00.000Z'
 }
 
+const sessionsChanged = {
+    type: 'chat-sessions-changed' as const,
+    agentId: 'agent-1',
+    sessionId: 'session-1',
+    reason: 'created' as const,
+    at: '2026-06-12T00:00:00.000Z'
+}
+
 test('emit reaches a local subscriber', () => {
     const net = makeNetwork()
     const a = makeNode(net)
@@ -112,6 +120,68 @@ test('emitHostUpdate reaches local and remote subscribers as host-update', () =>
             'host-1'
         )
     }
+})
+
+// WHY: a session created by a channel, an automation or an API caller has no
+// browser in the loop, so this event is the sidebar's only live path to it. It
+// must fan out across instances like the sprite events beside it.
+test('emitSessionsChanged reaches local and remote subscribers', () => {
+    const net = makeNetwork()
+    const emitter = makeNode(net)
+    const receiver = makeNode(net)
+    const localEvents: SpriteStatusEvent[] = []
+    const remoteEvents: SpriteStatusEvent[] = []
+
+    emitter.subscribe('u-1', {
+        send: (event) => localEvents.push(event),
+        close: () => undefined
+    })
+    receiver.subscribe('u-1', {
+        send: (event) => remoteEvents.push(event),
+        close: () => undefined
+    })
+    emitter.emitSessionsChanged('u-1', sessionsChanged)
+
+    for (const events of [localEvents, remoteEvents]) {
+        assert.equal(events.length, 1)
+        assert.equal(events[0]?.type, 'chat-sessions-changed')
+        assert.equal((events[0] as { agentId?: string }).agentId, 'agent-1')
+        assert.equal(
+            (events[0] as { sessionId?: string }).sessionId,
+            'session-1'
+        )
+    }
+})
+
+test('emitSessionsChanged survives a throwing subscriber', () => {
+    const net = makeNetwork()
+    const emitter = makeNode(net)
+
+    emitter.subscribe('u-1', {
+        send: () => {
+            throw new Error('socket gone')
+        },
+        close: () => undefined
+    })
+
+    assert.doesNotThrow(() =>
+        emitter.emitSessionsChanged('u-1', sessionsChanged)
+    )
+})
+
+test('emitSessionsChanged only reaches subscribers of the same user', () => {
+    const net = makeNetwork()
+    const emitter = makeNode(net)
+    const receiver = makeNode(net)
+    const events: SpriteStatusEvent[] = []
+
+    receiver.subscribe('u-2', {
+        send: (event) => events.push(event),
+        close: () => undefined
+    })
+    emitter.emitSessionsChanged('u-1', sessionsChanged)
+
+    assert.equal(events.length, 0)
 })
 
 test('emit only reaches subscribers of the same user', () => {

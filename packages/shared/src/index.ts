@@ -189,6 +189,8 @@ export type {
     SpriteStatusUpdate,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
+    ChatSessionListChangeReason,
+    ChatSessionsChangedEvent,
     RuntimeServiceStatus,
     AgentRuntimeSummary,
     SandboxSummary,

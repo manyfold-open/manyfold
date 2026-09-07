@@ -52,6 +52,10 @@ import {
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
 import { createReconnectingStream } from '@/lib/spriteStatusStream'
+import {
+    createSessionInvalidationQueue,
+    type SessionInvalidationQueue
+} from '@/lib/sessionInvalidation'
 import { useShellPolling } from '@/hooks/useShellPolling'
 import { subscribeAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
 import { daysAgoIso, fmtCost, hoursAgoIso } from '@/lib/usageFormat'
@@ -2519,6 +2523,33 @@ const AppShell: FC = (): ReactNode => {
         return refreshAgents({ clearOnError: false, showLoading: false })
     }, [refreshAgents])
 
+    // Both refs exist so the SSE effect can read current cache state without
+    // taking a dependency on it — re-running that effect tears down and reopens
+    // the stream, which must not happen once per session refetch.
+    const cachedSessionAgentIdsRef = useRef<Set<string>>(new Set())
+    useEffect(() => {
+        cachedSessionAgentIdsRef.current = new Set(Object.keys(sessionsByAgent))
+    }, [sessionsByAgent])
+
+    const sessionInvalidationRef = useRef<SessionInvalidationQueue | null>(null)
+    useEffect(() => {
+        const queue = createSessionInvalidationQueue({
+            refresh: (agentId) => {
+                void refreshSessionsForAgent(agentId, {
+                    clearOnError: false,
+                    showLoading: false
+                })
+            },
+            shouldRefresh: (agentId) =>
+                cachedSessionAgentIdsRef.current.has(agentId)
+        })
+        sessionInvalidationRef.current = queue
+        return () => {
+            sessionInvalidationRef.current = null
+            queue.dispose()
+        }
+    }, [refreshSessionsForAgent])
+
     const handleSetKeepAlive = useCallback(
         async (runtimeId: string, enabled: boolean): Promise<void> => {
             await client.agentRuntimes.setKeepAlive(runtimeId, enabled)
@@ -2777,6 +2808,11 @@ const AppShell: FC = (): ReactNode => {
                         })
                         void refreshRuntimeAccess()
                     },
+                    onSessionsChanged: (event) => {
+                        sessionInvalidationRef.current?.invalidate(
+                            event.agentId
+                        )
+                    },
                     onError: (err) => {
                         console.error('[sprite-status] SSE error', err)
                         onDown()
@@ -2790,6 +2826,10 @@ const AppShell: FC = (): ReactNode => {
             onReconnected: () => {
                 void refreshAgents({ clearOnError: false, showLoading: false })
                 void refreshSandboxes()
+                // Events emitted while the stream was down are gone; refetch
+                // every list the sidebar is actually showing.
+                for (const agentId of cachedSessionAgentIdsRef.current)
+                    sessionInvalidationRef.current?.invalidate(agentId)
             },
             isVisible: () => document.visibilityState === 'visible'
         })

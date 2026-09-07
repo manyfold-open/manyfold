@@ -23,6 +23,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     ServiceUnavailableException
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
@@ -40,6 +41,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { ChatRepository } from '@/modules/chat/chat.repository'
+import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import {
     ExecDriverFactory,
     type RecoveryFsHandle
@@ -110,7 +112,11 @@ export class SessionRecoveryService {
         private readonly repo: ChatRepository,
         private readonly drivers: ExecDriverFactory,
         private readonly readers: SessionReaderRegistry,
-        private readonly scanCache: CandidateScanCache
+        private readonly scanCache: CandidateScanCache,
+        // Appended last and @Optional: the existing tests build this service
+        // positionally without it. Absent = no session-list push.
+        @Optional()
+        private readonly statusBroadcaster?: SpriteStatusBroadcaster
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -604,6 +610,13 @@ export class SessionRecoveryService {
                 messages: messageRows,
                 sources: sourceRows
             })
+        this.statusBroadcaster?.emitSessionsChanged(userId, {
+            type: 'chat-sessions-changed',
+            agentId,
+            sessionId,
+            reason: 'created',
+            at: new Date().toISOString()
+        })
         return {
             session: toApiSession(created),
             sourceFile: result.sourceFile,
