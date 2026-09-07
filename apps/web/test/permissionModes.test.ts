@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { AgentFramework } from '@manyfold/shared'
 import {
     claudeCodePermissionModes,
     codexPermissionModes,
@@ -44,7 +45,7 @@ test('each framework entry offers exactly its shared modes, in the display order
         openclaw: ['default', 'dontAsk']
     }
     for (const [framework, modes] of Object.entries(sharedSet)) {
-        const entry = permissionModesByFramework[framework as never]
+        const entry = permissionModesByFramework[framework as AgentFramework]
         assert.ok(entry, `${framework} has a permission entry`)
         const values = entry.options.map((o) => o.value)
         assert.deepEqual(
@@ -131,7 +132,7 @@ test('only the frameworks with a selector have an entry; the rest are null', () 
 
 test('dangerous options are flagged for the destructive modes', () => {
     const dangerous = (framework: string): string[] =>
-        (permissionModesByFramework[framework as never]?.options ?? [])
+        (permissionModesByFramework[framework as AgentFramework]?.options ?? [])
             .filter((o) => o.dangerous)
             .map((o) => o.value)
     assert.deepEqual(dangerous('claude-code'), ['bypassPermissions'])
