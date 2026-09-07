@@ -34,6 +34,7 @@ import {
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
+import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import {
@@ -423,6 +424,15 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                             eq(runtimeHosts.id, c.id),
                             eq(runtimeHosts.kind, 'sandbox')
                         )
+                    )
+                // The sprite-runner daemon host on this VM is keyed by daemon_id,
+                // not host_id, so it survived the emptiness check that let this
+                // sandbox be reaped. Remove it with the VM it ran inside.
+                if (c.spriteName)
+                    await deleteSpriteRunnerHostForSprite(
+                        this.db,
+                        c.userId,
+                        c.spriteName
                     )
                 this.log.warn(
                     `reaped empty sandbox host ${c.id} (${c.spriteName})`

@@ -2,6 +2,7 @@ import {
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
     DetectedFramework,
     createObjectId,
+    frameworkCapability,
     parseProbedSemver
 } from '@manyfold/shared'
 import { Inject, Injectable } from '@nestjs/common'
@@ -122,6 +123,22 @@ export class DaemonRuntimeSyncService {
             { patch: RuntimePatch; ids: string[] }
         >()
         for (const det of detectedFrameworks) {
+            // A managed host is a sprite-runner: a daemon we start inside a
+            // sandbox VM purely to dispatch coding-agent turns over the daemon
+            // protocol. Its service frameworks (openclaw/hermes) are the SAME
+            // instance already represented by the agent's kind='sprites' runtime,
+            // reached over the public ingress / by sprite name — never through a
+            // runtime row here. Materializing a daemon runtime for them only
+            // gives reconcile a surface on which it adopts the framework's
+            // built-in profile ('main'/'default') as a phantom duplicate agent
+            // (the runner runtime has no primaryAgentId, so the primary-alias
+            // suppression never fires). A sprite-runner carries coding runtimes
+            // only.
+            if (
+                host.managed &&
+                frameworkCapability(det.framework).kind !== 'coding'
+            )
+                continue
             const found = existing.find((r) => r.framework === det.framework)
             const mountPath = daemonMountPathFor(det.framework, host)
             // The daemon reports the raw `<bin> --version` output (e.g.
