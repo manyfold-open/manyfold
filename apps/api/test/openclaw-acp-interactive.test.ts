@@ -21,9 +21,11 @@ import type {
 // framework session ref = the gateway key, and the post-turn usage read-back
 // (`sessions.get` over the one-shot exec seam, recorded [2026-09-08]).
 
-// The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF.
+// The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF,
+// and resolves the loopback gateway from the box's own openclaw.json: an
+// explicit --url makes the CLI refuse env/config credentials.
 const BRIDGE_SCRIPT =
-    'exec openclaw acp --url ws://127.0.0.1:18789 --no-prefix-cwd < <(cat; kill -TERM $$)'
+    'exec openclaw acp --no-prefix-cwd < <(cat; kill -TERM $$)'
 
 // One recorded `sessions.get` result: a 2-call tool-loop turn after an earlier
 // 1-call turn, exactly as the gateway transcript hands them back.

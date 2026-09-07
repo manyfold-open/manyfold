@@ -51,7 +51,6 @@ import {
     type AcpRequestTimeouts
 } from './hermes-acp-client'
 import { OPENCLAW_ACP_DIALECT } from '@manyfold/shared'
-import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
 import { parseOpenclawJsonOutput } from './openclaw-json-parser'
 import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -118,10 +117,16 @@ const openclawAcpEnabled = (): boolean =>
     )
 
 // `openclaw acp` is a bridge to the resident gateway that runs INSIDE the
-// sprite/pod, so it connects over loopback with the gateway's own token — never
-// the public ingress (which device-pairs and proxy-attributes as of 2026.8.1).
-const OPENCLAW_ACP_GATEWAY_URL = `ws://127.0.0.1:${OPENCLAW_PORT}`
-const OPENCLAW_ACP_ARGS = ['acp', '--url', OPENCLAW_ACP_GATEWAY_URL, '--no-prefix-cwd']
+// sprite/pod, so it connects over loopback — never the public ingress (which
+// device-pairs and proxy-attributes as of 2026.8.1). The gateway is resolved
+// from the box's own ~/.openclaw/openclaw.json (gateway.port + auth.token, the
+// file Manyfold writes at bootstrap) rather than passed as `--url`: measured on
+// openclaw@2026.5.18 [2026-09-08], an explicit --url is treated as a REMOTE
+// override that refuses env/config credentials ("gateway url override requires
+// explicit credentials"), so against the token-auth gateway every sprite and
+// pod runs, `--url ws://127.0.0.1:18789` + OPENCLAW_GATEWAY_TOKEN was rejected
+// with token_missing while the url-less form connected (config or env token).
+const OPENCLAW_ACP_ARGS = ['acp', '--no-prefix-cwd']
 
 // The bridge is exec'd with its stdin fed through `cat`, and the shell that
 // became the bridge is SIGTERMed the moment `cat` sees EOF. Measured on
