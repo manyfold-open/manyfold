@@ -363,6 +363,109 @@ export const acpModelMatches = (
     (currentModelId === bareModel ||
         currentModelId.endsWith(`:${bareModel}`))
 
+// The token usage of one openclaw ACP turn, read back from the gateway's
+// session transcript. Measured on openclaw@2026.5.18 [2026-09-08]: the ACP
+// prompt stream carries no usage_update (even with response_usage=full), but
+// `sessions.get {key}` returns the recent transcript messages and every
+// assistant message carries the provider's usage for one model call
+// ({input, output, cacheRead, cacheWrite, totalTokens}) plus its model and
+// provider. A turn is the run of messages after ITS user message; a tool loop
+// is several assistant messages whose SUM is the figure — the gateway-http path
+// bills exactly that sum (its final usage chunk reported 1302/132 for a
+// 601/61 + 701/71 two-call turn).
+export interface OpenclawTurnUsage {
+    inputTokens: number
+    outputTokens: number
+    cacheReadTokens: number
+    cacheCreationTokens: number
+    // Assistant messages (model calls) summed.
+    calls: number
+    model: string | null
+    provider: string | null
+}
+
+export type OpenclawTurnUsageDecode =
+    | { status: 'ok'; usage: OpenclawTurnUsage }
+    // The payload is not a sessions.get result.
+    | { status: 'invalid' }
+    // No user message inside the window: either the transcript is empty or the
+    // turn ran past the window (`windowFull`), so nothing can be attributed.
+    | { status: 'no_user_message'; windowFull: boolean }
+    // The last user message is not this turn's prompt: the turn wrote nothing
+    // (a slash command answered by the bridge), so the tail is a PREVIOUS
+    // turn's and billing it again would double-charge.
+    | { status: 'prompt_mismatch' }
+    // This turn's user message is there but no assistant message carries usage.
+    | { status: 'no_usage' }
+
+const transcriptText = (content: unknown): string => {
+    if (typeof content === 'string') return content
+    if (!Array.isArray(content)) return ''
+    return content
+        .map((block) => {
+            const b = block as Record<string, unknown> | null
+            return b && b['type'] === 'text' && typeof b['text'] === 'string'
+                ? b['text']
+                : ''
+        })
+        .join('\n')
+}
+
+const tokenCount = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0
+        ? Math.floor(value)
+        : 0
+
+export const decodeOpenclawTurnUsage = (
+    result: unknown,
+    promptText: string,
+    opts: { limit: number }
+): OpenclawTurnUsageDecode => {
+    const messages = (result as Record<string, unknown> | null)?.['messages']
+    if (!Array.isArray(messages)) return { status: 'invalid' }
+    let lastUser = -1
+    messages.forEach((m, i) => {
+        if ((m as Record<string, unknown> | null)?.['role'] === 'user')
+            lastUser = i
+    })
+    if (lastUser === -1)
+        return {
+            status: 'no_user_message',
+            windowFull: messages.length >= opts.limit
+        }
+    const anchor = messages[lastUser] as Record<string, unknown>
+    const wanted = promptText.trim()
+    // The gateway wraps the prompt in a sender-metadata envelope, so the check
+    // is containment, not equality.
+    if (wanted && !transcriptText(anchor['content']).includes(wanted))
+        return { status: 'prompt_mismatch' }
+    const usage: OpenclawTurnUsage = {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        calls: 0,
+        model: null,
+        provider: null
+    }
+    for (const raw of messages.slice(lastUser + 1)) {
+        const m = raw as Record<string, unknown> | null
+        if (m?.['role'] !== 'assistant') continue
+        const u = m['usage'] as Record<string, unknown> | null | undefined
+        if (!u || typeof u !== 'object') continue
+        usage.inputTokens += tokenCount(u['input'])
+        usage.outputTokens += tokenCount(u['output'])
+        usage.cacheReadTokens += tokenCount(u['cacheRead'])
+        usage.cacheCreationTokens += tokenCount(u['cacheWrite'])
+        usage.calls += 1
+        if (typeof m['model'] === 'string' && m['model'])
+            usage.model = m['model']
+        if (typeof m['provider'] === 'string' && m['provider'])
+            usage.provider = m['provider']
+    }
+    return usage.calls === 0 ? { status: 'no_usage' } : { status: 'ok', usage }
+}
+
 // The notification -> chat-event mapping, exported so a REPLAY of a buffered
 // ACP stream is decoded by exactly this code rather than a second copy that can
 // drift. A resumed turn must produce the same events the live turn did, or

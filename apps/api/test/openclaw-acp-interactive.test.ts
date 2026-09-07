@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type {
+    ExecStreamRequest,
     ExecStreamResult,
     InteractiveExecHandle,
     InteractiveExecRequest
@@ -16,8 +17,58 @@ import type {
 // AcpTurn (OPENCLAW_ACP_DIALECT) over a scripted `openclaw acp` transport. The
 // frames replayed here are recorded verbatim from a live openclaw@2026.5.18
 // bridge [2026-09-07]. Pins: the cmd + gateway-token env, the deterministic
-// _meta.sessionKey (never session/resume), the event mapping, and the
-// persisted framework session ref = the gateway key.
+// _meta.sessionKey (never session/resume), the event mapping, the persisted
+// framework session ref = the gateway key, and the post-turn usage read-back
+// (`sessions.get` over the one-shot exec seam, recorded [2026-09-08]).
+
+// The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF.
+const BRIDGE_SCRIPT =
+    'exec openclaw acp --url ws://127.0.0.1:18789 --no-prefix-cwd < <(cat; kill -TERM $$)'
+
+// One recorded `sessions.get` result: a 2-call tool-loop turn after an earlier
+// 1-call turn, exactly as the gateway transcript hands them back.
+const transcriptUsage = (input: number, output: number) => ({
+    input,
+    output,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: input + output,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+})
+const transcriptUser = (text: string) => ({
+    role: 'user',
+    content: [
+        {
+            type: 'text',
+            text: `Sender (untrusted metadata):\n\`\`\`json\n{"label":"ACP"}\n\`\`\`\n\n${text}`
+        }
+    ],
+    timestamp: 1788822861870
+})
+const transcriptAssistant = (input: number, output: number, text: string) => ({
+    role: 'assistant',
+    api: 'openai-completions',
+    provider: 'primary',
+    model: 'stub-model',
+    usage: transcriptUsage(input, output),
+    stopReason: 'stop',
+    content: [{ type: 'text', text }],
+    timestamp: 1788822861885
+})
+const TOOL_LOOP_TRANSCRIPT = {
+    messages: [
+        transcriptUser('Say hello.'),
+        transcriptAssistant(101, 11, 'Answer from call 1.'),
+        transcriptUser('hi'),
+        transcriptAssistant(201, 21, 'Running a command (call 2).'),
+        {
+            role: 'toolResult',
+            content: [{ type: 'text', text: 'billing-probe' }],
+            timestamp: 1788822872202
+        },
+        transcriptAssistant(301, 31, 'Answer from call 3.')
+    ]
+}
 
 interface PushQueue<T> {
     iterable: AsyncIterable<T>
@@ -60,6 +111,10 @@ const pushQueue = <T>(): PushQueue<T> => {
 interface Rig {
     adapter: OpenclawAdapter
     requests: InteractiveExecRequest[]
+    // One-shot execs (the post-turn usage read-back) and what each returned.
+    streams: ExecStreamRequest[]
+    streamResults: Array<{ stdout: string; exitCode: number }>
+    telemetry: Array<{ name: string; attrs: Record<string, unknown> }>
     writes: Array<Record<string, unknown>>
     sessionRefs: Array<{ sessionId: string; ref: string | null }>
     holders: Array<{
@@ -73,8 +128,18 @@ interface Rig {
     note: (update: Record<string, unknown>) => void
 }
 
-const buildRig = (): Rig => {
+const buildRig = (
+    opts: { streamResults?: Array<{ stdout: string; exitCode: number }> } = {}
+): Rig => {
     const requests: InteractiveExecRequest[] = []
+    const streams: ExecStreamRequest[] = []
+    const streamResults = [
+        ...(opts.streamResults ?? [
+            { stdout: JSON.stringify(TOOL_LOOP_TRANSCRIPT), exitCode: 0 }
+        ])
+    ]
+    const telemetry: Array<{ name: string; attrs: Record<string, unknown> }> =
+        []
     const writes: Array<Record<string, unknown>> = []
     const waiters: Array<{
         method: string
@@ -122,8 +187,27 @@ const buildRig = (): Rig => {
     const drivers = {
         forAgent: async () => ({
             driver: {
-                stream: () => {
-                    throw new Error('one-shot stream must not be used')
+                // The one-shot seam serves the scripted `sessions.get` results
+                // in order; running out is a rig bug, not a turn outcome.
+                stream: (req: ExecStreamRequest) => {
+                    streams.push(req)
+                    const scripted = streamResults.shift()
+                    if (!scripted)
+                        throw new Error(
+                            'unexpected one-shot exec: no scripted result'
+                        )
+                    return {
+                        stdout: (async function* () {
+                            yield scripted.stdout
+                        })(),
+                        stderr: (async function* (): AsyncGenerator<string> {})(),
+                        result: Promise.resolve({
+                            exitCode: scripted.exitCode,
+                            stdout: scripted.stdout,
+                            stderr: ''
+                        }),
+                        abort: () => {}
+                    }
                 },
                 streamInteractive: (req: InteractiveExecRequest) => {
                     requests.push(req)
@@ -212,7 +296,12 @@ const buildRig = (): Rig => {
         { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
         chatRepo as never,
         drivers as never,
-        { record: () => {} } as never,
+        {
+            record: () => {},
+            event: (name: string, attrs: Record<string, unknown>) => {
+                telemetry.push({ name, attrs })
+            }
+        } as never,
         undefined as never,
         adminSettings as never,
         undefined as never,
@@ -221,6 +310,9 @@ const buildRig = (): Rig => {
     return {
         adapter,
         requests,
+        streams,
+        streamResults,
+        telemetry,
         writes,
         sessionRefs,
         holders,
@@ -302,16 +394,11 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
 
         const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
 
-        // The bridge is launched against the loopback gateway with its token.
+        // The bridge is launched against the loopback gateway with its token,
+        // behind the wrapper that makes stdin EOF terminate it.
         assert.equal(rig.requests.length, 1)
         const req = rig.requests[0]
-        assert.deepEqual(req.cmd, [
-            'openclaw',
-            'acp',
-            '--url',
-            'ws://127.0.0.1:18789',
-            '--no-prefix-cwd'
-        ])
+        assert.deepEqual(req.cmd, ['bash', '-lc', BRIDGE_SCRIPT])
         assert.equal(req.dir, '/home/sprite/ws')
         assert.equal(req.env?.OPENCLAW_GATEWAY_TOKEN, 'gw-token-123')
         assert.equal(req.env?.OPENCLAW_HIDE_BANNER, '1')
@@ -332,6 +419,150 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
         assert.deepEqual(rig.sessionRefs, [
             { sessionId: 'cts_1', ref: 'agent:oc1:mf-cts_1' }
         ])
+
+        // Billing: the ACP stream carried no usage, so the turn read it back
+        // from the gateway transcript — one in-box sessions.get on its key —
+        // and the SUM of this turn's two model calls precedes done.
+        assert.equal(rig.streams.length, 1)
+        assert.deepEqual(rig.streams[0].cmd, [
+            'openclaw',
+            'gateway',
+            'call',
+            'sessions.get',
+            '--params',
+            JSON.stringify({ key: 'agent:oc1:mf-cts_1', limit: 60 }),
+            '--json',
+            '--timeout',
+            '10000'
+        ])
+        assert.equal(rig.streams[0].env?.OPENCLAW_GATEWAY_TOKEN, 'gw-token-123')
+        const usageIdx = events.findIndex((e) => e.type === 'usage')
+        const doneIdx = events.findIndex((e) => e.type === 'done')
+        assert.ok(usageIdx !== -1 && usageIdx < doneIdx)
+        const usageEvent = events[usageIdx]
+        assert.equal(usageEvent.type, 'usage')
+        if (usageEvent.type === 'usage') {
+            assert.equal(usageEvent.usage.inputTokens, 502)
+            assert.equal(usageEvent.usage.outputTokens, 52)
+            assert.equal(usageEvent.usage.model, 'stub-model')
+        }
+        const recorded = rig.telemetry.find(
+            (t) => t.name === 'openclaw_acp_usage'
+        )
+        assert.equal(recorded?.attrs['nca.outcome'], 'ok')
+        assert.equal(recorded?.attrs['nca.provider_calls'], 2)
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
+})
+
+const scriptCleanTurn = (rig: Rig): void => {
+    void (async () => {
+        const init = await rig.waitFor('initialize')
+        rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+        const create = await rig.waitFor('session/new')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: create.id,
+            result: { sessionId: 'sess-usage' }
+        })
+        const prompt = await rig.waitFor('session/prompt')
+        rig.reply({
+            jsonrpc: '2.0',
+            id: prompt.id,
+            result: { stopReason: 'end_turn' }
+        })
+    })()
+}
+
+test('a usage read-back that fails never fails the turn — it is logged and counted', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        const rig = buildRig({
+            streamResults: [
+                { stdout: 'gateway call failed: ECONNREFUSED', exitCode: 1 }
+            ]
+        })
+        scriptCleanTurn(rig)
+        const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+        assert.equal(rig.streams.length, 1)
+        assert.ok(!events.some((e) => e.type === 'usage'))
+        assert.ok(!events.some((e) => e.type === 'error'))
+        assert.ok(events.some((e) => e.type === 'done'))
+        const recorded = rig.telemetry.find(
+            (t) => t.name === 'openclaw_acp_usage'
+        )
+        assert.equal(recorded?.attrs['nca.outcome'], 'error')
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
+})
+
+test('a turn whose prompt is not the transcript tail is not billed (a bridge-answered command wrote nothing)', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        const rig = buildRig({
+            streamResults: [
+                {
+                    stdout: JSON.stringify({
+                        messages: [
+                            transcriptUser('Say hello.'),
+                            transcriptAssistant(101, 11, 'Answer from call 1.')
+                        ]
+                    }),
+                    exitCode: 0
+                }
+            ]
+        })
+        scriptCleanTurn(rig)
+        const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+        // Billing that tail again would charge the previous turn twice.
+        assert.ok(!events.some((e) => e.type === 'usage'))
+        assert.ok(events.some((e) => e.type === 'done'))
+        const recorded = rig.telemetry.find(
+            (t) => t.name === 'openclaw_acp_usage'
+        )
+        assert.equal(recorded?.attrs['nca.outcome'], 'prompt_mismatch')
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
+})
+
+test('a turn longer than the usage window is re-read once at the wide limit', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        // 60 assistant messages and no user anchor: the window is full.
+        const fullWindow = {
+            messages: Array.from({ length: 60 }, () =>
+                transcriptAssistant(1, 1, 'step')
+            )
+        }
+        const wide = {
+            messages: [
+                transcriptUser('hi'),
+                ...Array.from({ length: 70 }, () =>
+                    transcriptAssistant(10, 1, 'step')
+                )
+            ]
+        }
+        const rig = buildRig({
+            streamResults: [
+                { stdout: JSON.stringify(fullWindow), exitCode: 0 },
+                { stdout: JSON.stringify(wide), exitCode: 0 }
+            ]
+        })
+        scriptCleanTurn(rig)
+        const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+        assert.equal(rig.streams.length, 2)
+        const limits = rig.streams.map(
+            (s) => (JSON.parse(s.cmd[5]) as { limit: number }).limit
+        )
+        assert.deepEqual(limits, [60, 400])
+        const usage = events.find((e) => e.type === 'usage') as
+            | { usage: { inputTokens: number; outputTokens: number } }
+            | undefined
+        assert.equal(usage?.usage.inputTokens, 700)
+        assert.equal(usage?.usage.outputTokens, 70)
     } finally {
         delete process.env.MF_OPENCLAW_ACP
     }
