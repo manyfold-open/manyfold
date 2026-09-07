@@ -9,15 +9,9 @@ import {
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
-    ClaudeCodePermissionMode,
-    HermesPermissionMode,
     CodexIntelligence,
-    CodexPermissionMode,
     CodexSpeed,
     CreateMessageContextRefInput,
-    DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
-    DEFAULT_HERMES_PERMISSION_MODE,
-    DEFAULT_CODEX_PERMISSION_MODE,
     claudeCodeModelAliasMapKey,
     claudeCodeEfforts,
     codexCanonicalModelId,
@@ -44,23 +38,18 @@ import {
     ChevronRightIcon,
     CloseIcon,
     CodeIcon,
-    EditIcon,
     FileIcon,
     FileArchiveIcon,
     FileSpreadsheetIcon,
     FileTextIcon,
     FolderIcon,
-    HandIcon,
     InfoIcon,
     type LucideIcon,
     PaperclipIcon,
     PlusIcon,
     RefreshIcon,
     SettingsIcon,
-    ShieldAlertIcon,
-    ShieldCheckIcon,
     StopIcon,
-    TasksIcon,
     ZapIcon
 } from '@/components/icons'
 import { Spinner } from '@/components/Loading'
@@ -88,6 +77,11 @@ import {
 } from '@/lib/agentModelConfig'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
+import {
+    permissionModeEntryFor,
+    type ComposerPermissionMode,
+    type PermissionOption
+} from '@/lib/permissionModes'
 import { formatDateTime } from '@/lib/dateFormat'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
@@ -116,12 +110,8 @@ interface Props {
     modelConfigDraft?: AgentModelConfig | null
     modelConfigSource?: AgentModelConfigSource
     modelConfigRefreshing?: boolean
-    claudeCodePermissionMode?: ClaudeCodePermissionMode
-    onClaudeCodePermissionModeChange?: (mode: ClaudeCodePermissionMode) => void
-    codexPermissionMode?: CodexPermissionMode
-    onCodexPermissionModeChange?: (mode: CodexPermissionMode) => void
-    hermesPermissionMode?: HermesPermissionMode
-    onHermesPermissionModeChange?: (mode: HermesPermissionMode) => void
+    permissionMode?: ComposerPermissionMode
+    onPermissionModeChange?: (mode: ComposerPermissionMode) => void
     onModelConfigDraftChange?: (config: AgentModelConfig) => void
     onModelConfigSourceChange?: (source: AgentModelConfigSource) => void
     onRefreshModelConfig?: (
@@ -181,121 +171,7 @@ interface PendingAttachment {
     error?: string
 }
 
-type ComposerPermissionMode =
-    | ClaudeCodePermissionMode
-    | CodexPermissionMode
-    | HermesPermissionMode
-
-interface ComposerPermissionOption<T extends ComposerPermissionMode> {
-    value: T
-    labelKey: string
-    titleKey: string
-    descriptionKey: string
-    icon: LucideIcon
-    dangerous?: boolean
-}
-
-const claudeCodePermissionOptions: Array<
-    ComposerPermissionOption<ClaudeCodePermissionMode>
-> = [
-    {
-        value: 'default',
-        labelKey: 'web.composer.permission.claude.ask',
-        titleKey: 'web.composer.permission.claude.askTitle',
-        descriptionKey: 'web.composer.permission.claude.askDescription',
-        icon: HandIcon
-    },
-    {
-        value: 'acceptEdits',
-        labelKey: 'web.composer.permission.claude.acceptEdits',
-        titleKey: 'web.composer.permission.claude.acceptEditsTitle',
-        descriptionKey: 'web.composer.permission.claude.acceptEditsDescription',
-        icon: EditIcon
-    },
-    {
-        value: 'plan',
-        labelKey: 'web.composer.permission.claude.plan',
-        titleKey: 'web.composer.permission.claude.planTitle',
-        descriptionKey: 'web.composer.permission.claude.planDescription',
-        icon: TasksIcon
-    },
-    {
-        value: 'auto',
-        labelKey: 'web.composer.permission.claude.auto',
-        titleKey: 'web.composer.permission.claude.autoTitle',
-        descriptionKey: 'web.composer.permission.claude.autoDescription',
-        icon: ZapIcon
-    },
-    {
-        value: 'dontAsk',
-        labelKey: 'web.composer.permission.claude.dontAsk',
-        titleKey: 'web.composer.permission.claude.dontAskTitle',
-        descriptionKey: 'web.composer.permission.claude.dontAskDescription',
-        icon: ShieldCheckIcon
-    },
-    {
-        value: 'bypassPermissions',
-        labelKey: 'web.composer.permission.claude.bypass',
-        titleKey: 'web.composer.permission.claude.bypassTitle',
-        descriptionKey: 'web.composer.permission.claude.bypassDescription',
-        icon: ShieldAlertIcon,
-        dangerous: true
-    }
-]
-
-const codexPermissionOptions: Array<
-    ComposerPermissionOption<CodexPermissionMode>
-> = [
-    {
-        value: 'default',
-        labelKey: 'web.composer.permission.codex.ask',
-        titleKey: 'web.composer.permission.codex.askTitle',
-        descriptionKey: 'web.composer.permission.codex.askDescription',
-        icon: HandIcon
-    },
-    {
-        value: 'auto-review',
-        labelKey: 'web.composer.permission.codex.approve',
-        titleKey: 'web.composer.permission.codex.approveTitle',
-        descriptionKey: 'web.composer.permission.codex.approveDescription',
-        icon: ShieldCheckIcon
-    },
-    {
-        value: 'full-access',
-        labelKey: 'web.composer.permission.codex.full',
-        titleKey: 'web.composer.permission.codex.fullTitle',
-        descriptionKey: 'web.composer.permission.codex.fullDescription',
-        icon: ShieldAlertIcon,
-        dangerous: true
-    }
-]
-
-const hermesPermissionOptions: Array<
-    ComposerPermissionOption<HermesPermissionMode>
-> = [
-    {
-        value: 'default',
-        labelKey: 'web.composer.permission.hermes.ask',
-        titleKey: 'web.composer.permission.hermes.askTitle',
-        descriptionKey: 'web.composer.permission.hermes.askDescription',
-        icon: HandIcon
-    },
-    {
-        value: 'acceptEdits',
-        labelKey: 'web.composer.permission.hermes.acceptEdits',
-        titleKey: 'web.composer.permission.hermes.acceptEditsTitle',
-        descriptionKey: 'web.composer.permission.hermes.acceptEditsDescription',
-        icon: EditIcon
-    },
-    {
-        value: 'dontAsk',
-        labelKey: 'web.composer.permission.hermes.dontAsk',
-        titleKey: 'web.composer.permission.hermes.dontAskTitle',
-        descriptionKey: 'web.composer.permission.hermes.dontAskDescription',
-        icon: ShieldAlertIcon,
-        dangerous: true
-    }
-]
+// Permission-mode options + metadata now live in the framework-keyed table.
 
 // Mirrors the CSS clamp (.chat-composer-input max-height: 240px).
 const resizeComposerInput = (node: HTMLTextAreaElement): void => {
@@ -321,12 +197,8 @@ const Composer: FC<Props> = ({
     modelConfigDraft = null,
     modelConfigSource,
     modelConfigRefreshing = false,
-    claudeCodePermissionMode = DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
-    onClaudeCodePermissionModeChange,
-    codexPermissionMode = DEFAULT_CODEX_PERMISSION_MODE,
-    onCodexPermissionModeChange,
-    hermesPermissionMode = DEFAULT_HERMES_PERMISSION_MODE,
-    onHermesPermissionModeChange,
+    permissionMode,
+    onPermissionModeChange,
     onModelConfigDraftChange,
     onModelConfigSourceChange,
     onRefreshModelConfig,
@@ -601,11 +473,7 @@ const Composer: FC<Props> = ({
             })
             if (!confirmed) return
         }
-        if (canChooseClaudeCodePermissions)
-            onClaudeCodePermissionModeChange?.(mode as ClaudeCodePermissionMode)
-        else if (canChooseHermesPermissions)
-            onHermesPermissionModeChange?.(mode as HermesPermissionMode)
-        else onCodexPermissionModeChange?.(mode as CodexPermissionMode)
+        onPermissionModeChange?.(mode)
     }
 
     const selectModel = (next: string | null): void => {
@@ -862,41 +730,27 @@ const Composer: FC<Props> = ({
         Boolean(text.trim()) || hasSendableAttachments || contextRefs.length > 0
     const attachmentButtonDisabled =
         disabled || streaming || !attachmentsEnabled
-    const canChooseClaudeCodePermissions =
-        framework === 'claude-code' && Boolean(onClaudeCodePermissionModeChange)
-    const canChooseCodexPermissions =
-        framework === 'codex' && Boolean(onCodexPermissionModeChange)
-    const canChooseHermesPermissions =
-        framework === 'hermes' && Boolean(onHermesPermissionModeChange)
-    const canChoosePermissions =
-        canChooseClaudeCodePermissions ||
-        canChooseCodexPermissions ||
-        canChooseHermesPermissions
+    const permissionEntry = permissionModeEntryFor(framework)
+    const canChoosePermissions = Boolean(
+        permissionEntry && onPermissionModeChange
+    )
     const permissionButtonDisabled =
         disabled || streaming || !canChoosePermissions
     const permissionOptions: Array<
-        ComposerPermissionOption<ComposerPermissionMode> & {
+        PermissionOption & {
             label: string
             title: string
             description: string
         }
-    > = (canChooseClaudeCodePermissions
-        ? claudeCodePermissionOptions
-        : canChooseHermesPermissions
-          ? hermesPermissionOptions
-          : codexPermissionOptions
-    ).map((option) => ({
+    > = (permissionEntry?.options ?? []).map((option) => ({
         ...option,
         label: t(option.labelKey),
         title: t(option.titleKey),
         description: t(option.descriptionKey)
     }))
-    const activePermissionMode: ComposerPermissionMode =
-        canChooseClaudeCodePermissions
-            ? claudeCodePermissionMode
-            : canChooseHermesPermissions
-              ? hermesPermissionMode
-              : codexPermissionMode
+    const activePermissionMode: ComposerPermissionMode = (permissionMode ??
+        permissionEntry?.defaultMode ??
+        '') as ComposerPermissionMode
     const permissionOption =
         permissionOptions.find(
             (option) => option.value === activePermissionMode
@@ -1109,7 +963,7 @@ const Composer: FC<Props> = ({
                                                             className='chat-composer-permission-option'
                                                             onClick={() => {
                                                                 void selectPermissionMode(
-                                                                    option.value
+                                                                    option.value as ComposerPermissionMode
                                                                 )
                                                             }}
                                                         >

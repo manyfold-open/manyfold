@@ -21,9 +21,23 @@ import {
     IDENTITY_MARKERS,
     PROVIDER_MARKERS,
     USER_MESSAGE,
+    withEnv,
     type CapturedStream,
     type Seam
 } from './exec-env-harness'
+
+// Env flags a gated driver-seam cell needs open to be reached (e.g. openclaw's
+// MF_OPENCLAW_ACP). Capability gates (daemon:*) and the runner allowlist are not
+// env-shaped and are handled by the runtime, not here.
+const gateEnv = (surface: ExecEnvSurface): Record<string, string> => {
+    const env: Record<string, string> = {}
+    for (const gate of surface.gatedBy ?? []) {
+        if (gate.startsWith('daemon:')) continue
+        if (gate === 'MF_SPRITE_RUNNER_AGENTS') continue
+        env[gate] = '1'
+    }
+    return env
+}
 
 // One generated test per declared driver-seam cell. Generating them (rather
 // than looping inside a single test) means a broken cell names itself and does
@@ -54,17 +68,19 @@ const dispatch = async (
         framework: surface.framework,
         runtime: surface.runtime
     })
-    await drain(
-        adapter.sendMessage(
-            adapterCtx(surface.framework, surface.runtime, {
-                ...(surface.transport === 'runner-exec'
-                    ? { runnerDaemonId: RUNNER_DAEMON_ID }
-                    : {}),
-                ...extraCtx
-            } as never),
-            USER_MESSAGE
+    await withEnv(gateEnv(surface), async () => {
+        await drain(
+            adapter.sendMessage(
+                adapterCtx(surface.framework, surface.runtime, {
+                    ...(surface.transport === 'runner-exec'
+                        ? { runnerDaemonId: RUNNER_DAEMON_ID }
+                        : {}),
+                    ...extraCtx
+                } as never),
+                USER_MESSAGE
+            )
         )
-    )
+    })
     return seam
 }
 

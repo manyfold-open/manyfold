@@ -570,6 +570,7 @@ const makeHarness = (
             _claudeCodePermissionMode: unknown,
             _codexPermissionMode: unknown,
             _hermesPermissionMode: unknown,
+            _openclawPermissionMode: unknown,
             observer: (event: FakeEvent) => void
         ) => {
             calls.sendMessage.push({ userId, agentId, sessionId, text })

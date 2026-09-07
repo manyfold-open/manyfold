@@ -8,19 +8,11 @@ import {
     ChatCapabilities,
     ChatMessage,
     ChatMessagesPage,
-    ClaudeCodePermissionMode,
     CodexPermissionMode,
-    HermesPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
-    DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
-    DEFAULT_CODEX_PERMISSION_MODE,
-    DEFAULT_HERMES_PERMISSION_MODE,
-    chatCapabilitiesByFramework,
-    isClaudeCodePermissionMode,
-    isCodexPermissionMode,
-    isHermesPermissionMode
+    chatCapabilitiesByFramework
 } from '@manyfold/shared'
 import {
     Suspense,
@@ -47,6 +39,13 @@ import { MenuIcon } from '@/components/icons'
 import type { SdkAgent } from '@manyfold/sdk'
 import { useAppShellContext } from '@/components/AppShell'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
+import {
+    permissionModeEntryFor,
+    permissionModeSendFields,
+    readStoredPermissionMode,
+    writeStoredPermissionMode,
+    type ComposerPermissionMode
+} from '@/lib/permissionModes'
 import { workspaceDirNameOf, workspacePathOf } from '@/lib/workspacePath'
 import { navigateWithRailTransition } from '@/lib/railTransition'
 import EmptyState from '@/components/EmptyState'
@@ -158,10 +157,6 @@ const checkpointFromPage = (
 
 const DRAFT_SEARCH_VALUE = '1'
 const MODEL_OVERRIDE_STORAGE_PREFIX = 'nca.chat.modelOverride.'
-const CLAUDE_CODE_PERMISSION_MODE_STORAGE_PREFIX =
-    'nca.chat.claudeCodePermissionMode.'
-const CODEX_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.codexPermissionMode.'
-const HERMES_PERMISSION_MODE_STORAGE_PREFIX = 'nca.chat.hermesPermissionMode.'
 const DRAFT_STORAGE_PREFIX = 'nca.chat.draft.'
 const DRAFT_NEW_SLOT = 'new'
 const CHAT_MESSAGES_PAGE_SIZE = CHAT_MESSAGE_SOFT_LIMIT
@@ -245,12 +240,10 @@ const AgentChat: FC = (): ReactNode => {
     const [workspaceRefreshKey, setWorkspaceRefreshKey] = useState(0)
     const [workspaceRefreshing, setWorkspaceRefreshing] = useState(false)
     const [modelOverride, setModelOverride] = useState<string | null>(null)
-    const [claudeCodePermissionMode, setClaudeCodePermissionMode] =
-        useState<ClaudeCodePermissionMode>(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
-    const [codexPermissionMode, setCodexPermissionMode] =
-        useState<CodexPermissionMode>(DEFAULT_CODEX_PERMISSION_MODE)
-    const [hermesPermissionMode, setHermesPermissionMode] =
-        useState<HermesPermissionMode>(DEFAULT_HERMES_PERMISSION_MODE)
+    // One composer permission-mode state for whichever framework the agent is;
+    // the framework-keyed table says which field it rides and where it persists.
+    const [permissionMode, setPermissionMode] =
+        useState<ComposerPermissionMode | null>(null)
     const [modelConfigView, setModelConfigView] =
         useState<AgentModelConfigView | null>(null)
     const [modelConfigDraft, setModelConfigDraft] =
@@ -365,7 +358,12 @@ const AgentChat: FC = (): ReactNode => {
     const modelSwitchingSupported = supportsModelOverride(currentAgent)
     const currentAgentId = currentAgent?.id ?? null
     const currentAgentFramework = currentAgent?.framework ?? null
-    const hermesModelSwitching = currentAgentFramework === 'hermes'
+    // hermes and openclaw both source their model list from the provider-
+    // models cache and persist the pick in the runtime session (hermes state.db
+    // / openclaw gateway key), so they share the runtime model-switch path.
+    const runtimeModelSwitching =
+        currentAgentFramework === 'hermes' ||
+        currentAgentFramework === 'openclaw'
     const frameworkModelConfigSupported = frameworkUsesModelConfig(
         currentAgentFramework,
         currentAgent?.runtime
@@ -374,13 +372,13 @@ const AgentChat: FC = (): ReactNode => {
         () =>
             modelOptionsForAgent(currentAgent, [
                 modelOverride,
-                // hermes options come from the provider-models cache the
-                // model-config view carries; presets stay empty.
-                ...(hermesModelSwitching
+                // hermes/openclaw options come from the provider-models cache
+                // the model-config view carries; presets stay empty.
+                ...(runtimeModelSwitching
                     ? (modelConfigView?.providerModels ?? [])
                     : [])
             ]),
-        [currentAgent, modelOverride, hermesModelSwitching, modelConfigView]
+        [currentAgent, modelOverride, runtimeModelSwitching, modelConfigView]
     )
     const effectiveModelConfigView = useMemo(
         () =>
@@ -479,34 +477,18 @@ const AgentChat: FC = (): ReactNode => {
 
     useEffect(() => {
         if (!agentId || currentAgent?.id !== agentId) {
-            setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
-            setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
-            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+            setPermissionMode(null)
             return
         }
-        if (currentAgent.framework === 'claude-code') {
-            setClaudeCodePermissionMode(
-                readStoredClaudeCodePermissionMode(agentId)
-            )
-            setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
-            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
-            return
-        }
-        if (currentAgent.framework === 'codex') {
-            setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
-            setCodexPermissionMode(readStoredCodexPermissionMode(agentId))
-            setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
-            return
-        }
-        if (currentAgent.framework === 'hermes') {
-            setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
-            setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
-            setHermesPermissionMode(readStoredHermesPermissionMode(agentId))
-            return
-        }
-        setClaudeCodePermissionMode(DEFAULT_CLAUDE_CODE_PERMISSION_MODE)
-        setCodexPermissionMode(DEFAULT_CODEX_PERMISSION_MODE)
-        setHermesPermissionMode(DEFAULT_HERMES_PERMISSION_MODE)
+        const entry = permissionModeEntryFor(currentAgent.framework)
+        setPermissionMode(
+            entry
+                ? (readStoredPermissionMode(
+                      entry,
+                      agentId
+                  ) as ComposerPermissionMode)
+                : null
+        )
     }, [agentId, currentAgent])
 
     useEffect(() => {
@@ -555,7 +537,7 @@ const AgentChat: FC = (): ReactNode => {
             currentAgentId !== agentId ||
             // hermes has no config drawer, but the view's providerModels feed
             // its model picker, so the fetch runs for it too.
-            !(frameworkModelConfigSupported || hermesModelSwitching)
+            !(frameworkModelConfigSupported || runtimeModelSwitching)
         ) {
             setModelConfigView(null)
             setModelConfigDraft(null)
@@ -627,13 +609,13 @@ const AgentChat: FC = (): ReactNode => {
             // claims the default.
             const normalized =
                 normalizeModelOverride(next) ??
-                (hermesModelSwitching
+                (runtimeModelSwitching
                     ? normalizeModelOverride(currentAgent?.model ?? null)
                     : null)
             setModelOverride(normalized)
             if (agentId) writeStoredModelOverride(agentId, normalized)
         },
-        [agentId, hermesModelSwitching, currentAgent]
+        [agentId, runtimeModelSwitching, currentAgent]
     )
 
     const handleRefreshModelConfig = useCallback(
@@ -1563,15 +1545,7 @@ const AgentChat: FC = (): ReactNode => {
                           modelConfig: selectedModelConfig
                       }
                     : {}),
-                ...(currentAgentFramework === 'claude-code'
-                    ? { claudeCodePermissionMode }
-                    : {}),
-                ...(currentAgentFramework === 'codex'
-                    ? { codexPermissionMode }
-                    : {}),
-                ...(currentAgentFramework === 'hermes'
-                    ? { hermesPermissionMode }
-                    : {})
+                ...permissionModeSendFields(currentAgentFramework, permissionMode)
             }
             const result = await client.chat.sendMessage(
                 agentId,
@@ -1695,7 +1669,11 @@ const AgentChat: FC = (): ReactNode => {
                           modelConfig: selectedModelConfig
                       }
                     : {}),
-                codexPermissionMode
+                // RegenerateMessageRequest only carries the codex field; on a
+                // codex agent the single state holds a codex mode by construction.
+                ...(currentAgentFramework === 'codex' && permissionMode
+                    ? { codexPermissionMode: permissionMode as CodexPermissionMode }
+                    : {})
             }
             const result = await client.chat.regenerateMessage(
                 agentId,
@@ -1790,28 +1768,14 @@ const AgentChat: FC = (): ReactNode => {
         })()
     }
 
-    const handleCodexPermissionModeChange = useCallback(
-        (mode: CodexPermissionMode): void => {
-            setCodexPermissionMode(mode)
-            if (agentId) writeStoredCodexPermissionMode(agentId, mode)
+    const handlePermissionModeChange = useCallback(
+        (mode: ComposerPermissionMode): void => {
+            setPermissionMode(mode)
+            const entry = permissionModeEntryFor(currentAgentFramework)
+            if (agentId && entry)
+                writeStoredPermissionMode(entry, agentId, mode)
         },
-        [agentId]
-    )
-
-    const handleClaudeCodePermissionModeChange = useCallback(
-        (mode: ClaudeCodePermissionMode): void => {
-            setClaudeCodePermissionMode(mode)
-            if (agentId) writeStoredClaudeCodePermissionMode(agentId, mode)
-        },
-        [agentId]
-    )
-
-    const handleHermesPermissionModeChange = useCallback(
-        (mode: HermesPermissionMode): void => {
-            setHermesPermissionMode(mode)
-            if (agentId) writeStoredHermesPermissionMode(agentId, mode)
-        },
-        [agentId]
+        [agentId, currentAgentFramework]
     )
 
     // Answers a pending hermes permission card on the LIVE turn. The card
@@ -1879,12 +1843,10 @@ const AgentChat: FC = (): ReactNode => {
                     chatStreamStore.markTurnPending(streamKey, streamParams)
                     const body = {
                         text: trimmed,
-                        ...(currentAgentFramework === 'claude-code'
-                            ? { claudeCodePermissionMode }
-                            : {}),
-                        ...(currentAgentFramework === 'codex'
-                            ? { codexPermissionMode }
-                            : {})
+                        ...permissionModeSendFields(
+                            currentAgentFramework,
+                            permissionMode
+                        )
                     }
                     const result = await client.chat.sendMessage(
                         agentId,
@@ -1919,11 +1881,10 @@ const AgentChat: FC = (): ReactNode => {
         [
             activeSessionId,
             agentId,
-            claudeCodePermissionMode,
             client,
-            codexPermissionMode,
             currentAgentFramework,
             getToken,
+            permissionMode,
             refreshMessagesFromServer,
             refreshSessionsForAgent,
             requestMessageScroll
@@ -2188,24 +2149,8 @@ const AgentChat: FC = (): ReactNode => {
                     : null
             }
             modelConfigRefreshing={modelConfigRefreshing}
-            claudeCodePermissionMode={claudeCodePermissionMode}
-            onClaudeCodePermissionModeChange={
-                currentAgent.framework === 'claude-code'
-                    ? handleClaudeCodePermissionModeChange
-                    : undefined
-            }
-            codexPermissionMode={codexPermissionMode}
-            onCodexPermissionModeChange={
-                currentAgent.framework === 'codex'
-                    ? handleCodexPermissionModeChange
-                    : undefined
-            }
-            hermesPermissionMode={hermesPermissionMode}
-            onHermesPermissionModeChange={
-                currentAgent.framework === 'hermes'
-                    ? handleHermesPermissionModeChange
-                    : undefined
-            }
+            permissionMode={permissionMode ?? undefined}
+            onPermissionModeChange={handlePermissionModeChange}
             onModelConfigDraftChange={
                 frameworkModelConfigSupported ? setModelConfigDraft : undefined
             }
@@ -2424,7 +2369,10 @@ const AgentChat: FC = (): ReactNode => {
                                                 : undefined
                                         }
                                         onAnswerPermission={
-                                            currentAgent.framework === 'hermes'
+                                            currentAgent.framework ===
+                                                'hermes' ||
+                                            currentAgent.framework ===
+                                                'openclaw'
                                                 ? handleAnswerPermission
                                                 : undefined
                                         }
@@ -2778,12 +2726,6 @@ const normalizeModelOverride = (value?: string | null): string | null => {
 const modelStorageKey = (agentId: string): string =>
     `${MODEL_OVERRIDE_STORAGE_PREFIX}${agentId}`
 
-const claudeCodePermissionStorageKey = (agentId: string): string =>
-    `${CLAUDE_CODE_PERMISSION_MODE_STORAGE_PREFIX}${agentId}`
-
-const codexPermissionStorageKey = (agentId: string): string =>
-    `${CODEX_PERMISSION_MODE_STORAGE_PREFIX}${agentId}`
-
 const readStoredModelOverride = (
     agentId: string
 ): string | null | undefined => {
@@ -2801,88 +2743,6 @@ const writeStoredModelOverride = (
 ): void => {
     try {
         window.localStorage.setItem(modelStorageKey(agentId), model ?? '')
-    } catch {
-        /* ignore local storage failures */
-    }
-}
-
-const readStoredClaudeCodePermissionMode = (
-    agentId: string
-): ClaudeCodePermissionMode => {
-    try {
-        const raw = window.localStorage.getItem(
-            claudeCodePermissionStorageKey(agentId)
-        )
-        return isClaudeCodePermissionMode(raw)
-            ? raw
-            : DEFAULT_CLAUDE_CODE_PERMISSION_MODE
-    } catch {
-        return DEFAULT_CLAUDE_CODE_PERMISSION_MODE
-    }
-}
-
-const writeStoredClaudeCodePermissionMode = (
-    agentId: string,
-    mode: ClaudeCodePermissionMode
-): void => {
-    try {
-        window.localStorage.setItem(
-            claudeCodePermissionStorageKey(agentId),
-            mode
-        )
-    } catch {
-        /* ignore local storage failures */
-    }
-}
-
-const hermesPermissionStorageKey = (agentId: string): string =>
-    `${HERMES_PERMISSION_MODE_STORAGE_PREFIX}${agentId}`
-
-const readStoredHermesPermissionMode = (
-    agentId: string
-): HermesPermissionMode => {
-    try {
-        const raw = window.localStorage.getItem(
-            hermesPermissionStorageKey(agentId)
-        )
-        return isHermesPermissionMode(raw)
-            ? raw
-            : DEFAULT_HERMES_PERMISSION_MODE
-    } catch {
-        return DEFAULT_HERMES_PERMISSION_MODE
-    }
-}
-
-const writeStoredHermesPermissionMode = (
-    agentId: string,
-    mode: HermesPermissionMode
-): void => {
-    try {
-        window.localStorage.setItem(hermesPermissionStorageKey(agentId), mode)
-    } catch {
-        /* ignore local storage failures */
-    }
-}
-
-const readStoredCodexPermissionMode = (
-    agentId: string
-): CodexPermissionMode => {
-    try {
-        const raw = window.localStorage.getItem(
-            codexPermissionStorageKey(agentId)
-        )
-        return isCodexPermissionMode(raw) ? raw : DEFAULT_CODEX_PERMISSION_MODE
-    } catch {
-        return DEFAULT_CODEX_PERMISSION_MODE
-    }
-}
-
-const writeStoredCodexPermissionMode = (
-    agentId: string,
-    mode: CodexPermissionMode
-): void => {
-    try {
-        window.localStorage.setItem(codexPermissionStorageKey(agentId), mode)
     } catch {
         /* ignore local storage failures */
     }

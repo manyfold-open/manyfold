@@ -600,6 +600,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 observer
             )
         } catch (err) {

@@ -204,6 +204,24 @@ export const isHermesPermissionMode = (
     typeof value === 'string' &&
     hermesPermissionModes.includes(value as HermesPermissionMode)
 
+// openclaw exposes only two modes because its ACP bridge relays only exec
+// approvals — there is no separate edit-approval axis to name. dontAsk is the
+// default and is exactly today's behaviour: the gateway ships tools.exec.ask
+// off, so a turn that sends no mode sets nothing and never prompts (channels,
+// A2A, OpenAI-compat, automations keep it byte-for-byte). `default` turns the
+// session's exec approval on (an in-box sessions.patch of execAsk), so the
+// gateway relays session/request_permission as interactive cards.
+export const openclawPermissionModes = ['default', 'dontAsk'] as const
+export type OpenclawPermissionMode = (typeof openclawPermissionModes)[number]
+export const DEFAULT_OPENCLAW_PERMISSION_MODE: OpenclawPermissionMode =
+    'dontAsk'
+
+export const isOpenclawPermissionMode = (
+    value: unknown
+): value is OpenclawPermissionMode =>
+    typeof value === 'string' &&
+    openclawPermissionModes.includes(value as OpenclawPermissionMode)
+
 // This table, not the adapter's own getCapabilities(), is what the Web
 // renderer gates thinking and tool blocks on, and nothing in production reads
 // an adapter's declaration at all — so a row that disagrees with its adapter
@@ -474,6 +492,7 @@ export interface CreateMessageRequest {
     claudeCodePermissionMode?: ClaudeCodePermissionMode
     codexPermissionMode?: CodexPermissionMode
     hermesPermissionMode?: HermesPermissionMode
+    openclawPermissionMode?: OpenclawPermissionMode
     attachments?: CreateMessageAttachmentInput[]
     contextRefs?: CreateMessageContextRefInput[]
     uploads?: CreateMessageUploadInput[]

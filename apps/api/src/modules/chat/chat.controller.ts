@@ -172,6 +172,7 @@ export class ChatController {
             dto.claudeCodePermissionMode,
             dto.codexPermissionMode,
             dto.hermesPermissionMode,
+            dto.openclawPermissionMode,
             undefined,
             dto.contextRefs ?? [],
             dto.uploads ?? []

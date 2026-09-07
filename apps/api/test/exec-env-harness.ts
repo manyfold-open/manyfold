@@ -365,8 +365,8 @@ export const buildAdapter = (
                 pricing as never,
                 adminSettings as never
             ) as unknown as AdapterUnderTest
-        case 'openclaw':
-            return new OpenclawAdapter(
+        case 'openclaw': {
+            const openclaw = new OpenclawAdapter(
                 db as never,
                 {} as never,
                 pricing as never,
@@ -375,7 +375,12 @@ export const buildAdapter = (
                 telemetry as never,
                 registry as never,
                 adminSettings as never
-            ) as unknown as AdapterUnderTest
+            )
+            // The ACP driver-seam cells reach the gateway token through
+            // resolveRuntime (a decrypt path, not the exec seam), so stub it.
+            stubGatewayResolution(openclaw as unknown as AdapterUnderTest)
+            return openclaw as unknown as AdapterUnderTest
+        }
         case 'hermes':
             return new HermesAdapter(
                 db as never,

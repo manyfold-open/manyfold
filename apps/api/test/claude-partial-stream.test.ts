@@ -33,6 +33,7 @@ const baseCtx: ApiChatAdapterContext = {
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
     hermesPermissionMode: null,
+    openclawPermissionMode: null,
     frameworkSessionRef: null,
     history: []
 }

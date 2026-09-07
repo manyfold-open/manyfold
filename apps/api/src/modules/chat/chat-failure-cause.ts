@@ -65,6 +65,11 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     // The fatal stderr line on the interactive path carries the upstream
     // auth/pool/balance text that used to arrive as `hermes_upstream`.
     'hermes_acp_event',
+    // openclaw's API-driven ACP path (MF_OPENCLAW_ACP) mirrors the hermes
+    // interactive path: a generic retryable failure and its stderr-classified
+    // event, grouped by their message like the hermes pair above.
+    'openclaw_acp_failed',
+    'openclaw_acp_event',
     'langflow_error'
 ])
 

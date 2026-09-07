@@ -156,6 +156,7 @@ const ctx = (abortSignal: AbortSignal): ApiChatAdapterContext =>
         claudeCodePermissionMode: null,
         codexPermissionMode: null,
         hermesPermissionMode: null,
+        openclawPermissionMode: null,
         frameworkSessionRef: 'fsr-1',
         history: [],
         abortSignal

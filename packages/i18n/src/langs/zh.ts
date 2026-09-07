@@ -2877,6 +2877,14 @@ const zh: Translations = {
                     dontAsk: '不询问',
                     dontAskTitle: '运行 Hermes 时不弹出任何审批',
                     dontAskDescription: '所有操作自动批准'
+                },
+                openclaw: {
+                    ask: '每次询问',
+                    askTitle: '执行高风险命令前先询问',
+                    askDescription: '审批卡片会出现在对话中',
+                    dontAsk: '不询问',
+                    dontAskTitle: '运行 OpenClaw 时不弹出任何审批',
+                    dontAskDescription: '所有操作自动批准'
                 }
             },
             ready: '就绪',

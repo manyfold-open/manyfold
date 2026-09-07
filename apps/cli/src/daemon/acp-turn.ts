@@ -1,5 +1,11 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { DaemonHermesTurnPayload, DaemonTurnFinalPayload } from '@manyfold/shared'
+import {
+    acpModelMatches,
+    isFatalStderrLine,
+    pickAutoApproveOptionId as pickAutoApproveOptionIdShared,
+    pickStderrErrorLine
+} from '@manyfold/shared'
 import type { RpcContext } from './ws-client'
 import { ExecStream, execStreams } from './exec-buffer'
 
@@ -20,71 +26,12 @@ const DEFAULT_TURN_TIMEOUT_MS = 240_000
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 30_000
 const KILL_ESCALATION_MS = 5_000
 
-// Ported from the API's hermes-acp-client, which learned these on production
-// traffic: hermes does NOT exit on provider auth/4xx failures — it stays in
-// ACP mode and never answers session/prompt, so without this the turn would
-// sit out its whole timeout on an error hermes already printed. Transient
-// warnings (retry attempts) intentionally do not match.
-const FATAL_STDERR_PATTERNS = [/\bAborting\b/i, /Non-retryable.*error/i]
-const STDERR_ERROR_HINTS = [
-    /HTTP\s+\d{3}/i,
-    /AuthenticationError/i,
-    /API key/i,
-    /Aborting/i,
-    /Non-retryable/i,
-    /\bERROR\b/,
-    /Traceback/i,
-    /Exception/i
-]
-
-const pickStderrErrorLine = (lines: string[]): string | null => {
-    for (let i = lines.length - 1; i >= 0; i -= 1) {
-        const line = lines[i].trim()
-        if (!line) continue
-        if (STDERR_ERROR_HINTS.some((re) => re.test(line))) return line
-    }
-    return null
-}
-
-// Ported from the API's hermes-acp-client (pickAutoApproveOptionId): the old
-// hardcoded 'approve_for_session' matches no option id current hermes builds
-// advertise, and an unknown id maps to DENY on both of hermes's approval
-// bridges — the headless auto-approve was silently rejecting every file edit.
-// Seen on hermes-agent 0.20.6 [2026-08-29]: terminal-command asks offer
-// allow_once / allow_session / allow_always / deny / deny_always; edit asks
-// offer only allow_once / deny.
+// hermes predates the request-carried options array, so its headless
+// auto-approve keeps the legacy id for builds that advertise none.
 const pickAutoApproveOptionId = (
     params: Record<string, unknown> | undefined
-): string => {
-    const options = params?.options
-    if (Array.isArray(options)) {
-        const rows = options.filter(
-            (o): o is Record<string, unknown> => !!o && typeof o === 'object'
-        )
-        const byKind = (kind: string): string | null => {
-            for (const o of rows) {
-                if (o.kind === kind && typeof o.optionId === 'string')
-                    return o.optionId
-            }
-            return null
-        }
-        const allowAny = (): string | null => {
-            for (const o of rows) {
-                if (
-                    typeof o.kind === 'string' &&
-                    o.kind.startsWith('allow') &&
-                    typeof o.optionId === 'string'
-                )
-                    return o.optionId
-            }
-            return null
-        }
-        const picked =
-            byKind('allow_always') ?? byKind('allow_once') ?? allowAny()
-        if (picked) return picked
-    }
-    return 'approve_for_session'
-}
+): string =>
+    pickAutoApproveOptionIdShared(params, 'approve_for_session') as string
 
 interface PendingRequest {
     method: string
@@ -465,7 +412,7 @@ export const runAcpTurn = (args: {
             if (!line) continue
             stderrTail.push(line)
             if (stderrTail.length > 80) stderrTail.shift()
-            if (!fatalError && FATAL_STDERR_PATTERNS.some((re) => re.test(line))) {
+            if (!fatalError && isFatalStderrLine(line)) {
                 const tail = stderrTail.slice(-12).join('\n').trim()
                 fatalError = new Error(
                     tail ? `${line}\n--- hermes stderr (tail) ---\n${tail}` : line
@@ -568,9 +515,6 @@ export const runAcpTurn = (args: {
             modeIds: ids(modes?.availableModes, 'id')
         }
     }
-    const modelMatches = (current: string | null, bare: string): boolean =>
-        current !== null && (current === bare || current.endsWith(`:${bare}`))
-
     let sessionState: SessionState | null = null
 
     const drive = async (): Promise<void> => {
@@ -644,7 +588,7 @@ export const runAcpTurn = (args: {
             // agent default, which such a build already runs.
             if (payload.modelOverride) {
                 const shouldSet = sessionState
-                    ? !modelMatches(
+                    ? !acpModelMatches(
                           sessionState.currentModelId,
                           payload.modelOverride
                       )

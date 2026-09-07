@@ -26,6 +26,7 @@ import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
+import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     daemonAdvertisesFeature,
@@ -38,6 +39,13 @@ import {
     type EmittedErrorEvent
 } from '@/modules/chat/chat-adapter'
 import { messageToPromptText } from './message-content'
+import {
+    AcpTurn,
+    type AcpEvent,
+    type AcpRequestTimeouts
+} from './hermes-acp-client'
+import { OPENCLAW_ACP_DIALECT } from '@manyfold/shared'
+import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
 import { parseOpenclawJsonOutput } from './openclaw-json-parser'
 import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -93,6 +101,123 @@ const openclawTurnRpcEnabled = (): boolean =>
     ['1', 'true', 'yes'].includes(
         (process.env.MF_OPENCLAW_TURN_RPC ?? '').toLowerCase()
     )
+
+// Gates the API-driven ACP transport (openclaw acp over interactive exec) on
+// the sprites-no-runner and k8s cells. Read per call so a drill can flip it
+// without a restart. Off by default: the gateway-http path stays the shipped
+// behaviour until the ACP soak proves out (ADR-0027).
+const openclawAcpEnabled = (): boolean =>
+    ['1', 'true', 'yes'].includes(
+        (process.env.MF_OPENCLAW_ACP ?? '').toLowerCase()
+    )
+
+// `openclaw acp` is a bridge to the resident gateway that runs INSIDE the
+// sprite/pod, so it connects over loopback with the gateway's own token — never
+// the public ingress (which device-pairs and proxy-attributes as of 2026.8.1).
+const OPENCLAW_ACP_GATEWAY_URL = `ws://127.0.0.1:${OPENCLAW_PORT}`
+const OPENCLAW_ACP_ARGS = ['acp', '--url', OPENCLAW_ACP_GATEWAY_URL, '--no-prefix-cwd']
+
+// The exec command for an openclaw ACP turn. In `dontAsk` there is nothing to
+// set — the bridge runs directly. In an ask mode the session's exec-approval
+// level is pre-patched over the loopback gateway BEFORE the bridge starts, then
+// `exec` hands off. Verified against openclaw@2026.5.18 [2026-09-07]:
+// sessions.patch UPSERTS the (deterministic) key, so the level applies from
+// this turn; `openclaw gateway call` runs in-box over loopback with the gateway
+// token, so it needs no device pairing (the off-box ingress would).
+const openclawAcpCmd = (opts: {
+    sessionKey: string
+    execAsk: string | null
+    model: string | null
+}): string[] => {
+    const acp = ['openclaw', ...OPENCLAW_ACP_ARGS]
+    if (!opts.execAsk && !opts.model) return acp
+    const patchParams: Record<string, unknown> = { key: opts.sessionKey }
+    // The gateway registers each catalog model under the `primary` provider, so
+    // a pick routes as `primary/<model>`. Probe-verified [2026-09-07] to change
+    // a live session's model from the next prompt and stick to the key.
+    if (opts.model) patchParams.model = `primary/${opts.model}`
+    if (opts.execAsk) patchParams.execAsk = opts.execAsk
+    const params = JSON.stringify(patchParams)
+    const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
+    return ['bash', '-lc', `${patch}; exec ${acp.join(' ')}`]
+}
+// Distinct parser namespace + ordinal keys from the SSE/CLI decoders so the
+// durable raw_source rows are self-describing and versioned independently.
+const OPENCLAW_ACP_PARSER_NAME = 'openclaw-acp'
+const OPENCLAW_ACP_PARSER_VERSION = '1'
+
+// The gateway session key that pins cross-turn continuity. Measured against
+// openclaw@2026.5.18 [2026-09-07]: history survives a bridge restart when a new
+// session/new carries the SAME _meta.sessionKey — the ACP sessionId itself is
+// disposable — so this deterministic key IS the session identity, and the API
+// never calls session/resume.
+const openclawGatewaySessionKey = (internalId: string, sessionId: string): string =>
+    `agent:${internalId || 'main'}:mf-${sessionId}`
+
+// One ACP event -> the durable raw_source row plus its semantic event, mirroring
+// the SSE path's shape so the renderer treats an ACP turn like any other.
+function* openclawAcpEventToChatEvents(
+    ev: AcpEvent,
+    ctx: ApiChatAdapterContext,
+    sourceSeq: number
+): IterableIterator<EmittedChatEvent> {
+    yield {
+        type: 'raw_source',
+        source: {
+            sourceRef: ctx.frameworkSessionRef,
+            sourceSeq,
+            externalId: `openclaw-acp-${sourceSeq}`,
+            parentExternalId: null,
+            rawFormat: 'json',
+            rawJson: ev as unknown as Record<string, unknown>,
+            parserName: OPENCLAW_ACP_PARSER_NAME,
+            parserVersion: OPENCLAW_ACP_PARSER_VERSION
+        }
+    } as EmittedChatEvent
+    switch (ev.type) {
+        case 'text':
+            if (ev.text) yield { type: 'token', text: ev.text }
+            break
+        case 'thinking':
+            if (ev.text) yield { type: 'thinking', text: ev.text }
+            break
+        case 'tool_call':
+            yield {
+                type: 'tool_call',
+                toolCallId: ev.toolCallId,
+                toolName: ev.toolName,
+                args: ev.input ?? {}
+            }
+            break
+        case 'tool_result':
+            yield {
+                type: 'tool_result',
+                toolCallId: ev.toolCallId,
+                result: ev.result
+            }
+            break
+        case 'permission_request':
+            yield {
+                type: 'permission_request',
+                requestId: ev.requestId,
+                toolCallId: ev.toolCallId,
+                title: ev.title,
+                detail: ev.detail,
+                options: ev.options
+            }
+            break
+        case 'permission_resolution':
+            yield {
+                type: 'permission_resolution',
+                requestId: ev.requestId,
+                outcome: ev.outcome,
+                optionId: ev.optionId
+            }
+            break
+        default:
+            break
+    }
+}
 
 // Decode state shared between one turn's deltas — the live SSE loop and the
 // replayed turn stream both thread it through decodeDelta.
@@ -180,7 +305,13 @@ export class OpenclawAdapter implements ApiChatAdapter {
         @Optional() private readonly adminSettings?: AdminSettingsService,
         // Same rule. Absent, turn.start dispatches unfenced as before (#619).
         @Optional()
-        private readonly fencedDispatch?: DaemonFencedDispatchService
+        private readonly fencedDispatch?: DaemonFencedDispatchService,
+        // Same rule — appended last. The permission coordinator is
+        // framework-agnostic (keyed by messageId); absent, an ask-mode turn
+        // still surfaces the request as a stream event but cannot take the
+        // answer back, so it degrades to auto-approve.
+        @Optional()
+        private readonly permissionCoordinator?: HermesPermissionCoordinator
     ) {}
 
     getCapabilities(): ChatCapabilities {
@@ -254,6 +385,14 @@ export class OpenclawAdapter implements ApiChatAdapter {
             !!this.daemonRegistry &&
             openclawTurnRpcEnabled() &&
             (await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
+        // API-driven ACP for the non-runner sprite and k8s cells. Guarded on
+        // `this.framework === 'openclaw'` so narranexus (which extends this
+        // adapter and calls super.sendMessage) always keeps the gateway-http
+        // path — it speaks /v1/chat/completions and has no `openclaw acp`.
+        const viaAcp =
+            this.framework === 'openclaw' &&
+            openclawAcpEnabled() &&
+            !viaTurnRpc
         let succeeded = false
         try {
             const source = viaTurnRpc
@@ -263,14 +402,18 @@ export class OpenclawAdapter implements ApiChatAdapter {
                       runtime,
                       ctx.runnerDaemonId!
                   )
-                : this.sendOpenAiCompat(ctx, userMessage, runtime)
+                : viaAcp
+                  ? this.sendViaOpenclawAcp(ctx, userMessage, runtime, agentRow.internalId)
+                  : this.sendOpenAiCompat(ctx, userMessage, runtime)
             for await (const ev of source) {
                 if (ev.type === 'done') succeeded = true
                 if (ev.type === 'error') succeeded = false
                 yield ev
             }
         } finally {
-            if (succeeded && !ctx.frameworkSessionRef) {
+            // The ACP path persists its own (deterministic) gateway key, so
+            // skip the legacy FS scan for it.
+            if (succeeded && !ctx.frameworkSessionRef && !viaAcp) {
                 await this.backfillSessionRefFromFs(ctx).catch((err) => {
                     this.logger.warn(
                         `openclaw ref backfill failed for ${ctx.sessionId}: ${(err as Error).message}`
@@ -573,6 +716,230 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 ...(attachments.length > 0 ? { attachments } : {})
             }
         }
+    }
+
+    // API-driven ACP for the sprites-no-runner and k8s cells: the API drives
+    // `openclaw acp` (a bridge to the resident gateway) over an interactive
+    // exec, exactly like hermes's sendViaInteractiveAcp. Non-resumable by
+    // construction — ACP is client-driven, so a lost API loses the turn — and
+    // every failure is a retryable error, never `suspended`. Simpler than
+    // hermes: openclaw's model is per-agent (no set_model) and its permission
+    // lever is a gateway-side execAsk, so this path only runs the turn.
+    private async *sendViaOpenclawAcp(
+        ctx: ApiChatAdapterContext,
+        userMessage: ChatMessage,
+        runtime: OpenclawRuntime,
+        internalId: string
+    ): AsyncIterable<EmittedChatEvent> {
+        if (ctx.abortSignal?.aborted) {
+            yield cancelledEvent()
+            return
+        }
+        let handle
+        try {
+            handle = await this.drivers.forAgent(ctx.agentId)
+        } catch (err) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'openclaw_acp_failed',
+                    message: (err as Error).message,
+                    retryable: true
+                }
+            }
+            return
+        }
+        const streamInteractive = handle.driver.streamInteractive?.bind(
+            handle.driver
+        )
+        if (!streamInteractive) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'openclaw_acp_failed',
+                    message: `runtime ${handle.runtime} has no interactive exec transport`,
+                    retryable: false
+                }
+            }
+            return
+        }
+        const budgets = await this.streamBudgets()
+        const acpBudgets: AcpRequestTimeouts = {
+            idleTimeoutMs: budgets.idleTimeoutMs,
+            maxDurationMs: budgets.maxDurationMs
+        }
+        const cwd = handle.agent.workspacePath ?? null
+        const prompt = messageToPromptText(userMessage)
+        const sessionKey = openclawGatewaySessionKey(internalId, ctx.sessionId)
+        // `default` turns exec approval on for this session; `dontAsk` (the
+        // default) leaves the gateway's shipped tools.exec.ask:'off', so nothing
+        // is patched and nothing prompts — byte-for-byte today's behaviour.
+        const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
+        const interactive = permissionMode === 'default'
+        // 'on-miss' asks for out-of-allowlist commands (the "ask about risky
+        // things" posture). The patch mechanism and the approval round-trip are
+        // probe-verified; the exact enum is a tunable posture.
+        const execAsk = interactive ? 'on-miss' : null
+        // The per-message model pick, applied via the same in-box patch. Null
+        // (the common case) leaves the session on its current/default model.
+        const modelOverride = ctx.modelOverride
+
+        if (ctx.abortSignal?.aborted) {
+            yield cancelledEvent()
+            return
+        }
+
+        const queue: AcpEvent[] = []
+        const waker: { resolve: (() => void) | null } = { resolve: null }
+        const wake = (): void => {
+            const r = waker.resolve
+            waker.resolve = null
+            if (r) r()
+        }
+        const transport = streamInteractive({
+            cmd: openclawAcpCmd({ sessionKey, execAsk, model: modelOverride }),
+            env: {
+                // The bridge authenticates to the loopback gateway with its own
+                // token; the model call happens inside that gateway, which
+                // already holds the provider key, so no alias env rides here.
+                OPENCLAW_GATEWAY_TOKEN: runtime.gatewayToken,
+                OPENCLAW_HIDE_BANNER: '1',
+                OPENCLAW_SUPPRESS_NOTES: '1'
+            },
+            ...(cwd ? { dir: cwd } : {}),
+            timeoutMs: acpBudgets.maxDurationMs,
+            keepAliveMs: budgets.headersTimeoutMs
+        })
+        const turn = new AcpTurn({
+            transport,
+            onEvent: (ev) => {
+                queue.push(ev)
+                wake()
+            },
+            dialect: OPENCLAW_ACP_DIALECT,
+            sessionKey,
+            logger: this.logger,
+            permissionPolicy: interactive ? 'interactive' : 'auto'
+        })
+        const unregisterPermissions =
+            interactive && this.permissionCoordinator
+                ? this.permissionCoordinator.register(ctx.messageId, {
+                      respond: (requestId, optionId) =>
+                          turn.respondPermission(requestId, optionId),
+                      pendingIds: () => turn.pendingPermissionIds
+                  })
+                : null
+
+        const state = { finished: false, aborted: false }
+        const onAbort = (): void => {
+            state.aborted = true
+            turn.abort()
+            wake()
+        }
+        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
+
+        const seq = { current: 0 }
+        const fatal = { yielded: false }
+        const drainQueue = function* (
+            this: OpenclawAdapter
+        ): IterableIterator<EmittedChatEvent> {
+            while (queue.length > 0) {
+                const ev = queue.shift()!
+                if (ev.type === 'error') {
+                    if (fatal.yielded) continue
+                    const managedChannelFailure =
+                        classifyManagedChannelFailureSignal({
+                            message: ev.detail ?? ev.message
+                        })
+                    yield {
+                        type: 'error',
+                        ...(managedChannelFailure ? { managedChannelFailure } : {}),
+                        error: {
+                            code: 'openclaw_acp_event',
+                            message: ev.message,
+                            retryable: managedChannelFailure !== null
+                        }
+                    }
+                    fatal.yielded = true
+                    state.aborted = true
+                    turn.abort()
+                    return
+                }
+                if (ev.type === 'usage_update' || ev.type === 'turn_end')
+                    continue
+                seq.current += 1
+                yield* openclawAcpEventToChatEvents(ev, ctx, seq.current)
+            }
+        }.bind(this)
+
+        const errorRef: { current: Error | null } = { current: null }
+        const promptDone = (async (): Promise<void> => {
+            try {
+                await turn.initialize(30_000)
+                // Continuity is the gateway session's, keyed by _meta.sessionKey
+                // — the ACP sessionId is disposable — so every turn is a fresh
+                // session/new on the same key. No session/resume.
+                await turn.newSession({ cwd: cwd ?? '.', timeoutMs: 30_000 })
+                await turn.prompt({ prompt, timeouts: acpBudgets })
+            } finally {
+                state.finished = true
+                wake()
+            }
+        })()
+        promptDone.catch((err) => {
+            errorRef.current = err as Error
+        })
+
+        try {
+            while (!state.finished || queue.length > 0) {
+                if (queue.length === 0)
+                    await new Promise<void>((resolve) => {
+                        waker.resolve = resolve
+                    })
+                for (const ev of drainQueue()) yield ev
+                if (state.aborted) break
+            }
+        } finally {
+            await turn.close().catch(() => {})
+            unregisterPermissions?.()
+            ctx.abortSignal?.removeEventListener('abort', onAbort)
+        }
+
+        if (fatal.yielded) {
+            yield { type: 'done', finalMessageId: ctx.messageId }
+            return
+        }
+        if (state.aborted) {
+            yield cancelledEvent()
+            return
+        }
+        const runError = errorRef.current
+        if (runError) {
+            const managedChannelFailure = classifyManagedChannelFailureSignal({
+                message: runError.message
+            })
+            yield {
+                type: 'error',
+                ...(managedChannelFailure ? { managedChannelFailure } : {}),
+                error: {
+                    code: 'openclaw_acp_failed',
+                    message: runError.message,
+                    retryable: true
+                }
+            }
+            return
+        }
+        // Persist the deterministic gateway key so the next turn skips the
+        // legacy FS backfill and knows a session exists.
+        if (ctx.frameworkSessionRef !== sessionKey)
+            await this.chatRepo
+                .updateFrameworkSessionRef(ctx.sessionId, sessionKey, ctx.turnFence)
+                .catch((err) =>
+                    this.logger.warn(
+                        `openclaw acp session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
+                    )
+                )
+        yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
     private async *sendOpenAiCompat(

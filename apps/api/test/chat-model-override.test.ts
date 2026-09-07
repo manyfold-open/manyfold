@@ -43,6 +43,7 @@ const baseCtx: ApiChatAdapterContext = {
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
     hermesPermissionMode: null,
+    openclawPermissionMode: null,
     frameworkSessionRef: null,
     history: []
 }
@@ -53,7 +54,7 @@ test('ChatService rejects unsupported model override before inserting messages',
         select: () => ({
             from: () => ({
                 where: () => ({
-                    limit: async () => [{ framework: 'openclaw' }]
+                    limit: async () => [{ framework: 'narranexus' }]
                 })
             })
         })
