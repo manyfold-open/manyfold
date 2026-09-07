@@ -2064,6 +2064,19 @@ export interface QuotaWarningEvent {
     at: string
 }
 
+export type ChatSessionListChangeReason = 'created' | 'titled'
+
+// Signal only. At emit time the session's channel link is not inserted yet and
+// its title may not be derived, so a carried row would be wrong on arrival —
+// the client refetches the agent's list instead.
+export interface ChatSessionsChangedEvent {
+    type: 'chat-sessions-changed'
+    agentId: string
+    sessionId: string
+    reason: ChatSessionListChangeReason
+    at: string
+}
+
 export type SpriteStatusEvent =
     | {
           type: 'snapshot'
@@ -2073,6 +2086,7 @@ export type SpriteStatusEvent =
     | ({ type: 'update' } & SpriteStatusUpdate)
     | ({ type: 'host-update' } & SpriteHostStatusUpdate)
     | QuotaWarningEvent
+    | ChatSessionsChangedEvent
 
 export interface AgentSummary {
     id: string

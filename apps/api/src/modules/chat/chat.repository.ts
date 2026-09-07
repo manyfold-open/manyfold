@@ -505,13 +505,18 @@ export class ChatRepository {
         return cleared.length > 0
     }
 
-    async updateTitleIfEmpty(sessionId: string, title: string): Promise<void> {
-        await this.db
+    async updateTitleIfEmpty(
+        sessionId: string,
+        title: string
+    ): Promise<boolean> {
+        const updated = await this.db
             .update(chatSessions)
             .set({ title, updatedAt: new Date() })
             .where(
                 and(eq(chatSessions.id, sessionId), isNull(chatSessions.title))
             )
+            .returning({ id: chatSessions.id })
+        return updated.length > 0
     }
 
     async updateTitle(

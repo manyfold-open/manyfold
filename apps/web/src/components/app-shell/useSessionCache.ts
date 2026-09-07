@@ -18,10 +18,18 @@ const filterRecordToIds = <T>(
         Object.entries(value).filter(([agentId]) => validIds.has(agentId))
     )
 
+export interface RefreshSessionsOptions {
+    clearOnError?: boolean
+    showLoading?: boolean
+}
+
 export interface SessionCache {
     ensureSessionsForAgent: (agentId: string) => void
     pruneSessionCacheToAgentIds: (agentIds: readonly string[]) => void
-    refreshSessionsForAgent: (agentId: string) => Promise<ChatSessionSummary[]>
+    refreshSessionsForAgent: (
+        agentId: string,
+        options?: RefreshSessionsOptions
+    ) => Promise<ChatSessionSummary[]>
     sessionErrorByAgent: SessionErrorByAgent
     sessionLoadingByAgent: SessionLoadingByAgent
     sessionsByAgent: SessionsByAgent
@@ -35,11 +43,16 @@ export const useSessionCache = (client: NcaClient): SessionCache => {
         useState<SessionErrorByAgent>({})
 
     const refreshSessionsForAgent = useCallback(
-        async (agentId: string): Promise<ChatSessionSummary[]> => {
-            setSessionLoadingByAgent((prev) => ({
-                ...prev,
-                [agentId]: true
-            }))
+        async (
+            agentId: string,
+            options: RefreshSessionsOptions = {}
+        ): Promise<ChatSessionSummary[]> => {
+            const showLoading = options.showLoading ?? true
+            if (showLoading)
+                setSessionLoadingByAgent((prev) => ({
+                    ...prev,
+                    [agentId]: true
+                }))
             setSessionErrorByAgent((prev) => ({
                 ...prev,
                 [agentId]: null
@@ -58,16 +71,18 @@ export const useSessionCache = (client: NcaClient): SessionCache => {
                     ...prev,
                     [agentId]: (err as Error).message
                 }))
-                setSessionsByAgent((prev) => ({
-                    ...prev,
-                    [agentId]: []
-                }))
+                if (options.clearOnError !== false)
+                    setSessionsByAgent((prev) => ({
+                        ...prev,
+                        [agentId]: []
+                    }))
                 return []
             } finally {
-                setSessionLoadingByAgent((prev) => ({
-                    ...prev,
-                    [agentId]: false
-                }))
+                if (showLoading)
+                    setSessionLoadingByAgent((prev) => ({
+                        ...prev,
+                        [agentId]: false
+                    }))
             }
         },
         [client]

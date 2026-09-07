@@ -393,6 +393,7 @@ const makeServiceHarness = (): {
         releaseInflightTurn: async () => {},
         updateTitleIfEmpty: async (_sessionId: string, title: string) => {
             harness.title = title
+            return true
         },
         touchSession: async () => undefined
     }

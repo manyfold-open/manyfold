@@ -1,4 +1,5 @@
 import type {
+    ChatSessionsChangedEvent,
     QuotaWarningEvent,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
@@ -11,6 +12,7 @@ import {
 } from '@/modules/agents/sprite-status/sprite-status-bus'
 
 export type {
+    ChatSessionsChangedEvent,
     QuotaWarningEvent,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
@@ -90,6 +92,24 @@ export class SpriteStatusBroadcaster {
         )
         this.deliverLocal(userId, event, opts)
         this.bus.publish(userId, event, opts)
+    }
+
+    // Unlike its siblings this one is called from inside HTTP write paths, so
+    // the guard lives here: a failed notification must never turn a successful
+    // session create into a 500.
+    emitSessionsChanged(userId: string, event: ChatSessionsChangedEvent): void {
+        const count = this.subscribers.get(userId)?.size ?? 0
+        this.log.log(
+            `emit chat-sessions-changed userId=${userId} agentId=${event.agentId} sessionId=${event.sessionId} reason=${event.reason} subscribers=${count}`
+        )
+        try {
+            this.deliverLocal(userId, event, {})
+            this.bus.publish(userId, event)
+        } catch (err) {
+            this.log.warn(
+                `chat-sessions-changed emit failed: ${(err as Error).message}`
+            )
+        }
     }
 
     private deliverLocal(
