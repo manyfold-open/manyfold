@@ -137,6 +137,53 @@ test('first sync inserts one runtime per detected framework', async () => {
     assert.equal(inserts[0].insertVals?.daemonId, 'dh-1')
 })
 
+// A managed host is a sprite-runner: a daemon we start inside a sandbox VM to
+// dispatch coding-agent turns. Its openclaw/hermes are the same instance the
+// agent's kind='sprites' runtime already represents; materializing a daemon
+// runtime for them only gives reconcile a surface on which it adopts the
+// built-in 'main'/'default' profile as a phantom duplicate agent. Only coding
+// runtimes belong on a runner.
+test('a managed sprite-runner skips service frameworks, keeps coding ones', async () => {
+    const db = new FakeDb()
+    db.setRows([])
+    const svc = new DaemonRuntimeSyncService(wireDb(db))
+    const result = await svc.syncForDaemon({
+        host: host({ managed: true }),
+        detectedFrameworks: [
+            { framework: 'openclaw', version: '2026.7.1', path: '/x/openclaw' },
+            { framework: 'codex', version: '0.5', path: '/x/codex' }
+        ]
+    })
+    const inserts = db.mutations.filter((m) => m.op === 'insert')
+    assert.equal(inserts.length, 1, 'only the coding framework is materialized')
+    assert.equal(inserts[0].insertVals?.framework, 'codex')
+    assert.equal(result.length, 1)
+    assert.ok(
+        !result.some((r) => r.framework === 'openclaw'),
+        'no openclaw daemon runtime on a runner host'
+    )
+})
+
+// The same detection on a user's OWN machine (unmanaged) is legitimate: they run
+// openclaw locally and manage its agents through Manyfold, so the guard must be
+// scoped to managed hosts, not to the framework alone.
+test('an unmanaged daemon still materializes service frameworks', async () => {
+    const db = new FakeDb()
+    db.setRows([])
+    const svc = new DaemonRuntimeSyncService(wireDb(db))
+    await svc.syncForDaemon({
+        host: host({ managed: false }),
+        detectedFrameworks: [
+            { framework: 'openclaw', version: '2026.7.1', path: '/x/openclaw' },
+            { framework: 'codex', version: '0.5', path: '/x/codex' }
+        ]
+    })
+    const frameworks = db.mutations
+        .filter((m) => m.op === 'insert')
+        .map((m) => m.insertVals?.framework)
+    assert.deepEqual(frameworks, ['openclaw', 'codex'])
+})
+
 test('a name held under another daemon gets a numeric suffix', async () => {
     // The dev502 shape: the machine re-registered under a new daemon uuid, so
     // the old runtime row (same user, other daemonId) still holds

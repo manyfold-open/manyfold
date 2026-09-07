@@ -1022,7 +1022,8 @@ export {
     machineSkillsDir,
     machineWorkspacesRoot,
     profilePaths,
-    profilesRoot
+    profilesRoot,
+    runnerHostName
 } from './profile-paths'
 export type { ProfilePaths } from './profile-paths'
 export {
