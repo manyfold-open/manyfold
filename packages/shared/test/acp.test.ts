@@ -6,8 +6,10 @@ import {
     acpModelMatches,
     decodeAcpSessionState,
     decodePermissionRequest,
+    HERMES_ACP_DIALECT,
     isFatalStderrLine,
     MANYFOLD_PERMISSION_RESOLUTION_METHOD,
+    OPENCLAW_ACP_DIALECT,
     pickAutoApproveOptionId,
     pickRejectOptionId,
     pickStderrErrorLine,
@@ -247,4 +249,32 @@ test('stderr classifiers: fatal markers and most-informative line', () => {
         'HTTP 401 Unauthorized'
     )
     assert.equal(pickStderrErrorLine(['✓ booted', 'ready']), null)
+})
+
+test('HERMES_ACP_DIALECT pins the hermes seams (error prefix is load-bearing)', () => {
+    assert.equal(HERMES_ACP_DIALECT.id, 'hermes')
+    assert.equal(HERMES_ACP_DIALECT.errorPrefix, 'hermes')
+    assert.equal(HERMES_ACP_DIALECT.logTag, '[hermes:stderr]')
+    assert.equal(HERMES_ACP_DIALECT.legacyAutoApproveOptionId, 'approve_for_session')
+    // hermes sends no session/prompt _meta and pins no gateway key.
+    assert.equal(HERMES_ACP_DIALECT.sessionMeta, undefined)
+    assert.equal(HERMES_ACP_DIALECT.promptMeta, undefined)
+    // The adapter classifies set_model failures on this exact substring.
+    const msg = `${HERMES_ACP_DIALECT.errorPrefix} session/set_model failed: -32601`
+    assert.equal(msg, 'hermes session/set_model failed: -32601')
+    assert.match(msg, /session\/set_model/)
+})
+
+test('OPENCLAW_ACP_DIALECT pins the openclaw seams', () => {
+    assert.equal(OPENCLAW_ACP_DIALECT.id, 'openclaw')
+    assert.equal(OPENCLAW_ACP_DIALECT.errorPrefix, 'openclaw')
+    // openclaw always advertises options, so no legacy fallback.
+    assert.equal(OPENCLAW_ACP_DIALECT.legacyAutoApproveOptionId, null)
+    // Continuity is pinned by the gateway session key, and the bridge's cwd
+    // prefix is suppressed.
+    assert.deepEqual(OPENCLAW_ACP_DIALECT.sessionMeta?.('agent:main:mf-s1'), {
+        _meta: { sessionKey: 'agent:main:mf-s1' }
+    })
+    assert.deepEqual(OPENCLAW_ACP_DIALECT.sessionMeta?.(null), {})
+    assert.deepEqual(OPENCLAW_ACP_DIALECT.promptMeta, { _meta: { prefixCwd: false } })
 })

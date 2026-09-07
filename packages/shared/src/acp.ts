@@ -73,6 +73,54 @@ export interface JsonRpcNotification {
 
 export const ACP_PROTOCOL_VERSION = 1
 
+// The per-framework knobs the shared ACP client and the daemon ACP runner take,
+// so a second framework plugs in without a second copy of the protocol logic.
+// Everything else (the decoders above, the request/timeout machinery, the
+// permission bookkeeping) is framework-neutral.
+export interface AcpDialect {
+    id: 'hermes' | 'openclaw'
+    // Every thrown message is `${errorPrefix} ${method} …`. LOAD-BEARING: the
+    // hermes adapter classifies set_model failures on the substring
+    // 'session/set_model' inside "hermes session/set_model failed: …", and the
+    // managed-channel breaker reads these strings.
+    errorPrefix: string
+    // The stderr debug log tag, e.g. '[hermes:stderr]'.
+    logTag: string
+    // hermes predates the request-carried options array, so its headless
+    // auto-approve keeps 'approve_for_session' for builds that advertise none;
+    // openclaw always advertises options, so it passes null.
+    legacyAutoApproveOptionId: string | null
+    // Extra params merged into session/new and session/resume. openclaw pins the
+    // gateway session by key here (`_meta.sessionKey`); hermes sends nothing.
+    sessionMeta?: (sessionKey: string | null) => Record<string, unknown>
+    // Extra params merged into session/prompt. openclaw suppresses the bridge's
+    // cwd prefix (`_meta.prefixCwd: false`); hermes sends nothing.
+    promptMeta?: Record<string, unknown>
+}
+
+export const HERMES_ACP_DIALECT: AcpDialect = {
+    id: 'hermes',
+    errorPrefix: 'hermes',
+    logTag: '[hermes:stderr]',
+    legacyAutoApproveOptionId: 'approve_for_session'
+}
+
+// `openclaw acp` is a bridge to a resident Gateway, so continuity lives in the
+// gateway session addressed by `_meta.sessionKey`, not in a resumable ACP id;
+// `--no-prefix-cwd` (mirrored by `_meta.prefixCwd:false`) keeps the working
+// directory out of the prompt text. Measured against openclaw@2026.5.18
+// [2026-09-07]: the bridge advertises allow_once / reject_once options, so no
+// legacy fallback is needed.
+export const OPENCLAW_ACP_DIALECT: AcpDialect = {
+    id: 'openclaw',
+    errorPrefix: 'openclaw',
+    logTag: '[openclaw:stderr]',
+    legacyAutoApproveOptionId: null,
+    sessionMeta: (sessionKey) =>
+        sessionKey ? { _meta: { sessionKey } } : {},
+    promptMeta: { _meta: { prefixCwd: false } }
+}
+
 // Pick the auto-approve answer from the request's OWN options. The previous
 // hardcoded 'approve_for_session' matches no option id current hermes builds
 // advertise, and an unknown id maps to DENY on both of its approval bridges —

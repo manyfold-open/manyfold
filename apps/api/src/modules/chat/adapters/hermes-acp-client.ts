@@ -8,9 +8,11 @@ import {
     pickAutoApproveOptionId,
     pickRejectOptionId,
     pickStderrErrorLine,
-    ACP_PROTOCOL_VERSION
+    ACP_PROTOCOL_VERSION,
+    HERMES_ACP_DIALECT
 } from '@manyfold/shared'
 import type {
+    AcpDialect,
     AcpEvent,
     AcpRequestTimeouts,
     AcpSessionState,
@@ -60,17 +62,14 @@ const PROTOCOL_VERSION = ACP_PROTOCOL_VERSION
 const ACP_DEFAULT_CMD = ['hermes', 'acp', '--accept-hooks']
 export const HERMES_ACP_CMD = ACP_DEFAULT_CMD
 
-// hermes predates the request-carried options array, so its headless
-// auto-approve keeps the legacy id for builds that advertise none.
-const HERMES_LEGACY_AUTO_APPROVE_OPTION_ID = 'approve_for_session'
-
 // The same ACP JSON-RPC core over any InteractiveExecHandle (sprite exec,
 // pod exec). The daemon runtime keeps its client inside the CLI
 // (turn.start/acp-turn.ts) so the turn survives an API restart; this class is
 // the API-side client for runtimes where no daemon can own the turn — those
 // turns are non-resumable by construction, exactly like the transport.
-export class HermesAcpTurn {
+export class AcpTurn {
     private readonly log: Logger
+    private readonly dialect: AcpDialect
     private readonly transport: InteractiveExecHandle
     private readonly onEvent: (ev: AcpEvent) => void
     private readonly pending = new Map<number, PendingRequest>()
@@ -78,6 +77,8 @@ export class HermesAcpTurn {
     private readonly permissionPolicy: 'auto' | 'interactive'
     private readonly permissionTimeoutMs: number
     private readonly permissionKeepAliveMs: number
+    // The gateway session key openclaw pins on session/new; null for hermes.
+    private readonly sessionKey: string | null
     // Asks forwarded to the user and not yet answered, keyed by the agent's
     // own JSON-RPC id (stringified — it is the requestId on the wire).
     private readonly pendingPermissions = new Map<
@@ -103,6 +104,8 @@ export class HermesAcpTurn {
     constructor(opts: {
         transport: InteractiveExecHandle
         onEvent: (ev: AcpEvent) => void
+        dialect?: AcpDialect
+        sessionKey?: string | null
         logger?: Logger
         closeGraceMs?: number
         permissionPolicy?: 'auto' | 'interactive'
@@ -111,7 +114,9 @@ export class HermesAcpTurn {
     }) {
         this.transport = opts.transport
         this.onEvent = opts.onEvent
-        this.log = opts.logger ?? new Logger(HermesAcpTurn.name)
+        this.dialect = opts.dialect ?? HERMES_ACP_DIALECT
+        this.sessionKey = opts.sessionKey ?? null
+        this.log = opts.logger ?? new Logger(AcpTurn.name)
         this.closeGraceMs = opts.closeGraceMs ?? 5_000
         this.permissionPolicy = opts.permissionPolicy ?? 'auto'
         this.permissionTimeoutMs = opts.permissionTimeoutMs ?? 300_000
@@ -164,7 +169,7 @@ export class HermesAcpTurn {
         // on stdout while hermes still logs progress here. A chatty-but-wedged
         // child is caught by the max-duration budget instead.
         this.touchPending()
-        this.log.debug(`[hermes:stderr] ${trimmed}`)
+        this.log.debug(`${this.dialect.logTag} ${trimmed}`)
         for (const rawLine of trimmed.split(/\r?\n/)) {
             const line = rawLine.trim()
             if (!line) continue
@@ -179,7 +184,7 @@ export class HermesAcpTurn {
             if (!this.exitError && isFatalStderrLine(line)) {
                 const tail = this.stderrTail.slice(-12).join('\n').trim()
                 const detail = tail
-                    ? `${line}\n--- hermes stderr (tail) ---\n${tail}`
+                    ? `${line}\n--- ${this.dialect.errorPrefix} stderr (tail) ---\n${tail}`
                     : line
                 this.exitError = new Error(detail)
                 this.onEvent({ type: 'error', message: line, detail })
@@ -201,10 +206,10 @@ export class HermesAcpTurn {
             err?.message ??
             summary ??
             (exitCode !== null
-                ? `hermes acp exited with code ${exitCode}`
-                : 'hermes acp exited unexpectedly')
+                ? `${this.dialect.errorPrefix} acp exited with code ${exitCode}`
+                : `${this.dialect.errorPrefix} acp exited unexpectedly`)
         const detail = tail
-            ? `${reason}\n--- hermes stderr (tail) ---\n${tail}`
+            ? `${reason}\n--- ${this.dialect.errorPrefix} stderr (tail) ---\n${tail}`
             : reason
         this.exitError = new Error(detail)
         for (const [, p] of this.pending) p.reject(this.exitError)
@@ -258,7 +263,9 @@ export class HermesAcpTurn {
         if (!pending) return
         this.pending.delete(id)
         if (resp.error) {
-            const msg = resp.error.message ?? `hermes ${pending.method} failed`
+            const msg =
+            resp.error.message ??
+            `${this.dialect.errorPrefix} ${pending.method} failed`
             pending.reject(new Error(msg))
             return
         }
@@ -308,7 +315,7 @@ export class HermesAcpTurn {
                     outcome: 'selected',
                     optionId: pickAutoApproveOptionId(
                         req.params,
-                        HERMES_LEGACY_AUTO_APPROVE_OPTION_ID
+                        this.dialect.legacyAutoApproveOptionId
                     )
                 }
             }
@@ -410,7 +417,8 @@ export class HermesAcpTurn {
         params: Record<string, unknown>,
         timeouts: number | AcpRequestTimeouts
     ): Promise<T> {
-        if (this.closed) throw new Error('hermes acp turn already closed')
+        if (this.closed)
+            throw new Error(`${this.dialect.errorPrefix} acp turn already closed`)
         if (this.exitError) throw this.exitError
         const { idleTimeoutMs, maxDurationMs } = asTimeouts(timeouts)
         const id = this.nextId++
@@ -432,7 +440,7 @@ export class HermesAcpTurn {
                 idleTimer = setTimeout(
                     () =>
                         fail(
-                            `hermes ${method} produced no output for ${idleTimeoutMs}ms`
+                            `${this.dialect.errorPrefix} ${method} produced no output for ${idleTimeoutMs}ms`
                         ),
                     idleTimeoutMs
                 )
@@ -440,7 +448,7 @@ export class HermesAcpTurn {
             maxTimer = setTimeout(
                 () =>
                     fail(
-                        `hermes ${method} was still streaming when it hit its ${maxDurationMs}ms maximum duration`
+                        `${this.dialect.errorPrefix} ${method} was still streaming when it hit its ${maxDurationMs}ms maximum duration`
                     ),
                 maxDurationMs
             )
@@ -485,13 +493,16 @@ export class HermesAcpTurn {
             'session/new',
             {
                 cwd: args.cwd,
-                mcpServers: []
+                mcpServers: [],
+                ...(this.dialect.sessionMeta?.(this.sessionKey) ?? {})
             },
             args.timeoutMs
         )) as { sessionId?: string }
         const sid = result?.sessionId
         if (!sid || typeof sid !== 'string')
-            throw new Error('hermes session/new returned no sessionId')
+            throw new Error(
+                `${this.dialect.errorPrefix} session/new returned no sessionId`
+            )
         this.sessionId = sid
         this.lastSessionState = decodeAcpSessionState(result)
         return sid
@@ -507,7 +518,8 @@ export class HermesAcpTurn {
             {
                 cwd: args.cwd,
                 sessionId: args.sessionId,
-                mcpServers: []
+                mcpServers: [],
+                ...(this.dialect.sessionMeta?.(this.sessionKey) ?? {})
             },
             args.timeoutMs
         )) as { sessionId?: string }
@@ -526,7 +538,9 @@ export class HermesAcpTurn {
     // not carry it, and the adapter classifies on it.
     async setModel(args: { modelId: string; timeoutMs: number }): Promise<void> {
         if (!this.sessionId)
-            throw new Error('hermes session/set_model called without sessionId')
+            throw new Error(
+                `${this.dialect.errorPrefix} session/set_model called without sessionId`
+            )
         try {
             await this.request('session/set_model', {
                 sessionId: this.sessionId,
@@ -534,7 +548,7 @@ export class HermesAcpTurn {
             }, args.timeoutMs)
         } catch (err) {
             throw new Error(
-                `hermes session/set_model failed: ${(err as Error).message}`
+                `${this.dialect.errorPrefix} session/set_model failed: ${(err as Error).message}`
             )
         }
         if (this.lastSessionState)
@@ -557,7 +571,7 @@ export class HermesAcpTurn {
             )
         } catch (err) {
             this.log.warn(
-                `hermes session/set_mode ${args.modeId} failed: ${(err as Error).message}`
+                `${this.dialect.errorPrefix} session/set_mode ${args.modeId} failed: ${(err as Error).message}`
             )
         }
     }
@@ -569,12 +583,15 @@ export class HermesAcpTurn {
         timeouts: AcpRequestTimeouts
     }): Promise<Record<string, unknown> | undefined> {
         if (!this.sessionId)
-            throw new Error('hermes session/prompt called without sessionId')
+            throw new Error(
+                `${this.dialect.errorPrefix} session/prompt called without sessionId`
+            )
         return this.request<Record<string, unknown>>(
             'session/prompt',
             {
                 sessionId: this.sessionId,
-                prompt: [{ type: 'text', text: args.prompt }]
+                prompt: [{ type: 'text', text: args.prompt }],
+                ...(this.dialect.promptMeta ?? {})
             },
             args.timeouts
         )
@@ -609,7 +626,9 @@ export class HermesAcpTurn {
             await this.transport.result.catch(() => {})
         }
         for (const [, p] of this.pending)
-            p.reject(new Error('hermes acp turn closed'))
+            p.reject(
+                new Error(`${this.dialect.errorPrefix} acp turn closed`)
+            )
         this.pending.clear()
     }
 
@@ -622,7 +641,13 @@ export class HermesAcpTurn {
         if (this.closed) return
         this.closed = true
         for (const [, p] of this.pending)
-            p.reject(new Error('hermes acp turn aborted'))
+            p.reject(
+                new Error(`${this.dialect.errorPrefix} acp turn aborted`)
+            )
         this.pending.clear()
     }
 }
+
+// Back-compat alias: hermes.adapter and the ACP tests still say HermesAcpTurn.
+export const HermesAcpTurn = AcpTurn
+export type HermesAcpTurn = AcpTurn

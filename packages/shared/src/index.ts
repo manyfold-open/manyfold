@@ -16,8 +16,10 @@ export type {
     AcpEvent,
     AcpRequestTimeouts,
     JsonRpcNotification,
-    AcpSessionState
+    AcpSessionState,
+    AcpDialect
 } from './acp'
+export { HERMES_ACP_DIALECT, OPENCLAW_ACP_DIALECT } from './acp'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'
 export {
     apiTokenScopes,
