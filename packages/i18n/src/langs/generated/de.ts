@@ -3748,7 +3748,7 @@ const de: Record<string, string> = {
     'web.updates.run.succeeded': 'Aktualisiert',
     'web.updates.run.failed': 'Fehlgeschlagen',
     'web.updates.run.waiting': 'Warten auf das Ratenlimit-Fenster',
-    'web.updates.runningNotice': 'Updates laufen nacheinander; das Verlassen dieser Seite stoppt die Warteschlange.',
+    'web.updates.runningNotice': 'Updates laufen nacheinander und werden fortgesetzt, wenn Sie diese Seite verlassen.',
     'web.updates.batchSummary': '{{done}} aktualisiert · {{failed}} fehlgeschlagen',
     'web.updates.emptyTitle': 'Alles ist aktuell',
     'web.updates.emptyBody': 'Für Ihre Maschinen, Agenten oder Skills sind keine Updates verfügbar.',

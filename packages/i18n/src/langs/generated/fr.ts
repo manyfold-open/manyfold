@@ -3749,7 +3749,7 @@ const fr: Record<string, string> = {
     'web.updates.run.succeeded': 'Mis à jour',
     'web.updates.run.failed': 'Échec',
     'web.updates.run.waiting': 'En attente de la fenêtre de limitation',
-    'web.updates.runningNotice': 'Les mises à jour sont exécutées une par une ; quitter cette page arrête la file.',
+    'web.updates.runningNotice': 'Les mises à jour sont exécutées une par une et se poursuivent si vous quittez cette page.',
     'web.updates.batchSummary': '{{done}} mis à jour · {{failed}} en échec',
     'web.updates.emptyTitle': 'Tout est à jour',
     'web.updates.emptyBody': 'Aucune mise à jour disponible pour vos machines, agents ou compétences.',

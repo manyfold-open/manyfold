@@ -3749,7 +3749,7 @@ const ko: Record<string, string> = {
     "web.updates.run.succeeded": "업데이트됨",
     "web.updates.run.failed": "실패",
     "web.updates.run.waiting": "속도 제한 창 대기 중",
-    "web.updates.runningNotice": "업데이트는 하나씩 실행되며, 이 페이지를 벗어나면 대기열이 중단됩니다.",
+    "web.updates.runningNotice": "업데이트는 하나씩 실행되며, 이 페이지를 벗어나도 계속 진행됩니다.",
     "web.updates.batchSummary": "{{done}}개 업데이트 · {{failed}}개 실패",
     "web.updates.emptyTitle": "모두 최신 상태입니다",
     "web.updates.emptyBody": "머신, 에이전트 또는 스킬에 사용할 수 있는 업데이트가 없습니다.",
