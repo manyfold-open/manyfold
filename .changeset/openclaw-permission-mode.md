@@ -1,5 +1,4 @@
 ---
-'@manyfold/shared': minor
 '@manyfold/api': minor
 ---
 
