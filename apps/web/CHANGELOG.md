@@ -1,5 +1,17 @@
 # @manyfold/web
 
+## 0.62.0
+
+### Minor Changes
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Add per-message model switching for openclaw agents in the chat composer, matching hermes. The model list comes from the agent's provider-models cache (openclaw joins the model-config provider-detail allowlist), and the pick is applied to the openclaw ACP turn via an in-box `openclaw gateway call sessions.patch {model}` in the exec wrapper — probe-verified to change a live session's model from the next prompt, stick to the gateway session key, and route through to the provider even for models not pre-registered in the gateway config (so no catalog registration is needed). Behind `MF_OPENCLAW_ACP`; narranexus is unaffected.
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Show the permission-mode selector for openclaw agents in the chat composer, with the two openclaw modes (`Ask for approval` / `Don't ask`, default `Don't ask`), and wire the interactive approval card so an openclaw agent's `session/request_permission` can be answered from the chat. Mirrors the hermes controls: the mode persists per agent in local storage and rides each message; `Ask for approval` turns exec approval on for the ACP turn. Strings added across all 11 locale catalogs. Behind `MF_OPENCLAW_ACP`.
+
+### Patch Changes
+
+- [#207](https://github.com/manyfold-open/manyfold/pull/207) [`575b309`](https://github.com/manyfold-open/manyfold/commit/575b3094d06e2f1f585324668f89ad8ef9d13c1a) Thanks [@yingca1](https://github.com/yingca1)! - Collapse the chat composer's four per-framework permission-mode option arrays and the parallel `canChoose`/options/active/dispatch ternary chains — plus AgentChat's four permission-mode states, storage helpers and handlers — into one framework-keyed table (`lib/permissionModes.ts`), pinned by `test/permissionModes.test.ts`. Adding a framework's selector is now one table entry instead of a fifth branch in each chain, and there is no silent wrong-dispatch arm to forget. Also routes the after-grant continue send through the same table, so a hermes/openclaw agent's chosen permission mode rides that resend as it already does the first send (previously only claude-code/codex did).
+
 ## 0.61.0
 
 ### Minor Changes
