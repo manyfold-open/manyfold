@@ -245,6 +245,7 @@ export class OpenAiChatCompletionsService {
             undefined,
             undefined,
             undefined,
+            undefined,
             observer,
             [],
             turn.uploads

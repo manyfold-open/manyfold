@@ -33,6 +33,7 @@ const adapterCtx = (frameworkSessionRef: string | null) => ({
     claudeCodePermissionMode: null,
     codexPermissionMode: null,
     hermesPermissionMode: null,
+    openclawPermissionMode: null,
     frameworkSessionRef,
     history: [],
     turnFence: {

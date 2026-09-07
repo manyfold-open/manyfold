@@ -91,6 +91,7 @@ test('ChatService stores normalized context refs from non-workspace roots', asyn
         undefined,
         undefined,
         undefined,
+        undefined,
         [
             {
                 path: '/home/sprite/.codex/config.toml',
@@ -147,6 +148,7 @@ test('ChatService rejects context refs for unknown roots', async () => {
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 [
                     {
                         path: '/tmp/config.toml',
@@ -169,6 +171,7 @@ test('ChatService rejects context refs that escape the selected root', async () 
                 'session-1',
                 undefined,
                 [],
+                undefined,
                 undefined,
                 undefined,
                 undefined,
@@ -207,6 +210,7 @@ test('ChatService rejects missing context refs', async () => {
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 [
                     {
                         path: '/home/sprite/.codex/missing.txt',
@@ -237,6 +241,7 @@ test('ChatService rejects context refs that are not files or directories', async
                 undefined,
                 undefined,
                 undefined,
+                undefined,
                 [
                     {
                         path: '/home/sprite/.codex/socket',
@@ -259,6 +264,7 @@ test('ChatService rejects context refs with mismatched entry type', async () => 
                 'session-1',
                 undefined,
                 [],
+                undefined,
                 undefined,
                 undefined,
                 undefined,

@@ -62,6 +62,10 @@ interface Rig {
     requests: InteractiveExecRequest[]
     writes: Array<Record<string, unknown>>
     sessionRefs: Array<{ sessionId: string; ref: string | null }>
+    holders: Array<{
+        messageId: string
+        respond: (r: string, o: string) => 'delivered' | 'unknown'
+    }>
     exit: (r: ExecStreamResult) => void
     die: (e: Error) => void
     waitFor: (method: string) => Promise<Record<string, unknown>>
@@ -186,6 +190,22 @@ const buildRig = (): Rig => {
             timeoutMs: 60_000
         })
     }
+    const holders: Array<{
+        messageId: string
+        respond: (r: string, o: string) => 'delivered' | 'unknown'
+    }> = []
+    const permissionCoordinator = {
+        register: (
+            messageId: string,
+            holder: {
+                respond: (r: string, o: string) => 'delivered' | 'unknown'
+                pendingIds: () => string[]
+            }
+        ) => {
+            holders.push({ messageId, respond: holder.respond })
+            return () => {}
+        }
+    }
     const adapter = new OpenclawAdapter(
         db as never,
         crypto as never,
@@ -194,13 +214,16 @@ const buildRig = (): Rig => {
         drivers as never,
         { record: () => {} } as never,
         undefined as never,
-        adminSettings as never
+        adminSettings as never,
+        undefined as never,
+        permissionCoordinator as never
     )
     return {
         adapter,
         requests,
         writes,
         sessionRefs,
+        holders,
         exit: settleExit,
         die: settleFail,
         waitFor: (method) => {
@@ -328,4 +351,90 @@ test('with the flag OFF the openclaw turn never launches the ACP bridge', async 
         rig.requests.filter((r) => (r.cmd ?? []).includes('acp')).length,
         0
     )
+})
+
+test('the default permission mode patches execAsk in the wrapper and surfaces an answerable card', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        const rig = buildRig()
+        void (async () => {
+            const init = await rig.waitFor('initialize')
+            rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+            const create = await rig.waitFor('session/new')
+            rig.reply({
+                jsonrpc: '2.0',
+                id: create.id,
+                result: { sessionId: 'sess-perm' }
+            })
+            await rig.waitFor('session/prompt')
+            // The gateway relays an exec approval as an agent->client request.
+            rig.reply({
+                jsonrpc: '2.0',
+                id: 900,
+                method: 'session/request_permission',
+                params: {
+                    toolCall: {
+                        toolCallId: 'exec:1',
+                        title: 'Command approval requested',
+                        rawInput: { command: 'echo hi > /tmp/x' }
+                    },
+                    options: [
+                        { optionId: 'allow-once', name: 'Allow once', kind: 'allow_once' },
+                        { optionId: 'deny', name: 'Deny', kind: 'reject_once' }
+                    ]
+                }
+            })
+        })()
+
+        const events: EmittedChatEvent[] = []
+        const it = rig.adapter.sendMessage(
+            ctx({ openclawPermissionMode: 'default' }),
+            USER_MSG
+        )
+        // Drain in the background so we can answer the card mid-turn.
+        const done = (async () => {
+            for await (const ev of it) {
+                events.push(ev)
+                if (ev.type === 'permission_request') {
+                    // The coordinator routes the answer back to the turn.
+                    assert.equal(rig.holders.length, 1)
+                    rig.holders[0].respond(ev.requestId, 'allow-once')
+                    // Resolve the prompt so the turn can finish.
+                    const prompt = rig.writes.find(
+                        (f) => f.method === 'session/prompt'
+                    )!
+                    rig.reply({
+                        jsonrpc: '2.0',
+                        id: prompt.id,
+                        result: { stopReason: 'end_turn' }
+                    })
+                }
+            }
+        })()
+        await done
+
+        // The exec cmd is the bash wrapper that pre-patches execAsk.
+        const req = rig.requests[0]
+        assert.equal(req.cmd?.[0], 'bash')
+        assert.match(String(req.cmd?.[2]), /gateway call sessions\.patch/)
+        assert.match(String(req.cmd?.[2]), /execAsk/)
+        assert.match(String(req.cmd?.[2]), /exec openclaw acp/)
+
+        // The card surfaced and was answered through the coordinator.
+        const ask = events.find((e) => e.type === 'permission_request')
+        assert.ok(ask)
+        assert.equal(
+            (ask as { options: Array<{ kind: string }> }).options[0].kind,
+            'allow_once'
+        )
+        // The client wrote the selected answer back to the bridge.
+        const answered = rig.writes.find(
+            (f) =>
+                f.result &&
+                JSON.stringify(f.result).includes('allow-once')
+        )
+        assert.ok(answered)
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
 })

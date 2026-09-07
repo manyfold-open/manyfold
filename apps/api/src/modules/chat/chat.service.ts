@@ -9,6 +9,7 @@ import {
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
+    DEFAULT_OPENCLAW_PERMISSION_MODE,
     createObjectId,
     isObjectId
 } from '@manyfold/shared'
@@ -33,6 +34,7 @@ import type {
     ClaudeCodePermissionMode,
     CodexPermissionMode,
     HermesPermissionMode,
+    OpenclawPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
@@ -1914,6 +1916,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
         codexPermissionMode?: CodexPermissionMode | null,
         hermesPermissionMode?: HermesPermissionMode | null,
+        openclawPermissionMode?: OpenclawPermissionMode | null,
         observer?: ChatTurnObserver,
         contextRefs: CreateMessageContextRefInput[] = [],
         uploads: CreateMessageUploadInput[] = [],
@@ -1939,7 +1942,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             modelOverride,
             claudeCodePermissionMode,
             codexPermissionMode,
-            hermesPermissionMode
+            hermesPermissionMode,
+            openclawPermissionMode
         )
         const turnConfig = await this.resolveTurnConfig(
             userId,
@@ -2052,6 +2056,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 claudeCodePermissionMode,
                 codexPermissionMode,
                 hermesPermissionMode,
+                openclawPermissionMode,
                 observer,
                 assistantMessageId,
                 agent,
@@ -2159,6 +2164,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 turnConfig,
                 null,
                 codexPermissionMode,
+                null,
                 null,
                 observer,
                 assistantMessageId,
@@ -2584,7 +2590,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         modelOverride?: string,
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
         codexPermissionMode?: CodexPermissionMode | null,
-        hermesPermissionMode?: HermesPermissionMode | null
+        hermesPermissionMode?: HermesPermissionMode | null,
+        openclawPermissionMode?: OpenclawPermissionMode | null
     ): void {
         if (modelOverride && !MESSAGE_MODEL_OVERRIDE_FRAMEWORKS.has(framework))
             throw new BadRequestException(
@@ -2601,6 +2608,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (hermesPermissionMode && framework !== 'hermes')
             throw new BadRequestException(
                 `hermes permission mode is not supported for framework ${framework}`
+            )
+        if (openclawPermissionMode && framework !== 'openclaw')
+            throw new BadRequestException(
+                `openclaw permission mode is not supported for framework ${framework}`
             )
     }
 
@@ -2638,6 +2649,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         claudeCodePermissionMode?: ClaudeCodePermissionMode | null,
         codexPermissionMode?: CodexPermissionMode | null,
         hermesPermissionMode?: HermesPermissionMode | null,
+        openclawPermissionMode?: OpenclawPermissionMode | null,
         observer?: ChatTurnObserver,
         assistantMessageId: string = randomUUID(),
         agent?: Agent,
@@ -2684,6 +2696,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     : null,
                 framework === 'hermes'
                     ? (hermesPermissionMode ?? DEFAULT_HERMES_PERMISSION_MODE)
+                    : null,
+                framework === 'openclaw'
+                    ? (openclawPermissionMode ??
+                          DEFAULT_OPENCLAW_PERMISSION_MODE)
                     : null,
                 abortController.signal,
                 observer,
@@ -2996,6 +3012,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     claudeCodePermissionMode: null,
                     codexPermissionMode: null,
                     hermesPermissionMode: null,
+                    openclawPermissionMode: null,
                     frameworkSessionRef: session.frameworkSessionRef,
                     history: [],
                     abortSignal: abortController.signal,
@@ -5195,6 +5212,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         claudeCodePermissionMode: ClaudeCodePermissionMode | null,
         codexPermissionMode: CodexPermissionMode | null,
         hermesPermissionMode: HermesPermissionMode | null,
+        openclawPermissionMode: OpenclawPermissionMode | null,
         abortSignal: AbortSignal,
         observer?: ChatTurnObserver,
         agent?: Agent,
@@ -5695,6 +5713,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         claudeCodePermissionMode,
                         codexPermissionMode,
                         hermesPermissionMode,
+                openclawPermissionMode,
                         frameworkSessionRef: session.frameworkSessionRef,
                         history,
                         abortSignal,

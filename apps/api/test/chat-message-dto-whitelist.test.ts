@@ -30,6 +30,7 @@ const FULL_BODY: Required<Omit<CreateMessageRequest, 'sessionId'>> = {
     claudeCodePermissionMode: 'acceptEdits',
     codexPermissionMode: 'auto-review',
     hermesPermissionMode: 'acceptEdits',
+    openclawPermissionMode: 'default',
     attachments: [{ path: '/w/a.txt', rootId: 'workspace', name: 'a.txt' }],
     contextRefs: [
         {

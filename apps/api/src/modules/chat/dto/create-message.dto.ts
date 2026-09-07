@@ -8,13 +8,15 @@ import {
     ClaudeCodePermissionMode,
     CodexPermissionMode,
     HermesPermissionMode,
+    OpenclawPermissionMode,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
     CreateMessageUploadInput,
     agentModelConfigSources,
     claudeCodePermissionModes,
     codexPermissionModes,
-    hermesPermissionModes
+    hermesPermissionModes,
+    openclawPermissionModes
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
 import {
@@ -219,6 +221,10 @@ export class CreateMessageDto {
     @IsOptional()
     @IsIn(hermesPermissionModes)
     hermesPermissionMode?: HermesPermissionMode
+
+    @IsOptional()
+    @IsIn(openclawPermissionModes)
+    openclawPermissionMode?: OpenclawPermissionMode
 
     @IsOptional()
     @IsArray()

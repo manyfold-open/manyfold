@@ -10,6 +10,7 @@ import type {
     ClaudeCodePermissionMode,
     CodexPermissionMode,
     HermesPermissionMode,
+    OpenclawPermissionMode,
     RuntimeLocalTuning
 } from '@manyfold/shared'
 import { eq } from 'drizzle-orm'
@@ -99,6 +100,7 @@ export interface ApiChatAdapterContext {
     claudeCodePermissionMode: ClaudeCodePermissionMode | null
     codexPermissionMode: CodexPermissionMode | null
     hermesPermissionMode: HermesPermissionMode | null
+    openclawPermissionMode: OpenclawPermissionMode | null
     frameworkSessionRef: string | null
     history: ChatMessage[]
     abortSignal?: AbortSignal

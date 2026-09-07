@@ -26,6 +26,7 @@ import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
+import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     daemonAdvertisesFeature,
@@ -114,13 +115,28 @@ const openclawAcpEnabled = (): boolean =>
 // sprite/pod, so it connects over loopback with the gateway's own token — never
 // the public ingress (which device-pairs and proxy-attributes as of 2026.8.1).
 const OPENCLAW_ACP_GATEWAY_URL = `ws://127.0.0.1:${OPENCLAW_PORT}`
-const OPENCLAW_ACP_CMD = [
-    'openclaw',
-    'acp',
-    '--url',
-    OPENCLAW_ACP_GATEWAY_URL,
-    '--no-prefix-cwd'
-]
+const OPENCLAW_ACP_ARGS = ['acp', '--url', OPENCLAW_ACP_GATEWAY_URL, '--no-prefix-cwd']
+
+// The exec command for an openclaw ACP turn. In `dontAsk` there is nothing to
+// set — the bridge runs directly. In an ask mode the session's exec-approval
+// level is pre-patched over the loopback gateway BEFORE the bridge starts, then
+// `exec` hands off. Verified against openclaw@2026.5.18 [2026-09-07]:
+// sessions.patch UPSERTS the (deterministic) key, so the level applies from
+// this turn; `openclaw gateway call` runs in-box over loopback with the gateway
+// token, so it needs no device pairing (the off-box ingress would).
+const openclawAcpCmd = (opts: {
+    sessionKey: string
+    execAsk: string | null
+}): string[] => {
+    const acp = ['openclaw', ...OPENCLAW_ACP_ARGS]
+    if (!opts.execAsk) return acp
+    const params = JSON.stringify({
+        key: opts.sessionKey,
+        execAsk: opts.execAsk
+    })
+    const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
+    return ['bash', '-lc', `${patch}; exec ${acp.join(' ')}`]
+}
 // Distinct parser namespace + ordinal keys from the SSE/CLI decoders so the
 // durable raw_source rows are self-describing and versioned independently.
 const OPENCLAW_ACP_PARSER_NAME = 'openclaw-acp'
@@ -174,6 +190,24 @@ function* openclawAcpEventToChatEvents(
                 type: 'tool_result',
                 toolCallId: ev.toolCallId,
                 result: ev.result
+            }
+            break
+        case 'permission_request':
+            yield {
+                type: 'permission_request',
+                requestId: ev.requestId,
+                toolCallId: ev.toolCallId,
+                title: ev.title,
+                detail: ev.detail,
+                options: ev.options
+            }
+            break
+        case 'permission_resolution':
+            yield {
+                type: 'permission_resolution',
+                requestId: ev.requestId,
+                outcome: ev.outcome,
+                optionId: ev.optionId
             }
             break
         default:
@@ -267,7 +301,13 @@ export class OpenclawAdapter implements ApiChatAdapter {
         @Optional() private readonly adminSettings?: AdminSettingsService,
         // Same rule. Absent, turn.start dispatches unfenced as before (#619).
         @Optional()
-        private readonly fencedDispatch?: DaemonFencedDispatchService
+        private readonly fencedDispatch?: DaemonFencedDispatchService,
+        // Same rule — appended last. The permission coordinator is
+        // framework-agnostic (keyed by messageId); absent, an ask-mode turn
+        // still surfaces the request as a stream event but cannot take the
+        // answer back, so it degrades to auto-approve.
+        @Optional()
+        private readonly permissionCoordinator?: HermesPermissionCoordinator
     ) {}
 
     getCapabilities(): ChatCapabilities {
@@ -727,6 +767,15 @@ export class OpenclawAdapter implements ApiChatAdapter {
         const cwd = handle.agent.workspacePath ?? null
         const prompt = messageToPromptText(userMessage)
         const sessionKey = openclawGatewaySessionKey(internalId, ctx.sessionId)
+        // `default` turns exec approval on for this session; `dontAsk` (the
+        // default) leaves the gateway's shipped tools.exec.ask:'off', so nothing
+        // is patched and nothing prompts — byte-for-byte today's behaviour.
+        const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
+        const interactive = permissionMode === 'default'
+        // 'on-miss' asks for out-of-allowlist commands (the "ask about risky
+        // things" posture). The patch mechanism and the approval round-trip are
+        // probe-verified; the exact enum is a tunable posture.
+        const execAsk = interactive ? 'on-miss' : null
 
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
@@ -741,7 +790,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             if (r) r()
         }
         const transport = streamInteractive({
-            cmd: OPENCLAW_ACP_CMD,
+            cmd: openclawAcpCmd({ sessionKey, execAsk }),
             env: {
                 // The bridge authenticates to the loopback gateway with its own
                 // token; the model call happens inside that gateway, which
@@ -762,8 +811,17 @@ export class OpenclawAdapter implements ApiChatAdapter {
             },
             dialect: OPENCLAW_ACP_DIALECT,
             sessionKey,
-            logger: this.logger
+            logger: this.logger,
+            permissionPolicy: interactive ? 'interactive' : 'auto'
         })
+        const unregisterPermissions =
+            interactive && this.permissionCoordinator
+                ? this.permissionCoordinator.register(ctx.messageId, {
+                      respond: (requestId, optionId) =>
+                          turn.respondPermission(requestId, optionId),
+                      pendingIds: () => turn.pendingPermissionIds
+                  })
+                : null
 
         const state = { finished: false, aborted: false }
         const onAbort = (): void => {
@@ -800,12 +858,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
                     turn.abort()
                     return
                 }
-                if (
-                    ev.type === 'usage_update' ||
-                    ev.type === 'turn_end' ||
-                    ev.type === 'permission_request' ||
-                    ev.type === 'permission_resolution'
-                )
+                if (ev.type === 'usage_update' || ev.type === 'turn_end')
                     continue
                 seq.current += 1
                 yield* openclawAcpEventToChatEvents(ev, ctx, seq.current)
@@ -841,6 +894,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             }
         } finally {
             await turn.close().catch(() => {})
+            unregisterPermissions?.()
             ctx.abortSignal?.removeEventListener('abort', onAbort)
         }
 

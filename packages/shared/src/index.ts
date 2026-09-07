@@ -749,6 +749,7 @@ export type {
     ClaudeCodePermissionMode,
     CodexPermissionMode,
     HermesPermissionMode,
+    OpenclawPermissionMode,
     CreateSessionRequest,
     CreateMessageAttachmentInput,
     CreateMessageContextRefInput,
@@ -790,12 +791,15 @@ export {
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
+    DEFAULT_OPENCLAW_PERMISSION_MODE,
     claudeCodePermissionModes,
     isClaudeCodePermissionMode,
     codexPermissionModes,
     isCodexPermissionMode,
     hermesPermissionModes,
     isHermesPermissionMode,
+    openclawPermissionModes,
+    isOpenclawPermissionMode,
     agentSessionListLimits
 } from './chat'
 export type {
