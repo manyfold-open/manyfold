@@ -42,6 +42,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
+import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
 
 export interface RuntimeStatusPatch {
     status?: AgentRuntimeStatus
@@ -370,8 +371,23 @@ export class AgentRuntimesService {
     }
 
     // Drop a sandbox VM's machine row once its last runtime is gone. Guarded to
-    // kind='sandbox' so a daemon host is never removed through this path.
+    // kind='sandbox' so a daemon host is never removed through this path. Also
+    // tears down the sprite-runner daemon host bound to the same VM: it lives on
+    // a separate managed daemon row (host_id null) that the sandbox emptiness
+    // checks cannot see, so it would otherwise outlive the VM it ran inside.
     async deleteSandboxHost(hostId: string): Promise<void> {
+        const [host] = await this.db
+            .select({
+                userId: runtimeHosts.userId,
+                spriteName: runtimeHosts.spriteName
+            })
+            .from(runtimeHosts)
+            .where(
+                and(
+                    eq(runtimeHosts.id, hostId),
+                    eq(runtimeHosts.kind, 'sandbox')
+                )
+            )
         await this.db
             .delete(runtimeHosts)
             .where(
@@ -379,6 +395,12 @@ export class AgentRuntimesService {
                     eq(runtimeHosts.id, hostId),
                     eq(runtimeHosts.kind, 'sandbox')
                 )
+            )
+        if (host?.spriteName)
+            await deleteSpriteRunnerHostForSprite(
+                this.db,
+                host.userId,
+                host.spriteName
             )
     }
 

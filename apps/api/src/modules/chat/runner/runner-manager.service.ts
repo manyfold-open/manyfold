@@ -2,7 +2,8 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import {
     RUNNER_PROFILE,
     isCliVersionTooOld,
-    profilePaths
+    profilePaths,
+    runnerHostName
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
@@ -41,17 +42,11 @@ import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 // paths from, so probe and reality cannot drift. Only the CONTROL PLANE is
 // profile-scoped; the data plane the runner manages is the machine-scoped
 // shared roots, which is the CLI's registration default — nothing to declare.
-export { RUNNER_PROFILE }
+export { RUNNER_PROFILE, runnerHostName }
 const RUNNER_PROBE_PATH = profilePaths(
     '$HOME/.manyfold',
     RUNNER_PROFILE
 ).daemonConfigPath
-// The agent↔runner binding, without a schema change: the runner registers under
-// a name derived from the sprite it lives on, so resolving "this agent's runner"
-// is a lookup by (userId, kind=daemon, name) and a host belonging to any other
-// sprite can never be mistaken for it.
-export const runnerHostName = (spriteName: string): string =>
-    `sprite-runner:${spriteName}`
 
 // The runner token authenticates EVERY websocket connect (it rides in the ws
 // URL), not just the one-off register — a short TTL therefore bricks the runner

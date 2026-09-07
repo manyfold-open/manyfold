@@ -21,6 +21,15 @@ export const isValidProfileName = (name: string): boolean =>
 // probes and registers it by this exact name.
 export const RUNNER_PROFILE = 'spriterunner'
 
+// The runner registers as a daemon host under a name derived from the sprite it
+// lives on, so the API resolves "this sprite's runner" by (userId, kind=daemon,
+// name) and a host on any other sprite can never be mistaken for it. This is the
+// authoritative name the platform sets at register time (`daemon register
+// --name`), so any consumer that must find or tear down a sprite's runner keys
+// off this single source rather than the sprite-self-reported hostname.
+export const runnerHostName = (spriteName: string): string =>
+    `sprite-runner:${spriteName}`
+
 export interface ProfilePaths {
     dir: string
     configPath: string
