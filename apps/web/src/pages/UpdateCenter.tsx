@@ -1,8 +1,7 @@
 import type { VersionedFramework } from '@manyfold/shared'
 import { isVersionedFramework } from '@manyfold/shared'
-import { ApiError } from '@manyfold/sdk'
 import type { FC, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import EmptyState from '@/components/EmptyState'
 import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
@@ -28,7 +27,6 @@ import {
     useCascadeState,
     type GroupByOption
 } from '@/lib/cascade'
-import { apiErrorMessage } from '@/lib/errorMessage'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import {
@@ -39,27 +37,24 @@ import {
     parseKindParam,
     planBatch,
     updateGroupDims,
-    type BatchStep,
     type UpdateGroupBy,
     type UpdateKind,
     type UpdateRow,
     type UpdateStatus,
     type UpdateTargetKind
 } from '@/lib/updateCenter'
+import {
+    updateRunStore,
+    useIsUpdateBatchRunning,
+    useUpdateBatch,
+    useUpdateRuns,
+    type RowRun
+} from '@/lib/updateRunStore'
 import { useUpdateCenterData } from '@/lib/useUpdateCenterData'
 
 const GHOST_ROWS = [0, 1, 2, 3]
 const ghostSubjectWidth = ['w-28', 'w-36', 'w-24', 'w-32']
 const ghostTargetWidth = ['w-24', 'w-20', 'w-28', 'w-20']
-
-// The server allows 5 daemon upgrades per 60s per actor and does not forward a
-// retry hint: the rate limiter puts `retryAfter` at the top level of the body,
-// where the global exception filter (which only passes through code, message
-// and details) drops it, and the Retry-After header is emitted only for the
-// differently-named `retryAfterSec`. So the queue paces itself to the same
-// window rather than reading a number that never arrives.
-const DAEMON_UPGRADES_PER_WINDOW = 5
-const DAEMON_RATE_WINDOW_MS = 62_000
 
 const kindLabelKeys: Record<UpdateKind, string> = {
     cli: 'web.updates.kindCli',
@@ -89,16 +84,6 @@ const targetIcons: Record<UpdateTargetKind, LucideIcon> = {
     agent: AgentIcon
 }
 
-type RunState = 'pending' | 'running' | 'succeeded' | 'failed'
-
-interface RowRun {
-    state: RunState
-    detail: string | null
-}
-
-const sleep = (ms: number): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, ms))
-
 const VersionCell: FC<{ row: UpdateRow }> = ({ row }): ReactNode => {
     const { t } = useI18n()
     return (
@@ -126,6 +111,14 @@ const RowStatus: FC<{ row: UpdateRow; run: RowRun | undefined }> = ({
                   : run.state === 'running'
                     ? 'info'
                     : 'idle'
+        const detail =
+            run.detail === null
+                ? null
+                : run.detail.kind === 'waiting'
+                  ? t('web.updates.run.waiting')
+                  : run.detail.kind === 'phase'
+                    ? run.detail.phase.replace(/_/g, ' ')
+                    : run.detail.text
         return (
             <span className='flex flex-col items-start gap-1'>
                 <StatusTag
@@ -133,14 +126,14 @@ const RowStatus: FC<{ row: UpdateRow; run: RowRun | undefined }> = ({
                     pulse={run.state === 'running'}
                     label={t(`web.updates.run.${run.state}`)}
                 />
-                {run.detail && (
+                {detail && (
                     <span
                         className={[
                             'text-caption',
                             run.state === 'failed' ? 'text-error' : 'text-muted'
                         ].join(' ')}
                     >
-                        {run.detail}
+                        {detail}
                     </span>
                 )}
             </span>
@@ -221,20 +214,10 @@ const UpdateCenter: FC = (): ReactNode => {
     const { inputs, loaded, loading, error, refresh } = useUpdateCenterData(true)
     const gate = useLoadingGate(loading && !loaded)
     const [selected, setSelected] = useState<Set<string>>(new Set())
-    const [runs, setRuns] = useState<Record<string, RowRun>>({})
-    const [running, setRunning] = useState(false)
-    const [summary, setSummary] = useState<string | null>(null)
     const [guideRow, setGuideRow] = useState<UpdateRow | null>(null)
-    // Leaving the page abandons the queue: the steps are dispatched from here,
-    // so there is nothing left to drive them once this component is gone.
-    const abandoned = useRef(false)
-
-    useEffect(() => {
-        abandoned.current = false
-        return () => {
-            abandoned.current = true
-        }
-    }, [])
+    const runs = useUpdateRuns()
+    const batch = useUpdateBatch()
+    const running = useIsUpdateBatchRunning()
 
     const {
         groupBy,
@@ -296,6 +279,24 @@ const UpdateCenter: FC = (): ReactNode => {
         })
     }, [allRows])
 
+    // The queue runs in updateRunStore, so leaving this page does not stop it.
+    // Only a batch this mount saw running gets the finish treatment: one that
+    // ended while the page was away is already covered by the mount-time
+    // fetch, and the self-clearing guard keeps StrictMode's doubled effect
+    // from refreshing twice.
+    const watchedBatch = useRef<string | null>(null)
+    useEffect(() => {
+        if (!batch) return
+        if (batch.state === 'running') {
+            watchedBatch.current = batch.id
+            return
+        }
+        if (watchedBatch.current !== batch.id) return
+        watchedBatch.current = null
+        setSelected(new Set())
+        void refresh()
+    }, [batch, refresh])
+
     const selectableRows = rows.filter((row) => row.blocker === null)
     const selectedRows = allRows.filter((row) => selected.has(row.id))
     const allSelectableSelected =
@@ -319,159 +320,15 @@ const UpdateCenter: FC = (): ReactNode => {
             return next
         })
 
-    const setRun = useCallback(
-        (rowIds: string[], state: RunState, detail: string | null): void =>
-            setRuns((prev) => {
-                const next = { ...prev }
-                for (const id of rowIds) next[id] = { state, detail }
-                return next
-            }),
-        []
-    )
-
-    const runSteps = useCallback(
-        async (steps: BatchStep[], rowIds: string[]): Promise<void> => {
-            if (steps.length === 0) return
-            setRunning(true)
-            setSummary(null)
-            setRun(rowIds, 'pending', null)
-            let succeeded = 0
-            let failed = 0
-            let daemonsThisWindow = 0
-            let windowStartedAt = Date.now()
-
-            const fail = (ids: string[], err: unknown): void => {
-                failed += ids.length
-                setRun(ids, 'failed', apiErrorMessage(err))
-            }
-            const succeed = (ids: string[]): void => {
-                succeeded += ids.length
-                setRun(ids, 'succeeded', null)
-            }
-
-            for (const step of steps) {
-                if (abandoned.current) return
-                const ids = step.type === 'skillBatch' ? step.rowIds : [step.rowId]
-                setRun(ids, 'running', null)
-                try {
-                    switch (step.type) {
-                        case 'skillBatch': {
-                            const result = await client.skills.installBatch({
-                                skillId: step.skillId,
-                                agentIds: step.agentIds
-                            })
-                            result.results.forEach((item, index) => {
-                                const id = step.rowIds[index]
-                                if (id === undefined) return
-                                if (item.status === 'installed') {
-                                    succeeded += 1
-                                    setRun([id], 'succeeded', null)
-                                } else {
-                                    failed += 1
-                                    setRun(
-                                        [id],
-                                        'failed',
-                                        item.error ??
-                                            t('web.updates.run.failed')
-                                    )
-                                }
-                            })
-                            break
-                        }
-                        case 'sandboxCli':
-                            await client.sandboxes.upgradeCli(step.sandboxId)
-                            succeed(ids)
-                            break
-                        case 'daemonCli': {
-                            if (
-                                daemonsThisWindow >= DAEMON_UPGRADES_PER_WINDOW
-                            ) {
-                                const wait =
-                                    DAEMON_RATE_WINDOW_MS -
-                                    (Date.now() - windowStartedAt)
-                                if (wait > 0) {
-                                    setRun(ids, 'running', t('web.updates.run.waiting'))
-                                    await sleep(wait)
-                                    if (abandoned.current) return
-                                }
-                                daemonsThisWindow = 0
-                                windowStartedAt = Date.now()
-                                setRun(ids, 'running', null)
-                            }
-                            if (daemonsThisWindow === 0)
-                                windowStartedAt = Date.now()
-                            daemonsThisWindow += 1
-                            try {
-                                await client.daemons.upgradeHost(step.hostId)
-                            } catch (err) {
-                                // The window is server-side and shared with
-                                // every other session for this account, so it
-                                // can be spent before this queue reaches its
-                                // own fifth call.
-                                if (
-                                    !(err instanceof ApiError) ||
-                                    err.status !== 429
-                                )
-                                    throw err
-                                setRun(ids, 'running', t('web.updates.run.waiting'))
-                                await sleep(DAEMON_RATE_WINDOW_MS)
-                                if (abandoned.current) return
-                                daemonsThisWindow = 1
-                                windowStartedAt = Date.now()
-                                await client.daemons.upgradeHost(step.hostId)
-                            }
-                            succeed(ids)
-                            break
-                        }
-                        case 'framework':
-                            if (step.mode === 'rebuild')
-                                await client.agents.upgradeFrameworkStream(
-                                    step.agentId,
-                                    step.targetVersion,
-                                    (event) => {
-                                        if (event.type === 'step')
-                                            setRun(
-                                                ids,
-                                                'running',
-                                                event.step.replace(/_/g, ' ')
-                                            )
-                                    }
-                                )
-                            else
-                                await client.agents.upgradeFramework(
-                                    step.agentId,
-                                    step.targetVersion
-                                )
-                            succeed(ids)
-                            break
-                    }
-                } catch (err) {
-                    fail(ids, err)
-                }
-            }
-
-            if (abandoned.current) return
-            setRunning(false)
-            setSummary(
-                t('web.updates.batchSummary', {
-                    done: String(succeeded),
-                    failed: String(failed)
-                })
-            )
-            setSelected(new Set())
-            await refresh()
-        },
-        [client, refresh, setRun, t]
-    )
-
     const runSelected = (): void => {
-        void runSteps(
+        updateRunStore.start(
+            client,
             planBatch(selectedRows),
             selectedRows.filter((r) => r.blocker === null).map((r) => r.id)
         )
     }
     const runOne = (row: UpdateRow): void => {
-        void runSteps(planBatch([row]), [row.id])
+        updateRunStore.start(client, planBatch([row]), [row.id])
     }
 
     const clearKindFilter = (): void => {
@@ -569,8 +426,13 @@ const UpdateCenter: FC = (): ReactNode => {
                         {t('web.updates.runningNotice')}
                     </span>
                 )}
-                {summary && !running && (
-                    <span className='text-caption text-muted'>{summary}</span>
+                {batch?.state === 'finished' && (
+                    <span className='text-caption text-muted'>
+                        {t('web.updates.batchSummary', {
+                            done: String(batch.succeeded),
+                            failed: String(batch.failed)
+                        })}
+                    </span>
                 )}
             </div>
 

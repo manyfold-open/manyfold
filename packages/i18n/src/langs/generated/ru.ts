@@ -3749,7 +3749,7 @@ const ru: Record<string, string> = {
     'web.updates.run.succeeded': 'Обновлено',
     'web.updates.run.failed': 'Ошибка',
     'web.updates.run.waiting': 'Ожидание окна ограничения частоты',
-    'web.updates.runningNotice': 'Обновления выполняются по одному; уход с этой страницы останавливает очередь.',
+    'web.updates.runningNotice': 'Обновления выполняются по одному и продолжаются, даже если вы покинете эту страницу.',
     'web.updates.batchSummary': '{{done}} обновлено · {{failed}} с ошибкой',
     'web.updates.emptyTitle': 'Всё обновлено',
     'web.updates.emptyBody': 'Обновлений для ваших машин, агентов или навыков нет.',

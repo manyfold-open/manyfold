@@ -3180,7 +3180,7 @@ const zh: Translations = {
                 failed: '失败',
                 waiting: '等待限流窗口'
             },
-            runningNotice: '更新逐个执行；离开本页会中止队列。',
+            runningNotice: '更新逐个执行；离开本页后仍会继续。',
             batchSummary: '{{done}} 个已更新 · {{failed}} 个失败',
             emptyTitle: '一切都是最新的',
             emptyBody: '你的机器、agent 和 skill 目前没有可用更新。',

@@ -3749,7 +3749,7 @@ const es: Record<string, string> = {
     'web.updates.run.succeeded': 'Actualizado',
     'web.updates.run.failed': 'Error',
     'web.updates.run.waiting': 'Esperando la ventana del límite de solicitudes',
-    'web.updates.runningNotice': 'Las actualizaciones se ejecutan de una en una; salir de esta página detiene la cola.',
+    'web.updates.runningNotice': 'Las actualizaciones se ejecutan de una en una y continúan aunque salgas de esta página.',
     'web.updates.batchSummary': '{{done}} actualizados · {{failed}} con error',
     'web.updates.emptyTitle': 'Todo está actualizado',
     'web.updates.emptyBody': 'No hay actualizaciones disponibles para tus máquinas, agentes o habilidades.',

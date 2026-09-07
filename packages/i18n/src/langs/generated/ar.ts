@@ -3748,7 +3748,7 @@ const ar: Record<string, string> = {
     'web.updates.run.succeeded': 'تم التحديث',
     'web.updates.run.failed': 'فشل',
     'web.updates.run.waiting': 'في انتظار نافذة حد المعدل',
-    'web.updates.runningNotice': 'تُنفَّذ التحديثات واحدًا تلو الآخر، ومغادرة هذه الصفحة توقف قائمة الانتظار.',
+    'web.updates.runningNotice': 'تُنفَّذ التحديثات واحدًا تلو الآخر وتستمر حتى إذا غادرت هذه الصفحة.',
     'web.updates.batchSummary': '{{done}} محدَّث · {{failed}} فشل',
     'web.updates.emptyTitle': 'كل شيء محدَّث',
     'web.updates.emptyBody': 'لا تتوفر تحديثات لأجهزتك أو وكلائك أو مهاراتك.',

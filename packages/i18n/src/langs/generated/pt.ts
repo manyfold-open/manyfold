@@ -3749,7 +3749,7 @@ const pt: Record<string, string> = {
     'web.updates.run.succeeded': 'Atualizado',
     'web.updates.run.failed': 'Falhou',
     'web.updates.run.waiting': 'Aguardando a janela do limite de taxa',
-    'web.updates.runningNotice': 'As atualizações são executadas uma de cada vez; sair desta página interrompe a fila.',
+    'web.updates.runningNotice': 'As atualizações são executadas uma de cada vez e continuam mesmo se você sair desta página.',
     'web.updates.batchSummary': '{{done}} atualizados · {{failed}} com falha',
     'web.updates.emptyTitle': 'Está tudo atualizado',
     'web.updates.emptyBody': 'Não há atualizações disponíveis para as suas máquinas, agentes ou habilidades.',

@@ -3749,7 +3749,7 @@ const hi: Record<string, string> = {
     'web.updates.run.succeeded': 'अपडेट हो गया',
     'web.updates.run.failed': 'विफल',
     'web.updates.run.waiting': 'रेट लिमिट विंडो का इंतज़ार',
-    'web.updates.runningNotice': 'अपडेट एक-एक करके चलते हैं; यह पेज छोड़ने पर कतार रुक जाती है।',
+    'web.updates.runningNotice': 'अपडेट एक-एक करके चलते हैं और यह पेज छोड़ने पर भी जारी रहते हैं।',
     'web.updates.batchSummary': '{{done}} अपडेट · {{failed}} विफल',
     'web.updates.emptyTitle': 'सब कुछ अप टू डेट है',
     'web.updates.emptyBody': 'आपकी मशीनों, एजेंट या स्किल के लिए कोई अपडेट उपलब्ध नहीं है।',
