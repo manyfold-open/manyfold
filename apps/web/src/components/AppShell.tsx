@@ -91,6 +91,7 @@ import { buildAgentMenuItems, isSectionBoundary } from '@/lib/agentMenu'
 import { agentSettingsPath } from '@/lib/agentSettingsPath'
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
 import { buildUpdateRows, countUpdates } from '@/lib/updateCenter'
+import { useIsUpdateBatchRunning } from '@/lib/updateRunStore'
 import { useUpdateCenterData } from '@/lib/useUpdateCenterData'
 import {
     FrameworkLogo,
@@ -121,6 +122,7 @@ import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
 import SessionStreamingDot from '@/components/chat/SessionStreamingDot'
 import SessionContextMenu from '@/components/chat/SessionContextMenu'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { StatusTag } from '@/components/Tag'
 import {
     applyAgentStatusSnapshots,
     getAgentChatAvailability,
@@ -1686,6 +1688,7 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
     const [open, setOpen] = useState(false)
     const usage = useAccountUsage(open)
     const updateCount = useAvailableUpdateCount(open)
+    const updateRunning = useIsUpdateBatchRunning()
     const [languageOpen, setLanguageOpen] = useState(false)
     const [learnMoreOpen, setLearnMoreOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement | null>(null)
@@ -1900,10 +1903,18 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                         <span className='min-w-0 flex-1'>
                             {t('web.settingsMenu.updates')}
                         </span>
-                        {updateCount > 0 && (
-                            <span className='tag tag-neutral tabular-nums'>
-                                {updateCount}
-                            </span>
+                        {updateRunning ? (
+                            <StatusTag
+                                tone='info'
+                                pulse
+                                label={t('web.updates.run.running')}
+                            />
+                        ) : (
+                            updateCount > 0 && (
+                                <span className='tag tag-neutral tabular-nums'>
+                                    {updateCount}
+                                </span>
+                            )
                         )}
                         <ChevronRightIcon className='text-subtle h-4 w-4 shrink-0' />
                     </button>

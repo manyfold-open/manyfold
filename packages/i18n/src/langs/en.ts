@@ -3337,7 +3337,7 @@ const en = {
                 failed: 'Failed',
                 waiting: 'Waiting for the rate limit window'
             },
-            runningNotice: 'Updates run one at a time; leaving this page stops the queue.',
+            runningNotice: 'Updates run one at a time and keep going if you leave this page.',
             batchSummary: '{{done}} updated · {{failed}} failed',
             emptyTitle: 'Everything is up to date',
             emptyBody: 'No updates are available for your machines, agents or skills.',

@@ -3748,7 +3748,7 @@ const ja: Record<string, string> = {
     'web.updates.run.succeeded': '更新済み',
     'web.updates.run.failed': '失敗',
     'web.updates.run.waiting': 'レート制限の解除待ち',
-    'web.updates.runningNotice': 'アップデートは 1 件ずつ実行され、このページを離れるとキューは停止します。',
+    'web.updates.runningNotice': 'アップデートは 1 件ずつ実行され、このページを離れても続行されます。',
     'web.updates.batchSummary': '{{done}} 件更新 · {{failed}} 件失敗',
     'web.updates.emptyTitle': 'すべて最新です',
     'web.updates.emptyBody': 'マシン、エージェント、スキルに利用可能なアップデートはありません。',
