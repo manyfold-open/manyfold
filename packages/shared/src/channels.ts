@@ -10,6 +10,7 @@ export type ChannelProviderName =
     | 'linear'
     | 'github'
     | 'line'
+    | 'googlechat'
 
 export type ChannelStatus = 'draft' | 'active' | 'paused' | 'error'
 
@@ -454,6 +455,51 @@ export interface LineChannelConfig {
     resetOnIdleMins?: number | null
 }
 
+export type GoogleChatAudienceType = 'app-url' | 'project-number'
+
+export interface GoogleChatChannelConfig {
+    // Which Authentication Audience the Chat app is configured with in the
+    // Google Cloud console. Getting it wrong 401s every inbound request with no
+    // other symptom, so it is stated rather than sniffed from the token.
+    audienceType: GoogleChatAudienceType
+    // 'app-url': the exact registered HTTP endpoint URL, which is the token's
+    // aud claim. 'project-number': the Cloud project number. register() fills
+    // the URL case in from the inbound URL Manyfold already knows.
+    audience?: string | null
+    // App identity captured by register(): users/{id} and the display name.
+    // Used to drop the app's own posts and to resolve self-mentions.
+    botUserId?: string | null
+    botDisplayName?: string | null
+    // Space ids (the suffix of spaces/{id}) this channel reacts to.
+    // Empty = every space the app is installed in.
+    allowedSpaceIds: string[]
+    // Chat users allowed to drive this agent, written as an email or a
+    // users/{id} resource name. External actors, never Manyfold identities.
+    // Empty = anyone who can reach the app.
+    allowedUserIds: string[]
+    // Chat users allowed to run agent-wide commands (e.g. /model). Empty =
+    // those commands are disabled from Google Chat (fail-closed).
+    operatorUserIds: string[]
+    mentionOnly: boolean
+    shareSessionInChannel: boolean
+    threadIsolation: boolean
+    // Chat opens a thread for every top-level space message; adopting it keeps
+    // the whole exchange in one place. Turn off in spaces configured for
+    // unthreaded messages, where the thread would never be honored.
+    autoThread?: boolean
+    // Defaults to 'final', unlike every other chat provider. Chat allows one
+    // write per second per space, shared with every other Chat app in it, and
+    // an edit spends that budget — so a normal turn should cost one write.
+    progressMode: ChannelProgressMode
+    // Prepend the [Channel message context] metadata block to each
+    // channel-driven turn. On by default; set false to disable.
+    contextProjection?: boolean
+    // Agent-managed reply: forward structured source context and let the
+    // agent deliver via its own channel tools (narranexus only). Off by default.
+    agentManagedReply?: boolean
+    resetOnIdleMins?: number | null
+}
+
 export type ChannelConfig =
     | LarkChannelConfig
     | FakeChannelConfig
@@ -466,6 +512,7 @@ export type ChannelConfig =
     | LinearChannelConfig
     | GithubChannelConfig
     | LineChannelConfig
+    | GoogleChatChannelConfig
 
 export interface LarkChannelCredentials {
     appSecret: string
@@ -529,6 +576,13 @@ export interface LineChannelCredentials {
     channelAccessToken: string
 }
 
+export interface GoogleChatChannelCredentials {
+    // The service-account JSON key file, verbatim from the Cloud console.
+    // Stored whole so a re-parse is lossless; only client_email, private_key
+    // and token_uri are ever read.
+    serviceAccountJson: string
+}
+
 export type ChannelCredentials =
     | LarkChannelCredentials
     | FakeChannelCredentials
@@ -540,6 +594,7 @@ export type ChannelCredentials =
     | LinearChannelCredentials
     | GithubChannelCredentials
     | LineChannelCredentials
+    | GoogleChatChannelCredentials
 
 export interface ChannelAgentSummary {
     id: string
@@ -789,6 +844,41 @@ export const describeChannelScope = (
             }
         }
         return UNKNOWN_SCOPE
+    }
+    if (provider === 'googlechat' && segments[0] === 'googlechat') {
+        const spaceId = segments[2]
+        if (!spaceId) return UNKNOWN_SCOPE
+        // Chat space ids carry no kind prefix (unlike Slack's D… or LINE's U…),
+        // so computeScopeKey states it at segment 1. That also lands the space
+        // at segment 2, matching the Slack shape below it.
+        const isDm = segments[1] === 'dm'
+        if (!isDm && segments[1] !== 'space') return UNKNOWN_SCOPE
+        const marker = segments.indexOf('thread', 3)
+        const threadId =
+            marker !== -1 && segments[marker + 1] ? segments[marker + 1] : null
+        const userId = marker !== 3 && segments[3] ? segments[3] : null
+        if (threadId)
+            return {
+                kind: isDm ? 'dm' : 'thread',
+                channelId: spaceId,
+                threadId,
+                userId
+            }
+        if (userId && isDm)
+            return { kind: 'dm', channelId: spaceId, threadId: null, userId }
+        if (userId)
+            return {
+                kind: 'channel-user',
+                channelId: spaceId,
+                threadId: null,
+                userId
+            }
+        return {
+            kind: 'channel',
+            channelId: spaceId,
+            threadId: null,
+            userId: null
+        }
     }
     // linear:{organizationId}:{agentSessionId} needs no branch: an agent
     // session is one conversation and its id is neither a channel nor a thread

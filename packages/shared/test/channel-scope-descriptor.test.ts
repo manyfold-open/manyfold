@@ -124,6 +124,35 @@ test('whatsapp scopes label DMs, shared groups and per-sender groups', () => {
     )
 })
 
+test('googlechat scopes read their kind off the explicit segment', () => {
+    // Chat space ids carry no kind prefix the way Slack's D… and LINE's U… do,
+    // so computeScopeKey states dm/space and this has to read it back.
+    assert.deepEqual(describeChannelScope('googlechat', 'googlechat:dm:AAA:111'), {
+        kind: 'dm',
+        channelId: 'AAA',
+        threadId: null,
+        userId: '111'
+    })
+    assert.deepEqual(
+        describeChannelScope('googlechat', 'googlechat:dm:AAA:111:thread:t1'),
+        { kind: 'dm', channelId: 'AAA', threadId: 't1', userId: '111' }
+    )
+    assert.deepEqual(describeChannelScope('googlechat', 'googlechat:space:AAA'), {
+        kind: 'channel',
+        channelId: 'AAA',
+        threadId: null,
+        userId: null
+    })
+    assert.deepEqual(
+        describeChannelScope('googlechat', 'googlechat:space:AAA:111'),
+        { kind: 'channel-user', channelId: 'AAA', threadId: null, userId: '111' }
+    )
+    assert.deepEqual(
+        describeChannelScope('googlechat', 'googlechat:space:AAA:thread:t1'),
+        { kind: 'thread', channelId: 'AAA', threadId: 't1', userId: null }
+    )
+})
+
 test('unknown providers and malformed keys fall back to conversation', () => {
     const fallback = {
         kind: 'conversation',
@@ -140,6 +169,14 @@ test('unknown providers and malformed keys fall back to conversation', () => {
     assert.deepEqual(describeChannelScope('discord', 'slack:T1:C1'), fallback)
     assert.deepEqual(describeChannelScope('slack', 'slack:T1'), fallback)
     assert.deepEqual(describeChannelScope('line', 'line:'), fallback)
+    assert.deepEqual(
+        describeChannelScope('googlechat', 'googlechat:dm'),
+        fallback
+    )
+    assert.deepEqual(
+        describeChannelScope('googlechat', 'googlechat:other:AAA'),
+        fallback
+    )
     assert.deepEqual(describeChannelScope('fake', 'whatever'), fallback)
     assert.deepEqual(describeChannelScope('whatsapp', 'whatsapp:dm'), fallback)
     assert.deepEqual(

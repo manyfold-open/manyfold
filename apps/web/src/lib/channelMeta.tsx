@@ -17,6 +17,7 @@ const channelDocsPaths: Partial<Record<ChannelProviderName, string>> = {
     linear: '/docs/channels/linear',
     github: '/docs/channels/github',
     line: '/docs/channels/line',
+    googlechat: '/docs/channels/googlechat',
     whatsapp: '/docs/channels/whatsapp'
 }
 
@@ -159,6 +160,19 @@ const WhatsappIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     </svg>
 )
 
+const GoogleChatIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
+    <svg viewBox='0 0 24 24' className={className} aria-hidden='true'>
+        <path
+            fill='#00AC47'
+            d='M12 2c5.523 0 10 4.03 10 9s-4.477 9-10 9c-1.2 0-2.35-.19-3.415-.54L4 21.5l1.2-3.61C3.22 16.24 2 13.75 2 11c0-4.97 4.477-9 10-9z'
+        />
+        <path
+            fill='#FFFFFF'
+            d='M7.4 8.6h9.2v1.7H7.4zM7.4 12h6.4v1.7H7.4z'
+        />
+    </svg>
+)
+
 const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     lark: { label: 'Lark', Icon: LarkIcon },
     telegram: { label: 'Telegram', Icon: TelegramIcon },
@@ -169,6 +183,7 @@ const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     linear: { label: 'Linear', Icon: LinearIcon },
     github: { label: 'GitHub', Icon: GithubIcon },
     line: { label: 'LINE', Icon: LineIcon },
+    googlechat: { label: 'Google Chat', Icon: GoogleChatIcon },
     whatsapp: { label: 'WhatsApp', Icon: WhatsappIcon },
     fake: { label: 'Fake (test)', Icon: FakeIcon }
 }
