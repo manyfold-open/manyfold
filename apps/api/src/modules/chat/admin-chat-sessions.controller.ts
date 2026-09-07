@@ -1,5 +1,6 @@
 import type {
     AdminChatSessionDetail,
+    AdminChatSessionTurnsPage,
     AdminChatSessionsPage,
     AdminChatStreamEventsPage
 } from '@manyfold/shared'
@@ -13,7 +14,13 @@ import {
 } from '@nestjs/common'
 import { AuthGuard } from '@/common/guards/auth.guard'
 import { AdminGuard } from '@/common/guards/admin.guard'
+import { ListMessagesQueryDto } from './dto/create-message.dto'
 import { AdminChatSessionsService } from './admin-chat-sessions.service'
+
+// Each turn carries both messages' content blocks, so the page is far heavier
+// per row than the event page below. The DTO's own @Max(100) is the ceiling an
+// operator can ask for; this is what the admin UI actually requests.
+const TURNS_PAGE_DEFAULT_LIMIT = 20
 
 const parseLimit = (raw: string | undefined, fallback: number): number =>
     raw ? Math.max(1, Math.min(200, Number(raw))) : fallback
@@ -68,6 +75,17 @@ export class AdminChatSessionsController {
     @Get(':id')
     get(@Param('id') id: string): Promise<AdminChatSessionDetail> {
         return this.sessions.get(id)
+    }
+
+    @Get(':id/turns')
+    listTurns(
+        @Param('id') id: string,
+        @Query() q: ListMessagesQueryDto
+    ): Promise<AdminChatSessionTurnsPage> {
+        return this.sessions.listTurns(id, {
+            limit: q.limit ?? TURNS_PAGE_DEFAULT_LIMIT,
+            before: q.before ?? null
+        })
     }
 
     @Get(':id/events')

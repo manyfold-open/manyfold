@@ -321,6 +321,8 @@ export const apiPaths = {
     ADMIN_CHAT_SESSION_BY_ID: (id: string) => `/admin/chat-sessions/${id}`,
     ADMIN_CHAT_SESSION_EVENTS: (id: string) =>
         `/admin/chat-sessions/${id}/events`,
+    ADMIN_CHAT_SESSION_TURNS: (id: string) =>
+        `/admin/chat-sessions/${id}/turns`,
     ADMIN_MODEL_PROVIDERS: '/admin/model-providers',
     ME_MODEL_PROVIDERS: '/me/model-providers',
     ME_CONNECTIONS: '/me/connections',
