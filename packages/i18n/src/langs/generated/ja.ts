@@ -3091,6 +3091,7 @@ const ja: Record<string, string> = {
     'web.composer.intelligence.high': '高',
     'web.composer.intelligence.xhigh': '非常に高い',
     'web.composer.intelligence.max': '最大',
+    'web.composer.intelligence.ultra': 'ウルトラ',
     'web.composer.intelligence.unknown': '不明',
     'web.composer.speedLabels.fast': '高速',
     'web.composer.speedLabels.standard': '標準',

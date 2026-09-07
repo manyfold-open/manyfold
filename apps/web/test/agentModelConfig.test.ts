@@ -20,6 +20,7 @@ import {
 import {
     buildAgentModelSupportMatrix,
     claudeEffortOptionsForDraft,
+    codexIntelligenceOptionsForModel,
     draftFromModelConfigView,
     formatClaudeEffortLabel,
     frameworkUsesModelConfig,
@@ -666,6 +667,50 @@ test('reconcileModelConfigDraftForProviderModels resets Codex fast mode for non-
         speed: 'standard',
         intelligence: 'xhigh'
     })
+})
+
+test('buildCodexDefaultModelConfig prefers GPT-6 Astra over the 5.6 family', () => {
+    assert.deepEqual(
+        buildCodexDefaultModelConfig([
+            'other/gpt-5.5',
+            'other/gpt-5.6-sol',
+            'other/gpt-6-astra'
+        ]),
+        {
+            framework: 'codex',
+            model: 'other/gpt-6-astra',
+            speed: 'standard',
+            intelligence: 'medium'
+        }
+    )
+})
+
+test('codexIntelligenceOptionsForModel caps each model at its own ceiling', () => {
+    assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-6-astra'), [
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max',
+        'ultra'
+    ])
+    assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-5.6-luna'), [
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+        'max'
+    ])
+    assert.deepEqual(codexIntelligenceOptionsForModel('other/gpt-5.5'), [
+        'low',
+        'medium',
+        'high',
+        'xhigh'
+    ])
+    assert.deepEqual(
+        codexIntelligenceOptionsForModel('operator/unknown-model'),
+        ['low', 'medium', 'high', 'xhigh']
+    )
 })
 
 test('buildCodexDefaultModelConfig prefers GPT-5.6 Sol when the provider exposes it', () => {

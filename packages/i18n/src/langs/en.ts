@@ -3038,6 +3038,7 @@ const en = {
                 high: 'High',
                 xhigh: 'Extra high',
                 max: 'Maximum',
+                ultra: 'Ultra',
                 unknown: 'Unknown'
             },
             speedLabels: {

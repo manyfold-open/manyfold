@@ -945,6 +945,8 @@ export const formatCodexIntelligenceLabel = (
         return t('web.composer.intelligence.medium')
     if (intelligence === 'high') return t('web.composer.intelligence.high')
     if (intelligence === 'xhigh') return t('web.composer.intelligence.xhigh')
+    if (intelligence === 'max') return t('web.composer.intelligence.max')
+    if (intelligence === 'ultra') return t('web.composer.intelligence.ultra')
     return t('web.composer.intelligence.unknown')
 }
 
