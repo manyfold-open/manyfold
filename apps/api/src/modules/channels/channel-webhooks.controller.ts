@@ -65,7 +65,10 @@ export class ChannelWebhooksController {
         const ctx = this.bridge.buildContext(channel)
         const rawBody = (req as unknown as { rawBody?: string } | undefined)
             ?.rawBody
-        const sig = provider.verifySignature({ headers, body, rawBody }, ctx)
+        const sig = await provider.verifySignature(
+            { headers, body, rawBody },
+            ctx
+        )
         if (!sig.ok) {
             const lastRecorded =
                 this.signatureFailureRecordedAt.get(channel.id) ?? 0

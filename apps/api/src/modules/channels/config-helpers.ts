@@ -21,9 +21,17 @@ export const parseResetOnIdleMins = (value: unknown): number | null => {
     return Math.min(Math.floor(value), MAX_RESET_ON_IDLE_MINS)
 }
 
-export const parseProgressMode = (value: unknown): ChannelProgressMode => {
-    if (value === 'final' || value === 'activity') return value
-    return 'preview'
+// fallback lets a provider whose platform can't afford streaming default to
+// something quieter (Google Chat bills a message edit against a 1-write-per-
+// second-per-space budget). 'preview' is matched explicitly rather than left to
+// the fallthrough so an operator who picked it still gets it.
+export const parseProgressMode = (
+    value: unknown,
+    fallback: ChannelProgressMode = 'preview'
+): ChannelProgressMode => {
+    if (value === 'final' || value === 'activity' || value === 'preview')
+        return value
+    return fallback
 }
 
 export const parseFinalMessageMode = (

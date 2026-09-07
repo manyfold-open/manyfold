@@ -10,6 +10,8 @@ import type {
     LarkSubscriptionMode,
     LinearChannelConfig,
     LineChannelConfig,
+    GoogleChatAudienceType,
+    GoogleChatChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -153,6 +155,10 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
         channel.provider === 'line'
             ? (channel.config as LineChannelConfig)
             : null
+    const initialGooglechat =
+        channel.provider === 'googlechat'
+            ? (channel.config as GoogleChatChannelConfig)
+            : null
 
     const [label, setLabel] = useState(channel.label)
     const [subscriptionMode, setSubscriptionMode] =
@@ -196,6 +202,7 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
             initialDiscord?.mentionOnly ??
             initialMatrix?.mentionOnly ??
             initialLine?.mentionOnly ??
+            initialGooglechat?.mentionOnly ??
             initialWhatsapp?.mentionOnly ??
             true
     )
@@ -206,6 +213,7 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
             initialDiscord?.shareSessionInChannel ??
             initialMatrix?.shareSessionInChannel ??
             initialLine?.shareSessionInChannel ??
+            initialGooglechat?.shareSessionInChannel ??
             initialWhatsapp?.shareSessionInChannel ??
             false
     )
@@ -215,6 +223,7 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
             initialSlack?.threadIsolation ??
             initialDiscord?.threadIsolation ??
             initialMatrix?.threadIsolation ??
+            initialGooglechat?.threadIsolation ??
             (channel.provider === 'lark' ? false : true)
     )
     const [progressMode, setProgressMode] = useState<ChannelProgressMode>(
@@ -224,6 +233,7 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
             initialDiscord?.progressMode ??
             initialMatrix?.progressMode ??
             initialGithub?.progressMode ??
+            initialGooglechat?.progressMode ??
             initialWhatsapp?.progressMode ??
             'preview'
     )
@@ -235,6 +245,7 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
             initialMatrix?.contextProjection ??
             initialGithub?.contextProjection ??
             initialLine?.contextProjection ??
+            initialGooglechat?.contextProjection ??
             initialWhatsapp?.contextProjection ??
             true
     )
@@ -387,6 +398,27 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
     )
     const [lineAllowedChatIds, setLineAllowedChatIds] = useState(
         (initialLine?.allowedChatIds ?? []).join(', ')
+    )
+    const [googlechatServiceAccountJson, setGooglechatServiceAccountJson] =
+        useState('')
+    const [googlechatAudienceType, setGooglechatAudienceType] =
+        useState<GoogleChatAudienceType>(
+            initialGooglechat?.audienceType ?? 'app-url'
+        )
+    const [googlechatAudience, setGooglechatAudience] = useState(
+        initialGooglechat?.audience ?? ''
+    )
+    const [googlechatAllowedSpaceIds, setGooglechatAllowedSpaceIds] = useState(
+        (initialGooglechat?.allowedSpaceIds ?? []).join(', ')
+    )
+    const [googlechatAllowedUserIds, setGooglechatAllowedUserIds] = useState(
+        (initialGooglechat?.allowedUserIds ?? []).join(', ')
+    )
+    const [googlechatOperatorUserIds, setGooglechatOperatorUserIds] = useState(
+        (initialGooglechat?.operatorUserIds ?? []).join(', ')
+    )
+    const [googlechatAutoThread, setGooglechatAutoThread] = useState(
+        initialGooglechat?.autoThread !== false
     )
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -683,6 +715,34 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                     body.credentials = {
                         channelSecret: channelSecretNext,
                         channelAccessToken: accessTokenNext
+                    }
+            } else if (channel.provider === 'googlechat') {
+                const serviceAccountNext = googlechatServiceAccountJson.trim()
+                const audienceNext = googlechatAudience.trim()
+                if (googlechatAudienceType === 'project-number' && !audienceNext)
+                    throw new Error(
+                        t('web.channels.settings.errors.googlechatAudience')
+                    )
+                const nextConfig: GoogleChatChannelConfig = {
+                    audienceType: googlechatAudienceType,
+                    audience: audienceNext.length > 0 ? audienceNext : null,
+                    botUserId: initialGooglechat?.botUserId ?? null,
+                    botDisplayName: initialGooglechat?.botDisplayName ?? null,
+                    allowedSpaceIds: commaList(googlechatAllowedSpaceIds),
+                    allowedUserIds: commaList(googlechatAllowedUserIds),
+                    operatorUserIds: commaList(googlechatOperatorUserIds),
+                    mentionOnly,
+                    shareSessionInChannel,
+                    threadIsolation,
+                    autoThread: googlechatAutoThread,
+                    progressMode,
+                    contextProjection,
+                    resetOnIdleMins: initialGooglechat?.resetOnIdleMins ?? null
+                }
+                body.config = nextConfig
+                if (serviceAccountNext)
+                    body.credentials = {
+                        serviceAccountJson: serviceAccountNext
                     }
             } else if (channel.provider === 'fake') {
                 body.config = { note: null }
@@ -2066,6 +2126,147 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                         />
                         <p className='text-ui text-muted'>
                             {t('web.channels.settings.help.lineEdit')}
+                        </p>
+                    </>
+                )}
+
+                {channel.provider === 'googlechat' && (
+                    <>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.serviceAccountJsonKeep'
+                            )}
+                        >
+                            <textarea
+                                className='workbench-input min-h-24 font-mono'
+                                value={googlechatServiceAccountJson}
+                                onChange={(e) =>
+                                    setGooglechatServiceAccountJson(
+                                        e.target.value
+                                    )
+                                }
+                                autoComplete='off'
+                                spellCheck={false}
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.googlechatAudienceType'
+                            )}
+                        >
+                            <select
+                                className='workbench-input'
+                                value={googlechatAudienceType}
+                                onChange={(e) =>
+                                    setGooglechatAudienceType(
+                                        e.target
+                                            .value as GoogleChatAudienceType
+                                    )
+                                }
+                            >
+                                <option value='app-url'>
+                                    {t(
+                                        'web.channels.settings.fields.googlechatAudienceAppUrl'
+                                    )}
+                                </option>
+                                <option value='project-number'>
+                                    {t(
+                                        'web.channels.settings.fields.googlechatAudienceProjectNumber'
+                                    )}
+                                </option>
+                            </select>
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.googlechatAudience'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={googlechatAudience}
+                                onChange={(e) =>
+                                    setGooglechatAudience(e.target.value)
+                                }
+                                placeholder={
+                                    googlechatAudienceType === 'project-number'
+                                        ? '1234567890'
+                                        : 'https://…/api/channels/hooks/googlechat/…'
+                                }
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.googlechatAllowedSpaceIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={googlechatAllowedSpaceIds}
+                                onChange={(e) =>
+                                    setGooglechatAllowedSpaceIds(e.target.value)
+                                }
+                                placeholder='AAAAxxxxxxx, ...'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.allowedUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={googlechatAllowedUserIds}
+                                onChange={(e) =>
+                                    setGooglechatAllowedUserIds(e.target.value)
+                                }
+                                placeholder='ada@example.com, users/123456'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.operatorUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={googlechatOperatorUserIds}
+                                onChange={(e) =>
+                                    setGooglechatOperatorUserIds(e.target.value)
+                                }
+                                placeholder='ada@example.com, users/123456'
+                            />
+                        </Field>
+                        <BehaviorFields
+                            mentionOnly={mentionOnly}
+                            setMentionOnly={setMentionOnly}
+                            shareSessionInChannel={shareSessionInChannel}
+                            setShareSessionInChannel={setShareSessionInChannel}
+                            threadIsolation={threadIsolation}
+                            setThreadIsolation={setThreadIsolation}
+                            progressMode={progressMode}
+                            setProgressMode={setProgressMode}
+                            contextProjection={contextProjection}
+                            setContextProjection={setContextProjection}
+                            threadLabel={t(
+                                'web.channels.settings.threadLabels.googlechat'
+                            )}
+                        />
+                        <CheckboxField
+                            label={t(
+                                'web.channels.settings.behaviors.googlechatAutoThread'
+                            )}
+                            description={t(
+                                'web.channels.settings.behaviors.googlechatAutoThreadDescription'
+                            )}
+                            checked={googlechatAutoThread}
+                            onChange={setGooglechatAutoThread}
+                        />
+                        <p className='text-ui text-muted'>
+                            {t('web.channels.settings.help.googlechatEdit')}
                         </p>
                     </>
                 )}

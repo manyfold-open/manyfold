@@ -40,7 +40,8 @@ export const channels = pgTable(
                 'whatsapp',
                 'linear',
                 'github',
-                'line'
+                'line',
+                'googlechat'
             ]
         }).notNull(),
         label: text('label').notNull(),

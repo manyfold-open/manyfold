@@ -65,6 +65,7 @@ const PROVIDER_ORDER: ChannelProviderName[] = [
     'linear',
     'github',
     'line',
+    'googlechat',
     'fake'
 ]
 

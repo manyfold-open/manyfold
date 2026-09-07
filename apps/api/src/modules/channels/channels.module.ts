@@ -34,6 +34,7 @@ import { WhatsappChannelProvider } from './providers/whatsapp.provider'
 import { LinearChannelProvider } from './providers/linear.provider'
 import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
+import { GoogleChatChannelProvider } from './providers/googlechat.provider'
 
 @Module({
     imports: [
@@ -75,7 +76,8 @@ import { LineChannelProvider } from './providers/line.provider'
         WhatsappChannelProvider,
         LinearChannelProvider,
         GithubChannelProvider,
-        LineChannelProvider
+        LineChannelProvider,
+        GoogleChatChannelProvider
     ],
     exports: [
         ChannelsService,

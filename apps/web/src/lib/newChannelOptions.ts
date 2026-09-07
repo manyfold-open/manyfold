@@ -34,7 +34,8 @@ const CREATE_PROVIDERS: CreateProviderChoice[] = [
     'whatsapp',
     'linear',
     'github',
-    'line'
+    'line',
+    'googlechat'
 ]
 
 export const isCreateProvider = (
