@@ -1,4 +1,23 @@
 export { apiPaths } from './apiPaths'
+export {
+    ACP_PROTOCOL_VERSION,
+    asTimeouts,
+    pickAutoApproveOptionId,
+    pickRejectOptionId,
+    decodePermissionRequest,
+    acpEventsFromFrame,
+    decodeAcpSessionState,
+    acpModelMatches,
+    acpEventsFromNotification,
+    pickStderrErrorLine,
+    isFatalStderrLine
+} from './acp'
+export type {
+    AcpEvent,
+    AcpRequestTimeouts,
+    JsonRpcNotification,
+    AcpSessionState
+} from './acp'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'
 export {
     apiTokenScopes,
