@@ -37,7 +37,7 @@ export const registerChannelsCreate = (
         )
         .requiredOption(
             '--provider <name>',
-            'channel provider (fake|lark|telegram|slack|discord|matrix|weixin|whatsapp|linear|github|line|googlechat|msteams)'
+            'channel provider (fake|lark|telegram|slack|discord|matrix|weixin|whatsapp|linear|github|line|googlechat|msteams|imessage)'
         )
         .requiredOption('--label <label>', 'channel label (1-200 chars)')
         .requiredOption(

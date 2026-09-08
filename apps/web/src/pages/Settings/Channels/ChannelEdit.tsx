@@ -10,6 +10,7 @@ import type {
     LarkSubscriptionMode,
     LinearChannelConfig,
     LineChannelConfig,
+    IMessageChannelConfig,
     GoogleChatAudienceType,
     GoogleChatChannelConfig,
     MsTeamsChannelConfig,
@@ -163,6 +164,10 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
     const initialMsteams =
         channel.provider === 'msteams'
             ? (channel.config as MsTeamsChannelConfig)
+            : null
+    const initialImessage =
+        channel.provider === 'imessage'
+            ? (channel.config as IMessageChannelConfig)
             : null
 
     const [label, setLabel] = useState(channel.label)
@@ -403,6 +408,22 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
     )
     const [lineAllowedChatIds, setLineAllowedChatIds] = useState(
         (initialLine?.allowedChatIds ?? []).join(', ')
+    )
+    const [imessageServerUrl, setImessageServerUrl] = useState(
+        initialImessage?.serverUrl ?? ''
+    )
+    const [imessageServerPassword, setImessageServerPassword] = useState('')
+    const [imessageWakeWords, setImessageWakeWords] = useState(
+        (initialImessage?.wakeWords ?? []).join(', ')
+    )
+    const [imessageAllowedUserIds, setImessageAllowedUserIds] = useState(
+        (initialImessage?.allowedUserIds ?? []).join(', ')
+    )
+    const [imessageOperatorUserIds, setImessageOperatorUserIds] = useState(
+        (initialImessage?.operatorUserIds ?? []).join(', ')
+    )
+    const [imessageAllowedChatIds, setImessageAllowedChatIds] = useState(
+        (initialImessage?.allowedChatIds ?? []).join(', ')
     )
     const [googlechatServiceAccountJson, setGooglechatServiceAccountJson] =
         useState('')
@@ -737,6 +758,41 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                         channelSecret: channelSecretNext,
                         channelAccessToken: accessTokenNext
                     }
+            } else if (channel.provider === 'imessage') {
+                const serverUrlNext = imessageServerUrl.trim()
+                const passwordNext = imessageServerPassword.trim()
+                if (!serverUrlNext)
+                    throw new Error(
+                        t('web.channels.settings.errors.imessageServerUrl')
+                    )
+                const wakeWords = commaList(imessageWakeWords)
+                if (mentionOnly && wakeWords.length === 0)
+                    throw new Error(
+                        t('web.channels.settings.errors.imessageWakeWords')
+                    )
+                const nextConfig: IMessageChannelConfig = {
+                    serverUrl: serverUrlNext,
+                    webhookId: initialImessage?.webhookId ?? null,
+                    serverVersion: initialImessage?.serverVersion ?? null,
+                    privateApi: initialImessage?.privateApi ?? null,
+                    helperConnected: initialImessage?.helperConnected ?? null,
+                    allowedUserIds: commaList(imessageAllowedUserIds),
+                    operatorUserIds: commaList(imessageOperatorUserIds),
+                    allowedChatIds: commaList(imessageAllowedChatIds),
+                    wakeWords,
+                    mentionOnly,
+                    shareSessionInChannel,
+                    progressMode: 'final',
+                    contextProjection,
+                    resetOnIdleMins: initialImessage?.resetOnIdleMins ?? null
+                }
+                body.config = nextConfig
+                // Sending credentials at all re-runs register(), which mints a
+                // fresh webhook secret and re-registers it on the Mac — so the
+                // blank case must stay untouched rather than send the old
+                // password back.
+                if (passwordNext)
+                    body.credentials = { serverPassword: passwordNext }
             } else if (channel.provider === 'googlechat') {
                 const serviceAccountNext = googlechatServiceAccountJson.trim()
                 const audienceNext = googlechatAudience.trim()
@@ -2074,6 +2130,133 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                         />
                         <p className='text-ui text-muted'>
                             {t('web.channels.settings.help.githubEdit')}
+                        </p>
+                    </>
+                )}
+
+                {channel.provider === 'imessage' && (
+                    <>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.bluebubblesServerUrl'
+                            )}
+                        >
+                            <input
+                                type='url'
+                                className='workbench-input'
+                                value={imessageServerUrl}
+                                onChange={(e) =>
+                                    setImessageServerUrl(e.target.value)
+                                }
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.bluebubblesServerPasswordKeep'
+                            )}
+                        >
+                            <input
+                                type='password'
+                                className='workbench-input'
+                                value={imessageServerPassword}
+                                onChange={(e) =>
+                                    setImessageServerPassword(e.target.value)
+                                }
+                                autoComplete='new-password'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.wakeWords'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={imessageWakeWords}
+                                onChange={(e) =>
+                                    setImessageWakeWords(e.target.value)
+                                }
+                                placeholder='hey manyfold, manyfold'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.allowedUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={imessageAllowedUserIds}
+                                onChange={(e) =>
+                                    setImessageAllowedUserIds(e.target.value)
+                                }
+                                placeholder='+15555550123, someone@example.com'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.operatorUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={imessageOperatorUserIds}
+                                onChange={(e) =>
+                                    setImessageOperatorUserIds(e.target.value)
+                                }
+                                placeholder='+15555550123, someone@example.com'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.allowedImessageChatIdsOptional'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={imessageAllowedChatIds}
+                                onChange={(e) =>
+                                    setImessageAllowedChatIds(e.target.value)
+                                }
+                                placeholder='iMessage;+;chat123456789'
+                            />
+                        </Field>
+                        <CheckboxField
+                            label={t(
+                                'web.channels.settings.behaviors.mentionOnly'
+                            )}
+                            description={t(
+                                'web.channels.settings.behaviors.mentionOnlyDescription'
+                            )}
+                            checked={mentionOnly}
+                            onChange={setMentionOnly}
+                        />
+                        <CheckboxField
+                            label={t(
+                                'web.channels.settings.behaviors.shareSession'
+                            )}
+                            description={t(
+                                'web.channels.settings.behaviors.shareSessionDescription'
+                            )}
+                            checked={shareSessionInChannel}
+                            onChange={setShareSessionInChannel}
+                        />
+                        <CheckboxField
+                            label={t(
+                                'web.channels.settings.behaviors.sendContext'
+                            )}
+                            description={t(
+                                'web.channels.settings.behaviors.sendContextDescription'
+                            )}
+                            checked={contextProjection}
+                            onChange={setContextProjection}
+                        />
+                        <p className='text-ui text-muted -mt-2'>
+                            {t('web.channels.settings.help.imessageEdit')}
                         </p>
                     </>
                 )}

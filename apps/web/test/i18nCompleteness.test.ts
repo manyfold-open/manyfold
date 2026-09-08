@@ -724,7 +724,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Slack',
         'Telegram',
         'WeChat',
-        'WhatsApp'
+        'WhatsApp',
+        'iMessage'
     ],
     'lib/fontSize.tsx': ['default'],
     'lib/i18n.tsx': ['zh'],
@@ -815,7 +816,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Slack',
         'Telegram',
         'WeChat',
-        'WhatsApp'
+        'WhatsApp',
+        'iMessage'
     ],
     'pages/Settings/Channels/ChannelEdit.tsx': [
         '!roomid:matrix.example.org, ...',
@@ -827,6 +829,9 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         '123456789:AAH...',
         'Cxxxxxxxx, Rxxxxxxxx',
         'Feishu',
+        '+15555550123, someone@example.com',
+        'hey manyfold, manyfold',
+        'iMessage;+;chat123456789',
         'https://matrix.example.org',
         'https://smba.trafficmanager.net/teams',
         '19:xxxxx@thread.tacv2, ...',
@@ -851,8 +856,10 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'U01ABCDEF',
         'U01ABCDEF, U02GHIJKL',
         'cli_xxxxx',
+        'hey manyfold, manyfold',
         'https://ilinkai.weixin.qq.com',
         'https://matrix.example.org',
+        'https://your-mac.trycloudflare.com',
         'ou_xxxx',
         'ou_xxxx, ou_yyyy',
         'owner/repo, owner/other-repo',

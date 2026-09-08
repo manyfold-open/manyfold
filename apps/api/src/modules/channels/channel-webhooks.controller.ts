@@ -22,7 +22,7 @@ import {
 } from './channel-bridge.service'
 import { ChannelProviderRegistry } from './channel-provider-registry.service'
 import { ChannelsRepository } from './channels.repository'
-import { UnsupportedEventError } from './channel-provider'
+import { UnsupportedEventError, type InboundRequest } from './channel-provider'
 
 const SUMMARY_MAX_LEN = 200
 // Signature failures are unauthenticated writes: without a floor, a
@@ -65,10 +65,15 @@ export class ChannelWebhooksController {
         const ctx = this.bridge.buildContext(channel)
         const rawBody = (req as unknown as { rawBody?: string } | undefined)
             ?.rawBody
-        const sig = await provider.verifySignature(
-            { headers, body, rawBody },
-            ctx
-        )
+        const inboundReq: InboundRequest = {
+            headers,
+            body,
+            rawBody,
+            // FastifyRequest['query'] is unknown until a route schema narrows
+            // it; this route has none.
+            query: (req.query ?? {}) as InboundRequest['query']
+        }
+        const sig = await provider.verifySignature(inboundReq, ctx)
         if (!sig.ok) {
             const lastRecorded =
                 this.signatureFailureRecordedAt.get(channel.id) ?? 0
@@ -104,10 +109,7 @@ export class ChannelWebhooksController {
         if (channel.status !== 'active')
             throw new BadRequestException(`channel is ${channel.status}`)
         try {
-            const action = provider.parseInboundAction?.(
-                { headers, body, rawBody },
-                ctx
-            ) ?? null
+            const action = provider.parseInboundAction?.(inboundReq, ctx) ?? null
             if (action) {
                 void this.bridge
                     .handleInboundAction(channel, action)
@@ -118,7 +120,7 @@ export class ChannelWebhooksController {
                     })
                 return { ok: true, action: action.action }
             }
-            const event = provider.parseInbound({ headers, body, rawBody }, ctx)
+            const event = provider.parseInbound(inboundReq, ctx)
             // Some platforms require a specific ack body for this request (e.g.
             // Slack slash commands want an empty-body 200); the default JSON
             // ack would be rendered as a bogus reply.

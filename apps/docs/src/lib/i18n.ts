@@ -531,6 +531,7 @@ const defaultDocsGroups: DocsGroup[] = [
                     'channels/github',
                     'channels/googlechat',
                     'channels/msteams',
+                    'channels/imessage',
                     'channels/session-switching',
                     'channels/agent-send'
                 ]
@@ -662,6 +663,7 @@ const docsGroupOverrides: Partial<Record<Locale, DocsGroup[]>> = {
                         'channels/github',
                         'channels/googlechat',
                         'channels/msteams',
+                        'channels/imessage',
                         'channels/session-switching',
                         'channels/agent-send'
                     ]

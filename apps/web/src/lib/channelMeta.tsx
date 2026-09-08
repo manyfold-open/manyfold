@@ -19,6 +19,7 @@ const channelDocsPaths: Partial<Record<ChannelProviderName, string>> = {
     line: '/docs/channels/line',
     googlechat: '/docs/channels/googlechat',
     msteams: '/docs/channels/msteams',
+    imessage: '/docs/channels/imessage',
     whatsapp: '/docs/channels/whatsapp'
 }
 
@@ -196,6 +197,15 @@ const MsTeamsIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     </svg>
 )
 
+const IMessageIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
+    <svg viewBox='0 0 24 24' className={className} aria-hidden='true'>
+        <path
+            fill='#34C759'
+            d='M12 2C6.2 2 1.5 5.9 1.5 10.7c0 2.7 1.5 5.1 3.9 6.7-.2 1.4-.9 2.7-1.9 3.7 1.6-.2 3.2-.8 4.5-1.8 1.3.4 2.6.6 4 .6 5.8 0 10.5-3.9 10.5-8.7S17.8 2 12 2z'
+        />
+    </svg>
+)
+
 const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     lark: { label: 'Lark', Icon: LarkIcon },
     telegram: { label: 'Telegram', Icon: TelegramIcon },
@@ -208,6 +218,7 @@ const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     line: { label: 'LINE', Icon: LineIcon },
     googlechat: { label: 'Google Chat', Icon: GoogleChatIcon },
     msteams: { label: 'Microsoft Teams', Icon: MsTeamsIcon },
+    imessage: { label: 'iMessage', Icon: IMessageIcon },
     whatsapp: { label: 'WhatsApp', Icon: WhatsappIcon },
     fake: { label: 'Fake (test)', Icon: FakeIcon }
 }

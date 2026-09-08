@@ -14,6 +14,7 @@ import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
 import { GoogleChatChannelProvider } from './providers/googlechat.provider'
 import { MsTeamsChannelProvider } from './providers/msteams.provider'
+import { IMessageChannelProvider } from './providers/imessage.provider'
 
 @Injectable()
 export class ChannelProviderRegistry {
@@ -32,7 +33,8 @@ export class ChannelProviderRegistry {
         github: GithubChannelProvider,
         line: LineChannelProvider,
         googlechat: GoogleChatChannelProvider,
-        msteams: MsTeamsChannelProvider
+        msteams: MsTeamsChannelProvider,
+        imessage: IMessageChannelProvider
     ) {
         this.providers.set('fake', fake)
         this.providers.set('lark', lark)
@@ -47,6 +49,7 @@ export class ChannelProviderRegistry {
         this.providers.set('line', line)
         this.providers.set('googlechat', googlechat)
         this.providers.set('msteams', msteams)
+        this.providers.set('imessage', imessage)
     }
 
     get(name: ChannelProviderName): ChannelProvider {

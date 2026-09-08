@@ -495,6 +495,8 @@ export type {
     GoogleChatChannelCredentials,
     MsTeamsChannelConfig,
     MsTeamsChannelCredentials,
+    IMessageChannelConfig,
+    IMessageChannelCredentials,
     ChannelCredentials,
     ChannelAgentSummary,
     ChannelSummary,

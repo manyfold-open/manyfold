@@ -408,6 +408,7 @@ const ChannelDetail: FC = (): ReactNode => {
                                 channel.provider === 'line' ||
                                 channel.provider === 'googlechat' ||
                                 channel.provider === 'msteams' ||
+                                channel.provider === 'imessage' ||
                                 channel.provider === 'lark') && (
                                 <ShortcutTooltip
                                     label={
@@ -447,9 +448,14 @@ const ChannelDetail: FC = (): ReactNode => {
                                                           ? t(
                                                                 'web.channels.settings.tooltips.registerMsteams'
                                                             )
-                                                          : t(
-                                                                'web.channels.settings.tooltips.registerMatrix'
-                                                            )
+                                                          : channel.provider ===
+                                                              'imessage'
+                                                            ? t(
+                                                                  'web.channels.settings.tooltips.registerImessage'
+                                                              )
+                                                            : t(
+                                                                  'web.channels.settings.tooltips.registerMatrix'
+                                                              )
                                     }
                                     className='w-full'
                                 >
@@ -789,6 +795,7 @@ const providerLabel = (channel: ChannelDetailType): string => {
     if (channel.provider === 'linear') return 'Linear'
     if (channel.provider === 'github') return 'GitHub'
     if (channel.provider === 'line') return 'LINE'
+    if (channel.provider === 'imessage') return 'iMessage'
     if (channel.provider === 'googlechat') return 'Google Chat'
     if (channel.provider === 'msteams') return 'Microsoft Teams'
     return 'Fake (test)'
