@@ -1,5 +1,53 @@
 # @manyfold/api
 
+## 0.72.0
+
+### Minor Changes
+
+- [#242](https://github.com/manyfold-open/manyfold/pull/242) [`e9f99df`](https://github.com/manyfold-open/manyfold/commit/e9f99df9c8a424c1cffc89474e596dc66898c87d) Thanks [@yingca1](https://github.com/yingca1)! - Add an iMessage channel provider
+
+    Bind an agent to iMessage and reach it from the Messages app, in one-on-one
+    conversations and in group chats. Apple publishes no iMessage API, so the
+    channel talks to a BlueBubbles server you run on your own Mac: paste its URL
+    and server password, and Register pings it, reads its version and installs the
+    inbound webhook itself, so nothing has to be copied back by hand.
+
+    iMessage has no bot identity to @-mention, so group messages are gated on
+    literal wake words instead, stripped from the message before the agent sees it.
+    Wake words are escaped as literals rather than compiled as user-supplied
+    patterns, because parsing runs on the unauthenticated webhook path where a
+    hostile regex would be a denial of service against every channel on the
+    instance. Allowlists normalize handles, so `+1 (555) 555-0123` and
+    `+15555550123` are one person.
+
+    BlueBubbles can neither set custom headers nor sign its payloads, so inbound is
+    authenticated with a per-channel secret embedded in the registered webhook URL
+    and compared in constant time. That is weaker than every other channel here:
+    the URL is a bearer capability, visible in the BlueBubbles webhook list and in
+    tunnel logs, and the allowlist is not a second factor. The channel docs say so
+    plainly. Outbound calls are re-checked against the private-address guard on
+    every request, not only when the URL is saved, because a write-time-only check
+    loses to DNS rebinding.
+
+    Replies are flattened to plain text and split one bubble per paragraph, since
+    Messages renders no markdown and cannot edit a sent message — so there is no
+    streaming preview. Attachments work in both directions. Reactions, typing
+    indicators, read receipts and reply threading are detected and reported but not
+    implemented: they all require the BlueBubbles Private API helper, which needs
+    SIP disabled on the operator's Mac.
+
+- [#244](https://github.com/manyfold-open/manyfold/pull/244) [`e204c5f`](https://github.com/manyfold-open/manyfold/commit/e204c5f0f452d407e9722634a6e02bc2e8bf5494) Thanks [@yingca1](https://github.com/yingca1)! - Route openclaw chat over ACP by default. `MF_OPENCLAW_ACP` now defaults on, so sprite (no-runner) and k8s openclaw turns run the `openclaw acp` bridge — enabling per-message model switching and interactive permission approval — instead of the stateless gateway-http path. Set `MF_OPENCLAW_ACP=0` to fall back to gateway-http without a redeploy. NarraNexus is unaffected (it keeps the gateway-http path via the framework guard). The gateway-http chat branch is retained as that rollback for now and will be removed in a follow-up, once the NarraNexus/GatewayHttp adapter split lands.
+
+### Patch Changes
+
+- [#243](https://github.com/manyfold-open/manyfold/pull/243) [`95a31eb`](https://github.com/manyfold-open/manyfold/commit/95a31eb1f773a54b71303bcdc1e796e3a8e6877a) Thanks [@yingca1](https://github.com/yingca1)! - Stop a codex thread's single-writer rule from costing a conversation. Codex admits one writer per thread and refuses the second with `thread/resume failed: … already has an active writer (code -32600)`, in the same `thread/resume failed` wrapper it puts on a missing rollout — so the resume-load self-heal matched it and cleared `framework_session_ref`, forking the session onto a fresh thread and silently dropping the conversation the user was still reading, while the holder went on appending to the thread nothing pointed at any more. The self-heal is now keyed on positive evidence of a lost rollout rather than on that wrapper, so no other reason codex wraps the same way can trigger it either; the busy refusal keeps the ref, fails retryably, is classified as its own `resume_contention` failure cause instead of a stale ref, and — when it is the session's own TUI holding the thread — is explained in the chat as such instead of shown as a JSON-RPC line.
+
+    The terminal's "resume this session in the TUI" no longer walks into the same collision. The API refuses it while `chat_sessions.inflight_message_id` is held — which stays held through a SUSPENDED turn, the exact state where the API has stopped watching and the CLI has not stopped writing — opens a plain shell, and reports the verdict on the terminal's `session_info` frame. The web records that verdict on the tab (its own stream view both lags and leads it), explains the plain shell from it, and rebuilds the tab into the TUI on the first switch back after the turn ends — including after a mid-turn reload, where the tip message id never moves.
+
+    Turn adoption now holds the sandbox awake while it recovers a sprites turn from the runtime transcript: that recovery polls the sandbox for the turn's remaining life, none of which is platform-visible activity, so it was racing a suspend that could freeze the very files it was reading. Every path that holds a turn's awake lease now settles it by one rule — released only at a real terminal, left on its TTL when the turn suspended or moved to another owner — and releasing waits for the lease's own in-flight create, so a hold settled on its first poll can no longer leak a full-TTL lease.
+
+- [#241](https://github.com/manyfold-open/manyfold/pull/241) [`906f4e5`](https://github.com/manyfold-open/manyfold/commit/906f4e53a25f8da3973d5e2a5353aeba6d7a74c4) Thanks [@yingca1](https://github.com/yingca1)! - Fix openclaw chat over ACP failing on sprites with `openclaw acp exited with code 1`. The bridge now creates and enters the agent workspace itself instead of passing it as the exec working directory — a fresh sprite creates that workspace lazily, so `cd`-ing into it failed before openclaw started — and the gateway session binds to the sprite gateway's actual agent (`main`) rather than the internal agent id, which the gateway rejects as "no longer exists in configuration". Per-message model switching over ACP now takes effect.
+
 ## 0.71.3
 
 ### Patch Changes
