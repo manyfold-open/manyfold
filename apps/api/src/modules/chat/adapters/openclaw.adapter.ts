@@ -777,7 +777,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 )
             }
         }
-        if (ctx.frameworkSessionRef !== args.sessionKey)
+        if (args.sessionKey && ctx.frameworkSessionRef !== args.sessionKey)
             await this.chatRepo
                 .updateFrameworkSessionRef(
                     ctx.sessionId,
