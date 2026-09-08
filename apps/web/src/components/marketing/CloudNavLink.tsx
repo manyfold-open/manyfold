@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from 'react'
 
-// Editions slot (§3.3): every entrance to the cloud acquisition page — the
+// Editions slot (§3.3): every entrance to the cloud marketing page — the
 // nav bar, the folded menu, the footer's Product column, and the way out of
 // the landing tour's hosting scene. The page argues the hosted offering,
 // which an open-source install does not have — and `pages/CloudLanding.tsx`

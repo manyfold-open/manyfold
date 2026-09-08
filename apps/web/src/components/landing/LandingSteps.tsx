@@ -9,7 +9,7 @@ export interface LandingStep {
     note?: string
 }
 
-/* The three-steps block, shared by every acquisition page that has one. It
+/* The three-steps block, shared by every marketing page that has one. It
    was two blocks: a bordered card with full-height rules and a chevron on
    each divider, and a flat row with mono ordinals down the left. Two pages,
    two components, in two repositories, with nothing comparing them.

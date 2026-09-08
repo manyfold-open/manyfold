@@ -2,7 +2,7 @@ import type { SeoPageDefinition } from '@/seo/pages'
 
 // Editions slot (§3.3): indexable marketing pages a composition adds to the
 // manifest. Empty here, because an open-source install has no commercial
-// acquisition page to index — the cloud overlay shadows this file with its
+// marketing page to index — the cloud overlay shadows this file with its
 // own definitions.
 //
 // Two consumers, two paths to the same file. The browser build gets it
