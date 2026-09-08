@@ -6,6 +6,10 @@ import {
 } from '@/modules/chat/chat-adapter'
 import { SANDBOX_EXEC_UNAVAILABLE_CODE } from '@/modules/chat/sprite-exec-terminal'
 import { UPSTREAM_RATE_LIMIT_SIGNATURE } from '@/modules/chat/upstream-rate-limit-signal'
+import {
+    CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
+    CODEX_THREAD_BUSY_SIGNATURE
+} from '@/modules/chat/codex-resume-signal'
 
 // Durable codes first. The adapters own them, they are already a closed set,
 // and they survive every vendor rewording. A code that names one cause wins;
@@ -143,10 +147,13 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
         /invalid session identifier|no previous sessions found for this project/,
         'stale_resume_ref'
     ],
-    [
-        /no rollout found for thread|failed to read thread|thread\/resume failed/,
-        'stale_resume_ref'
-    ],
+    // Both from the codex adapter's own signal module, so the ref-clearing
+    // self-heal there and the incident filed here can never disagree about
+    // which wording is a lost rollout and which is a thread still being
+    // written. Counting the second as stale hides a turn colliding with
+    // itself behind an incident about refs that need clearing.
+    [CODEX_THREAD_BUSY_SIGNATURE, 'resume_contention'],
+    [CODEX_RESUME_LOAD_FAILURE_SIGNATURE, 'stale_resume_ref'],
     [
         /\bnot[ _-]?implemented\b|does not support|is not supported\b/,
         'unsupported_capability'
