@@ -273,61 +273,9 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
 const serviceSurfaces: readonly ExecEnvSurface[] = [
     {
         framework: 'openclaw',
-        runtime: 'sprites',
-        transport: 'gateway-http',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'not-applicable',
-        resume: 'none'
-    },
-    {
-        framework: 'openclaw',
-        runtime: 'sprites',
-        transport: 'turn-rpc',
-        gatedBy: [
-            'MF_SPRITE_RUNNER_AGENTS',
-            'MF_OPENCLAW_TURN_RPC',
-            'daemon:turn.openclaw'
-        ],
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'not-applicable',
-        resume: 'attach-no-env',
-        payloadEnvKeys: [],
-        note: 'The payload carries the gateway URL, token and request body; the runner holds the SSE socket. No env channel exists on this transport.'
-    },
-    {
-        framework: 'openclaw',
-        runtime: 'k8s',
-        transport: 'gateway-http',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        path: 'not-applicable',
-        resume: 'none'
-    },
-    {
-        framework: 'openclaw',
-        runtime: 'daemon',
-        transport: 'daemon-exec',
-        identity: 'daemon-local',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'daemon-local',
-        path: 'daemon-ambient',
-        resume: 'attach-no-env',
-        note: 'A daemon openclaw turn spawns the CLI rather than calling a gateway, and dispatches no env at all: the factory gates its base env to coding frameworks because this turn payload has no env channel a resident openclaw would read (#783 owns adding one). It resumes by replaying the buffered CLI stdout under the exec ref it pinned, which is the assistant message id (#666), so the replay is a second read of one run rather than a second run.'
-    },
-    {
-        framework: 'openclaw',
         runtime: 'daemon',
         transport: 'turn-rpc',
-        gatedBy: ['MF_OPENCLAW_ACP', 'daemon:turn.openclaw.acp'],
+        gatedBy: ['daemon:turn.openclaw.acp'],
         identity: 'none',
         connections: 'none',
         extras: 'none',
@@ -335,13 +283,12 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: [],
-        note: 'The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST\'s own resident gateway — discovered from the user\'s openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box\'s own openclaw.json, and the model call runs inside that gateway with its provider key. Gated on the flag AND the daemon advertising turn.openclaw.acp; without either it falls back to the daemon-exec CLI spawn above. Resumable — the daemon buffers the ACP frames, replayed via exec.resume.'
+        note: 'The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST\'s own resident gateway — discovered from the user\'s openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box\'s own openclaw.json, and the model call runs inside that gateway with its provider key. The daemon must advertise turn.openclaw.acp and its last heartbeat must report a gateway it could reach; a daemon that does neither is refused with openclaw_daemon_upgrade_required / openclaw_daemon_gateway_unavailable rather than falling back — the CLI spawn it used to fall back to is gone (ADR-0027 O9). Resumable — the daemon buffers the ACP frames, replayed via exec.resume.'
     },
     {
         framework: 'openclaw',
         runtime: 'sprites',
         transport: 'sprite-exec',
-        gatedBy: ['MF_OPENCLAW_ACP'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -354,7 +301,6 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         framework: 'openclaw',
         runtime: 'k8s',
         transport: 'pod-exec',
-        gatedBy: ['MF_OPENCLAW_ACP'],
         identity: 'none',
         connections: 'none',
         extras: 'service-env',

@@ -7,7 +7,8 @@ import {
 } from '@manyfold/shared'
 import type {
     AgentFramework,
-    AgentRuntime
+    AgentRuntime,
+    DetectedFramework
 } from '@manyfold/shared'
 import { runtimeHosts, agentCredentials } from '@manyfold/db'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
@@ -246,21 +247,28 @@ const registryFor = (seam: Seam) => ({
 })
 
 // Serves the queries the service adapters make: the agent row, the
-// runtime_hosts row `daemonAdvertisesFeature` reads, and the credentials row
-// hermes decrypts for the provider alias env. Discriminating on the table
-// means the capability gate and the alias derivation run for real rather than
-// being stubbed out.
+// runtime_hosts row `daemonAdvertisesFeature` and `daemonDetectedFramework`
+// read, and the credentials row hermes decrypts for the provider alias env.
+// Discriminating on the table means the capability gate, the openclaw gateway
+// admission and the alias derivation run for real rather than being stubbed
+// out.
 const dbFor = (opts: {
     runtime: AgentRuntime
     framework: AgentFramework
     clientFeatures: string[]
+    detectedFrameworks: DetectedFramework[]
 }) => ({
     select: (): unknown => ({
         from: (table: unknown): unknown => ({
             where: (): unknown => ({
                 limit: async (): Promise<unknown[]> =>
                     table === runtimeHosts
-                        ? [{ clientFeatures: opts.clientFeatures }]
+                        ? [
+                              {
+                                  clientFeatures: opts.clientFeatures,
+                                  detectedFrameworks: opts.detectedFrameworks
+                              }
+                          ]
                         : table === agentCredentials
                           ? [
                                 {
@@ -329,9 +337,26 @@ export interface BuildOptions {
     framework: AgentFramework
     runtime: AgentRuntime
     clientFeatures?: string[]
+    // What the daemon's last heartbeat detected. The openclaw ACP daemon cell
+    // refuses to dispatch unless this reports a gateway it could reach, so the
+    // default is a reachable one and a cell that wants the refusal overrides it.
+    detectedFrameworks?: DetectedFramework[]
     // #555 replay: construct narranexus without the registry argument.
     withRegistry?: boolean
 }
+
+const REACHABLE_OPENCLAW_GATEWAY: DetectedFramework[] = [
+    {
+        framework: 'openclaw',
+        version: '2026.5.18',
+        path: '/usr/local/bin/openclaw',
+        gateway: {
+            port: 18789,
+            reachable: true,
+            checkedAt: new Date().toISOString()
+        }
+    }
+]
 
 export const buildAdapter = (
     seam: Seam,
@@ -342,7 +367,9 @@ export const buildAdapter = (
     const db = dbFor({
         runtime: opts.runtime,
         framework: opts.framework,
-        clientFeatures: opts.clientFeatures ?? []
+        clientFeatures: opts.clientFeatures ?? [],
+        detectedFrameworks:
+            opts.detectedFrameworks ?? REACHABLE_OPENCLAW_GATEWAY
     })
     switch (opts.framework) {
         case 'claude-code':

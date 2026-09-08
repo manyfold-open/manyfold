@@ -69,8 +69,6 @@ const EXCLUDED_CODES = new Map<string, string>([
     ['external_provider_failed', UNMAPPED],
     ['external_converge_failed', UNMAPPED],
     ['provider_kind_mismatch', UNMAPPED],
-    ['openclaw_daemon_exit_nonzero', UNMAPPED],
-    ['openclaw_daemon_event_error', UNMAPPED],
     ['openclaw_network', UNMAPPED],
     ['server_restart', UNMAPPED],
     ['a2a_resolve_failed', UNMAPPED],

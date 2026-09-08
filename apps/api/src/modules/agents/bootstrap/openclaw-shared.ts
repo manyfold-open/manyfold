@@ -56,9 +56,9 @@ export const canonicalizeOpenclawBaseUrl = (
 // `X-Forwarded-For` with the real client. OpenClaw >= 2026.8.1 attributes
 // proxy-shaped traffic before gateway auth and answers 403
 // `proxy_attribution_required` when the socket peer is not in `trustedProxies`,
-// so a loopback-only list takes down the Control UI *and* the
-// `/v1/chat/completions` endpoint the chat adapter calls — the agent is dead,
-// not just its dashboard. The peer address belongs to the platform rather than
+// so a loopback-only list takes down the Control UI, the published
+// `/v1/chat/completions` endpoint and the session-recovery WS RPC — the agent
+// is dead, not just its dashboard. The peer address belongs to the platform rather than
 // to us, so trust the private range it comes from instead of that one host;
 // widening it only lets a same-network peer choose the client IP OpenClaw
 // rate-limits on, never the gateway token it still has to present.
@@ -84,9 +84,11 @@ interface OpenclawConfigOptions {
  * bumping it needs the nginx ingress controller's pod range there.
  *
  * The `gateway.http.endpoints.chatCompletions.enabled = true` flag is what
- * exposes the OpenAI-compatible HTTP `/v1/chat/completions` endpoint that the
- * chat adapter calls. Without it, `openclaw gateway` only serves the
- * WebSocket Gateway and the SPA Control UI, and the adapter sees 404.
+ * exposes the OpenAI-compatible HTTP `/v1/chat/completions` endpoint. Chat no
+ * longer uses it — openclaw turns run `openclaw acp` in-box since ADR-0027 O9
+ * — but it is the agent's published endpoint URL (agents.service surfaces it
+ * to users), so it stays on. Without it `openclaw gateway` serves only the
+ * WebSocket Gateway and the SPA Control UI, and that URL 404s.
  */
 export const buildOpenclawConfigJson = (opts: OpenclawConfigOptions): string =>
     JSON.stringify(

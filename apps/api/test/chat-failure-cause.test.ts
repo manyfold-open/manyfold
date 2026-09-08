@@ -392,7 +392,13 @@ test('a capability the framework does not have is one cause across frameworks', 
         'gemini_resume_unsupported',
         'hermes_resume_unsupported',
         'openclaw_resume_unsupported',
-        'resume_unsupported'
+        'resume_unsupported',
+        // A daemon host that cannot serve the turn until an operator acts:
+        // an mf CLI too old for the ACP turn, or no reachable openclaw
+        // gateway for its bridge (ADR-0027 O9). Same cause as the hermes
+        // upgrade demand — the fix is on the host, not a retry here.
+        'openclaw_daemon_upgrade_required',
+        'openclaw_daemon_gateway_unavailable'
     ])
         assert.equal(cause(code, ''), 'unsupported_capability')
 })

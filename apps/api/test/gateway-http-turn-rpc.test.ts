@@ -1,23 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
+import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
 import type {
     ApiChatAdapterContext,
     ApiChatResumeContext,
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 
-// These tests pin the turn-rpc (non-ACP) transport. ACP is the default now, and
-// `viaTurnRpc = !viaAcp && …` — so opt ACP off at module load; the one
-// "MF_OPENCLAW_ACP on beats turn-rpc" test re-enables it via withEnv.
-process.env.MF_OPENCLAW_ACP = '0'
-
-// S4, openclaw half. Today's sprite openclaw turn is an SSE POST whose socket
-// the API holds — and the gateway CANCELS the run when that socket closes, so
-// an API restart destroys the answer outright. turn.start moves the socket
-// into the sprite's runner; these tests pin the transport choice, that the
-// daemon gets the EXACT request the API would have sent, and what may licence
-// a `done` on the replayed stream.
+// S4. A sprite gateway-http turn is an SSE POST whose socket the API holds —
+// and the gateway CANCELS the run when that socket closes, so an API restart
+// destroys the answer outright. turn.start moves the socket into the sprite's
+// runner; these tests pin the transport choice, that the daemon gets the EXACT
+// request the API would have sent, and what may licence a `done` on the
+// replayed stream.
+//
+// NarraNexus is the framework that still takes this transport: openclaw chat
+// became ACP-only in ADR-0027 O9. The wire payload still says
+// `framework: 'openclaw'` because that is the daemon-side dispatcher key both
+// frameworks share (contract row narranexus × sprites × turn-rpc, #555).
 
 const deltaLine = (text: string, id?: string): string =>
     `${JSON.stringify({
@@ -70,33 +70,11 @@ const buildHarness = (script: {
     const pricing = {
         computeCost: () => ({ costUsd: null, costSource: 'none' })
     }
-    const attaches: Array<{ refId: string; fromSeq: number }> = []
     const drivers = {
-        recoveryFsForAgent: async () => ({ fs: { locate: async () => null } }),
-        // #666: a daemon-runtime resume leaves the registry entirely and
-        // replays over the exec seam. Recorded here only to prove which of the
-        // two resume paths a turn took.
-        daemonDriverFor: () => ({
-            stream: () => {
-                throw new Error('a resume must not dispatch a new exec')
-            },
-            resumeStream: (req: { refId: string; fromSeq: number }) => {
-                attaches.push(req)
-                return {
-                    stdout: (async function* (): AsyncGenerator<string> {})(),
-                    stderr: (async function* (): AsyncGenerator<string> {})(),
-                    result: Promise.resolve({
-                        exitCode: 0,
-                        stdout: '',
-                        stderr: ''
-                    }),
-                    abort: () => {}
-                }
-            }
-        })
+        recoveryFsForAgent: async () => ({ fs: { locate: async () => null } })
     }
     const telemetry = { event: () => {} }
-    const adapter = new OpenclawAdapter(
+    const adapter = new NarraNexusChatAdapter(
         db as never,
         {} as never,
         pricing as never,
@@ -105,7 +83,7 @@ const buildHarness = (script: {
         telemetry as never,
         registry as never
     )
-    return { adapter, calls, attaches }
+    return { adapter, calls }
 }
 
 const ctx = (extra: Partial<ApiChatAdapterContext> = {}): ApiChatAdapterContext =>
@@ -115,7 +93,7 @@ const ctx = (extra: Partial<ApiChatAdapterContext> = {}): ApiChatAdapterContext 
         runtimeId: 'art_1',
         sessionId: 'cts_1',
         messageId: 'msg_1',
-        framework: 'openclaw',
+        framework: 'narranexus',
         runtimeKind: 'sprites',
         model: null,
         modelOverride: null,
@@ -169,7 +147,7 @@ const userMsg = {
     contentBlocks: [{ type: 'text', text: 'hi' }]
 } as never
 
-const asAny = (a: OpenclawAdapter): Record<string, unknown> => a as never
+const asAny = (a: NarraNexusChatAdapter): Record<string, unknown> => a as never
 
 test('turn.start needs runnerDaemonId, the flag AND the daemon capability', async () => {
     for (const [flag, feature, runner, expected] of [
@@ -185,7 +163,7 @@ test('turn.start needs runnerDaemonId, the flag AND the daemon capability', asyn
             a.resolveRuntime = async () => ({
                 ingressHost: 'gw.sprites.app',
                 gatewayToken: 'tok',
-                modelId: 'openclaw',
+                modelId: 'narranexus',
                 displayModel: 'gpt-x'
             })
             a.daemonSupportsTurnRpc = async () => feature
@@ -219,7 +197,7 @@ test('the daemon gets the exact request the API would have sent', async () => {
         a.resolveRuntime = async () => ({
             ingressHost: 'gw.sprites.app',
             gatewayToken: 'gw_tok',
-            modelId: 'openclaw',
+            modelId: 'narranexus',
             displayModel: 'gpt-x'
         })
         a.daemonSupportsTurnRpc = async () => true
@@ -240,7 +218,7 @@ test('the daemon gets the exact request the API would have sent', async () => {
             stream: boolean
             messages: Array<{ role: string; content: string }>
         }
-        assert.equal(body.model, 'openclaw')
+        assert.equal(body.model, 'narranexus')
         assert.equal(body.stream, true)
         assert.equal(body.messages.at(-1)?.content, 'hi')
 
@@ -262,48 +240,66 @@ test('the daemon gets the exact request the API would have sent', async () => {
     })
 })
 
-// With MF_OPENCLAW_ACP on, the ACP path is the openclaw transport and must beat
-// the runner turn-rpc path — otherwise, with MF_SPRITE_RUNNER_AGENTS='*' routing
-// every sprite to a runner, ACP is shadowed and a model switch (which only the
-// ACP sessions.patch can carry) silently does nothing. Prove-red: drop the
-// `!viaAcp` guard on viaTurnRpc and a turn.start is dispatched instead.
-test('with MF_OPENCLAW_ACP on, a runner sprite turn takes ACP, not turn-rpc', async () => {
-    await withEnv(
-        { MF_OPENCLAW_TURN_RPC: '1', MF_OPENCLAW_ACP: '1' },
-        async () => {
-            const h = buildHarness({
-                lines: [],
-                result: { ok: { stopReason: 'done', sessionId: null } }
-            })
-            const a = asAny(h.adapter)
-            a.resolveRuntime = async () => ({
-                ingressHost: 'gw.sprites.app',
-                gatewayToken: 'gw_tok',
-                modelId: 'openclaw',
-                displayModel: 'gpt-5.6-luna'
-            })
-            a.daemonSupportsTurnRpc = async () => true
-            let acpCalled = false
-            a.sendViaOpenclawAcp = async function* () {
-                acpCalled = true
-                yield { type: 'done', finalMessageId: 'msg_1' }
-            }
-            await drain(
-                h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
-            )
-            assert.equal(
-                acpCalled,
-                true,
-                'ACP must win over turn-rpc when the flag is on'
-            )
-            assert.equal(
-                h.calls.filter((c) => c.method === 'turn.start').length,
-                0,
-                'no turn.start may be dispatched when ACP wins'
-            )
+// openclaw takes ACP on every runtime now (ADR-0027 O9), so even with a runner
+// resolved and the turn-rpc flag on it must never dispatch a turn.start on this
+// transport. Prove-red: make OpenclawAdapter.dispatchTurn call super and a
+// turn.start appears. chat.service stops resolving a runner for openclaw at
+// all (runner-transport-routing.test.ts pins that); this pins the adapter's own
+// half, so the two guards fail independently.
+test('an openclaw sprite turn takes ACP, never the runner turn-rpc transport', async () => {
+    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+        const { OpenclawAdapter } =
+            await import('../src/modules/chat/adapters/openclaw.adapter')
+        const h = buildHarness({
+            lines: [],
+            result: { ok: { stopReason: 'done', sessionId: null } }
+        })
+        const openclaw = new OpenclawAdapter(
+            (h.adapter as unknown as { db: unknown }).db as never,
+            {} as never,
+            {
+                computeCost: () => ({ costUsd: null, costSource: 'none' })
+            } as never,
+            {} as never,
+            {} as never,
+            { event: () => {} } as never,
+            {
+                streamRpc: () => {
+                    throw new Error('no rpc expected')
+                }
+            } as never
+        )
+        const a = openclaw as unknown as Record<string, unknown>
+        a.resolveRuntime = async () => ({
+            ingressHost: 'gw.sprites.app',
+            gatewayToken: 'gw_tok',
+            modelId: 'openclaw',
+            displayModel: 'gpt-5.6-luna'
+        })
+        a.daemonSupportsTurnRpc = async () => true
+        let acpCalled = false
+        a.sendViaOpenclawAcp = async function* () {
+            acpCalled = true
+            yield { type: 'done', finalMessageId: 'msg_1' }
         }
-    )
+        await drain(
+            openclaw.sendMessage(
+                {
+                    ...ctx({ runnerDaemonId: 'dh_runner' }),
+                    framework: 'openclaw'
+                } as ApiChatAdapterContext,
+                userMsg
+            )
+        )
+        assert.equal(acpCalled, true, 'an openclaw sprite turn must take ACP')
+        assert.equal(
+            h.calls.filter((c) => c.method === 'turn.start').length,
+            0,
+            'no turn.start may be dispatched for openclaw'
+        )
+    })
 })
+
 test('a final without stopReason suspends, never done', async () => {
     await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
         const h = buildHarness({
@@ -349,39 +345,6 @@ test('an openclaw resume always replays from seq 0, whatever the cursor says', a
         assert.equal(h.calls[0].payload.fromSeq, 0)
     })
 })
-
-// A daemon-runtime openclaw turn's buffer holds `openclaw agent --json` CLI
-// stdout — a different shape this SSE decoder must not touch. #666 gave that
-// shape a resume of its own over the exec seam, so what is pinned here is the
-// fork: the turn stream stays untouched, and MF_OPENCLAW_TURN_RPC does not
-// reach the exec replay. Gating it would be worse than the bug it replaced —
-// the daemon path SUSPENDS a lost socket, so a flag-off refusal terminalizes
-// a turn the daemon is still holding an answer for.
-test('a daemon-runtime turn replays over the exec seam, never through this decoder', async () => {
-    for (const turnRpc of ['1', '0']) {
-        await withEnv({ MF_OPENCLAW_TURN_RPC: turnRpc }, async () => {
-            const h = buildHarness({ lines: [], result: { ok: {} } })
-            const events = await drain(
-                h.adapter.resumeMessage!(resumeCtx({ runtimeKind: 'daemon' }))
-            )
-            assert.equal(
-                h.calls.length,
-                0,
-                `MF_OPENCLAW_TURN_RPC=${turnRpc}: no turn RPC may be attempted`
-            )
-            assert.deepEqual(
-                h.attaches.map((a) => [a.refId, a.fromSeq]),
-                [['msg_1', 0]],
-                `MF_OPENCLAW_TURN_RPC=${turnRpc}: the buffered CLI stdout must be replayed over the exec seam`
-            )
-            assert.ok(
-                !events.some((e) => e.type === 'error'),
-                `MF_OPENCLAW_TURN_RPC=${turnRpc}: got ${JSON.stringify(events)}`
-            )
-        })
-    }
-})
-
 test('a replaced connection suspends the turn instead of killing it', async () => {
     await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
         const h = buildHarness({

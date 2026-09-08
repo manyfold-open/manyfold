@@ -11,7 +11,6 @@ import type {
 } from '../src/modules/chat/chat-adapter'
 import { manyfoldProviderToNarraNexusChannelProvider } from '../src/modules/narranexus/narranexus-paths'
 import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
-import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 
 // channel_provider/channel_context on the /v1/chat/completions body is what
 // flips NarraNexus from OWNER CHAT ("do NOT call im +messages-send") into
@@ -19,11 +18,7 @@ import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 // agentManagedReply on, Manyfold suppresses its own outbound — so a body that
 // silently loses these fields makes the group reply vanish entirely. These
 // tests pin the wire contract through the real adapter chain
-// (NarraNexusChatAdapter -> OpenclawAdapter -> sendOpenAiCompat).
-
-// The "plain openclaw adapter" cases here drive the gateway-http path; ACP is
-// the default now, so opt out. narranexus ignores the flag (framework guard).
-process.env.MF_OPENCLAW_ACP = '0'
+// (NarraNexusChatAdapter -> GatewayHttpChatAdapter -> sendOpenAiCompat).
 
 const INGRESS_HOST = 'gw.example.com'
 
@@ -143,7 +138,7 @@ const sseResponse = (frames: string[]) => {
 // Runs a full send with an immediately-healthy gateway and returns the parsed
 // /v1/chat/completions POST body.
 const captureCompletionsBody = async (
-    adapter: NarraNexusChatAdapter | OpenclawAdapter,
+    adapter: NarraNexusChatAdapter,
     ctx: ApiChatAdapterContext
 ): Promise<Record<string, unknown>> => {
     const bodies: string[] = []
@@ -202,8 +197,8 @@ test('narranexus turn with a lark channelSource carries channel_provider + chann
         assert.ok(key in body, `standard field ${key} must survive unchanged`)
 })
 
-test('the OpenClaw gateway adapter marks the owned structured pool exhaustion', async () => {
-    const adapter = new OpenclawAdapter(...adapterArgs('openclaw'))
+test('the gateway adapter marks the owned structured pool exhaustion', async () => {
+    const adapter = new NarraNexusChatAdapter(...adapterArgs('narranexus'))
     const orig = globalThis.fetch
     globalThis.fetch = (async (_input: unknown, init?: { method?: string }) => {
         if ((init?.method ?? 'GET') === 'HEAD') return { ok: true, status: 200 }
@@ -223,7 +218,7 @@ test('the OpenClaw gateway adapter marks the owned structured pool exhaustion', 
     try {
         const events: EmittedChatEvent[] = []
         for await (const event of adapter.sendMessage(
-            fakeCtx('openclaw'),
+            fakeCtx('narranexus'),
             userMessage()
         ))
             events.push(event)
@@ -377,8 +372,11 @@ test('a mirrored matrix channel resolves to narramessenger', async () => {
     )
 })
 
-test('plain openclaw adapter never emits channel fields even with a channelSource', async () => {
-    const adapter = new OpenclawAdapter(...adapterArgs('openclaw'))
+// The guard reads ctx.framework, not the adapter's own, so a non-narranexus
+// turn on this transport stays on the unchanged wire shape. Prove-red: drop
+// the `ctx.framework !== 'narranexus'` clause and the channel fields appear.
+test('a non-narranexus turn emits no channel fields even with a channelSource', async () => {
+    const adapter = new NarraNexusChatAdapter(...adapterArgs('narranexus'))
     const body = await captureCompletionsBody(
         adapter,
         fakeCtx('openclaw', larkSource())

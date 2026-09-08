@@ -12,11 +12,9 @@ import type {
     OpenclawTurnUsage,
     OpenclawTurnUsageDecode
 } from '@manyfold/shared'
-import { randomUUID } from 'node:crypto'
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { type Database } from '@manyfold/db'
 import { buildOpenAiUsage } from './openai-usage'
-import type { ExecStreamHandle } from './exec-driver'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
@@ -32,11 +30,13 @@ import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-co
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     daemonAdvertisesFeature,
+    daemonDetectedFramework,
     isDaemonOfflineTransportError,
     isDaemonResumeSuspendError,
     type ApiChatAdapterContext,
     type ApiChatResumeContext,
-    type EmittedChatEvent
+    type EmittedChatEvent,
+    type EmittedErrorEvent
 } from '@/modules/chat/chat-adapter'
 import { messageToPromptText } from './message-content'
 import {
@@ -45,29 +45,23 @@ import {
     type AcpRequestTimeouts
 } from './hermes-acp-client'
 import { OPENCLAW_ACP_DIALECT } from '@manyfold/shared'
-import { parseOpenclawJsonOutput } from './openclaw-json-parser'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import {
     GatewayHttpChatAdapter,
     type OpenclawRuntime
 } from './gateway-http-chat.adapter'
-import {
-    OPENCLAW_FETCH_TIMEOUT_MS,
-    openclawCancelledEvent as cancelledEvent
-} from './openclaw-turn-shared'
+import { openclawCancelledEvent as cancelledEvent } from './openclaw-turn-shared'
 
-const OPENCLAW_CLI_PARSER_NAME = 'openclaw-cli-json'
-const OPENCLAW_CLI_PARSER_VERSION = '1'
-
-// Gates the API-driven ACP transport (openclaw acp over interactive exec) on
-// the sprites-no-runner and k8s cells. Read per call so a drill can flip it
-// without a restart. ON by default (ADR-0027): openclaw chat runs over ACP. Set
-// MF_OPENCLAW_ACP=0 (or false/no) to fall back to the gateway-http path — the
-// no-deploy rollback kept for the transition until gateway-http is removed.
-const openclawAcpEnabled = (): boolean =>
-    !['0', 'false', 'no'].includes(
-        (process.env.MF_OPENCLAW_ACP ?? '').toLowerCase()
-    )
+// How stale the heartbeat's gateway probe is, for the refusal message: the
+// daemon re-probes on its framework-detect interval, not per turn, so a
+// gateway started since the last probe is refused with a retryable error.
+const gatewayProbeAge = (checkedAt: string): string => {
+    const ms = Date.now() - Date.parse(checkedAt)
+    if (!Number.isFinite(ms) || ms < 0) return 'last probed at an unknown time'
+    const minutes = Math.round(ms / 60_000)
+    if (minutes < 1) return 'probed less than a minute ago'
+    return `probed ${minutes}m ago`
+}
 
 // `openclaw acp` is a bridge to the resident gateway that runs INSIDE the
 // sprite/pod, so it connects over loopback — never the public ingress (which
@@ -299,11 +293,11 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         }
     }
 
-    // The openclaw transports that the gateway-http base does not carry: the
-    // BYOD daemon ACP turn and the API-driven ACP bridge. Everything else —
-    // the OpenAI-compatible POST and the runner-held turn-rpc variant, plus
-    // the session-ref backfill they need — stays on the base, which is also
-    // narranexus's only transport.
+    // Every openclaw chat turn speaks ACP (ADR-0027): the API drives the
+    // `openclaw acp` bridge over an interactive exec on sprites and k8s, and a
+    // BYOD daemon drives its own against the host's gateway. The base's
+    // OpenAI-compatible transports are narranexus's alone now — an openclaw
+    // turn never reaches them, which is why this override never calls super.
     protected async *dispatchTurn(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
@@ -314,64 +308,118 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         }
     ): AsyncIterable<EmittedChatEvent> {
         if (agentRow.runtime === 'daemon') {
-            // BYOD daemon over ACP (ADR-0027, O6): the daemon drives `openclaw
-            // acp` against the host's OWN gateway. Guarded on the flag, on a
-            // resolvable daemon, and on the daemon advertising the capability
-            // — otherwise fall back to the legacy `openclaw agent --local
-            // --json` spawn.
-            if (
-                openclawAcpEnabled() &&
-                agentRow.daemonId &&
-                this.daemonRegistry &&
-                (await this.daemonSupportsOpenclawAcp(agentRow.daemonId))
-            ) {
-                yield* this.sendViaDaemonAcp(
-                    ctx,
-                    userMessage,
-                    agentRow.daemonId
+            if (!agentRow.daemonId)
+                throw new Error(
+                    `daemon openclaw agent ${ctx.agentId} missing daemonId`
                 )
+            const refusal = await this.daemonAdmissionRefusal(agentRow.daemonId)
+            if (refusal) {
+                yield refusal
                 return
             }
-            yield* this.sendViaDaemonSpawn(ctx, userMessage)
-            return
-        }
-
-        // With MF_OPENCLAW_ACP on, the ACP path is the openclaw transport — it
-        // is the only one that can carry a per-message model switch (via an
-        // in-box sessions.patch on the stateful session) or an interactive
-        // permission card, because the gateway-http/turn-rpc `model` field is
-        // only an agent router (`openclaw`/`openclaw/<agentId>`; a provider
-        // model there is rejected 400). So ACP takes precedence over the
-        // runner turn-rpc transport when the flag is on.
-        // Seen on staging [2026-09-08]: with MF_SPRITE_RUNNER_AGENTS='*' the
-        // runner turn-rpc path shadowed ACP, so model switching silently did
-        // nothing (and a body-model workaround 400'd) until this flip.
-        if (!openclawAcpEnabled()) {
-            yield* super.dispatchTurn(ctx, userMessage, agentRow)
+            yield* this.sendViaDaemonAcp(ctx, userMessage, agentRow.daemonId)
             return
         }
         // The ACP path persists its own (deterministic) gateway key, so it
-        // never runs the base's legacy FS backfill.
+        // never needs the base's legacy FS session-ref backfill.
         const runtime = await this.resolveRuntime(ctx.agentId)
         yield* this.sendViaOpenclawAcp(ctx, userMessage, runtime)
     }
 
-    // Whether this daemon can run an openclaw turn over ACP (turn.openclaw.acp).
-    // A lookup failure is treated as "no" and falls back to the CLI spawn — the
-    // same conservative posture daemonSupportsTurnRpc takes.
-    private async daemonSupportsOpenclawAcp(daemonId: string): Promise<boolean> {
+    // Whether this daemon may be sent an openclaw ACP turn, and if not, the
+    // error that says so. Two admission gates, both modelled on hermes's
+    // `requireTurnHermes` (ADR-0024): a lookup that FAILS is retryable —
+    // "couldn't check" must never surface as the non-retryable upgrade demand
+    // that a definite `false` produces.
+    private async daemonAdmissionRefusal(
+        daemonId: string
+    ): Promise<EmittedErrorEvent | null> {
+        let capable: boolean
         try {
-            return await daemonAdvertisesFeature(
+            capable = await daemonAdvertisesFeature(
                 this.db,
                 daemonId,
                 DAEMON_FEATURE_TURN_OPENCLAW_ACP
             )
         } catch (err) {
-            this.logger.warn(
-                `turn.openclaw.acp capability lookup failed for ${daemonId}: ${(err as Error).message} — using the CLI spawn transport`
-            )
-            return false
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_acp_failed',
+                    message: `turn.openclaw.acp capability lookup failed: ${(err as Error).message}`,
+                    retryable: true
+                }
+            }
         }
+        if (!capable)
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_upgrade_required',
+                    message:
+                        "this daemon's mf CLI predates the openclaw ACP turn; run `mf update` on the daemon host and restart the daemon",
+                    retryable: false
+                }
+            }
+        // The bridge connects to a gateway the daemon only DISCOVERS — it
+        // never starts one (ADR-0027, zero host ownership). The heartbeat
+        // reports what it found, so refuse here with the fix in the message
+        // rather than letting the bridge fail with a connect error.
+        let detected
+        try {
+            detected = await daemonDetectedFramework(
+                this.db,
+                daemonId,
+                'openclaw'
+            )
+        } catch (err) {
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_acp_failed',
+                    message: `openclaw gateway lookup failed: ${(err as Error).message}`,
+                    retryable: true
+                }
+            }
+        }
+        const gateway = detected?.gateway
+        if (!detected)
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_gateway_unavailable',
+                    message:
+                        'this daemon host has no openclaw installed (its last heartbeat detected no `openclaw` binary) — install openclaw, run `openclaw gateway start`, then restart the daemon',
+                    retryable: false
+                }
+            }
+        if (!gateway)
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_gateway_unavailable',
+                    message:
+                        'no openclaw gateway is configured on this daemon host — run `openclaw gateway install && openclaw gateway start` there, then retry',
+                    retryable: false
+                }
+            }
+        // `reachable: null` is a gateway the daemon does not probe (the config
+        // names a remote one); the url-less bridge follows that config itself,
+        // so it is not ours to refuse.
+        if (gateway.reachable === false)
+            return {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_gateway_unavailable',
+                    message: `the openclaw gateway on this daemon host did not answer on port ${gateway.port ?? 'unknown'} when the daemon last probed it (${gatewayProbeAge(gateway.checkedAt)}; it re-probes every few minutes) — run \`openclaw gateway start\` there, then retry`,
+                    // The probe is up to one detect interval stale, so a
+                    // gateway started since then is already fine: a retry is
+                    // the cheapest way to find out, unlike the two structural
+                    // refusals above.
+                    retryable: true
+                }
+            }
+        return null
     }
 
     // BYOD daemon over ACP (O6): dispatch a turn.start carrying the ACP payload
@@ -469,6 +517,16 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             if (kind !== 'stdout') return
             chunks.push(data)
             wake()
+        }
+        // Re-check immediately before dispatch. The caller checked too, but
+        // every await since then — the capability and gateway admission
+        // lookups, the budgets — is a window a cancel can land in, and a
+        // signal never replays to the listener registered below. Without this
+        // the turn.start still goes out and the daemon runs an ACP turn nobody
+        // reads (#402, the leak the spawn path had its own guard for).
+        if (ctx.abortSignal?.aborted) {
+            yield cancelledEvent()
+            return
         }
         const stream =
             args.rpc.method === 'turn.start' &&
@@ -645,234 +703,6 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
                         `openclaw acp daemon session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
                     )
                 )
-        yield { type: 'done', finalMessageId: ctx.messageId }
-    }
-
-    private async *sendViaDaemonSpawn(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage
-    ): AsyncIterable<EmittedChatEvent> {
-        // sendMessage awaited the agents row to get here, and forAgent below
-        // resolves credentials and admission over the network. A signal never
-        // replays to a listener registered afterwards, so a cancel that landed
-        // in either await was invisible to the teardown registered past the
-        // dispatch — and `exec.start` had already put a CLI on the daemon that
-        // keeps burning compute and model quota for a turn nobody reads (#402,
-        // the same leak as #665).
-        if (ctx.abortSignal?.aborted) {
-            yield cancelledEvent()
-            return
-        }
-        const handle = await this.drivers.forAgent(ctx.agentId)
-        const { driver, agent, runtime } = handle
-        if (runtime !== 'daemon')
-            throw new Error(
-                `expected daemon runtime for openclaw daemon path, got ${runtime}`
-            )
-        if (ctx.abortSignal?.aborted) {
-            yield cancelledEvent()
-            return
-        }
-        const internalId = agent.internalId || 'main'
-        const sessionRef = ctx.frameworkSessionRef ?? randomUUID()
-        const prompt = messageToPromptText(userMessage)
-        const cmd = [
-            'openclaw',
-            'agent',
-            '--local',
-            '--json',
-            '--session-id',
-            sessionRef,
-            '--agent',
-            internalId,
-            '--message',
-            prompt
-        ]
-        const exec = driver.stream({
-            cmd,
-            timeoutMs: OPENCLAW_FETCH_TIMEOUT_MS,
-            ...(ctx.messageId ? { execHandle: ctx.messageId } : {})
-        })
-        const onAbort = (): void => exec.abort()
-        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
-        // Everything past this point consumes an exec handle and nothing else.
-        // resumeMessage feeds it the SAME shape back from exec.resume, so a
-        // recovered turn is parsed by exactly this code.
-        try {
-            yield* this.drainDaemonSpawnStream(exec, ctx, {
-                daemonId: agent.daemonId ?? null,
-                // Without an execHandle there is no refId for a hello to report, so
-                // a suspend would park until the unmatched-turn sweep: fail instead.
-                execRef: ctx.messageId ?? null,
-                usageFallbackModel: agent.model ?? null
-            })
-        } finally {
-            ctx.abortSignal?.removeEventListener('abort', onAbort)
-        }
-    }
-
-    // Consume one `openclaw agent --json` exec, whichever RPC produced it.
-    // `exec.start` hands over a live child; `exec.resume` replays the same
-    // child's buffered stdout and acks with the same exit code, so the two are
-    // indistinguishable here — which is what makes a suspended turn finishable
-    // instead of merely re-classified (#666).
-    private async *drainDaemonSpawnStream(
-        handle: ExecStreamHandle,
-        ctx: ApiChatAdapterContext,
-        opts: {
-            daemonId: string | null
-            execRef: string | null
-            usageFallbackModel: string | null
-            resumeAttach?: boolean
-        }
-    ): AsyncIterable<EmittedChatEvent> {
-        const tStart = Date.now()
-        let firstTokenAt: number | null = null
-        let stdoutBuf = ''
-        let stderrBuf = ''
-        const stdoutReader = (async (): Promise<void> => {
-            for await (const chunk of handle.stdout) stdoutBuf += chunk
-        })()
-        const stderrReader = (async (): Promise<void> => {
-            for await (const chunk of handle.stderr) stderrBuf += chunk
-        })()
-
-        let result
-        try {
-            result = await handle.result
-        } catch (err) {
-            const failure = err as Error
-            if (ctx.abortSignal?.aborted) {
-                yield cancelledEvent()
-                return
-            }
-            // #666: this was the last daemon-carrying path still terminalizing
-            // a lost socket. The daemon is still running `openclaw agent
-            // --json` and its next hello re-reports the stream, but an error
-            // event writes a terminal — and a terminal makes the turn invisible
-            // to every recovery attempt, so the work is discarded and the user
-            // sees a failure a reconnect would have finished. Suspending keeps
-            // the inflight lock and leaves the turn findable by (daemon_id,
-            // daemon_exec_ref), which is the `execHandle` the exec was
-            // dispatched under == ctx.messageId.
-            //
-            // A resume attach reverses the burden of proof (#570): the hello
-            // that got us here already proved the stream exists, so a lookup
-            // that finds no socket means the connection died between hello and
-            // attach and the next hello reports the same buffer again. On the
-            // initial send those same strings still mean nothing ran.
-            const suspendable = opts.resumeAttach
-                ? isDaemonResumeSuspendError(failure)
-                : isDaemonOfflineTransportError(failure)
-            if (opts.daemonId && opts.execRef && suspendable) {
-                this.logger.log(
-                    `openclaw daemon exec suspended (daemon offline) agent=${ctx.agentId} message=${ctx.messageId}: ${failure.message}`
-                )
-                yield {
-                    type: 'suspended',
-                    daemonId: opts.daemonId,
-                    daemonExecRef: opts.execRef,
-                    reason: failure.message
-                }
-                return
-            }
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_daemon_exec_failed',
-                    message: failure.message,
-                    retryable: true
-                }
-            }
-            return
-        }
-        await stdoutReader.catch(() => {})
-        await stderrReader.catch(() => {})
-
-        if (result.exitCode !== 0) {
-            const tail = (stderrBuf || stdoutBuf).slice(-1024)
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_daemon_exit_nonzero',
-                    message: `openclaw exited ${result.exitCode}: ${tail || '(no output)'}`,
-                    retryable: false
-                }
-            }
-            return
-        }
-
-        const parsed = parseOpenclawJsonOutput(stdoutBuf)
-        if (parsed.errorMessage) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_daemon_event_error',
-                    message: parsed.errorMessage,
-                    retryable: false
-                }
-            }
-            return
-        }
-
-        yield {
-            type: 'raw_source',
-            source: {
-                sourceRef: parsed.sessionId ?? ctx.frameworkSessionRef,
-                sourceSeq: 1,
-                externalId: `${opts.execRef ?? ctx.messageId}-stdout`,
-                parentExternalId: null,
-                rawFormat: 'jsonl',
-                rawText: stdoutBuf,
-                parserName: OPENCLAW_CLI_PARSER_NAME,
-                parserVersion: OPENCLAW_CLI_PARSER_VERSION
-            }
-        }
-
-        const answerText = parsed.texts.join('')
-        if (answerText) {
-            if (firstTokenAt === null) firstTokenAt = Date.now()
-            yield { type: 'token', text: answerText }
-        }
-        for (const [index, t] of parsed.toolUses.entries()) {
-            yield {
-                type: 'tool_call',
-                toolCallId:
-                    t.callId ??
-                    `${opts.execRef ?? ctx.messageId}-tool-${index + 1}`,
-                toolName: t.tool || 'tool',
-                args: t.input ?? {}
-            }
-        }
-        if (parsed.usage) {
-            const modelLabel =
-                parsed.model ??
-                ctx.model ??
-                opts.usageFallbackModel ??
-                'openclaw'
-            const usage = buildOpenAiUsage(
-                parsed.usage,
-                modelLabel,
-                tStart,
-                firstTokenAt,
-                this.pricing,
-                ctx
-            )
-            yield { type: 'usage', usage }
-        }
-        if (parsed.sessionId && !ctx.frameworkSessionRef) {
-            await this.chatRepo
-                .updateFrameworkSessionRef(
-                    ctx.sessionId,
-                    parsed.sessionId,
-                    ctx.turnFence
-                )
-                .catch((err) =>
-                    this.logger.warn(
-                        `openclaw daemon ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
-                    )
-                )
-        }
         yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
@@ -1250,119 +1080,43 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         return decodeOpenclawTurnUsage(parsed, args.promptText, { limit })
     }
 
-    // Recover a turn from the buffer of the daemon that carried it. Two buffer
-    // shapes, one entry point: a runner-carried SPRITE turn replays as SSE
-    // deltas through the turn stream, and a daemon-runtime turn replays as
-    // `openclaw agent --json` CLI stdout through the exec drain that produced
-    // it. Both converge the message they suspended as; neither re-runs anything.
+    // Recover a turn from the buffer of the daemon that carried it: the frames
+    // are the ACP ones the daemon buffered, replayed through the same drain
+    // that produced them, converging the message the turn suspended as. The
+    // API-driven cells (sprites, k8s) own their ACP client, so a lost API
+    // loses the turn — there is nothing to replay.
     async *resumeMessage(
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
-        if (ctx.runtimeKind === 'daemon') {
-            // With the flag on, a daemon openclaw turn is an ACP turn.start
-            // whose frames the daemon buffered; replay them through the ACP
-            // drain. Off, it is the legacy `openclaw agent --json` spawn.
-            if (
-                openclawAcpEnabled() &&
-                ctx.daemonId &&
-                ctx.daemonExecRef &&
-                this.daemonRegistry
-            ) {
-                yield* this.drainOpenclawAcpTurnStream(ctx, {
-                    daemonId: ctx.daemonId,
-                    execRef: ctx.daemonExecRef,
-                    sessionKey: ctx.frameworkSessionRef ?? '',
-                    rpc: {
-                        method: 'exec.resume',
-                        payload: {
-                            originalRefId: ctx.daemonExecRef,
-                            fromSeq: 0
-                        },
-                        timeoutMs:
-                            (await this.streamBudgets()).maxDurationMs + 10_000
-                    }
-                })
-                return
-            }
-            yield* this.resumeViaDaemonSpawn(ctx)
-            return
-        }
-        // A sprite turn's replay is the base's runner-carried SSE drain.
-        yield* super.resumeMessage(ctx)
-    }
-
-    // The daemon-runtime half of resume (#666). Deliberately ahead of the
-    // turn.start gate above: MF_OPENCLAW_TURN_RPC gates the runner-owned
-    // transport, not `exec.resume`, and gating this too would leave the suspend
-    // this path already emits with nothing to converge it — the turn would be
-    // terminalized `openclaw_resume_unsupported` by the very hello that found
-    // it. Resolving the driver by the daemon that REPORTED the stream, rather
-    // than by the agent's runtime, is what every other framework's resume does.
-    private async *resumeViaDaemonSpawn(
-        ctx: ApiChatResumeContext
-    ): AsyncIterable<EmittedChatEvent> {
-        if (!ctx.daemonId || !ctx.daemonExecRef) {
+        if (
+            ctx.runtimeKind !== 'daemon' ||
+            !ctx.daemonId ||
+            !ctx.daemonExecRef
+        ) {
             yield {
                 type: 'error',
                 error: {
                     code: 'openclaw_resume_unsupported',
                     message:
-                        'resume requires a daemon transport with resume support',
+                        'resume requires a daemon-carried openclaw ACP turn',
                     retryable: false
                 }
             }
             return
         }
-        if (ctx.abortSignal?.aborted) {
-            yield cancelledEvent()
-            return
-        }
-        const driver = this.drivers.daemonDriverFor(ctx.daemonId)
-        if (!driver.resumeStream) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_resume_unsupported',
-                    message:
-                        'resume requires a daemon transport with resume support',
-                    retryable: false
-                }
+        yield* this.drainOpenclawAcpTurnStream(ctx, {
+            daemonId: ctx.daemonId,
+            execRef: ctx.daemonExecRef,
+            sessionKey: ctx.frameworkSessionRef ?? '',
+            rpc: {
+                method: 'exec.resume',
+                payload: {
+                    originalRefId: ctx.daemonExecRef,
+                    fromSeq: 0
+                },
+                timeoutMs: (await this.streamBudgets()).maxDurationMs + 10_000
             }
-            return
-        }
-        const handle = driver.resumeStream({
-            refId: ctx.daemonExecRef,
-            // fromSeq is 0 BY DESIGN, whatever the cursor ladder computed:
-            // `openclaw agent --json` is parsed as ONE buffer (a whole-buffer
-            // JSON result, else the NDJSON lines), so a replay that starts
-            // mid-stream parses to nothing and would converge an empty answer
-            // over a turn that produced one. Safe because this path stamps no
-            // runnerSeq on any source row, so the ladder can only ever compute
-            // 0 for it. The drain keys every derived row from the stable whole
-            // stdout source, so repeated full replays hit durable dedup keys.
-            fromSeq: 0,
-            // The same budget the dispatch used: a replay is bounded by how
-            // long the original exec was allowed to run.
-            timeoutMs: OPENCLAW_FETCH_TIMEOUT_MS
         })
-        const onAbort = (): void => handle.abort()
-        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
-        try {
-            yield* this.drainDaemonSpawnStream(handle, ctx, {
-                daemonId: ctx.daemonId,
-                execRef: ctx.daemonExecRef,
-                // No forAgent lookup on this path — it would decrypt credentials
-                // and reserve admission for a turn that is not being re-run — so
-                // the agent's default model is not available here. ctx.model is
-                // what the turn was dispatched with, and the replayed step_finish
-                // carries its own model anyway.
-                usageFallbackModel: ctx.model?.trim() || null,
-                resumeAttach: true
-            })
-        } finally {
-            ctx.abortSignal?.removeEventListener('abort', onAbort)
-        }
     }
-
 }
 
