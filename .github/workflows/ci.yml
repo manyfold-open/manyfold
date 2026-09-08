@@ -8,13 +8,103 @@ on:
         # before moving the submodule pointer.
         branches: [main, develop]
     pull_request:
+        types: [opened, synchronize, reopened, ready_for_review]
+    workflow_dispatch:
 
 concurrency:
     group: ci-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    # Resolve the PR's affected graph once. Draft PRs intentionally stop here:
+    # converting one to ready-for-review emits a ready_for_review event and
+    # starts the full set of checks.
+    prepare:
+        if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        outputs:
+            base: ${{ steps.affected.outputs.base }}
+            force_all: ${{ steps.affected.outputs.force_all }}
+            has_affected: ${{ steps.affected.outputs.has_affected }}
+            api: ${{ steps.affected.outputs.api }}
+            web: ${{ steps.affected.outputs.web }}
+            admin: ${{ steps.affected.outputs.admin }}
+            cli_content: ${{ steps.affected.outputs.cli_content }}
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+              with:
+                  node-version: '22'
+                  cache: 'pnpm'
+            - run: pnpm install --frozen-lockfile
+            - name: Resolve affected base
+              env:
+                  CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+              run: scripts/ci-scm-base.sh
+            - name: Detect affected packages
+              id: affected
+              run: |
+                  set -euo pipefail
+                  affected="$(pnpm exec turbo ls --affected --output=json)"
+                  force_all="$CI_FORCE_ALL"
+                  # Branch pushes remain the complete post-merge release gate;
+                  # only PRs use the affected-package shortcuts.
+                  if [ "$GITHUB_EVENT_NAME" = 'push' ] || [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+                      force_all=true
+                  fi
+
+                  has_name() {
+                      printf '%s' "$affected" | jq -e --arg name "$1" \
+                          '.packages.items | map(.name) | index($name) != null' > /dev/null
+                  }
+                  emit() {
+                      printf '%s\n' "$1" >> "$GITHUB_OUTPUT"
+                  }
+
+                  emit "base=$TURBO_SCM_BASE"
+                  emit "force_all=$force_all"
+                  if [ "$force_all" = 'true' ]; then
+                      emit 'has_affected=true'
+                      emit 'api=true'
+                      emit 'web=true'
+                      emit 'admin=true'
+                      emit 'cli_content=true'
+                      exit 0
+                  fi
+
+                  if printf '%s' "$affected" | jq -e '.packages.items | length > 0' > /dev/null; then
+                      emit 'has_affected=true'
+                  else
+                      emit 'has_affected=false'
+                  fi
+
+                  for surface in api web admin; do
+                      if has_name "@manyfold/$surface"; then
+                          emit "$surface=true"
+                      else
+                          emit "$surface=false"
+                      fi
+                  done
+
+                  if has_name '@manyfold/cli' || has_name '@manyfold/docs'; then
+                      emit 'cli_content=true'
+                  else
+                      emit 'cli_content=false'
+                  fi
+            # This is the only PR-specific release gate. Failing it prevents
+            # every heavyweight job from starting for an incomplete PR.
+            - if: github.event_name == 'pull_request'
+              run: pnpm changeset-presence:check
+
     static-checks:
+        needs: prepare
+        if: needs.prepare.result == 'success'
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         steps:
@@ -31,12 +121,23 @@ jobs:
                   node-version: '22'
                   cache: 'pnpm'
             - run: pnpm install --frozen-lockfile
-            - run: pnpm check
+            - name: Resolve affected base
+              env:
+                  CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+              run: scripts/ci-scm-base.sh
+            - name: Typecheck affected packages
+              run: |
+                  if [ "${{ needs.prepare.outputs.force_all }}" = 'true' ]; then
+                      pnpm exec turbo run check --concurrency=5
+                  else
+                      pnpm exec turbo run check --affected --concurrency=5
+                  fi
             - run: pnpm lint
             # Docs-site CLI reference + changelog must track the CLI version;
             # spans apps/cli and apps/docs, so no single affected package
             # covers it.
-            - run: pnpm cli-content:check
+            - if: needs.prepare.outputs.cli_content == 'true'
+              run: pnpm cli-content:check
             - run: pnpm knip
             - run: node scripts/check-migration-ownership.mjs
             - run: node --test scripts/check-migration-ownership.test.mjs
@@ -45,18 +146,13 @@ jobs:
             # while inheriting whatever credentials the runner had, so its own
             # tests run here.
             - run: pnpm sealed-env:check
-            - name: Resolve base for the changeset presence gate
-              env:
-                  CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
-              run: scripts/ci-scm-base.sh
-            # Pull requests only: it reads the PR as merged, and the escape
-            # hatch (an empty changeset plus a reason) is something an author
-            # adds to the PR, not to a push that already landed. Reads
-            # TURBO_SCM_BASE, so it must stay after the step above.
-            - if: github.event_name == 'pull_request'
-              run: pnpm changeset-presence:check
+            # The card check only applies when the Web surface is affected.
+            - if: needs.prepare.outputs.web == 'true'
+              run: pnpm social-card:check
 
     api-tests:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.api == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 25
         strategy:
@@ -77,10 +173,16 @@ jobs:
             - name: Run api tests (shard ${{ matrix.shard }}/4)
               working-directory: apps/api
               run: |
-                  files=$(ls test/*.test.ts | awk "NR % 4 == ${{ matrix.shard }} - 1")
-                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test $files
+                  mapfile -t files < <(
+                      find test -maxdepth 1 -name '*.test.ts' -print \
+                          | sort \
+                          | awk "NR % 4 == ${{ matrix.shard }} - 1"
+                  )
+                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test "${files[@]}"
 
     pg-tests:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.api == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 25
         services:
@@ -129,6 +231,8 @@ jobs:
                   node ../../scripts/test-sealed-env.mjs -- node --import tsx --test --test-concurrency=1 --test-force-exit test/*.pg.test.ts
 
     smoke-boot:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.api == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 15
         services:
@@ -165,10 +269,14 @@ jobs:
               run: node scripts/smoke-boot-api.mjs
 
     package-tests:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.has_affected == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+              with:
+                  fetch-depth: 0
             - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
               with:
                   version: 10.29.3
@@ -177,9 +285,21 @@ jobs:
                   node-version: '22'
                   cache: 'pnpm'
             - run: pnpm install --frozen-lockfile
-            - run: pnpm exec turbo run test --filter='!@manyfold/api'
+            - name: Resolve affected base
+              env:
+                  CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
+              run: scripts/ci-scm-base.sh
+            - name: Run affected package tests
+              run: |
+                  if [ "${{ needs.prepare.outputs.force_all }}" = 'true' ]; then
+                      pnpm exec turbo run test --filter='!@manyfold/api'
+                  else
+                      pnpm exec turbo run test --filter="...[${TURBO_SCM_BASE}]" --filter='!@manyfold/api'
+                  fi
 
     secret-scan:
+        needs: prepare
+        if: needs.prepare.result == 'success'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
@@ -196,20 +316,37 @@ jobs:
                       detect --source /repo --config /repo/.gitleaks.toml --no-banner --redact
 
     # The quickstart is `docker compose up --build`; prove every image the
-    # compose file references builds from a bare clone of this tree.
-    docker-build:
+    # compose file references builds from a bare clone of this tree. Separate
+    # jobs let affected detection skip an entire app's runner allocation.
+    docker-build-api:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.api == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 30
-        strategy:
-            fail-fast: false
-            matrix:
-                app: [api, web, admin]
         steps:
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-            - run: docker build -f apps/${{ matrix.app }}/Dockerfile .
+            - run: docker build -f apps/api/Dockerfile .
+
+    docker-build-web:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.web == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - run: docker build -f apps/web/Dockerfile .
+
+    docker-build-admin:
+        needs: prepare
+        if: needs.prepare.result == 'success' && needs.prepare.outputs.admin == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 30
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+            - run: docker build -f apps/admin/Dockerfile .
 
     ci-ok:
-        needs: [static-checks, api-tests, pg-tests, smoke-boot, package-tests, secret-scan, docker-build]
+        needs: [prepare, static-checks, api-tests, pg-tests, smoke-boot, package-tests, secret-scan, docker-build-api, docker-build-web, docker-build-admin]
         if: always()
         runs-on: ubuntu-24.04
         steps:
