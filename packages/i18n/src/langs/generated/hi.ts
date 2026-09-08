@@ -1165,6 +1165,66 @@ const hi: Record<string, string> = {
     'web.landing.pricingEyebrow': 'प्लान',
     'web.landing.pricingPopular': 'लोकप्रिय',
     'web.landing.faqEyebrow': 'सवाल',
+    'web.channelsPage.heroEyebrow':
+        'साथ ही Gemini CLI, Dify, Langflow और अन्य',
+    'web.channelsPage.heroTitle': 'Claude Code और Codex,',
+    'web.channelsPage.heroTitleAccent': 'अब आपके रोज़मर्रा के ऐप में।',
+    'web.channelsPage.heroLead':
+        'Slack, WhatsApp, Lark, GitHub और अन्य। ज़्यादातर एक कोड स्कैन करने से जुड़ जाते हैं।',
+    'web.channelsPage.heroPrimary': 'मुफ़्त आज़माएँ',
+    'web.channelsPage.heroSecondary': 'दस्तावेज़ पढ़िए',
+    'web.channelsPage.appsEyebrow': 'आज समर्थित',
+    'web.channelsPage.appsTitle': 'वही चुनिए जो आप',
+    'web.channelsPage.appsTitleAccent': 'पहले से इस्तेमाल करते हैं।',
+    'web.channelsPage.appsGroupTeam': 'टीम और कम्युनिटी चैट',
+    'web.channelsPage.appsGroupMessenger': 'आपका अपना मैसेंजर',
+    'web.channelsPage.appsGroupTracker': 'इशू ट्रैकर',
+    'web.channelsPage.appsGuide': 'सेटअप मार्गदर्शिका',
+    'web.channelsPage.setupQr': 'कोड स्कैन कीजिए',
+    'web.channelsPage.setupToken': 'कुंजी चिपकाइए',
+    'web.channelsPage.setupApp': 'एक ऐप लगाइए',
+    'web.channelsPage.stepsEyebrow': 'जोड़ने का तरीका',
+    'web.channelsPage.stepsTitle': 'तीन चरण।',
+    'web.channelsPage.stepsTitleAccent': 'लगभग तीन मिनट।',
+    'web.channelsPage.step1Title': 'एक एजेंट बनाइए',
+    'web.channelsPage.step1Body':
+        'तय कीजिए कि उसे कौन चलाएगा, फिर अपनी सदस्यता से साइन इन कीजिए या प्रबंधित मॉडल इस्तेमाल कीजिए।',
+    'web.channelsPage.step2Title': 'कोड स्कैन कीजिए',
+    'web.channelsPage.step2Body':
+        'अपना ऐप चुनिए और फ़ोन से कोड स्कैन कीजिए। जैसे ही आप मंज़ूरी देंगे, चैनल चालू हो जाएगा।',
+    'web.channelsPage.step3Title': 'उसे संदेश भेजिए',
+    'web.channelsPage.step3Body':
+        'सीधे बात कीजिए, या उसे किसी समूह में जोड़कर उल्लेख कीजिए। हर बातचीत, हर समूह और हर सूत्र का अपना अलग सत्र रहता है।',
+    'web.channelsPage.syncEyebrow': 'एक एजेंट, एक ही जगह',
+    'web.channelsPage.syncTitle': 'कहीं से भी लिखिए।',
+    'web.channelsPage.syncTitleAccent': 'सब कुछ एक ही जगह पहुँचता है।',
+    'web.channelsPage.syncLead':
+        'रास्ते में WhatsApp, मेज़ पर Slack, और पूरी तस्वीर चाहिए तो कार्यक्षेत्र।',
+    'web.channelsPage.syncEntryPhone': 'आपके फ़ोन पर',
+    'web.channelsPage.syncEntryTeam': 'टीम के चैनल में',
+    'web.channelsPage.syncEntryGroup': 'साप्ताहिक समूह में',
+    'web.channelsPage.syncEntryWeb': 'आपकी मेज़ पर',
+    'web.channelsPage.syncTabSessions': 'सत्र',
+    'web.channelsPage.syncRowCi': 'आज सुबह से CI लाल चल रहा है',
+    'web.channelsPage.syncRowRelease': 'इस रिलीज़ में क्या बदला',
+    'web.channelsPage.syncRowFunnel': 'पिछले हफ़्ते साइन अप कहाँ गिरे',
+    'web.channelsPage.syncRowAudit': 'रातभर चली निर्भरता जाँच',
+    'web.channelsPage.syncRowWeb': 'रीफ़ैक्टर के नोट',
+    'web.channelsPage.syncWsFoot':
+        'हर संदेश सुरक्षित रहता है, चाहे किसी भी ऐप से आया हो।',
+    'web.channelsPage.syncPointHistory': 'एक ही इतिहास',
+    'web.channelsPage.syncPointHistoryBody':
+        'यहाँ पढ़िए, या जहाँ छोड़ा था वहीं से आगे बढ़िए।',
+    'web.channelsPage.syncPointFiles': 'एक ही फ़ाइलों का सेट',
+    'web.channelsPage.syncPointFilesBody':
+        'Slack से लिखी फ़ाइल, फ़ोन से लिखते समय भी वहीं।',
+    'web.channelsPage.syncPointBill': 'एक ही हिसाब',
+    'web.channelsPage.syncPointBillBody': 'हर बारी के टोकन, अवधि और लागत।',
+    'web.channelsPage.syncPointSettings': 'एक बार बदलिए',
+    'web.channelsPage.syncPointSettingsBody':
+        'कौशल, अनुमतियाँ और मॉडल — सब एजेंट के हैं।',
+    'web.channelsPage.docTitle':
+        'Slack, WhatsApp और GitHub में Claude Code और Codex · Manyfold',
     'web.consent.message': 'Manyfold का उपयोग कैसे किया जाता है यह समझने के लिए हम Google एनालिटिक्स का उपयोग करते हैं। यह केवल तभी चलता है जब आप स्वीकार करते हैं, और आप किसी भी समय अपनी पसंद बदल सकते हैं।',
     'web.consent.accept': 'विश्लेषण स्वीकार करें',
     'web.consent.decline': 'अस्वीकार करें',
@@ -2577,6 +2637,11 @@ const hi: Record<string, string> = {
     'web.seoPage.home.docsWorkspace': 'एजेंट वर्कस्पेस',
     'web.seoPage.home.docsCreateAgent': 'एजेंट बनाएँ',
     'web.seoPage.home.docsChannels': 'चैनल',
+    'web.seoPage.channels.description':
+        'Claude Code, Codex, Dify या कोई भी एजेंट जो आप चलाते हैं, उसे WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub और Linear से जोड़िए।',
+    'web.seoPage.channels.h1':
+        'Claude Code और Codex, अब आपके रोज़मर्रा के ऐप में।',
+    'web.seoPage.channels.ctaTitle': 'अपने एजेंट को संदेश भेजिए।',
     'web.cliUpgrade.one': '1 मशीन को CLI अपग्रेड की ज़रूरत है',
     'web.cliUpgrade.many': '{{count}} मशीनों को CLI अपग्रेड की ज़रूरत है',
     'web.challenge.case1.coverAlt': 'Article Lens — किसी लेख का विश्लेषण करते एजेंटों वाला पिक्सेल ऑफ़िस',

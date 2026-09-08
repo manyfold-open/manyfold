@@ -42,7 +42,12 @@ const SHELL = [
 ].join('\n')
 
 test('the manifest defines the indexable pages as en/zh pairs', () => {
-    assert.deepEqual(entries.map((entry) => entry.path).sort(), ['/', '/zh/'])
+    assert.deepEqual(entries.map((entry) => entry.path).sort(), [
+        '/',
+        '/channels',
+        '/zh/',
+        '/zh/channels'
+    ])
     assert.equal(entries.length, SEO_PAGES.length * 2)
 })
 

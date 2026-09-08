@@ -44,7 +44,7 @@ interface SeoPageCopyKeys {
 }
 
 export interface SeoPageDefinition {
-    key: 'home'
+    key: 'home' | 'channels'
     paths: Record<SeoLanguage, string>
     copy: Record<SeoLanguage, SeoPageCopyKeys>
 }
@@ -126,7 +126,82 @@ const home: SeoPageDefinition = {
     }
 }
 
-export const SEO_PAGES: SeoPageDefinition[] = [home]
+/* The acquisition page for the channel integrations. Its copy keys are the
+   page's own — the snapshot and the live page must say the same thing — with
+   the meta description, a one-line h1 (the page splits its headline across
+   two spans) and the CTA heading written for the crawler, the way the home
+   page's are: the live page ends on its app grid and has only the hero's
+   pair of buttons, so the snapshot's closing call has no on-page twin to
+   quote. Named for the route, not for
+   chat: two of the ten destinations are issue trackers. */
+const channels: SeoPageDefinition = {
+    key: 'channels',
+    paths: { en: '/channels', zh: '/zh/channels' },
+    copy: {
+        en: {
+            title: 'web.channelsPage.docTitle',
+            description: 'web.seoPage.channels.description',
+            h1: 'web.seoPage.channels.h1',
+            lead: 'web.channelsPage.heroLead',
+            ctaTitle: 'web.seoPage.channels.ctaTitle',
+            ctaPrimary: {
+                label: 'web.channelsPage.heroPrimary',
+                href: '/login'
+            },
+            ctaSecondary: {
+                label: 'web.channelsPage.heroSecondary',
+                href: docsHref('/docs/channels/')
+            },
+            docsLinksLabel: 'web.seoPage.home.docsLinksLabel',
+            docsLinks: [
+                {
+                    label: 'web.seoPage.home.docsChannels',
+                    href: docsHref('/docs/channels/')
+                },
+                {
+                    label: 'web.seoPage.home.docsCreateAgent',
+                    href: docsHref('/docs/create-agent/')
+                },
+                {
+                    label: 'web.seoPage.home.docsGettingStarted',
+                    href: docsHref('/docs/getting-started/')
+                }
+            ]
+        },
+        zh: {
+            title: 'web.channelsPage.docTitle',
+            description: 'web.seoPage.channels.description',
+            h1: 'web.seoPage.channels.h1',
+            lead: 'web.channelsPage.heroLead',
+            ctaTitle: 'web.seoPage.channels.ctaTitle',
+            ctaPrimary: {
+                label: 'web.channelsPage.heroPrimary',
+                href: '/login'
+            },
+            ctaSecondary: {
+                label: 'web.channelsPage.heroSecondary',
+                href: zhDocs('/docs/channels/')
+            },
+            docsLinksLabel: 'web.seoPage.home.docsLinksLabel',
+            docsLinks: [
+                {
+                    label: 'web.seoPage.home.docsChannels',
+                    href: zhDocs('/docs/channels/')
+                },
+                {
+                    label: 'web.seoPage.home.docsCreateAgent',
+                    href: zhDocs('/docs/create-agent/')
+                },
+                {
+                    label: 'web.seoPage.home.docsGettingStarted',
+                    href: zhDocs('/docs/getting-started/')
+                }
+            ]
+        }
+    }
+}
+
+export const SEO_PAGES: SeoPageDefinition[] = [home, channels]
 
 const resolveCopy = (
     keys: SeoPageCopyKeys,

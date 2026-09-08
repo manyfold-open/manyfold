@@ -1165,6 +1165,67 @@ const de: Record<string, string> = {
     'web.landing.pricingEyebrow': 'Tarife',
     'web.landing.pricingPopular': 'Beliebt',
     'web.landing.faqEyebrow': 'Fragen',
+    'web.channelsPage.heroEyebrow': 'Auch Gemini CLI, Dify, Langflow und mehr',
+    'web.channelsPage.heroTitle': 'Claude Code und Codex,',
+    'web.channelsPage.heroTitleAccent': 'jetzt in deinen Alltags-Apps.',
+    'web.channelsPage.heroLead':
+        'Slack, WhatsApp, Lark, GitHub und mehr. Die meisten verbindest du mit einem Scan.',
+    'web.channelsPage.heroPrimary': 'Kostenlos testen',
+    'web.channelsPage.heroSecondary': 'Doku lesen',
+    'web.channelsPage.appsEyebrow': 'Heute unterstützt',
+    'web.channelsPage.appsTitle': 'Nimm die App, die du',
+    'web.channelsPage.appsTitleAccent': 'ohnehin schon nutzt.',
+    'web.channelsPage.appsGroupTeam': 'Team- und Community-Chat',
+    'web.channelsPage.appsGroupMessenger': 'Dein eigener Messenger',
+    'web.channelsPage.appsGroupTracker': 'Issue-Tracker',
+    'web.channelsPage.appsGuide': 'Einrichtungsanleitung',
+    'web.channelsPage.setupQr': 'Code scannen',
+    'web.channelsPage.setupToken': 'Schlüssel einfügen',
+    'web.channelsPage.setupApp': 'App installieren',
+    'web.channelsPage.stepsEyebrow': 'Die Einrichtung',
+    'web.channelsPage.stepsTitle': 'Drei Schritte.',
+    'web.channelsPage.stepsTitleAccent': 'Etwa drei Minuten.',
+    'web.channelsPage.step1Title': 'Agent anlegen',
+    'web.channelsPage.step1Body':
+        'Wähle, was ihn antreibt, und melde dich mit deinem eigenen Abo an — oder nutze die verwalteten Modelle.',
+    'web.channelsPage.step2Title': 'Code scannen',
+    'web.channelsPage.step2Body':
+        'Wähle deine App und scanne den Code mit dem Handy. Der Kanal ist in dem Moment aktiv, in dem du ihn bestätigst.',
+    'web.channelsPage.step3Title': 'Schreib ihm',
+    'web.channelsPage.step3Body':
+        'Schreib ihm direkt, oder hol ihn in eine Gruppe und erwähne ihn. Jeder Chat, jede Gruppe und jeder Thread behält eine eigene Sitzung.',
+    'web.channelsPage.syncEyebrow': 'Ein Agent, ein Ort',
+    'web.channelsPage.syncTitle': 'Schreib ihm von überall.',
+    'web.channelsPage.syncTitleAccent': 'Alles landet an einem Ort.',
+    'web.channelsPage.syncLead':
+        'WhatsApp im Zug, Slack am Schreibtisch, der Arbeitsbereich, wenn du alles sehen willst.',
+    'web.channelsPage.syncEntryPhone': 'Auf deinem Handy',
+    'web.channelsPage.syncEntryTeam': 'Im Team-Kanal',
+    'web.channelsPage.syncEntryGroup': 'In der Wochenrunde',
+    'web.channelsPage.syncEntryWeb': 'Am Schreibtisch',
+    'web.channelsPage.syncTabSessions': 'Sitzungen',
+    'web.channelsPage.syncRowCi': 'CI ist seit heute Morgen rot',
+    'web.channelsPage.syncRowRelease':
+        'Was sich in diesem Release geändert hat',
+    'web.channelsPage.syncRowFunnel':
+        'Wo die Anmeldungen letzte Woche abgebrochen sind',
+    'web.channelsPage.syncRowAudit': 'Nächtliche Abhängigkeitsprüfung',
+    'web.channelsPage.syncRowWeb': 'Notizen zum Refactoring',
+    'web.channelsPage.syncWsFoot':
+        'Jede Nachricht bleibt, aus welcher App sie auch kam.',
+    'web.channelsPage.syncPointHistory': 'Eine Historie',
+    'web.channelsPage.syncPointHistoryBody':
+        'Lies es hier, oder mach da weiter, wo du warst.',
+    'web.channelsPage.syncPointFiles': 'Ein Satz Dateien',
+    'web.channelsPage.syncPointFilesBody':
+        'Aus Slack geschrieben, da, wenn du vom Handy schreibst.',
+    'web.channelsPage.syncPointBill': 'Eine Abrechnung',
+    'web.channelsPage.syncPointBillBody': 'Tokens, Dauer und Kosten, pro Zug.',
+    'web.channelsPage.syncPointSettings': 'Einmal ändern',
+    'web.channelsPage.syncPointSettingsBody':
+        'Skills, Berechtigungen und das Modell gehören dem Agenten.',
+    'web.channelsPage.docTitle':
+        'Claude Code und Codex in Slack, WhatsApp und GitHub · Manyfold',
     'web.consent.message': 'Wir verwenden Google Analytics, um zu verstehen, wie Manyfold verwendet wird. Es wird nur ausgeführt, wenn Sie es akzeptieren, und Sie können Ihre Auswahl jederzeit ändern.',
     'web.consent.accept': 'Akzeptieren Sie Analysen',
     'web.consent.decline': 'Ablehnen',
@@ -2576,6 +2637,11 @@ const de: Record<string, string> = {
     'web.seoPage.home.docsWorkspace': 'Agenten-Workspace',
     'web.seoPage.home.docsCreateAgent': 'Agent erstellen',
     'web.seoPage.home.docsChannels': 'Kanäle',
+    'web.seoPage.channels.description':
+        'Verbinde Claude Code, Codex, Dify oder jeden Agenten, den du betreibst, mit WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub und Linear.',
+    'web.seoPage.channels.h1':
+        'Claude Code und Codex, jetzt in deinen Alltags-Apps.',
+    'web.seoPage.channels.ctaTitle': 'Schreib deinem Agenten.',
     'web.cliUpgrade.one': '1 Computer benötigt ein CLI-Upgrade',
     'web.cliUpgrade.many': '{{count}} Computer benötigen ein CLI-Upgrade',
     'web.challenge.case1.coverAlt': 'Article Lens Pixel-Büro mit Agenten, die einen Artikel analysieren',

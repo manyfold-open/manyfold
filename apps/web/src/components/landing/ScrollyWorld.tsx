@@ -10,6 +10,7 @@ import {
 import nexusLightIcon from '@/assets/agent-logos/nexus-light.svg'
 import nexusDarkIcon from '@/assets/agent-logos/nexus-dark.svg'
 import { useI18n } from '@/lib/i18n'
+import { WRITE, WorldAgent, phase, type WorldMark } from './WorldAgent'
 
 export interface WorldLayerRefs {
     gA: RefObject<SVGGElement>
@@ -18,17 +19,6 @@ export interface WorldLayerRefs {
     gFlow: RefObject<SVGGElement>
     gC: RefObject<SVGGElement>
 }
-
-/* What a head can carry: a @lobehub/icons component or the local NarraNexus
-   mark. Both take the same four props and the world needs none of the rest of
-   lobehub's icon surface — but it has to be a bare call signature rather than
-   an `FC`, because `FC` carries a `propTypes` field no `IconType` satisfies. */
-type WorldMark = (props: {
-    size?: number
-    x?: number
-    y?: number
-    style?: CSSProperties
-}) => ReactNode
 
 /* @lobehub/icons has no NarraNexus mark, so the world borrows the product's
    own asset — the same two files `frameworkMeta` renders everywhere else.
@@ -52,137 +42,6 @@ const NarraNexusMark: WorldMark = ({ size = 15, x = 0, y = 0 }) => (
             height='738'
         />
     </svg>
-)
-
-/* Every agent in the world is the same figure: a blank head carrying its
-   framework's own mark, a body wearing the run slot, two feet, and an
-   antenna whose lamp is lit green while the agent is working. The mark is
-   the only thing that differs between them — the platform is the constant,
-   the framework is the variable.
-   The figure is drawn before the desk it belongs to, so the desk cuts it at
-   the waist: an agent works behind its desk, it does not stand on it. */
-/* Every station is handed the same clocks on a different phase, so the plane
-   never moves in unison; negative, so nothing waits for a cycle on load. */
-const phase = (beat: number, period: number, shift = 0): string =>
-    `${(-(beat * period) / 3.7 - shift).toFixed(2)}s`
-
-/* One clock for the whole act of writing a line: the screen's active line, the
-   body's tap and the head's nod all run on it. */
-const WRITE = 3.1
-
-const WorldAgent: FC<{
-    x: number
-    y: number
-    scale: number
-    Logo: WorldMark
-    /* Mono marks paint themselves `currentColor`; give them the page ink so
-       they read on both plates. */
-    mono?: boolean
-    /* Phase offset, so seven agents do not breathe in unison. */
-    beat?: number
-}> = ({ x, y, scale, Logo, mono = false, beat = 0 }) => (
-    <g transform={`translate(${x},${y}) scale(${scale})`}>
-        <g className='lp-w-tap' style={{ animationDelay: phase(beat, WRITE) }}>
-            <ellipse
-                cx='0'
-                cy='2'
-                rx='11.5'
-                ry='3.4'
-                fill='#000'
-                opacity='0.16'
-            />
-            <rect
-                x='-6.4'
-                y='-9.5'
-                width='4.2'
-                height='9.5'
-                rx='2.1'
-                fill='var(--lp-w-box-r)'
-                stroke='var(--lp-line)'
-                strokeWidth='0.9'
-            />
-            <rect
-                x='2.2'
-                y='-9.5'
-                width='4.2'
-                height='9.5'
-                rx='2.1'
-                fill='var(--lp-w-box-r)'
-                stroke='var(--lp-line)'
-                strokeWidth='0.9'
-            />
-            <rect
-                x='-11'
-                y='-19'
-                width='22'
-                height='11'
-                rx='4.5'
-                fill='var(--lp-paper)'
-                stroke='var(--lp-line)'
-                strokeWidth='1'
-            />
-            <rect
-                className='lp-w-slot'
-                x='-5'
-                y='-14.8'
-                width='10'
-                height='2.6'
-                rx='1.3'
-                fill='var(--lp-info)'
-                opacity='0.6'
-                style={{ animationDelay: `${(-beat * 0.31).toFixed(2)}s` }}
-            />
-            <rect
-                x='-3.4'
-                y='-24'
-                width='6.8'
-                height='6'
-                rx='2.4'
-                fill='var(--lp-w-box-r)'
-                stroke='var(--lp-line)'
-                strokeWidth='0.9'
-            />
-            <g
-                className='lp-w-nod'
-                style={{ animationDelay: phase(beat, WRITE) }}
-            >
-                <line
-                    x1='0'
-                    y1='-49'
-                    x2='0'
-                    y2='-56'
-                    stroke='var(--lp-line)'
-                    strokeWidth='1.1'
-                    strokeLinecap='round'
-                />
-                <circle
-                    className='lp-w-lamp'
-                    cx='0'
-                    cy='-58.8'
-                    r='3.2'
-                    fill='var(--lp-success)'
-                    style={{ animationDelay: `${(-beat * 0.43).toFixed(2)}s` }}
-                />
-                <circle cx='0' cy='-58.8' r='1.8' fill='var(--lp-success)' />
-                <rect
-                    x='-14.5'
-                    y='-49'
-                    width='29'
-                    height='27'
-                    rx='8.5'
-                    fill='var(--lp-paper)'
-                    stroke='var(--lp-line)'
-                    strokeWidth='1'
-                />
-                <Logo
-                    size={15}
-                    x={-7.5}
-                    y={-43}
-                    style={mono ? { color: 'var(--lp-ink)' } : undefined}
-                />
-            </g>
-        </g>
-    </g>
 )
 
 /* The isometric frame the world is drawn in: a step along u runs down-right,

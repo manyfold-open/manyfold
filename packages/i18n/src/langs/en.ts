@@ -756,6 +756,12 @@ const en = {
             notFoundBack: 'Back to manyfold.ai'
         },
         seoPage: {
+            channels: {
+                description:
+                    'Connect Claude Code, Codex, Dify or any agent you run to WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub and Linear.',
+                h1: 'Claude Code and Codex, now in your everyday apps.',
+                ctaTitle: 'Go write to your agent.'
+            },
             home: {
                 title: 'Manyfold — AI Agent Workspace for Coding Agents',
                 description:
@@ -2038,6 +2044,66 @@ const en = {
             pricingAlwaysOnlineLabel: 'Always-online agents',
             pricingNote:
                 'Prices in USD. Cancel anytime. Need a custom tier? Reach out and we will size it with you.'
+        },
+        channelsPage: {
+            heroEyebrow: 'Also Gemini CLI, Dify, Langflow and more',
+            heroTitle: 'Claude Code and Codex,',
+            heroTitleAccent: 'now in your everyday apps.',
+            heroLead:
+                'Slack, WhatsApp, Lark, GitHub and more. Most connect by scanning a code.',
+            heroPrimary: 'Try it free',
+            heroSecondary: 'Read the docs',
+            appsEyebrow: 'Supported today',
+            appsTitle: 'Pick the app you',
+            appsTitleAccent: 'already use.',
+            appsGroupTeam: 'Team and community chat',
+            appsGroupMessenger: 'Your own messenger',
+            appsGroupTracker: 'Issue trackers',
+            appsGuide: 'Setup guide',
+            setupQr: 'Scan a code',
+            setupToken: 'Paste a key',
+            setupApp: 'Install an app',
+            stepsEyebrow: 'Setting it up',
+            stepsTitle: 'Three steps.',
+            stepsTitleAccent: 'About three minutes.',
+            step1Title: 'Make an agent',
+            step1Body:
+                'Pick what powers it, then sign in with your own subscription or use the managed models.',
+            step2Title: 'Scan the code',
+            step2Body:
+                'Pick your app and scan the code with your phone. The channel goes live the moment you approve it.',
+            step3Title: 'Message it',
+            step3Body:
+                'Write to it directly, or drop it into a group and mention it. Every chat, group and thread keeps a session of its own.',
+            syncEyebrow: 'One agent, one place',
+            syncTitle: 'Write to it anywhere.',
+            syncTitleAccent: 'It all lands in one place.',
+            syncLead:
+                'WhatsApp on the train, Slack at your desk, the workspace when you want the full view.',
+            syncEntryPhone: 'On your phone',
+            syncEntryTeam: 'In your team channel',
+            syncEntryGroup: 'In the weekly group',
+            syncEntryWeb: 'At your desk',
+            syncTabSessions: 'Sessions',
+            syncRowCi: 'CI has been red since this morning',
+            syncRowRelease: 'What changed in this release',
+            syncRowFunnel: 'Where signups dropped last week',
+            syncRowAudit: 'Overnight dependency audit',
+            syncRowWeb: 'Refactor notes',
+            syncWsFoot: 'Every message kept, whichever app it came from.',
+            syncPointHistory: 'One history',
+            syncPointHistoryBody:
+                'Read it here, or pick it up where you left off.',
+            syncPointFiles: 'One set of files',
+            syncPointFilesBody:
+                'Written from Slack, waiting when you write from your phone.',
+            syncPointBill: 'One record',
+            syncPointBillBody: 'Tokens, duration and cost, per turn.',
+            syncPointSettings: 'Change it once',
+            syncPointSettingsBody:
+                'Skills, permissions and the model itself live on the agent.',
+            docTitle:
+                'Claude Code and Codex in Slack, WhatsApp and GitHub · Manyfold'
         },
         consent: {
             message:

@@ -90,6 +90,19 @@ export default defineConfig(({ mode }) => {
             // MF_DEV_HOST (just dev-host) binds 0.0.0.0; allow Tailscale magic-DNS names
             host: Boolean(process.env.MF_DEV_HOST || process.env.NCA_DEV_HOST),
             allowedHosts: ['.ts.net'],
+            // Fonts are @import-ed from @fontsource, which a hoisted install
+            // puts in the repo root — but vite's workspace probe stops at
+            // oss/pnpm-workspace.yaml, so every font url() lands outside
+            // fs.allow. First path covers a standalone core checkout, second
+            // the superproject's hoisted tree.
+            // Seen on local dev [2026-09-08]: every font 403, the page falling
+            // back to Songti SC without a single console error.
+            fs: {
+                allow: [
+                    resolve(__dirname, '../..'),
+                    resolve(__dirname, '../../../node_modules')
+                ]
+            },
             port: 3002,
             proxy: {
                 '/api': {
