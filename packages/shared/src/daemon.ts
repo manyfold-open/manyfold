@@ -39,10 +39,12 @@ export interface DetectedFramework {
     path: string
     // openclaw only: the resident gateway the daemon DISCOVERED (never started)
     // from the host's own openclaw config. `reachable` is a loopback HTTP probe
-    // at detection time — a hint for operators and the O9 evidence gate, not a
-    // dispatch decision; the turn runner probes again when it matters. null =
-    // the config points at a remote gateway, which the daemon does not probe.
-    // The gateway token is deliberately never reported.
+    // at detection time, refreshed on the framework-detect interval rather than
+    // per turn — since ADR-0027 O9 the API reads it as a pre-dispatch admission
+    // fact, so a `false` refusal is deliberately RETRYABLE (the probe can be
+    // minutes stale) while "no gateway configured" is not. null = the config
+    // points at a remote gateway, which the daemon does not probe and the API
+    // does not refuse. The gateway token is deliberately never reported.
     gateway?: DetectedOpenclawGateway
 }
 
@@ -452,19 +454,23 @@ export const DAEMON_FEATURE_FS_WRITE_BINARY = 'fs.write.binary'
 // itself once drained. Daemons without this restart immediately.
 export const DAEMON_FEATURE_DAEMON_UPDATE_DRAIN = 'daemon.update.drain'
 // The daemon accepts turn.start for the named framework (see
-// DaemonTurnStartPayload). For openclaw the API falls back to its own client
-// when the capability is absent, so it gates the transport choice per daemon.
-// For hermes it is an admission gate since ADR-0024 (chat is ACP-only): a
-// daemon without it is refused with `hermes_daemon_upgrade_required`.
+// DaemonTurnStartPayload). `turn.openclaw` is the gateway-http shape, which
+// only narranexus sends now (openclaw chat is ACP-only since ADR-0027 O9); the
+// API falls back to its own client when it is absent, so it gates the
+// transport choice per daemon. For hermes it is an admission gate since
+// ADR-0024 (chat is ACP-only): a daemon without it is refused with
+// `hermes_daemon_upgrade_required`.
 export const DAEMON_FEATURE_TURN_HERMES = 'turn.hermes'
 export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'
 // turn.start accepts DaemonOpenclawAcpTurnPayload (framework openclaw,
 // transport acp): the daemon drives `openclaw acp` against the host's own
 // gateway, patches the session in-box for the ask mode / model pick, reads
 // the usage back after the prompt, and answers turn.permission for its asks.
-// The API only sends this shape under MF_OPENCLAW_ACP and only to a daemon
-// advertising it; otherwise the daemon-runtime turn keeps spawning
-// `openclaw agent --local --json`.
+// Since ADR-0027 O9 this is the ONLY shape a daemon openclaw turn takes, so
+// the capability is an admission gate like hermes's: a daemon without it is
+// refused with `openclaw_daemon_upgrade_required`, and one whose heartbeat
+// reports no reachable gateway with `openclaw_daemon_gateway_unavailable`.
+// The `openclaw agent --local --json` spawn it used to fall back to is gone.
 export const DAEMON_FEATURE_TURN_OPENCLAW_ACP = 'turn.openclaw.acp'
 // The hello's inflightStreams field is authoritative when PRESENT (an empty
 // list really means "no streams") and unknown when ABSENT (enumeration

@@ -1039,6 +1039,12 @@ const fr: Record<string, string> = {
     'web.landing.stepCtaStep2': 'Étape 2',
     'web.landing.navPricing': 'Tarifs',
     'web.landing.navDocs': 'Documents',
+    'web.landing.navChannels': 'Canaux',
+    'web.landing.navChannelsApps': 'Slack, WhatsApp, Lark, GitHub',
+    'web.landing.footerGroupProduct': 'Produit',
+    'web.landing.footerGroupResources': 'Ressources',
+    'web.landing.footerGroupLegal': 'Mentions légales',
+    'web.landing.footerSelfHost': 'Auto-hébergement',
     'web.landing.navChallenge': 'Défi',
     'web.landing.heroPrimaryCta': 'Créez votre premier agent',
     'web.landing.faqQ1': 'Est-ce juste une surcouche à Claude Code ou Codex ?',
@@ -1080,6 +1086,7 @@ const fr: Record<string, string> = {
     'web.landing.heroTitleAccent': 'démultiplié.',
     'web.landing.heroTagline': 'Claude Code, Codex et vos propres agents, toujours actifs et livrant dans votre produit.',
     'web.landing.sceneHeroHint': 'Faites défiler · voyez comment ça marche ↓',
+    'web.landing.sceneChannelsLink': 'Voir toutes les apps concernées',
     'web.landing.scene1Eyebrow': '01 · Hébergement',
     'web.landing.scene1Title': 'Les agents vivent dans des',
     'web.landing.scene1TitleAccent': 'environnements d\'exécution.',
@@ -1165,6 +1172,70 @@ const fr: Record<string, string> = {
     'web.landing.pricingEyebrow': 'Forfaits',
     'web.landing.pricingPopular': 'Populaire',
     'web.landing.faqEyebrow': 'Questions',
+    'web.channelsPage.heroEyebrow':
+        'Aussi Gemini CLI, OpenClaw, Hermes et plus',
+    'web.channelsPage.heroTitle': 'Claude Code et Codex,',
+    'web.channelsPage.heroTitleAccent':
+        'désormais dans vos applis du quotidien.',
+    'web.channelsPage.heroLead':
+        'Slack, WhatsApp, Lark, GitHub — avec votre propre abonnement.',
+    'web.channelsPage.heroPrimary': 'Essayer gratuitement',
+    'web.channelsPage.heroSecondary': 'Lire la documentation',
+    'web.channelsPage.appsEyebrow': 'Pris en charge aujourd’hui',
+    'web.channelsPage.appsTitle': 'Prenez celle que vous',
+    'web.channelsPage.appsTitleAccent': 'utilisez déjà.',
+    'web.channelsPage.appsGroupTeam': 'Chat d’équipe et de communauté',
+    'web.channelsPage.appsGroupMessenger': 'Votre propre messagerie',
+    'web.channelsPage.appsGroupTracker': 'Suivi des tickets',
+    'web.channelsPage.appsGuide': 'Guide de mise en place',
+    'web.channelsPage.setupQr': 'Scanner un code',
+    'web.channelsPage.setupToken': 'Coller une clé',
+    'web.channelsPage.setupApp': 'Installer une appli',
+    'web.channelsPage.stepsEyebrow': 'La mise en place',
+    'web.channelsPage.stepsTitle': 'Trois étapes.',
+    'web.channelsPage.stepsTitleAccent': 'Environ trois minutes.',
+    'web.channelsPage.step1Title': 'Créez un agent',
+    'web.channelsPage.step1Body':
+        'Choisissez ce qui l’anime, puis connectez-vous avec votre propre abonnement ou utilisez les modèles gérés.',
+    'web.channelsPage.step2Title': 'Scannez le code',
+    'web.channelsPage.step2Body':
+        'Choisissez votre appli et scannez le code avec votre téléphone. Le canal s’active dès que vous validez.',
+    'web.channelsPage.step3Title': 'Écrivez-lui',
+    'web.channelsPage.step3Body':
+        'Parlez-lui directement, ou ajoutez-le à un groupe et mentionnez-le. Chaque discussion, groupe et fil garde sa propre session.',
+    'web.channelsPage.step3Note':
+        'La plupart des applications ne transmettent que les messages qui le mentionnent ; le reste du groupe n’atteint jamais Manyfold.',
+    'web.channelsPage.syncEyebrow': 'Un agent, un seul endroit',
+    'web.channelsPage.syncTitle': 'Écrivez-lui de partout.',
+    'web.channelsPage.syncTitleAccent': 'Tout arrive au même endroit.',
+    'web.channelsPage.syncLead':
+        'WhatsApp dans le train, Slack au bureau, l’espace de travail quand vous voulez tout voir.',
+    'web.channelsPage.syncEntryPhone': 'Sur votre téléphone',
+    'web.channelsPage.syncEntryTeam': 'Dans le canal de l’équipe',
+    'web.channelsPage.syncEntryGroup': 'Dans le groupe hebdomadaire',
+    'web.channelsPage.syncEntryWeb': 'À votre bureau',
+    'web.channelsPage.syncTabSessions': 'Sessions',
+    'web.channelsPage.syncRowCi': 'La CI est rouge depuis ce matin',
+    'web.channelsPage.syncRowRelease': 'Ce qui a changé dans cette version',
+    'web.channelsPage.syncRowFunnel':
+        'Où les inscriptions ont décroché la semaine dernière',
+    'web.channelsPage.syncRowAudit': 'Audit nocturne des dépendances',
+    'web.channelsPage.syncRowWeb': 'Notes de refactorisation',
+    'web.channelsPage.syncWsFoot':
+        'Chaque message est conservé, quelle que soit l’appli.',
+    'web.channelsPage.syncPointHistory': 'Un seul historique',
+    'web.channelsPage.syncPointHistoryBody':
+        'Relisez-le ici, ou reprenez où vous en étiez.',
+    'web.channelsPage.syncPointFiles': 'Un seul jeu de fichiers',
+    'web.channelsPage.syncPointFilesBody':
+        'Écrit depuis Slack, présent quand vous écrivez du téléphone.',
+    'web.channelsPage.syncPointBill': 'Un seul relevé',
+    'web.channelsPage.syncPointBillBody': 'Jetons, durée et coût, par tour.',
+    'web.channelsPage.syncPointSettings': 'Changez une seule fois',
+    'web.channelsPage.syncPointSettingsBody':
+        'Les compétences, les permissions et le modèle appartiennent à l’agent.',
+    'web.channelsPage.docTitle':
+        'Claude Code et Codex dans Slack, WhatsApp et GitHub · Manyfold',
     'web.consent.message': 'Nous utilisons Google Analytics pour comprendre comment Manyfold est utilisé. Il ne fonctionne que si vous l’acceptez et vous pouvez modifier votre choix à tout moment.',
     'web.consent.accept': 'Accepter les analyses',
     'web.consent.decline': 'Refuser',
@@ -2577,6 +2648,11 @@ const fr: Record<string, string> = {
     'web.seoPage.home.docsWorkspace': 'Espace de travail d’agent',
     'web.seoPage.home.docsCreateAgent': 'Créer un agent',
     'web.seoPage.home.docsChannels': 'Canaux',
+    'web.seoPage.channels.description':
+        'Reliez Claude Code, Codex, Dify ou n’importe quel agent que vous faites tourner à WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub et Linear.',
+    'web.seoPage.channels.h1':
+        'Claude Code et Codex, désormais dans vos applis du quotidien.',
+    'web.seoPage.channels.ctaTitle': 'Allez écrire à votre agent.',
     'web.cliUpgrade.one': '1 machine nécessite une mise à niveau de la CLI',
     'web.cliUpgrade.many': '{{count}} machines nécessitent une mise à niveau de la CLI',
     'web.challenge.case1.coverAlt': 'Article Lens, bureau pixelisé avec des agents analysant un article',

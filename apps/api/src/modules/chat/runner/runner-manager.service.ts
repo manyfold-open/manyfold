@@ -5,7 +5,7 @@ import {
     profilePaths,
     runnerHostName
 } from '@manyfold/shared'
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { runtimeHosts, type Database } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
@@ -18,6 +18,7 @@ import {
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 
 // Bring an agent's sprite-side runner up so a turn can be dispatched through
 // the daemon protocol instead of a bare sprite exec.
@@ -213,7 +214,8 @@ export class RunnerManagerService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: DaemonHostService,
         private readonly tokens: DaemonTokenService,
-        private readonly registry: DaemonRegistryService
+        private readonly registry: DaemonRegistryService,
+        @Optional() private readonly spritesProvisioner?: SpritesProvisioner
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -543,8 +545,21 @@ export class RunnerManagerService {
         const channel = cliInstallChannelForDeployEnv(
             resolveMfDeployEnv(process.env.MF_DEPLOY_ENV)
         )
+        let purgeLegacyIdentity = false
+        if (this.spritesProvisioner) {
+            purgeLegacyIdentity =
+                await this.spritesProvisioner.migrateLegacySpriteIdentitiesForSprite(
+                    args.spriteName
+                )
+        }
         const res = await args.exec({
-            cmd: ['bash', '-lc', buildCliInstallScript(channel)],
+            cmd: [
+                'bash',
+                '-lc',
+                buildCliInstallScript(channel, undefined, {
+                    purgeLegacyIdentity
+                })
+            ],
             timeoutMs: 180_000
         })
         if (res.exitCode !== 0)

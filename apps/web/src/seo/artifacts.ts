@@ -2,6 +2,7 @@ import {
     SITE_ORIGIN,
     seoCanonicalUrl,
     seoPageEntries,
+    type SeoPageDefinition,
     type SeoPageEntry
 } from '@/seo/pages'
 import { htmlLangFor, seoHeadTags } from '@/seo/head'
@@ -41,14 +42,23 @@ export const SPA_ROUTE_PREFIXES = [
     '/chat'
 ]
 
-export const buildRobotsTxt = (env: WebEnv): string => {
+// `extraPages` on these two is the post-build renderer's channel for an
+// editions-slot page (see seoPageEntries): a page the browser build reaches
+// through SEO_PAGES but tsx cannot. Without it a composition's page would be
+// served as a real file and still be missing from robots and the sitemap.
+export const buildRobotsTxt = (
+    env: WebEnv,
+    extraPages: SeoPageDefinition[] = []
+): string => {
     if (env !== 'production') {
         return ['User-agent: *', 'Disallow: /', ''].join('\n')
     }
     const disallows = [...SPA_ROUTE_PREFIXES, '/r'].map(
         (prefix) => `Disallow: ${prefix}`
     )
-    const allows = seoPageEntries().map((entry) => `Allow: ${entry.path}`)
+    const allows = seoPageEntries(extraPages).map(
+        (entry) => `Allow: ${entry.path}`
+    )
     return [
         'User-agent: *',
         ...allows,
@@ -60,8 +70,10 @@ export const buildRobotsTxt = (env: WebEnv): string => {
     ].join('\n')
 }
 
-export const buildSitemapXml = (): string => {
-    const urls = seoPageEntries()
+export const buildSitemapXml = (
+    extraPages: SeoPageDefinition[] = []
+): string => {
+    const urls = seoPageEntries(extraPages)
         .map((entry) => {
             const en = `${SITE_ORIGIN}${entry.def.paths.en}`
             const zh = `${SITE_ORIGIN}${entry.def.paths.zh}`

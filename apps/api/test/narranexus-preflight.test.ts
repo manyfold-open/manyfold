@@ -19,9 +19,6 @@ import type {
 // dynamic import() inside each test instead of a hoisted static import.
 const NARRANEXUS_BUDGET_MS = 1_500
 process.env.NARRANEXUS_PREFLIGHT_BUDGET_MS = String(NARRANEXUS_BUDGET_MS)
-// This suite exercises the gateway-http preflight; ACP is the default now, so
-// opt out (narranexus ignores the flag via the framework guard).
-process.env.MF_OPENCLAW_ACP = '0'
 delete process.env.OPENCLAW_PREFLIGHT_BUDGET_MS
 delete process.env.OPENCLAW_PREFLIGHT_TIMEOUT_MS
 delete process.env.K8S_INGRESS_SCHEME
@@ -29,7 +26,6 @@ delete process.env.K8S_INGRESS_SCHEME
 // Mirrors the adapter's OPENCLAW_PREFLIGHT_RETRY_DELAY_MS so mock-time ticks
 // land exactly on the retry sleeps.
 const RETRY_DELAY_MS = 500
-const OPENCLAW_DEFAULT_BUDGET_MS = 30_000
 const INGRESS_HOST = 'gw.example.com'
 const BASE_URL = `https://${INGRESS_HOST}`
 
@@ -380,57 +376,6 @@ test('narranexus preflight that binds on attempt 3 within budget proceeds to the
             assert.ok(
                 posts[0].at < NARRANEXUS_BUDGET_MS,
                 'recovery happened within the configured budget'
-            )
-        }
-    )
-})
-
-// WHY: parameterizing the budget (D6) must not move openclaw's behavior —
-// the 30s default and the openclaw_not_ready code are pinned so the
-// narranexus override can never leak into the base adapter.
-test('openclaw preflight pinned unchanged: 30s default budget and openclaw_not_ready', async (t) => {
-    const { OpenclawAdapter } = await import(
-        '../src/modules/chat/adapters/openclaw.adapter'
-    )
-    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
-    const calls: PreflightCall[] = []
-    await withFetch(
-        async (input, init) => {
-            recordCall(calls, input, init)
-            throw timeoutError()
-        },
-        async () => {
-            const adapter = new OpenclawAdapter(...adapterArgs('openclaw'))
-            const events = await collectUnderMockTime(
-                t,
-                adapter.sendMessage(fakeCtx('openclaw'), userMessage())
-            )
-            const { error } = onlyError(events)
-            assert.equal(
-                error.code,
-                'openclaw_not_ready',
-                'openclaw keeps its own framework-derived code — narranexus parameterization must not change it'
-            )
-            assert.equal(error.retryable, true)
-            assert.match(
-                error.message,
-                /^openclaw gateway/,
-                'the message stays openclaw-attributed'
-            )
-            assert.match(
-                error.message,
-                /within 30s/,
-                'the openclaw default budget stays 30s'
-            )
-            const heads = calls.filter((c) => c.method === 'HEAD')
-            assert.ok(
-                heads.every((c) => c.at < OPENCLAW_DEFAULT_BUDGET_MS),
-                'no attempt may start at or past the 30s default budget'
-            )
-            assert.ok(
-                (heads.at(-1)?.at ?? 0) + RETRY_DELAY_MS >=
-                    OPENCLAW_DEFAULT_BUDGET_MS,
-                'openclaw retried for the FULL 30s default — the NARRANEXUS_PREFLIGHT_BUDGET_MS override must not leak into openclaw'
             )
         }
     )

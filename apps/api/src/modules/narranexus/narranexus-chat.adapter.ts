@@ -14,7 +14,7 @@ import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
+import { GatewayHttpChatAdapter } from '@/modules/chat/adapters/gateway-http-chat.adapter'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
@@ -38,9 +38,8 @@ const NARRANEXUS_PREFLIGHT_BUDGET_MS = Math.max(
 )
 
 @Injectable()
-export class NarraNexusChatAdapter extends OpenclawAdapter {
+export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
     readonly framework: AgentFramework = 'narranexus'
-    private readonly nxDb: Database
 
     constructor(
         @Inject(DRIZZLE) db: Database,
@@ -62,7 +61,6 @@ export class NarraNexusChatAdapter extends OpenclawAdapter {
             daemonRegistry,
             adminSettings
         )
-        this.nxDb = db
     }
 
     getCapabilities(): ChatCapabilities {
@@ -101,7 +99,7 @@ export class NarraNexusChatAdapter extends OpenclawAdapter {
     }
 
     private async buildSetupHint(agentId: string): Promise<string> {
-        const [row] = await this.nxDb
+        const [row] = await this.db
             .select({
                 ingressHost: agents.ingressHost,
                 userId: agents.userId

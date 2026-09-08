@@ -19,9 +19,12 @@ test('marketing links follow the SEO path language and use canonical docs URLs',
 
     assert.deepEqual(marketingLinksFor('zh'), {
         home: '/zh/',
+        // In-app route, so it carries the /zh prefix rather than a docs origin.
+        channels: '/zh/channels',
         docs: 'https://docs.manyfold.ai/zh/docs/getting-started/',
         changelog: 'https://docs.manyfold.ai/zh/changelog/',
         status: 'https://docs.manyfold.ai/zh/status/',
+        selfHost: 'https://docs.manyfold.ai/zh/docs/self-hosting/',
         privacy: 'https://docs.manyfold.ai/privacy/',
         terms: 'https://docs.manyfold.ai/terms/'
     })

@@ -465,12 +465,19 @@ const spriteRunnerEnabledFor = (agentId: string): boolean => {
 
 // hermes turns are ACP-only and the runner-owned client is the resumable
 // variant, so the attempt is always worth making: the allowlist does not
-// apply. Dispatch policy, deliberately not a frameworkCapabilities field —
-// the same layering argument ADR-0021 makes for the exec-env surfaces.
+// apply. openclaw is the opposite case — its sprite turns are ACP too, but
+// the API drives that bridge itself over the exec channel, so a runner is
+// pure cost: the bring-up is paid for, `runnerDaemonId` is then ignored, and
+// the turn is stamped with a daemonExecRef no resume can honour (a later
+// hello would terminalize a healthy turn `openclaw_resume_failed`). Dispatch
+// policy, deliberately not a frameworkCapabilities field — the same layering
+// argument ADR-0021 makes for the exec-env surfaces.
 const spriteRunnerAttemptedFor = (
     framework: AgentFramework,
     agentId: string
-): boolean => framework === 'hermes' || spriteRunnerEnabledFor(agentId)
+): boolean =>
+    framework === 'hermes' ||
+    (framework !== 'openclaw' && spriteRunnerEnabledFor(agentId))
 
 // Thrown when a turn cannot start because the session already has one running.
 // Extends ConflictException so HTTP callers get a 409; the channel bridge catches

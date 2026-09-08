@@ -443,6 +443,70 @@ test("the '*' allowlist value opts every sprite agent in", async () => {
     }
 })
 
+// openclaw is the one framework '*' must NOT opt in. Its sprite turns are ACP
+// driven by the API over the exec channel (ADR-0027 O9), so a runner is pure
+// cost: the bring-up is paid for, runnerDaemonId is then ignored, and the turn
+// is stamped with a daemonExecRef no resume can honour — a later hello would
+// terminalize a healthy turn. Prove-red: drop the openclaw clause from
+// spriteRunnerAttemptedFor and ensureRunner is called.
+test("the '*' allowlist still never brings up a runner for openclaw", async () => {
+    const { ChatService } = await import('../src/modules/chat/chat.service')
+    const ensureCalls: string[] = []
+    const service = Object.create(ChatService.prototype) as {
+        resolveSpriteRunner: (a: {
+            agentId: string
+            userId: string
+            framework: string
+            runtime: string
+            spriteName: string | null
+        }) => Promise<{ runner: { daemonId: string } | null }>
+        runnerManager?: unknown
+        execDrivers?: unknown
+        telemetry?: unknown
+    }
+    service.runnerManager = {
+        ensureRunner: async (a: { agentId: string }) => {
+            ensureCalls.push(a.agentId)
+            return {
+                handle: { daemonId: 'dh_runner', started: false },
+                workspace: { outcome: 'none' }
+            }
+        }
+    }
+    service.telemetry = { event: () => {} }
+    service.execDrivers = {
+        recoveryFsForAgent: async () => ({
+            spritesClient: {},
+            agent: { userId: 'user-1' }
+        })
+    }
+    try {
+        process.env.MF_SPRITE_RUNNER_AGENTS = '*'
+        const openclaw = await service.resolveSpriteRunner({
+            agentId: 'agt_openclaw',
+            userId: 'user-1',
+            framework: 'openclaw',
+            runtime: 'sprites',
+            spriteName: 'art-abc'
+        })
+        assert.equal(openclaw.runner, null)
+        assert.deepEqual(ensureCalls, [], 'the sprite must not be touched')
+
+        // narranexus still takes the runner: it is the framework that owns the
+        // turn-rpc transport now.
+        const narranexus = await service.resolveSpriteRunner({
+            agentId: 'agt_narranexus',
+            userId: 'user-1',
+            framework: 'narranexus',
+            runtime: 'sprites',
+            spriteName: 'art-abc'
+        })
+        assert.equal(narranexus.runner?.daemonId, 'dh_runner')
+    } finally {
+        delete process.env.MF_SPRITE_RUNNER_AGENTS
+    }
+})
+
 // The routing above gets a runner turn STARTED. Getting it FINISHED after an
 // api restart is the whole point, and that runs through resumeMessage — which
 // resolved its driver from the AGENT's runtime and bailed out with

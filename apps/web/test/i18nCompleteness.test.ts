@@ -771,6 +771,18 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'pre-registration',
         'registration'
     ],
+    /* Product names and the mock workspace chrome. The framework chips name
+       the three CLIs verbatim, and the panel below is a picture of the app —
+       its window title and URL are part of the drawing, not copy a visitor is
+       meant to read in their own language. `&gt;` is the shell prompt glyph. */
+    'pages/ChannelsLanding.tsx': [
+        '&gt;',
+        'Claude Code',
+        'Codex',
+        'Gemini CLI',
+        'manyfold.ai/agents',
+        'release-bot'
+    ],
     'pages/Customize/CreateSkillDialog.tsx': ['https://github.com/owner/repo'],
     'pages/Customize/UserMcpServerDialog.tsx': [
         'context7',

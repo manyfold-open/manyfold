@@ -36,6 +36,16 @@ export interface DetectedFramework {
         | 'hermes'
     version: string | null
     path: string
+    // openclaw only: the resident gateway the daemon discovered on the host
+    // (never started). Mirrors DetectedOpenclawGateway in @manyfold/shared,
+    // restated here because the db package cannot depend on shared. The API
+    // reads it to admit or refuse an openclaw ACP turn, so the column's type
+    // has to carry it.
+    gateway?: {
+        port: number | null
+        reachable: boolean | null
+        checkedAt: string
+    }
 }
 
 export const runtimeHosts = pgTable(

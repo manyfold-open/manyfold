@@ -47,6 +47,12 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     // the fix is rebuilding the image (or dropping the override).
     hermes_set_model_unsupported: 'unsupported_capability',
     openclaw_resume_unsupported: 'unsupported_capability',
+    // The openclaw equivalents of the hermes pair above (ADR-0027): a daemon
+    // whose mf CLI predates turn.openclaw.acp, and a daemon host with no
+    // reachable openclaw gateway for the bridge to connect to. Both name their
+    // own fix; neither is a retry.
+    openclaw_daemon_upgrade_required: 'unsupported_capability',
+    openclaw_daemon_gateway_unavailable: 'unsupported_capability',
     resume_unsupported: 'unsupported_capability',
     dify_session_not_found: 'stale_resume_ref',
     dify_no_body: 'empty_response',
@@ -69,9 +75,9 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     // The fatal stderr line on the interactive path carries the upstream
     // auth/pool/balance text that used to arrive as `hermes_upstream`.
     'hermes_acp_event',
-    // openclaw's API-driven ACP path (MF_OPENCLAW_ACP) mirrors the hermes
-    // interactive path: a generic retryable failure and its stderr-classified
-    // event, grouped by their message like the hermes pair above.
+    // openclaw's API-driven ACP path mirrors the hermes interactive path: a
+    // generic retryable failure and its stderr-classified event, grouped by
+    // their message like the hermes pair above.
     'openclaw_acp_failed',
     'openclaw_acp_event',
     // The BYOD daemon ACP transport (O6): a generic retryable failure whose

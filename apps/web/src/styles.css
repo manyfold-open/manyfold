@@ -2441,7 +2441,8 @@ html[data-theme='dark'] .landing-root {
 .landing-root .lp-h2,
 .landing-root .lp-h3,
 .landing-root .lp-scene-title,
-.landing-root .lp-price-num {
+.landing-root .lp-price-num,
+.landing-root .lp-step-num {
     font-family: var(--lp-display);
     font-weight: var(--lp-display-weight);
     font-variation-settings: var(--lp-display-vars);
@@ -3182,11 +3183,16 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     background: var(--lp-paper-warm);
 }
 
+/* No `margin-left: auto` here. It was written for a trailing chevron, but an
+   overflow item is [icon][label]: the icon is the first flex child, so it
+   absorbed the free space and dragged the pair to the right edge — against
+   this rule's own `text-align: left`. The meta span carries its own auto
+   margin, and the leading-icon rule below already zeroed this one, so two
+   rules were arguing about a declaration neither needed. */
 .landing-root .lp-nav-menu-item svg {
     width: 13px;
     height: 13px;
     opacity: 0.7;
-    margin-left: auto;
 }
 
 .landing-root .lp-nav-menu-item-meta {
@@ -3213,12 +3219,100 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     text-decoration: none;
 }
 
+/* Overflow items that carry a second line. Only the folded menu gets them:
+   the bar runs one text tier, and the row there has no room for a gloss. */
+.landing-root .lp-nav-menu-item-2l {
+    align-items: flex-start;
+    padding: 7px 10px;
+}
+
+.landing-root .lp-nav-menu-item-2l > svg:first-child {
+    margin-top: 2px;
+}
+
+.landing-root .lp-nav-menu-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.landing-root .lp-nav-menu-item-sub {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--lp-muted);
+    letter-spacing: 0;
+}
+
+/* The current value on a row that opens a panel, chevron included. */
+.landing-root .lp-nav-menu-value {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--lp-muted);
+}
+
+.landing-root .lp-nav-menu-value svg {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    opacity: 0.7;
+}
+
+/* Title and back control in one row, at the head of a drilled-down panel. */
+.landing-root .lp-nav-menu-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px 7px 6px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--lp-ink);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    text-align: left;
+}
+
+.landing-root .lp-nav-menu-back:hover {
+    background: var(--lp-bg-soft);
+}
+
+html[data-theme='dark'] .landing-root .lp-nav-menu-back:hover {
+    background: var(--lp-paper-warm);
+}
+
+.landing-root .lp-nav-menu-back svg {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    opacity: 0.75;
+}
+
+/* Measured on local dev at 390x844 [2026-09-08]: the locale list is 391px on
+   its own and the panel around it 453px, so at this size nothing scrolls.
+   Capped against the viewport rather than at a fixed height, so a taller phone
+   also shows the whole list and a shorter one scrolls instead of growing the
+   menu past the fold. */
+.landing-root .lp-nav-menu-scroll {
+    max-height: min(58vh, 420px);
+    margin: 0 -4px;
+    padding: 0 4px;
+    overflow-y: auto;
+}
+
 /* Inline leading icon in overflow menu items (Docs, Sign in, Globe, theme). */
 .landing-root .lp-nav-menu-item > svg:first-child {
     width: 14px;
     height: 14px;
     opacity: 0.75;
-    margin-left: 0;
 }
 
 /* CTA-styled menu row (primary action at the top of the overflow): a
@@ -3660,6 +3754,92 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     border-left: 1px solid var(--lp-line-soft);
 }
 
+/* Four even columns. Two other splits were tried at 1440: a wider brand column
+   (1.5fr) pushed the three groups into the right third, and link columns hugging
+   their content on the right opened a gap between the brand and the links wide
+   enough that the footer read as two blocks instead of one structure. */
+.landing-root .lp-foot-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 40px;
+    align-items: start;
+}
+
+.landing-root .lp-foot-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+/* No hairline in a column: the white space above the cluster already separates
+   it, and a rule there would read as a divider from whatever follows. */
+.landing-root .lp-foot-brand .lp-foot-social {
+    margin: 0 0 0 -6px;
+    padding: 0;
+    border-left: 0;
+}
+
+.landing-root .lp-foot-col {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    min-width: 0;
+}
+
+/* Sentence case at normal tracking — caps plus wide letter-spacing is not a
+   register this system has. */
+.landing-root .lp-foot-col-title {
+    margin: 0 0 2px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--lp-ink);
+    letter-spacing: -0.005em;
+}
+
+.landing-root .lp-foot-col a,
+.landing-root .lp-foot-col button {
+    width: fit-content;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--lp-muted);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13.5px;
+    letter-spacing: -0.005em;
+    text-align: left;
+    transition: color 120ms ease;
+}
+
+.landing-root .lp-foot-col a:hover,
+.landing-root .lp-foot-col button:hover {
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-foot-legal {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 34px;
+    padding-top: 20px;
+    border-top: 1px solid var(--lp-line-soft);
+    font-size: 12.5px;
+    color: var(--lp-subtle);
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-foot-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 32px 28px;
+    }
+    .landing-root .lp-foot-brand {
+        grid-column: 1 / -1;
+        margin-bottom: 4px;
+    }
+}
+
 @media (max-width: 640px) {
     .landing-root .lp-foot-row {
         flex-direction: column;
@@ -3769,8 +3949,17 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     margin-bottom: 14px;
 }
 
-.landing-root .lp-scene-title {
+/* The size a hero headline gets, wherever one appears: the home page's
+   scrolly stage and the channels page's centred hero. `.lp-h1` carries a
+   ramp one step above this (clamp(46, 6.6vw, 100)) and is rendered by
+   nothing but the crawler snapshot, so a real hero pointed at it ends up
+   half again the size of the one on the home page. */
+.landing-root .lp-scene-title,
+.landing-root .lp-cl-hero-copy .lp-h1 {
     font-size: calc(clamp(38px, 4.4vw, 68px) * var(--lp-display-scale));
+}
+
+.landing-root .lp-scene-title {
     color: var(--lp-ink);
     margin-bottom: 16px;
 }
@@ -3789,7 +3978,8 @@ html[lang^='zh'] .landing-root .lp-h3 {
     line-height: 1.15;
 }
 
-html[lang^='zh'] .landing-root .lp-scene-title {
+html[lang^='zh'] .landing-root .lp-scene-title,
+html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     font-size: clamp(30px, 3.7vw, 54px);
     letter-spacing: -0.01em;
 }
@@ -3845,6 +4035,34 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     font-family: var(--lp-mono);
     font-size: 10.5px;
     color: var(--lp-subtle);
+}
+
+/* The way out of a scene into the page that argues it in full. Sits at the
+   accent rather than as a button: the scene already has the page's one
+   button pair on the hero card, and a second filled control per scene would
+   read as four competing primary actions down the tour. */
+.landing-root .lp-scene-link {
+    margin-top: 22px;
+}
+
+.landing-root .lp-scene-out {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--lp-info);
+    font-size: 13.5px;
+    letter-spacing: -0.005em;
+    text-decoration: none;
+}
+
+.landing-root .lp-scene-out svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+}
+
+.landing-root .lp-scene-out:hover svg {
+    transform: translateX(2px);
 }
 
 .landing-root .lp-world-col {
@@ -4159,6 +4377,33 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     animation-name: lp-w-tap;
 }
 
+.landing-root .lp-w-hop {
+    transform-box: fill-box;
+    /* At the feet, so a squash flattens the figure downward instead of
+       shrinking it about its middle. */
+    transform-origin: 50% 100%;
+    animation: lp-w-hop 3.2s infinite;
+}
+
+.landing-root .lp-w-cast {
+    transform-box: fill-box;
+    transform-origin: center;
+}
+
+/* Only a hopping figure's shadow moves — the world's desk idle leaves it
+   alone — so the figure names the variant rather than the stylesheet
+   inferring it from sibling order. */
+.landing-root .lp-w-cast-hop {
+    animation: lp-w-cast-hop 3.2s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .landing-root .lp-w-hop,
+    .landing-root .lp-w-cast-hop {
+        animation: none;
+    }
+}
+
 .landing-root .lp-w-nod {
     animation-name: lp-w-nod;
 }
@@ -4189,6 +4434,105 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 }
 
 /* Two beats behind the body, so the stalk whips rather than moving with it. */
+/* A standing idle: two small hops, then a rest about as long as the hops
+   themselves — a bounce with no pause reads as a nervous tic.
+
+   What makes it read as cute rather than as a moving object is not the
+   travel, which is tiny (3 units on a 62-unit figure), but the three
+   classical touches around it: a crouch before the launch, a stretch on the
+   way up and a squash on the landing, and a second hop that undershoots the
+   first. With transform-origin at the feet, scaling never lifts the figure
+   off the ground — only translateY does, so squash and travel stay separable.
+
+   Per-keyframe easing supplies the gravity: the rise decelerates into the
+   apex and the fall accelerates out of it. */
+@keyframes lp-w-hop {
+    0%,
+    6% {
+        transform: translateY(0) scale(1, 1);
+        animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+    }
+
+    10% {
+        transform: translateY(0.7px) scale(1.06, 0.93);
+        animation-timing-function: cubic-bezier(0.15, 0.7, 0.35, 1);
+    }
+
+    16% {
+        transform: translateY(-3.1px) scale(0.97, 1.06);
+    }
+
+    21% {
+        transform: translateY(-4.2px) scale(1, 1);
+        animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.55);
+    }
+
+    27% {
+        transform: translateY(0) scale(1.07, 0.92);
+        animation-timing-function: cubic-bezier(0.15, 0.7, 0.35, 1);
+    }
+
+    33% {
+        transform: translateY(-2.9px) scale(0.98, 1.04);
+        animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.55);
+    }
+
+    40% {
+        transform: translateY(0) scale(1.05, 0.94);
+    }
+
+    46% {
+        transform: translateY(-0.5px) scale(0.99, 1.01);
+    }
+
+    52%,
+    100% {
+        transform: translateY(0) scale(1, 1);
+    }
+}
+
+/* The shadow answers the hop instead of ignoring it: smaller and fainter at
+   the apex, wider and firmer on the landing. Without this the figure reads as
+   sliding up and down rather than leaving the ground. */
+@keyframes lp-w-cast-hop {
+    0%,
+    6% {
+        transform: scale(1);
+        opacity: 0.16;
+    }
+
+    10% {
+        transform: scale(1.05);
+        opacity: 0.18;
+    }
+
+    21% {
+        transform: scale(0.76);
+        opacity: 0.08;
+    }
+
+    27% {
+        transform: scale(1.07);
+        opacity: 0.19;
+    }
+
+    33% {
+        transform: scale(0.86);
+        opacity: 0.11;
+    }
+
+    40% {
+        transform: scale(1.05);
+        opacity: 0.18;
+    }
+
+    52%,
+    100% {
+        transform: scale(1);
+        opacity: 0.16;
+    }
+}
+
 @keyframes lp-w-nod {
     0%,
     50% {
@@ -4360,6 +4704,9 @@ html[lang^='zh'] .landing-root .lp-scene-title {
         margin-top: 18px;
         gap: 10px;
     }
+    .landing-root .lp-scene-link {
+        margin-top: 14px;
+    }
     .landing-root .lp-scene-hint {
         margin-top: 20px;
         font-size: 9.5px;
@@ -4391,6 +4738,10 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 
     .landing-root .lp-scene-ctas {
         margin-top: 18px;
+    }
+
+    .landing-root .lp-scene-link {
+        margin-top: 16px;
     }
 
     .landing-root .lp-scene-hint {
@@ -4934,5 +5285,899 @@ html[lang^='zh'] .landing-root .lp-scene-title {
 
     .loading-spin {
         animation-duration: 1.6s;
+    }
+}
+
+/* ============================================================
+   Channels landing (/channels) — acquisition page for the chat-app
+   integrations. Scoped to .lp-cl-root, composed entirely from
+   --lp-* tokens, and removable with the page.
+
+   Layout frames are defined here rather than borrowed from the home
+   page's hero/grid classes: those belong to one scrolled explanation
+   and have been rebuilt under it before, taking any page that marked
+   up against them down with no test failing (the challenge page's
+   hero, oss 550f52f). Typography, buttons, .lp-container and
+   .lp-section stay shared — they are the contract this page must
+   not diverge from.
+   ============================================================ */
+
+/* No type scale of its own. This page used to hold three: a smaller .lp-h1,
+   a smaller .lp-h2 and a smaller one again for zh, each argued for on its own
+   terms. Three arguments, one per page, is how a shared ramp stops being one.
+   The headline's measure is capped in ch instead (see .lp-cl-hero-copy), which
+   is a line-length decision and holds at whatever size the ramp gives. */
+
+/* The accent takes its own line rather than wrapping wherever it lands. Left
+   to itself the break falls mid-phrase in most languages, and the accent is a
+   clause, not a word — the same call the home hero makes. */
+.landing-root .lp-cl-hero-copy .lp-h1 .lp-h-accent {
+    display: block;
+}
+
+/* ---------------- Hero ---------------- */
+
+.landing-root .lp-cl-hero {
+    padding-top: clamp(44px, 5.5vw, 76px);
+    /* The sky supplies the bottom of this section and its own fade is the
+       visual end of it, so the section adds no padding of its own. It also
+       deliberately hangs past this box — see --cl-sky-bleed — so the section
+       must not clip. The sky clips its own drawing. */
+    padding-bottom: 0;
+}
+
+/* One centred column, with the measure capped well inside the container: a
+   centred paragraph running the full 1200 is a wall, and every line here is
+   meant to land in one pass. */
+.landing-root .lp-cl-hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+}
+
+.landing-root .lp-cl-hero-copy .lp-h1 {
+    /* 22, the gap .lp-section-head puts between its eyebrow and its title
+       and again before its lead. The hero copy is a section head that happens
+       to be centred; it should keep the same rhythm. */
+    margin: 22px 0 0;
+    max-width: 22ch;
+}
+
+.landing-root .lp-cl-hero-copy .lp-lead {
+    margin-top: 22px;
+    /* Shorter than the shared 56ch on purpose: centred text needs a shorter
+       measure than the ragged-right leads in the section heads. Wide enough
+       for the English lead to hold one line, though: centred and broken in
+       two it reads as a paragraph under a headline that is already two lines.
+       Measured on local dev [2026-09-08]: the string sets 40.4ch in Geist and
+       43.7ch in the fallback stack, so the cap has to clear both. */
+    max-width: 45ch;
+}
+
+.landing-root .lp-cl-hero-ctas {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    /* .lp-scene-ctas, the landing's own button row. */
+    margin-top: 26px;
+}
+
+/* ---------------- Hero sky ----------------
+   The planet the two runtimes stand on, the rings above it, and the ten
+   channels riding those rings. Same materials as the home page's world — the
+   Iris that tracks the theme for light, --lp-line for every edge — but drawn
+   head-on rather than in the world's isometric frame: a ring in that
+   projection is an ellipse, and ten marks on an ellipse occlude each other
+   instead of orbiting. */
+
+.landing-root .lp-cl-sky {
+    /* How far the figure hangs below the box that lays it out, and — because
+       the bottom fade is measured from the bottom edge rather than as a
+       percentage — exactly the run the fade occupies. So the drawing reaches
+       the fold at full strength and dissolves in the space below it, instead
+       of dissolving inside the first screen and leaving a washed-out planet
+       sitting above the window's edge. */
+    --cl-sky-bleed: clamp(48px, 7vh, 96px);
+    margin-top: clamp(14px, 2.2vw, 32px);
+    width: 100%;
+    /* The page's own measure. Left uncapped the figure grew with the window:
+       at 1920 the rings ran the full width of the screen and the composition
+       lost its centre, since `slice` scales the drawing to whatever box it is
+       given. Capped, the figure keeps the size it was drawn at and sits in
+       the same column as everything else on the page. */
+    max-width: 1200px;
+    margin-inline: auto;
+    /* The box the figure is cropped to. At this ratio it matches the viewBox
+       exactly, so nothing is cut; narrow screens change the ratio and let
+       `slice` crop the sides instead. */
+    aspect-ratio: 1200 / 405;
+    overflow: hidden;
+    /* Three layers multiplied. The rings run past both sides and end at the
+       bottom edge, so those edges release rather than cut — but only just,
+       because a wide fade there was eating the outer rings' arms, which are
+       the part of the drawing that gives it its reach.
+
+       What the top needs is not a straight edge but a clearance: the far
+       rings have their crowns cropped by the viewBox, and a hard line across
+       them reads as a mistake, while a hard line across the arms does not.
+       So the top fade is an ellipse hung off the top centre, under the
+       headline and the buttons. It dissolves the cropped crowns where they
+       sit behind the copy and leaves the arms drawn out to the corners. */
+    /* Lengths with a percentage floor, not bare percentages. 5% of the 1200
+       cap is 60px, which is all the softening the arms need at that size;
+       5% of a phone is 19px, and `slice` crops a narrow box so hard that the
+       arcs meet its edges nearly head-on there. */
+    --cl-sky-edge: max(48px, 5%);
+    --cl-sky-mask:
+        radial-gradient(46% 42% at 50% 0%, transparent 0%, #000 100%),
+        linear-gradient(
+            to right,
+            transparent 0,
+            #000 var(--cl-sky-edge),
+            #000 calc(100% - var(--cl-sky-edge)),
+            transparent 100%
+        ),
+        linear-gradient(
+            to bottom,
+            transparent 0,
+            #000 max(14px, 2%),
+            #000 calc(100% - var(--cl-sky-bleed)),
+            transparent 100%
+        );
+    -webkit-mask-image: var(--cl-sky-mask);
+    -webkit-mask-composite: source-in;
+    mask-image: var(--cl-sky-mask);
+    mask-composite: intersect;
+}
+
+.landing-root .lp-cl-sky svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* One material for every line this page draws — the hero's orbits and the
+   wires feeding the workspace panel. Same two-stroke construction the world
+   uses for the light between its planes (ScrollyWorld FluxWire): --lp-w-wire
+   carries the Iris and its own alpha per theme, and the bloom underneath
+   reuses it at --lp-w-wire-bloom-opacity so the halo fades with the line
+   instead of needing a second colour. non-scaling-stroke because both boxes
+   are stretched by their containers. */
+.landing-root .lp-cl-wire {
+    stroke: var(--lp-w-wire);
+    stroke-width: 1.4;
+    vector-effect: non-scaling-stroke;
+}
+
+.landing-root .lp-cl-wire-bloom {
+    stroke: var(--lp-w-wire);
+    stroke-width: 7;
+    stroke-opacity: var(--lp-w-wire-bloom-opacity);
+    vector-effect: non-scaling-stroke;
+}
+
+/* With no lit rim, this hairline is the only thing separating the planet from
+   the canvas — near-white on near-white in the light theme — so it takes the
+   stronger of the two line tokens. */
+.landing-root .lp-cl-horizon {
+    stroke: var(--lp-line-strong);
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+}
+
+/* A body's turn is a rotation about the planet's centre; the body then
+   unwinds the same turn about its own middle so the provider mark never
+   tips. Both turn about the element's own local origin, which is what
+   view-box + 0 0 means here — the orbit group sits at the planet's centre,
+   the body at the end of its arm. Duration and the negative delay that
+   places each body come from its inline style.
+
+   CSS rather than <animateMotion> on purpose. Blink holds an inline SVG's
+   SMIL clock at zero until the document's load event, so on a cold refresh
+   the sky was painted and the bots were already hopping while every body
+   stood still, waiting for the slowest subresource on the page. A CSS
+   animation starts on the first frame the element is styled.
+
+   Seen on Chrome 148 [2026-09-08]: with one 3s subresource holding the load
+   event, the figure rendered at 235ms and getCurrentTime() read 0 until
+   3202ms — 13ms after load. Nothing starts that clock early; setCurrentTime,
+   unpauseAnimations and a pause/unpause pair all leave it at zero.
+
+   BODY_SPAN in ChannelsLanding.tsx carries the same 100deg. */
+.landing-root .lp-cl-orbit,
+.landing-root .lp-cl-body {
+    transform-box: view-box;
+    transform-origin: 0 0;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+.landing-root .lp-cl-orbit {
+    animation-name: lp-cl-orbit;
+}
+
+.landing-root .lp-cl-body {
+    animation-name: lp-cl-upright;
+}
+
+@keyframes lp-cl-orbit {
+    from {
+        transform: rotate(-100deg);
+    }
+    to {
+        transform: rotate(100deg);
+    }
+}
+
+@keyframes lp-cl-upright {
+    from {
+        transform: rotate(100deg);
+    }
+    to {
+        transform: rotate(-100deg);
+    }
+}
+
+/* Reduced motion parks the sky rather than emptying it: the bodies are the
+   content of the figure, so they hold the resting positions their negative
+   delays give them instead of disappearing. Pausing keeps that frame;
+   animation: none would collapse every body onto the crown. */
+@media (prefers-reduced-motion: reduce) {
+    .landing-root .lp-cl-orbit,
+    .landing-root .lp-cl-body {
+        animation-play-state: paused;
+    }
+}
+
+/* ---------------- App grid ---------------- */
+
+/* Four across, because the eight chat apps then fill two flush rows: a
+   five-wide grid left three empty cells mid-list and read as a gap in the
+   catalogue rather than as the end of a group. */
+.landing-root .lp-cl-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+}
+
+/* Each tile links to its provider's guide, so it gets a hover — §5.2 is
+   explicit that only clickable cards may move. One step up on both the edge
+   and the lift, not the full card treatment: ten of these sit in one grid,
+   and shadow-md at rest would make the section heavy. */
+.landing-root .lp-cl-tile {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 16px;
+    background: var(--lp-paper);
+    border: 1px solid var(--lp-line);
+    border-radius: var(--lp-r-md);
+    text-decoration: none;
+    transition:
+        border-color 180ms ease,
+        box-shadow 180ms ease;
+}
+
+.landing-root .lp-cl-tile:hover {
+    border-color: var(--lp-line-strong);
+    box-shadow: var(--lp-shadow-md);
+}
+
+.landing-root .lp-cl-tile:focus-visible {
+    outline: none;
+    box-shadow: var(--lp-shadow-focus);
+}
+
+/* Drawn at rest rather than revealed on hover: a touch screen never hovers,
+   and would have no other cue that the tile goes somewhere. */
+.landing-root .lp-cl-tile-arrow {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    width: 15px;
+    height: 15px;
+    /* --lp-subtle, the meta/caption rung: --lp-faint is the disabled-readout
+       step and all but vanishes on the dark card. */
+    color: var(--lp-subtle);
+    transition: color 180ms ease;
+}
+
+.landing-root .lp-cl-tile:hover .lp-cl-tile-arrow {
+    color: var(--lp-info);
+}
+
+/* No chip behind the mark: a bordered square around a logo that already has
+   its own silhouette reads as a second, competing frame inside a card that is
+   itself a bordered box. The box is sized to the mark so its left edge lands
+   on the card's padding, in line with the name below it. */
+.landing-root .lp-cl-tile-mark {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+}
+
+.landing-root .lp-cl-tile-mark svg {
+    width: 100%;
+    height: 100%;
+}
+
+.landing-root .lp-cl-tile-name {
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--lp-ink);
+    line-height: 1.2;
+}
+
+/* Two providers ship their mark as currentColor, so without this they inherit
+   body ink and read as disabled beside the coloured ones. */
+.landing-root .lp-cl-body svg[fill='currentColor'],
+.landing-root .lp-cl-tile-mark svg[fill='currentColor'],
+.landing-root .lp-cl-entry-mark svg[fill='currentColor'],
+.landing-root .lp-cl-ws-src svg[fill='currentColor'] {
+    color: var(--lp-ink);
+}
+
+/* One chip for all three setup kinds. They used to climb an ink ladder with
+   the accent reserved for the QR flows, which ranked the apps by the
+   credential their API happens to want and told a visitor that scanning is
+   the better route — a recommendation this page never actually makes. The
+   chip states a fact about one app; it is not a score. */
+.landing-root .lp-cl-setup {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 9px;
+    border-radius: var(--lp-r-xs);
+    font-size: 11.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--lp-ink-soft);
+    background: var(--lp-bg-soft);
+    border: 1px solid var(--lp-line);
+}
+
+/* Three peer groups, so three headings that look alike. The trackers used to
+   be the only labelled group — a sentence under an unlabelled grid, which
+   read as an afterthought bolted to the real list rather than as one of
+   three ways in. */
+.landing-root .lp-cl-group + .lp-cl-group {
+    margin-top: 28px;
+}
+
+.landing-root .lp-cl-group-head {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--lp-muted);
+}
+
+/* A line of reassurance under a hero's buttons — what it costs, what it will
+   not do. Mono and quiet on purpose: it is a footnote to the call to action,
+   not a third piece of copy competing with the lead. Shared, because both
+   acquisition pages carry one. */
+.landing-root .lp-hero-note {
+    margin-top: 34px;
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    color: var(--lp-subtle);
+}
+
+@media (max-width: 1024px) {
+    .landing-root .lp-hero-note {
+        margin-top: 20px;
+        font-size: 9.5px;
+    }
+}
+
+/* ---------------- Three steps ----------------
+   The block itself is shared — see components/landing/LandingSteps.tsx for
+   why it is flat and why the ordinal is a display numeral. Only the rules
+   live here, in the landing register, so both acquisition pages take them
+   from one place instead of each keeping a copy. */
+
+.landing-root .lp-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(28px, 3.4vw, 56px);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+/* A numeral in the display face, sized like the pricing figures rather than
+   set as a mono chip: it is a display element, not a technical coordinate
+   (§2.1). Held at a low alpha of the accent so it reads as a place in a
+   sequence and never competes with the step's own title — but an alpha that
+   still resolves, which is the whole reason it is not a caption. */
+.landing-root .lp-step-num {
+    display: block;
+    margin-bottom: clamp(14px, 1.4vw, 22px);
+    font-size: clamp(38px, 3.4vw, 54px);
+    color: rgb(var(--lp-iris-600-rgb) / 0.32);
+    font-feature-settings: 'tnum';
+}
+
+html[data-theme='dark'] .landing-root .lp-step-num {
+    color: rgb(var(--lp-iris-400-rgb) / 0.36);
+}
+
+/* The landing's own sans pair rather than a scale invented here: .lp-faq-q
+   for the title and .lp-faq-a for the body. The body keeps --lp-muted rather
+   than the FAQ answer's --lp-ink-soft, because it sits under a title as its
+   explanation — the .lp-scene-lead relationship, not a paragraph of its own.
+
+   The serif register is not available to either: the section has already
+   spent its one display element on the h2 (§2.6 T5), and below 24px a
+   display serif is off the table anyway (T1). The numeral above is the
+   exception the spec names, the way .lp-price-num sits under a pricing h2. */
+.landing-root .lp-step-title {
+    margin: 0 0 12px;
+    font-size: 19px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+    text-wrap: balance;
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-step-body {
+    margin: 0;
+    max-width: 34ch;
+    font-size: 15.5px;
+    letter-spacing: -0.005em;
+    line-height: 1.6;
+    color: var(--lp-muted);
+}
+
+/* Framed as a fact about the terminal, not as something the reader is told
+   to type: the product runs it for them. */
+.landing-root .lp-step-cmd {
+    margin: 14px 0 0;
+}
+
+.landing-root .lp-step-cmd code {
+    display: inline-block;
+    padding: 5px 9px;
+    border-radius: var(--lp-r-xs);
+    background: var(--lp-info-bg);
+    color: var(--lp-info-strong);
+    font-family: var(--lp-mono);
+    font-size: 12.5px;
+}
+
+.landing-root .lp-step-note {
+    margin: 12px 0 0;
+    padding-left: 12px;
+    border-left: 1px solid var(--lp-line);
+    max-width: 34ch;
+    font-size: 13.5px;
+    color: var(--lp-subtle);
+}
+
+@media (max-width: 1024px) {
+    .landing-root .lp-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .landing-root .lp-step-title {
+        font-size: 16.5px;
+    }
+}
+
+/* ---------------- Everything lands in one workspace ---------------- */
+
+/* The entrance rhythm, read by both the entrances and the wires that leave
+   them: the SVG is drawn at these exact units so a wire starts on a
+   midpoint rather than near one. */
+.landing-root .lp-cl-flow {
+    --cl-entry-h: 50px;
+    --cl-entry-gap: 10px;
+    display: grid;
+    grid-template-columns: 200px 76px minmax(0, 1fr);
+    align-items: stretch;
+}
+
+.landing-root .lp-cl-entries {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: var(--cl-entry-gap);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.landing-root .lp-cl-entries li {
+    display: flex;
+    align-items: center;
+    height: var(--cl-entry-h);
+    gap: 10px;
+    padding: 11px 13px;
+    background: var(--lp-paper);
+    border: 1px solid var(--lp-line);
+    border-radius: var(--lp-r-sm);
+    font-size: 13.5px;
+    color: var(--lp-ink-soft);
+}
+
+.landing-root .lp-cl-entry-mark {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 26px;
+    height: 26px;
+    background: var(--lp-bg-soft);
+    border: 1px solid var(--lp-line-soft);
+    border-radius: var(--lp-r-xs);
+}
+
+.landing-root .lp-cl-entry-mark svg {
+    width: 15px;
+    height: 15px;
+}
+
+/* Manyfold's own entrance in the same visual slot as a provider mark: the
+   workspace is one more door, not the frame around the others. */
+.landing-root .lp-cl-entry-mf {
+    width: 11px;
+    height: 11px;
+    border-radius: 3px;
+    background: var(--lp-info);
+}
+
+.landing-root .lp-cl-entry-mark.mf,
+.landing-root .lp-cl-ws-src.mf {
+    background: var(--lp-info-bg);
+    border-color: rgb(var(--lp-iris-600-rgb) / 0.22);
+}
+
+.landing-root .lp-cl-converge {
+    position: relative;
+    display: grid;
+    place-items: center;
+}
+
+/* Height, not 100%: the column is as tall as the panel, and the wires belong
+   to the entrances, which are centred inside it. */
+.landing-root .lp-cl-converge svg {
+    display: block;
+    width: 100%;
+    height: calc(4 * var(--cl-entry-h) + 3 * var(--cl-entry-gap));
+}
+
+/* The arrival, as the world marks one: a lit core inside a soft ring. Drawn
+   in CSS so it stays round in a viewBox that is being stretched. */
+.landing-root .lp-cl-converge::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: -3px;
+    width: 7px;
+    height: 7px;
+    transform: translateY(-50%);
+    border-radius: 50%;
+    background: var(--lp-w-flux);
+    box-shadow: 0 0 0 4px rgb(var(--lp-iris-600-rgb) / 0.14);
+}
+
+html[data-theme='dark'] .landing-root .lp-cl-converge::after {
+    box-shadow: 0 0 0 4px rgb(var(--lp-iris-400-rgb) / 0.2);
+}
+
+.landing-root .lp-cl-ws {
+    display: flex;
+    background: var(--lp-paper-warm);
+    border: 1px solid var(--lp-line);
+    border-radius: var(--lp-r-md);
+    box-shadow: var(--lp-shadow-lg);
+    overflow: hidden;
+}
+
+/* The rail carries the product's identity, so it takes the sunk tone and the
+   main column keeps the paper — the two areas have to separate, or the panel
+   reads as one flat card with a logo painted on it. */
+.landing-root .lp-cl-ws-rail {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    width: 48px;
+    padding: 14px 0;
+    background: var(--lp-bg-soft);
+    border-right: 1px solid var(--lp-line);
+}
+
+/* The mark paints its inner strokes from a product token the marketing
+   register does not define, which is why the landing's own .lp-brand-mark
+   restates them; this is the same restatement at a smaller size. */
+.landing-root .lp-cl-ws-brand {
+    display: block;
+    height: 21px;
+    width: auto;
+    flex: none;
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-cl-ws-brand polygon:nth-child(2),
+.landing-root .lp-cl-ws-brand polygon:nth-child(4) {
+    fill: var(--lp-subtle);
+}
+
+/* Set back a step from the rail's own edge tone, and spaced wider than a
+   skeleton would be: three equal blocks at --lp-line read as content still
+   loading rather than as navigation the figure is not about. */
+.landing-root .lp-cl-ws-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.landing-root .lp-cl-ws-nav i {
+    width: 14px;
+    height: 14px;
+    border-radius: 4px;
+    background: var(--lp-line-soft);
+}
+
+.landing-root .lp-cl-ws-main {
+    flex: 1;
+    min-width: 0;
+}
+
+/* One label instead of window chrome and a tab bar: the panel only has to say
+   "these are the sessions", and the rows below carry the argument. */
+.landing-root .lp-cl-ws-head {
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--lp-line);
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--lp-ink-soft);
+}
+
+.landing-root .lp-cl-ws-list {
+    margin: 0;
+    padding: 8px 10px 12px;
+    list-style: none;
+}
+
+.landing-root .lp-cl-ws-list li {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 10px 12px;
+    border-radius: var(--lp-r-xs);
+    font-size: 13.5px;
+    color: var(--lp-ink-soft);
+}
+
+/* The whole point of the panel is that a WhatsApp conversation is a row here
+   like any other, so the first row shows the selected state a visitor would
+   land on rather than an inert list. */
+.landing-root .lp-cl-ws-list li:first-child {
+    background: var(--lp-info-bg);
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-cl-ws-src {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 24px;
+    height: 24px;
+    background: var(--lp-paper-warm);
+    border: 1px solid var(--lp-line-soft);
+    border-radius: var(--lp-r-xs);
+}
+
+.landing-root .lp-cl-ws-src svg {
+    width: 14px;
+    height: 14px;
+}
+
+.landing-root .lp-cl-ws-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.landing-root .lp-cl-ws-age {
+    flex: none;
+    font-family: var(--lp-mono);
+    font-size: 11px;
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-cl-ws-foot {
+    padding: 11px 16px;
+    border-top: 1px solid var(--lp-line);
+    font-size: 12px;
+    color: var(--lp-subtle);
+}
+
+.landing-root .lp-cl-points {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    margin: 40px 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.landing-root .lp-cl-points li {
+    padding-top: 14px;
+    border-top: 1px solid var(--lp-line);
+}
+
+.landing-root .lp-cl-points b {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-cl-points p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--lp-muted);
+}
+
+/* ---------------- Responsive ----------------
+   Three moves, each at the width where the layout actually breaks: the
+   four-across grid halves, the three horizontal frames become stacks, and
+   the divided rule at the foot becomes a list. */
+
+/* ---------------- Hero, at one screen ----------------
+   The hero is the whole first screen, and the figure is why: it only reads
+   as a sky if the planet's base and its own fade are inside the fold. The
+   box used to be sized from the page's width alone (aspect-ratio 1200/405),
+   so the fit was an accident of one window shape. Measured on local dev
+   [2026-09-08]: 1512x860 cut 63px off the bottom of the planet, 1280x800 cut
+   24px, and 1920x1080 left 13px of the next section showing instead.
+
+   Only above 900, which is where .lp-z > .lp-nav is absolute and therefore
+   inside the hero. Below it the bar is back in flow, and a hero of a whole
+   screen would put the fold a bar's height past the viewport. */
+@media (min-width: 901px) {
+    .landing-root .lp-cl-hero {
+        min-height: 100vh;
+        min-height: 100svh;
+        display: flex;
+        flex-direction: column;
+        /* Clearance for the absolute bar, which is 66 tall. The shared clamp
+           resolves below that between 901 and 1200, where on a window too
+           short to leave any slack nothing else held the eyebrow off it. */
+        padding-top: 84px;
+    }
+
+    /* Auto margins, not `justify-content: center` on the section: the sky is
+       the bottom of the screen and stays pinned there, so leftover height
+       belongs above and below the copy rather than as a gap between the copy
+       and the figure. Flex resolves grow before auto margins, so whatever
+       the capped figure cannot take arrives here. */
+    .landing-root .lp-cl-hero-copy {
+        margin-block: auto;
+    }
+
+    /* The figure takes the rest of the screen, up to the ratio it was drawn
+       at. Past that cap `slice` would scale it up and crop the outer rings
+       away, so the cap is what keeps the drawing at its own size on a tall
+       window; under it, the figure loses its top rather than its planet. */
+    .landing-root .lp-cl-sky {
+        /* Basis 0, not auto: an svg carries an intrinsic ratio, so `auto`
+           gave the box the drawing's own height before flexing and it never
+           grew or shrank to the screen at all. */
+        flex: 1 1 0;
+        min-height: 0;
+        /* Tied to the capped width now that there is one, so a tall window
+           cannot keep stretching the box after the figure has stopped
+           widening. Past this the drawing scales up and `slice` eats into the
+           rings; 540 at the 1200 cap is the point where the crop still lands
+           inside the side fade and so costs nothing on screen. */
+        max-height: min(45vw, 540px);
+        aspect-ratio: auto;
+        /* Only here. Hanging past the box is worth the next section's top
+           padding when the box ends at the fold; below 901 the hero is an
+           ordinary block, nothing is cut off by a window edge, and the
+           negative margin would only close the gap to the app grid. */
+        margin-bottom: calc(-1 * var(--cl-sky-bleed));
+    }
+}
+
+@media (max-width: 1080px) {
+    .landing-root .lp-cl-flow {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0;
+    }
+
+    .landing-root .lp-cl-entries {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+
+    .landing-root .lp-cl-entries li {
+        flex: 1 1 44%;
+        height: auto;
+    }
+
+    /* Stacked, the entrances sit above the panel, so four wires fanning
+       sideways would point at nothing. One vertical run instead, with the
+       same arrival mark at its foot. */
+    .landing-root .lp-cl-converge {
+        height: 46px;
+    }
+
+    .landing-root .lp-cl-converge svg {
+        display: none;
+    }
+
+    .landing-root .lp-cl-converge::before {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 4px;
+        bottom: 6px;
+        width: 1px;
+        background: var(--lp-w-wire);
+    }
+
+    .landing-root .lp-cl-converge::after {
+        top: auto;
+        right: auto;
+        bottom: -3px;
+        left: 50%;
+        transform: translateX(-50%);
+    }
+
+    .landing-root .lp-cl-points {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 880px) {
+    .landing-root .lp-cl-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 560px) {
+    /* The rail stays — it is what says "product" — but narrows, because at
+       this width every pixel it takes comes out of the session titles. */
+    .landing-root .lp-cl-ws-rail {
+        width: 38px;
+    }
+
+    .landing-root .lp-cl-points {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .landing-root .lp-cl-entries li {
+        flex-basis: 100%;
+    }
+}
+
+@media (max-width: 720px) {
+    /* The panel is the widest element on a phone and its shadow is the
+       heaviest thing on the page there. */
+    .landing-root .lp-cl-ws {
+        box-shadow: var(--lp-shadow-sm);
+    }
+
+    /* A squarer box, so `slice` scales the figure up and crops the outer
+       rings rather than reducing the planet and the two bots — the subjects
+       of the drawing — to specks. */
+    .landing-root .lp-cl-sky {
+        aspect-ratio: 1 / 0.72;
     }
 }
