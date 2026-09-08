@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { setLanguage } from '@manyfold/i18n'
+import { setLanguage, tForLanguage } from '@manyfold/i18n'
 import {
     SEO_PAGES,
     SITE_ORIGIN,
@@ -23,7 +23,7 @@ import {
     buildSitemapXml,
     resolveWebEnv
 } from '../src/seo/artifacts'
-import { LandingSnapshot } from '../src/seo/LandingSnapshot'
+import { snapshotFor } from '../src/seo/snapshots'
 import { renderMarketingBody } from '../src/seo/renderStatic'
 import { pageTitleFor } from '../src/lib/pageTitle'
 
@@ -115,7 +115,7 @@ test('rendered bodies carry exactly one H1 matching the manifest', () => {
     for (const entry of entries) {
         setLanguage(entry.language)
         const html = renderToStaticMarkup(
-            createElement(LandingSnapshot, { entry })
+            createElement(snapshotFor(entry.def.key), { entry })
         )
         const h1s = html.match(/<h1[\s>]/g) ?? []
         assert.equal(h1s.length, 1, `${entry.path} has ${h1s.length} H1s`)
@@ -129,6 +129,36 @@ test('rendered bodies carry exactly one H1 matching the manifest', () => {
         )
     }
     setLanguage('en')
+})
+
+/* The renderer used to default every entry to the home page's snapshot, so
+   /channels shipped the landing sections under the channels headline: two
+   URLs, one body, and nothing in the suite noticing. A page in the manifest
+   now needs its own snapshot or the build fails. */
+test('each manifest page renders its own body, not the home page\'s', () => {
+    const landingOnly = 'web.landing.worksWithTitle'
+    for (const entry of entries) {
+        setLanguage(entry.language)
+        const html = renderToStaticMarkup(
+            createElement(snapshotFor(entry.def.key), { entry })
+        )
+        const carriesLandingSections = html.includes(
+            tForLanguage(entry.language, landingOnly)
+        )
+        assert.equal(
+            carriesLandingSections,
+            entry.def.key === 'home',
+            `${entry.path} body ${carriesLandingSections ? 'repeats' : 'is missing'} the landing sections`
+        )
+    }
+    setLanguage('en')
+})
+
+test('a manifest page with no snapshot fails the build', () => {
+    assert.throws(
+        () => snapshotFor('a-page-nobody-wrote-a-snapshot-for'),
+        /no crawler snapshot/
+    )
 })
 
 test('rendered bodies open the landing style scope', () => {
@@ -313,6 +343,15 @@ test('every app route in App.tsx is served by an SPA route prefix', () => {
         .map((match) => match[1])
         .filter((path) => path !== '/' && path !== '*')
         .map((path) => `/${path.split('/')[1]}`)
+        /* Editions slots (§3.3): the route exists so the cloud overlay has
+           somewhere to mount its page, and here it renders a redirect home.
+           A direct hit 404s in an open-source build, which is the honest
+           answer — that build has no such page, and no link points at it.
+           The cloud composition adds the page to its own SEO manifest, so it
+           ships as a real file that try_files serves; it must NOT become an
+           SPA prefix, because @spa rewrites ahead of try_files and stamps
+           noindex, which would bury the page it is meant to reach. */
+        .filter((segment) => segment !== '/cloud')
     for (const segment of new Set(topLevel))
         assert.ok(
             SPA_ROUTE_PREFIXES.includes(segment) ||

@@ -1039,6 +1039,12 @@ const fr: Record<string, string> = {
     'web.landing.stepCtaStep2': 'Étape 2',
     'web.landing.navPricing': 'Tarifs',
     'web.landing.navDocs': 'Documents',
+    'web.landing.navChannels': 'Canaux',
+    'web.landing.navChannelsApps': 'Slack, WhatsApp, Lark, GitHub',
+    'web.landing.footerGroupProduct': 'Produit',
+    'web.landing.footerGroupResources': 'Ressources',
+    'web.landing.footerGroupLegal': 'Mentions légales',
+    'web.landing.footerSelfHost': 'Auto-hébergement',
     'web.landing.navChallenge': 'Défi',
     'web.landing.heroPrimaryCta': 'Créez votre premier agent',
     'web.landing.faqQ1': 'Est-ce juste une surcouche à Claude Code ou Codex ?',
@@ -1080,6 +1086,7 @@ const fr: Record<string, string> = {
     'web.landing.heroTitleAccent': 'démultiplié.',
     'web.landing.heroTagline': 'Claude Code, Codex et vos propres agents, toujours actifs et livrant dans votre produit.',
     'web.landing.sceneHeroHint': 'Faites défiler · voyez comment ça marche ↓',
+    'web.landing.sceneChannelsLink': 'Voir toutes les apps concernées',
     'web.landing.scene1Eyebrow': '01 · Hébergement',
     'web.landing.scene1Title': 'Les agents vivent dans des',
     'web.landing.scene1TitleAccent': 'environnements d\'exécution.',
@@ -1165,12 +1172,13 @@ const fr: Record<string, string> = {
     'web.landing.pricingEyebrow': 'Forfaits',
     'web.landing.pricingPopular': 'Populaire',
     'web.landing.faqEyebrow': 'Questions',
-    'web.channelsPage.heroEyebrow': 'Aussi Gemini CLI, Dify, Langflow et plus',
+    'web.channelsPage.heroEyebrow':
+        'Aussi Gemini CLI, OpenClaw, Hermes et plus',
     'web.channelsPage.heroTitle': 'Claude Code et Codex,',
     'web.channelsPage.heroTitleAccent':
         'désormais dans vos applis du quotidien.',
     'web.channelsPage.heroLead':
-        'Slack, WhatsApp, Lark, GitHub et plus. La plupart se connectent en scannant un code.',
+        'Slack, WhatsApp, Lark, GitHub — avec votre propre abonnement.',
     'web.channelsPage.heroPrimary': 'Essayer gratuitement',
     'web.channelsPage.heroSecondary': 'Lire la documentation',
     'web.channelsPage.appsEyebrow': 'Pris en charge aujourd’hui',
@@ -1195,6 +1203,8 @@ const fr: Record<string, string> = {
     'web.channelsPage.step3Title': 'Écrivez-lui',
     'web.channelsPage.step3Body':
         'Parlez-lui directement, ou ajoutez-le à un groupe et mentionnez-le. Chaque discussion, groupe et fil garde sa propre session.',
+    'web.channelsPage.step3Note':
+        'La plupart des applications ne transmettent que les messages qui le mentionnent ; le reste du groupe n’atteint jamais Manyfold.',
     'web.channelsPage.syncEyebrow': 'Un agent, un seul endroit',
     'web.channelsPage.syncTitle': 'Écrivez-lui de partout.',
     'web.channelsPage.syncTitleAccent': 'Tout arrive au même endroit.',

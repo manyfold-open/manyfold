@@ -107,7 +107,12 @@ const TITLE_ROUTES: TitleRoute[] = [
     { path: '/settings/*', labelKey: 'web.settingsLayout.kicker' },
 
     { path: '/agent-runtimes/*', labelKey: 'web.settingsLayout.runtimes' },
-    { path: '/usage/*', labelKey: 'web.settingsLayout.usage' }
+    { path: '/usage/*', labelKey: 'web.settingsLayout.usage' },
+    /* Editions slot: here /cloud renders a redirect home, so the home title is
+       what the tab is about to show. The cloud overlay puts the real page in
+       the SEO manifest, which pageTitleFor reads before this list. */
+    { path: '/cloud', labelKey: 'web.seoPage.home.title', full: true },
+    { path: '/zh/cloud', labelKey: 'web.seoPage.home.title', full: true }
 ]
 
 export const pageTitleFor = (pathname: string): string => {

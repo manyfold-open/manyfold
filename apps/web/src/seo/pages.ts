@@ -1,4 +1,5 @@
 import { docsHref } from '@/lib/docsLinks'
+import { EDITION_SEO_PAGES } from '@/seo/editionPages'
 import { tForLanguage } from '@manyfold/i18n'
 
 // The single source of truth for every indexable marketing URL: React routes,
@@ -6,9 +7,9 @@ import { tForLanguage } from '@manyfold/i18n'
 // tests all consume this manifest so crawler HTML, hydrated content, tab
 // titles and GA page titles cannot drift apart.
 //
-// Today that is the landing page in English and Simplified Chinese. Dedicated
-// acquisition pages are a separate design track (#534); adding one means
-// adding a definition here and a route in App.tsx, and every consumer follows.
+// Adding a page means a definition here (or in the editions slot below, for
+// a page only one composition has), a route in App.tsx and a crawler
+// snapshot in seo/snapshots.tsx; every other consumer follows.
 
 export const SITE_ORIGIN = 'https://manyfold.ai'
 
@@ -44,9 +45,22 @@ interface SeoPageCopyKeys {
 }
 
 export interface SeoPageDefinition {
-    key: 'home' | 'channels'
+    /* 'home' and 'channels' here; an editions slot page brings its own. The
+       key names the crawler snapshot to render (seo/snapshots.tsx) and is
+       what the nav compares against to mark the current page. */
+    key: string
     paths: Record<SeoLanguage, string>
     copy: Record<SeoLanguage, SeoPageCopyKeys>
+    /* Set by an editions slot page whose copy is composition-owned rather
+       than a core i18n namespace: `copy` then holds finished text instead of
+       catalogue keys, and nothing looks it up. A commercial argument has no
+       place in the open-source catalogue, and machine-translating it into
+       nine locales for a page that does not exist there buys nothing. */
+    ownCopy?: boolean
+    /* Short name for this page's link in the crawler footer, per language.
+       The home page has none — the brand mark already leads there. Resolved
+       the way `copy` is: a catalogue key unless `ownCopy`. */
+    footerLabel?: Record<SeoLanguage, string>
 }
 
 const zhDocs = (path: string): string => docsHref(`/zh${path}`)
@@ -137,6 +151,10 @@ const home: SeoPageDefinition = {
 const channels: SeoPageDefinition = {
     key: 'channels',
     paths: { en: '/channels', zh: '/zh/channels' },
+    footerLabel: {
+        en: 'web.landing.navChannels',
+        zh: 'web.landing.navChannels'
+    },
     copy: {
         en: {
             title: 'web.channelsPage.docTitle',
@@ -201,7 +219,13 @@ const channels: SeoPageDefinition = {
     }
 }
 
-export const SEO_PAGES: SeoPageDefinition[] = [home, channels]
+export const SEO_PAGES: SeoPageDefinition[] = [
+    home,
+    channels,
+    ...EDITION_SEO_PAGES
+]
+
+const passThroughCopy = (keys: SeoPageCopyKeys): SeoPageCopy => ({ ...keys })
 
 const resolveCopy = (
     keys: SeoPageCopyKeys,
@@ -234,13 +258,27 @@ export interface SeoPageEntry {
     copy: SeoPageCopy
 }
 
-export const seoPageEntries = (): SeoPageEntry[] =>
-    SEO_PAGES.flatMap((def) =>
+export const seoPageCopy = (
+    def: SeoPageDefinition,
+    language: SeoLanguage
+): SeoPageCopy =>
+    def.ownCopy
+        ? passThroughCopy(def.copy[language])
+        : resolveCopy(def.copy[language], language)
+
+/* `extra` is for the post-build renderer only: it runs under tsx, where the
+   vite overlay resolver does not apply, so a composition's pages arrive as
+   an argument instead of through SEO_PAGES. In the browser they are already
+   in SEO_PAGES and this stays empty — the two never both carry them. */
+export const seoPageEntries = (
+    extra: SeoPageDefinition[] = []
+): SeoPageEntry[] =>
+    [...SEO_PAGES, ...extra].flatMap((def) =>
         (['en', 'zh'] as const).map((language) => ({
             def,
             language,
             path: def.paths[language],
-            copy: resolveCopy(def.copy[language], language)
+            copy: seoPageCopy(def, language)
         }))
     )
 
@@ -268,3 +306,29 @@ export const seoTitleForPath = (pathname: string): string | null =>
 
 export const seoCanonicalUrl = (entry: SeoPageEntry): string =>
     `${SITE_ORIGIN}${entry.path}`
+
+export interface SeoFooterLink {
+    path: string
+    label: string
+}
+
+/* The manifest pages the crawler footer links. It stays the short list — that
+   footer exists to give a crawler something, not to mirror the real one — but
+   an indexable page needs an inbound link from every indexed document, and
+   the sitemap is not the only way a page gets found. `extra` is the
+   post-build renderer's channel for a composition's pages, as on
+   seoPageEntries. */
+export const seoFooterLinks = (
+    language: SeoLanguage,
+    extra: SeoPageDefinition[] = []
+): SeoFooterLink[] =>
+    [...SEO_PAGES, ...extra].flatMap((def) => {
+        const label = def.footerLabel?.[language]
+        if (label === undefined) return []
+        return [
+            {
+                path: def.paths[language],
+                label: def.ownCopy ? label : tForLanguage(language, label)
+            }
+        ]
+    })

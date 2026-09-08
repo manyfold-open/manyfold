@@ -1,4 +1,9 @@
-import { SITE_ORIGIN, seoCanonicalUrl, type SeoPageEntry } from '@/seo/pages'
+import {
+    SITE_ORIGIN,
+    seoCanonicalUrl,
+    seoPageCopy,
+    type SeoPageEntry
+} from '@/seo/pages'
 import { tForLanguage } from '@manyfold/i18n'
 
 // Head fragments for the build-time renderer. Kept separate from the script
@@ -63,7 +68,10 @@ export const seoJsonLd = (entry: SeoPageEntry): Record<string, unknown> => {
         applicationCategory: 'DeveloperApplication',
         operatingSystem: 'Web',
         url: `${SITE_ORIGIN}/`,
-        description: tForLanguage('en', entry.def.copy.en.description)
+        // Describes the product, so it is the page's own English
+        // description — resolved the way the page's copy is, because an
+        // editions-slot page holds finished text rather than a key.
+        description: seoPageCopy(entry.def, 'en').description
     }
     const webPage = {
         '@type': 'WebPage',

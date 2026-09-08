@@ -4,9 +4,11 @@ import { seoPageForPath, type SeoLanguage } from '@/seo/pages'
 
 export interface MarketingLinks {
     home: string
+    channels: string
     docs: string
     changelog: string
     status: string
+    selfHost: string
     privacy: string
     terms: string
 }
@@ -24,9 +26,11 @@ export const marketingLinksFor = (
     const prefix = language === 'zh' ? '/zh' : ''
     return {
         home: language === 'zh' ? '/zh/' : '/',
+        channels: `${prefix}/channels`,
         docs: docsHref(`${prefix}/docs/getting-started/`),
         changelog: docsHref(`${prefix}/changelog/`),
         status: docsHref(`${prefix}/status/`),
+        selfHost: docsHref(`${prefix}/docs/self-hosting/`),
         privacy: docsHref('/privacy/'),
         terms: docsHref('/terms/')
     }

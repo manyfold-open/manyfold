@@ -2442,7 +2442,7 @@ html[data-theme='dark'] .landing-root {
 .landing-root .lp-h3,
 .landing-root .lp-scene-title,
 .landing-root .lp-price-num,
-.landing-root .lp-cl-step-n {
+.landing-root .lp-step-num {
     font-family: var(--lp-display);
     font-weight: var(--lp-display-weight);
     font-variation-settings: var(--lp-display-vars);
@@ -3183,11 +3183,16 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     background: var(--lp-paper-warm);
 }
 
+/* No `margin-left: auto` here. It was written for a trailing chevron, but an
+   overflow item is [icon][label]: the icon is the first flex child, so it
+   absorbed the free space and dragged the pair to the right edge — against
+   this rule's own `text-align: left`. The meta span carries its own auto
+   margin, and the leading-icon rule below already zeroed this one, so two
+   rules were arguing about a declaration neither needed. */
 .landing-root .lp-nav-menu-item svg {
     width: 13px;
     height: 13px;
     opacity: 0.7;
-    margin-left: auto;
 }
 
 .landing-root .lp-nav-menu-item-meta {
@@ -3214,12 +3219,100 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-active {
     text-decoration: none;
 }
 
+/* Overflow items that carry a second line. Only the folded menu gets them:
+   the bar runs one text tier, and the row there has no room for a gloss. */
+.landing-root .lp-nav-menu-item-2l {
+    align-items: flex-start;
+    padding: 7px 10px;
+}
+
+.landing-root .lp-nav-menu-item-2l > svg:first-child {
+    margin-top: 2px;
+}
+
+.landing-root .lp-nav-menu-item-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.landing-root .lp-nav-menu-item-sub {
+    font-size: 11.5px;
+    font-weight: 400;
+    color: var(--lp-muted);
+    letter-spacing: 0;
+}
+
+/* The current value on a row that opens a panel, chevron included. */
+.landing-root .lp-nav-menu-value {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 400;
+    color: var(--lp-muted);
+}
+
+.landing-root .lp-nav-menu-value svg {
+    width: 13px;
+    height: 13px;
+    margin: 0;
+    opacity: 0.7;
+}
+
+/* Title and back control in one row, at the head of a drilled-down panel. */
+.landing-root .lp-nav-menu-back {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 7px 10px 7px 6px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: var(--lp-ink);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    text-align: left;
+}
+
+.landing-root .lp-nav-menu-back:hover {
+    background: var(--lp-bg-soft);
+}
+
+html[data-theme='dark'] .landing-root .lp-nav-menu-back:hover {
+    background: var(--lp-paper-warm);
+}
+
+.landing-root .lp-nav-menu-back svg {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+    opacity: 0.75;
+}
+
+/* Measured on local dev at 390x844 [2026-09-08]: the locale list is 391px on
+   its own and the panel around it 453px, so at this size nothing scrolls.
+   Capped against the viewport rather than at a fixed height, so a taller phone
+   also shows the whole list and a shorter one scrolls instead of growing the
+   menu past the fold. */
+.landing-root .lp-nav-menu-scroll {
+    max-height: min(58vh, 420px);
+    margin: 0 -4px;
+    padding: 0 4px;
+    overflow-y: auto;
+}
+
 /* Inline leading icon in overflow menu items (Docs, Sign in, Globe, theme). */
 .landing-root .lp-nav-menu-item > svg:first-child {
     width: 14px;
     height: 14px;
     opacity: 0.75;
-    margin-left: 0;
 }
 
 /* CTA-styled menu row (primary action at the top of the overflow): a
@@ -3661,6 +3754,92 @@ html[data-theme='dark'] .landing-root .lp-nav-menu-item-cta:hover {
     border-left: 1px solid var(--lp-line-soft);
 }
 
+/* Four even columns. Two other splits were tried at 1440: a wider brand column
+   (1.5fr) pushed the three groups into the right third, and link columns hugging
+   their content on the right opened a gap between the brand and the links wide
+   enough that the footer read as two blocks instead of one structure. */
+.landing-root .lp-foot-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 40px;
+    align-items: start;
+}
+
+.landing-root .lp-foot-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+}
+
+/* No hairline in a column: the white space above the cluster already separates
+   it, and a rule there would read as a divider from whatever follows. */
+.landing-root .lp-foot-brand .lp-foot-social {
+    margin: 0 0 0 -6px;
+    padding: 0;
+    border-left: 0;
+}
+
+.landing-root .lp-foot-col {
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    min-width: 0;
+}
+
+/* Sentence case at normal tracking — caps plus wide letter-spacing is not a
+   register this system has. */
+.landing-root .lp-foot-col-title {
+    margin: 0 0 2px;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--lp-ink);
+    letter-spacing: -0.005em;
+}
+
+.landing-root .lp-foot-col a,
+.landing-root .lp-foot-col button {
+    width: fit-content;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--lp-muted);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13.5px;
+    letter-spacing: -0.005em;
+    text-align: left;
+    transition: color 120ms ease;
+}
+
+.landing-root .lp-foot-col a:hover,
+.landing-root .lp-foot-col button:hover {
+    color: var(--lp-ink);
+}
+
+.landing-root .lp-foot-legal {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-top: 34px;
+    padding-top: 20px;
+    border-top: 1px solid var(--lp-line-soft);
+    font-size: 12.5px;
+    color: var(--lp-subtle);
+}
+
+@media (max-width: 900px) {
+    .landing-root .lp-foot-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 32px 28px;
+    }
+    .landing-root .lp-foot-brand {
+        grid-column: 1 / -1;
+        margin-bottom: 4px;
+    }
+}
+
 @media (max-width: 640px) {
     .landing-root .lp-foot-row {
         flex-direction: column;
@@ -3856,6 +4035,34 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     font-family: var(--lp-mono);
     font-size: 10.5px;
     color: var(--lp-subtle);
+}
+
+/* The way out of a scene into the page that argues it in full. Sits at the
+   accent rather than as a button: the scene already has the page's one
+   button pair on the hero card, and a second filled control per scene would
+   read as four competing primary actions down the tour. */
+.landing-root .lp-scene-link {
+    margin-top: 22px;
+}
+
+.landing-root .lp-scene-out {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--lp-info);
+    font-size: 13.5px;
+    letter-spacing: -0.005em;
+    text-decoration: none;
+}
+
+.landing-root .lp-scene-out svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.15s ease;
+}
+
+.landing-root .lp-scene-out:hover svg {
+    transform: translateX(2px);
 }
 
 .landing-root .lp-world-col {
@@ -4497,6 +4704,9 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
         margin-top: 18px;
         gap: 10px;
     }
+    .landing-root .lp-scene-link {
+        margin-top: 14px;
+    }
     .landing-root .lp-scene-hint {
         margin-top: 20px;
         font-size: 9.5px;
@@ -4528,6 +4738,10 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 
     .landing-root .lp-scene-ctas {
         margin-top: 18px;
+    }
+
+    .landing-root .lp-scene-link {
+        margin-top: 16px;
     }
 
     .landing-root .lp-scene-hint {
@@ -5133,8 +5347,12 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 .landing-root .lp-cl-hero-copy .lp-lead {
     margin-top: 22px;
     /* Shorter than the shared 56ch on purpose: centred text needs a shorter
-       measure than the ragged-right leads in the section heads. */
-    max-width: 40ch;
+       measure than the ragged-right leads in the section heads. Wide enough
+       for the English lead to hold one line, though: centred and broken in
+       two it reads as a paragraph under a headline that is already two lines.
+       Measured on local dev [2026-09-08]: the string sets 40.4ch in Geist and
+       43.7ch in the fallback stack, so the cap has to clear both. */
+    max-width: 45ch;
 }
 
 .landing-root .lp-cl-hero-ctas {
@@ -5438,46 +5656,45 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     color: var(--lp-muted);
 }
 
-/* ---------------- Three steps ----------------
-   The one screen on this page carried entirely by typography. The catalogue
-   above it is a grid of marks and the workspace below it is a drawn panel, so
-   this one earns its weight from the display face and the space around it
-   rather than from a third kind of illustration. */
+/* A line of reassurance under a hero's buttons — what it costs, what it will
+   not do. Mono and quiet on purpose: it is a footnote to the call to action,
+   not a third piece of copy competing with the lead. Shared, because both
+   acquisition pages carry one. */
+.landing-root .lp-hero-note {
+    margin-top: 34px;
+    font-family: var(--lp-mono);
+    font-size: 10.5px;
+    color: var(--lp-subtle);
+}
 
-.landing-root .lp-cl-steps {
+@media (max-width: 1024px) {
+    .landing-root .lp-hero-note {
+        margin-top: 20px;
+        font-size: 9.5px;
+    }
+}
+
+/* ---------------- Three steps ----------------
+   The block itself is shared — see components/landing/LandingSteps.tsx for
+   why it is flat and why the ordinal is a display numeral. Only the rules
+   live here, in the landing register, so both acquisition pages take them
+   from one place instead of each keeping a copy. */
+
+.landing-root .lp-steps {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: clamp(28px, 3.4vw, 56px);
     margin: 0;
     padding: 0;
     list-style: none;
-    background: var(--lp-paper);
-    border: 1px solid var(--lp-line);
-    border-radius: var(--lp-r-lg);
-    /* Content-level card, per §5.2: one card at this size can carry the lift
-       the ten tiles above it deliberately do not. */
-    box-shadow: var(--lp-shadow-md);
-    overflow: hidden;
-}
-
-.landing-root .lp-cl-step {
-    position: relative;
-    padding: clamp(26px, 2.6vw, 38px);
-    border-right: 1px solid var(--lp-line);
-}
-
-.landing-root .lp-cl-step:last-child {
-    border-right: 0;
 }
 
 /* A numeral in the display face, sized like the pricing figures rather than
    set as a mono chip: it is a display element, not a technical coordinate
-   (§2.1), and at this size it gives the column something to start from. Held
-   at a low alpha of the accent so it reads as a place in a sequence and never
-   competes with the step's own title. */
-/* Family, weight, axes, tracking and leading come from the display rule this
-   selector is listed in, the same way .lp-price-num takes them. Only the size
-   and the colour are this numeral's own. */
-.landing-root .lp-cl-step-n {
+   (§2.1). Held at a low alpha of the accent so it reads as a place in a
+   sequence and never competes with the step's own title — but an alpha that
+   still resolves, which is the whole reason it is not a caption. */
+.landing-root .lp-step-num {
     display: block;
     margin-bottom: clamp(14px, 1.4vw, 22px);
     font-size: clamp(38px, 3.4vw, 54px);
@@ -5485,45 +5702,73 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     font-feature-settings: 'tnum';
 }
 
-html[data-theme='dark'] .landing-root .lp-cl-step-n {
+html[data-theme='dark'] .landing-root .lp-step-num {
     color: rgb(var(--lp-iris-400-rgb) / 0.36);
 }
 
-.landing-root .lp-cl-step-title {
-    margin: 0 0 9px;
-    /* The landing's small-heading step: .lp-faq-q's size, weight and tracking.
-       18px was off the ramp and 600 is outside the sans register, which runs
-       400/500 — the serif carries weight here, type does not. */
+/* The landing's own sans pair rather than a scale invented here: .lp-faq-q
+   for the title and .lp-faq-a for the body. The body keeps --lp-muted rather
+   than the FAQ answer's --lp-ink-soft, because it sits under a title as its
+   explanation — the .lp-scene-lead relationship, not a paragraph of its own.
+
+   The serif register is not available to either: the section has already
+   spent its one display element on the h2 (§2.6 T5), and below 24px a
+   display serif is off the table anyway (T1). The numeral above is the
+   exception the spec names, the way .lp-price-num sits under a pricing h2. */
+.landing-root .lp-step-title {
+    margin: 0 0 12px;
     font-size: 19px;
     font-weight: 500;
     letter-spacing: -0.02em;
     line-height: 1.35;
+    text-wrap: balance;
     color: var(--lp-ink);
 }
 
-.landing-root .lp-cl-step p {
+.landing-root .lp-step-body {
     margin: 0;
-    font-size: 14.5px;
+    max-width: 34ch;
+    font-size: 15.5px;
+    letter-spacing: -0.005em;
     line-height: 1.6;
     color: var(--lp-muted);
-    max-width: 34ch;
 }
 
-/* Sitting on the divider, cutting it: three columns side by side read as
-   three parallel things, and these are ordered. Same device as the arrow
-   between the entrances and the workspace further down, so the page has one
-   way of saying "this leads to that". */
-.landing-root .lp-cl-step-arrow {
-    position: absolute;
-    top: 50%;
-    right: -10px;
-    width: 19px;
-    height: 19px;
-    padding: 6px 0;
-    box-sizing: content-box;
-    transform: translateY(-50%);
-    background: var(--lp-paper);
+/* Framed as a fact about the terminal, not as something the reader is told
+   to type: the product runs it for them. */
+.landing-root .lp-step-cmd {
+    margin: 14px 0 0;
+}
+
+.landing-root .lp-step-cmd code {
+    display: inline-block;
+    padding: 5px 9px;
+    border-radius: var(--lp-r-xs);
+    background: var(--lp-info-bg);
+    color: var(--lp-info-strong);
+    font-family: var(--lp-mono);
+    font-size: 12.5px;
+}
+
+.landing-root .lp-step-note {
+    margin: 12px 0 0;
+    padding-left: 12px;
+    border-left: 1px solid var(--lp-line);
+    max-width: 34ch;
+    font-size: 13.5px;
     color: var(--lp-subtle);
+}
+
+@media (max-width: 1024px) {
+    .landing-root .lp-steps {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+@media (max-width: 480px) {
+    .landing-root .lp-step-title {
+        font-size: 16.5px;
+    }
 }
 
 /* ---------------- Everything lands in one workspace ---------------- */
@@ -5903,30 +6148,6 @@ html[data-theme='dark'] .landing-root .lp-cl-converge::after {
 @media (max-width: 880px) {
     .landing-root .lp-cl-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .landing-root .lp-cl-steps {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .landing-root .lp-cl-step {
-        border-right: 0;
-        border-bottom: 1px solid var(--lp-line);
-    }
-
-    .landing-root .lp-cl-step:last-child {
-        border-bottom: 0;
-    }
-
-    /* Stacked, the divider is horizontal, so the connector turns with it and
-       moves to the seam it now sits on. */
-    .landing-root .lp-cl-step-arrow {
-        top: auto;
-        bottom: -10px;
-        right: auto;
-        left: 50%;
-        padding: 0 6px;
-        transform: translateX(-50%) rotate(90deg);
     }
 }
 

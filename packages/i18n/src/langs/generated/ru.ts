@@ -1039,6 +1039,12 @@ const ru: Record<string, string> = {
     'web.landing.stepCtaStep2': 'Шаг 2',
     'web.landing.navPricing': 'Цены',
     'web.landing.navDocs': 'Документы',
+    'web.landing.navChannels': 'Каналы',
+    'web.landing.navChannelsApps': 'Slack, WhatsApp, Lark, GitHub',
+    'web.landing.footerGroupProduct': 'Продукт',
+    'web.landing.footerGroupResources': 'Ресурсы',
+    'web.landing.footerGroupLegal': 'Правовая информация',
+    'web.landing.footerSelfHost': 'Самостоятельный хостинг',
     'web.landing.navChallenge': 'Испытание',
     'web.landing.heroPrimaryCta': 'Создайте своего первого агента',
     'web.landing.faqQ1': 'Это просто обёртка вокруг Claude Code или Codex?',
@@ -1080,6 +1086,7 @@ const ru: Record<string, string> = {
     'web.landing.heroTitleAccent': 'многократно.',
     'web.landing.heroTagline': 'Claude Code, Codex и ваши собственные агенты, всегда на связи и с доставкой в ваш продукт.',
     'web.landing.sceneHeroHint': 'Прокрутите · посмотрите, как это работает ↓',
+    'web.landing.sceneChannelsLink': 'Посмотреть все поддерживаемые приложения',
     'web.landing.scene1Eyebrow': '01 · Хостинг',
     'web.landing.scene1Title': 'Агенты живут в',
     'web.landing.scene1TitleAccent': 'средах выполнения.',
@@ -1166,12 +1173,12 @@ const ru: Record<string, string> = {
     'web.landing.pricingPopular': 'Популярный',
     'web.landing.faqEyebrow': 'Вопросы',
     'web.channelsPage.heroEyebrow':
-        'Также Gemini CLI, Dify, Langflow и другие',
+        'Также Gemini CLI, OpenClaw, Hermes и другие',
     'web.channelsPage.heroTitle': 'Claude Code и Codex,',
     'web.channelsPage.heroTitleAccent':
         'теперь в ваших повседневных приложениях.',
     'web.channelsPage.heroLead':
-        'Slack, WhatsApp, Lark, GitHub и другие. Большинство подключается сканированием кода.',
+        'Slack, WhatsApp, Lark, GitHub — на вашей собственной подписке.',
     'web.channelsPage.heroPrimary': 'Попробовать бесплатно',
     'web.channelsPage.heroSecondary': 'Читать документацию',
     'web.channelsPage.appsEyebrow': 'Поддерживаются сейчас',
@@ -1196,6 +1203,8 @@ const ru: Record<string, string> = {
     'web.channelsPage.step3Title': 'Напишите ему',
     'web.channelsPage.step3Body':
         'Пишите напрямую или добавьте его в группу и упомяните. У каждого чата, группы и ветки своя отдельная сессия.',
+    'web.channelsPage.step3Note':
+        'Большинство приложений передаёт только сообщения с упоминанием, поэтому остальная переписка группы до Manyfold не доходит.',
     'web.channelsPage.syncEyebrow': 'Один агент, одно место',
     'web.channelsPage.syncTitle': 'Пишите ему откуда угодно.',
     'web.channelsPage.syncTitleAccent': 'Всё стекается в одно место.',

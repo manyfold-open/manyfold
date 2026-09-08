@@ -1861,6 +1861,7 @@ const zh: Translations = {
             heroTagline:
                 'Claude Code、Codex，以及你自己的智能体，始终在线并持续交付。',
             sceneHeroHint: '向下滚动 · 看它如何运作 ↓',
+            sceneChannelsLink: '看看它能进入哪些应用',
             scene1Eyebrow: '01 · 托管',
             scene1Title: '智能体住在',
             scene1TitleAccent: '运行时里。',
@@ -1955,6 +1956,10 @@ const zh: Translations = {
             navPricing: '价格',
             navDocs: '文档',
             navChallenge: '挑战赛',
+            navChannels: '渠道',
+            // The folded nav menu has room for a gloss the bar does not;
+            // every name in it is a product, so nothing here is translated.
+            navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: '创建你的第一个 Agent',
             faqQ1: '这只是 Claude Code 或 Codex 的一层壳吗？',
             faqA1: '不是。每个框架都以原生形态运行，保留自己的执行模型、模型配置和工作区语义。Manyfold 是它们外面那一层：运行时、工作区、编排、交付与计量。框架发布新能力的当天，你就能用上。',
@@ -1974,6 +1979,10 @@ const zh: Translations = {
             footerPrivacy: '隐私',
             footerTerms: '条款',
             footerCookies: 'Cookie 设置',
+            footerGroupProduct: '产品',
+            footerGroupResources: '资源',
+            footerGroupLegal: '法律',
+            footerSelfHost: '自托管',
             faqTitleBefore: '真正决定选择的',
             faqTitleAccent: '那几个问题。',
             faqLead: '如果你在纠结自己搭一套还是用现成的，从这里开始看。',
@@ -1992,10 +2001,10 @@ const zh: Translations = {
                 '价格以美元计，可随时取消。需要定制档位？联系我们一起为你规划。'
         },
         channelsPage: {
-            heroEyebrow: '也支持 Gemini CLI、Dify、Langflow 等',
+            heroEyebrow: '也支持 Gemini CLI、OpenClaw、Hermes 等',
             heroTitle: 'Claude Code 和 Codex，',
             heroTitleAccent: '就在你每天用的软件里。',
-            heroLead: 'Slack、WhatsApp、Lark、GitHub 等。大多数扫个码就接上了。',
+            heroLead: 'Slack、WhatsApp、Lark、GitHub 等，用你自己的订阅。',
             heroPrimary: '免费试用',
             heroSecondary: '阅读文档',
             appsEyebrow: '目前已支持',
@@ -2017,6 +2026,8 @@ const zh: Translations = {
             step2Body: '选好应用，用手机扫码。你一确认，这条通道就生效了。',
             step3Title: '给它发消息',
             step3Body: '直接私聊，或者把它拉进群里 @ 一下。每个私聊、每个群、每条话题各自保有独立的会话。',
+            step3Note:
+                '大多数应用只会把 @ 到它的消息发过来，群里其余的内容根本不会到达 Manyfold。',
             syncEyebrow: '一个智能体，一个地方',
             syncTitle: '在哪都能找它。',
             syncTitleAccent: '记录全都汇到一处。',

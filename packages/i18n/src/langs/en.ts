@@ -1906,6 +1906,7 @@ const en = {
             heroTagline:
                 'Claude Code, Codex and your own agents, always on and delivering into your product.',
             sceneHeroHint: 'Scroll · see how it works ↓',
+            sceneChannelsLink: 'See every app it reaches',
             scene1Eyebrow: '01 · Hosting',
             scene1Title: 'Agents live in',
             scene1TitleAccent: 'runtimes.',
@@ -2008,6 +2009,10 @@ const en = {
             navPricing: 'Pricing',
             navDocs: 'Docs',
             navChallenge: 'Challenge',
+            navChannels: 'Channels',
+            // The folded nav menu has room for a gloss the bar does not;
+            // every name in it is a product, so nothing here is translated.
+            navChannelsApps: 'Slack, WhatsApp, Lark, GitHub',
             heroPrimaryCta: 'Create your first agent',
             faqQ1: 'Is this just a wrapper around Claude Code or Codex?',
             faqA1: 'No. Each framework runs in its native form, with its own execution model, model configuration and workspace semantics. Manyfold is the layer around them: runtime, workspace, orchestration, delivery and metering. When a framework ships something new, you get it the same day.',
@@ -2027,6 +2032,10 @@ const en = {
             footerPrivacy: 'Privacy',
             footerTerms: 'Terms',
             footerCookies: 'Cookie settings',
+            footerGroupProduct: 'Product',
+            footerGroupResources: 'Resources',
+            footerGroupLegal: 'Legal',
+            footerSelfHost: 'Self-host',
             faqTitleBefore: 'The ones that',
             faqTitleAccent: 'decide it.',
             faqLead:
@@ -2046,11 +2055,11 @@ const en = {
                 'Prices in USD. Cancel anytime. Need a custom tier? Reach out and we will size it with you.'
         },
         channelsPage: {
-            heroEyebrow: 'Also Gemini CLI, Dify, Langflow and more',
+            heroEyebrow: 'Also Gemini CLI, OpenClaw, Hermes and more',
             heroTitle: 'Claude Code and Codex,',
             heroTitleAccent: 'now in your everyday apps.',
             heroLead:
-                'Slack, WhatsApp, Lark, GitHub and more. Most connect by scanning a code.',
+                'Slack, WhatsApp, Lark, GitHub — on your own subscription.',
             heroPrimary: 'Try it free',
             heroSecondary: 'Read the docs',
             appsEyebrow: 'Supported today',
@@ -2075,6 +2084,8 @@ const en = {
             step3Title: 'Message it',
             step3Body:
                 'Write to it directly, or drop it into a group and mention it. Every chat, group and thread keeps a session of its own.',
+            step3Note:
+                'Most apps deliver only the messages that mention it, so the rest of the group never reaches Manyfold.',
             syncEyebrow: 'One agent, one place',
             syncTitle: 'Write to it anywhere.',
             syncTitleAccent: 'It all lands in one place.',

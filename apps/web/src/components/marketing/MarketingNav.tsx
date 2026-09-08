@@ -4,8 +4,11 @@ import { Link, useLocation } from 'react-router-dom'
 import {
     BookOpen,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     Globe,
     Menu,
+    MessageSquare,
     Moon,
     Sun,
     Tag
@@ -14,6 +17,9 @@ import { BrandMark } from '@/components/Brand'
 import ChallengeNavLink, {
     ChallengeNavMenuItem
 } from '@/components/challenge/ChallengeNavLink'
+import CloudNavLink, {
+    CloudNavMenuItem
+} from '@/components/marketing/CloudNavLink'
 import { useAppAuth } from '@/lib/auth'
 import { GithubMono } from '@/lib/brandIcons'
 import { DiscordMark, XMark } from '@/lib/brandMarks'
@@ -27,6 +33,7 @@ import {
     marketingLinkLanguage,
     marketingLinksFor
 } from '@/seo/marketingLinks'
+import { seoPageForPath } from '@/seo/pages'
 import { useTheme } from '@/lib/theme'
 import {
     marketingLanguageMenuItems,
@@ -46,7 +53,7 @@ export type { MarketingLanguagePaths } from './marketingLanguage'
    Only for signed-in visitors, so signed-out URLs (the ones crawlers and
    shared links see) stay clean. A bare hash is left alone: it never leaves the
    page, so it cannot trip the redirect. */
-const withStay = (to: string, signedIn: boolean): string => {
+export const withStay = (to: string, signedIn: boolean): string => {
     if (!signedIn || to.startsWith('#')) return to
     const [path, hash] = to.split('#')
     const separator = path.includes('?') ? '&' : '?'
@@ -232,19 +239,43 @@ const SocialLinks: FC = (): ReactNode => {
 }
 
 const NavOverflow: FC<{
+    channelsCurrent: boolean
+    channelsTo: string
     docsHref: string
     renderCta?: (close: () => void) => ReactNode
     languagePaths?: MarketingLanguagePaths
     pricingTo: string
-}> = ({ docsHref, renderCta, languagePaths, pricingTo }): ReactNode => {
+}> = ({
+    channelsCurrent,
+    channelsTo,
+    docsHref,
+    renderCta,
+    languagePaths,
+    pricingTo
+}): ReactNode => {
     const { t, language, setLanguage } = useI18n()
     const { theme, toggleTheme } = useTheme()
     const { search } = useLocation()
     const { isSignedIn } = useAppAuth()
     const [open, setOpen] = useState(false)
+    /* The eleven locales are a second view rather than eleven more rows.
+       Measured on local dev at 390x844 [2026-09-08]: listed flat the menu is
+       873px, which under the 54px bar overflows a phone of exactly this size
+       by 89px — before considering a shorter one. Drilled down it is 422px,
+       and one row replaces the two the locales used to take. */
+    const [view, setView] = useState<'root' | 'lang'>('root')
     const rootRef = useRef<HTMLDivElement | null>(null)
     const ThemeIcon = theme === 'dark' ? Moon : Sun
     const menuItems = marketingLanguageMenuItems(languagePaths, search)
+    const selected =
+        languageOptions.find((option) => option.code === language) ??
+        languageOptions[0]
+
+    // Closing returns to the root view: reopening on the language list would
+    // have lost the page group the menu was opened for.
+    useEffect(() => {
+        if (!open) setView('root')
+    }, [open])
 
     useEffect(() => {
         if (!open) return
@@ -278,124 +309,212 @@ const NavOverflow: FC<{
             </button>
             {open ? (
                 <div className='lp-nav-menu lp-nav-menu-overflow' role='menu'>
-                    {renderCta?.(() => setOpen(false))}
-                    <a
-                        className='lp-nav-menu-item'
-                        href={docsHref}
-                        role='menuitem'
-                    >
-                        <BookOpen />
-                        <span>{t('web.landing.navDocs')}</span>
-                    </a>
-                    <ChallengeNavMenuItem close={() => setOpen(false)} />
-                    <a
-                        className='lp-nav-menu-item'
-                        href={withStay(pricingTo, isSignedIn)}
-                        role='menuitem'
-                        onClick={() => setOpen(false)}
-                    >
-                        <Tag />
-                        <span>{t('web.landing.navPricing')}</span>
-                    </a>
-                    <div className='lp-nav-menu-sep' role='separator' />
-                    {/* Their own group between the pages and the preferences:
-                        "which page" and "which site" are different questions,
-                        and the icon column keeps them scannable as a set. */}
-                    <a
-                        className='lp-nav-menu-item'
-                        href={SOCIAL_GITHUB_URL}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        role='menuitem'
-                        onClick={() => setOpen(false)}
-                    >
-                        <GithubMono />
-                        <span>{t('web.marketing.sourceGithub')}</span>
-                    </a>
-                    <a
-                        className='lp-nav-menu-item'
-                        href={SOCIAL_X_URL}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        role='menuitem'
-                        onClick={() => setOpen(false)}
-                    >
-                        <XMark />
-                        <span>{t('web.marketing.followX')}</span>
-                    </a>
-                    <a
-                        className='lp-nav-menu-item'
-                        href={SOCIAL_DISCORD_URL}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        role='menuitem'
-                        onClick={() => setOpen(false)}
-                    >
-                        <DiscordMark mono />
-                        <span>{t('web.marketing.joinDiscord')}</span>
-                    </a>
-                    <div className='lp-nav-menu-sep' role='separator' />
-                    {menuItems.map((item) => {
-                        const active = item.code === language
-                        const className = [
-                            'lp-nav-menu-item',
-                            active ? 'lp-nav-menu-item-active' : ''
-                        ].join(' ')
-                        return item.path !== undefined ? (
-                            <Link
-                                key={item.code}
-                                to={item.path}
-                                role='menuitemradio'
-                                aria-checked={active}
-                                className={className}
-                                onClick={() => {
-                                    selectMarketingLanguage(item, setLanguage)
-                                    setOpen(false)
-                                }}
+                    {view === 'lang' ? (
+                        <>
+                            {/* Title and back control in one row: the chevron
+                                is the affordance and the label says where back
+                                goes, which is the pairing the row that opened
+                                this view already carries. */}
+                            <button
+                                type='button'
+                                className='lp-nav-menu-back'
+                                onClick={() => setView('root')}
                             >
-                                <Globe />
-                                <span>{item.nativeName}</span>
-                                <span className='lp-nav-menu-item-meta'>
-                                    {item.code.toUpperCase()}
+                                <ChevronLeft aria-hidden='true' />
+                                <span>{t('web.marketing.language')}</span>
+                            </button>
+                            <div
+                                className='lp-nav-menu-sep'
+                                role='separator'
+                            />
+                            {/* The list outruns a short viewport on its own,
+                                so it scrolls inside the panel rather than
+                                growing the menu past the fold. */}
+                            <div className='lp-nav-menu-scroll'>
+                                {menuItems.map((item) => {
+                                    const active = item.code === language
+                                    const className = [
+                                        'lp-nav-menu-item',
+                                        active
+                                            ? 'lp-nav-menu-item-active'
+                                            : ''
+                                    ].join(' ')
+                                    /* No globe per row: the whole panel is
+                                       languages, so the glyph would repeat
+                                       what the view itself says. */
+                                    return item.path !== undefined ? (
+                                        <Link
+                                            key={item.code}
+                                            to={item.path}
+                                            role='menuitemradio'
+                                            aria-checked={active}
+                                            className={className}
+                                            onClick={() => {
+                                                selectMarketingLanguage(
+                                                    item,
+                                                    setLanguage
+                                                )
+                                                setOpen(false)
+                                            }}
+                                        >
+                                            <span>{item.nativeName}</span>
+                                            <span className='lp-nav-menu-item-meta'>
+                                                {item.code.toUpperCase()}
+                                            </span>
+                                        </Link>
+                                    ) : (
+                                        <button
+                                            key={item.code}
+                                            type='button'
+                                            role='menuitemradio'
+                                            aria-checked={active}
+                                            className={className}
+                                            onClick={() => {
+                                                selectMarketingLanguage(
+                                                    item,
+                                                    setLanguage
+                                                )
+                                                setOpen(false)
+                                            }}
+                                        >
+                                            <span>{item.nativeName}</span>
+                                            <span className='lp-nav-menu-item-meta'>
+                                                {item.code.toUpperCase()}
+                                            </span>
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            {renderCta?.(() => setOpen(false))}
+                            <CloudNavMenuItem close={() => setOpen(false)} />
+                            {/* The folded menu is the one place with room to
+                                say what "Channels" means to someone who has
+                                not used the product; the bar itself keeps a
+                                single text tier. */}
+                            <Link
+                                className={
+                                    channelsCurrent
+                                        ? 'lp-nav-menu-item lp-nav-menu-item-2l lp-nav-menu-item-active'
+                                        : 'lp-nav-menu-item lp-nav-menu-item-2l'
+                                }
+                                to={channelsTo}
+                                aria-current={
+                                    channelsCurrent ? 'page' : undefined
+                                }
+                                role='menuitem'
+                                onClick={() => setOpen(false)}
+                            >
+                                <MessageSquare />
+                                <span className='lp-nav-menu-item-text'>
+                                    <span>{t('web.landing.navChannels')}</span>
+                                    <span className='lp-nav-menu-item-sub'>
+                                        {t('web.landing.navChannelsApps')}
+                                    </span>
                                 </span>
                             </Link>
-                        ) : (
+                            <a
+                                className='lp-nav-menu-item'
+                                href={withStay(pricingTo, isSignedIn)}
+                                role='menuitem'
+                                onClick={() => setOpen(false)}
+                            >
+                                <Tag />
+                                <span>{t('web.landing.navPricing')}</span>
+                            </a>
+                            <a
+                                className='lp-nav-menu-item'
+                                href={docsHref}
+                                role='menuitem'
+                            >
+                                <BookOpen />
+                                <span>{t('web.landing.navDocs')}</span>
+                            </a>
+                            <ChallengeNavMenuItem
+                                close={() => setOpen(false)}
+                            />
+                            <div
+                                className='lp-nav-menu-sep'
+                                role='separator'
+                            />
+                            {/* Their own group between the pages and the
+                                preferences: "which page" and "which site" are
+                                different questions, and the icon column keeps
+                                them scannable as a set. */}
+                            <a
+                                className='lp-nav-menu-item'
+                                href={SOCIAL_GITHUB_URL}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                role='menuitem'
+                                onClick={() => setOpen(false)}
+                            >
+                                <GithubMono />
+                                <span>{t('web.marketing.sourceGithub')}</span>
+                            </a>
+                            <a
+                                className='lp-nav-menu-item'
+                                href={SOCIAL_X_URL}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                role='menuitem'
+                                onClick={() => setOpen(false)}
+                            >
+                                <XMark />
+                                <span>{t('web.marketing.followX')}</span>
+                            </a>
+                            <a
+                                className='lp-nav-menu-item'
+                                href={SOCIAL_DISCORD_URL}
+                                target='_blank'
+                                rel='noopener noreferrer'
+                                role='menuitem'
+                                onClick={() => setOpen(false)}
+                            >
+                                <DiscordMark mono />
+                                <span>{t('web.marketing.joinDiscord')}</span>
+                            </a>
+                            <div
+                                className='lp-nav-menu-sep'
+                                role='separator'
+                            />
+                            {/* Language and theme are one group — both answer
+                                "how should this page be shown to me" — so no
+                                rule divides them. */}
                             <button
-                                key={item.code}
                                 type='button'
-                                role='menuitemradio'
-                                aria-checked={active}
-                                className={className}
+                                role='menuitem'
+                                className='lp-nav-menu-item'
+                                aria-haspopup='menu'
+                                onClick={() => setView('lang')}
+                            >
+                                <Globe />
+                                <span>{t('web.marketing.language')}</span>
+                                <span className='lp-nav-menu-value'>
+                                    {selected.nativeName}
+                                    <ChevronRight aria-hidden='true' />
+                                </span>
+                            </button>
+                            <button
+                                type='button'
+                                role='menuitem'
+                                className='lp-nav-menu-item'
                                 onClick={() => {
-                                    selectMarketingLanguage(item, setLanguage)
+                                    toggleTheme()
                                     setOpen(false)
                                 }}
                             >
-                                <Globe />
-                                <span>{item.nativeName}</span>
-                                <span className='lp-nav-menu-item-meta'>
-                                    {item.code.toUpperCase()}
+                                <ThemeIcon />
+                                <span>
+                                    {theme === 'dark'
+                                        ? t('web.marketing.lightMode')
+                                        : t('web.marketing.darkMode')}
                                 </span>
                             </button>
-                        )
-                    })}
-                    <div className='lp-nav-menu-sep' role='separator' />
-                    <button
-                        type='button'
-                        role='menuitem'
-                        className='lp-nav-menu-item'
-                        onClick={() => {
-                            toggleTheme()
-                            setOpen(false)
-                        }}
-                    >
-                        <ThemeIcon />
-                        <span>
-                            {theme === 'dark'
-                                ? t('web.marketing.lightMode')
-                                : t('web.marketing.darkMode')}
-                        </span>
-                    </button>
+                        </>
+                    )}
                 </div>
             ) : null}
         </div>
@@ -410,7 +529,10 @@ export interface MarketingNavProps {
     homeTo?: string
     /* Pricing is a section of the landing page, not a route of its own. The
        landing page passes a bare hash so the click just scrolls; everywhere
-       else the default navigates home first and lands on the section. */
+       else the default navigates home first and lands on the section — to
+       the home page in the language this URL pins, not a hard-coded '/'. A
+       constant here sent a visitor reading /zh/channels to the English
+       landing page. */
     pricingTo?: string
 }
 
@@ -420,7 +542,7 @@ export const MarketingNav: FC<MarketingNavProps> = ({
     overflowCta,
     languagePaths,
     homeTo,
-    pricingTo = '/#lp-pricing'
+    pricingTo
 }): ReactNode => {
     const { t, language } = useI18n()
     const { pathname } = useLocation()
@@ -428,6 +550,12 @@ export const MarketingNav: FC<MarketingNavProps> = ({
     const links = marketingLinksFor(
         marketingLinkLanguage(pathname, language)
     )
+    /* Only a page of our own can be the current one. Docs leaves for the docs
+       site and Pricing is a section of the landing page, so neither has a
+       state to be in — marking Pricing active on the home page would claim
+       the visitor is standing on a section they may not have scrolled to. */
+    const channelsCurrent = seoPageForPath(pathname)?.def.key === 'channels'
+    const pricingHref = pricingTo ?? `${links.home}#lp-pricing`
     return (
         <header className='lp-nav'>
             {/* Three columns rather than two: the destinations now sit in the
@@ -437,17 +565,36 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                 <div className='lp-nav-inner-left'>
                     <MarketingBrand badge={badge} homeTo={homeTo} />
                 </div>
+                {/* Product first, then price, then documentation: what a
+                    visitor can get, what it costs, how to work it. Docs held
+                    the leftmost slot for historical reasons, which put the
+                    surface written for people who have already committed
+                    ahead of the two pages arguing that they should. Challenge
+                    trails the group because it is a campaign, not a permanent
+                    line of the product. */}
                 <nav className='lp-nav-center'>
+                    <CloudNavLink />
+                    <Link
+                        className={
+                            channelsCurrent
+                                ? 'lp-nav-link lp-nav-link-active'
+                                : 'lp-nav-link'
+                        }
+                        to={links.channels}
+                        aria-current={channelsCurrent ? 'page' : undefined}
+                    >
+                        {t('web.landing.navChannels')}
+                    </Link>
+                    <a
+                        className='lp-nav-link'
+                        href={withStay(pricingHref, isSignedIn)}
+                    >
+                        {t('web.landing.navPricing')}
+                    </a>
                     <a className='lp-nav-link' href={links.docs}>
                         {t('web.landing.navDocs')}
                     </a>
                     <ChallengeNavLink />
-                    <a
-                        className='lp-nav-link'
-                        href={withStay(pricingTo, isSignedIn)}
-                    >
-                        {t('web.landing.navPricing')}
-                    </a>
                 </nav>
                 <div className='lp-nav-actions'>
                     <div className='lp-nav-desktop'>
@@ -458,10 +605,12 @@ export const MarketingNav: FC<MarketingNavProps> = ({
                     </div>
                     <div className='lp-nav-mobile'>
                         <NavOverflow
+                            channelsCurrent={channelsCurrent}
+                            channelsTo={links.channels}
                             docsHref={links.docs}
                             renderCta={overflowCta}
                             languagePaths={languagePaths}
-                            pricingTo={pricingTo}
+                            pricingTo={pricingHref}
                         />
                     </div>
                 </div>

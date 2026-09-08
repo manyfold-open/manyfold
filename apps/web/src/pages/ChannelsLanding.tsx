@@ -1,7 +1,7 @@
 import type { FC, ReactNode } from 'react'
 import { createContext, useCallback, useContext, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { ArrowRight, ArrowUpRight, ChevronRight } from 'lucide-react'
+import { ArrowRight, ArrowUpRight } from 'lucide-react'
 import type { ChannelProviderName } from '@manyfold/shared'
 import { MarketingFooter } from '@/components/marketing/MarketingFooter'
 import { MarketingNav } from '@/components/marketing/MarketingNav'
@@ -12,89 +12,26 @@ import SignupGateModal from '@/components/signup-gate/SignupGateModal'
 import { useSignupGateFeature } from '@/components/signup-gate/useSignupGate'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { BrandMark } from '@/components/Brand'
+import { LandingSteps } from '@/components/landing/LandingSteps'
 import { WorldAgent } from '@/components/landing/WorldAgent'
 import { ClaudeCodeColor, CodexColor } from '@/lib/brandIcons'
-import {
-    ChannelProviderIcon,
-    channelDocsHref,
-    channelLabel
-} from '@/lib/channelMeta'
+import { ChannelProviderIcon, channelDocsHref } from '@/lib/channelMeta'
 import { docsHref } from '@/lib/docsLinks'
 import { useI18n } from '@/lib/i18n'
+import {
+    CHANNEL_SETUP_LABEL,
+    CHANNEL_STEP_KEYS,
+    CHANNEL_SYNC_POINTS,
+    CHANNEL_TILE_GROUPS,
+    channelTileLabel,
+    type ChannelTile
+} from '@/seo/channelsContent'
 import { marketingLinkLanguage } from '@/seo/marketingLinks'
 import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
 
-/* How each channel is actually connected, taken from the provider guides:
-   a QR pairing flow, one credential pasted from the platform, or an app the
-   platform installs from a manifest Manyfold generates. Which of the three
-   it is happens to be the fact a visitor wants before they pick one, so it
-   rides on the tile instead of staying in the docs. */
-type SetupKind = 'qr' | 'token' | 'app'
-
-interface ChannelTile {
-    provider: ChannelProviderName
-    setup: SetupKind
-}
-
-interface TileGroup {
-    labelKey: string
-    tiles: ChannelTile[]
-}
-
-/* Grouped by where the conversation happens, not by what the setup costs.
-   A visitor knows the name of the app their team uses; they do not know
-   which credential its API happens to want, so grouping by setup would ask
-   them for the answer before they could look it up. Effort stays on the
-   tile, where it is a fact about one app rather than a way to find it.
-
-   The line between the first two groups is whether you get there through a
-   space somebody administers — a Slack workspace, a Lark tenant, a Discord
-   server, a Matrix homeserver — or through the messenger on your own phone.
-   It is not a nicety: WeChat could not sit in the first group even if we
-   wanted it to, because its bots are direct-message only and cannot join a
-   group at all. Trackers are third because an issue is not a chat.
-
-   Recognition orders each group, so the names that carry this page — Slack,
-   WhatsApp, GitHub — are the ones the eye lands on first. */
-const TILE_GROUPS: TileGroup[] = [
-    {
-        labelKey: 'web.channelsPage.appsGroupTeam',
-        tiles: [
-            { provider: 'slack', setup: 'app' },
-            { provider: 'lark', setup: 'qr' },
-            { provider: 'discord', setup: 'token' },
-            { provider: 'matrix', setup: 'token' }
-        ]
-    },
-    {
-        labelKey: 'web.channelsPage.appsGroupMessenger',
-        tiles: [
-            { provider: 'whatsapp', setup: 'qr' },
-            { provider: 'weixin', setup: 'qr' },
-            { provider: 'telegram', setup: 'token' },
-            { provider: 'line', setup: 'token' }
-        ]
-    },
-    {
-        labelKey: 'web.channelsPage.appsGroupTracker',
-        tiles: [
-            { provider: 'github', setup: 'app' },
-            { provider: 'linear', setup: 'app' }
-        ]
-    }
-]
-
-const SETUP_LABEL: Record<SetupKind, string> = {
-    qr: 'web.channelsPage.setupQr',
-    token: 'web.channelsPage.setupToken',
-    app: 'web.channelsPage.setupApp'
-}
-
-/* channelMeta labels a lark channel "Lark" because that is the provider name
-   the product stores; the marketing page has to name both consoles, because
-   a Feishu tenant searching this page for "飞书" finds nothing otherwise. */
-const tileLabel = (provider: ChannelProviderName): string =>
-    provider === 'lark' ? 'Lark / Feishu' : channelLabel(provider)
+/* Tile groups, setup labels and the display names all live in
+   seo/channelsContent: the crawler snapshot names the same apps in the same
+   groups, and it cannot do that from a second copy of the list. */
 
 /* The hero figure is a sky: the two runtimes standing on a planet at the
    bottom edge, the ten channels orbiting above them as bodies.
@@ -446,10 +383,7 @@ const Hero: FC = (): ReactNode => {
                     <PrimaryCta
                         labelKey='web.channelsPage.heroPrimary'
                         secondary={
-                            <a
-                                href={docs}
-                                className='lp-btn lp-btn-secondary'
-                            >
+                            <a href={docs} className='lp-btn lp-btn-secondary'>
                                 {t('web.channelsPage.heroSecondary')}
                             </a>
                         }
@@ -476,7 +410,7 @@ const AppTile: FC<{ tile: ChannelTile }> = ({ tile }): ReactNode => {
         tile.provider,
         marketingLinkLanguage(pathname, language)
     )
-    const label = tileLabel(tile.provider)
+    const label = channelTileLabel(tile.provider)
     return (
         <a
             className='lp-cl-tile'
@@ -488,7 +422,9 @@ const AppTile: FC<{ tile: ChannelTile }> = ({ tile }): ReactNode => {
             </span>
             <ArrowUpRight className='lp-cl-tile-arrow' aria-hidden='true' />
             <span className='lp-cl-tile-name'>{label}</span>
-            <span className='lp-cl-setup'>{t(SETUP_LABEL[tile.setup])}</span>
+            <span className='lp-cl-setup'>
+                {t(CHANNEL_SETUP_LABEL[tile.setup])}
+            </span>
         </a>
     )
 }
@@ -509,9 +445,11 @@ const Apps: FC = (): ReactNode => {
                         </span>
                     </h2>
                 </div>
-                {TILE_GROUPS.map((group) => (
+                {CHANNEL_TILE_GROUPS.map((group) => (
                     <div key={group.labelKey} className='lp-cl-group'>
-                        <h3 className='lp-cl-group-head'>{t(group.labelKey)}</h3>
+                        <h3 className='lp-cl-group-head'>
+                            {t(group.labelKey)}
+                        </h3>
                         <div className='lp-cl-grid'>
                             {group.tiles.map((tile) => (
                                 <AppTile key={tile.provider} tile={tile} />
@@ -540,37 +478,16 @@ const Setup: FC = (): ReactNode => {
                         </span>
                     </h2>
                 </div>
-                <ol className='lp-cl-steps'>
-                    <li className='lp-cl-step'>
-                        <span className='lp-cl-step-n'>1</span>
-                        <h3 className='lp-cl-step-title'>
-                            {t('web.channelsPage.step1Title')}
-                        </h3>
-                        <p>{t('web.channelsPage.step1Body')}</p>
-                        <ChevronRight
-                            className='lp-cl-step-arrow'
-                            aria-hidden='true'
-                        />
-                    </li>
-                    <li className='lp-cl-step'>
-                        <span className='lp-cl-step-n'>2</span>
-                        <h3 className='lp-cl-step-title'>
-                            {t('web.channelsPage.step2Title')}
-                        </h3>
-                        <p>{t('web.channelsPage.step2Body')}</p>
-                        <ChevronRight
-                            className='lp-cl-step-arrow'
-                            aria-hidden='true'
-                        />
-                    </li>
-                    <li className='lp-cl-step'>
-                        <span className='lp-cl-step-n'>3</span>
-                        <h3 className='lp-cl-step-title'>
-                            {t('web.channelsPage.step3Title')}
-                        </h3>
-                        <p>{t('web.channelsPage.step3Body')}</p>
-                    </li>
-                </ol>
+                {/* The aside on the third step — where the worry about an
+                    agent in a team's chat actually lands — rides on the
+                    shared table, so the snapshot carries it too. */}
+                <LandingSteps
+                    steps={CHANNEL_STEP_KEYS.map((step) => ({
+                        title: t(step.title),
+                        body: t(step.body),
+                        note: step.note ? t(step.note) : undefined
+                    }))}
+                />
             </div>
         </section>
     )
@@ -617,8 +534,6 @@ const SYNC_ENTRIES: Array<{
     { provider: 'lark', key: 'web.channelsPage.syncEntryGroup' },
     { provider: null, key: 'web.channelsPage.syncEntryWeb' }
 ]
-
-const SYNC_POINTS = ['History', 'Files', 'Bill', 'Settings'] as const
 
 const Sync: FC = (): ReactNode => {
     const { t } = useI18n()
@@ -721,7 +636,7 @@ const Sync: FC = (): ReactNode => {
                     </div>
                 </div>
                 <ul className='lp-cl-points'>
-                    {SYNC_POINTS.map((point) => (
+                    {CHANNEL_SYNC_POINTS.map((point) => (
                         <li key={point}>
                             <b>{t(`web.channelsPage.syncPoint${point}`)}</b>
                             <p>{t(`web.channelsPage.syncPoint${point}Body`)}</p>

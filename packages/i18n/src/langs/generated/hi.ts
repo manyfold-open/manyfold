@@ -1039,6 +1039,12 @@ const hi: Record<string, string> = {
     'web.landing.stepCtaStep2': 'चरण दो',
     'web.landing.navPricing': 'मूल्य निर्धारण',
     'web.landing.navDocs': 'डॉक्स',
+    'web.landing.navChannels': 'चैनल',
+    'web.landing.navChannelsApps': 'Slack, WhatsApp, Lark, GitHub',
+    'web.landing.footerGroupProduct': 'उत्पाद',
+    'web.landing.footerGroupResources': 'संसाधन',
+    'web.landing.footerGroupLegal': 'कानूनी',
+    'web.landing.footerSelfHost': 'सेल्फ-होस्ट',
     'web.landing.navChallenge': 'चुनौती',
     'web.landing.heroPrimaryCta': 'अपना पहला एजेंट बनाएं',
     'web.landing.faqQ1': 'क्या यह बस Claude Code या Codex के ऊपर एक परत है?',
@@ -1080,6 +1086,7 @@ const hi: Record<string, string> = {
     'web.landing.heroTitleAccent': 'कई गुना।',
     'web.landing.heroTagline': 'Claude Code, Codex और आपके अपने एजेंट, हमेशा चालू और आपके प्रोडक्ट तक नतीजे पहुँचाते हुए।',
     'web.landing.sceneHeroHint': 'स्क्रॉल करें · देखें यह कैसे काम करता है ↓',
+    'web.landing.sceneChannelsLink': 'सभी समर्थित ऐप्स देखें',
     'web.landing.scene1Eyebrow': '01 · होस्टिंग',
     'web.landing.scene1Title': 'एजेंट रहते हैं',
     'web.landing.scene1TitleAccent': 'रनटाइम में।',
@@ -1166,11 +1173,11 @@ const hi: Record<string, string> = {
     'web.landing.pricingPopular': 'लोकप्रिय',
     'web.landing.faqEyebrow': 'सवाल',
     'web.channelsPage.heroEyebrow':
-        'साथ ही Gemini CLI, Dify, Langflow और अन्य',
+        'साथ ही Gemini CLI, OpenClaw, Hermes और अन्य',
     'web.channelsPage.heroTitle': 'Claude Code और Codex,',
     'web.channelsPage.heroTitleAccent': 'अब आपके रोज़मर्रा के ऐप में।',
     'web.channelsPage.heroLead':
-        'Slack, WhatsApp, Lark, GitHub और अन्य। ज़्यादातर एक कोड स्कैन करने से जुड़ जाते हैं।',
+        'Slack, WhatsApp, Lark, GitHub — आपकी अपनी सदस्यता पर।',
     'web.channelsPage.heroPrimary': 'मुफ़्त आज़माएँ',
     'web.channelsPage.heroSecondary': 'दस्तावेज़ पढ़िए',
     'web.channelsPage.appsEyebrow': 'आज समर्थित',
@@ -1195,6 +1202,8 @@ const hi: Record<string, string> = {
     'web.channelsPage.step3Title': 'उसे संदेश भेजिए',
     'web.channelsPage.step3Body':
         'सीधे बात कीजिए, या उसे किसी समूह में जोड़कर उल्लेख कीजिए। हर बातचीत, हर समूह और हर सूत्र का अपना अलग सत्र रहता है।',
+    'web.channelsPage.step3Note':
+        'ज़्यादातर ऐप सिर्फ़ वही संदेश भेजते हैं जिनमें उसे मेंशन किया गया हो, इसलिए ग्रुप का बाक़ी हिस्सा Manyfold तक पहुँचता ही नहीं।',
     'web.channelsPage.syncEyebrow': 'एक एजेंट, एक ही जगह',
     'web.channelsPage.syncTitle': 'कहीं से भी लिखिए।',
     'web.channelsPage.syncTitleAccent': 'सब कुछ एक ही जगह पहुँचता है।',
