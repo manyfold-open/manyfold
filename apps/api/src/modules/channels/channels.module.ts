@@ -36,6 +36,7 @@ import { GithubChannelProvider } from './providers/github.provider'
 import { LineChannelProvider } from './providers/line.provider'
 import { GoogleChatChannelProvider } from './providers/googlechat.provider'
 import { MsTeamsChannelProvider } from './providers/msteams.provider'
+import { IMessageChannelProvider } from './providers/imessage.provider'
 
 @Module({
     imports: [
@@ -79,7 +80,8 @@ import { MsTeamsChannelProvider } from './providers/msteams.provider'
         GithubChannelProvider,
         LineChannelProvider,
         GoogleChatChannelProvider,
-        MsTeamsChannelProvider
+        MsTeamsChannelProvider,
+        IMessageChannelProvider
     ],
     exports: [
         ChannelsService,
