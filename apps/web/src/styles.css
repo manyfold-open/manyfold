@@ -5289,7 +5289,7 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 }
 
 /* ============================================================
-   Channels landing (/channels) — acquisition page for the chat-app
+   Channels landing (/channels) — marketing page for the chat-app
    integrations. Scoped to .lp-cl-root, composed entirely from
    --lp-* tokens, and removable with the page.
 
@@ -5659,7 +5659,7 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 /* A line of reassurance under a hero's buttons — what it costs, what it will
    not do. Mono and quiet on purpose: it is a footnote to the call to action,
    not a third piece of copy competing with the lead. Shared, because both
-   acquisition pages carry one. */
+   marketing pages carry one. */
 .landing-root .lp-hero-note {
     margin-top: 34px;
     font-family: var(--lp-mono);
@@ -5677,7 +5677,7 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 /* ---------------- Three steps ----------------
    The block itself is shared — see components/landing/LandingSteps.tsx for
    why it is flat and why the ordinal is a display numeral. Only the rules
-   live here, in the landing register, so both acquisition pages take them
+   live here, in the landing register, so both marketing pages take them
    from one place instead of each keeping a copy. */
 
 .landing-root .lp-steps {

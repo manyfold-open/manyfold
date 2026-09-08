@@ -216,7 +216,7 @@ interface Scene {
     lead: string
     items?: SceneItem[]
     /* A way out of the scene into the page that argues it in full. The nav
-       and the footer catch a visitor who already knows the acquisition
+       and the footer catch a visitor who already knows the marketing
        pages exist; this is where someone reading the tour first meets
        them. */
     link?: ReactNode
