@@ -108,7 +108,7 @@ test('mintRuntimeIdentity writes a runtime credential + identity row and revokes
 
 test('ensureRuntimeIdentity does not rotate an already encrypted identity', async () => {
     const db = new RtFakeDb()
-    db.selectRows = [{ ciphertext: 'enc:existing', keyVersion: 7 }]
+    db.selectRows = [{ tokenCiphertext: 'enc:existing', tokenKeyVersion: 7 }]
     const crypto = {
         encrypt: (plain: string) => ({
             ciphertext: `enc:${plain}`,
