@@ -25,6 +25,10 @@ export interface MintedRuntimeIdentity {
     runtimeKind: RuntimeKind
 }
 
+export type RuntimeIdentityResult =
+    | { created: false; plaintext: string }
+    | (MintedRuntimeIdentity & { created: true })
+
 @Injectable()
 export class RuntimeTokenService {
     constructor(
@@ -84,6 +88,29 @@ export class RuntimeTokenService {
             plaintext,
             agentId: args.agentId,
             runtimeKind: args.runtimeKind
+        }
+    }
+
+    // Legacy sprite rows predate token_ciphertext and still rely on a plaintext
+    // shell profile. Upgrade paths use this idempotent read-before-mint helper
+    // before removing that fallback. Existing encrypted identities must not be
+    // rotated as a side effect of a CLI or framework upgrade.
+    async ensureRuntimeIdentity(args: {
+        userId: string
+        agentId: string
+        runtimeKind: RuntimeKind
+        name?: string
+    }): Promise<RuntimeIdentityResult> {
+        const existing = await decryptActiveIdentityToken(
+            this.db,
+            this.crypto,
+            args.agentId,
+            args.runtimeKind
+        )
+        if (existing) return { created: false, plaintext: existing }
+        return {
+            ...(await this.mintRuntimeIdentity(args)),
+            created: true
         }
     }
 }

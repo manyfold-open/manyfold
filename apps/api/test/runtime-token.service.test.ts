@@ -11,6 +11,7 @@ class RtFakeDb {
     credentials: Record<string, unknown>[] = []
     runtimeTokens: Record<string, unknown>[] = []
     revoked: unknown[] = []
+    selectRows: Record<string, unknown>[] = []
     transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
         return fn(this)
     }
@@ -19,6 +20,22 @@ class RtFakeDb {
     }
     update(table: unknown) {
         return new RtQuery(this, table, true)
+    }
+    select() {
+        return new RtSelectQuery(this)
+    }
+}
+
+class RtSelectQuery {
+    constructor(private readonly db: RtFakeDb) {}
+    from() {
+        return this
+    }
+    where() {
+        return this
+    }
+    limit() {
+        return Promise.resolve(this.db.selectRows)
     }
 }
 
@@ -84,4 +101,31 @@ test('mintRuntimeIdentity writes a runtime credential + identity row and revokes
 
     // prior active row for (agent, kind) is revoked first (partial-unique safety)
     assert.deepEqual(db.revoked, [agentRuntimeTokens])
+})
+
+test('ensureRuntimeIdentity does not rotate an already encrypted identity', async () => {
+    const db = new RtFakeDb()
+    db.selectRows = [{ ciphertext: 'enc:existing', keyVersion: 7 }]
+    const crypto = {
+        encrypt: (plain: string) => ({
+            ciphertext: `enc:${plain}`,
+            keyVersion: 7
+        }),
+        decrypt: () => 'nca_rt_existing'
+    }
+    const svc = new RuntimeTokenService(
+        db as unknown as Database,
+        crypto as never
+    )
+
+    const result = await svc.ensureRuntimeIdentity({
+        userId: 'user-1',
+        agentId: 'agt_A',
+        runtimeKind: 'sprites'
+    })
+
+    assert.deepEqual(result, { created: false, plaintext: 'nca_rt_existing' })
+    assert.equal(db.credentials.length, 0)
+    assert.equal(db.runtimeTokens.length, 0)
+    assert.equal(db.revoked.length, 0)
 })

@@ -217,19 +217,32 @@ test('the purge rewrites through the original file, preserving mode', () => {
     assert.doesNotMatch(script, /mv .*"\$mf_purge_file"/)
 })
 
-// Both surfaces that reach an already-provisioned sprite have to carry it, or
-// the sweep only ever lands on sandboxes that re-provision (#650 AC-2).
-test('provision and CLI upgrade both carry the residue purge', () => {
+// Identity residue is only safe to remove after the API has migrated every
+// agent on the host to encrypted storage. Generic install scripts therefore
+// carry PATH cleanup only; the two explicit callers opt into identity cleanup
+// after that preflight.
+test('identity residue purge is opt-in', () => {
     const provision = buildShellEnvScript({
         agentId: 'agt_abc',
         apiBaseUrl: 'https://api.manyfold.ai/api'
     })
-    assert.ok(provision.includes(buildLegacyShellResiduePurgeScript()))
+    assert.doesNotMatch(provision, /purge_identity=1/)
+    assert.match(
+        buildShellEnvScript({
+            agentId: 'agt_abc',
+            apiBaseUrl: 'https://api.manyfold.ai/api',
+            purgeLegacyIdentity: true
+        }),
+        /purge_identity=1/
+    )
     for (const channel of ['stable', 'dev'] as const)
-        assert.ok(
-            buildCliInstallScript(channel).includes(
-                buildLegacyShellResiduePurgeScript()
-            )
+        assert.doesNotMatch(buildCliInstallScript(channel), /purge_identity=1/)
+    for (const channel of ['stable', 'dev'] as const)
+        assert.match(
+            buildCliInstallScript(channel, undefined, {
+                purgeLegacyIdentity: true
+            }),
+            /purge_identity=1/
         )
 })
 

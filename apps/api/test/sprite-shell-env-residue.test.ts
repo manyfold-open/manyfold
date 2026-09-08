@@ -100,10 +100,26 @@ const reconcile = (home: string): void => {
             agentId: 'agt_thisagent00000000000000',
             apiBaseUrl: 'https://api.example.test/api',
             apiToken: 'mft_live_this_agent',
-            deployEnv: 'staging'
+            deployEnv: 'staging',
+            purgeLegacyIdentity: true
         })
     )
 }
+
+test('the default reconcile preserves identity fallback until migration opts in', () => {
+    withSeededHome((home) => {
+        runShell(
+            home,
+            buildShellEnvScript({
+                agentId: 'agt_thisagent00000000000000',
+                apiBaseUrl: 'https://api.example.test/api',
+                deployEnv: 'staging'
+            })
+        )
+        assert.equal(read(home, '.zshrc').includes(OTHER_AGENT_TOKEN), true)
+        assert.equal(read(home, '.zshrc').includes(OTHER_AGENT_ID), true)
+    })
+})
 
 const read = (home: string, name: string): string =>
     readFileSync(join(home, name), 'utf8')
