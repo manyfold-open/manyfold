@@ -27,6 +27,15 @@ import type {
 const BRIDGE_SCRIPT =
     'exec openclaw acp --no-prefix-cwd < <(cat; kill -TERM $$)'
 
+// The bridge enters the agent workspace ITSELF (mkdir -p; cd) instead of via
+// the exec transport's `dir`. A fresh sprite's workspace is created lazily by
+// openclaw, not at bootstrap, and wrapSpriteCommand turns `dir` into
+// `cd <dir> && …`, so passing it would exit the shell 1 before openclaw ran.
+// Seen on sprites [2026-09-08].
+const WORKSPACE = '/home/sprite/ws'
+const enterWorkspace = `mkdir -p '${WORKSPACE}' 2>/dev/null; cd '${WORKSPACE}' 2>/dev/null; `
+const BRIDGE_CMD = ['bash', '-lc', `${enterWorkspace}${BRIDGE_SCRIPT}`]
+
 // One recorded `sessions.get` result: a 2-call tool-loop turn after an earlier
 // 1-call turn, exactly as the gateway transcript hands them back.
 const transcriptUsage = (input: number, output: number) => ({
@@ -400,15 +409,21 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
         // behind the wrapper that makes stdin EOF terminate it.
         assert.equal(rig.requests.length, 1)
         const req = rig.requests[0]
-        assert.deepEqual(req.cmd, ['bash', '-lc', BRIDGE_SCRIPT])
-        assert.equal(req.dir, '/home/sprite/ws')
+        assert.deepEqual(req.cmd, BRIDGE_CMD)
+        // No `dir`: the bridge enters the workspace itself, so the transport
+        // must NOT prepend `cd <workspace> && …` (absent on a fresh sprite → the
+        // shell would exit 1 before openclaw, the ~300ms empty-stderr failure).
+        assert.equal(req.dir, undefined)
         assert.equal(req.env?.OPENCLAW_GATEWAY_TOKEN, 'gw-token-123')
         assert.equal(req.env?.OPENCLAW_HIDE_BANNER, '1')
 
         // session/new pins the deterministic gateway key, and no session/resume.
+        // The agent slot is `main` (the sprite gateway's only agent), NOT the
+        // manyfold internalId 'oc1' — binding to the id fails "Agent <id> no
+        // longer exists in configuration". Seen on sprites [2026-09-08].
         const created = rig.writes.find((f) => f.method === 'session/new')!
         const meta = (created.params as { _meta?: { sessionKey?: string } })._meta
-        assert.equal(meta?.sessionKey, 'agent:oc1:mf-cts_1')
+        assert.equal(meta?.sessionKey, 'agent:main:mf-cts_1')
         assert.ok(!rig.writes.some((f) => f.method === 'session/resume'))
 
         // The text streams through as a token, and the turn terminalizes.
@@ -419,7 +434,7 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
 
         // The gateway key is persisted as the framework session ref.
         assert.deepEqual(rig.sessionRefs, [
-            { sessionId: 'cts_1', ref: 'agent:oc1:mf-cts_1' }
+            { sessionId: 'cts_1', ref: 'agent:main:mf-cts_1' }
         ])
 
         // Billing: the ACP stream carried no usage, so the turn read it back
@@ -432,7 +447,7 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
             'call',
             'sessions.get',
             '--params',
-            JSON.stringify({ key: 'agent:oc1:mf-cts_1', limit: 60 }),
+            JSON.stringify({ key: 'agent:main:mf-cts_1', limit: 60 }),
             '--json',
             '--timeout',
             '10000'
