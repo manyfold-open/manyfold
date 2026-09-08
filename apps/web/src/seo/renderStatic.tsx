@@ -10,8 +10,13 @@ import {
     buildSitemapXml,
     resolveWebEnv
 } from '@/seo/artifacts'
-import { seoPageEntries, type SeoPageEntry } from '@/seo/pages'
-import { LandingSnapshot } from '@/seo/LandingSnapshot'
+import {
+    seoFooterLinks,
+    seoPageEntries,
+    type SeoPageDefinition,
+    type SeoPageEntry
+} from '@/seo/pages'
+import { snapshotFor, type SeoSnapshotBodies } from '@/seo/snapshots'
 import {
     StaticMarketingHeader,
     StaticMarketingFooter
@@ -56,16 +61,36 @@ const fontPreloadTags = async (distDir: string): Promise<string> => {
 // `.landing-root .lp-brand-mark` gives it.
 // Seen on production [2026-08-07]: a viewport-filling logo for the ~80ms
 // between first paint and React booting, on every landing load.
-export const renderMarketingBody = (entry: SeoPageEntry): string =>
-    renderToStaticMarkup(
+export const renderMarketingBody = (
+    entry: SeoPageEntry,
+    bodies: SeoSnapshotBodies = {},
+    editionPages: SeoPageDefinition[] = []
+): string => {
+    const Snapshot = snapshotFor(entry.def.key, bodies)
+    return renderToStaticMarkup(
         <div className='landing-root'>
             <StaticMarketingHeader language={entry.language} />
-            <LandingSnapshot entry={entry} />
-            <StaticMarketingFooter language={entry.language} />
+            <Snapshot entry={entry} />
+            <StaticMarketingFooter
+                language={entry.language}
+                pages={seoFooterLinks(entry.language, editionPages)}
+            />
         </div>
     )
+}
 
-export const renderStaticPages = async (distDir: string): Promise<void> => {
+// `edition` carries a composition's pages and their snapshots, which reach
+// this function as arguments because it runs under tsx and the vite overlay
+// resolver does not: see seo/editionPages.ts and scripts/render-static.ts.
+export interface EditionSeoPages {
+    pages: SeoPageDefinition[]
+    snapshots: SeoSnapshotBodies
+}
+
+export const renderStaticPages = async (
+    distDir: string,
+    edition: EditionSeoPages = { pages: [], snapshots: {} }
+): Promise<void> => {
     const env = resolveWebEnv(process.env.VITE_MF_ENV)
     const shell = await readFile(join(distDir, 'index.html'), 'utf8')
     const preloadTags = await fontPreloadTags(distDir)
@@ -73,14 +98,24 @@ export const renderStaticPages = async (distDir: string): Promise<void> => {
     // From the pristine shell, before index.html is overwritten below.
     await writeFile(join(distDir, 'app.html'), buildAppHtml(shell, preloadTags))
     await writeFile(join(distDir, '404.html'), build404Html())
-    await writeFile(join(distDir, 'robots.txt'), buildRobotsTxt(env))
-    await writeFile(join(distDir, 'sitemap.xml'), buildSitemapXml())
+    await writeFile(
+        join(distDir, 'robots.txt'),
+        buildRobotsTxt(env, edition.pages)
+    )
+    await writeFile(
+        join(distDir, 'sitemap.xml'),
+        buildSitemapXml(edition.pages)
+    )
 
-    for (const entry of seoPageEntries()) {
+    for (const entry of seoPageEntries(edition.pages)) {
         setLanguage(entry.language)
         const html = buildPageHtml(shell, {
             entry,
-            bodyHtml: renderMarketingBody(entry),
+            bodyHtml: renderMarketingBody(
+                entry,
+                edition.snapshots,
+                edition.pages
+            ),
             env,
             preloadTags
         })

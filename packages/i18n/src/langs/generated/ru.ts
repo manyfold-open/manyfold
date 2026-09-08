@@ -1039,6 +1039,12 @@ const ru: Record<string, string> = {
     'web.landing.stepCtaStep2': 'Шаг 2',
     'web.landing.navPricing': 'Цены',
     'web.landing.navDocs': 'Документы',
+    'web.landing.navChannels': 'Каналы',
+    'web.landing.navChannelsApps': 'Slack, WhatsApp, Lark, GitHub',
+    'web.landing.footerGroupProduct': 'Продукт',
+    'web.landing.footerGroupResources': 'Ресурсы',
+    'web.landing.footerGroupLegal': 'Правовая информация',
+    'web.landing.footerSelfHost': 'Самостоятельный хостинг',
     'web.landing.navChallenge': 'Испытание',
     'web.landing.heroPrimaryCta': 'Создайте своего первого агента',
     'web.landing.faqQ1': 'Это просто обёртка вокруг Claude Code или Codex?',
@@ -1080,6 +1086,7 @@ const ru: Record<string, string> = {
     'web.landing.heroTitleAccent': 'многократно.',
     'web.landing.heroTagline': 'Claude Code, Codex и ваши собственные агенты, всегда на связи и с доставкой в ваш продукт.',
     'web.landing.sceneHeroHint': 'Прокрутите · посмотрите, как это работает ↓',
+    'web.landing.sceneChannelsLink': 'Посмотреть все поддерживаемые приложения',
     'web.landing.scene1Eyebrow': '01 · Хостинг',
     'web.landing.scene1Title': 'Агенты живут в',
     'web.landing.scene1TitleAccent': 'средах выполнения.',
@@ -1165,6 +1172,71 @@ const ru: Record<string, string> = {
     'web.landing.pricingEyebrow': 'Тарифы',
     'web.landing.pricingPopular': 'Популярный',
     'web.landing.faqEyebrow': 'Вопросы',
+    'web.channelsPage.heroEyebrow':
+        'Также Gemini CLI, OpenClaw, Hermes и другие',
+    'web.channelsPage.heroTitle': 'Claude Code и Codex,',
+    'web.channelsPage.heroTitleAccent':
+        'теперь в ваших повседневных приложениях.',
+    'web.channelsPage.heroLead':
+        'Slack, WhatsApp, Lark, GitHub — на вашей собственной подписке.',
+    'web.channelsPage.heroPrimary': 'Попробовать бесплатно',
+    'web.channelsPage.heroSecondary': 'Читать документацию',
+    'web.channelsPage.appsEyebrow': 'Поддерживаются сейчас',
+    'web.channelsPage.appsTitle': 'Возьмите то, чем вы',
+    'web.channelsPage.appsTitleAccent': 'уже пользуетесь.',
+    'web.channelsPage.appsGroupTeam': 'Чаты команды и сообщества',
+    'web.channelsPage.appsGroupMessenger': 'Ваш личный мессенджер',
+    'web.channelsPage.appsGroupTracker': 'Трекеры задач',
+    'web.channelsPage.appsGuide': 'Руководство по подключению',
+    'web.channelsPage.setupQr': 'Сканировать код',
+    'web.channelsPage.setupToken': 'Вставить ключ',
+    'web.channelsPage.setupApp': 'Установить приложение',
+    'web.channelsPage.stepsEyebrow': 'Как подключить',
+    'web.channelsPage.stepsTitle': 'Три шага.',
+    'web.channelsPage.stepsTitleAccent': 'Около трёх минут.',
+    'web.channelsPage.step1Title': 'Создайте агента',
+    'web.channelsPage.step1Body':
+        'Выберите, на чём он работает, и войдите под своей подпиской — или используйте управляемые модели.',
+    'web.channelsPage.step2Title': 'Отсканируйте код',
+    'web.channelsPage.step2Body':
+        'Выберите приложение и отсканируйте код телефоном. Канал заработает в тот момент, когда вы подтвердите доступ.',
+    'web.channelsPage.step3Title': 'Напишите ему',
+    'web.channelsPage.step3Body':
+        'Пишите напрямую или добавьте его в группу и упомяните. У каждого чата, группы и ветки своя отдельная сессия.',
+    'web.channelsPage.step3Note':
+        'Большинство приложений передаёт только сообщения с упоминанием, поэтому остальная переписка группы до Manyfold не доходит.',
+    'web.channelsPage.syncEyebrow': 'Один агент, одно место',
+    'web.channelsPage.syncTitle': 'Пишите ему откуда угодно.',
+    'web.channelsPage.syncTitleAccent': 'Всё стекается в одно место.',
+    'web.channelsPage.syncLead':
+        'WhatsApp в дороге, Slack за столом, рабочее пространство — когда нужна полная картина.',
+    'web.channelsPage.syncEntryPhone': 'На вашем телефоне',
+    'web.channelsPage.syncEntryTeam': 'В канале команды',
+    'web.channelsPage.syncEntryGroup': 'В еженедельной группе',
+    'web.channelsPage.syncEntryWeb': 'За рабочим столом',
+    'web.channelsPage.syncTabSessions': 'Сессии',
+    'web.channelsPage.syncRowCi': 'CI красный с самого утра',
+    'web.channelsPage.syncRowRelease': 'Что изменилось в этом релизе',
+    'web.channelsPage.syncRowFunnel':
+        'Где на прошлой неделе просели регистрации',
+    'web.channelsPage.syncRowAudit': 'Ночная проверка зависимостей',
+    'web.channelsPage.syncRowWeb': 'Заметки по рефакторингу',
+    'web.channelsPage.syncWsFoot':
+        'Сохраняется каждое сообщение, из любого приложения.',
+    'web.channelsPage.syncPointHistory': 'Одна история',
+    'web.channelsPage.syncPointHistoryBody':
+        'Прочитайте здесь или продолжите с того же места.',
+    'web.channelsPage.syncPointFiles': 'Один набор файлов',
+    'web.channelsPage.syncPointFilesBody':
+        'Создан из Slack — на месте, когда пишете с телефона.',
+    'web.channelsPage.syncPointBill': 'Одна ведомость',
+    'web.channelsPage.syncPointBillBody':
+        'Токены, время и стоимость — на каждый ход.',
+    'web.channelsPage.syncPointSettings': 'Меняется один раз',
+    'web.channelsPage.syncPointSettingsBody':
+        'Навыки, права и сама модель принадлежат агенту.',
+    'web.channelsPage.docTitle':
+        'Claude Code и Codex в Slack, WhatsApp и GitHub · Manyfold',
     'web.consent.message': 'Мы используем аналитику Google, чтобы понять, как используется Manyfold. Она запускается только в том случае, если вы согласны, и вы можете изменить свой выбор в любое время.',
     'web.consent.accept': 'Принять аналитику',
     'web.consent.decline': 'Отклонить',
@@ -2577,6 +2649,11 @@ const ru: Record<string, string> = {
     'web.seoPage.home.docsWorkspace': 'Рабочее пространство агента',
     'web.seoPage.home.docsCreateAgent': 'Создать агента',
     'web.seoPage.home.docsChannels': 'Каналы',
+    'web.seoPage.channels.description':
+        'Подключите Claude Code, Codex, Dify или любого агента, которого вы запускаете, к WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub и Linear.',
+    'web.seoPage.channels.h1':
+        'Claude Code и Codex теперь в ваших повседневных приложениях.',
+    'web.seoPage.channels.ctaTitle': 'Напишите своему агенту.',
     'web.cliUpgrade.one': 'Для 1 компьютера доступно обновление CLI',
     'web.cliUpgrade.many': 'Для {{count}} компьютеров доступно обновление CLI',
     'web.challenge.case1.coverAlt': 'Пиксельный офис Article Lens с агентами, анализирующими статью',

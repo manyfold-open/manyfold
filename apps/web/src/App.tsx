@@ -13,6 +13,8 @@ const importAppShell = () => import('@/components/AppShell')
 const importSettingsLayout = () => import('@/components/SettingsLayout')
 const importCustomizeLayout = () => import('@/pages/Customize/CustomizeLayout')
 
+const ChannelsLanding = lazyChunk(() => import('@/pages/ChannelsLanding'))
+const CloudLanding = lazyChunk(() => import('@/pages/CloudLanding'))
 const Challenge = lazyChunk(() => import('@/pages/Challenge'))
 const ChallengeStatus = lazyChunk(() => import('@/pages/ChallengeStatus'))
 const AppShell = lazyChunk(importAppShell)
@@ -165,6 +167,14 @@ const App: FC = (): ReactNode => {
             <SentryRoutes>
                 <Route path='/' element={<Landing />} />
                 <Route path='/zh' element={<Landing />} />
+                {/* Both language paths render the same route: the page pins
+                    its language from the URL the way the landing does, so a
+                    /zh/ link stays Chinese for a visitor whose browser is
+                    not. */}
+                <Route path='/channels' element={<ChannelsLanding />} />
+                <Route path='/zh/channels' element={<ChannelsLanding />} />
+                <Route path='/cloud' element={<CloudLanding />} />
+                <Route path='/zh/cloud' element={<CloudLanding />} />
                 <Route path='/challenge' element={<Challenge />} />
                 {/* Public on purpose: the signed-out state is one of the
                     states this page renders, so a route guard would bounce

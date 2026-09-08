@@ -1,6 +1,8 @@
 import type { FC, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useLocation } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
+import { CloudSectionLink } from '@/components/marketing/CloudNavLink'
 import { useI18n } from '@/lib/i18n'
 import { marketingLinkLanguage, marketingLinksFor } from '@/seo/marketingLinks'
 import { ScrollyWorld, type WorldLayerRefs } from './ScrollyWorld'
@@ -213,6 +215,11 @@ interface Scene {
     title: ReactNode
     lead: string
     items?: SceneItem[]
+    /* A way out of the scene into the page that argues it in full. The nav
+       and the footer catch a visitor who already knows the acquisition
+       pages exist; this is where someone reading the tour first meets
+       them. */
+    link?: ReactNode
     withCta?: boolean
     hint?: string
 }
@@ -220,9 +227,8 @@ interface Scene {
 export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
     const { t, language } = useI18n()
     const { pathname } = useLocation()
-    const docsHref = marketingLinksFor(
-        marketingLinkLanguage(pathname, language)
-    ).docs
+    const links = marketingLinksFor(marketingLinkLanguage(pathname, language))
+    const docsHref = links.docs
 
     const pinRef = useRef<HTMLDivElement>(null)
     const svgRef = useRef<SVGSVGElement>(null)
@@ -271,7 +277,12 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                 </>
             ),
             lead: t('web.landing.scene1Lead'),
-            items: [item(1, 1), item(1, 2), item(1, 3)]
+            items: [item(1, 1), item(1, 2), item(1, 3)],
+            /* Editions slot: the hosted offering is what "a persistent home
+               for every agent" means commercially, so the way out of this
+               scene is the cloud page — and an open-source install, which
+               has no such page, renders nothing here. */
+            link: <CloudSectionLink />
         },
         {
             eyebrow: t('web.landing.scene2Eyebrow'),
@@ -297,6 +308,12 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                 </>
             ),
             lead: t('web.landing.scene3Lead'),
+            link: (
+                <Link className='lp-scene-out' to={links.channels}>
+                    {t('web.landing.sceneChannelsLink')}
+                    <ArrowRight aria-hidden='true' />
+                </Link>
+            ),
             items: [item(3, 1), item(3, 2), item(3, 3)]
         },
         {
@@ -571,6 +588,11 @@ export const ScrollyStage: FC<{ cta: ReactNode }> = ({ cta }): ReactNode => {
                                                 </li>
                                             ))}
                                         </ul>
+                                    ) : null}
+                                    {scene.link ? (
+                                        <div className='lp-scene-link'>
+                                            {scene.link}
+                                        </div>
                                     ) : null}
                                     {scene.withCta ? (
                                         <div className='lp-scene-ctas'>

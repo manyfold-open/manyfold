@@ -2,7 +2,7 @@ import type { FC, ReactNode } from 'react'
 import { BrandMark } from '@/components/Brand'
 import { t } from '@manyfold/i18n'
 import { marketingLinksFor } from '@/seo/marketingLinks'
-import type { SeoLanguage } from '@/seo/pages'
+import type { SeoFooterLink, SeoLanguage } from '@/seo/pages'
 
 // Minimal nav/footer for crawler HTML: context-free on purpose, since this
 // renders through react-dom/server in a plain node process with no router,
@@ -48,9 +48,13 @@ export const StaticMarketingHeader: FC<{ language: SeoLanguage }> = ({
     )
 }
 
-export const StaticMarketingFooter: FC<{ language: SeoLanguage }> = ({
-    language
-}): ReactNode => {
+export const StaticMarketingFooter: FC<{
+    language: SeoLanguage
+    /* The manifest pages to link. Passed in rather than read here because
+       the post-build renderer knows about a composition's pages and this
+       module, loaded through the core manifest, does not. */
+    pages?: SeoFooterLink[]
+}> = ({ language, pages = [] }): ReactNode => {
     const links = marketingLinksFor(language)
     const labels = {
         docs: t('web.landing.navDocs'),
@@ -73,7 +77,17 @@ export const StaticMarketingFooter: FC<{ language: SeoLanguage }> = ({
                         </a>
                         <span className='lp-copy'>{labels.legal}</span>
                     </div>
+                    {/* Deliberately still the short list — this footer
+                        exists to give a crawler something, not to mirror the
+                        real one. The manifest's own pages earn a place in it
+                        because a link from every indexed page is how a page
+                        gets found, and the sitemap is not the only way. */}
                     <nav className='lp-foot-links'>
+                        {pages.map((page) => (
+                            <a key={page.path} href={page.path}>
+                                {page.label}
+                            </a>
+                        ))}
                         <a href={links.docs}>{labels.docs}</a>
                         <a href={links.privacy}>{labels.privacy}</a>
                         <a href={links.terms}>{labels.terms}</a>
