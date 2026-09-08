@@ -10,14 +10,17 @@ export {
     acpModelMatches,
     acpEventsFromNotification,
     pickStderrErrorLine,
-    isFatalStderrLine
+    isFatalStderrLine,
+    decodeOpenclawTurnUsage
 } from './acp'
 export type {
     AcpEvent,
     AcpRequestTimeouts,
     JsonRpcNotification,
     AcpSessionState,
-    AcpDialect
+    AcpDialect,
+    OpenclawTurnUsage,
+    OpenclawTurnUsageDecode
 } from './acp'
 export { HERMES_ACP_DIALECT, OPENCLAW_ACP_DIALECT } from './acp'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'

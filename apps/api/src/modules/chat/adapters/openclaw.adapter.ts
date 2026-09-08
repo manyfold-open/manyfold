@@ -2,6 +2,7 @@ import {
     DAEMON_FEATURE_TURN_OPENCLAW,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
     agentBaseUrl,
+    decodeOpenclawTurnUsage,
     resolveChatExecTimeoutMs
 } from '@manyfold/shared'
 import type {
@@ -9,8 +10,10 @@ import type {
     ChatAttachmentBlock,
     ChatCapabilities,
     ChatMessage,
+    ChatUsage,
     DaemonOpenclawTurnPayload,
-    OpenclawCredentialsInput
+    OpenclawCredentialsInput,
+    OpenclawTurnUsageDecode
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
@@ -22,7 +25,10 @@ import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
-import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
+import {
+    ExecDriverFactory,
+    type ExecDriverHandle
+} from '@/modules/chat/adapters/exec-driver-factory'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
@@ -45,7 +51,6 @@ import {
     type AcpRequestTimeouts
 } from './hermes-acp-client'
 import { OPENCLAW_ACP_DIALECT } from '@manyfold/shared'
-import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
 import { parseOpenclawJsonOutput } from './openclaw-json-parser'
 import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -112,25 +117,40 @@ const openclawAcpEnabled = (): boolean =>
     )
 
 // `openclaw acp` is a bridge to the resident gateway that runs INSIDE the
-// sprite/pod, so it connects over loopback with the gateway's own token — never
-// the public ingress (which device-pairs and proxy-attributes as of 2026.8.1).
-const OPENCLAW_ACP_GATEWAY_URL = `ws://127.0.0.1:${OPENCLAW_PORT}`
-const OPENCLAW_ACP_ARGS = ['acp', '--url', OPENCLAW_ACP_GATEWAY_URL, '--no-prefix-cwd']
+// sprite/pod, so it connects over loopback — never the public ingress (which
+// device-pairs and proxy-attributes as of 2026.8.1). The gateway is resolved
+// from the box's own ~/.openclaw/openclaw.json (gateway.port + auth.token, the
+// file Manyfold writes at bootstrap) rather than passed as `--url`: measured on
+// openclaw@2026.5.18 [2026-09-08], an explicit --url is treated as a REMOTE
+// override that refuses env/config credentials ("gateway url override requires
+// explicit credentials"), so against the token-auth gateway every sprite and
+// pod runs, `--url ws://127.0.0.1:18789` + OPENCLAW_GATEWAY_TOKEN was rejected
+// with token_missing while the url-less form connected (config or env token).
+const OPENCLAW_ACP_ARGS = ['acp', '--no-prefix-cwd']
 
-// The exec command for an openclaw ACP turn. In `dontAsk` there is nothing to
-// set — the bridge runs directly. In an ask mode the session's exec-approval
-// level is pre-patched over the loopback gateway BEFORE the bridge starts, then
-// `exec` hands off. Verified against openclaw@2026.5.18 [2026-09-07]:
-// sessions.patch UPSERTS the (deterministic) key, so the level applies from
-// this turn; `openclaw gateway call` runs in-box over loopback with the gateway
-// token, so it needs no device pairing (the off-box ingress would).
+// The bridge is exec'd with its stdin fed through `cat`, and the shell that
+// became the bridge is SIGTERMed the moment `cat` sees EOF. Measured on
+// openclaw@2026.5.18 [2026-09-08]: `openclaw acp` ignores stdin EOF (still
+// running 10 s later), so a bare bridge would burn the ACP client's whole close
+// grace on every turn and, on k8s — where abort only closes the exec stream —
+// outlive the turn inside the pod. SIGTERM exits it in ~100 ms; the launcher
+// shim forwards the signal to the process it respawns, so no orphan is left.
+const OPENCLAW_ACP_BRIDGE_SCRIPT = `exec openclaw ${OPENCLAW_ACP_ARGS.join(' ')} < <(cat; kill -TERM $$)`
+
+// The exec command for an openclaw ACP turn. In `dontAsk` with no model pick
+// there is nothing to set — the bridge runs directly. Otherwise the session's
+// exec-approval level / model is pre-patched over the loopback gateway BEFORE
+// the bridge starts, then `exec` hands off. Verified against openclaw@2026.5.18
+// [2026-09-07]: sessions.patch UPSERTS the (deterministic) key, so the level
+// applies from this turn; `openclaw gateway call` runs in-box over loopback with
+// the gateway token, so it needs no device pairing (the off-box ingress would).
 const openclawAcpCmd = (opts: {
     sessionKey: string
     execAsk: string | null
     model: string | null
 }): string[] => {
-    const acp = ['openclaw', ...OPENCLAW_ACP_ARGS]
-    if (!opts.execAsk && !opts.model) return acp
+    if (!opts.execAsk && !opts.model)
+        return ['bash', '-lc', OPENCLAW_ACP_BRIDGE_SCRIPT]
     const patchParams: Record<string, unknown> = { key: opts.sessionKey }
     // The gateway registers each catalog model under the `primary` provider, so
     // a pick routes as `primary/<model>`. Probe-verified [2026-09-07] to change
@@ -139,8 +159,33 @@ const openclawAcpCmd = (opts: {
     if (opts.execAsk) patchParams.execAsk = opts.execAsk
     const params = JSON.stringify(patchParams)
     const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
-    return ['bash', '-lc', `${patch}; exec ${acp.join(' ')}`]
+    return ['bash', '-lc', `${patch}; ${OPENCLAW_ACP_BRIDGE_SCRIPT}`]
 }
+
+// A one-shot in-box gateway RPC (the CLI speaks to the loopback gateway with
+// its token). `--json` makes stdout the bare result object.
+const openclawGatewayCallCmd = (
+    method: string,
+    params: Record<string, unknown>
+): string[] => [
+    'openclaw',
+    'gateway',
+    'call',
+    method,
+    '--params',
+    JSON.stringify(params),
+    '--json',
+    '--timeout',
+    '10000'
+]
+
+// How many recent transcript messages the post-turn usage read-back asks for.
+// The turn's own user message must be inside the window to anchor the sum; a
+// full window with no anchor means a longer tool loop, so it is retried once at
+// the wide limit rather than paying that payload on every turn.
+const OPENCLAW_USAGE_WINDOW = 60
+const OPENCLAW_USAGE_WINDOW_WIDE = 400
+const OPENCLAW_USAGE_CALL_TIMEOUT_MS = 20_000
 // Distinct parser namespace + ordinal keys from the SSE/CLI decoders so the
 // durable raw_source rows are self-describing and versioned independently.
 const OPENCLAW_ACP_PARSER_NAME = 'openclaw-acp'
@@ -789,6 +834,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             return
         }
 
+        const tStart = Date.now()
         const queue: AcpEvent[] = []
         const waker: { resolve: (() => void) | null } = { resolve: null }
         const wake = (): void => {
@@ -840,6 +886,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
 
         const seq = { current: 0 }
         const fatal = { yielded: false }
+        const firstToken: { at: number | null } = { at: null }
         const drainQueue = function* (
             this: OpenclawAdapter
         ): IterableIterator<EmittedChatEvent> {
@@ -867,6 +914,8 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 }
                 if (ev.type === 'usage_update' || ev.type === 'turn_end')
                     continue
+                if (ev.type === 'text' && firstToken.at === null)
+                    firstToken.at = Date.now()
                 seq.current += 1
                 yield* openclawAcpEventToChatEvents(ev, ctx, seq.current)
             }
@@ -890,6 +939,11 @@ export class OpenclawAdapter implements ApiChatAdapter {
             errorRef.current = err as Error
         })
 
+        // The ACP stream carries no token usage, so a clean turn reads its
+        // usage back from the gateway transcript. Started before close() so
+        // the CLI round trip overlaps the bridge teardown instead of adding to
+        // the tail the user waits through.
+        let usageFetch: Promise<ChatUsage | null> | null = null
         try {
             while (!state.finished || queue.length > 0) {
                 if (queue.length === 0)
@@ -899,6 +953,19 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 for (const ev of drainQueue()) yield ev
                 if (state.aborted) break
             }
+            // Settle the prompt chain first: its rejection handler may still be
+            // a microtask behind the last drained event.
+            await promptDone.catch(() => undefined)
+            if (!fatal.yielded && !state.aborted && !errorRef.current)
+                usageFetch = this.fetchOpenclawAcpUsage({
+                    handle,
+                    runtime,
+                    sessionKey,
+                    promptText: prompt,
+                    ctx,
+                    tStart,
+                    firstTokenAt: firstToken.at
+                })
         } finally {
             await turn.close().catch(() => {})
             unregisterPermissions?.()
@@ -929,6 +996,8 @@ export class OpenclawAdapter implements ApiChatAdapter {
             }
             return
         }
+        const usage = usageFetch ? await usageFetch : null
+        if (usage) yield { type: 'usage', usage }
         // Persist the deterministic gateway key so the next turn skips the
         // legacy FS backfill and knows a session exists.
         if (ctx.frameworkSessionRef !== sessionKey)
@@ -940,6 +1009,131 @@ export class OpenclawAdapter implements ApiChatAdapter {
                     )
                 )
         yield { type: 'done', finalMessageId: ctx.messageId }
+    }
+
+    // Post-turn billing for the ACP path: one in-box `sessions.get` on the
+    // turn's key, summed by the shared decoder. A miss is logged and counted,
+    // never fatal — the user already has the answer, and failing the turn after
+    // the fact would hide the billing gap behind a retry rather than measure it.
+    private async fetchOpenclawAcpUsage(args: {
+        handle: ExecDriverHandle
+        runtime: OpenclawRuntime
+        sessionKey: string
+        promptText: string
+        ctx: ApiChatAdapterContext
+        tStart: number
+        firstTokenAt: number | null
+    }): Promise<ChatUsage | null> {
+        const t0 = Date.now()
+        const outcome = (
+            status: string,
+            extra: Record<string, string | number> = {}
+        ): void => {
+            this.telemetry.event('openclaw_acp_usage', {
+                'nca.agent_id': args.ctx.agentId,
+                'nca.session_id': args.ctx.sessionId,
+                'nca.outcome': status,
+                'nca.duration_ms': Date.now() - t0,
+                ...extra
+            })
+        }
+        try {
+            let decoded = await this.readOpenclawTurnUsage(
+                args,
+                OPENCLAW_USAGE_WINDOW
+            )
+            if (decoded.status === 'no_user_message' && decoded.windowFull)
+                decoded = await this.readOpenclawTurnUsage(
+                    args,
+                    OPENCLAW_USAGE_WINDOW_WIDE
+                )
+            if (decoded.status !== 'ok') {
+                this.logger.warn(
+                    `openclaw acp usage unavailable for ${args.ctx.sessionId}: ${decoded.status}`
+                )
+                outcome(decoded.status)
+                return null
+            }
+            const { usage } = decoded
+            outcome('ok', { 'nca.provider_calls': usage.calls })
+            return buildOpenAiUsage(
+                {
+                    inputTokens: usage.inputTokens,
+                    outputTokens: usage.outputTokens,
+                    cacheRead: usage.cacheReadTokens,
+                    cacheWrite: usage.cacheCreationTokens
+                },
+                usage.model ??
+                    args.ctx.model ??
+                    args.runtime.displayModel ??
+                    args.runtime.modelId,
+                args.tStart,
+                args.firstTokenAt,
+                this.pricing,
+                args.ctx
+            )
+        } catch (err) {
+            const message = (err as Error).message
+            this.logger.warn(
+                `openclaw acp usage read-back failed for ${args.ctx.sessionId}: ${message}`
+            )
+            outcome('error', { 'nca.error_message': message })
+            return null
+        }
+    }
+
+    private async readOpenclawTurnUsage(
+        args: {
+            handle: ExecDriverHandle
+            runtime: OpenclawRuntime
+            sessionKey: string
+            promptText: string
+        },
+        limit: number
+    ): Promise<OpenclawTurnUsageDecode> {
+        const exec = args.handle.driver.stream({
+            cmd: openclawGatewayCallCmd('sessions.get', {
+                key: args.sessionKey,
+                limit
+            }),
+            env: {
+                OPENCLAW_GATEWAY_TOKEN: args.runtime.gatewayToken,
+                OPENCLAW_HIDE_BANNER: '1',
+                OPENCLAW_SUPPRESS_NOTES: '1'
+            },
+            timeoutMs: OPENCLAW_USAGE_CALL_TIMEOUT_MS
+        })
+        const collect = async (
+            chunks: AsyncIterable<string>
+        ): Promise<string> => {
+            let out = ''
+            for await (const chunk of chunks) out += chunk
+            return out
+        }
+        const [stdout, stderr] = await Promise.all([
+            collect(exec.stdout),
+            collect(exec.stderr)
+        ])
+        const result = await exec.result
+        if (result.exitCode !== 0)
+            throw new Error(
+                `openclaw gateway call sessions.get exited ${result.exitCode}: ${(stderr || stdout).trim().slice(0, 300)}`
+            )
+        const start = stdout.indexOf('{')
+        const end = stdout.lastIndexOf('}')
+        if (start === -1 || end <= start)
+            throw new Error(
+                'openclaw gateway call sessions.get returned no JSON object'
+            )
+        let parsed: unknown
+        try {
+            parsed = JSON.parse(stdout.slice(start, end + 1))
+        } catch (err) {
+            throw new Error(
+                `openclaw gateway call sessions.get returned unparsable JSON: ${(err as Error).message}`
+            )
+        }
+        return decodeOpenclawTurnUsage(parsed, args.promptText, { limit })
     }
 
     private async *sendOpenAiCompat(

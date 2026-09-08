@@ -5,6 +5,7 @@ import {
     acpEventsFromNotification,
     acpModelMatches,
     decodeAcpSessionState,
+    decodeOpenclawTurnUsage,
     decodePermissionRequest,
     HERMES_ACP_DIALECT,
     isFatalStderrLine,
@@ -277,4 +278,188 @@ test('OPENCLAW_ACP_DIALECT pins the openclaw seams', () => {
     })
     assert.deepEqual(OPENCLAW_ACP_DIALECT.sessionMeta?.(null), {})
     assert.deepEqual(OPENCLAW_ACP_DIALECT.promptMeta, { _meta: { prefixCwd: false } })
+})
+
+// The post-turn usage read-back. Messages are the shape `openclaw gateway call
+// sessions.get --json` returned against openclaw@2026.5.18 [2026-09-08], with the
+// probe stub's distinct per-call figures (100n+1 / 10n+1) so a sum is
+// distinguishable from a last-call-only read.
+//
+// Prove-red control (manual): change `messages.slice(lastUser + 1)` to
+// `.slice(lastUser)` — nothing changes (the user row has no usage), so instead
+// drop the `role !== 'assistant'` continue: the toolResult row still has no
+// usage, so the tool-loop case is the one that must be reached by summing —
+// delete the `+=` on inputTokens and it fails with 301 !== 502.
+const transcriptUsage = (input: number, output: number) => ({
+    input,
+    output,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: input + output,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+})
+const transcriptUser = (text: string) => ({
+    role: 'user',
+    content: [
+        {
+            type: 'text',
+            text: `Sender (untrusted metadata):\n\`\`\`json\n{"label":"ACP"}\n\`\`\`\n\n${text}`
+        }
+    ],
+    timestamp: 1
+})
+const transcriptAssistant = (input: number, output: number) => ({
+    role: 'assistant',
+    api: 'openai-completions',
+    provider: 'primary',
+    model: 'stub-model',
+    usage: transcriptUsage(input, output),
+    stopReason: 'stop',
+    content: [{ type: 'text', text: 'ok' }],
+    timestamp: 2
+})
+const toolResult = {
+    role: 'toolResult',
+    content: [{ type: 'text', text: 'billing-probe' }],
+    timestamp: 3
+}
+const historyThenToolLoop = [
+    transcriptUser('Say hello.'),
+    transcriptAssistant(101, 11),
+    transcriptUser('TOOLCALL: run the command please.'),
+    transcriptAssistant(201, 21),
+    toolResult,
+    transcriptAssistant(301, 31)
+]
+
+test("decodeOpenclawTurnUsage sums every model call after this turn's user message", () => {
+    const decoded = decodeOpenclawTurnUsage(
+        { messages: historyThenToolLoop },
+        'TOOLCALL: run the command please.',
+        { limit: 60 }
+    )
+    assert.deepEqual(decoded, {
+        status: 'ok',
+        usage: {
+            inputTokens: 502,
+            outputTokens: 52,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 0,
+            calls: 2,
+            model: 'stub-model',
+            provider: 'primary'
+        }
+    })
+})
+
+test('decodeOpenclawTurnUsage bills only the newest turn when history is present', () => {
+    const decoded = decodeOpenclawTurnUsage(
+        {
+            messages: [
+                ...historyThenToolLoop,
+                transcriptUser('Say hello again.'),
+                transcriptAssistant(401, 41)
+            ]
+        },
+        'Say hello again.',
+        { limit: 60 }
+    )
+    assert.equal(decoded.status, 'ok')
+    if (decoded.status === 'ok') {
+        assert.equal(decoded.usage.inputTokens, 401)
+        assert.equal(decoded.usage.outputTokens, 41)
+        assert.equal(decoded.usage.calls, 1)
+    }
+})
+
+test("decodeOpenclawTurnUsage refuses a tail that is not this prompt's (no double charge)", () => {
+    // A bridge-answered command wrote nothing; the last user row is the
+    // previous turn's, so its tail must not be billed again.
+    const decoded = decodeOpenclawTurnUsage(
+        { messages: historyThenToolLoop },
+        '/help',
+        { limit: 60 }
+    )
+    assert.deepEqual(decoded, { status: 'prompt_mismatch' })
+    // An empty prompt cannot anchor, so containment is skipped rather than
+    // matching vacuously against nothing.
+    assert.equal(
+        decodeOpenclawTurnUsage({ messages: historyThenToolLoop }, '   ', {
+            limit: 60
+        }).status,
+        'ok'
+    )
+})
+
+test('decodeOpenclawTurnUsage reports why nothing could be attributed', () => {
+    assert.deepEqual(decodeOpenclawTurnUsage({}, 'x', { limit: 60 }), {
+        status: 'invalid'
+    })
+    assert.deepEqual(decodeOpenclawTurnUsage(null, 'x', { limit: 60 }), {
+        status: 'invalid'
+    })
+    assert.deepEqual(
+        decodeOpenclawTurnUsage({ messages: [] }, 'x', { limit: 60 }),
+        { status: 'no_user_message', windowFull: false }
+    )
+    // A full window with no anchor: the turn outran the window.
+    assert.deepEqual(
+        decodeOpenclawTurnUsage(
+            {
+                messages: Array.from({ length: 3 }, () =>
+                    transcriptAssistant(1, 1)
+                )
+            },
+            'x',
+            { limit: 3 }
+        ),
+        { status: 'no_user_message', windowFull: true }
+    )
+    assert.deepEqual(
+        decodeOpenclawTurnUsage(
+            {
+                messages: [
+                    transcriptUser('x'),
+                    { role: 'assistant', content: 'no usage recorded' }
+                ]
+            },
+            'x',
+            { limit: 60 }
+        ),
+        { status: 'no_usage' }
+    )
+})
+
+test('decodeOpenclawTurnUsage tolerates string content and junk counts', () => {
+    const decoded = decodeOpenclawTurnUsage(
+        {
+            messages: [
+                { role: 'user', content: 'plain string prompt' },
+                {
+                    role: 'assistant',
+                    model: 'm',
+                    usage: {
+                        input: 'abc',
+                        output: -5,
+                        cacheRead: 7.9,
+                        cacheWrite: NaN
+                    }
+                }
+            ]
+        },
+        'plain string prompt',
+        { limit: 60 }
+    )
+    assert.deepEqual(decoded, {
+        status: 'ok',
+        usage: {
+            inputTokens: 0,
+            outputTokens: 0,
+            cacheReadTokens: 7,
+            cacheCreationTokens: 0,
+            calls: 1,
+            model: 'm',
+            provider: null
+        }
+    })
 })
