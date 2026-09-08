@@ -22,6 +22,20 @@ export const overlayCandidate = (
 
 const EXTENSION_PROBES = ['', '.ts', '.tsx', '/index.ts', '/index.tsx']
 
+// Seen on the cloud dev server [2026-09-08]: the wrap-and-extend guard below
+// is not enough on its own. It hands the overlay its base counterpart, but
+// the dev server then fetches that base by its own URL ('/src/routes.ts'),
+// and such a request carries the HTML entry as its importer — the overlay is
+// nowhere in it, so the mapping runs again and answers the base URL with the
+// overlay. The overlay's import of the base then points at the overlay, i.e.
+// at itself, and a module re-exporting its own names exports nothing:
+// 'does not provide an export named ...', admin white screen. Base
+// resolutions carry this mark so they keep a URL the mapping ignores.
+const BASE_MARK = 'mf-overlay-base'
+
+const isBaseMarked = (id: string): boolean =>
+    new URLSearchParams(id.split('?')[1] ?? '').has(BASE_MARK)
+
 const probe = (candidate: string): string | null => {
     for (const ext of EXTENSION_PROBES) {
         const withExt = candidate + ext
@@ -51,7 +65,7 @@ export const overlayResolver = (
     name: 'mf-edition-overlay',
     enforce: 'pre',
     async resolveId(source, importer, options) {
-        if (!overlaySrc) return null
+        if (!overlaySrc || isBaseMarked(source)) return null
         // Composition-layer workspace packages resolve to source, mirroring
         // the core aliases above; their CJS dist hides named exports from
         // rollup. Generic rule: any @manyfold/<name> bare id whose package
@@ -77,10 +91,11 @@ export const overlayResolver = (
             )
             if (!candidate) return null
             const hit = probe(candidate)
+            if (!hit) return null
             // An overlay module that imports its base counterpart (the
             // wrap-and-extend idiom) resolves to the base file, not itself:
             // mapping here would close an import loop on the overlay file.
-            if (!hit || hit === importer) return null
+            if (hit === importer) return `${resolution.id}?${BASE_MARK}`
             return hit
         }
         // The base tree cannot resolve it at all: an overlay-only module (a
