@@ -1,6 +1,8 @@
 import {
     DAEMON_FEATURE_TURN_OPENCLAW,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DEFAULT_CHAT_EXEC_TIMEOUTS,
+    acpEventsFromFrame,
     agentBaseUrl,
     decodeOpenclawTurnUsage,
     resolveChatExecTimeoutMs
@@ -12,7 +14,9 @@ import type {
     ChatMessage,
     ChatUsage,
     DaemonOpenclawTurnPayload,
+    DaemonOpenclawAcpTurnPayload,
     OpenclawCredentialsInput,
+    OpenclawTurnUsage,
     OpenclawTurnUsageDecode
 } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
@@ -186,6 +190,13 @@ const openclawGatewayCallCmd = (
 const OPENCLAW_USAGE_WINDOW = 60
 const OPENCLAW_USAGE_WINDOW_WIDE = 400
 const OPENCLAW_USAGE_CALL_TIMEOUT_MS = 20_000
+// Deny-on-timeout deadline the daemon runner applies to an unanswered ACP
+// permission ask. Kept in step with hermes so a card behaves the same on either
+// framework.
+const OPENCLAW_PERMISSION_TIMEOUT_MS = Math.max(
+    10_000,
+    Number(process.env.OPENCLAW_PERMISSION_TIMEOUT_MS ?? 300_000)
+)
 // Distinct parser namespace + ordinal keys from the SSE/CLI decoders so the
 // durable raw_source rows are self-describing and versioned independently.
 const OPENCLAW_ACP_PARSER_NAME = 'openclaw-acp'
@@ -416,6 +427,26 @@ export class OpenclawAdapter implements ApiChatAdapter {
         if (!agentRow) throw new Error(`agent ${ctx.agentId} not found`)
 
         if (agentRow.runtime === 'daemon') {
+            // BYOD daemon over ACP (ADR-0027, O6): the daemon drives `openclaw
+            // acp` against the host's OWN gateway. Guarded on framework so
+            // narranexus keeps gateway-http, on the flag, on a resolvable
+            // daemon, and on the daemon advertising the capability — otherwise
+            // fall back to the legacy `openclaw agent --local --json` spawn.
+            if (
+                this.framework === 'openclaw' &&
+                openclawAcpEnabled() &&
+                agentRow.daemonId &&
+                this.daemonRegistry &&
+                (await this.daemonSupportsOpenclawAcp(agentRow.daemonId))
+            ) {
+                yield* this.sendViaDaemonAcp(
+                    ctx,
+                    userMessage,
+                    agentRow.internalId,
+                    agentRow.daemonId
+                )
+                return
+            }
             yield* this.sendViaDaemonSpawn(ctx, userMessage)
             return
         }
@@ -466,6 +497,299 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 })
             }
         }
+    }
+
+    // Whether this daemon can run an openclaw turn over ACP (turn.openclaw.acp).
+    // A lookup failure is treated as "no" and falls back to the CLI spawn — the
+    // same conservative posture daemonSupportsTurnRpc takes.
+    private async daemonSupportsOpenclawAcp(daemonId: string): Promise<boolean> {
+        try {
+            return await daemonAdvertisesFeature(
+                this.db,
+                daemonId,
+                DAEMON_FEATURE_TURN_OPENCLAW_ACP
+            )
+        } catch (err) {
+            this.logger.warn(
+                `turn.openclaw.acp capability lookup failed for ${daemonId}: ${(err as Error).message} — using the CLI spawn transport`
+            )
+            return false
+        }
+    }
+
+    // BYOD daemon over ACP (O6): dispatch a turn.start carrying the ACP payload
+    // and decode the daemon's replayed ACP frames. The daemon is the ACP
+    // client against the host's own gateway; the API only reads the stream,
+    // live or replayed (exec.resume), so its restarts are invisible to the
+    // turn — the same recovery contract hermes has.
+    private async *sendViaDaemonAcp(
+        ctx: ApiChatAdapterContext,
+        userMessage: ChatMessage,
+        internalId: string,
+        daemonId: string
+    ): AsyncIterable<EmittedChatEvent> {
+        if (ctx.abortSignal?.aborted) {
+            yield cancelledEvent()
+            return
+        }
+        const sessionKey = openclawGatewaySessionKey(internalId, ctx.sessionId)
+        const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
+        const patch: { execAsk?: string; model?: string } = {}
+        // 'default' turns exec approval on; the enum is the probe-verified
+        // posture. A per-message model pick routes as primary/<model>.
+        if (permissionMode === 'default') patch.execAsk = 'on-miss'
+        if (ctx.modelOverride) patch.model = `primary/${ctx.modelOverride}`
+        const budgets = await this.streamBudgets()
+        const payload: DaemonOpenclawAcpTurnPayload = {
+            framework: 'openclaw',
+            transport: 'acp',
+            prompt: messageToPromptText(userMessage),
+            sessionKey,
+            ...(patch.execAsk || patch.model ? { patch } : {}),
+            permissionMode,
+            ...(permissionMode === 'default'
+                ? { permissionTimeoutMs: OPENCLAW_PERMISSION_TIMEOUT_MS }
+                : {}),
+            idleTimeoutMs: budgets.idleTimeoutMs,
+            maxDurationMs: budgets.maxDurationMs
+        }
+        yield* this.drainOpenclawAcpTurnStream(ctx, {
+            daemonId,
+            execRef: ctx.messageId,
+            sessionKey,
+            rpc: {
+                method: 'turn.start',
+                payload: payload as unknown as Record<string, unknown>,
+                timeoutMs: budgets.maxDurationMs + 10_000,
+                refIdOverride: ctx.messageId
+            }
+        })
+    }
+
+    // One drain for a live turn.start ACP stream and its exec.resume replay, so
+    // a recovered daemon ACP turn decodes through exactly this code. Frames are
+    // the daemon's stdout verbatim (one ACP JSON-RPC frame per line); the final
+    // carries the stopReason (completion evidence) and the usage the runner
+    // read back from the gateway transcript.
+    private async *drainOpenclawAcpTurnStream(
+        ctx: ApiChatAdapterContext,
+        args: {
+            daemonId: string
+            execRef: string
+            sessionKey: string
+            rpc: {
+                method: 'turn.start' | 'exec.resume'
+                payload: Record<string, unknown>
+                timeoutMs: number
+                refIdOverride?: string
+            }
+        }
+    ): AsyncIterable<EmittedChatEvent> {
+        const registry = this.daemonRegistry
+        if (!registry) {
+            yield {
+                type: 'error',
+                error: {
+                    code: 'openclaw_daemon_acp_failed',
+                    message: 'daemon registry unavailable',
+                    retryable: true
+                }
+            }
+            return
+        }
+        const tStart = Date.now()
+        let firstTokenAt: number | null = null
+        const chunks: string[] = []
+        const waker: { resolve: (() => void) | null } = { resolve: null }
+        const wake = (): void => {
+            const r = waker.resolve
+            waker.resolve = null
+            if (r) r()
+        }
+        let ackPayload: Record<string, unknown> | undefined
+        const transportError: { current: Error | null } = { current: null }
+        let settled = false
+        const onEvent = (kind: string, data: string): void => {
+            if (kind !== 'stdout') return
+            chunks.push(data)
+            wake()
+        }
+        const stream =
+            args.rpc.method === 'turn.start' &&
+            args.rpc.refIdOverride &&
+            this.fencedDispatch
+                ? this.fencedDispatch.streamTurnRpc({
+                      daemonId: args.daemonId,
+                      method: 'turn.start',
+                      payload: args.rpc.payload,
+                      timeoutMs: args.rpc.timeoutMs,
+                      refId: args.rpc.refIdOverride,
+                      onEvent
+                  })
+                : registry.streamRpc({
+                      daemonId: args.daemonId,
+                      method: args.rpc.method,
+                      payload: args.rpc.payload,
+                      timeoutMs: args.rpc.timeoutMs,
+                      onEvent,
+                      ...(args.rpc.refIdOverride
+                          ? { refIdOverride: args.rpc.refIdOverride }
+                          : {})
+                  })
+        void stream.result.then(
+            (payload) => {
+                ackPayload = payload
+                settled = true
+                wake()
+            },
+            (err: Error) => {
+                transportError.current = err
+                settled = true
+                wake()
+            }
+        )
+        const aborted = { current: false }
+        const onAbort = (): void => {
+            aborted.current = true
+            try {
+                stream.cancel()
+            } catch {}
+            wake()
+        }
+        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
+
+        let lineBuf = ''
+        let seq = 0
+        const consume = function* (
+            this: OpenclawAdapter
+        ): IterableIterator<EmittedChatEvent> {
+            for (const chunk of chunks.splice(0, chunks.length)) {
+                lineBuf += chunk
+                let nl = lineBuf.indexOf('\n')
+                while (nl !== -1) {
+                    const line = lineBuf.slice(0, nl).trim()
+                    lineBuf = lineBuf.slice(nl + 1)
+                    nl = lineBuf.indexOf('\n')
+                    if (!line) continue
+                    let frame: Record<string, unknown> | null = null
+                    try {
+                        frame = JSON.parse(line) as Record<string, unknown>
+                    } catch {
+                        continue
+                    }
+                    for (const ev of acpEventsFromFrame(frame)) {
+                        if (ev.type === 'usage_update' || ev.type === 'turn_end')
+                            continue
+                        if (ev.type === 'error') continue
+                        if (ev.type === 'text' && firstTokenAt === null)
+                            firstTokenAt = Date.now()
+                        seq += 1
+                        yield* openclawAcpEventToChatEvents(ev, ctx, seq)
+                    }
+                }
+            }
+        }.bind(this)
+
+        try {
+            for (;;) {
+                yield* consume()
+                if (settled && chunks.length === 0) break
+                if (chunks.length === 0)
+                    await new Promise<void>((resolve) => {
+                        waker.resolve = resolve
+                    })
+            }
+            yield* consume()
+        } finally {
+            ctx.abortSignal?.removeEventListener('abort', onAbort)
+        }
+
+        if (aborted.current) {
+            yield cancelledEvent()
+            return
+        }
+        const rpcError = transportError.current
+        if (rpcError) {
+            const suspendable =
+                args.rpc.method === 'exec.resume'
+                    ? isDaemonResumeSuspendError(rpcError)
+                    : isDaemonOfflineTransportError(rpcError)
+            if (suspendable) {
+                this.logger.log(
+                    `openclaw acp turn suspended (daemon offline) message=${ctx.messageId}: ${rpcError.message}`
+                )
+                yield {
+                    type: 'suspended',
+                    daemonId: args.daemonId,
+                    daemonExecRef: args.execRef,
+                    reason: rpcError.message
+                }
+                return
+            }
+            const managedChannelFailure = classifyManagedChannelFailureSignal({
+                message: rpcError.message
+            })
+            yield {
+                type: 'error',
+                ...(managedChannelFailure ? { managedChannelFailure } : {}),
+                error: {
+                    code: 'openclaw_daemon_acp_failed',
+                    message: rpcError.message,
+                    retryable: true
+                }
+            }
+            return
+        }
+        const stopReason =
+            typeof ackPayload?.['stopReason'] === 'string'
+                ? (ackPayload['stopReason'] as string)
+                : null
+        if (!stopReason) {
+            this.logger.warn(
+                `openclaw acp daemon turn ended without completion evidence; suspending messageId=${ctx.messageId}`
+            )
+            yield {
+                type: 'suspended',
+                daemonId: args.daemonId,
+                daemonExecRef: args.execRef,
+                reason: 'acp stream ended without stopReason'
+            }
+            return
+        }
+        // The runner read the usage back from the gateway transcript (the ACP
+        // stream carries none) and put it on the final; a miss is not fatal.
+        const turnUsage = ackPayload?.['usage'] as OpenclawTurnUsage | undefined
+        if (turnUsage) {
+            yield {
+                type: 'usage',
+                usage: buildOpenAiUsage(
+                    {
+                        inputTokens: turnUsage.inputTokens,
+                        outputTokens: turnUsage.outputTokens,
+                        cacheRead: turnUsage.cacheReadTokens,
+                        cacheWrite: turnUsage.cacheCreationTokens
+                    },
+                    turnUsage.model ?? ctx.model ?? 'openclaw',
+                    tStart,
+                    firstTokenAt,
+                    this.pricing,
+                    ctx
+                )
+            }
+        }
+        if (args.sessionKey && ctx.frameworkSessionRef !== args.sessionKey)
+            await this.chatRepo
+                .updateFrameworkSessionRef(
+                    ctx.sessionId,
+                    args.sessionKey,
+                    ctx.turnFence
+                )
+                .catch((err) =>
+                    this.logger.warn(
+                        `openclaw acp daemon session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
+                    )
+                )
+        yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
     private async *sendViaDaemonSpawn(
@@ -1549,6 +1873,31 @@ export class OpenclawAdapter implements ApiChatAdapter {
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.runtimeKind === 'daemon') {
+            // With the flag on, a daemon openclaw turn is an ACP turn.start
+            // whose frames the daemon buffered; replay them through the ACP
+            // drain. Off, it is the legacy `openclaw agent --json` spawn.
+            if (
+                openclawAcpEnabled() &&
+                ctx.daemonId &&
+                ctx.daemonExecRef &&
+                this.daemonRegistry
+            ) {
+                yield* this.drainOpenclawAcpTurnStream(ctx, {
+                    daemonId: ctx.daemonId,
+                    execRef: ctx.daemonExecRef,
+                    sessionKey: ctx.frameworkSessionRef ?? '',
+                    rpc: {
+                        method: 'exec.resume',
+                        payload: {
+                            originalRefId: ctx.daemonExecRef,
+                            fromSeq: 0
+                        },
+                        timeoutMs:
+                            (await this.streamBudgets()).maxDurationMs + 10_000
+                    }
+                })
+                return
+            }
             yield* this.resumeViaDaemonSpawn(ctx)
             return
         }

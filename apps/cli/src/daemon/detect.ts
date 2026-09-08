@@ -3,6 +3,7 @@ import { access } from 'node:fs/promises'
 import { join, delimiter, dirname } from 'node:path'
 import type { DetectedFramework } from '@manyfold/shared'
 import { resolveBinariesViaLoginShell } from './login-shell-path'
+import { discoverOpenclawGateway } from './openclaw-gateway'
 
 const BINARY_FOR_FRAMEWORK: Record<DetectedFramework['framework'], string> = {
     'claude-code': 'claude',
@@ -92,7 +93,19 @@ export const detectFrameworks = async (): Promise<DetectedFramework[]> => {
         const path = pathByBinary.get(BINARY_FOR_FRAMEWORK[framework])
         if (!path) continue
         const version = await versionOf(path)
-        results.push({ framework, version, path })
+        // openclaw only: discover (never start) the host's resident gateway so
+        // the API can route ACP turns and gate the O9 flip on real reachability.
+        // The token is never read here — `openclaw acp` resolves it itself.
+        const gateway =
+            framework === 'openclaw'
+                ? await discoverOpenclawGateway()
+                : undefined
+        results.push({
+            framework,
+            version,
+            path,
+            ...(gateway ? { gateway } : {})
+        })
     }
     return results
 }

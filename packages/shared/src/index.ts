@@ -837,7 +837,9 @@ export type {
     DaemonTurnStartPayload,
     DaemonHermesTurnPayload,
     DaemonOpenclawTurnPayload,
-    DaemonTurnFinalPayload
+    DaemonOpenclawAcpTurnPayload,
+    DaemonTurnFinalPayload,
+    DetectedOpenclawGateway
 } from './daemon'
 export {
     DAEMON_ONLINE_THRESHOLD_MS,
@@ -855,6 +857,7 @@ export {
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_TURN_OPENCLAW,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,

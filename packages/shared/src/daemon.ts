@@ -1,5 +1,6 @@
 import type { AgentFramework } from './constants'
 import type { RuntimeLocalCredentialFacts } from './runtime-local-credentials'
+import type { OpenclawTurnUsage } from './acp'
 
 export type DaemonHostStatus = 'active' | 'offline' | 'revoked'
 
@@ -36,6 +37,19 @@ export interface DetectedFramework {
     framework: DaemonDetectableFramework
     version: string | null
     path: string
+    // openclaw only: the resident gateway the daemon DISCOVERED (never started)
+    // from the host's own openclaw config. `reachable` is a loopback HTTP probe
+    // at detection time — a hint for operators and the O9 evidence gate, not a
+    // dispatch decision; the turn runner probes again when it matters. null =
+    // the config points at a remote gateway, which the daemon does not probe.
+    // The gateway token is deliberately never reported.
+    gateway?: DetectedOpenclawGateway
+}
+
+export interface DetectedOpenclawGateway {
+    port: number | null
+    reachable: boolean | null
+    checkedAt: string
 }
 
 export interface RegisterDaemonRequest {
@@ -339,6 +353,9 @@ export interface DaemonHermesTurnPayload {
 // socket must be held here and not in the API.
 export interface DaemonOpenclawTurnPayload {
     framework: 'openclaw'
+    // Absent on the gateway-http shape (every daemon predating the ACP cell
+    // sends and reads it that way); 'acp' selects DaemonOpenclawAcpTurnPayload.
+    transport?: 'gateway-http'
     url: string
     token?: string | null
     body: Record<string, unknown>
@@ -356,9 +373,39 @@ export interface DaemonOpenclawTurnPayload {
     maxDurationMs?: number
 }
 
+// openclaw over ACP on a BYOD daemon (ADR-0027): the daemon spawns `openclaw
+// acp` against the host's OWN resident gateway — discovered from the user's
+// openclaw config, never started, its token never seen by the API — and drives
+// it as the ACP client exactly like a hermes turn. Continuity is the gateway
+// session KEY (`_meta.sessionKey` on every session/new; the ACP sessionId is
+// disposable, so there is no session/resume). The approval and model levers
+// are gateway-side session fields the daemon patches in-box before the bridge
+// starts, not ACP options.
+export interface DaemonOpenclawAcpTurnPayload {
+    framework: 'openclaw'
+    transport: 'acp'
+    prompt: string
+    dir?: string
+    sessionKey: string
+    // `openclaw gateway call sessions.patch {key, ...}` before the bridge:
+    // execAsk turns exec approval on for the ask mode, model applies a
+    // per-message pick (`primary/<model>`). Absent = nothing patched.
+    patch?: { execAsk?: string; model?: string }
+    // openclaw permission mode (see openclawPermissionModes in chat.ts).
+    // dontAsk/absent = the gateway's shipped tools.exec.ask stays off and asks
+    // are auto-approved; default = session/request_permission is forwarded as
+    // permission_request frames for the user to answer via turn.permission.
+    permissionMode?: 'default' | 'dontAsk'
+    permissionTimeoutMs?: number
+    handshakeTimeoutMs?: number
+    idleTimeoutMs?: number
+    maxDurationMs?: number
+}
+
 export type DaemonTurnStartPayload =
     | DaemonHermesTurnPayload
     | DaemonOpenclawTurnPayload
+    | DaemonOpenclawAcpTurnPayload
 
 // Ack payload of turn.start — and, because it is written as the stream's
 // final, also what exec.resume returns for a finished turn stream. A string
@@ -380,6 +427,11 @@ export interface DaemonTurnFinalPayload {
         currentModeId: string | null
         modeIds: string[]
     }
+    // openclaw ACP only: the turn's token usage read back from the gateway
+    // transcript after the prompt (the ACP stream carries none), or why it
+    // could not be attributed. Best-effort — its absence never fails a turn.
+    usage?: OpenclawTurnUsage
+    usageStatus?: string
 }
 
 export const DAEMON_FEATURE_EXEC_RESUME = 'exec.resume'
@@ -406,6 +458,14 @@ export const DAEMON_FEATURE_DAEMON_UPDATE_DRAIN = 'daemon.update.drain'
 // daemon without it is refused with `hermes_daemon_upgrade_required`.
 export const DAEMON_FEATURE_TURN_HERMES = 'turn.hermes'
 export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'
+// turn.start accepts DaemonOpenclawAcpTurnPayload (framework openclaw,
+// transport acp): the daemon drives `openclaw acp` against the host's own
+// gateway, patches the session in-box for the ask mode / model pick, reads
+// the usage back after the prompt, and answers turn.permission for its asks.
+// The API only sends this shape under MF_OPENCLAW_ACP and only to a daemon
+// advertising it; otherwise the daemon-runtime turn keeps spawning
+// `openclaw agent --local --json`.
+export const DAEMON_FEATURE_TURN_OPENCLAW_ACP = 'turn.openclaw.acp'
 // The hello's inflightStreams field is authoritative when PRESENT (an empty
 // list really means "no streams") and unknown when ABSENT (enumeration
 // failed). Older daemons omit the field for both, so the server can only key
@@ -479,5 +539,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
-    DAEMON_FEATURE_ACCOUNT_INSPECT
+    DAEMON_FEATURE_ACCOUNT_INSPECT,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP
 ]
