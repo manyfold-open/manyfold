@@ -450,6 +450,39 @@ const Toolbox: FC<{ x: number; y: number }> = ({ x, y }) => {
     )
 }
 
+/* The control plane's mesh: four nodes joined by three leads, with a light
+   handed along one lead at a time. A dot is drawn on its lead's first node and
+   translated to the second — the same straight run `animate` drove on `cx` and
+   `cy`, moved to CSS because an inline SVG's SMIL clock does not start until
+   the document's load event, so a cold refresh drew the mesh and left nothing
+   crossing it. A CSS animation runs from the first frame the element is
+   styled.
+   Seen on Chrome 148, Firefox 150 and WebKit 26.4 [2026-09-08]: with one 3s
+   subresource holding the load event open, the world was in the DOM inside
+   500ms and `svg.getCurrentTime()` still read 0 a second later, by which point
+   the CSS clock had run 1.25s and the dot was half way along its lead. */
+const MeshDot: FC<{
+    from: [number, number]
+    to: [number, number]
+    begin: number
+}> = ({ from, to, begin }) => (
+    <circle
+        className='lp-w-mesh'
+        cx={from[0]}
+        cy={from[1]}
+        r='2.4'
+        fill='var(--lp-info)'
+        opacity='0'
+        style={
+            {
+                animationDelay: `${begin}s`,
+                '--lp-w-mesh-dx': `${Number((to[0] - from[0]).toFixed(3))}px`,
+                '--lp-w-mesh-dy': `${Number((to[1] - from[1]).toFixed(3))}px`
+            } as CSSProperties
+        }
+    />
+)
+
 /* ——— Flux: the light that runs between the planes —————————————————————
    The wires are the only energy in an otherwise Ash world, so they are drawn
    with light rather than with line: a wide, near-transparent bloom under a
@@ -2374,75 +2407,21 @@ export const ScrollyWorld: FC<{
                         stroke='var(--lp-w-box-top)'
                         strokeWidth='1.1'
                     />
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='271.7;300.5'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='554.3;555.7'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='300.5;296.9'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='555.7;576.5'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='296.9;330.1'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='576.5;576.6'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
+                    <MeshDot
+                        from={[271.7, 554.3]}
+                        to={[300.5, 555.7]}
+                        begin={0}
+                    />
+                    <MeshDot
+                        from={[300.5, 555.7]}
+                        to={[296.9, 576.5]}
+                        begin={0.5}
+                    />
+                    <MeshDot
+                        from={[296.9, 576.5]}
+                        to={[330.1, 576.6]}
+                        begin={1}
+                    />
                     <g transform='translate(38 0)'>
                     <path
                         d='M 425.1,644.0 L 378.3,671.0 L 378.3,683.0 L 425.1,656.0 Z'
