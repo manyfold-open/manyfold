@@ -392,7 +392,7 @@ export class ExecDriverFactory {
         )
         if (existing) return existing
         if (!this.runtimeTokens) return null
-        const minted = await this.runtimeTokens.mintRuntimeIdentity({
+        const minted = await this.runtimeTokens.ensureRuntimeIdentity({
             userId: agent.userId,
             agentId: agent.id,
             runtimeKind: 'daemon'
