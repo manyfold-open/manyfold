@@ -1,0 +1,5 @@
+---
+'@manyfold/api': patch
+---
+
+Fix openclaw model switching (and a 400 it caused) by preferring the ACP path over the runner turn-rpc path when `MF_OPENCLAW_ACP` is on. A per-message model switch can only be carried by the ACP transport (an in-box `sessions.patch` on the stateful gateway session); the gateway-http and turn-rpc `model` field is only an agent router (`openclaw` / `openclaw/<agentId>`) and the gateway rejects a provider model there with a 400. Previously the runner turn-rpc path shadowed ACP whenever a sprite was runner-routed (which `MF_SPRITE_RUNNER_AGENTS='*'` makes universal), so switching silently did nothing — and a short-lived attempt to put the picked model in the request body made the gateway 400 (`Invalid model. Use openclaw or openclaw/<agentId>`). Now `viaAcp` takes precedence over `viaTurnRpc` when the flag is on, so a switched openclaw turn runs over ACP where the pick actually applies; with the flag off, turn-rpc/gateway-http are unchanged and always send the agent router in the body.

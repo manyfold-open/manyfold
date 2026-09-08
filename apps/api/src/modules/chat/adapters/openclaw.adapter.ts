@@ -298,23 +298,6 @@ interface OpenclawRuntime {
     displayModel: string | null
 }
 
-// The model to put in the gateway-http request body (the gateway-http and
-// runner turn-rpc transports). The web sends a per-message pick as a BARE model
-// id; the gateway registers catalog models under the `primary` provider, so it
-// routes as primary/<pick> — the same shape resolveRuntime bakes into modelId
-// and the ACP path's sessions.patch uses. Without a pick, the agent's stored
-// default (runtime.modelId) stands. This is where openclaw's per-message model
-// switch reaches the non-ACP transports; the ACP path applies it via
-// sessions.patch instead, so before this the switch was silently dropped on the
-// runner and gateway-http cells (Seen on staging [2026-09-08]: a sprite agent
-// switched to gpt-5.6-terra still answered on its default because
-// MF_SPRITE_RUNNER_AGENTS='*' routes every sprite through turn-rpc).
-const openclawBodyModel = (
-    runtime: OpenclawRuntime,
-    modelOverride: string | null | undefined
-): string => (modelOverride ? `primary/${modelOverride}` : runtime.modelId)
-
-
 // Which budget fired. Named separately from the error codes because the
 // runner-carried path reports the same three kinds back over RPC.
 type OpenclawTimeoutKind = 'headers' | 'stream_idle' | 'max_duration'
@@ -469,23 +452,28 @@ export class OpenclawAdapter implements ApiChatAdapter {
         }
 
         const runtime = await this.resolveRuntime(ctx.agentId)
-        // A runner-carried sprite turn moves the SSE socket INSIDE the
-        // sprite (turn.start) — the gateway cancels a run when that socket
-        // closes, so holding it in a process that outlives the API is what
-        // makes the turn recoverable. Gateway path unchanged otherwise.
+        // With MF_OPENCLAW_ACP on, the ACP path is the openclaw transport — it
+        // is the only one that can carry a per-message model switch (via an
+        // in-box sessions.patch on the stateful session) or an interactive
+        // permission card, because the gateway-http/turn-rpc `model` field is
+        // only an agent router (`openclaw`/`openclaw/<agentId>`; a provider
+        // model there is rejected 400). So ACP takes precedence over the
+        // runner turn-rpc transport when the flag is on. Guarded on framework
+        // so narranexus (super.sendMessage) always keeps gateway-http.
+        // Seen on staging [2026-09-08]: with MF_SPRITE_RUNNER_AGENTS='*' the
+        // runner turn-rpc path shadowed ACP, so model switching silently did
+        // nothing (and a body-model workaround 400'd) until this flip.
+        const viaAcp = this.framework === 'openclaw' && openclawAcpEnabled()
+        // A runner-carried sprite turn moves the SSE socket INSIDE the sprite
+        // (turn.start), holding it in a process that outlives the API so the
+        // turn is recoverable — the pre-ACP transport, used only when ACP is
+        // off (ACP is client-driven and non-resumable by construction).
         const viaTurnRpc =
+            !viaAcp &&
             !!ctx.runnerDaemonId &&
             !!this.daemonRegistry &&
             openclawTurnRpcEnabled() &&
             (await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
-        // API-driven ACP for the non-runner sprite and k8s cells. Guarded on
-        // `this.framework === 'openclaw'` so narranexus (which extends this
-        // adapter and calls super.sendMessage) always keeps the gateway-http
-        // path — it speaks /v1/chat/completions and has no `openclaw acp`.
-        const viaAcp =
-            this.framework === 'openclaw' &&
-            openclawAcpEnabled() &&
-            !viaTurnRpc
         let succeeded = false
         try {
             const source = viaTurnRpc
@@ -1634,7 +1622,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
                         accept: 'text/event-stream'
                     },
                     body: JSON.stringify({
-                        model: openclawBodyModel(runtime, ctx.modelOverride),
+                        model: runtime.modelId,
                         stream: true,
                         stream_options: { include_usage: true },
                         messages: truncated.map((m) => ({
@@ -2060,7 +2048,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             url: `${agentBaseUrl(runtime.ingressHost)}/v1/chat/completions`,
             token: runtime.gatewayToken,
             body: {
-                model: openclawBodyModel(runtime, ctx.modelOverride),
+                model: runtime.modelId,
                 stream: true,
                 stream_options: { include_usage: true },
                 messages: truncated.map((m) => ({
