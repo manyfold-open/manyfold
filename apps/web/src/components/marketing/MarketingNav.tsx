@@ -265,7 +265,7 @@ const NavOverflow: FC<{
     }, [open])
 
     return (
-        <div ref={rootRef} className='lp-nav-chip-root lp-nav-more-root'>
+        <div ref={rootRef} className='lp-nav-chip-root'>
             <button
                 type='button'
                 className='lp-nav-chip lp-nav-chip-icon'

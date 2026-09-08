@@ -80,7 +80,7 @@ const StepCtas: FC<{
                     </span>
                     <span className='lp-step-cta-badge-num'>1</span>
                 </span>
-                <span className='lp-step-cta-label'>
+                <span>
                     <GateCtaLabel />
                 </span>
             </button>
@@ -98,9 +98,7 @@ const StepCtas: FC<{
                     </span>
                     <span className='lp-step-cta-badge-num'>2</span>
                 </span>
-                <span className='lp-step-cta-label'>
-                    {t('web.landing.signIn')}
-                </span>
+                <span>{t('web.landing.signIn')}</span>
             </button>
         </div>
     )
@@ -222,7 +220,7 @@ const VENDOR_MARK = {
 const VendorMark: FC<{ vendor: keyof typeof VENDOR_MARK }> = ({ vendor }) => {
     const Mark = VENDOR_MARK[vendor]
     return (
-        <span className='lp-usage-mark' aria-hidden='true'>
+        <span aria-hidden='true'>
             <Mark size={13} />
         </span>
     )
@@ -625,14 +623,14 @@ const PricingCard: FC<{
             {cta}
             <div className='lp-price-feats'>
                 <ul>
-                    <li className='lp-price-feat-star'>
+                    <li>
                         <Sparkle aria-hidden='true' />
                         <span>
                             {tier.sandboxAgents}{' '}
                             {t('web.landing.pricingSandboxLabel')}
                         </span>
                     </li>
-                    <li className='lp-price-feat-star'>
+                    <li>
                         <Sparkle aria-hidden='true' />
                         <span>
                             {tier.alwaysOnlineAgents}{' '}

@@ -2795,6 +2795,113 @@ html[data-theme='dark'] .landing-root .lp-btn-secondary:hover {
     height: 14px;
 }
 
+/* Two-step CTA: Step 1 request access → Step 2 sign in. The numbered badge
+   on each button reads the flow as an ordered sequence; the connector arrow
+   sits between them on wide layouts and folds away when the buttons wrap.
+   The markup (Landing.tsx's StepCtas) only renders while the signup gate is
+   on — a branch the open-source build never enters — which is why the
+   landing rebuild (550f52f) could drop these rules unnoticed. */
+.landing-root .lp-step-ctas {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+/* Tighter than the 24px the base button carries on the label side: the
+   badge is its own visual inset, so a full 24px reads as a gap. */
+.landing-root .lp-step-cta {
+    position: relative;
+    padding-left: 18px;
+}
+
+/* Sentence case at normal tracking, per §5.3 — wide tracking exists only to
+   give air to uppercase glyphs, so the two are removed together. */
+.landing-root .lp-step-cta-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 22px;
+    padding: 0 9px;
+    border-radius: var(--lp-r-pill);
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* The numeric-only badge ("1"/"2") is a phone-only space saver; the full
+   "Step 1" label is the default. The mobile breakpoint swaps them. */
+.landing-root .lp-step-cta-badge-num {
+    display: none;
+}
+
+.landing-root .lp-btn-primary .lp-step-cta-badge {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+}
+
+.landing-root .lp-btn-secondary .lp-step-cta-badge {
+    background: var(--lp-bg-soft);
+    color: var(--lp-muted);
+    box-shadow: inset 0 0 0 1px var(--lp-line);
+}
+
+/* Dark-mode primary is a near-white platinum slab, so the badge inverts to
+   the same deep ink the button's own label uses. */
+html[data-theme='dark'] .landing-root .lp-btn-primary .lp-step-cta-badge {
+    background: rgba(15, 17, 20, 0.16);
+    color: #0f1114;
+}
+
+.landing-root .lp-step-cta-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--lp-subtle);
+    flex: none;
+}
+
+.landing-root .lp-step-cta-arrow svg {
+    width: 18px;
+    height: 18px;
+}
+
+@media (max-width: 560px) {
+    /* Keep the two CTAs on one row; the numeric badges ("1"/"2") keep them
+       narrow enough to fit without wrapping. */
+    .landing-root .lp-step-ctas {
+        flex-wrap: nowrap;
+        gap: 8px;
+    }
+    /* Size each CTA to its own label rather than forcing a 50/50 split — the
+       longer "Request access" needs more room than "Sign in", and an equal
+       basis clips it (the label is white-space: nowrap). flex-grow: 0 lets
+       them hug content; flex-shrink: 1 + min-width: 0 keeps them fitting on
+       the very narrowest phones. */
+    .landing-root .lp-step-cta {
+        flex: 0 1 auto;
+        min-width: 0;
+        justify-content: center;
+        padding: 10px 12px;
+        font-size: 14px;
+    }
+    .landing-root .lp-step-cta-badge {
+        height: 20px;
+        padding: 0 7px;
+    }
+    /* Show just the number on phones; hide the full "Step N" word. */
+    .landing-root .lp-step-cta-badge-full {
+        display: none;
+    }
+    .landing-root .lp-step-cta-badge-num {
+        display: inline-flex;
+    }
+    /* No room for the inter-button arrow on a single narrow row. */
+    .landing-root .lp-step-cta-arrow {
+        display: none;
+    }
+}
+
 /* === Nav === */
 /* Deliberately not sticky. `position: sticky` lived here from the landing
    rebuild (a70b67d4) but never once took effect — the same commit put
