@@ -565,9 +565,13 @@ const ChannelDetail: FC = (): ReactNode => {
                                         ? t(
                                               'web.channels.settings.webhookHelp.msteams'
                                           )
-                                        : t(
-                                              'web.channels.settings.webhookHelp.other'
-                                          )}
+                                        : channel.provider === 'imessage'
+                                          ? t(
+                                                'web.channels.settings.webhookHelp.imessage'
+                                            )
+                                          : t(
+                                                'web.channels.settings.webhookHelp.other'
+                                            )}
                     </p>
                 </section>
             ) : (
