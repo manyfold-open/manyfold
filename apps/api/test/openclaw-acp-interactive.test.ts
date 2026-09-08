@@ -715,3 +715,43 @@ test('a per-message model pick is applied via the wrapper sessions.patch', async
         delete process.env.MF_OPENCLAW_ACP
     }
 })
+
+test('a gateway JSON-RPC error surfaces its data.details, not just "Internal error"', async () => {
+    process.env.MF_OPENCLAW_ACP = '1'
+    try {
+        const rig = buildRig()
+        void (async () => {
+            const init = await rig.waitFor('initialize')
+            rig.reply({ jsonrpc: '2.0', id: init.id, result: {} })
+            const create = await rig.waitFor('session/new')
+            rig.reply({
+                jsonrpc: '2.0',
+                id: create.id,
+                result: { sessionId: 'sess-err' }
+            })
+            const prompt = await rig.waitFor('session/prompt')
+            // The gateway's generic top-level message with the real cause in
+            // data.details — the shape the openclaw gateway returns on a
+            // provider/model failure.
+            rig.reply({
+                jsonrpc: '2.0',
+                id: prompt.id,
+                error: {
+                    code: -32603,
+                    message: 'Internal error',
+                    data: { details: 'model gpt-5.6-terra: provider rejected the request' }
+                }
+            })
+        })()
+
+        const events = await drain(rig.adapter.sendMessage(ctx(), USER_MSG))
+        const err = events.find((e) => e.type === 'error') as
+            | { error: { message: string } }
+            | undefined
+        assert.ok(err, 'expected an error event')
+        assert.match(err!.error.message, /provider rejected the request/)
+        assert.match(err!.error.message, /Internal error/)
+    } finally {
+        delete process.env.MF_OPENCLAW_ACP
+    }
+})
