@@ -2632,6 +2632,8 @@ const en = {
                     'The model provider rejected the request — its sign-in or API key is invalid or expired. Update the model provider credentials and try again.',
                 modelBilling:
                     'The model provider rejected the request — the key may be out of credit. Update the key or switch to platform credits.',
+                threadBusy:
+                    'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
                 updateKey: 'Update key',
                 switchToPlatform: 'Switch to platform credits',
                 switching: 'Switching…',
@@ -2913,7 +2915,9 @@ const en = {
             resumeNeedsSignIn:
                 'This is a plain shell: resuming the conversation here needs the coding CLI to be signed in on this runtime.',
             resumeNeedsDaemonUpgrade:
-                'This is a plain shell: resuming the conversation here needs a newer Manyfold CLI on this computer.'
+                'This is a plain shell: resuming the conversation here needs a newer Manyfold CLI on this computer.',
+            resumeTurnInFlight:
+                'This is a plain shell: this conversation is still being answered, and only one session can write to it at a time. Reopen the terminal once the answer finishes.'
         },
         composer: {
             askPlaceholder: 'Ask {{target}} anything.',

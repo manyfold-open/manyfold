@@ -710,9 +710,20 @@ export class RunnerManagerService {
         exec: SpriteExecFn
         turnId: string
     }): SpriteAwakeHold {
-        void this.holdSpriteAwake({ ...args, ttl: AWAKE_TTL })
+        // The create and every renew stay fire-and-forget, but release() waits
+        // for whichever was last in flight before it deletes. A hold settled
+        // on its first poll — routine for an adoption that finds the turn
+        // already terminal — would otherwise race its own DELETE past the
+        // POST and leave a full-TTL lease that nobody renews and nothing
+        // needs.
+        let pending: Promise<unknown> = this.holdSpriteAwake({
+            ...args,
+            ttl: AWAKE_TTL
+        }).catch(() => false)
         const timer = setInterval(() => {
-            void this.holdSpriteAwake({ ...args, ttl: AWAKE_TTL })
+            pending = this.holdSpriteAwake({ ...args, ttl: AWAKE_TTL }).catch(
+                () => false
+            )
         }, AWAKE_RENEW_MS)
         if (typeof timer.unref === 'function') timer.unref()
         let done = false
@@ -724,7 +735,9 @@ export class RunnerManagerService {
         }
         return {
             release: async () => {
-                if (stop()) await this.releaseSpriteAwake(args)
+                if (!stop()) return
+                await pending
+                await this.releaseSpriteAwake(args)
             },
             // The turn was SUSPENDED, not finished: the runner is still working
             // and will hand the answer to whoever picks the stream up next.

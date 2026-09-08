@@ -1,7 +1,11 @@
 import type { ChatError } from '@manyfold/shared'
 import type { TFn } from '@/lib/i18n'
 
-export type ChatErrorKind = 'model_auth' | 'model_billing' | null
+export type ChatErrorKind =
+    | 'model_auth'
+    | 'model_billing'
+    | 'thread_busy'
+    | null
 
 export interface ChatErrorDisplay {
     kind: ChatErrorKind
@@ -28,6 +32,13 @@ const MODEL_AUTH_SIGNATURE =
 const MODEL_BILLING_SIGNATURE =
     /\b402\b|payment[\s_-]?required|insufficient[\s_-]?(?:credit|balance|funds|quota)|credit[\s_-]?balance[\s_-]?(?:is[\s_-]?)?too[\s_-]?low|out[\s_-]?of[\s_-]?credit|billing|quota[\s_-]?exceeded/i
 
+// Codex admits one writer per thread. A chat turn sent while this session's
+// TUI is open in a terminal tab (which holds that writer for its lifetime)
+// fails with the refusal verbatim — a JSON-RPC line that names nothing the
+// user did. The API keeps the session ref on purpose here, so the turn is
+// retryable the moment the TUI is closed; the copy has to say so.
+const THREAD_BUSY_SIGNATURE = /already has an active writer/i
+
 export const resolveChatErrorDisplay = (
     error: ChatError,
     t: TFn
@@ -45,6 +56,13 @@ export const resolveChatErrorDisplay = (
         return {
             kind: 'model_billing',
             title: t('web.chat.error.modelBilling'),
+            detail: message || null
+        }
+    }
+    if (THREAD_BUSY_SIGNATURE.test(signature)) {
+        return {
+            kind: 'thread_busy',
+            title: t('web.chat.error.threadBusy'),
             detail: message || null
         }
     }

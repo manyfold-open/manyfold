@@ -561,3 +561,41 @@ test('explain names the branch that answered and never disagrees with classify',
         )
     }
 })
+
+/* Codex admits one writer per thread and wraps the refusal in the same
+   `thread/resume failed` text it wraps a missing rollout in, so the broad
+   resume-ref pattern matches this too and the two only stay apart because the
+   contention rule is asked first. A contended thread is the opposite incident
+   from a stale one — the ref is good and something is still using it — and
+   filing it as stale would hide a turn colliding with itself inside the
+   bucket operators clear refs from. */
+test('a thread with a live writer is contention, not a stale ref', () => {
+    assert.equal(
+        cause(
+            'codex_exec_failed',
+            'codex exited 1: thread/resume failed: thread 01a07b93-bb59-7023-83ba-872ae3b88750 already has an active writer (code -32600)'
+        ),
+        'resume_contention'
+    )
+    // The TUI's own wording of the same refusal, which nests the wrapper twice.
+    assert.equal(
+        cause(
+            'codex_exec_failed',
+            'thread/resume failed during TUI bootstrap: thread/resume failed: thread 01a07b93 already has an active writer (code -32600)'
+        ),
+        'resume_contention'
+    )
+})
+
+// The shared wrapper is not evidence of either. A resume that failed on
+// something that says nothing about the rollout is neither stale nor busy, and
+// filing it as stale would put a ref-clearing incident on a thread that is fine.
+test('a resume failure that names neither a lost rollout nor a live writer is not a stale ref', () => {
+    assert.notEqual(
+        cause(
+            'codex_exec_failed',
+            'codex exited 1: thread/resume failed: failed to acquire thread writer lock for thread 01a07b93: No locks available (code -32603)'
+        ),
+        'stale_resume_ref'
+    )
+})

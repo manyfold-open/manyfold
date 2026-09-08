@@ -2555,6 +2555,8 @@ const zh: Translations = {
                     '模型 Provider 拒绝了请求 —— 登录或 API Key 已失效或过期。请在 Agent 的模型 Provider 设置中重新登录或更新密钥后重试。',
                 modelBilling:
                     '模型 Provider 拒绝了请求 —— key 可能没额度了。更新 key 或改用平台额度。',
+                threadBusy:
+                    '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
                 updateKey: '更新 key',
                 switchToPlatform: '改用平台额度',
                 switching: '切换中…',
@@ -2780,7 +2782,9 @@ const zh: Translations = {
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
             resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
             resumeNeedsDaemonUpgrade:
-                '这是一个普通 shell：要在这里继续对话，需要这台电脑上的 Manyfold CLI 升级到更新的版本。'
+                '这是一个普通 shell：要在这里继续对话，需要这台电脑上的 Manyfold CLI 升级到更新的版本。',
+            resumeTurnInFlight:
+                '这是一个普通 shell：这轮对话还在生成中，同一时刻只能有一个会话写入它。等回答结束后重新打开终端即可。'
         },
         composer: {
             askPlaceholder: '向 {{target}} 提问。',

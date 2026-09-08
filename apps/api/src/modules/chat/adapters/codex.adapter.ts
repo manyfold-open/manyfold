@@ -30,19 +30,34 @@ import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
+import {
+    CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
+    CODEX_THREAD_BUSY_SIGNATURE
+} from '@/modules/chat/codex-resume-signal'
 
 const CODEX_STREAM_PARSER_NAME = 'codex-exec-json'
 const CODEX_STREAM_PARSER_VERSION = '1'
+
+// Codex admits ONE writer per thread and refuses the second. The thread is
+// healthy and the rollout is exactly where it should be — the holder is simply
+// still mid-turn on it, which is the normal state of a turn that suspended while
+// its runner kept executing. The turn cannot proceed, but it can be retried
+// once the holder finishes, and the ref must survive for that retry to land on
+// the same conversation.
+const isCodexThreadBusy = (stderr: string): boolean =>
+    CODEX_THREAD_BUSY_SIGNATURE.test(stderr)
 
 // `codex exec resume <id>` exits non-zero with these stderr signatures when the
 // thread's rollout file is missing/unreadable on the runtime. Mirrors the
 // claude-code resume-load-failure self-heal: clear the frozen frameworkSessionRef
 // so the next turn starts a fresh session instead of resuming a thread codex can
 // never load (otherwise every later turn fails identically until the ref is reset).
+// Keyed on positive evidence of the loss, never on codex's shared `thread/resume
+// failed` wrapper: the busy refusal above arrives in that wrapper too, and
+// clearing the ref over a live thread forked the session onto a fresh one while
+// the holder kept appending to the thread nothing pointed at any more.
 const isCodexResumeLoadFailure = (stderr: string): boolean =>
-    /no rollout found for thread|failed to read thread|thread\/resume failed/i.test(
-        stderr
-    )
+    CODEX_RESUME_LOAD_FAILURE_SIGNATURE.test(stderr)
 
 @Injectable()
 export class CodexAdapter implements ApiChatAdapter {
@@ -560,7 +575,12 @@ export class CodexAdapter implements ApiChatAdapter {
                 error: {
                     code: 'codex_exec_failed',
                     message: `codex exited ${execResult.exitCode}: ${failureDetail.slice(0, 512)}`,
-                    retryable: execResult.exitCode === 124
+                    // A held thread is a wait, not a verdict: the same send
+                    // succeeds once the holder is done, and the ref it needs
+                    // is deliberately still there.
+                    retryable:
+                        execResult.exitCode === 124 ||
+                        isCodexThreadBusy(failureDetail)
                 }
             }
             return
