@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 0.64.1
+
+### Patch Changes
+
+- [#248](https://github.com/manyfold-open/manyfold/pull/248) [`6961e53`](https://github.com/manyfold-open/manyfold/commit/6961e53d34fc14b3760b43c5ac228daa972e8a16) Thanks [@yingca1](https://github.com/yingca1)! - Show the iMessage webhook help text on the channel settings page. The iMessage provider's `webhookHelp` copy shipped in the catalogs but the settings view never referenced it, so it fell back to the generic help; iMessage now renders its own BlueBubbles-specific guidance.
+
 ## 0.64.0
 
 ### Minor Changes
