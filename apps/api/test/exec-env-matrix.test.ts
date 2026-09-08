@@ -31,6 +31,14 @@ import {
 // env-shaped and are handled by the runtime, not here.
 const gateEnv = (surface: ExecEnvSurface): Record<string, string> => {
     const env: Record<string, string> = {}
+    // openclaw ACP is the default transport now (MF_OPENCLAW_ACP on by
+    // default), so a non-ACP openclaw surface — gateway-http, turn-rpc,
+    // daemon-exec — is only reachable with the flag explicitly off.
+    if (
+        surface.framework === 'openclaw' &&
+        !(surface.gatedBy ?? []).includes('MF_OPENCLAW_ACP')
+    )
+        env.MF_OPENCLAW_ACP = '0'
     for (const gate of surface.gatedBy ?? []) {
         if (gate.startsWith('daemon:')) continue
         if (gate === 'MF_SPRITE_RUNNER_AGENTS') continue
@@ -239,11 +247,13 @@ for (const surface of driverSeamSurfaces) {
                 adapter.resumeMessage,
                 `${key}: declared resumable but the adapter has no resume path`
             )
-            await drain(
-                adapter.resumeMessage(
-                    resumeCtx(surface.framework, surface.runtime)
+            await withEnv(gateEnv(surface), async () => {
+                await drain(
+                    adapter.resumeMessage!(
+                        resumeCtx(surface.framework, surface.runtime)
+                    )
                 )
-            )
+            })
             assert.equal(
                 seam.runnerDrivers.length,
                 1,

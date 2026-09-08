@@ -241,7 +241,8 @@ test('a turn that ends without a stopReason suspends rather than terminalizing',
 })
 
 test('with the flag off a daemon turn never takes the ACP path', async () => {
-    delete process.env.MF_OPENCLAW_ACP
+    // ACP is the default now; opt out explicitly for the CLI-spawn fallback.
+    process.env.MF_OPENCLAW_ACP = '0'
     const rig = buildRig({
         lines: [],
         result: { ok: finalWithUsage('end_turn') }

@@ -586,7 +586,9 @@ test('a turn longer than the usage window is re-read once at the wide limit', as
 })
 
 test('with the flag OFF the openclaw turn never launches the ACP bridge', async () => {
-    delete process.env.MF_OPENCLAW_ACP
+    // ACP is the default now; opt out explicitly to exercise the gateway-http
+    // fallback (the no-deploy rollback).
+    process.env.MF_OPENCLAW_ACP = '0'
     const rig = buildRig()
     // Pre-aborted so the gateway-http path short-circuits without a real fetch;
     // we only assert the ACP bridge cmd was never requested.

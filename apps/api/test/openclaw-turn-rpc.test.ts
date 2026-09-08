@@ -7,6 +7,11 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 
+// These tests pin the turn-rpc (non-ACP) transport. ACP is the default now, and
+// `viaTurnRpc = !viaAcp && …` — so opt ACP off at module load; the one
+// "MF_OPENCLAW_ACP on beats turn-rpc" test re-enables it via withEnv.
+process.env.MF_OPENCLAW_ACP = '0'
+
 // S4, openclaw half. Today's sprite openclaw turn is an SSE POST whose socket
 // the API holds — and the gateway CANCELS the run when that socket closes, so
 // an API restart destroys the answer outright. turn.start moves the socket
