@@ -91,14 +91,22 @@ const buildHarness = async (): Promise<Harness> => {
         agentId,
         mintedHashes,
         close: async (): Promise<void> => {
+            const owned = await db
+                .select({ hash: agentRuntimeTokens.tokenHash })
+                .from(agentRuntimeTokens)
+                .where(eq(agentRuntimeTokens.agentId, agentId))
+            const hashes = new Set([
+                ...mintedHashes,
+                ...owned.map((row) => row.hash)
+            ])
             // Delete the user → cascades agents, agent_runtimes, and
             // agent_runtime_tokens (all FK userId ON DELETE CASCADE). Then sweep
             // the orphaned token_credentials parents this run minted.
             await db.delete(users).where(eq(users.id, userId))
-            for (const h of mintedHashes)
+            for (const hash of hashes)
                 await db
                     .delete(tokenCredentials)
-                    .where(eq(tokenCredentials.tokenHash, h))
+                    .where(eq(tokenCredentials.tokenHash, hash))
             const client = (
                 db as unknown as { $client?: { end?: () => Promise<void> } }
             ).$client
@@ -242,6 +250,56 @@ test('mintRuntimeIdentity rotation revokes the prior active row (partial unique 
             .from(agentRuntimeTokens)
             .where(eq(agentRuntimeTokens.id, first.runtimeTokenId))
         assert.ok(old?.revokedAt, 'prior identity must be revoked')
+    } finally {
+        await h.close()
+    }
+})
+
+test('ensureRuntimeIdentity serializes concurrent first use and reuses the active token', async (t) => {
+    if (!RUN) {
+        t.skip('set RUN_PG_E2E=1 to run')
+        return
+    }
+    const h = await buildHarness()
+    try {
+        await insertAgent(h)
+        const results = await Promise.all(
+            Array.from({ length: 8 }, () =>
+                h.svc.ensureRuntimeIdentity({
+                    userId: h.userId,
+                    agentId: h.agentId,
+                    runtimeKind: 'daemon'
+                })
+            )
+        )
+
+        assert.equal(
+            new Set(results.map((result) => result.runtimeTokenId)).size,
+            1,
+            'all concurrent first-use calls must reuse one identity row'
+        )
+        assert.equal(
+            new Set(results.map((result) => result.plaintext)).size,
+            1,
+            'all concurrent first-use calls must receive the same plaintext'
+        )
+
+        const active = await h.db
+            .select({
+                id: agentRuntimeTokens.id,
+                tokenHash: agentRuntimeTokens.tokenHash
+            })
+            .from(agentRuntimeTokens)
+            .where(
+                and(
+                    eq(agentRuntimeTokens.agentId, h.agentId),
+                    eq(agentRuntimeTokens.runtimeKind, 'daemon'),
+                    isNull(agentRuntimeTokens.revokedAt)
+                )
+            )
+        assert.equal(active.length, 1, 'only one daemon identity may be active')
+        assert.equal(active[0].id, results[0].runtimeTokenId)
+        assert.equal(active[0].tokenHash, hashApiToken(results[0].plaintext))
     } finally {
         await h.close()
     }

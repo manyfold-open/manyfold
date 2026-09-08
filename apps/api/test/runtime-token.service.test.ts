@@ -20,6 +20,9 @@ class RtFakeDb {
     update(table: unknown) {
         return new RtQuery(this, table, true)
     }
+    execute() {
+        return Promise.resolve()
+    }
 }
 
 class RtQuery {

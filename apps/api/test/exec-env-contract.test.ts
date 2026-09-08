@@ -281,24 +281,24 @@ test('a BYOD daemon coding agent gets the full per-exec base env', async () => {
         assert.equal(baseEnv[key], value, `agent extras ${key} not carried`)
 })
 
-test('a daemon agent with no identity row gets one minted on first use', async () => {
+test('a daemon agent with no identity row gets one ensured on first use', async () => {
     // Agents attached before daemon identity existed have no 'daemon' token
-    // row; the factory mints lazily rather than requiring a backfill.
-    const minted: Array<Record<string, unknown>> = []
+    // row; the factory ensures one lazily rather than requiring a backfill.
+    const ensured: Array<Record<string, unknown>> = []
     const factory = buildFactory('daemon', 'claude-code', {
         identityRows: [],
         runtimeTokens: {
-            mintRuntimeIdentity: async (args: Record<string, unknown>) => {
-                minted.push(args)
+            ensureRuntimeIdentity: async (args: Record<string, unknown>) => {
+                ensured.push(args)
                 return { plaintext: 'mfr_minted_on_miss' }
             }
         }
     })
     const handle = await factory.forAgent('agt_factory')
     assert.equal(handle.baseEnv?.MF_API_TOKEN, 'mfr_minted_on_miss')
-    assert.equal(minted.length, 1)
-    assert.equal(minted[0].runtimeKind, 'daemon')
-    assert.equal(minted[0].agentId, 'agt_factory')
+    assert.equal(ensured.length, 1)
+    assert.equal(ensured[0].runtimeKind, 'daemon')
+    assert.equal(ensured[0].agentId, 'agt_factory')
 })
 
 test('a BYOD daemon service agent still gets no platform base env', async () => {
