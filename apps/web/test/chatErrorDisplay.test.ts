@@ -58,3 +58,23 @@ test('falls back to the code when the message is empty', () => {
     assert.equal(display.title, 'codex_exec_failed')
     assert.equal(display.detail, null)
 })
+
+// Codex admits one writer per thread, and a TUI open in a terminal tab holds
+// it for its lifetime — so a chat turn sent meanwhile fails on the refusal.
+// The API keeps the session ref on purpose (the turn is retryable once the TUI
+// is closed), which is exactly what the copy has to tell the user; the raw
+// JSON-RPC line names nothing they did.
+test('classifies a codex thread held by another writer as thread_busy and keeps the raw detail', () => {
+    const display = resolveChatErrorDisplay(
+        {
+            code: 'codex_exec_failed',
+            message:
+                'codex exited 1: thread/resume failed: thread 01a07b93-bb59-7023-83ba-872ae3b88750 already has an active writer (code -32600)',
+            retryable: true
+        },
+        t
+    )
+    assert.equal(display.kind, 'thread_busy')
+    assert.equal(display.title, 'web.chat.error.threadBusy')
+    assert.match(display.detail ?? '', /active writer/)
+})

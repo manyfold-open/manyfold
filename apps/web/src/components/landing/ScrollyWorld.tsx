@@ -450,6 +450,39 @@ const Toolbox: FC<{ x: number; y: number }> = ({ x, y }) => {
     )
 }
 
+/* The control plane's mesh: four nodes joined by three leads, with a light
+   handed along one lead at a time. A dot is drawn on its lead's first node and
+   translated to the second — the same straight run `animate` drove on `cx` and
+   `cy`, moved to CSS because an inline SVG's SMIL clock does not start until
+   the document's load event, so a cold refresh drew the mesh and left nothing
+   crossing it. A CSS animation runs from the first frame the element is
+   styled.
+   Seen on Chrome 148, Firefox 150 and WebKit 26.4 [2026-09-08]: with one 3s
+   subresource holding the load event open, the world was in the DOM inside
+   500ms and `svg.getCurrentTime()` still read 0 a second later, by which point
+   the CSS clock had run 1.25s and the dot was half way along its lead. */
+const MeshDot: FC<{
+    from: [number, number]
+    to: [number, number]
+    begin: number
+}> = ({ from, to, begin }) => (
+    <circle
+        className='lp-w-mesh'
+        cx={from[0]}
+        cy={from[1]}
+        r='2.4'
+        fill='var(--lp-info)'
+        opacity='0'
+        style={
+            {
+                animationDelay: `${begin}s`,
+                '--lp-w-mesh-dx': `${Number((to[0] - from[0]).toFixed(3))}px`,
+                '--lp-w-mesh-dy': `${Number((to[1] - from[1]).toFixed(3))}px`
+            } as CSSProperties
+        }
+    />
+)
+
 /* ——— Flux: the light that runs between the planes —————————————————————
    The wires are the only energy in an otherwise Ash world, so they are drawn
    with light rather than with line: a wide, near-transparent bloom under a
@@ -645,10 +678,27 @@ const FluxWire: FC<{ leg: FluxLeg; w: number; bloom: number }> = ({
     </>
 )
 
+/* A SMIL `values` + `keyTimes` pair written as a CSS easing: `linear()` runs
+   straight between the stops it is given, and the keyframes it drives all go
+   from 0 to 1, so each value below is the animated value itself. */
+const ramp = (values: number[], times: number[]): string =>
+    `linear(${values
+        .map((v, i) => `${v} ${(times[i] * 100).toFixed(4)}%`)
+        .join(',')})`
+
 /* A packet is a lit bead, not a dot: an aura that sells it as a light source,
-   a hot core, and — because animateMotion turns the group along the path — a
-   tail that always trails the head however the wire curves. It scales in and
-   out of existence rather than blinking on. */
+   a hot core, and — because the motion path turns the group along it — a tail
+   that always trails the head however the wire curves. It scales in and out of
+   existence rather than blinking on.
+
+   The motion is CSS and not SMIL because Blink holds an inline SVG's SMIL
+   clock at zero until the document's load event, so a cold refresh drew the
+   world and lit the wires while nothing travelled along them.
+   Seen on Chrome 148 [2026-09-08]: with one 3s subresource holding the load
+   event open, the drawing was in the DOM at 241ms and `getCurrentTime()` still
+   read 0 at 3211ms. Nothing starts that clock early — `setCurrentTime` and
+   `unpauseAnimations` both leave it at zero — whereas a CSS animation runs
+   from the first frame the element is styled. */
 const FluxPacket: FC<{
     d: string
     dur: number
@@ -657,55 +707,43 @@ const FluxPacket: FC<{
     hue: string
     r: number
 }> = ({ d, dur, begin, travel, hue, r }) => {
-    const keys = `0;0.05;${(travel - 0.05).toFixed(3)};${travel};1`
+    const keys = [0, 0.05, travel - 0.05, travel, 1]
     const time = {
-        dur: `${dur}s`,
-        begin: `${begin}s`,
-        repeatCount: 'indefinite'
+        animationDuration: `${dur}s`,
+        animationDelay: `${begin}s`
     }
     return (
-        <g className='lp-flux'>
-            <g>
-                <animateMotion
-                    path={d}
-                    rotate='auto'
-                    keyPoints='0;1;1'
-                    keyTimes={`0;${travel};1`}
-                    calcMode='linear'
-                    {...time}
+        <g
+            className='lp-flux-move'
+            style={{
+                ...time,
+                offsetPath: `path("${d}")`,
+                animationTimingFunction: ramp([0, 1, 1], [0, travel, 1])
+            }}
+        >
+            <g
+                className='lp-flux-bead'
+                opacity='0'
+                style={{
+                    ...time,
+                    animationTimingFunction: `${ramp([0, 1, 1, 0, 0], keys)},${ramp([0.3, 1, 1, 0.35, 0.35], keys)}`
+                }}
+            >
+                <ellipse
+                    cx={-r * 2.3}
+                    cy='0'
+                    rx={r * 4.2}
+                    ry={r * 2.1}
+                    fill={`url(#fx-aura-${hue})`}
                 />
-                <g opacity='0'>
-                    <animate
-                        attributeName='opacity'
-                        values='0;1;1;0;0'
-                        keyTimes={keys}
-                        {...time}
-                    />
-                    <animateTransform
-                        attributeName='transform'
-                        type='scale'
-                        values='0.3;1;1;0.35;0.35'
-                        keyTimes={keys}
-                        {...time}
-                    />
-                    <ellipse
-                        cx={-r * 2.3}
-                        cy='0'
-                        rx={r * 4.2}
-                        ry={r * 2.1}
-                        fill={`url(#fx-aura-${hue})`}
-                    />
-                    <circle r={r * 2.6} fill={`url(#fx-aura-${hue})`} />
-                    <circle
-                        r={r}
-                        fill={
-                            hue === 'i'
-                                ? 'var(--lp-w-flux)'
-                                : `var(--lp-w-c${hue})`
-                        }
-                    />
-                    <circle r={r * 0.3} fill='var(--lp-w-flux-spec)' />
-                </g>
+                <circle r={r * 2.6} fill={`url(#fx-aura-${hue})`} />
+                <circle
+                    r={r}
+                    fill={
+                        hue === 'i' ? 'var(--lp-w-flux)' : `var(--lp-w-c${hue})`
+                    }
+                />
+                <circle r={r * 0.3} fill='var(--lp-w-flux-spec)' />
             </g>
         </g>
     )
@@ -732,7 +770,7 @@ const FluxRing: FC<{
     const keys = `0;${peak};1`
     return (
         <ellipse
-            className='lp-flux'
+            className='lp-flux-ring'
             cx={c[0]}
             cy={c[1]}
             rx={r0}
@@ -2369,75 +2407,21 @@ export const ScrollyWorld: FC<{
                         stroke='var(--lp-w-box-top)'
                         strokeWidth='1.1'
                     />
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='271.7;300.5'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='554.3;555.7'
-                            dur='2.4s'
-                            begin='0.0s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='300.5;296.9'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='555.7;576.5'
-                            dur='2.4s'
-                            begin='0.5s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
-                    <circle r='2.4' fill='var(--lp-info)' opacity='0'>
-                        <animate
-                            attributeName='opacity'
-                            values='0;1;0'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cx'
-                            values='296.9;330.1'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                        <animate
-                            attributeName='cy'
-                            values='576.5;576.6'
-                            dur='2.4s'
-                            begin='1.0s'
-                            repeatCount='indefinite'
-                        />
-                    </circle>
+                    <MeshDot
+                        from={[271.7, 554.3]}
+                        to={[300.5, 555.7]}
+                        begin={0}
+                    />
+                    <MeshDot
+                        from={[300.5, 555.7]}
+                        to={[296.9, 576.5]}
+                        begin={0.5}
+                    />
+                    <MeshDot
+                        from={[296.9, 576.5]}
+                        to={[330.1, 576.6]}
+                        begin={1}
+                    />
                     <g transform='translate(38 0)'>
                     <path
                         d='M 425.1,644.0 L 378.3,671.0 L 378.3,683.0 L 425.1,656.0 Z'

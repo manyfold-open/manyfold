@@ -39,7 +39,8 @@ const providerNames: ChannelProviderName[] = [
     'github',
     'line',
     'googlechat',
-    'msteams'
+    'msteams',
+    'imessage'
 ]
 const channelStatuses: ChannelStatus[] = ['draft', 'active', 'paused', 'error']
 const larkAppRegions: LarkAppRegion[] = ['feishu', 'lark']

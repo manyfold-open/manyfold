@@ -30,6 +30,16 @@ export type TerminalResumeBlocked =
     | 'needs-credential-toggle'
     | 'needs-runtime-signin'
 
+// What the API reports on the terminal's session_info frame about the resume
+// the tab asked for. The durable blockers above are derived here from the
+// agent's configuration; `turn-in-flight` is the one that only the API can
+// decide (it is the session's turn lock, read at connect) and the one that
+// clears on its own, so the tab records it rather than predicting it.
+export type TerminalResumeOutcome =
+    | 'applied'
+    | 'turn-in-flight'
+    | 'unavailable'
+
 export interface TerminalResumeAvailability {
     available: boolean
     blocked: TerminalResumeBlocked | null

@@ -137,6 +137,10 @@ export interface InboundRequest {
     headers: Record<string, string>
     body: unknown
     rawBody?: string
+    // Parsed query string. BlueBubbles (iMessage) cannot set custom headers and
+    // POSTs to the exact URL it was registered with, so its per-channel secret
+    // can only ride here; every other provider authenticates from headers.
+    query?: Record<string, string | string[] | undefined>
 }
 
 export interface ChannelHandle {

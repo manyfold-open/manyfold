@@ -14,7 +14,10 @@ import { principalScopes } from '@/modules/auth/auth-principal'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
-import { TerminalResumeService } from '@/modules/terminal/terminal-resume.service'
+import {
+    TerminalResumeService,
+    type TerminalResumeOutcome
+} from '@/modules/terminal/terminal-resume.service'
 import { DAEMON_FEATURE_PTY_COMMAND } from '@manyfold/shared'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
@@ -216,7 +219,7 @@ export class TerminalGateway implements OnModuleInit {
         const resumeSupported =
             agent.runtime === 'sprites' ||
             (agent.runtime === 'daemon' && daemonCanResume)
-        const resume =
+        const resolution =
             resumeSessionId && resumeSupported
                 ? await this.resume.resolve({
                       agentId: agent.id,
@@ -231,6 +234,12 @@ export class TerminalGateway implements OnModuleInit {
                       injectModelCredentials: agent.runtime === 'sprites'
                   })
                 : null
+        const resume = resolution?.resume ?? null
+        // Only when a resume was asked for: a runtime with no resume path never
+        // consults the service, and "unavailable" is the honest word for it.
+        const resumeOutcome: TerminalResumeOutcome | null = resumeSessionId
+            ? (resolution?.outcome ?? 'unavailable')
+            : null
 
         let cwd: string | undefined
         try {
@@ -264,7 +273,11 @@ export class TerminalGateway implements OnModuleInit {
                     rows,
                     ...(agent.runtime === 'daemon'
                         ? { terminal_pty: terminalPty }
-                        : {})
+                        : {}),
+                    // The client cannot predict this: the gate is decided here
+                    // at connect (and again on every reconnect), against state
+                    // its own stream view lags or leads.
+                    ...(resumeOutcome ? { resume: resumeOutcome } : {})
                 })
             )
             socket.send(Buffer.from(buildStatusBanner(agent), 'utf8'), {

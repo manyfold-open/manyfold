@@ -7,6 +7,7 @@ import type {
     LarkSubscriptionMode,
     LinearChannelConfig,
     LineChannelConfig,
+    IMessageChannelConfig,
     GoogleChatChannelConfig,
     MsTeamsChannelConfig,
     MatrixChannelConfig,
@@ -109,6 +110,9 @@ const ChannelNew: FC = (): ReactNode => {
         useState<WhatsappQuickCreateState>({ id: null, status: 'idle' })
     const [lineChannelSecret, setLineChannelSecret] = useState('')
     const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
+    const [imessageServerUrl, setImessageServerUrl] = useState('')
+    const [imessageServerPassword, setImessageServerPassword] = useState('')
+    const [imessageWakeWords, setImessageWakeWords] = useState('')
     const [googlechatServiceAccountJson, setGooglechatServiceAccountJson] =
         useState('')
     const [msteamsAppId, setMsteamsAppId] = useState('')
@@ -295,6 +299,9 @@ const ChannelNew: FC = (): ReactNode => {
                 weixinOperatorUserIds,
                 lineChannelSecret,
                 lineChannelAccessToken,
+                imessageServerUrl,
+                imessageServerPassword,
+                imessageWakeWords,
                 googlechatServiceAccountJson,
                 msteamsAppId,
                 msteamsAppPassword,
@@ -720,6 +727,63 @@ const ChannelNew: FC = (): ReactNode => {
                             </Field>
                             <p className='text-ui text-muted -mt-2'>
                                 {t('web.channels.settings.help.lineCreate')}
+                            </p>
+                        </>
+                    )}
+
+                    {provider === 'imessage' && (
+                        <>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.bluebubblesServerUrl'
+                                )}
+                            >
+                                <input
+                                    type='url'
+                                    className='workbench-input'
+                                    value={imessageServerUrl}
+                                    onChange={(e) =>
+                                        setImessageServerUrl(e.target.value)
+                                    }
+                                    placeholder='https://your-mac.trycloudflare.com'
+                                    required
+                                />
+                            </Field>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.bluebubblesServerPassword'
+                                )}
+                            >
+                                <input
+                                    type='password'
+                                    className='workbench-input'
+                                    value={imessageServerPassword}
+                                    onChange={(e) =>
+                                        setImessageServerPassword(
+                                            e.target.value
+                                        )
+                                    }
+                                    autoComplete='new-password'
+                                    required
+                                />
+                            </Field>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.wakeWords'
+                                )}
+                            >
+                                <input
+                                    type='text'
+                                    className='workbench-input'
+                                    value={imessageWakeWords}
+                                    onChange={(e) =>
+                                        setImessageWakeWords(e.target.value)
+                                    }
+                                    placeholder='hey manyfold, manyfold'
+                                />
+                            </Field>
+                            <p className='text-ui text-muted -mt-2'>
+                                {t('web.channels.settings.help.imessageCreate')}
                             </p>
                         </>
                     )}
@@ -1292,6 +1356,9 @@ const buildBody = (input: {
     weixinOperatorUserIds: string
     lineChannelSecret: string
     lineChannelAccessToken: string
+    imessageServerUrl: string
+    imessageServerPassword: string
+    imessageWakeWords: string
     googlechatServiceAccountJson: string
     msteamsAppId: string
     msteamsAppPassword: string
@@ -1522,6 +1589,42 @@ const buildBody = (input: {
         return {
             agentId: input.agentId,
             provider: 'line',
+            label: input.label.trim(),
+            config,
+            credentials
+        }
+    }
+    if (input.provider === 'imessage') {
+        const serverUrl = input.imessageServerUrl.trim()
+        const serverPassword = input.imessageServerPassword.trim()
+        if (!serverUrl || !serverPassword)
+            throw new Error(
+                translate('web.channels.settings.errors.imessageCredentials')
+            )
+        const wakeWords = input.imessageWakeWords
+            .split(',')
+            .map((word) => word.trim())
+            .filter((word) => word.length > 0)
+        if (wakeWords.length === 0)
+            // iMessage has no bot identity to @-mention, so without a wake word
+            // the channel would answer nothing in any group.
+            throw new Error(
+                translate('web.channels.settings.errors.imessageWakeWords')
+            )
+        const config: IMessageChannelConfig = {
+            serverUrl,
+            allowedUserIds: [],
+            operatorUserIds: [],
+            allowedChatIds: [],
+            wakeWords,
+            mentionOnly: true,
+            shareSessionInChannel: false,
+            progressMode: 'final'
+        }
+        const credentials: ChannelCredentials = { serverPassword }
+        return {
+            agentId: input.agentId,
+            provider: 'imessage',
             label: input.label.trim(),
             config,
             credentials

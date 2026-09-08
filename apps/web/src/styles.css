@@ -3875,6 +3875,68 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     stroke-opacity: var(--lp-w-wire-bloom-opacity);
 }
 
+/* A packet travels on a CSS motion path rather than on `animateMotion`,
+   because Blink holds an inline SVG's SMIL clock at zero until the document's
+   load event: a cold refresh drew the world and lit the wires while nothing
+   moved along them. A CSS animation runs from the first frame the element is
+   styled. See `FluxPacket` for the measurement.
+
+   Both keyframe pairs run a plain 0 → 1; the shape of a run lives in the
+   per-packet `animation-timing-function`, which carries the same stops the
+   SMIL `keyTimes` did. */
+.landing-root .lp-world .lp-flux-move {
+    /* Left without a `transform-origin` on purpose. An SVG element with no CSS
+       layout box anchors its motion path at its own origin — the point
+       `animateMotion` used to translate and the point the bead is drawn
+       around — and naming an origin here would drag `offset-anchor: auto`
+       along with it. */
+    offset-rotate: auto;
+    animation-name: lp-flux-travel;
+    animation-iteration-count: infinite;
+}
+
+/* The pop has to scale about that same origin rather than about the middle of
+   a box, which is what CSS would otherwise pick: the aura and its tail sit off
+   to one side of it, so a box-centred scale would slide the bead as it grew.
+   The world's viewBox starts at 44,-20 rather than at the origin, so `0 0`
+   below is worth checking rather than assuming.
+   Measured on Chrome 148, Firefox 150 and WebKit 26.4 [2026-09-08]: all three
+   resolve it to the group's own origin, and every bead lands where
+   `animateMotion` put it. */
+.landing-root .lp-world .lp-flux-bead {
+    transform-box: view-box;
+    transform-origin: 0 0;
+    animation-name: lp-flux-fade, lp-flux-pop;
+    animation-iteration-count: infinite;
+}
+
+@keyframes lp-flux-travel {
+    from {
+        offset-distance: 0%;
+    }
+    to {
+        offset-distance: 100%;
+    }
+}
+
+@keyframes lp-flux-fade {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes lp-flux-pop {
+    from {
+        transform: scale(0);
+    }
+    to {
+        transform: scale(1);
+    }
+}
+
 .landing-root .lp-world [data-notes] {
     transition: opacity 260ms ease;
 }
@@ -4041,6 +4103,39 @@ html[lang^='zh'] .landing-root .lp-scene-title {
     92%,
     100% {
         transform: scaleY(0.34);
+    }
+}
+
+/* The mesh's hand-off light: a dot drawn on its lead's first node and
+   translated to the second. The travel is CSS rather than an `animate` on
+   `cx`/`cy` so that it runs from the first frame the dot is styled instead of
+   waiting on the document's load event; see `MeshDot` for the measurement.
+   Each dot carries its own lead's delta, so all three share these keyframes
+   and differ only by the `animation-delay` set on the element.
+   Unlike the plane's other transforms this one names no `transform-box` or
+   `transform-origin`: a translate has no origin to resolve against. */
+.landing-root .lp-w-mesh {
+    animation:
+        lp-w-mesh-travel 2.4s linear infinite,
+        lp-w-mesh-fade 2.4s linear infinite;
+}
+
+@keyframes lp-w-mesh-travel {
+    from {
+        transform: translate(0, 0);
+    }
+    to {
+        transform: translate(var(--lp-w-mesh-dx), var(--lp-w-mesh-dy));
+    }
+}
+
+@keyframes lp-w-mesh-fade {
+    0%,
+    100% {
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
     }
 }
 
@@ -4308,10 +4403,23 @@ html[lang^='zh'] .landing-root .lp-scene-title {
         animation: none !important;
     }
 
-    /* SMIL cannot be stopped from CSS, so the parts that move are removed
-       rather than stilled. The wires, ports and pads they travel between all
-       stay, and the drawing still says where a run goes. */
-    .landing-root .lp-world .lp-flux {
+    /* The parts that move are removed rather than stilled, for three separate
+       reasons. A ring is SMIL, which CSS cannot stop at all. A packet can be
+       stopped, but a stopped one is still drawn, parked at the head of its
+       wire — and, measured on Chrome 148 [2026-09-08], leaving an invisible
+       packet in the paint tree shifts the antialiasing along the wires, even
+       with the packet moved off the canvas, so taking it out is what keeps
+       this frame identical to the one the SMIL packets left behind. A mesh dot
+       costs nothing by that same measurement: stopped, it falls back to its
+       `opacity='0'` attribute and the frame is the same to the subpixel either
+       way. It is removed for the weaker reason that this rule should say which
+       parts move rather than leave that to a presentation attribute — do not
+       carry the packet's argument over to it without re-measuring.
+       The wires, leads, ports and pads a run travels between all stay, and the
+       drawing still says where it goes. */
+    .landing-root .lp-world .lp-flux-move,
+    .landing-root .lp-world .lp-flux-ring,
+    .landing-root .lp-world .lp-w-mesh {
         display: none;
     }
 }

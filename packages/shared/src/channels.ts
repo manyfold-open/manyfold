@@ -12,6 +12,7 @@ export type ChannelProviderName =
     | 'line'
     | 'googlechat'
     | 'msteams'
+    | 'imessage'
 
 export type ChannelStatus = 'draft' | 'active' | 'paused' | 'error'
 
@@ -545,6 +546,52 @@ export interface MsTeamsChannelConfig {
     resetOnIdleMins?: number | null
 }
 
+// iMessage is reached through a BlueBubbles Server the operator runs on their
+// own signed-in Mac: Manyfold registers a webhook on it for inbound and calls
+// its REST API for outbound. Everything Apple-specific lives on that Mac, so
+// this config is just the coordinates of the bridge plus the usual gating.
+export interface IMessageChannelConfig {
+    // BlueBubbles Server base URL as reached from the API host, so it has to be
+    // publicly routable (Cloudflare Tunnel, ngrok, Tailscale Funnel). Origin
+    // plus optional path prefix, no trailing slash.
+    serverUrl: string
+    // Id of the webhook row register() created on that server, so unregister()
+    // deletes exactly that entry instead of matching on URL.
+    webhookId?: string | null
+    // Server identity probed from GET /api/v1/server/info. privateApi and
+    // helperConnected gate every capability that needs the BlueBubbles Private
+    // API helper — today only starting a chat with a handle that has no
+    // existing conversation. Null = never probed.
+    serverVersion?: string | null
+    privateApi?: boolean | null
+    helperConnected?: boolean | null
+    // Handles (+E.164 or email) allowed to drive this agent. External actors,
+    // never Manyfold identities. Empty = anyone who can message the Mac.
+    allowedUserIds: string[]
+    // Handles allowed to run agent-wide commands (e.g. /model). Empty = those
+    // commands are disabled from iMessage (fail-closed).
+    operatorUserIds: string[]
+    // Chat GUIDs (iMessage;+;chat…) this channel reacts to. Empty = every group
+    // the account belongs to.
+    allowedChatIds: string[]
+    // iMessage has no bot identity to @-mention, so a group turn is gated on a
+    // literal wake word instead. Matched case-insensitively at a word boundary
+    // and stripped from the head of the text when it matches.
+    wakeWords: string[]
+    mentionOnly: boolean
+    shareSessionInChannel: boolean
+    // iMessage cannot edit a sent message, so 'preview' is meaningless and
+    // every value normalizes to 'final'.
+    progressMode: ChannelProgressMode
+    // Prepend the [Channel message context] metadata block to each
+    // channel-driven turn. On by default; set false to disable.
+    contextProjection?: boolean
+    // Agent-managed reply: forward structured source context and let the
+    // agent deliver via its own channel tools (narranexus only). Off by default.
+    agentManagedReply?: boolean
+    resetOnIdleMins?: number | null
+}
+
 export type ChannelConfig =
     | LarkChannelConfig
     | FakeChannelConfig
@@ -559,6 +606,7 @@ export type ChannelConfig =
     | LineChannelConfig
     | GoogleChatChannelConfig
     | MsTeamsChannelConfig
+    | IMessageChannelConfig
 
 export interface LarkChannelCredentials {
     appSecret: string
@@ -641,6 +689,18 @@ export interface MsTeamsChannelCredentials {
     tenantId: string
 }
 
+export interface IMessageChannelCredentials {
+    // BlueBubbles Server password. Rides as the `password` query parameter on
+    // every REST call — BlueBubbles has no header auth.
+    serverPassword: string
+    // Per-channel secret minted by register() and embedded in the webhook URL
+    // registered on the BlueBubbles server, which cannot send custom headers.
+    // verifySignature compares it in constant time. It authenticates the
+    // sender but does not sign the body, so it is a bearer capability: anyone
+    // who reads the registered URL can drive this agent.
+    webhookSecret?: string | null
+}
+
 export type ChannelCredentials =
     | LarkChannelCredentials
     | FakeChannelCredentials
@@ -654,6 +714,7 @@ export type ChannelCredentials =
     | LineChannelCredentials
     | GoogleChatChannelCredentials
     | MsTeamsChannelCredentials
+    | IMessageChannelCredentials
 
 export interface ChannelAgentSummary {
     id: string
@@ -980,6 +1041,32 @@ export const describeChannelScope = (
             userId: null
         }
     }
+    if (provider === 'imessage' && segments[0] === 'imessage') {
+        // Chat GUIDs are 'iMessage;-;+15555550123' / 'iMessage;+;chat123', so
+        // computeScopeKey percent-encodes them; the ';' would otherwise be
+        // harmless but the encoding also keeps a future GUID grammar from
+        // colliding with the ':' separator.
+        const raw = segments[2]
+        if (!raw) return UNKNOWN_SCOPE
+        const chatId = safeDecode(raw)
+        if (segments[1] === 'dm')
+            return {
+                kind: 'dm',
+                channelId: chatId,
+                threadId: null,
+                userId: chatId
+            }
+        if (segments[1] === 'group') {
+            const userId = segments[3] ? safeDecode(segments[3]) : null
+            return {
+                kind: userId ? 'channel-user' : 'channel',
+                channelId: chatId,
+                threadId: null,
+                userId
+            }
+        }
+        return UNKNOWN_SCOPE
+    }
     // linear:{organizationId}:{agentSessionId} needs no branch: an agent
     // session is one conversation and its id is neither a channel nor a thread
     // id, so the generic fallback is already the honest descriptor. The same
@@ -1031,6 +1118,7 @@ export const AGENT_SEND_PROVIDERS: readonly ChannelProviderName[] = [
     'matrix',
     'line',
     'msteams',
+    'imessage',
     'fake'
 ]
 

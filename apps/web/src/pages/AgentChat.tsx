@@ -120,7 +120,10 @@ import {
     terminalAvailabilityForAgent,
     terminalBlockedLabel
 } from '@/lib/terminalAccess'
-import { terminalResumeAvailability } from '@/lib/terminalResume'
+import {
+    terminalResumeAvailability,
+    type TerminalResumeOutcome
+} from '@/lib/terminalResume'
 import {
     applyRegeneratedUserMessage,
     mergeLatestMessages,
@@ -1221,6 +1224,7 @@ const AgentChat: FC = (): ReactNode => {
                 id: base,
                 status: 'connecting',
                 seedMessageId: null,
+                resumeWithheld: false,
                 resumeChatSessionId: activeSessionId ?? undefined
             }
         })
@@ -1272,15 +1276,19 @@ const AgentChat: FC = (): ReactNode => {
                 // was just (re)built from an unloaded state: adopt the current
                 // tip instead of paying a pointless restart. Never rebuild
                 // mid-stream — the daemon's own CLI process is still writing
-                // that turn.
+                // that turn. A tab whose resume was withheld for exactly that
+                // reason is a plain shell that must become the TUI on the
+                // first switch after the turn ends, whether or not the tip
+                // moved.
                 const lastId = lastMessageIdRef.current
                 const messagesReady =
                     loadedMessagesSessionId === activeSessionId
                 const streaming = isLiveStreamStatus(stream.status)
                 if (messagesReady && !streaming) {
                     if (
-                        sessionTerminal.seedMessageId != null &&
-                        sessionTerminal.seedMessageId !== lastId
+                        sessionTerminal.resumeWithheld ||
+                        (sessionTerminal.seedMessageId != null &&
+                            sessionTerminal.seedMessageId !== lastId)
                     ) {
                         terminalGenerationRef.current += 1
                         setSessionTerminal({
@@ -1288,6 +1296,7 @@ const AgentChat: FC = (): ReactNode => {
                             id: `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}-g${terminalGenerationRef.current}`,
                             status: 'connecting',
                             seedMessageId: lastId,
+                            resumeWithheld: false,
                             resumeChatSessionId: activeSessionId ?? undefined
                         })
                     } else if (sessionTerminal.seedMessageId == null) {
@@ -1352,9 +1361,29 @@ const AgentChat: FC = (): ReactNode => {
 
     const noopTerminalStatusChange = useCallback((): void => {}, [])
 
-    /* Only the two blocked reasons the user can act on. A framework with no
+    // The API decides the resume at connect and says so on session_info; the
+    // tab keeps that verdict, and it is the tab's verdict — not the stream's
+    // current status — that the notice below and the rebuild above read. The
+    // stream both lags it (the turn ends while the shell stays plain) and
+    // leads it (a chat turn starts under a TUI that was resumed while idle).
+    const handleTerminalResumeOutcome = useCallback(
+        (tabId: string, outcome: TerminalResumeOutcome): void => {
+            setSessionTerminal((prev) =>
+                prev && prev.id === tabId
+                    ? { ...prev, resumeWithheld: outcome === 'turn-in-flight' }
+                    : prev
+            )
+        },
+        []
+    )
+
+    /* Only the blocked reasons the user can act on. A framework with no
        resume form, or a session the CLI has not named yet, is not a problem
-       to report — the shell is simply a shell. */
+       to report — the shell is simply a shell. The durable reasons come first
+       because the API checks them first: a shell withheld for credentials is
+       fixed by the toggle, not by waiting. A withheld turn earns a notice for
+       the opposite reason — nothing is broken and it clears on its own, but
+       without saying so the plain shell reads as the resume having failed. */
     const resumeNotice =
         resumeAvailability.blocked === 'needs-credential-toggle'
             ? t('web.sessionView.resumeNeedsCredentials')
@@ -1362,7 +1391,9 @@ const AgentChat: FC = (): ReactNode => {
               ? t('web.sessionView.resumeNeedsSignIn')
               : resumeAvailability.blocked === 'daemon-needs-upgrade'
                 ? t('web.sessionView.resumeNeedsDaemonUpgrade')
-                : null
+                : sessionTerminal?.resumeWithheld
+                  ? t('web.sessionView.resumeTurnInFlight')
+                  : null
 
     const createSession = useCallback(
         async (selectCreated = true): Promise<string | null> => {
@@ -2438,6 +2469,9 @@ const AgentChat: FC = (): ReactNode => {
                                             getToken={getToken}
                                             onStatusChange={
                                                 noopTerminalStatusChange
+                                            }
+                                            onResumeOutcome={
+                                                handleTerminalResumeOutcome
                                             }
                                             tab={sessionTerminal}
                                         />

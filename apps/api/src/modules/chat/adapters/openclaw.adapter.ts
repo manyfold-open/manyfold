@@ -113,10 +113,12 @@ const openclawTurnRpcEnabled = (): boolean =>
 
 // Gates the API-driven ACP transport (openclaw acp over interactive exec) on
 // the sprites-no-runner and k8s cells. Read per call so a drill can flip it
-// without a restart. Off by default: the gateway-http path stays the shipped
-// behaviour until the ACP soak proves out (ADR-0027).
+// without a restart. ON by default (ADR-0027): openclaw chat runs over ACP. Set
+// MF_OPENCLAW_ACP=0 (or false/no) to fall back to the gateway-http path — the
+// no-deploy rollback kept for the transition until gateway-http is removed
+// (that removal needs the NarraNexus/GatewayHttp class split first).
 const openclawAcpEnabled = (): boolean =>
-    ['1', 'true', 'yes'].includes(
+    !['0', 'false', 'no'].includes(
         (process.env.MF_OPENCLAW_ACP ?? '').toLowerCase()
     )
 
@@ -148,13 +150,28 @@ const OPENCLAW_ACP_BRIDGE_SCRIPT = `exec openclaw ${OPENCLAW_ACP_ARGS.join(' ')}
 // [2026-09-07]: sessions.patch UPSERTS the (deterministic) key, so the level
 // applies from this turn; `openclaw gateway call` runs in-box over loopback with
 // the gateway token, so it needs no device pairing (the off-box ingress would).
+const shellQuoteArg = (value: string): string =>
+    `'${value.replace(/'/g, "'\\''")}'`
+
 const openclawAcpCmd = (opts: {
     sessionKey: string
     execAsk: string | null
     model: string | null
+    cwd: string | null
 }): string[] => {
-    if (!opts.execAsk && !opts.model)
-        return ['bash', '-lc', OPENCLAW_ACP_BRIDGE_SCRIPT]
+    // Enter the agent workspace from INSIDE the bridge, never via the exec
+    // transport's `dir`: wrapSpriteCommand turns `dir` into `cd <dir> && …`, and
+    // a fresh sprite's workspace is created lazily by openclaw (nothing mkdirs
+    // it at bootstrap), so that cd runs before openclaw and the shell exits 1.
+    // Seen on sprites [2026-09-08]: `cd: /home/sprite/.openclaw/workspace: No
+    // such file or directory` → `openclaw acp exited with code 1` before the
+    // bridge started. mkdir -p makes it exist; the cd is tolerant because
+    // `--no-prefix-cwd` means openclaw resolves its workspace from config.
+    const enter = opts.cwd
+        ? `mkdir -p ${shellQuoteArg(opts.cwd)} 2>/dev/null; cd ${shellQuoteArg(opts.cwd)} 2>/dev/null; `
+        : ''
+    const bridge = `${enter}${OPENCLAW_ACP_BRIDGE_SCRIPT}`
+    if (!opts.execAsk && !opts.model) return ['bash', '-lc', bridge]
     const patchParams: Record<string, unknown> = { key: opts.sessionKey }
     // The gateway registers each catalog model under the `primary` provider, so
     // a pick routes as `primary/<model>`. Probe-verified [2026-09-07] to change
@@ -163,7 +180,7 @@ const openclawAcpCmd = (opts: {
     if (opts.execAsk) patchParams.execAsk = opts.execAsk
     const params = JSON.stringify(patchParams)
     const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
-    return ['bash', '-lc', `${patch}; ${OPENCLAW_ACP_BRIDGE_SCRIPT}`]
+    return ['bash', '-lc', `${patch}; ${bridge}`]
 }
 
 // A one-shot in-box gateway RPC (the CLI speaks to the loopback gateway with
@@ -207,8 +224,15 @@ const OPENCLAW_ACP_PARSER_VERSION = '1'
 // session/new carries the SAME _meta.sessionKey — the ACP sessionId itself is
 // disposable — so this deterministic key IS the session identity, and the API
 // never calls session/resume.
-const openclawGatewaySessionKey = (internalId: string, sessionId: string): string =>
-    `agent:${internalId || 'main'}:mf-${sessionId}`
+// The Manyfold-provisioned gateway (sprite/k8s, buildOpenclawConfigJson) hosts
+// exactly one agent — the default, `main`; a BYOD daemon's gateway defaults to
+// `main` too. The manyfold agent id is NOT a gateway agent name, so the session
+// binds to `main` and ctx.sessionId keeps the key unique per chat. Verified
+// in-sprite [2026-09-08]: `sessions.patch` on `agent:main:…` returns ok:true,
+// on `agent:<agentId>:…` fails "Agent <id> no longer exists in configuration"
+// (the manyfold id was never registered as a gateway agent).
+const openclawGatewaySessionKey = (sessionId: string): string =>
+    `agent:main:mf-${sessionId}`
 
 // One ACP event -> the durable raw_source row plus its semantic event, mirroring
 // the SSE path's shape so the renderer treats an ACP turn like any other.
@@ -442,7 +466,6 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 yield* this.sendViaDaemonAcp(
                     ctx,
                     userMessage,
-                    agentRow.internalId,
                     agentRow.daemonId
                 )
                 return
@@ -484,7 +507,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
                       ctx.runnerDaemonId!
                   )
                 : viaAcp
-                  ? this.sendViaOpenclawAcp(ctx, userMessage, runtime, agentRow.internalId)
+                  ? this.sendViaOpenclawAcp(ctx, userMessage, runtime)
                   : this.sendOpenAiCompat(ctx, userMessage, runtime)
             for await (const ev of source) {
                 if (ev.type === 'done') succeeded = true
@@ -530,14 +553,13 @@ export class OpenclawAdapter implements ApiChatAdapter {
     private async *sendViaDaemonAcp(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        internalId: string,
         daemonId: string
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
             return
         }
-        const sessionKey = openclawGatewaySessionKey(internalId, ctx.sessionId)
+        const sessionKey = openclawGatewaySessionKey(ctx.sessionId)
         const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
         const patch: { execAsk?: string; model?: string } = {}
         // 'default' turns exec approval on; the enum is the probe-verified
@@ -1102,8 +1124,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
     private async *sendViaOpenclawAcp(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        runtime: OpenclawRuntime,
-        internalId: string
+        runtime: OpenclawRuntime
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
@@ -1144,7 +1165,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
         }
         const cwd = handle.agent.workspacePath ?? null
         const prompt = messageToPromptText(userMessage)
-        const sessionKey = openclawGatewaySessionKey(internalId, ctx.sessionId)
+        const sessionKey = openclawGatewaySessionKey(ctx.sessionId)
         // `default` turns exec approval on for this session; `dontAsk` (the
         // default) leaves the gateway's shipped tools.exec.ask:'off', so nothing
         // is patched and nothing prompts — byte-for-byte today's behaviour.
@@ -1172,7 +1193,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             if (r) r()
         }
         const transport = streamInteractive({
-            cmd: openclawAcpCmd({ sessionKey, execAsk, model: modelOverride }),
+            cmd: openclawAcpCmd({ sessionKey, execAsk, model: modelOverride, cwd }),
             env: {
                 // The bridge authenticates to the loopback gateway with its own
                 // token; the model call happens inside that gateway, which
@@ -1181,7 +1202,9 @@ export class OpenclawAdapter implements ApiChatAdapter {
                 OPENCLAW_HIDE_BANNER: '1',
                 OPENCLAW_SUPPRESS_NOTES: '1'
             },
-            ...(cwd ? { dir: cwd } : {}),
+            // NOT `dir: cwd`: wrapSpriteCommand would `cd <cwd> && …` before the
+            // bridge, and the workspace may not exist yet (see openclawAcpCmd).
+            // The bridge enters it itself, creating it first.
             timeoutMs: acpBudgets.maxDurationMs,
             keepAliveMs: budgets.headersTimeoutMs
         })

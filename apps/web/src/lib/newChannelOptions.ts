@@ -36,7 +36,8 @@ const CREATE_PROVIDERS: CreateProviderChoice[] = [
     'github',
     'line',
     'googlechat',
-    'msteams'
+    'msteams',
+    'imessage'
 ]
 
 export const isCreateProvider = (

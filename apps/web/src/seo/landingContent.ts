@@ -142,6 +142,7 @@ export const WORKS_WITH_ROWS: ReadonlyArray<{
             { name: 'Matrix', channel: 'matrix' },
             { name: 'WeChat', channel: 'weixin' },
             { name: 'LINE', channel: 'line' },
+            { name: 'iMessage', channel: 'imessage' },
             { name: 'Linear', channel: 'linear' },
             { name: 'GitHub', channel: 'github' }
         ]

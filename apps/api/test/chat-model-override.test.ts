@@ -2058,6 +2058,102 @@ test('Codex adapter clears the frozen session ref when resume rollout is missing
     assert.deepEqual(stored, [null])
 })
 
+/* The self-heal above is keyed on `thread/resume failed`, and codex wraps BOTH
+   a missing rollout and a live-writer refusal in that same text. Clearing the
+   ref here would be the worst possible response to the second one: the thread
+   is healthy and still being written by the process that owns it, so the next
+   turn would start a fresh session, the conversation the user is looking at
+   would stop growing, and the holder would keep appending to a thread nothing
+   points at. Seen on production [2026-09-07]. */
+test('Codex adapter keeps the session ref when the thread is still being written', async () => {
+    const handle = makeDriverFactory(
+        { openaiApiKey: 'token' },
+        'sprites',
+        '',
+        {},
+        {
+            exitCode: 1,
+            stderr: 'Error: thread/resume failed: thread 01a07b93-bb59-7023-83ba-872ae3b88750 already has an active writer (code -32600)'
+        }
+    )
+    const stored: (string | null)[] = []
+    const adapter = new CodexAdapter(
+        handle.drivers as never,
+        {
+            updateFrameworkSessionRef: async (
+                _sessionId: string,
+                ref: string | null
+            ) => {
+                stored.push(ref)
+            }
+        } as never,
+        {} as never
+    )
+
+    const events = await collect(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'codex',
+                frameworkSessionRef: 'busy-thread'
+            },
+            userMessage
+        )
+    )
+
+    // The turn still fails — it genuinely could not resume — but retryably, and
+    // the ref survives so the retry lands on the same conversation.
+    const error = events.find((event) => event.type === 'error')
+    assert.ok(error && error.type === 'error')
+    assert.equal(error.error.retryable, true)
+    assert.deepEqual(stored, [])
+})
+
+// Codex wraps every failed resume in the same `thread/resume failed:` prefix,
+// so the prefix alone is not evidence that the rollout is gone. A reason that
+// says nothing about the rollout — here, a writer-lock file the runtime could
+// not lock — must leave the ref alone; the earlier pattern matched the bare
+// wrapper and would have forked the session on it.
+test('Codex adapter keeps the session ref when the resume failed for a reason other than a lost rollout', async () => {
+    const handle = makeDriverFactory(
+        { openaiApiKey: 'token' },
+        'sprites',
+        '',
+        {},
+        {
+            exitCode: 1,
+            stderr: 'Error: thread/resume failed: failed to acquire thread writer lock for thread 01a07b93: No locks available (code -32603)'
+        }
+    )
+    const stored: (string | null)[] = []
+    const adapter = new CodexAdapter(
+        handle.drivers as never,
+        {
+            updateFrameworkSessionRef: async (
+                _sessionId: string,
+                ref: string | null
+            ) => {
+                stored.push(ref)
+            }
+        } as never,
+        {} as never
+    )
+
+    const events = await collect(
+        adapter.sendMessage(
+            {
+                ...baseCtx,
+                framework: 'codex',
+                frameworkSessionRef: 'intact-thread'
+            },
+            userMessage
+        )
+    )
+
+    assert.ok(events.some((event) => event.type === 'error'))
+    assert.deepEqual(stored, [])
+})
+
 test('Codex adapter keeps the session ref on a non-resume exec failure', async () => {
     const handle = makeDriverFactory(
         { openaiApiKey: 'token' },
