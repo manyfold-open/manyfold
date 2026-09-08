@@ -1,6 +1,5 @@
 ---
 '@manyfold/web': minor
-'@manyfold/i18n': minor
 ---
 
 A new marketing page at `/channels` (and `/zh/channels`) explains connecting Claude Code or Codex to the apps a team already works in — chat on one side, issue trackers on the other. It answers four questions in four screens: what this is, which apps are supported, how long connecting one takes, and what happens to the conversations afterwards.
