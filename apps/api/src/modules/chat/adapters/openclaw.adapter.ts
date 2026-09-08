@@ -298,6 +298,23 @@ interface OpenclawRuntime {
     displayModel: string | null
 }
 
+// The model to put in the gateway-http request body (the gateway-http and
+// runner turn-rpc transports). The web sends a per-message pick as a BARE model
+// id; the gateway registers catalog models under the `primary` provider, so it
+// routes as primary/<pick> — the same shape resolveRuntime bakes into modelId
+// and the ACP path's sessions.patch uses. Without a pick, the agent's stored
+// default (runtime.modelId) stands. This is where openclaw's per-message model
+// switch reaches the non-ACP transports; the ACP path applies it via
+// sessions.patch instead, so before this the switch was silently dropped on the
+// runner and gateway-http cells (Seen on staging [2026-09-08]: a sprite agent
+// switched to gpt-5.6-terra still answered on its default because
+// MF_SPRITE_RUNNER_AGENTS='*' routes every sprite through turn-rpc).
+const openclawBodyModel = (
+    runtime: OpenclawRuntime,
+    modelOverride: string | null | undefined
+): string => (modelOverride ? `primary/${modelOverride}` : runtime.modelId)
+
+
 // Which budget fired. Named separately from the error codes because the
 // runner-carried path reports the same three kinds back over RPC.
 type OpenclawTimeoutKind = 'headers' | 'stream_idle' | 'max_duration'
@@ -1617,7 +1634,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
                         accept: 'text/event-stream'
                     },
                     body: JSON.stringify({
-                        model: runtime.modelId,
+                        model: openclawBodyModel(runtime, ctx.modelOverride),
                         stream: true,
                         stream_options: { include_usage: true },
                         messages: truncated.map((m) => ({
@@ -2043,7 +2060,7 @@ export class OpenclawAdapter implements ApiChatAdapter {
             url: `${agentBaseUrl(runtime.ingressHost)}/v1/chat/completions`,
             token: runtime.gatewayToken,
             body: {
-                model: runtime.modelId,
+                model: openclawBodyModel(runtime, ctx.modelOverride),
                 stream: true,
                 stream_options: { include_usage: true },
                 messages: truncated.map((m) => ({

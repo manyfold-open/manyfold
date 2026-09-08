@@ -257,9 +257,62 @@ test('the daemon gets the exact request the API would have sent', async () => {
     })
 })
 
-// THE truncation pin, openclaw edition: a bare exec final ({exitCode}) or a
-// stream that just stopped carries no stopReason and MUST suspend — never a
-// half-answer labelled `done` (the exact failure the hermes drills caught).
+// A per-message model switch must reach the runner turn-rpc body — the transport
+// every sprite openclaw agent uses when MF_SPRITE_RUNNER_AGENTS routes it to a
+// runner. Before the fix the override was applied only on the ACP path, so a
+// switch was silently dropped here and the turn ran on the agent's default.
+// Prove-red: revert openclawBodyModel to `runtime.modelId` and body.model
+// becomes 'openclaw', failing the primary/<pick> assertion.
+test('a per-message model override rides the turn-rpc body as primary/<pick>', async () => {
+    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+        const h = buildHarness({
+            lines: [deltaLine('ok')],
+            result: { ok: { stopReason: 'done', sessionId: null } }
+        })
+        const a = asAny(h.adapter)
+        a.resolveRuntime = async () => ({
+            ingressHost: 'gw.sprites.app',
+            gatewayToken: 'gw_tok',
+            modelId: 'primary/gpt-5.6-luna',
+            displayModel: 'gpt-5.6-luna'
+        })
+        a.daemonSupportsTurnRpc = async () => true
+        await drain(
+            h.adapter.sendMessage(
+                ctx({
+                    runnerDaemonId: 'dh_runner',
+                    modelOverride: 'gpt-5.6-terra'
+                }),
+                userMsg
+            )
+        )
+        const body = h.calls[0].payload.body as { model: string }
+        assert.equal(body.model, 'primary/gpt-5.6-terra')
+    })
+})
+
+// Control: no override → the agent's stored default stands, unprefixed-doubling.
+test('without an override the turn-rpc body keeps the agent default', async () => {
+    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+        const h = buildHarness({
+            lines: [deltaLine('ok')],
+            result: { ok: { stopReason: 'done', sessionId: null } }
+        })
+        const a = asAny(h.adapter)
+        a.resolveRuntime = async () => ({
+            ingressHost: 'gw.sprites.app',
+            gatewayToken: 'gw_tok',
+            modelId: 'primary/gpt-5.6-luna',
+            displayModel: 'gpt-5.6-luna'
+        })
+        a.daemonSupportsTurnRpc = async () => true
+        await drain(
+            h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
+        )
+        const body = h.calls[0].payload.body as { model: string }
+        assert.equal(body.model, 'primary/gpt-5.6-luna')
+    })
+})
 test('a final without stopReason suspends, never done', async () => {
     await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
         const h = buildHarness({
