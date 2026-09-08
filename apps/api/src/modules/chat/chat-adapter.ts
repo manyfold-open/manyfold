@@ -9,6 +9,8 @@ import type {
     ChatUsage,
     ClaudeCodePermissionMode,
     CodexPermissionMode,
+    DaemonDetectableFramework,
+    DetectedFramework,
     HermesPermissionMode,
     OpenclawPermissionMode,
     RuntimeLocalTuning
@@ -37,6 +39,26 @@ export const daemonAdvertisesFeature = async (
         .where(eq(runtimeHosts.id, daemonId))
         .limit(1)
     return ((row?.clientFeatures as string[] | null) ?? []).includes(feature)
+}
+
+// What the daemon's last heartbeat detected for one framework
+// (runtime_hosts.detected_frameworks), or null if it found none. The openclaw
+// entry carries the resident gateway the daemon DISCOVERED — never started —
+// which is the admission fact an ACP turn needs before it dispatches. Throws
+// propagate for the same reason as above: "couldn't check" is not "absent".
+export const daemonDetectedFramework = async (
+    db: Database,
+    daemonId: string,
+    framework: DaemonDetectableFramework
+): Promise<DetectedFramework | null> => {
+    const [row] = await db
+        .select({ detectedFrameworks: runtimeHosts.detectedFrameworks })
+        .from(runtimeHosts)
+        .where(eq(runtimeHosts.id, daemonId))
+        .limit(1)
+    const detected = (row?.detectedFrameworks ??
+        []) as unknown as DetectedFramework[]
+    return detected.find((d) => d.framework === framework) ?? null
 }
 
 // Filled in by adapters as the turn progresses; runAdapter folds the spans

@@ -30,9 +30,11 @@ process.env.OPENCLAW_STREAM_IDLE_TIMEOUT_MS = String(IDLE_TIMEOUT_MS)
 process.env.OPENCLAW_PREFLIGHT_TIMEOUT_MS = String(1_000)
 process.env.OPENCLAW_PREFLIGHT_BUDGET_MS = String(2_000)
 process.env.K8S_INGRESS_SCHEME = 'http'
-// This suite exercises the gateway-http path specifically. ACP is now the
-// default (MF_OPENCLAW_ACP on), so opt out explicitly to reach gateway-http.
-process.env.MF_OPENCLAW_ACP = '0'
+// This suite exercises the gateway-http path, which openclaw no longer takes
+// (ADR-0027 O9): NarraNexus is its framework now, so the adapter under test is
+// the base class through its live subclass. The three budgets, their codes and
+// the cancel semantics are the base's and are unchanged by that move.
+process.env.NARRANEXUS_PREFLIGHT_BUDGET_MS = String(2_000)
 
 const GENEROUS_MAX_MS = 30_000
 
@@ -114,7 +116,7 @@ const makeDb = (host: string) => {
             {
                 ingressHost: host,
                 runtimeId: 'art_1',
-                framework: 'openclaw',
+                framework: 'narranexus',
                 internalId: 'main',
                 name: 'main'
             }
@@ -140,17 +142,13 @@ const buildAdapter = async (
     adapter: { sendMessage: OpenclawSend }
     events: TelemetryEvent[]
 }> => {
-    const { OpenclawAdapter } =
-        await import('../src/modules/chat/adapters/openclaw.adapter')
+    const { NarraNexusChatAdapter } =
+        await import('../src/modules/narranexus/narranexus-chat.adapter')
     const events: TelemetryEvent[] = []
-    const adapter = new OpenclawAdapter(
+    const adapter = new NarraNexusChatAdapter(
         makeDb(host) as never,
         {
-            decrypt: () =>
-                JSON.stringify({
-                    gatewayToken: 'tok',
-                    primaryModelName: 'claude'
-                })
+            decrypt: () => JSON.stringify({ gatewayToken: 'tok' })
         } as never,
         { computeCost: () => ({ costUsd: null, costSource: 'none' }) } as never,
         {} as never,
@@ -183,7 +181,7 @@ const ctxFor = (abortSignal?: AbortSignal): ApiChatAdapterContext =>
         runtimeId: 'art_1',
         sessionId: 'cts_1',
         messageId: 'msg_1',
-        framework: 'openclaw',
+        framework: 'narranexus',
         runtimeKind: 'sprites',
         model: null,
         modelOverride: null,
@@ -405,11 +403,10 @@ test('user cancel aborts the live request immediately', async () => {
     }
 })
 
-// The per-message model switch must also reach the plain gateway-http body (the
-// no-runner sprite / k8s fallback with the ACP flag off). Same shared helper as
-// turn-rpc; this pins the actual on-the-wire body. Prove-red: revert
-// openclawBodyModel to `runtime.modelId` and body.model becomes 'claude'.
-test('gateway-http body carries the per-message model override as primary/<pick>', async () => {
+// A per-message model pick must never reach the gateway-http body: on this
+// transport `model` is an agent router, not a provider model. Prove-red: make
+// the body carry the override and this asserts the router value back.
+test('gateway-http body carries the agent router, never a per-message model override', async () => {
     let capturedBody = ''
     const server: Server = createServer((req, res) => {
         if (req.method === 'HEAD') {
@@ -446,14 +443,13 @@ test('gateway-http body carries the per-message model override as primary/<pick>
             )
         )
         const body = JSON.parse(capturedBody) as { model: string }
-        // The per-message override cannot ride the gateway-http body: the
-        // `model` field is only an agent router (openclaw/openclaw/<agentId>),
-        // and the gateway 400s a provider model there. So the body carries the
-        // agent router regardless of the pick — switching openclaw's model needs
-        // the ACP path (sessions.patch on the stateful session), not this
-        // transport. Seen on staging [2026-09-08]: sending primary/<pick> here
-        // returned "Invalid model. Use openclaw or openclaw/<agentId>".
-        assert.equal(body.model, 'openclaw')
+        // The `model` field on this transport routes to an agent, not to a
+        // provider model — the gateway 400s a provider model there. So the
+        // body carries the agent router whatever the caller picked. Seen on
+        // staging [2026-09-08] against the openclaw gateway this transport
+        // used to serve: sending primary/<pick> returned "Invalid model. Use
+        // openclaw or openclaw/<agentId>".
+        assert.equal(body.model, 'main')
     } finally {
         await new Promise<void>((r) => server.close(() => r()))
     }

@@ -12,7 +12,7 @@ import type {
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
 
-// The API-driven openclaw ACP path (MF_OPENCLAW_ACP) end to end: sendMessage
+// The API-driven openclaw ACP path end to end: sendMessage
 // routing a no-runner sprite turn into sendViaOpenclawAcp, which drives the real
 // AcpTurn (OPENCLAW_ACP_DIALECT) over a scripted `openclaw acp` transport. The
 // frames replayed here are recorded verbatim from a live openclaw@2026.5.18
@@ -378,8 +378,6 @@ const drain = async (
 }
 
 test('a no-runner sprite openclaw turn runs the ACP conversation over the interactive transport', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig()
         void (async () => {
             const init = await rig.waitFor('initialize')
@@ -468,9 +466,6 @@ test('a no-runner sprite openclaw turn runs the ACP conversation over the intera
         )
         assert.equal(recorded?.attrs['nca.outcome'], 'ok')
         assert.equal(recorded?.attrs['nca.provider_calls'], 2)
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
 const scriptCleanTurn = (rig: Rig): void => {
@@ -493,8 +488,6 @@ const scriptCleanTurn = (rig: Rig): void => {
 }
 
 test('a usage read-back that fails never fails the turn — it is logged and counted', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig({
             streamResults: [
                 { stdout: 'gateway call failed: ECONNREFUSED', exitCode: 1 }
@@ -510,14 +503,9 @@ test('a usage read-back that fails never fails the turn — it is logged and cou
             (t) => t.name === 'openclaw_acp_usage'
         )
         assert.equal(recorded?.attrs['nca.outcome'], 'error')
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
 test('a turn whose prompt is not the transcript tail is not billed (a bridge-answered command wrote nothing)', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig({
             streamResults: [
                 {
@@ -540,14 +528,9 @@ test('a turn whose prompt is not the transcript tail is not billed (a bridge-ans
             (t) => t.name === 'openclaw_acp_usage'
         )
         assert.equal(recorded?.attrs['nca.outcome'], 'prompt_mismatch')
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
 test('a turn longer than the usage window is re-read once at the wide limit', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         // 60 assistant messages and no user anchor: the window is full.
         const fullWindow = {
             messages: Array.from({ length: 60 }, () =>
@@ -580,32 +563,29 @@ test('a turn longer than the usage window is re-read once at the wide limit', as
             | undefined
         assert.equal(usage?.usage.inputTokens, 700)
         assert.equal(usage?.usage.outputTokens, 70)
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
-test('with the flag OFF the openclaw turn never launches the ACP bridge', async () => {
-    // ACP is the default now; opt out explicitly to exercise the gateway-http
-    // fallback (the no-deploy rollback).
-    process.env.MF_OPENCLAW_ACP = '0'
+// #402: a cancel that landed before the dispatch must not put a bridge on the
+// sprite for a turn nobody reads. Prove-red: drop the abortSignal check at the
+// head of sendViaOpenclawAcp and the bridge is exec'd.
+test('a turn cancelled before dispatch never launches the ACP bridge', async () => {
     const rig = buildRig()
-    // Pre-aborted so the gateway-http path short-circuits without a real fetch;
-    // we only assert the ACP bridge cmd was never requested.
     const ac = new AbortController()
     ac.abort()
-    await drain(
+    const events = await drain(
         rig.adapter.sendMessage(ctx({ abortSignal: ac.signal }), USER_MSG)
-    ).catch(() => {})
+    )
     assert.equal(
         rig.requests.filter((r) => (r.cmd ?? []).includes('acp')).length,
         0
     )
+    const err = events.find((e) => e.type === 'error') as
+        | { error: { code: string } }
+        | undefined
+    assert.equal(err?.error.code, 'openclaw_aborted')
 })
 
 test('the default permission mode patches execAsk in the wrapper and surfaces an answerable card', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig()
         void (async () => {
             const init = await rig.waitFor('initialize')
@@ -684,14 +664,9 @@ test('the default permission mode patches execAsk in the wrapper and surfaces an
                 JSON.stringify(f.result).includes('allow-once')
         )
         assert.ok(answered)
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
 test('a per-message model pick is applied via the wrapper sessions.patch', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig()
         void (async () => {
             const init = await rig.waitFor('initialize')
@@ -728,14 +703,9 @@ test('a per-message model pick is applied via the wrapper sessions.patch', async
         )
         // No ask mode was set, so execAsk is absent.
         assert.ok(!String(req.cmd?.[2]).includes('execAsk'))
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })
 
 test('a gateway JSON-RPC error surfaces its data.details, not just "Internal error"', async () => {
-    process.env.MF_OPENCLAW_ACP = '1'
-    try {
         const rig = buildRig()
         void (async () => {
             const init = await rig.waitFor('initialize')
@@ -768,7 +738,4 @@ test('a gateway JSON-RPC error surfaces its data.details, not just "Internal err
         assert.ok(err, 'expected an error event')
         assert.match(err!.error.message, /provider rejected the request/)
         assert.match(err!.error.message, /Internal error/)
-    } finally {
-        delete process.env.MF_OPENCLAW_ACP
-    }
 })

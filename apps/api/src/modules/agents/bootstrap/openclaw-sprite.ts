@@ -158,8 +158,9 @@ export class OpenClawSpriteBootstrap implements SpriteServiceBootstrap {
     // Write the full openclaw.json mirroring K8s entrypoint.sh —
     // critically, `gateway.http.endpoints.chatCompletions.enabled = true`
     // is what exposes the OpenAI-compatible HTTP `/v1/chat/completions`
-    // endpoint that openclaw.adapter.ts calls. Without it the gateway is
-    // WebSocket-only and the adapter sees 404.
+    // endpoint the agent publishes as its endpoint URL. Chat itself stopped
+    // calling it in ADR-0027 O9 (openclaw turns run `openclaw acp` in-box),
+    // but without the flag the gateway is WebSocket-only and that URL 404s.
     private async writeConfig(
         ctx: BootstrapContext,
         creds: ResolvedOpenclawCredentials,
