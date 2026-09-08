@@ -25,6 +25,7 @@ export interface SpriteShellEnvInput {
     apiBaseUrl?: string
     apiToken?: string
     deployEnv?: string
+    purgeLegacyIdentity?: boolean
     logger?: SpritesLogger
     timeoutMs?: number
     // When the env block carries the identity token (post-insert) the write is
@@ -93,7 +94,7 @@ const MANAGED_SHELL_FILES = [
 // env block.
 const RESIDUE_AWK = [
     'function residue(l) {',
-    '  if (l ~ /^[ \\t]*export[ \\t]+(MF|NCA)_(API_TOKEN|AGENT_ID)=/) return 1',
+    '  if (purge_identity && l ~ /^[ \\t]*export[ \\t]+(MF|NCA)_(API_TOKEN|AGENT_ID)=/) return 1',
     '  sub(/^[ \\t]*/, "", l)',
     '  sub(/[ \\t]*$/, "", l)',
     '  return l == "export PATH=\\"$HOME/.local/bin:$PATH\\""',
@@ -133,11 +134,14 @@ const RESIDUE_AWK = [
 ].join('\n')
 
 // Content-based cleanup of legacy managed residue in the shared shell files.
-// Best-effort by construction (it runs inside `set -eu` installers on images
-// where /etc/profile.d may be read-only), and a strict no-op on a file that
-// carries none of the shapes above — including one holding only the current
-// `# mf-env-*` and `# mf-path-*` blocks.
-export const buildLegacyShellResiduePurgeScript = (): string =>
+// PATH residue is always safe to remove. Identity residue is opt-in because
+// old sprites still use those exports until the API has encrypted every agent's
+// identity on the host. Best-effort by construction (it runs inside `set -eu`
+// installers on images where /etc/profile.d may be read-only), and a strict
+// no-op on a file that carries none of the shapes above.
+export const buildLegacyShellResiduePurgeScript = (opts?: {
+    purgeIdentity?: boolean
+}): string =>
     [
         'mf_purge_shell_residue() {',
         '  mf_purge_file="$1"',
@@ -150,7 +154,8 @@ export const buildLegacyShellResiduePurgeScript = (): string =>
             `-v mfstart="${MF_SHELL_ENV_START}" ` +
             `-v mfend="${MF_SHELL_ENV_END}" ` +
             `-v ncastart="${NCA_SHELL_ENV_START}" ` +
-            `-v ncaend="${NCA_SHELL_ENV_END}" '`,
+            `-v ncaend="${NCA_SHELL_ENV_END}" ` +
+            `-v purge_identity=${opts?.purgeIdentity === true ? 1 : 0} '`,
         RESIDUE_AWK,
         // Rewrite THROUGH the original file rather than renaming a temp over
         // it: /etc/profile.d/nca.sh must keep its mode and owner, or a shell
@@ -166,20 +171,24 @@ export const buildLegacyShellResiduePurgeScript = (): string =>
         'done'
     ].join('\n')
 
-// The whole shared-shell reconcile, in the order it has to happen: strip the
-// legacy residue first, then install the guarded PATH block, so the block is
-// the only `.local/bin` statement left standing. Every surface that touches an
-// existing sprite runs this — provision, npm framework install/upgrade and `mf`
-// CLI install/upgrade — which is what carries the cleanup to sandboxes that are
-// already provisioned (#611, #650).
-export const buildManagedShellReconcileScript = (): string =>
-    [buildLegacyShellResiduePurgeScript(), buildManagedPathScript()].join('\n')
+// The whole shared-shell reconcile, in the order it has to happen: strip safe
+// legacy residue first, then install the guarded PATH block. Callers that have
+// completed the encrypted-identity migration may opt into identity cleanup.
+// Every surface that touches an existing sprite runs this — provision, npm
+// framework install/upgrade and `mf` CLI install/upgrade.
+export const buildManagedShellReconcileScript = (opts?: {
+    purgeIdentity?: boolean
+}): string =>
+    [buildLegacyShellResiduePurgeScript(opts), buildManagedPathScript()].join(
+        '\n'
+    )
 
 export const buildShellEnvScript = (input: {
     agentId: string
     apiBaseUrl?: string
     apiToken?: string
     deployEnv?: string
+    purgeLegacyIdentity?: boolean
 }): string => {
     const block = buildShellEnvBlock(input)
     return [
@@ -243,7 +252,9 @@ export const buildShellEnvScript = (input: {
         // residue purge rides along and therefore also sees the block just
         // appended above — which is why that block must carry no per-agent
         // value for the purge to be a no-op on it.
-        buildManagedShellReconcileScript(),
+        buildManagedShellReconcileScript({
+            purgeIdentity: input.purgeLegacyIdentity === true
+        }),
         'echo MF_SHELL_ENV_OK'
     ].join('\n')
 }
@@ -261,7 +272,8 @@ export const cliInstallChannelForDeployEnv = (
 // framework install, and a CLI upgrade is the touchpoint it does have (#611).
 export const buildCliInstallScript = (
     channel: MfCliInstallChannel,
-    version?: string
+    version?: string,
+    opts?: { purgeLegacyIdentity?: boolean }
 ): string => {
     const marker = channel === 'dev' ? 'MF_DEV_CLI_OK' : 'MF_STABLE_CLI_OK'
     // One installer, channel selected by env: install.sh resolves the channel
@@ -274,7 +286,9 @@ export const buildCliInstallScript = (
         'set -eu',
         `curl -fsSL ${CLI_INSTALL_URL} | ${versionEnv}${channelEnv}MF_INSTALL_DIR="$HOME/.local/bin" sh`,
         '"$HOME/.local/bin/mf" --version',
-        buildManagedShellReconcileScript(),
+        buildManagedShellReconcileScript({
+            purgeIdentity: opts?.purgeLegacyIdentity === true
+        }),
         `echo ${marker}`
     ].join('\n')
 }
@@ -325,6 +339,7 @@ export class SpriteShellEnvService {
         client: SpritesClient
         spriteName: string
         channel: MfCliInstallChannel
+        purgeLegacyIdentity?: boolean
         logger?: SpritesLogger
         timeoutMs?: number
     }): Promise<void> {
@@ -334,7 +349,13 @@ export class SpriteShellEnvService {
             input.client,
             input.spriteName,
             {
-                cmd: ['bash', '-lc', buildCliInstallScript(input.channel)],
+                cmd: [
+                    'bash',
+                    '-lc',
+                    buildCliInstallScript(input.channel, undefined, {
+                        purgeLegacyIdentity: input.purgeLegacyIdentity
+                    })
+                ],
                 stdin: '',
                 timeoutMs: input.timeoutMs ?? 180_000
             },

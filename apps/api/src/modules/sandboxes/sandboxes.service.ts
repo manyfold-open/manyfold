@@ -314,6 +314,8 @@ export class SandboxesService {
         const owner = host.userId
         if (!host.spriteId || !host.spriteName || !host.accountId)
             throw new BadRequestException('sandbox is not provisioned')
+        const identityReady =
+            await this.spritesProvisioner.migrateLegacySpriteIdentities(hostId)
         const account = await this.accounts.getById(host.accountId)
         if (!account)
             throw new BadRequestException('sandbox account unavailable')
@@ -331,7 +333,9 @@ export class SandboxesService {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
         const shell = [
-            buildCliInstallScript(channel, targetVersion),
+            buildCliInstallScript(channel, targetVersion, {
+                purgeLegacyIdentity: identityReady
+            }),
             'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"'
         ].join('\n')
         const client = createSpritesClient({
