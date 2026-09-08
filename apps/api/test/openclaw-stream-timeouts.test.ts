@@ -401,3 +401,51 @@ test('user cancel aborts the live request immediately', async () => {
         await gw.close()
     }
 })
+
+// The per-message model switch must also reach the plain gateway-http body (the
+// no-runner sprite / k8s fallback with the ACP flag off). Same shared helper as
+// turn-rpc; this pins the actual on-the-wire body. Prove-red: revert
+// openclawBodyModel to `runtime.modelId` and body.model becomes 'claude'.
+test('gateway-http body carries the per-message model override as primary/<pick>', async () => {
+    let capturedBody = ''
+    const server: Server = createServer((req, res) => {
+        if (req.method === 'HEAD') {
+            res.writeHead(200)
+            res.end()
+            return
+        }
+        let b = ''
+        req.on('data', (c) => (b += c))
+        req.on('end', () => {
+            capturedBody = b
+            res.writeHead(200, {
+                'content-type': 'text/event-stream',
+                'cache-control': 'no-cache'
+            })
+            res.write('data: [DONE]\n\n')
+            res.end()
+        })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+    const { port } = server.address() as { port: number }
+    try {
+        const { adapter } = await buildAdapter(
+            `127.0.0.1:${port}`,
+            GENEROUS_MAX_MS
+        )
+        await drain(
+            adapter.sendMessage(
+                {
+                    ...ctxFor(),
+                    modelOverride: 'gpt-5.6-terra'
+                } as ApiChatAdapterContext,
+                userMessage()
+            )
+        )
+        const body = JSON.parse(capturedBody) as { model: string }
+        // default from decrypt() is 'claude'; the override wins, primary-routed.
+        assert.equal(body.model, 'primary/gpt-5.6-terra')
+    } finally {
+        await new Promise<void>((r) => server.close(() => r()))
+    }
+})
