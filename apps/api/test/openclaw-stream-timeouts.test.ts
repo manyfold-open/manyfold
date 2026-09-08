@@ -443,9 +443,16 @@ test('gateway-http body carries the per-message model override as primary/<pick>
             )
         )
         const body = JSON.parse(capturedBody) as { model: string }
-        // default from decrypt() is 'claude'; the override wins, primary-routed.
-        assert.equal(body.model, 'primary/gpt-5.6-terra')
+        // The per-message override cannot ride the gateway-http body: the
+        // `model` field is only an agent router (openclaw/openclaw/<agentId>),
+        // and the gateway 400s a provider model there. So the body carries the
+        // agent router regardless of the pick — switching openclaw's model needs
+        // the ACP path (sessions.patch on the stateful session), not this
+        // transport. Seen on staging [2026-09-08]: sending primary/<pick> here
+        // returned "Invalid model. Use openclaw or openclaw/<agentId>".
+        assert.equal(body.model, 'openclaw')
     } finally {
         await new Promise<void>((r) => server.close(() => r()))
     }
 })
+
