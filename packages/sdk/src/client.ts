@@ -874,6 +874,7 @@ export interface ChannelsClient {
     ) => Promise<ChannelDeliverySummary[]>
     activity: (opts?: { windowDays?: number }) => Promise<ChannelActivityReport>
     slackManifest: (id: string) => Promise<Record<string, unknown>>
+    msTeamsManifest: (id: string) => Promise<Record<string, unknown>>
     githubAppManifest: (
         id: string,
         opts?: { org?: string }
@@ -3121,6 +3122,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
             slackManifest: (id) =>
                 request<Record<string, unknown>>(
                     apiPaths.CHANNEL_SLACK_MANIFEST(id)
+                ),
+            msTeamsManifest: (id) =>
+                request<Record<string, unknown>>(
+                    apiPaths.CHANNEL_MSTEAMS_MANIFEST(id)
                 ),
             githubAppManifest: (id, opts) => {
                 const q = new URLSearchParams()

@@ -163,6 +163,8 @@ export const apiPaths = {
     CHANNEL_REGISTER: (id: string) => `/channels/${id}/register`,
     CHANNEL_DELIVERIES: (id: string) => `/channels/${id}/deliveries`,
     CHANNEL_SLACK_MANIFEST: (id: string) => `/channels/${id}/slack-manifest`,
+    CHANNEL_MSTEAMS_MANIFEST: (id: string) =>
+        `/channels/${id}/msteams-manifest`,
     CHANNEL_GITHUB_APP_MANIFEST: (id: string) =>
         `/channels/${id}/github-app-manifest`,
     CHANNEL_SCOPES: (id: string) => `/channels/${id}/scopes`,

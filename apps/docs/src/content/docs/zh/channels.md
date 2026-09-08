@@ -26,6 +26,7 @@ Channel 让用户可以在日常使用的聊天工具中调用 Manyfold Agent。
 | [Linear](/zh/docs/channels/linear/)     | 签名 webhook                 | 每个 agent session 一个会话，挂在 issue 上     | 不支持         | Agent 作为工作区成员，可被 mention 或委派 issue；思考过程、工具调用与任务清单展示在 session 上；支持 stop request、用户 allowlist。 |
 | [GitHub](/zh/docs/channels/github/)     | 签名 webhook                 | 每个 issue / PR 一个会话                       | 不支持         | 通过 manifest 流程自动创建专属 GitHub App；在 issue/PR 上 mention 或用标签委派；实时编辑的进展评论；表情回执；association 把关与 login 允许列表。 |
 | [Google Chat](/zh/docs/channels/googlechat/) | Google 签名令牌 webhook | 私聊与空间 | 仅可接收文件；不支持外发文件 | 原生 mention 标记；每个会话串一个会话，并嵌套在发起它的消息下；受众必须与 Chat API 控制台一致；每个空间每秒一次写入，因此默认只发最终回复。 |
+| [Microsoft Teams](/zh/docs/channels/msteams/) | Bot Framework 令牌 webhook | 单聊、群聊与团队频道 | 仅单聊可接收文件；不支持外发文件 | 按 Entra 对象 ID 做白名单；每个频道话题一个会话；通过编辑消息展示实时进度；频道和群聊中的文件内容需要 Graph 管理员授权，因此不读取。 |
 
 ## 通用配置流程
 
@@ -99,5 +100,6 @@ Telegram 目前只传递 inbound 文本/caption，但 Agent 可以通过 `mf cha
 - [Linear](/zh/docs/channels/linear/)
 - [GitHub](/zh/docs/channels/github/)
 - [Google Chat](/zh/docs/channels/googlechat/)
+- [Microsoft Teams](/zh/docs/channels/msteams/)
 - [从 Agent 主动发送](/zh/docs/channels/agent-send/)
 - [切换会话](/zh/docs/channels/session-switching/)
