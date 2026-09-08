@@ -1,6 +1,5 @@
 ---
 '@manyfold/web': minor
-'@manyfold/i18n': minor
 ---
 
 The marketing header and footer are rebuilt around the pages the site now has. The centre group reads product, then price, then documentation — what a visitor can get, what it costs, how to work it. Docs held the leftmost slot for historical reasons, which put the surface written for people who have already committed ahead of the pages arguing that they should; Challenge trails the group because it is a campaign, not a permanent line of the product. Standing on one of those pages is said with an active style and `aria-current`, in the bar and in the folded menu both: `.lp-nav-link-active` had been in the stylesheet with nothing rendering it, which was fine while every entry led off the page and stops being fine the moment one of them is a page of our own. Only a page of our own gets the state — Docs leaves for the docs site, and Pricing is a section of the landing page, so marking it current on the home page would claim the visitor is standing on a section they may not have scrolled to.
