@@ -1,5 +1,46 @@
 # @manyfold/api
 
+## 0.73.0
+
+### Minor Changes
+
+- [#257](https://github.com/manyfold-open/manyfold/pull/257) [`2e0af78`](https://github.com/manyfold-open/manyfold/commit/2e0af78941076c2ae2ef15217e082fb533d15ec4) Thanks [@yingca1](https://github.com/yingca1)! - Every openclaw chat turn now speaks ACP. A sprite or k8s turn runs the
+  `openclaw acp` bridge in-box over the exec channel; a BYOD daemon turn runs it
+  against the host's own gateway. The OpenAI-compatible gateway POST and the
+  runner-held SSE variant that used to carry these turns are gone from openclaw
+  entirely — NarraNexus keeps both, unchanged, as their only framework.
+
+    `MF_OPENCLAW_ACP` is retired: it defaulted on and setting it now does nothing.
+    `MF_OPENCLAW_TURN_RPC` is unchanged and still gates NarraNexus's runner
+    transport.
+
+    Two accepted behaviour changes on BYOD daemons, both refusals that name their
+    own fix rather than silent fallbacks:
+
+    - A daemon whose `mf` CLI predates the openclaw ACP turn is refused with
+      `openclaw_daemon_upgrade_required` — run `mf update` on that host and restart
+      the daemon. The legacy `openclaw agent --local --json` spawn it used to fall
+      back to has been removed.
+    - A daemon host with no openclaw gateway for the bridge to reach is refused
+      with `openclaw_daemon_gateway_unavailable`, naming the port and
+      `openclaw gateway start`. Manyfold still only discovers that gateway and
+      never starts one. Because the daemon re-probes on its detect interval rather
+      than per turn, an unreachable gateway is a retryable refusal while a missing
+      configuration is not.
+
+    Openclaw sprite turns no longer bring up a runner. With the runner rollout at
+    `*` every openclaw turn was paying for a runner whose handle the ACP path then
+    ignored, and the turn was stamped with a resume reference no later recovery
+    could honour — a hello could terminalize a perfectly healthy turn. Resume for
+    openclaw is now daemon-only; a sprite or k8s turn reports
+    `openclaw_resume_unsupported`.
+
+### Patch Changes
+
+- [#254](https://github.com/manyfold-open/manyfold/pull/254) [`fb7c167`](https://github.com/manyfold-open/manyfold/commit/fb7c1676850187a469619d29d70f842c2027c5da) Thanks [@yingca1](https://github.com/yingca1)! - Make lazy daemon identity creation concurrency-safe so concurrent first turns reuse the same active credential.
+
+- [#252](https://github.com/manyfold-open/manyfold/pull/252) [`4b96e8c`](https://github.com/manyfold-open/manyfold/commit/4b96e8c929670b4a1827701444844b267a4dca32) Thanks [@yingca1](https://github.com/yingca1)! - Migrate legacy sprite runtime identities into encrypted storage before CLI or framework upgrades clean shared shell profiles.
+
 ## 0.72.0
 
 ### Minor Changes
