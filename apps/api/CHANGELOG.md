@@ -1,5 +1,34 @@
 # @manyfold/api
 
+## 0.71.0
+
+### Minor Changes
+
+- [#215](https://github.com/manyfold-open/manyfold/pull/215) [`1829eb8`](https://github.com/manyfold-open/manyfold/commit/1829eb8914b60fe94bc5f738a23d6711a0031596) Thanks [@yingca1](https://github.com/yingca1)! - Add a Microsoft Teams channel provider
+
+    Bind an agent to a Microsoft Teams bot and reach it from personal chats, group
+    chats and team channels. Bring your own Azure Bot: paste its app ID, client
+    secret and tenant ID, run Register to activate the channel, then download a
+    ready-made Teams app manifest from the channel page and upload it to Teams.
+
+    Inbound activities are authenticated by validating the Bot Framework JWT
+    against Microsoft's key set, checking the audience, the issuer, the signed
+    service URL and the tenant on the channel. Allowlists are keyed on Entra
+    (Azure AD) object IDs, never on user names or email addresses, because those
+    can be reassigned.
+
+    Replies stream by editing one message, land in the originating channel thread,
+    and support typing indicators and agent-initiated sends. Personal-chat
+    attachments are read; files posted in a channel or group chat are not, because
+    Teams strips the reference and recovering it needs Microsoft Graph admin
+    consent.
+
+- [#214](https://github.com/manyfold-open/manyfold/pull/214) [`2ad1d15`](https://github.com/manyfold-open/manyfold/commit/2ad1d15137d8452c0468b50f3e8f85381cb93370) Thanks [@yingca1](https://github.com/yingca1)! - Add the openclaw ACP transport for BYOD daemons (ADR-0027, O6), behind `MF_OPENCLAW_ACP`. The daemon now discovers the host's own resident openclaw gateway from its config on the heartbeat — port and reachability only, never the token, and never starting it — and reports it on the openclaw `DetectedFramework`. When the flag is on and the daemon advertises `turn.openclaw.acp`, a daemon openclaw chat turn is driven as `openclaw acp` against that gateway (the daemon is the ACP client, exactly like a hermes turn) instead of spawning `openclaw agent --local --json`: continuity is the gateway session key (`_meta.sessionKey`, never `session/resume`), the ask mode and per-message model pick are pre-patched in-box over the loopback gateway before the bridge starts, the approval card relays through the existing `turn.permission` RPC, and the turn's token usage is read back from the gateway transcript after the prompt (the ACP stream carries none) and billed. The turn is resumable — the daemon buffers the ACP frames, replayed via `exec.resume`. With the flag off, or against a daemon whose CLI predates the capability, the daemon keeps the legacy CLI-spawn path unchanged.
+
+### Patch Changes
+
+- [#213](https://github.com/manyfold-open/manyfold/pull/213) [`6cdc575`](https://github.com/manyfold-open/manyfold/commit/6cdc57519ee723b4bf29bbc6954429446bb9c842) Thanks [@yingca1](https://github.com/yingca1)! - Bill openclaw ACP turns. The `openclaw acp` stream carries no token usage, so a turn that completes now reads its usage back from the gateway transcript with one in-box `sessions.get` on the session key and sums every model call after the turn's own user message — the same figure the gateway-http path bills, tool loops included. A read-back that fails or cannot be attributed is logged and counted (`openclaw_acp_usage`), never fatal. The bridge is also exec'd behind a wrapper that terminates it on stdin EOF: `openclaw acp` ignores EOF, which cost every turn the ACP client's full close grace and, on k8s, left the bridge running in the pod. Still behind `MF_OPENCLAW_ACP`.
+
 ## 0.70.0
 
 ### Minor Changes
