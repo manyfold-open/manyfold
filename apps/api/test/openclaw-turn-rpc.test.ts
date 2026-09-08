@@ -257,61 +257,47 @@ test('the daemon gets the exact request the API would have sent', async () => {
     })
 })
 
-// A per-message model switch must reach the runner turn-rpc body — the transport
-// every sprite openclaw agent uses when MF_SPRITE_RUNNER_AGENTS routes it to a
-// runner. Before the fix the override was applied only on the ACP path, so a
-// switch was silently dropped here and the turn ran on the agent's default.
-// Prove-red: revert openclawBodyModel to `runtime.modelId` and body.model
-// becomes 'openclaw', failing the primary/<pick> assertion.
-test('a per-message model override rides the turn-rpc body as primary/<pick>', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
-        const h = buildHarness({
-            lines: [deltaLine('ok')],
-            result: { ok: { stopReason: 'done', sessionId: null } }
-        })
-        const a = asAny(h.adapter)
-        a.resolveRuntime = async () => ({
-            ingressHost: 'gw.sprites.app',
-            gatewayToken: 'gw_tok',
-            modelId: 'primary/gpt-5.6-luna',
-            displayModel: 'gpt-5.6-luna'
-        })
-        a.daemonSupportsTurnRpc = async () => true
-        await drain(
-            h.adapter.sendMessage(
-                ctx({
-                    runnerDaemonId: 'dh_runner',
-                    modelOverride: 'gpt-5.6-terra'
-                }),
-                userMsg
+// With MF_OPENCLAW_ACP on, the ACP path is the openclaw transport and must beat
+// the runner turn-rpc path — otherwise, with MF_SPRITE_RUNNER_AGENTS='*' routing
+// every sprite to a runner, ACP is shadowed and a model switch (which only the
+// ACP sessions.patch can carry) silently does nothing. Prove-red: drop the
+// `!viaAcp` guard on viaTurnRpc and a turn.start is dispatched instead.
+test('with MF_OPENCLAW_ACP on, a runner sprite turn takes ACP, not turn-rpc', async () => {
+    await withEnv(
+        { MF_OPENCLAW_TURN_RPC: '1', MF_OPENCLAW_ACP: '1' },
+        async () => {
+            const h = buildHarness({
+                lines: [],
+                result: { ok: { stopReason: 'done', sessionId: null } }
+            })
+            const a = asAny(h.adapter)
+            a.resolveRuntime = async () => ({
+                ingressHost: 'gw.sprites.app',
+                gatewayToken: 'gw_tok',
+                modelId: 'openclaw',
+                displayModel: 'gpt-5.6-luna'
+            })
+            a.daemonSupportsTurnRpc = async () => true
+            let acpCalled = false
+            a.sendViaOpenclawAcp = async function* () {
+                acpCalled = true
+                yield { type: 'done', finalMessageId: 'msg_1' }
+            }
+            await drain(
+                h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
             )
-        )
-        const body = h.calls[0].payload.body as { model: string }
-        assert.equal(body.model, 'primary/gpt-5.6-terra')
-    })
-})
-
-// Control: no override → the agent's stored default stands, unprefixed-doubling.
-test('without an override the turn-rpc body keeps the agent default', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
-        const h = buildHarness({
-            lines: [deltaLine('ok')],
-            result: { ok: { stopReason: 'done', sessionId: null } }
-        })
-        const a = asAny(h.adapter)
-        a.resolveRuntime = async () => ({
-            ingressHost: 'gw.sprites.app',
-            gatewayToken: 'gw_tok',
-            modelId: 'primary/gpt-5.6-luna',
-            displayModel: 'gpt-5.6-luna'
-        })
-        a.daemonSupportsTurnRpc = async () => true
-        await drain(
-            h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
-        )
-        const body = h.calls[0].payload.body as { model: string }
-        assert.equal(body.model, 'primary/gpt-5.6-luna')
-    })
+            assert.equal(
+                acpCalled,
+                true,
+                'ACP must win over turn-rpc when the flag is on'
+            )
+            assert.equal(
+                h.calls.filter((c) => c.method === 'turn.start').length,
+                0,
+                'no turn.start may be dispatched when ACP wins'
+            )
+        }
+    )
 })
 test('a final without stopReason suspends, never done', async () => {
     await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
