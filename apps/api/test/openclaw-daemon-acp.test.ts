@@ -174,7 +174,7 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         assert.equal(rig.calls[0].refIdOverride, 'msg_1')
         const payload = rig.calls[0].payload
         assert.equal(payload.transport, 'acp')
-        assert.equal(payload.sessionKey, 'agent:oc1:mf-cts_1')
+        assert.equal(payload.sessionKey, 'agent:main:mf-cts_1')
         assert.equal('patch' in payload, false) // dontAsk, no model → no patch
         assert.equal(payload.env, undefined) // never an env channel
 
@@ -193,7 +193,7 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
 
         // The gateway key is persisted as the framework session ref.
         assert.deepEqual(rig.sessionRefs, [
-            { sessionId: 'cts_1', ref: 'agent:oc1:mf-cts_1' }
+            { sessionId: 'cts_1', ref: 'agent:main:mf-cts_1' }
         ])
     } finally {
         delete process.env.MF_OPENCLAW_ACP
@@ -281,7 +281,7 @@ test('resume replays the buffered ACP frames via exec.resume', async () => {
             result: { ok: finalWithUsage('end_turn') }
         })
         const resumeCtx = {
-            ...ctx({ frameworkSessionRef: 'agent:oc1:mf-cts_1' }),
+            ...ctx({ frameworkSessionRef: 'agent:main:mf-cts_1' }),
             daemonId: 'dh_byod',
             daemonExecRef: 'msg_1',
             fromSeq: 0
