@@ -325,6 +325,20 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
     },
     {
         framework: 'openclaw',
+        runtime: 'daemon',
+        transport: 'turn-rpc',
+        gatedBy: ['MF_OPENCLAW_ACP', 'daemon:turn.openclaw.acp'],
+        identity: 'none',
+        connections: 'none',
+        extras: 'none',
+        providerCreds: 'daemon-local',
+        path: 'not-applicable',
+        resume: 'attach-no-env',
+        payloadEnvKeys: [],
+        note: 'The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST\'s own resident gateway — discovered from the user\'s openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box\'s own openclaw.json, and the model call runs inside that gateway with its provider key. Gated on the flag AND the daemon advertising turn.openclaw.acp; without either it falls back to the daemon-exec CLI spawn above. Resumable — the daemon buffers the ACP frames, replayed via exec.resume.'
+    },
+    {
+        framework: 'openclaw',
         runtime: 'sprites',
         transport: 'sprite-exec',
         gatedBy: ['MF_OPENCLAW_ACP'],
@@ -334,7 +348,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         providerCreds: 'service-env',
         path: 'wrapper-prepend',
         resume: 'none',
-        note: 'The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable.'
+        note: "The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable. A clean turn is followed by one one-shot exec on the same channel (`openclaw gateway call sessions.get`, same token env) that reads the turn's token usage back from the gateway transcript, because the ACP stream carries none; openclaw-acp-interactive.test.ts pins that call."
     },
     {
         framework: 'openclaw',
@@ -347,7 +361,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         providerCreds: 'service-env',
         path: 'image-env',
         resume: 'none',
-        note: 'The k8s ACP cell (ADR-0027): the API drives `openclaw acp` over an interactive pod exec. The gateway token is inherited from the pod Secret the resident gateway already reads, so the exec injects nothing; the model call runs inside that gateway with its provider key.'
+        note: "The k8s ACP cell (ADR-0027): the API drives `openclaw acp` over an interactive pod exec. The gateway token is inherited from the pod Secret the resident gateway already reads, so the exec injects nothing; the model call runs inside that gateway with its provider key. The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF and a pod exec abort only closes the stream — without it the bridge would outlive every turn in the pod. The same post-turn `sessions.get` read-back as the sprite cell follows a clean turn."
     },
     {
         framework: 'hermes',

@@ -18,6 +18,7 @@ const channelDocsPaths: Partial<Record<ChannelProviderName, string>> = {
     github: '/docs/channels/github',
     line: '/docs/channels/line',
     googlechat: '/docs/channels/googlechat',
+    msteams: '/docs/channels/msteams',
     whatsapp: '/docs/channels/whatsapp'
 }
 
@@ -173,6 +174,28 @@ const GoogleChatIcon: FC<{ className?: string }> = ({ className }): ReactNode =>
     </svg>
 )
 
+const MsTeamsIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
+    <svg viewBox='0 0 24 24' className={className} aria-hidden='true'>
+        <path
+            fill='#5059C9'
+            d='M16.8 8.4h4.3c.5 0 .9.4.9.9v4.4a3.1 3.1 0 0 1-3.1 3.1 3.1 3.1 0 0 1-3.1-3.1V8.4zM19.6 7.3a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'
+        />
+        <path
+            fill='#7B83EB'
+            d='M13.4 7.6a2.3 2.3 0 1 0 0-4.6 2.3 2.3 0 0 0 0 4.6zM17.3 8.4H9.6c-.5 0-.9.4-.9.9v5.4a5 5 0 0 0 4.6 5 5 5 0 0 0 4.9-5V9.3c0-.5-.4-.9-.9-.9z'
+        />
+        <path
+            fill='#4B53BC'
+            d='M12.2 8.4H9.6c-.5 0-.9.4-.9.9v5.4c0 1.5.7 2.9 1.8 3.8a4.6 4.6 0 0 0 1.7-3.6V8.4z'
+        />
+        <rect x='1' y='5.4' width='11.2' height='11.2' rx='1.1' fill='#4B53BC' />
+        <path
+            fill='#FFFFFF'
+            d='M9.5 8.1H3.7v1.5h2v5.4h1.8V9.6h2z'
+        />
+    </svg>
+)
+
 const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     lark: { label: 'Lark', Icon: LarkIcon },
     telegram: { label: 'Telegram', Icon: TelegramIcon },
@@ -184,6 +207,7 @@ const channelMeta: Record<ChannelProviderName, ChannelMeta> = {
     github: { label: 'GitHub', Icon: GithubIcon },
     line: { label: 'LINE', Icon: LineIcon },
     googlechat: { label: 'Google Chat', Icon: GoogleChatIcon },
+    msteams: { label: 'Microsoft Teams', Icon: MsTeamsIcon },
     whatsapp: { label: 'WhatsApp', Icon: WhatsappIcon },
     fake: { label: 'Fake (test)', Icon: FakeIcon }
 }

@@ -12,6 +12,7 @@ import type {
     LineChannelConfig,
     GoogleChatAudienceType,
     GoogleChatChannelConfig,
+    MsTeamsChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -158,6 +159,10 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
     const initialGooglechat =
         channel.provider === 'googlechat'
             ? (channel.config as GoogleChatChannelConfig)
+            : null
+    const initialMsteams =
+        channel.provider === 'msteams'
+            ? (channel.config as MsTeamsChannelConfig)
             : null
 
     const [label, setLabel] = useState(channel.label)
@@ -419,6 +424,22 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
     )
     const [googlechatAutoThread, setGooglechatAutoThread] = useState(
         initialGooglechat?.autoThread !== false
+    )
+    const [msteamsAppId, setMsteamsAppId] = useState('')
+    const [msteamsAppPassword, setMsteamsAppPassword] = useState('')
+    const [msteamsTenantId, setMsteamsTenantId] = useState('')
+    const [msteamsAllowedUserIds, setMsteamsAllowedUserIds] = useState(
+        (initialMsteams?.allowedUserIds ?? []).join(', ')
+    )
+    const [msteamsOperatorUserIds, setMsteamsOperatorUserIds] = useState(
+        (initialMsteams?.operatorUserIds ?? []).join(', ')
+    )
+    const [
+        msteamsAllowedConversationIds,
+        setMsteamsAllowedConversationIds
+    ] = useState((initialMsteams?.allowedConversationIds ?? []).join(', '))
+    const [msteamsServiceUrl, setMsteamsServiceUrl] = useState(
+        initialMsteams?.serviceUrl ?? ''
     )
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -744,6 +765,46 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                     body.credentials = {
                         serviceAccountJson: serviceAccountNext
                     }
+            } else if (channel.provider === 'msteams') {
+                const appIdNext = msteamsAppId.trim()
+                const appPasswordNext = msteamsAppPassword.trim()
+                const tenantIdNext = msteamsTenantId.trim()
+                const serviceUrlNext = msteamsServiceUrl.trim()
+                const nextConfig: MsTeamsChannelConfig = {
+                    botId: initialMsteams?.botId ?? null,
+                    botName: initialMsteams?.botName ?? null,
+                    serviceUrl:
+                        serviceUrlNext.length > 0 ? serviceUrlNext : null,
+                    allowedUserIds: commaList(msteamsAllowedUserIds),
+                    operatorUserIds: commaList(msteamsOperatorUserIds),
+                    allowedConversationIds: commaList(
+                        msteamsAllowedConversationIds
+                    ),
+                    mentionOnly,
+                    shareSessionInChannel,
+                    threadIsolation,
+                    progressMode,
+                    contextProjection,
+                    resetOnIdleMins: initialMsteams?.resetOnIdleMins ?? null
+                }
+                body.config = nextConfig
+                // The three credentials are one Azure app registration: a
+                // partial rotation would leave a secret that cannot mint.
+                const rotating =
+                    appIdNext.length > 0 ||
+                    appPasswordNext.length > 0 ||
+                    tenantIdNext.length > 0
+                if (rotating) {
+                    if (!appIdNext || !appPasswordNext || !tenantIdNext)
+                        throw new Error(
+                            t('web.channels.settings.errors.msteamsCredentials')
+                        )
+                    body.credentials = {
+                        appId: appIdNext,
+                        appPassword: appPasswordNext,
+                        tenantId: tenantIdNext
+                    }
+                }
             } else if (channel.provider === 'fake') {
                 body.config = { note: null }
             }
@@ -2267,6 +2328,137 @@ const ChannelEditForm: FC<ChannelEditFormProps> = ({
                         />
                         <p className='text-ui text-muted'>
                             {t('web.channels.settings.help.googlechatEdit')}
+                        </p>
+                    </>
+                )}
+                {channel.provider === 'msteams' && (
+                    <>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.msteamsAppIdKeep'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsAppId}
+                                onChange={(e) =>
+                                    setMsteamsAppId(e.target.value)
+                                }
+                                autoComplete='off'
+                                spellCheck={false}
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.msteamsAppPasswordKeep'
+                            )}
+                        >
+                            <input
+                                type='password'
+                                className='workbench-input'
+                                value={msteamsAppPassword}
+                                onChange={(e) =>
+                                    setMsteamsAppPassword(e.target.value)
+                                }
+                                autoComplete='new-password'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.msteamsTenantIdKeep'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsTenantId}
+                                onChange={(e) =>
+                                    setMsteamsTenantId(e.target.value)
+                                }
+                                autoComplete='off'
+                                spellCheck={false}
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.allowedUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsAllowedUserIds}
+                                onChange={(e) =>
+                                    setMsteamsAllowedUserIds(e.target.value)
+                                }
+                                placeholder='00000000-0000-0000-0000-000000000000, ...'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.operatorUserIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsOperatorUserIds}
+                                onChange={(e) =>
+                                    setMsteamsOperatorUserIds(e.target.value)
+                                }
+                                placeholder='00000000-0000-0000-0000-000000000000, ...'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.msteamsAllowedConversationIds'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsAllowedConversationIds}
+                                onChange={(e) =>
+                                    setMsteamsAllowedConversationIds(
+                                        e.target.value
+                                    )
+                                }
+                                placeholder='19:xxxxx@thread.tacv2, ...'
+                            />
+                        </Field>
+                        <Field
+                            label={t(
+                                'web.channels.settings.fields.msteamsServiceUrl'
+                            )}
+                        >
+                            <input
+                                type='text'
+                                className='workbench-input'
+                                value={msteamsServiceUrl}
+                                onChange={(e) =>
+                                    setMsteamsServiceUrl(e.target.value)
+                                }
+                                placeholder='https://smba.trafficmanager.net/teams'
+                            />
+                        </Field>
+                        <BehaviorFields
+                            mentionOnly={mentionOnly}
+                            setMentionOnly={setMentionOnly}
+                            shareSessionInChannel={shareSessionInChannel}
+                            setShareSessionInChannel={setShareSessionInChannel}
+                            threadIsolation={threadIsolation}
+                            setThreadIsolation={setThreadIsolation}
+                            progressMode={progressMode}
+                            setProgressMode={setProgressMode}
+                            contextProjection={contextProjection}
+                            setContextProjection={setContextProjection}
+                            threadLabel={t(
+                                'web.channels.settings.threadLabels.msteams'
+                            )}
+                        />
+                        <p className='text-ui text-muted'>
+                            {t('web.channels.settings.help.msteamsEdit')}
                         </p>
                     </>
                 )}

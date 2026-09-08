@@ -11,6 +11,7 @@ export type ChannelProviderName =
     | 'github'
     | 'line'
     | 'googlechat'
+    | 'msteams'
 
 export type ChannelStatus = 'draft' | 'active' | 'paused' | 'error'
 
@@ -500,6 +501,50 @@ export interface GoogleChatChannelConfig {
     resetOnIdleMins?: number | null
 }
 
+// The Bot Connector host a channel's proactive sends go to. Teams tells a bot
+// its serviceUrl on every inbound activity, but Manyfold replies out of band
+// (a swept retry, an agent send) with only the scope key in hand — so the host
+// is configuration, defaulted to the public global endpoint Microsoft
+// documents for proactive messaging.
+export const MSTEAMS_DEFAULT_SERVICE_URL =
+    'https://smba.trafficmanager.net/teams'
+
+export interface MsTeamsChannelConfig {
+    // Bot identity captured by register(): the Entra app id doubles as the
+    // bot's id inside an activity, and is what entities[].mentioned.id carries
+    // when someone @-mentions the bot.
+    botId?: string | null
+    botName?: string | null
+    // Bot Connector base for proactive sends. Host-allowlisted; a non-public
+    // cloud needs its own endpoint here (GCC, GCC High, DoD).
+    serviceUrl?: string | null
+    // Entra (AAD) object ids allowed to drive this agent. External actors,
+    // never Manyfold identities. Empty = anyone in the tenant who can reach
+    // the bot. Ids only: UPNs and display names are mutable and are never
+    // matched, which is why the setup docs insist on object ids.
+    allowedUserIds: string[]
+    // Entra object ids allowed to run agent-wide commands (e.g. /model).
+    // Empty = those commands are disabled from Teams (fail-closed).
+    operatorUserIds: string[]
+    // Conversation ids (19:…@thread.tacv2 and friends) this channel reacts to.
+    // Empty = every conversation the app is installed in.
+    allowedConversationIds: string[]
+    mentionOnly: boolean
+    shareSessionInChannel: boolean
+    // A Teams channel post and its replies share one conversation id
+    // distinguished by a ;messageid= suffix; isolating on it gives each thread
+    // its own session instead of folding the whole channel into one.
+    threadIsolation: boolean
+    progressMode: ChannelProgressMode
+    // Prepend the [Channel message context] metadata block to each
+    // channel-driven turn. On by default; set false to disable.
+    contextProjection?: boolean
+    // Agent-managed reply: forward structured source context and let the
+    // agent deliver via its own channel tools (narranexus only). Off by default.
+    agentManagedReply?: boolean
+    resetOnIdleMins?: number | null
+}
+
 export type ChannelConfig =
     | LarkChannelConfig
     | FakeChannelConfig
@@ -513,6 +558,7 @@ export type ChannelConfig =
     | GithubChannelConfig
     | LineChannelConfig
     | GoogleChatChannelConfig
+    | MsTeamsChannelConfig
 
 export interface LarkChannelCredentials {
     appSecret: string
@@ -583,6 +629,18 @@ export interface GoogleChatChannelCredentials {
     serviceAccountJson: string
 }
 
+export interface MsTeamsChannelCredentials {
+    // Entra (Azure AD) application id of the Azure Bot. Also the aud claim
+    // every inbound Bot Framework token must carry.
+    appId: string
+    // Client secret from the same app registration. Certificate and
+    // managed-identity auth are not supported.
+    appPassword: string
+    // Tenant the bot is registered in; the token endpoint is per-tenant, and
+    // inbound activities are rejected when channelData.tenant.id differs.
+    tenantId: string
+}
+
 export type ChannelCredentials =
     | LarkChannelCredentials
     | FakeChannelCredentials
@@ -595,6 +653,7 @@ export type ChannelCredentials =
     | GithubChannelCredentials
     | LineChannelCredentials
     | GoogleChatChannelCredentials
+    | MsTeamsChannelCredentials
 
 export interface ChannelAgentSummary {
     id: string
@@ -880,6 +939,47 @@ export const describeChannelScope = (
             userId: null
         }
     }
+    if (provider === 'msteams' && segments[0] === 'msteams') {
+        // Teams conversation ids embed colons ('19:…@thread.tacv2', 'a:1kZ…'),
+        // so computeScopeKey percent-encodes them; without that the id alone
+        // would shift every later segment.
+        const raw = segments[2]
+        if (!raw) return UNKNOWN_SCOPE
+        const conversationId = safeDecode(raw)
+        const isDm = segments[1] === 'dm'
+        if (!isDm && segments[1] !== 'conv') return UNKNOWN_SCOPE
+        const marker = segments.indexOf('thread', 3)
+        const threadId =
+            marker !== -1 && segments[marker + 1] ? segments[marker + 1] : null
+        const userId = marker !== 3 && segments[3] ? segments[3] : null
+        if (threadId)
+            return {
+                kind: isDm ? 'dm' : 'thread',
+                channelId: conversationId,
+                threadId,
+                userId
+            }
+        if (isDm)
+            return {
+                kind: 'dm',
+                channelId: conversationId,
+                threadId: null,
+                userId
+            }
+        if (userId)
+            return {
+                kind: 'channel-user',
+                channelId: conversationId,
+                threadId: null,
+                userId
+            }
+        return {
+            kind: 'channel',
+            channelId: conversationId,
+            threadId: null,
+            userId: null
+        }
+    }
     // linear:{organizationId}:{agentSessionId} needs no branch: an agent
     // session is one conversation and its id is neither a channel nor a thread
     // id, so the generic fallback is already the honest descriptor. The same
@@ -888,6 +988,15 @@ export const describeChannelScope = (
     return UNKNOWN_SCOPE
 }
 
+// A scope key that predates the encoding, or one hand-edited in a support
+// tool, must still describe rather than throw.
+const safeDecode = (value: string): string => {
+    try {
+        return decodeURIComponent(value)
+    } catch {
+        return value
+    }
+}
 export interface CreateChannelSessionBody {
     displayName?: string | null
 }
@@ -921,6 +1030,7 @@ export const AGENT_SEND_PROVIDERS: readonly ChannelProviderName[] = [
     'whatsapp',
     'matrix',
     'line',
+    'msteams',
     'fake'
 ]
 

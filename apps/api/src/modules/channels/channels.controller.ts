@@ -452,6 +452,17 @@ export class ChannelsController {
         return this.channels.slackManifest(user.userId, id)
     }
 
+    @Get(':id/msteams-manifest')
+    @RequireApiTokenScope('channels:read')
+    @SubjectAgentFromResource('channel', 'id')
+    msTeamsManifest(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<Record<string, unknown>> {
+        this.assertEnabled()
+        return this.channels.msTeamsManifest(user.userId, id)
+    }
+
     @Get(':id/github-app-manifest')
     @RequireApiTokenScope('channels:read')
     @SubjectAgentFromResource('channel', 'id')

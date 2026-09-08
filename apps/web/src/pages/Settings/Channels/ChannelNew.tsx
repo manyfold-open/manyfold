@@ -8,6 +8,7 @@ import type {
     LinearChannelConfig,
     LineChannelConfig,
     GoogleChatChannelConfig,
+    MsTeamsChannelConfig,
     MatrixChannelConfig,
     SlackChannelConfig,
     TelegramChannelConfig,
@@ -110,6 +111,9 @@ const ChannelNew: FC = (): ReactNode => {
     const [lineChannelAccessToken, setLineChannelAccessToken] = useState('')
     const [googlechatServiceAccountJson, setGooglechatServiceAccountJson] =
         useState('')
+    const [msteamsAppId, setMsteamsAppId] = useState('')
+    const [msteamsAppPassword, setMsteamsAppPassword] = useState('')
+    const [msteamsTenantId, setMsteamsTenantId] = useState('')
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState<string | null>(null)
     useEffect(() => {
@@ -291,7 +295,10 @@ const ChannelNew: FC = (): ReactNode => {
                 weixinOperatorUserIds,
                 lineChannelSecret,
                 lineChannelAccessToken,
-                googlechatServiceAccountJson
+                googlechatServiceAccountJson,
+                msteamsAppId,
+                msteamsAppPassword,
+                msteamsTenantId
             })
             const created = await client.channels.create(body)
             onCreated(created.id)
@@ -739,6 +746,62 @@ const ChannelNew: FC = (): ReactNode => {
                             </Field>
                             <p className='text-ui text-muted -mt-2'>
                                 {t('web.channels.settings.help.googlechatCreate')}
+                            </p>
+                        </>
+                    )}
+
+                    {provider === 'msteams' && (
+                        <>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.msteamsAppId'
+                                )}
+                            >
+                                <input
+                                    className='workbench-input'
+                                    value={msteamsAppId}
+                                    onChange={(e) =>
+                                        setMsteamsAppId(e.target.value)
+                                    }
+                                    autoComplete='off'
+                                    spellCheck={false}
+                                    required
+                                />
+                            </Field>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.msteamsAppPassword'
+                                )}
+                            >
+                                <input
+                                    type='password'
+                                    className='workbench-input'
+                                    value={msteamsAppPassword}
+                                    onChange={(e) =>
+                                        setMsteamsAppPassword(e.target.value)
+                                    }
+                                    autoComplete='new-password'
+                                    required
+                                />
+                            </Field>
+                            <Field
+                                label={t(
+                                    'web.channels.settings.fields.msteamsTenantId'
+                                )}
+                            >
+                                <input
+                                    className='workbench-input'
+                                    value={msteamsTenantId}
+                                    onChange={(e) =>
+                                        setMsteamsTenantId(e.target.value)
+                                    }
+                                    autoComplete='off'
+                                    spellCheck={false}
+                                    required
+                                />
+                            </Field>
+                            <p className='text-ui text-muted -mt-2'>
+                                {t('web.channels.settings.help.msteamsCreate')}
                             </p>
                         </>
                     )}
@@ -1230,6 +1293,9 @@ const buildBody = (input: {
     lineChannelSecret: string
     lineChannelAccessToken: string
     googlechatServiceAccountJson: string
+    msteamsAppId: string
+    msteamsAppPassword: string
+    msteamsTenantId: string
 }): CreateChannelBody => {
     if (isLarkProviderChoice(input.provider)) {
         if (
@@ -1485,6 +1551,41 @@ const buildBody = (input: {
         return {
             agentId: input.agentId,
             provider: 'googlechat',
+            label: input.label.trim(),
+            config,
+            credentials
+        }
+    }
+    if (input.provider === 'msteams') {
+        const appId = input.msteamsAppId.trim()
+        const appPassword = input.msteamsAppPassword.trim()
+        const tenantId = input.msteamsTenantId.trim()
+        if (!appId || !appPassword || !tenantId)
+            throw new Error(
+                translate('web.channels.settings.errors.msteamsCredentials')
+            )
+        const config: MsTeamsChannelConfig = {
+            // Register captures the bot id from the credentials and fills in
+            // the public Bot Connector, so neither is asked for here.
+            botId: null,
+            botName: null,
+            serviceUrl: null,
+            allowedUserIds: [],
+            operatorUserIds: [],
+            allowedConversationIds: [],
+            mentionOnly: true,
+            shareSessionInChannel: false,
+            threadIsolation: true,
+            progressMode: 'preview'
+        }
+        const credentials: ChannelCredentials = {
+            appId,
+            appPassword,
+            tenantId
+        }
+        return {
+            agentId: input.agentId,
+            provider: 'msteams',
             label: input.label.trim(),
             config,
             credentials

@@ -70,6 +70,9 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     // event, grouped by their message like the hermes pair above.
     'openclaw_acp_failed',
     'openclaw_acp_event',
+    // The BYOD daemon ACP transport (O6): a generic retryable failure whose
+    // message carries the daemon-forwarded cause, grouped like the pair above.
+    'openclaw_daemon_acp_failed',
     'langflow_error'
 ])
 

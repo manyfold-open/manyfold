@@ -10,14 +10,17 @@ export {
     acpModelMatches,
     acpEventsFromNotification,
     pickStderrErrorLine,
-    isFatalStderrLine
+    isFatalStderrLine,
+    decodeOpenclawTurnUsage
 } from './acp'
 export type {
     AcpEvent,
     AcpRequestTimeouts,
     JsonRpcNotification,
     AcpSessionState,
-    AcpDialect
+    AcpDialect,
+    OpenclawTurnUsage,
+    OpenclawTurnUsageDecode
 } from './acp'
 export { HERMES_ACP_DIALECT, OPENCLAW_ACP_DIALECT } from './acp'
 export { FILES_UPLOAD_MAX_BYTES } from './dtos'
@@ -490,6 +493,8 @@ export type {
     GoogleChatAudienceType,
     GoogleChatChannelConfig,
     GoogleChatChannelCredentials,
+    MsTeamsChannelConfig,
+    MsTeamsChannelCredentials,
     ChannelCredentials,
     ChannelAgentSummary,
     ChannelSummary,
@@ -509,7 +514,11 @@ export type {
     AgentChannelSendBody,
     AgentChannelSendResult
 } from './channels'
-export { AGENT_SEND_PROVIDERS, describeChannelScope } from './channels'
+export {
+    AGENT_SEND_PROVIDERS,
+    MSTEAMS_DEFAULT_SERVICE_URL,
+    describeChannelScope
+} from './channels'
 export {
     agentCreateStep,
     spritesSteps,
@@ -834,7 +843,9 @@ export type {
     DaemonTurnStartPayload,
     DaemonHermesTurnPayload,
     DaemonOpenclawTurnPayload,
-    DaemonTurnFinalPayload
+    DaemonOpenclawAcpTurnPayload,
+    DaemonTurnFinalPayload,
+    DetectedOpenclawGateway
 } from './daemon'
 export {
     DAEMON_ONLINE_THRESHOLD_MS,
@@ -852,6 +863,7 @@ export {
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_TURN_OPENCLAW,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
