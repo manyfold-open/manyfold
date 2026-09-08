@@ -30,6 +30,9 @@ process.env.OPENCLAW_STREAM_IDLE_TIMEOUT_MS = String(IDLE_TIMEOUT_MS)
 process.env.OPENCLAW_PREFLIGHT_TIMEOUT_MS = String(1_000)
 process.env.OPENCLAW_PREFLIGHT_BUDGET_MS = String(2_000)
 process.env.K8S_INGRESS_SCHEME = 'http'
+// This suite exercises the gateway-http path specifically. ACP is now the
+// default (MF_OPENCLAW_ACP on), so opt out explicitly to reach gateway-http.
+process.env.MF_OPENCLAW_ACP = '0'
 
 const GENEROUS_MAX_MS = 30_000
 

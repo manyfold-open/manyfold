@@ -40,6 +40,14 @@ const RUNNER_DAEMON_ID = 'dh_runner'
 // declaration corresponds to a transport that actually exists.
 const gateEnv = (surface: ExecEnvSurface): Record<string, string> => {
     const env: Record<string, string> = {}
+    // openclaw ACP is the default transport now (MF_OPENCLAW_ACP on by
+    // default), so a non-ACP openclaw surface — gateway-http, turn-rpc,
+    // daemon-exec — is only reachable with the flag explicitly off.
+    if (
+        surface.framework === 'openclaw' &&
+        !(surface.gatedBy ?? []).includes('MF_OPENCLAW_ACP')
+    )
+        env.MF_OPENCLAW_ACP = '0'
     for (const gate of surface.gatedBy ?? []) {
         if (gate.startsWith('daemon:')) continue
         if (gate === 'MF_SPRITE_RUNNER_AGENTS') continue
@@ -146,8 +154,18 @@ for (const surface of execEnvSurfaces.filter(
         // them must take the cell off the daemon transport rather than half
         // enable it.
         for (const flag of Object.keys(gateEnv(surface))) {
+            // MF_OPENCLAW_ACP is default-on and plays two roles: on an ACP
+            // surface it ENABLES the transport (close = '0'); on a non-ACP
+            // surface its OFF state is the precondition, so turning it on ('1')
+            // shadows the transport onto ACP. Opt-in flags read empty as off.
+            const off =
+                flag === 'MF_OPENCLAW_ACP'
+                    ? (surface.gatedBy ?? []).includes('MF_OPENCLAW_ACP')
+                        ? '0'
+                        : '1'
+                    : ''
             const seam = await dispatch(surface, {
-                flags: { ...gateEnv(surface), [flag]: '' }
+                flags: { ...gateEnv(surface), [flag]: off }
             })
             assert.equal(
                 seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,

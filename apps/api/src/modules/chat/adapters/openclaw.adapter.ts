@@ -113,10 +113,12 @@ const openclawTurnRpcEnabled = (): boolean =>
 
 // Gates the API-driven ACP transport (openclaw acp over interactive exec) on
 // the sprites-no-runner and k8s cells. Read per call so a drill can flip it
-// without a restart. Off by default: the gateway-http path stays the shipped
-// behaviour until the ACP soak proves out (ADR-0027).
+// without a restart. ON by default (ADR-0027): openclaw chat runs over ACP. Set
+// MF_OPENCLAW_ACP=0 (or false/no) to fall back to the gateway-http path — the
+// no-deploy rollback kept for the transition until gateway-http is removed
+// (that removal needs the NarraNexus/GatewayHttp class split first).
 const openclawAcpEnabled = (): boolean =>
-    ['1', 'true', 'yes'].includes(
+    !['0', 'false', 'no'].includes(
         (process.env.MF_OPENCLAW_ACP ?? '').toLowerCase()
     )
 

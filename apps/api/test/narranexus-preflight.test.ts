@@ -19,6 +19,9 @@ import type {
 // dynamic import() inside each test instead of a hoisted static import.
 const NARRANEXUS_BUDGET_MS = 1_500
 process.env.NARRANEXUS_PREFLIGHT_BUDGET_MS = String(NARRANEXUS_BUDGET_MS)
+// This suite exercises the gateway-http preflight; ACP is the default now, so
+// opt out (narranexus ignores the flag via the framework guard).
+process.env.MF_OPENCLAW_ACP = '0'
 delete process.env.OPENCLAW_PREFLIGHT_BUDGET_MS
 delete process.env.OPENCLAW_PREFLIGHT_TIMEOUT_MS
 delete process.env.K8S_INGRESS_SCHEME

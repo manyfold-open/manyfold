@@ -21,6 +21,10 @@ import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 // tests pin the wire contract through the real adapter chain
 // (NarraNexusChatAdapter -> OpenclawAdapter -> sendOpenAiCompat).
 
+// The "plain openclaw adapter" cases here drive the gateway-http path; ACP is
+// the default now, so opt out. narranexus ignores the flag (framework guard).
+process.env.MF_OPENCLAW_ACP = '0'
+
 const INGRESS_HOST = 'gw.example.com'
 
 const makeDb = (resultQueue: Array<Array<Record<string, unknown>>>) => {
