@@ -44,6 +44,7 @@ import {
 } from '@manyfold/shared'
 import { permissionResponders, runAcpTurn } from './acp-turn'
 import { runOpenclawTurn } from './openclaw-turn'
+import { runOpenclawAcpTurn } from './openclaw-acp-turn'
 import type { RpcContext, RpcHandler } from './ws-client'
 import { encodePtyChunk, resolvePtyBackend } from './pty-backend'
 import { machineWorkspacesRoot } from '@manyfold/shared'
@@ -1220,6 +1221,31 @@ const handlers: Partial<
             })
         }
         if (p.framework === 'openclaw') {
+            // The ACP shape (ADR-0027): the daemon drives `openclaw acp`
+            // against the host's own gateway as a real child, so it registers
+            // like a hermes turn — exec.abort reaches it and daemon.update
+            // drains around it. The gateway-http shape merely holds an SSE
+            // socket and has no child.
+            if (p.transport === 'acp') {
+                if (typeof p.prompt !== 'string' || p.prompt.length === 0)
+                    return { ok: false, error: 'prompt required' }
+                if (typeof p.sessionKey !== 'string' || p.sessionKey.length === 0)
+                    return { ok: false, error: 'sessionKey required' }
+                const cwd = p.dir ? ensureUnderAllowedRoot(p.dir) : process.cwd()
+                return runOpenclawAcpTurn({
+                    payload: p,
+                    cwd,
+                    ctx,
+                    registerChild: (child, stream) => {
+                        execChildren.set(ctx.refId, {
+                            child,
+                            stream,
+                            cancelled: false
+                        })
+                    },
+                    releaseChild: () => releaseExecChild(ctx.refId)
+                })
+            }
             if (typeof p.url !== 'string' || p.url.length === 0)
                 return { ok: false, error: 'url required' }
             if (!p.body || typeof p.body !== 'object')

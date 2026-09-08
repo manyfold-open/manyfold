@@ -325,6 +325,20 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
     },
     {
         framework: 'openclaw',
+        runtime: 'daemon',
+        transport: 'turn-rpc',
+        gatedBy: ['MF_OPENCLAW_ACP', 'daemon:turn.openclaw.acp'],
+        identity: 'none',
+        connections: 'none',
+        extras: 'none',
+        providerCreds: 'daemon-local',
+        path: 'not-applicable',
+        resume: 'attach-no-env',
+        payloadEnvKeys: [],
+        note: 'The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST\'s own resident gateway — discovered from the user\'s openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box\'s own openclaw.json, and the model call runs inside that gateway with its provider key. Gated on the flag AND the daemon advertising turn.openclaw.acp; without either it falls back to the daemon-exec CLI spawn above. Resumable — the daemon buffers the ACP frames, replayed via exec.resume.'
+    },
+    {
+        framework: 'openclaw',
         runtime: 'sprites',
         transport: 'sprite-exec',
         gatedBy: ['MF_OPENCLAW_ACP'],
