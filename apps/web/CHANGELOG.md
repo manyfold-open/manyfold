@@ -1,5 +1,147 @@
 # @manyfold/web
 
+## 0.64.0
+
+### Minor Changes
+
+- [#242](https://github.com/manyfold-open/manyfold/pull/242) [`e9f99df`](https://github.com/manyfold-open/manyfold/commit/e9f99df9c8a424c1cffc89474e596dc66898c87d) Thanks [@yingca1](https://github.com/yingca1)! - Add an iMessage channel provider
+
+    Bind an agent to iMessage and reach it from the Messages app, in one-on-one
+    conversations and in group chats. Apple publishes no iMessage API, so the
+    channel talks to a BlueBubbles server you run on your own Mac: paste its URL
+    and server password, and Register pings it, reads its version and installs the
+    inbound webhook itself, so nothing has to be copied back by hand.
+
+    iMessage has no bot identity to @-mention, so group messages are gated on
+    literal wake words instead, stripped from the message before the agent sees it.
+    Wake words are escaped as literals rather than compiled as user-supplied
+    patterns, because parsing runs on the unauthenticated webhook path where a
+    hostile regex would be a denial of service against every channel on the
+    instance. Allowlists normalize handles, so `+1 (555) 555-0123` and
+    `+15555550123` are one person.
+
+    BlueBubbles can neither set custom headers nor sign its payloads, so inbound is
+    authenticated with a per-channel secret embedded in the registered webhook URL
+    and compared in constant time. That is weaker than every other channel here:
+    the URL is a bearer capability, visible in the BlueBubbles webhook list and in
+    tunnel logs, and the allowlist is not a second factor. The channel docs say so
+    plainly. Outbound calls are re-checked against the private-address guard on
+    every request, not only when the URL is saved, because a write-time-only check
+    loses to DNS rebinding.
+
+    Replies are flattened to plain text and split one bubble per paragraph, since
+    Messages renders no markdown and cannot edit a sent message — so there is no
+    streaming preview. Attachments work in both directions. Reactions, typing
+    indicators, read receipts and reply threading are detected and reported but not
+    implemented: they all require the BlueBubbles Private API helper, which needs
+    SIP disabled on the operator's Mac.
+
+### Patch Changes
+
+- [#243](https://github.com/manyfold-open/manyfold/pull/243) [`95a31eb`](https://github.com/manyfold-open/manyfold/commit/95a31eb1f773a54b71303bcdc1e796e3a8e6877a) Thanks [@yingca1](https://github.com/yingca1)! - Stop a codex thread's single-writer rule from costing a conversation. Codex admits one writer per thread and refuses the second with `thread/resume failed: … already has an active writer (code -32600)`, in the same `thread/resume failed` wrapper it puts on a missing rollout — so the resume-load self-heal matched it and cleared `framework_session_ref`, forking the session onto a fresh thread and silently dropping the conversation the user was still reading, while the holder went on appending to the thread nothing pointed at any more. The self-heal is now keyed on positive evidence of a lost rollout rather than on that wrapper, so no other reason codex wraps the same way can trigger it either; the busy refusal keeps the ref, fails retryably, is classified as its own `resume_contention` failure cause instead of a stale ref, and — when it is the session's own TUI holding the thread — is explained in the chat as such instead of shown as a JSON-RPC line.
+
+    The terminal's "resume this session in the TUI" no longer walks into the same collision. The API refuses it while `chat_sessions.inflight_message_id` is held — which stays held through a SUSPENDED turn, the exact state where the API has stopped watching and the CLI has not stopped writing — opens a plain shell, and reports the verdict on the terminal's `session_info` frame. The web records that verdict on the tab (its own stream view both lags and leads it), explains the plain shell from it, and rebuilds the tab into the TUI on the first switch back after the turn ends — including after a mid-turn reload, where the tip message id never moves.
+
+    Turn adoption now holds the sandbox awake while it recovers a sprites turn from the runtime transcript: that recovery polls the sandbox for the turn's remaining life, none of which is platform-visible activity, so it was racing a suspend that could freeze the very files it was reading. Every path that holds a turn's awake lease now settles it by one rule — released only at a real terminal, left on its TTL when the turn suspended or moved to another owner — and releasing waits for the lease's own in-flight create, so a hold settled on its first poll can no longer leak a full-TTL lease.
+
+- [#240](https://github.com/manyfold-open/manyfold/pull/240) [`8b45def`](https://github.com/manyfold-open/manyfold/commit/8b45defb678f660c0cd5dca9a30555e9701e77d0) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Stop the landing world's mesh dots under `prefers-reduced-motion: reduce`, and
+  start them on the first frame rather than on the load event.
+
+    Three dots hand a light along the leads of the control plane's mesh. They were
+    SMIL — an `animate` on `opacity` and one each on `cx` and `cy` — and they
+    carried no class, so the reduced-motion block, which stills every CSS animation
+    in the world and then removes the flux by class name, had nothing to catch
+    them: they went on animating. `DESIGN.landing.md` §6.3 lists three things
+    allowed to move on the landing page and says reduced motion freezes or removes
+    the rest, and these were the last unhandled mover in the drawing.
+
+    They were also why a reduced-motion screenshot of `svg.lp-world` was not
+    reproducible. Measured on Chrome 148 [2026-09-08]: six frames of the world
+    taken 420ms apart differed from one another by 216–313 subpixels, every one of
+    them inside the mesh's own 45×22px box. The same six frames now differ by none,
+    which is what makes the world pixel-comparable in that mode at all.
+
+    The travel is now a CSS `transform: translate()` off the node a dot is drawn
+    on and the fade a CSS `opacity` animation, which also fixes the cold-refresh
+    defect [#239](https://github.com/manyfold-open/manyfold/pull/239) describes for
+    the flux packets: an inline SVG's SMIL clock does not start until the
+    document's load event, so a cold refresh of `/` drew the mesh and left nothing
+    crossing it. Seen on Chrome 148, Firefox 150 and WebKit 26.4 [2026-09-08], with
+    one 3s subresource holding the load event open: the world was in the DOM inside
+    500ms and `svg.getCurrentTime()` still read 0 a second later, while the CSS
+    clock had already run 1.25s and the dot was half way along its lead.
+
+    Nothing about the choreography changes. A dot is drawn on its lead's first node
+    and carries that lead's own delta, so the two keyframes are shared and a dot
+    differs from its neighbours only by the `animation-delay` that was its SMIL
+    `begin`. Sampled every 25ms across two full periods — 519 phases over the three
+    dots, each against the SMIL it replaces, the SMIL clock seeked with
+    `pauseAnimations()` and `setCurrentTime` and the CSS one with
+    `animation.currentTime` on the same absolute time — a dot lands within 0.0007
+    user units of its old position in Chrome, 0.025 in Firefox and 0.00006 in
+    WebKit, and the opacity curves match exactly bar Chrome's computed-style
+    rounding. Rasterised rather than merely laid out: the ink centroid of the first
+    dot, sampled at ten phases across its run, lands within 0.15 CSS px of where
+    the SMIL dot drew, and both track the analytic point to within a quarter pixel.
+
+    Reduced motion removes the dots rather than stilling them, alongside the flux
+    classes. Stopping them is now possible — `animation: none` leaves an
+    `opacity='0'` circle parked on a node the mesh already draws, and measured on
+    Chrome 148 the frame is the same to the subpixel either way — so the rule
+    removes them in order to say which parts move rather than leave that to a
+    presentation attribute. That is a weaker reason than the one the same rule
+    gives for a packet, whose invisible remains do shift the antialiasing along the
+    wires; the comment there now says so, so that neither argument is carried over
+    to the other part without being measured again.
+
+    One thing the reduced-motion frame buys that a moving one cannot: while
+    animations run, Chrome's rasterisation of the drawing depends on which elements
+    carry them. Measured on Chrome 148 [2026-09-08], baking the three dots'
+    computed transform and opacity into inline style and cancelling their
+    animations — the identical picture — already moves 4,439 subpixels of
+    antialiasing elsewhere in the world. A pixel test of this illustration
+    therefore belongs in reduced motion, where it is now exact.
+
+- [#239](https://github.com/manyfold-open/manyfold/pull/239) [`d783f51`](https://github.com/manyfold-open/manyfold/commit/d783f51584b032cc64eea67702d217623df7a456) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Start the landing world's light on the first frame instead of on the load event.
+
+    The packets that travel the wires were SMIL — `animateMotion` plus `animate`
+    and `animateTransform` — and Blink does not start an inline SVG's SMIL time
+    container until the document's `load` event fires. On a cold refresh of `/`
+    the world was drawn, the wires were lit and nothing moved along them until the
+    last subresource had arrived, which is exactly the moment the illustration is
+    supposed to be explaining itself.
+
+    Measured on Chrome 148 [2026-09-08], with one artificial 3s subresource
+    holding the load event open: the drawing was in the DOM at 241ms and
+    `svg.getCurrentTime()` still read 0 at 3211ms. No API starts that clock early
+    — `setCurrentTime(0)`, `setCurrentTime(0.001)`, `unpauseAnimations()` and a
+    `pauseAnimations()`/`unpauseAnimations()` pair all leave it at zero.
+
+    A packet now travels on a CSS motion path (`offset-path` + `offset-distance`,
+    `offset-rotate: auto` for the tail), and its fade and pop are CSS animations
+    too, all of which run from the first frame the element is styled. The same
+    holds after the swap: the world moves 59px of packet travel before the load
+    event in Chrome 148, Firefox 150 and WebKit 26.4, while `getCurrentTime()` is
+    still reading 0.
+
+    Nothing about the choreography changes. SMIL's `values` and `keyTimes` carry
+    over as a per-packet `linear()` easing over keyframes that run a plain 0 → 1,
+    so each stop in the CSS is the value the SMIL attribute named, and the wire
+    paths, clocks and offsets are the same constants as before. Sampled at 104
+    phases across all 11 packets against the SMIL positions they replace: beads
+    land within 0.0002 user units in Chrome, 0.61 in Firefox and WebKit (a
+    difference in how each engine measures arc length — under half a CSS pixel at
+    the size the world is drawn), tails point within 0.25°, and the scale and
+    opacity curves match to five decimal places.
+
+    `prefers-reduced-motion: reduce` keeps removing the moving parts rather than
+    stilling them, and the frame it leaves behind is unchanged. The reasoning
+    behind that rule is not: a packet is now stoppable, so it is removed because a
+    stopped one is still drawn — parked at the head of its wire — and, measured on
+    Chrome 148, an invisible packet left in the paint tree shifts the antialiasing
+    along the wires even when it is moved off the canvas. A ring is still SMIL,
+    which CSS cannot stop at all.
+
 ## 0.63.1
 
 ### Patch Changes
