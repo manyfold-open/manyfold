@@ -263,9 +263,28 @@ export class AcpTurn {
         if (!pending) return
         this.pending.delete(id)
         if (resp.error) {
+            // Surface the error's `data.details` too: the openclaw/hermes
+            // gateway returns a generic top-level message ("Internal error",
+            // -32603) and puts the actual cause (a provider rejection, an
+            // invalid param, a model error) in data.details. Dropping it made
+            // real failures undiagnosable from the chat error alone.
+            const base =
+                resp.error.message ??
+                `${this.dialect.errorPrefix} ${pending.method} failed`
+            const data = resp.error.data as
+                | { details?: unknown }
+                | null
+                | undefined
+            const details =
+                data && typeof data === 'object' && data.details !== undefined
+                    ? typeof data.details === 'string'
+                        ? data.details
+                        : JSON.stringify(data.details)
+                    : null
             const msg =
-            resp.error.message ??
-            `${this.dialect.errorPrefix} ${pending.method} failed`
+                details && !base.includes(details)
+                    ? `${base}: ${details}`
+                    : base
             pending.reject(new Error(msg))
             return
         }
