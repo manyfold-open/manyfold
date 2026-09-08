@@ -3071,6 +3071,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         } catch (err) {
             const lostFence =
                 resumeFenceLost || err instanceof TurnFenceLostError
+            // Latched for the finally: a fence lost by throw must settle the
+            // awake lease the same way as one reported in the outcome.
+            resumeFenceLost = lostFence
             this.logger.warn(
                 lostFence
                     ? `resume fenced out messageId=${message.id}; stopping this carrier`
@@ -3113,11 +3116,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         } finally {
             if (leaseTimer) clearInterval(leaseTimer)
             // Same rule as the dispatch path: a resume that suspends again has
-            // handed the work back to the runner, so the lease must survive.
-            if (awakeHold) {
-                if (resumeSuspended) awakeHold.detach()
-                else await awakeHold.release().catch(() => undefined)
-            }
+            // handed the work back to the runner, and one that lost the fence
+            // handed it to another owner; the lease survives both.
+            await this.settleAwakeHold(awakeHold, {
+                keepAwake: resumeSuspended || resumeFenceLost
+            })
             this.untrackRunningAdapter(message.id, abortController)
         }
         return 'handled'
@@ -3146,6 +3149,22 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             exec,
             turnId: args.turnId
         })
+    }
+
+    // One rule for every path that holds a turn's awake lease. Only a real
+    // terminal proves nothing on the sprite still needs it awake. A turn that
+    // suspended, or whose fence another owner took mid-relay, is live under
+    // somebody else — who may be renewing this very lease, since every path
+    // names it by the turn — so deleting it here would freeze the sprite under
+    // the owner now doing the work. Stop renewing and let the TTL bound the
+    // leak instead, exactly as if this instance had died.
+    private async settleAwakeHold(
+        hold: SpriteAwakeHold | null,
+        args: { keepAwake: boolean }
+    ): Promise<void> {
+        if (!hold) return
+        if (args.keepAwake) hold.detach()
+        else await hold.release().catch(() => undefined)
     }
 
     private async claimReconciliationFence(
@@ -3302,6 +3321,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             generation: row.generation
         }
         this.setTurnFence(fence)
+        let awakeHold: SpriteAwakeHold | null = null
+        let adoptOutcome: Awaited<
+            ReturnType<ChatService['runAdapterFromIterable']>
+        > | null = null
         try {
             const agentCtx = await this.resolveAgentContext(session.agentId)
             if (row.runtime === 'external') {
@@ -3397,6 +3420,32 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                           return sessions.some((s) => s.id === execSessionId)
                       }
                     : undefined
+            // Everything from here on reads the sprite — the transcript poll,
+            // and the liveness probe above — for as long as the turn has left
+            // to run. None of it is platform-visible activity, which is the
+            // same reason the dispatch path holds this lease, so without one
+            // the recovery is racing a suspend that freezes the very files it
+            // is reading. Same lease name as that path's hold, so this re-arms
+            // the one it detached at the suspension rather than opening a
+            // second. Built on the handle already resolved above: resolving
+            // another costs a second agent read, admission reservation and
+            // client for nothing.
+            const awakeSpriteName =
+                spriteName ??
+                (agentCtx.runtime === 'sprites' ? agentCtx.spriteName : null)
+            if (this.runnerManager && spritesClient && awakeSpriteName) {
+                const client = spritesClient
+                const name = awakeSpriteName
+                awakeHold = this.runnerManager.keepSpriteAwake({
+                    exec: (a) =>
+                        execSprite(client, name, {
+                            cmd: a.cmd,
+                            stdin: a.stdin ?? '',
+                            timeoutMs: a.timeoutMs
+                        }),
+                    turnId: row.messageId
+                })
+            }
             await this.broadcaster.beginResumeStream(
                 session.id,
                 row.messageId,
@@ -3487,7 +3536,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         })
                       : adopted()
             try {
-                await this.runAdapterFromIterable(
+                adoptOutcome = await this.runAdapterFromIterable(
                     adoptedStream,
                     session,
                     row.messageId,
@@ -3505,6 +3554,17 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 if (leaseTimer) clearInterval(leaseTimer)
             }
         } finally {
+            // Release only on `done`. Adoption's other terminals are the
+            // adopter ceasing to watch, not the process ceasing to run: the
+            // repoll deadline, a cancel and the turn budget all write an error
+            // terminal without stopping the exec on the sprite (dispatch's
+            // give-ups abort the exec first; adoption holds no handle to it).
+            // A throw left the turn unconverged for the next sweep, which
+            // re-arms this same lease when it re-adopts. Every one of those
+            // leaves the sprite on its TTL, as a suspension does.
+            await this.settleAwakeHold(awakeHold, {
+                keepAwake: adoptOutcome?.outcome !== 'done'
+            })
             this.untrackRunningAdapter(row.messageId, abortController)
         }
     }
@@ -6168,13 +6228,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         } finally {
             if (leaseTimer) clearInterval(leaseTimer)
             this.unpersistedUpstreamRefs.delete(assistantMessageId)
-            // A suspended turn is still being executed by the runner, so the
-            // sprite must stay awake for whoever resumes it; only a real
-            // terminal drops the lease.
-            if (awakeHold) {
-                if (suspended) awakeHold.detach()
-                else await awakeHold.release().catch(() => undefined)
-            }
+            // A suspended turn is still being executed by the runner, and a
+            // turn this relay lost to another owner is being carried by them;
+            // the lease survives both (settleAwakeHold).
+            await this.settleAwakeHold(awakeHold, {
+                keepAwake: suspended || fenceLost
+            })
         }
     }
 

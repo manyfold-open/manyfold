@@ -9,6 +9,7 @@ import type { FontSizeMode } from '@/lib/fontSize'
 import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
 import { isUpstreamTerminalSessionInfo } from '@/lib/terminalSession'
+import type { TerminalResumeOutcome } from '@/lib/terminalResume'
 
 export type TerminalConnectionStatus =
     | 'connecting'
@@ -46,6 +47,13 @@ export interface TerminalTabModel {
     // show those turns. null = unknown yet (messages still loading); the next
     // switch adopts the current id instead of rebuilding.
     seedMessageId?: string | null
+    // The API withheld the resume because a turn still held the session, so
+    // this is a plain shell — stamped from the session_info frame, the only
+    // place that verdict is known. The seed cannot stand in for it: after a
+    // mid-turn reload the in-flight assistant row is already the last message,
+    // so the seed equals the tip both before and after the turn ends and the
+    // rebuild that would finally load the TUI never fires.
+    resumeWithheld?: boolean
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }
@@ -54,6 +62,9 @@ interface TerminalSessionProps {
     active: boolean
     getToken: () => Promise<string>
     onStatusChange: (tabId: string, status: TerminalConnectionStatus) => void
+    // What the API did with the tab's resumeChatSessionId, from the
+    // session_info frame of every connection (a reconnect re-decides it).
+    onResumeOutcome?: (tabId: string, outcome: TerminalResumeOutcome) => void
     tab: TerminalSessionTarget
     // Typed into the shell once, on its first output (the prompt). Any
     // earlier and the daemon's PTY is not open yet to receive it.
@@ -161,6 +172,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     active,
     getToken,
     onStatusChange,
+    onResumeOutcome,
     tab,
     initialInput
 }): ReactNode => {
@@ -176,6 +188,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     const connectIdRef = useRef(0)
     const getTokenRef = useRef(getToken)
     const onStatusChangeRef = useRef(onStatusChange)
+    const onResumeOutcomeRef = useRef(onResumeOutcome)
     const themeRef = useRef(theme)
     const fontSizeRef = useRef(fontSize)
     const retriesRef = useRef(0)
@@ -190,6 +203,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
 
     getTokenRef.current = getToken
     onStatusChangeRef.current = onStatusChange
+    onResumeOutcomeRef.current = onResumeOutcome
     themeRef.current = theme
     fontSizeRef.current = fontSize
 
@@ -290,7 +304,8 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                             term.focus()
                         }
                     },
-                    () => setLimitedTerminal(true)
+                    () => setLimitedTerminal(true),
+                    (outcome) => onResumeOutcomeRef.current?.(tab.id, outcome)
                 )
                 return
             }
@@ -477,7 +492,8 @@ const handleTerminalTextFrame = (
         message?: string | null
     ) => void,
     onUpstreamOpen: () => void,
-    onLimitedTerminal: () => void
+    onLimitedTerminal: () => void,
+    onResumeOutcome: (outcome: TerminalResumeOutcome) => void
 ): void => {
     try {
         const msg = JSON.parse(frame) as {
@@ -486,10 +502,12 @@ const handleTerminalTextFrame = (
             exit_code?: number
             session_id?: string
             terminal_pty?: boolean | null
+            resume?: TerminalResumeOutcome
         }
         if (msg.type === 'session_info') {
             if (isUpstreamTerminalSessionInfo(msg)) onUpstreamOpen()
             if (msg.terminal_pty === false) onLimitedTerminal()
+            if (msg.resume) onResumeOutcome(msg.resume)
             return
         }
         if (msg.type === 'error' && msg.message) {

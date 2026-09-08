@@ -1034,3 +1034,41 @@ test('releasing deletes that turn lease and swallows failures', async () => {
         turnId: 'msg-abc'
     })
 })
+
+// The create is fire-and-forget, so a hold settled on its first poll — routine
+// for an adoption that finds the turn already terminal — could see its DELETE
+// land before its own POST and leave a full-TTL lease nobody renews. release()
+// waits for whatever hold was last in flight before it deletes.
+test('releasing waits for the in-flight create so the DELETE cannot overtake it', async () => {
+    const calls: string[] = []
+    let finishCreate: () => void = () => {}
+    const created = new Promise<void>((resolve) => {
+        finishCreate = resolve
+    })
+    const exec = async (a: { cmd: string[] }) => {
+        const cmd = a.cmd.join(' ')
+        // Only the create is slow; the DELETE answers at once, which is the
+        // ordering that used to leak.
+        if (/-X POST/.test(cmd)) await created
+        calls.push(cmd)
+        return { exitCode: 0, stdout: '', stderr: '' }
+    }
+    const h = awakeHarness()
+    const hold = h.service.keepSpriteAwake({
+        exec: exec as never,
+        turnId: 'msg-fast'
+    })
+    let released = false
+    const releasing = hold.release().then(() => {
+        released = true
+    })
+    await Promise.resolve()
+    assert.equal(released, false, 'release must not complete ahead of the create')
+    assert.equal(calls.length, 0)
+
+    finishCreate()
+    await releasing
+    assert.equal(calls.length, 2)
+    assert.match(calls[0], /-X POST \/v1\/tasks/)
+    assert.match(calls[1], /-X DELETE .*\/v1\/tasks\/mfturn-msg-fast/)
+})

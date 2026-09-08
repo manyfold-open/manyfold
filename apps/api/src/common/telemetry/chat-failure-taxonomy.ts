@@ -29,6 +29,11 @@ export const chatFailureCauses = [
     'auth_invalid',
     'invalid_request',
     'stale_resume_ref',
+    // The resume ref is GOOD and someone else is still holding it. Split from
+    // stale_resume_ref because the two call for opposite responses: a stale ref
+    // is fixed by dropping it, a contended one by leaving it alone and waiting
+    // for the holder to finish.
+    'resume_contention',
     'daemon_offline',
     'exec_handshake_failed',
     'empty_response',
