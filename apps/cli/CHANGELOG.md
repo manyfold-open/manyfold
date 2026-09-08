@@ -1,5 +1,11 @@
 # @manyfold/cli
 
+## 0.31.2
+
+### Patch Changes
+
+- [#252](https://github.com/manyfold-open/manyfold/pull/252) [`4b96e8c`](https://github.com/manyfold-open/manyfold/commit/4b96e8c929670b4a1827701444844b267a4dca32) Thanks [@yingca1](https://github.com/yingca1)! - Migrate legacy sprite runtime identities into encrypted storage before CLI or framework upgrades clean shared shell profiles.
+
 ## 0.31.1
 
 ### Patch Changes
