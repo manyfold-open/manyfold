@@ -1,7 +1,7 @@
 import { createObjectId } from '@manyfold/shared'
 import { randomBytes } from 'node:crypto'
 import { Inject, Injectable } from '@nestjs/common'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import {
     agentRuntimeTokens,
     tokenCredentials,
@@ -17,6 +17,10 @@ import {
 } from './api-token.service'
 
 export type RuntimeKind = NonNullable<NewAgentRuntimeToken['runtimeKind']>
+
+type RuntimeTokenTx = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+const RUNTIME_IDENTITY_LOCK_NAMESPACE = 7
 
 export interface MintedRuntimeIdentity {
     runtimeTokenId: string
@@ -38,16 +42,88 @@ export class RuntimeTokenService {
 
     // Mint (or rotate) the agent's identity token for one runtime kind. Identity
     // only — no scopes (authorization lives in agent_permissions, resolved per
-    // request). Idempotent per (agent, runtime_kind): any existing active row is
-    // revoked first so the partial unique holds, and a fresh plaintext is
-    // returned for injection. The runtime credential parent is written before
-    // the child so the Phase 3a cross-table trigger sees kind='runtime'.
+    // request). Explicit mint always revokes an existing active row before
+    // inserting a fresh one; ensureRuntimeIdentity is the read-through path
+    // when callers need idempotent first-use behavior. The runtime credential
+    // parent is written before the child so the Phase 3a cross-table trigger
+    // sees kind='runtime'.
     async mintRuntimeIdentity(args: {
         userId: string
         agentId: string
         runtimeKind: RuntimeKind
         name?: string
     }): Promise<MintedRuntimeIdentity> {
+        return this.db.transaction(async (tx) => {
+            await this.lockRuntimeIdentity(tx, args)
+            return this.mintRuntimeIdentityInTx(tx, args)
+        })
+    }
+
+    // Ensure is the read-through path used by lazy runtime attachment. The
+    // advisory lock must cover both the read and the possible mint: a unique
+    // partial index prevents two active rows, but it cannot make the losing
+    // request recover the plaintext that the winning request minted.
+    async ensureRuntimeIdentity(args: {
+        userId: string
+        agentId: string
+        runtimeKind: RuntimeKind
+        name?: string
+    }): Promise<RuntimeIdentityResult> {
+        return this.db.transaction(async (tx) => {
+            await this.lockRuntimeIdentity(tx, args)
+
+            const [active] = await tx
+                .select({
+                    id: agentRuntimeTokens.id,
+                    tokenCiphertext: agentRuntimeTokens.tokenCiphertext,
+                    tokenKeyVersion: agentRuntimeTokens.tokenKeyVersion
+                })
+                .from(agentRuntimeTokens)
+                .where(
+                    and(
+                        eq(agentRuntimeTokens.agentId, args.agentId),
+                        eq(agentRuntimeTokens.runtimeKind, args.runtimeKind),
+                        isNull(agentRuntimeTokens.revokedAt)
+                    )
+                )
+                .limit(1)
+
+            if (active?.tokenCiphertext && active.tokenKeyVersion !== null)
+                return {
+                    created: false,
+                    plaintext: this.crypto.decrypt({
+                        ciphertext: active.tokenCiphertext,
+                        keyVersion: active.tokenKeyVersion
+                    })
+                }
+
+            return {
+                ...(await this.mintRuntimeIdentityInTx(tx, args)),
+                created: true
+            }
+        })
+    }
+
+    private async lockRuntimeIdentity(
+        tx: RuntimeTokenTx,
+        args: { agentId: string; runtimeKind: RuntimeKind }
+    ): Promise<void> {
+        await tx.execute(
+            sql`select pg_advisory_xact_lock(
+                hashtextextended(${`${args.agentId}:${args.runtimeKind}`}, ${RUNTIME_IDENTITY_LOCK_NAMESPACE})
+            )`
+        )
+    }
+
+    private async mintRuntimeIdentityInTx(
+        tx: RuntimeTokenTx,
+        args: {
+            userId: string
+            agentId: string
+            runtimeKind: RuntimeKind
+            name?: string
+        }
+    ): Promise<MintedRuntimeIdentity> {
         const plaintext = `${RUNTIME_TOKEN_PREFIX}${randomBytes(
             TOKEN_BYTES
         ).toString('base64url')}`
@@ -57,30 +133,26 @@ export class RuntimeTokenService {
         const enc = this.crypto.encrypt(plaintext)
         const runtimeTokenId = createObjectId('agentRuntimeToken')
 
-        await this.db.transaction(async (tx) => {
-            await tx
-                .update(agentRuntimeTokens)
-                .set({ revokedAt: new Date() })
-                .where(
-                    and(
-                        eq(agentRuntimeTokens.agentId, args.agentId),
-                        eq(agentRuntimeTokens.runtimeKind, args.runtimeKind),
-                        isNull(agentRuntimeTokens.revokedAt)
-                    )
+        await tx
+            .update(agentRuntimeTokens)
+            .set({ revokedAt: new Date() })
+            .where(
+                and(
+                    eq(agentRuntimeTokens.agentId, args.agentId),
+                    eq(agentRuntimeTokens.runtimeKind, args.runtimeKind),
+                    isNull(agentRuntimeTokens.revokedAt)
                 )
-            await tx
-                .insert(tokenCredentials)
-                .values({ tokenHash, kind: 'runtime' })
-            await tx.insert(agentRuntimeTokens).values({
-                id: runtimeTokenId,
-                agentId: args.agentId,
-                userId: args.userId,
-                runtimeKind: args.runtimeKind,
-                tokenHash,
-                tokenCiphertext: enc.ciphertext,
-                tokenKeyVersion: enc.keyVersion,
-                name: args.name ?? `${args.runtimeKind} identity`
-            })
+            )
+        await tx.insert(tokenCredentials).values({ tokenHash, kind: 'runtime' })
+        await tx.insert(agentRuntimeTokens).values({
+            id: runtimeTokenId,
+            agentId: args.agentId,
+            userId: args.userId,
+            runtimeKind: args.runtimeKind,
+            tokenHash,
+            tokenCiphertext: enc.ciphertext,
+            tokenKeyVersion: enc.keyVersion,
+            name: args.name ?? `${args.runtimeKind} identity`
         })
 
         return {
@@ -88,29 +160,6 @@ export class RuntimeTokenService {
             plaintext,
             agentId: args.agentId,
             runtimeKind: args.runtimeKind
-        }
-    }
-
-    // Legacy sprite rows predate token_ciphertext and still rely on a plaintext
-    // shell profile. Upgrade paths use this idempotent read-before-mint helper
-    // before removing that fallback. Existing encrypted identities must not be
-    // rotated as a side effect of a CLI or framework upgrade.
-    async ensureRuntimeIdentity(args: {
-        userId: string
-        agentId: string
-        runtimeKind: RuntimeKind
-        name?: string
-    }): Promise<RuntimeIdentityResult> {
-        const existing = await decryptActiveIdentityToken(
-            this.db,
-            this.crypto,
-            args.agentId,
-            args.runtimeKind
-        )
-        if (existing) return { created: false, plaintext: existing }
-        return {
-            ...(await this.mintRuntimeIdentity(args)),
-            created: true
         }
     }
 }

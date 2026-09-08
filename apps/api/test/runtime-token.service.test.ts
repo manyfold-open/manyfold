@@ -24,6 +24,9 @@ class RtFakeDb {
     select() {
         return new RtSelectQuery(this)
     }
+    execute() {
+        return Promise.resolve()
+    }
 }
 
 class RtSelectQuery {
