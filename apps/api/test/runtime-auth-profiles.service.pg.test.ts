@@ -582,3 +582,133 @@ test(
         }
     }
 )
+
+// The socket closes before the shell exits, so the daemon's journal still says
+// running on the close-time read. Reconcile must wait for the verdict, and a
+// row that nevertheless stayed open must heal on the next read.
+test(
+    'reconcile waits for the host verdict, and a stale running row heals on read',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const registry = (
+                h.service as unknown as {
+                    daemonRegistry: {
+                        rpc: (a: {
+                            method: string
+                            payload: Record<string, unknown>
+                        }) => Promise<unknown>
+                    }
+                }
+            ).daemonRegistry
+            const original = registry.rpc
+            const journal = (status: string, resultCode: string | null) => ({
+                profileId: 'x',
+                kind: 'login',
+                status,
+                resultCode,
+                error: resultCode ? 'sign-in shell exited 1' : null,
+                startedAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            })
+            const profile = await h.service.create(h.principal, h.runtimeId, {
+                authMethod: 'subscription'
+            })
+
+            // 1. The journal is still running for the first two reads.
+            const op = await h.service.startLogin(
+                h.principal,
+                h.runtimeId,
+                profile.id,
+                {}
+            )
+            await h.service.loginTarget(h.userId, op.id)
+            let reads = 0
+            registry.rpc = async (args) => {
+                if (args.method === 'auth.operation') {
+                    reads += 1
+                    return {
+                        operationId: args.payload.operationId,
+                        ...journal(
+                            reads <= 2 ? 'running' : 'failed',
+                            reads <= 2 ? null : 'login_incomplete'
+                        )
+                    }
+                }
+                return original(args)
+            }
+            await h.service.reconcileLogin(h.userId, op.id)
+            assert.equal(
+                reads,
+                3,
+                'reconcile re-read the journal until it settled'
+            )
+            const failed = await h.service.operation(h.userId, op.id)
+            assert.equal(failed.status, 'failed')
+            assert.equal(failed.resultCode, 'login_incomplete')
+
+            // 2. A row left running (a reconcile that never ran) heals when
+            //    it is read and the host has a verdict by then.
+            const op2 = await h.service.startLogin(
+                h.principal,
+                h.runtimeId,
+                profile.id,
+                {}
+            )
+            await h.service.loginTarget(h.userId, op2.id)
+            registry.rpc = async (args) => {
+                if (args.method === 'auth.operation')
+                    return {
+                        operationId: args.payload.operationId,
+                        ...journal('succeeded', null)
+                    }
+                return original(args)
+            }
+            const healed = await h.service.operation(h.userId, op2.id)
+            assert.equal(healed.status, 'succeeded')
+            const [row] = await h.db
+                .select()
+                .from(runtimeAuthProfiles)
+                .where(eq(runtimeAuthProfiles.id, profile.id))
+            assert.equal(
+                row.lifecycle,
+                'ready',
+                'a healed success also readies the profile'
+            )
+
+            // 3. A read while the host still says running changes nothing and
+            //    does not wait.
+            const op3 = await h.service.startLogin(
+                h.principal,
+                h.runtimeId,
+                profile.id,
+                {}
+            )
+            await h.service.loginTarget(h.userId, op3.id)
+            reads = 0
+            registry.rpc = async (args) => {
+                if (args.method === 'auth.operation') {
+                    reads += 1
+                    return {
+                        operationId: args.payload.operationId,
+                        ...journal('running', null)
+                    }
+                }
+                return original(args)
+            }
+            const started = Date.now()
+            assert.equal(
+                (await h.service.operation(h.userId, op3.id)).status,
+                'running'
+            )
+            assert.equal(reads, 1)
+            assert.ok(
+                Date.now() - started < 1000,
+                'a read never waits on the host'
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
