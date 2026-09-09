@@ -7,6 +7,10 @@ import type {
     V1Secret,
     V1Service
 } from '@kubernetes/client-node'
+import {
+    MF_RUNTIME_IDENTITY_ENV_KEYS,
+    POD_RUNNER_ENV_KEYS
+} from '@manyfold/shared'
 import type {
     K8sFramework,
     K8sSidecarSpec
@@ -85,6 +89,67 @@ export const buildSecret = (
     type: 'Opaque',
     stringData: data
 })
+
+// Keys that are written into the env Secret ONCE, at provision, by something
+// other than the bootstrap plan — the agent's runtime identity and the pod
+// runner's registration credential. A writer that rebuilds the Secret from a
+// fresh plan (a credential update) cannot regenerate them: the identity token
+// is minted into agent_runtime_tokens and the runner token is one-shot and
+// bound to the daemon that consumed it. So such a writer must carry them over
+// from the Secret it is replacing, or the pod restarts as a stranger to the
+// platform.
+export const PRESERVED_SECRET_ENV_KEYS: readonly string[] = [
+    ...new Set<string>([
+        ...MF_RUNTIME_IDENTITY_ENV_KEYS,
+        ...POD_RUNNER_ENV_KEYS
+    ])
+]
+
+// What a Secret rewrite must land: the preserved provision-time keys under the
+// freshly planned data, so the plan wins where it does regenerate a key and the
+// old value survives where it does not.
+export const mergePreservedSecretEnv = (
+    existing: Record<string, string> | undefined,
+    planned: Record<string, string>
+): Record<string, string> => {
+    const preserved: Record<string, string> = {}
+    for (const key of PRESERVED_SECRET_ENV_KEYS) {
+        const value = existing?.[key]
+        if (value !== undefined) preserved[key] = value
+    }
+    return { ...preserved, ...planned }
+}
+
+// The Secret's current data, decoded. k8s returns `data` base64-encoded even
+// when it was written as stringData. A missing Secret is not an error here —
+// there is simply nothing to preserve.
+export const readSecretEnv = async (
+    core: {
+        readNamespacedSecret: (args: {
+            name: string
+            namespace: string
+        }) => Promise<V1Secret>
+    },
+    namespace: string,
+    name: string
+): Promise<Record<string, string> | undefined> => {
+    let secret: V1Secret
+    try {
+        secret = await core.readNamespacedSecret({ name, namespace })
+    } catch (err) {
+        if ((err as { code?: number; statusCode?: number })?.code === 404)
+            return undefined
+        if ((err as { statusCode?: number })?.statusCode === 404)
+            return undefined
+        throw err
+    }
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(secret.data ?? {}))
+        out[key] = Buffer.from(value, 'base64').toString('utf8')
+    for (const [key, value] of Object.entries(secret.stringData ?? {}))
+        out[key] = value
+    return out
+}
 
 export const buildPvc = (spec: K8sResourceSpec): V1PersistentVolumeClaim => ({
     apiVersion: 'v1',

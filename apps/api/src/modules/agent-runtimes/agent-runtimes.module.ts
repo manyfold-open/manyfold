@@ -10,6 +10,7 @@ import { K8sRuntimeSidecarService } from './orchestration/k8s-runtime-sidecar.se
 import { RuntimeDashboardService } from './orchestration/runtime-dashboard.service'
 import { SpritesProvisioner } from './provisioning/sprites-provisioner'
 import { K8sProvisioner } from './provisioning/k8s-provisioner'
+import { PodRunnerProvisioner } from './provisioning/pod-runner-provisioner'
 import { ExternalAgentProvisioner } from './provisioning/external-provisioner'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
@@ -52,6 +53,7 @@ import { RuntimeAccountService } from './account/runtime-account.service'
         RuntimeDashboardService,
         SpritesProvisioner,
         K8sProvisioner,
+        PodRunnerProvisioner,
         ExternalAgentProvisioner,
         ClaudeCodeBootstrap,
         CodexBootstrap,
@@ -70,6 +72,7 @@ import { RuntimeAccountService } from './account/runtime-account.service'
         SpritesProvisioner,
         SpriteKeepAliveLeaseService,
         K8sProvisioner,
+        PodRunnerProvisioner,
         ExternalAgentProvisioner,
         HermesSpriteBootstrap,
         OpenClawSpriteBootstrap,

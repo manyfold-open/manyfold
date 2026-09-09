@@ -42,7 +42,10 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
-import { deleteSpriteRunnerHostForSprite } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import {
+    deletePodRunnerHostForRuntime,
+    deleteSpriteRunnerHostForSprite
+} from '@/modules/agent-runtimes/sprite-runner-teardown'
 
 export interface RuntimeStatusPatch {
     status?: AgentRuntimeStatus
@@ -290,6 +293,25 @@ export class AgentRuntimesService {
 
     async delete(id: string): Promise<void> {
         const existing = await this.findById(id)
+        // A k8s runtime may own a pod runner: a managed daemon host bound to it
+        // by NAME only (no FK reaches it from the runtime row), so deleting the
+        // row here would strand the host as an online daemon with no pod. Done
+        // at this choke point rather than trusted to each caller — the sprite
+        // twin needed oss#192 for exactly the caller that forgot. Best-effort:
+        // the delete the caller asked for must not hinge on it.
+        if (existing?.kind === 'k8s') {
+            try {
+                await deletePodRunnerHostForRuntime(
+                    this.db,
+                    existing.userId,
+                    existing.id
+                )
+            } catch (err) {
+                this.log.warn(
+                    `pod runner host cleanup failed runtimeId=${id}: ${(err as Error).message}`
+                )
+            }
+        }
         await this.db.delete(agentRuntimes).where(eq(agentRuntimes.id, id))
         if (existing) {
             this.telemetry.event('agent.runtime.delete', {

@@ -1,0 +1,97 @@
+import { Injectable, Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
+import {
+    buildPodRunnerEnv,
+    podRunnerHostName,
+    type AgentFramework
+} from '@manyfold/shared'
+import { podRunnerCarries } from '@/modules/chat/runner/runner-rollout'
+import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
+import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
+
+export interface PodRunnerProvision {
+    // Merged into the pod's env Secret.
+    env: Record<string, string>
+    // So a failed provision can discard a credential the pod never bound.
+    tokenId: string
+}
+
+// Bakes the credential that lets a k8s agent pod enrol its own `mf daemon`.
+//
+// Unlike a sprite runner there is no bring-up here: the binary is in the image
+// and the entrypoint owns the process, so provisioning's whole job is to put a
+// token, a profile and a host name in the Secret the pod already reads. If that
+// does not happen the pod simply runs the framework alone and every turn takes
+// the pod-exec path it took before pod runners existed — which is what makes
+// this safe to bake unconditionally and gate only at dispatch.
+@Injectable()
+export class PodRunnerProvisioner {
+    private readonly log = new Logger(PodRunnerProvisioner.name)
+
+    constructor(
+        private readonly tokens: DaemonTokenService,
+        private readonly config: ConfigService
+    ) {}
+
+    // Service frameworks are deliberately excluded; podRunnerCarries says why,
+    // and is the same predicate dispatch consults, so a pod either gets a
+    // credential AND can be routed to, or neither.
+    supports(framework: AgentFramework): boolean {
+        return podRunnerCarries(framework)
+    }
+
+    async mint(args: {
+        userId: string
+        runtimeId: string
+        framework: AgentFramework
+        // The image's manyfold home root; for coding images this is the PVC
+        // mount path, which is what puts the daemon's uuid on durable storage.
+        homeRoot: string
+    }): Promise<PodRunnerProvision | null> {
+        if (!this.supports(args.framework)) return null
+        const apiBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')
+        // Without a reachable API there is nothing for the daemon to dial, so
+        // the pod is better off with no credential than with one it cannot use.
+        if (!apiBaseUrl) return null
+
+        // No expiry, deliberately. The daemon presents this token on every
+        // websocket connect, and nothing re-mints it: a sprite runner is
+        // re-registered by the API on each bring-up, but a pod's registration
+        // happens once, inside the pod, from a Secret that is never rewritten
+        // with a fresh token. A TTL would therefore not rotate the credential —
+        // it would simply switch the runner off on the day it lapsed, and put
+        // the daemon into a permanent 4401 reconnect loop. The token's real
+        // lifetime is the host's: teardown deletes the host and the token
+        // cascades with it, and admin revocation is available before then.
+        const minted = await this.tokens.mint({
+            userId: args.userId,
+            // The host name the pod will register under; teardown re-derives
+            // it from the runtime id, so it is not carried on the result.
+            name: podRunnerHostName(args.runtimeId),
+            purpose: 'pod_runner'
+        })
+        return {
+            env: buildPodRunnerEnv({
+                apiBaseUrl: publicApiUrlWithApiPrefix(apiBaseUrl),
+                daemonToken: minted.plaintext,
+                runtimeId: args.runtimeId,
+                homeRoot: args.homeRoot
+            }),
+            tokenId: minted.tokenId
+        }
+    }
+
+    // Rollback for a provision that failed before the pod could register. Only
+    // ever deletes an UNBOUND token: if the pod did register, the credential is
+    // the live runner's and deleting it would cut off a daemon that is already
+    // online (the sprite runner learned this the hard way, #804's sibling).
+    async discardUnbound(userId: string, tokenId: string): Promise<void> {
+        try {
+            await this.tokens.deleteUnbound({ tokenId, userId })
+        } catch (err) {
+            this.log.warn(
+                `pod runner token cleanup failed token=${tokenId}: ${String(err)}`
+            )
+        }
+    }
+}

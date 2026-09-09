@@ -28,8 +28,10 @@ import type {
 export type ExecTransport =
     // Sprite WSS exec through SpritesExecDriver.
     | 'sprite-exec'
-    // Sprite turn carried by that sprite's own runner: the transport swaps to
-    // DaemonExecDriver while `runtime` stays 'sprites'.
+    // Turn carried by the managed runner living inside the runtime the platform
+    // owns: the transport swaps to DaemonExecDriver while `runtime` stays
+    // 'sprites' (a runner we installed into the VM) or 'k8s' (the daemon that
+    // ships in the agent image). The swap is the same one either way.
     | 'runner-exec'
     // The user's own daemon (BYOD), via DaemonExecDriver with no base env.
     | 'daemon-exec'
@@ -161,6 +163,19 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     },
     {
         framework: 'claude-code',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        gatedBy: ['MF_POD_RUNNER_AGENTS'],
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'pod-secret',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "The pod-runner cell. Everything the pod-exec row below declares absent arrives here instead: the daemon spawns per exec, so the factory hands the swapped transport the same identity + connection + extras base env a sprite runner turn carries (#581's shape, #782's gap). Provider creds stay on the pod Secret — the daemon inherits the container env and passes it to the child, so re-injecting them would only duplicate what is already there. 'daemon-ambient' is literal: the carrier's PATH is the image's ENV PATH, and nothing prepends."
+    },
+    {
+        framework: 'claude-code',
         runtime: 'daemon',
         transport: 'daemon-exec',
         identity: 'per-exec',
@@ -208,6 +223,19 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     },
     {
         framework: 'codex',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        gatedBy: ['MF_POD_RUNNER_AGENTS'],
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'pod-secret',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "Same shape as the claude-code pod-runner cell. The identity env matters more here than on a single-agent pod: the Secret's MF_AGENT_ID names whichever agent provisioned the pod, so on a pod carrying several agents only the per-exec value is right."
+    },
+    {
+        framework: 'codex',
         runtime: 'daemon',
         transport: 'daemon-exec',
         identity: 'per-exec',
@@ -251,6 +279,23 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         providerCreds: 'pod-secret',
         path: 'adapter-bootstrap',
         resume: 'none'
+    },
+    {
+        framework: 'gemini-cli',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        gatedBy: ['MF_POD_RUNNER_AGENTS'],
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'pod-secret',
+        // Not 'daemon-ambient' like its claude/codex siblings: gemini is the
+        // one coding adapter whose argv is never bare — every transport gets
+        // GEMINI_CLI_AUTH_BOOTSTRAP, which prepends the activation dir itself.
+        // Declaring the sibling value here is what the matrix caught.
+        path: 'adapter-bootstrap',
+        resume: 'attach-no-env',
+        note: "Same shape as the claude-code pod-runner cell, except that gemini carries its own PATH prepend on every surface rather than inheriting the carrier's."
     },
     {
         framework: 'gemini-cli',

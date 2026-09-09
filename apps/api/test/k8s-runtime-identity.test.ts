@@ -65,6 +65,8 @@ const minimalPlan = (): K8sBootstrapPlan => ({
 
 interface HarnessOpts {
     apiBaseUrl?: string
+    // Make the pod-runner credential cleanup reject during rollback.
+    podRunnerCleanupFails?: boolean
     mintImpl?: (args: Record<string, unknown>) => Promise<{ plaintext: string }>
     // Inject a failure at a chosen k8s step AFTER the pending insert + mint, to
     // exercise the rollback path.
@@ -79,6 +81,7 @@ interface Harness {
     mintCalls: Array<{ agentRowCount: number; args: Record<string, unknown> }>
     runtimeDeletes: string[]
     tokenRows: Array<{ agentId: string }>
+    podRunnerMints: Array<Record<string, unknown>>
 }
 
 const buildHarness = (opts: HarnessOpts = {}): Harness => {
@@ -140,6 +143,24 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
         reserveRuntime: async () => baseRuntime()
     }
 
+    // The pod-runner credential is minted into the same Secret as the agent
+    // identity, so it is on this path whether or not a pod ever uses it.
+    const podRunnerMints: Array<Record<string, unknown>> = []
+    const podRunner = {
+        mint: async (args: Record<string, unknown>) => {
+            podRunnerMints.push(args)
+            return {
+                env: { MF_DAEMON_TOKEN: 'ldt_pod', MF_PROFILE: 'podrunner' },
+                tokenId: 'ldt_pod_id',
+                hostName: `pod-runner:${String(args.runtimeId)}`
+            }
+        },
+        discardUnbound: async () => {
+            if (opts.podRunnerCleanupFails)
+                throw new Error('pod runner cleanup exploded')
+        }
+    }
+
     const orchestrator = new K8sAgentOrchestrator(
         db as never, // db
         {
@@ -187,10 +208,18 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
             ensureProviderModelsReady: async () => {},
             updateForAgent: async () => {}
         } as never, // modelConfig
+        podRunner as never, // podRunner
         (opts.noTokenService ? undefined : runtimeToken) as never // runtimeToken (@Optional)
     )
 
-    return { orchestrator, db, mintCalls, runtimeDeletes, tokenRows }
+    return {
+        orchestrator,
+        db,
+        mintCalls,
+        runtimeDeletes,
+        tokenRows,
+        podRunnerMints
+    }
 }
 
 const createCtx = {
@@ -205,7 +234,7 @@ const createCtx = {
 } as never
 
 test('k8s create inserts a pending agents row BEFORE minting the identity (FK-safe order)', async () => {
-    const { orchestrator, db, mintCalls } = buildHarness({
+    const { orchestrator, db, mintCalls, podRunnerMints } = buildHarness({
         apiBaseUrl: 'https://api.test'
     })
 
@@ -213,6 +242,14 @@ test('k8s create inserts a pending agents row BEFORE minting the identity (FK-sa
 
     assert.equal(result.status, 'running')
     assert.equal(mintCalls.length, 1)
+    // The pod runner credential is minted once, keyed to the RUNTIME (a pod
+    // outlives any one agent), and rooted where the plan mounts the PVC.
+    assert.equal(podRunnerMints.length, 1)
+    assert.equal(podRunnerMints[0].framework, 'claude-code')
+    assert.equal(typeof podRunnerMints[0].runtimeId, 'string')
+    // The harness plan mounts the PVC at /data; the mint must be rooted there,
+    // not at a default the orchestrator guessed.
+    assert.equal(podRunnerMints[0].homeRoot, '/data')
     // The agents row must already be inserted when the mint runs, otherwise the
     // agent_runtime_tokens.agent_id FK would be violated.
     assert.equal(
@@ -526,3 +563,25 @@ class FakeQuery implements PromiseLike<unknown[]> {
         return []
     }
 }
+
+test('a failing pod-runner cleanup during rollback still deletes the runtime and keeps the real error', async () => {
+    // The cleanup runs inside the rollback catch, before the runtime delete.
+    // If it threw, the pending runtime (and its FK-pending agents row) would
+    // be stranded and the caller would get a bare DB error in place of the
+    // provisioning failure — so it must be best-effort.
+    const { orchestrator, runtimeDeletes } = buildHarness({
+        apiBaseUrl: 'https://api.test',
+        failOnCreateSecret: true,
+        podRunnerCleanupFails: true
+    })
+    await assert.rejects(
+        orchestrator.create(createCtx),
+        /k8s agent provisioning failed|createNamespacedSecret/,
+        'the provisioning error, not the cleanup error, reaches the caller'
+    )
+    assert.equal(
+        runtimeDeletes.length,
+        1,
+        'the runtime row is removed even though the cleanup threw'
+    )
+})

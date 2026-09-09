@@ -34,6 +34,7 @@ import {
     agentRuntimes,
     auditLogs,
     daemonTokens,
+    isManagedDaemonTokenPurpose,
     runtimeHosts,
     type Database,
     type RuntimeHostRow
@@ -111,7 +112,12 @@ export class DaemonHostService {
                 throw new UnauthorizedException('token expired')
 
             const userId = token.userId
-            const managed = token.purpose === 'sprite_runner'
+            // Managed-ness is a property of the token's purpose, never of
+            // anything the registering daemon says. Both platform runners (the
+            // sprite VM's installed daemon and the daemon baked into a k8s
+            // agent image) qualify; the predicate lives with the column so a
+            // new purpose cannot quietly register as a user-visible host.
+            const managed = isManagedDaemonTokenPurpose(token.purpose)
             await this.runtimeAccess.lockDaemonHostRegistrationInTx(tx, userId)
 
             const [existing] = await tx

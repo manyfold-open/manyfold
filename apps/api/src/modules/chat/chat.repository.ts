@@ -61,6 +61,16 @@ import { dedupRecoveredRowsBySourceKey } from './recovered-dedup'
 import { createAssistantBlockBuffer } from './assistant-blocks'
 import { TurnFenceLostError, type TurnExecutionFence } from './turn-fence'
 
+// The runtimes the adoption sweep will claim and replay from a transcript. A
+// turn_executions row for any OTHER runtime exists for cross-replica ownership
+// arbitration only (a daemon-carried turn, whether the daemon is a BYOD
+// machine, a sprite runner or a pod runner): it is resumed by the reverse-WS
+// path when its carrier reconnects, and never by the sweep. Every reader that
+// decides "wait for adoption" must consult this set, not a runtime literal —
+// waiting for a sweep that is not looking is how a turn hangs for 45 minutes.
+export const ADOPTABLE_TURN_RUNTIMES = ['sprites', 'external'] as const
+
+
 export type TerminalStreamContent =
     | {
           contentBlocksJson: ChatContentBlock[]
@@ -2234,7 +2244,7 @@ export class ChatRepository {
             .from(turnExecutions)
             .where(
                 and(
-                    inArray(turnExecutions.runtime, ['sprites', 'external']),
+                    inArray(turnExecutions.runtime, [...ADOPTABLE_TURN_RUNTIMES]),
                     inArray(turnExecutions.state, [
                         'running',
                         'handoff',
@@ -2323,7 +2333,7 @@ export class ChatRepository {
                         'handoff',
                         'adopting'
                     ]),
-                    inArray(turnExecutions.runtime, ['sprites', 'external']),
+                    inArray(turnExecutions.runtime, [...ADOPTABLE_TURN_RUNTIMES]),
                     lt(turnExecutions.leaseExpiresAt, sql`now()`)
                 )
             )

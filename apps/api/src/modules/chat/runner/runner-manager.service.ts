@@ -2,6 +2,7 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import {
     RUNNER_PROFILE,
     isCliVersionTooOld,
+    podRunnerHostName,
     profilePaths,
     runnerHostName
 } from '@manyfold/shared'
@@ -135,6 +136,10 @@ export type RunnerFallbackReason =
     // hermes only, decided by the caller: the runner came up but its daemon
     // does not advertise turn.hermes, so it cannot own the ACP client.
     | 'runner_missing_turn_rpc'
+    // pod only: the daemon in the image is older than the runner floor. A
+    // sprite runner below the floor is reinstalled; nothing reinstalls a pod's,
+    // so the turn stays on pod-exec until the image moves.
+    | 'runner_cli_too_old'
 
 // How the sprite's exec endpoint refused the runner inspect, when the refusal is
 // about the endpoint itself rather than about the command it was asked to run.
@@ -243,7 +248,10 @@ export class RunnerManagerService {
                     : {}),
                 workspace: { outcome: 'none' }
             }
-        const workspace = await this.workspacePreflight(handle.daemonId, args)
+        const workspace = await this.workspacePreflight(
+            handle.daemonId,
+            args.workspacePath
+        )
         if (workspace.outcome === 'failed')
             return {
                 handle: null,
@@ -264,10 +272,75 @@ export class RunnerManagerService {
         }
     }
 
+    // The pod twin of ensureRunner. A pod's daemon is in the image and started
+    // by the entrypoint, so there is nothing to install, register or launch and
+    // nothing to keep awake — the whole resolution is "is this pod's runner
+    // registered and online", plus the same workspace preflight a sprite turn
+    // does. Anything short of an online runner returns null and the turn takes
+    // the pod-exec path it took before, which is what keeps this safe to enable
+    // per agent.
+    async resolvePodRunner(args: {
+        userId: string
+        runtimeId: string
+        workspacePath?: string | null
+    }): Promise<RunnerResolution> {
+        const existing = await this.findRunnerHost({
+            userId: args.userId,
+            hostName: podRunnerHostName(args.runtimeId)
+        })
+        if (!existing?.online)
+            return {
+                handle: null,
+                fallbackReason: 'runner_unavailable',
+                workspace: { outcome: 'none' }
+            }
+        // The same floor the sprite runner enforces by reinstalling. Nothing
+        // in the API checks a daemon's exec.stdin support per turn; below the
+        // floor the prompt would be sent on a stdin the daemon never reads and
+        // the framework would sit waiting for it. The image pins the version,
+        // and the pin is operator-overridable, so this is where it is checked.
+        if (isCliVersionTooOld(existing.cliVersion, RUNNER_MIN_CLI))
+            return {
+                handle: null,
+                fallbackReason: 'runner_cli_too_old',
+                workspace: { outcome: 'none' }
+            }
+        const workspace = await this.workspacePreflight(
+            existing.id,
+            args.workspacePath,
+            existing
+        )
+        if (workspace.outcome === 'failed')
+            return {
+                handle: null,
+                fallbackReason: workspace.reason,
+                workspace: {
+                    outcome: 'failed',
+                    ensureMs: workspace.ensureMs
+                }
+            }
+        return {
+            handle: {
+                daemonId: existing.id,
+                started: false,
+                generation: existing.generation
+            },
+            workspace: {
+                outcome: workspace.outcome,
+                ...(workspace.ensureMs !== undefined
+                    ? { ensureMs: workspace.ensureMs }
+                    : {})
+            }
+        }
+    }
+
     private async resolveOnline(
         args: EnsureRunnerArgs
     ): Promise<RunnerBringUp> {
-        const existing = await this.findRunnerHost(args)
+        const existing = await this.findRunnerHost({
+            userId: args.userId,
+            hostName: runnerHostName(args.spriteName)
+        })
         if (existing?.online)
             return {
                 handle: {
@@ -299,15 +372,25 @@ export class RunnerManagerService {
     // the reason a turn cannot start.
     private async workspacePreflight(
         daemonId: string,
-        args: EnsureRunnerArgs
+        workspacePath: string | null | undefined,
+        // The host row when the caller already read it (the pod path does, by
+        // name); otherwise it is fetched here. Must carry the rpc lease fields
+        // too, or the per-generation cache below silently degrades to
+        // "re-ensure every turn".
+        known?: {
+            workspaceBaseDir: string | null
+            rpcInstanceId: string | null
+            rpcConnectedAt: Date | null
+        }
     ): Promise<{
         outcome: WorkspacePreflightOutcome
         ensureMs?: number
         reason?: RunnerFallbackReason
     }> {
-        const path = args.workspacePath
+        const path = workspacePath
         if (!path) return { outcome: 'none' }
-        const host = await this.hosts.findById(daemonId).catch(() => null)
+        const host =
+            known ?? (await this.hosts.findById(daemonId).catch(() => null))
         const base = host?.workspaceBaseDir?.replace(/\/+$/, '')
         if (base && (path === base || path.startsWith(`${base}/`)))
             return { outcome: 'base' }
@@ -348,7 +431,7 @@ export class RunnerManagerService {
         } catch (err) {
             const message = (err as Error).message
             this.logger.warn(
-                `runner workspace register failed sprite=${args.spriteName} class=${errorClass(err)}`
+                `runner workspace register failed daemon=${daemonId} class=${errorClass(err)}`
             )
             return {
                 outcome: 'failed',
@@ -360,11 +443,20 @@ export class RunnerManagerService {
 
     private async findRunnerHost(args: {
         userId: string
-        spriteName: string
+        // The platform-set host name — runnerHostName for a sprite,
+        // podRunnerHostName for a pod. Keyed by name rather than by the
+        // capacity it lives in so both managed runners share one lookup.
+        hostName: string
     }): Promise<{
         id: string
         online: boolean
         generation: string | null
+        cliVersion: string | null
+        // What workspacePreflight reads, so the pod path can hand this row
+        // over instead of reading it a second time.
+        workspaceBaseDir: string | null
+        rpcInstanceId: string | null
+        rpcConnectedAt: Date | null
     } | null> {
         const [row] = await this.db
             .select()
@@ -373,7 +465,13 @@ export class RunnerManagerService {
                 and(
                     eq(runtimeHosts.userId, args.userId),
                     eq(runtimeHosts.kind, 'daemon'),
-                    eq(runtimeHosts.name, runnerHostName(args.spriteName))
+                    // The name is the registering client's word: a user can
+                    // `daemon register --name` anything. `managed` is not —
+                    // it derives from the token purpose the platform minted —
+                    // so it is what makes this lookup find OUR runner and not
+                    // a same-named BYOD host. Teardown filters the same way.
+                    eq(runtimeHosts.managed, true),
+                    eq(runtimeHosts.name, args.hostName)
                 )
             )
             .limit(1)
@@ -391,7 +489,11 @@ export class RunnerManagerService {
             generation:
                 row.rpcInstanceId && row.rpcConnectedAt
                     ? `${row.rpcInstanceId}:${row.rpcConnectedAt.getTime()}`
-                    : null
+                    : null,
+            cliVersion: row.cliVersion ?? null,
+            workspaceBaseDir: row.workspaceBaseDir ?? null,
+            rpcInstanceId: row.rpcInstanceId ?? null,
+            rpcConnectedAt: row.rpcConnectedAt ?? null
         }
     }
 
@@ -827,7 +929,10 @@ export class RunnerManagerService {
         const deadline =
             Date.now() + (args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS)
         for (;;) {
-            const host = await this.findRunnerHost(args)
+            const host = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: runnerHostName(args.spriteName)
+            })
             if (host?.online)
                 return { id: host.id, generation: host.generation }
             if (Date.now() >= deadline) return null
