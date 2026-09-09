@@ -28,7 +28,8 @@ import {
     buildAdapter,
     createSeam,
     CONNECTION_MARKERS,
-    EXTRAS_MARKERS
+    EXTRAS_MARKERS,
+    withEnv
 } from './exec-env-harness'
 
 const ALL_FRAMEWORKS = Object.values(agentFramework) as AgentFramework[]
@@ -268,7 +269,11 @@ const factoryDb = (
 const buildFactory = (
     runtime: string,
     framework = 'claude-code',
-    opts: { identityRows?: unknown[]; runtimeTokens?: unknown } = {}
+    opts: {
+        identityRows?: unknown[]
+        runtimeTokens?: unknown
+        onConnectionEnv?: () => void
+    } = {}
 ): ExecDriverFactory =>
     new ExecDriverFactory(
         factoryDb(runtime, framework, opts.identityRows) as never,
@@ -306,7 +311,12 @@ const buildFactory = (
         { reserveActiveSlot: async () => {} } as never,
         { measureIfDue: () => {} } as never,
         {} as never,
-        { resolveAgentEnv: async () => CONNECTION_MARKERS } as never,
+        {
+            resolveAgentEnv: async () => {
+                opts.onConnectionEnv?.()
+                return CONNECTION_MARKERS
+            }
+        } as never,
         {
             get: (key: string) =>
                 key === 'PUBLIC_API_BASE_URL'
@@ -352,26 +362,89 @@ test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', asy
     // carries no connection env or extras at all, and its MF_AGENT_ID names
     // whichever agent provisioned the pod — so a turn carried by the pod's own
     // runner has to be handed the per-agent env instead of inheriting it.
-    const handle = await buildFactory('k8s').forAgent('agt_factory')
-    assert.equal(handle.runtime, 'k8s')
-    const baseEnv = handle.baseEnv ?? {}
-    for (const key of MF_RUNTIME_IDENTITY_ENV_KEYS)
-        assert.ok(baseEnv[key], `k8s base env is missing ${key}`)
-    assert.equal(baseEnv.MF_API_TOKEN, IDENTITY_TOKEN)
-    assert.equal(baseEnv.MF_AGENT_ID, 'agt_factory')
-    for (const [key, value] of Object.entries(CONNECTION_MARKERS))
-        assert.equal(baseEnv[key], value, `connection env ${key} not carried`)
-    for (const [key, value] of Object.entries(EXTRAS_MARKERS))
-        assert.equal(baseEnv[key], value, `agent extras ${key} not carried`)
+    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+        const handle = await buildFactory('k8s').forAgent('agt_factory')
+        assert.equal(handle.runtime, 'k8s')
+        const baseEnv = handle.baseEnv ?? {}
+        for (const key of MF_RUNTIME_IDENTITY_ENV_KEYS)
+            assert.ok(baseEnv[key], `k8s base env is missing ${key}`)
+        assert.equal(baseEnv.MF_API_TOKEN, IDENTITY_TOKEN)
+        assert.equal(baseEnv.MF_AGENT_ID, 'agt_factory')
+        for (const [key, value] of Object.entries(CONNECTION_MARKERS))
+            assert.equal(
+                baseEnv[key],
+                value,
+                `connection env ${key} not carried`
+            )
+        for (const [key, value] of Object.entries(EXTRAS_MARKERS))
+            assert.equal(baseEnv[key], value, `agent extras ${key} not carried`)
+    })
+})
+
+test('a k8s coding agent outside the pod-runner rollout pays for no base env', async () => {
+    // The connection env is a network mint (a GitHub installation token) and
+    // seven call sites reach forAgent per turn. With the transport swap not
+    // even possible for this agent, assembling the env would be pure cost on
+    // the pod-exec hot path — and the pod-exec driver never receives it.
+    await withEnv({ MF_POD_RUNNER_AGENTS: '' }, async () => {
+        let connectionMints = 0
+        const factory = buildFactory('k8s', 'claude-code', {
+            onConnectionEnv: () => {
+                connectionMints++
+            }
+        })
+        const handle = await factory.forAgent('agt_factory')
+        assert.equal(handle.runtime, 'k8s')
+        assert.equal(handle.baseEnv, undefined)
+        assert.equal(connectionMints, 0, 'no GitHub token minted for nothing')
+    })
+})
+
+test('a k8s coding agent whose active identity cannot be decrypted is never rotated', async () => {
+    // The pod is running on the identity its Secret was provisioned with. A
+    // legacy row with no ciphertext used to trigger ensure→mint→REVOKE of that
+    // very token; the pod then 401s on every `mf` call under the default
+    // pod-exec transport. The read-through path must leave it alone.
+    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+        const ensured: unknown[] = []
+        let readOrMintCalls = 0
+        const factory = buildFactory('k8s', 'claude-code', {
+            identityRows: [{ ciphertext: null, keyVersion: null }],
+            runtimeTokens: {
+                ensureRuntimeIdentity: async (args: unknown) => {
+                    ensured.push(args)
+                    return { plaintext: 'mfr_rotated' }
+                },
+                readOrMintRuntimeIdentity: async () => {
+                    readOrMintCalls++
+                    return null
+                }
+            }
+        })
+        const handle = await factory.forAgent('agt_factory')
+        assert.equal(ensured.length, 0, 'the rotating path must not be used')
+        assert.equal(readOrMintCalls, 1)
+        assert.equal(
+            'MF_API_TOKEN' in (handle.baseEnv ?? {}),
+            false,
+            "no per-exec token: the daemon inherits the Secret's"
+        )
+        // The rest of the identity still rides the swap.
+        assert.equal(handle.baseEnv?.MF_AGENT_ID, 'agt_factory')
+    })
 })
 
 test('a k8s service agent still gets no platform base env', async () => {
     // Symmetric with the BYOD daemon case below: only coding frameworks take
     // the pod-runner transport, so assembling an env for a service framework
     // would build a channel nothing reads.
-    const handle = await buildFactory('k8s', 'openclaw').forAgent('agt_factory')
-    assert.equal(handle.runtime, 'k8s')
-    assert.equal(handle.baseEnv, undefined)
+    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+        const handle = await buildFactory('k8s', 'openclaw').forAgent(
+            'agt_factory'
+        )
+        assert.equal(handle.runtime, 'k8s')
+        assert.equal(handle.baseEnv, undefined)
+    })
 })
 
 test('a daemon agent with no identity row gets one ensured on first use', async () => {

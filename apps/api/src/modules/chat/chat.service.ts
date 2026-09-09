@@ -141,6 +141,10 @@ import {
     TURN_LEASE_RENEW_MS
 } from '@/modules/chat/turn-adoption.service'
 import {
+    podRunnerEnabledFor,
+    spriteRunnerEnabledFor
+} from '@/modules/chat/runner/runner-rollout'
+import {
     RunnerManagerService,
     classifyExecEndpointFailure,
     type RunnerExecFailure,
@@ -447,22 +451,6 @@ const ADOPT_REPOLL_MAX_MS = (() => {
 const RESUME_FROM_CURSOR = ['1', 'true', 'yes'].includes(
     (process.env.MF_TURN_RESUME_CURSOR ?? '').toLowerCase()
 )
-// Runner rollout: agent ids that dispatch their sprite turns through the
-// sprite's own runner instead of a direct sprite exec. An explicit allowlist
-// rather than a boolean — this changes how a turn executes, so it opts in one
-// agent at a time and an empty value means nothing changes for anyone. The
-// single value '*' is the full-rollout switch: every sprite agent opts in.
-// Read per call rather than at module load: the rollout list is operational
-// state, and freezing it at import time also makes it untestable.
-const spriteRunnerEnabledFor = (agentId: string): boolean => {
-    const raw = (process.env.MF_SPRITE_RUNNER_AGENTS ?? '').trim()
-    if (raw === '*') return true
-    return raw
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .includes(agentId)
-}
 
 // hermes turns are ACP-only and the runner-owned client is the resumable
 // variant, so the attempt is always worth making: the allowlist does not
@@ -479,20 +467,6 @@ const spriteRunnerAttemptedFor = (
 ): boolean =>
     framework === 'hermes' ||
     (framework !== 'openclaw' && spriteRunnerEnabledFor(agentId))
-
-// The pod twin of the sprite rollout list, with the same semantics and its own
-// value: the two runners come up by completely different means (we install and
-// launch a sprite's; a pod's ships in the image), so an operator has to be able
-// to roll them out and roll them back independently.
-const podRunnerEnabledFor = (agentId: string): boolean => {
-    const raw = (process.env.MF_POD_RUNNER_AGENTS ?? '').trim()
-    if (raw === '*') return true
-    return raw
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .includes(agentId)
-}
 
 // Only coding frameworks, and only on the allowlist. A service framework's k8s
 // runtime IS the resident gateway, so a pod daemon would be a second surface on

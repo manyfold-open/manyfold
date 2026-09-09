@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
     POD_RUNNER_PROFILE,
     buildPodRunnerEnv,
+    codingAgentWorkspacePath,
     podRunnerHostName
 } from '@manyfold/shared'
 import { isManagedDaemonTokenPurpose } from '@manyfold/db'
@@ -70,6 +71,15 @@ test('a coding pod gets a pod_runner credential and the daemon env', async () =>
     assert.equal(mints[0].purpose, 'pod_runner')
     assert.equal(isManagedDaemonTokenPurpose('pod_runner'), true)
     assert.equal(mints[0].name, 'pod-runner:art_pod')
+    // No TTL. The daemon presents this token on every reconnect and nothing
+    // ever re-mints it into the Secret, so an expiry would not rotate the
+    // credential — it would switch the runner off on the day it lapsed and
+    // leave the daemon in a permanent 4401 reconnect loop.
+    assert.equal(
+        'expiresInDays' in mints[0],
+        false,
+        'pod runner tokens must not expire'
+    )
     assert.equal(provision.hostName, podRunnerHostName('art_pod'))
     assert.deepEqual(provision.env, {
         MF_API_URL: 'https://api.test/api',
@@ -96,11 +106,13 @@ test('the declared workspace root contains the agent workspaces on that pod', ()
         homeRoot: '/home/node/.manyfold'
     })
     const declaredWorkspaceRoot = `${env.MF_CONFIG_DIR}/workspaces`
+    // Derived, not typed: this is the path the API actually dispatches with,
+    // so a change to the k8s home base or the workspace layout reddens here.
+    const dispatched = codingAgentWorkspacePath('k8s', 'agt_1')
     assert.equal(
-        '/home/node/.manyfold/workspaces/agt_1'.startsWith(
-            `${declaredWorkspaceRoot}/`
-        ),
-        true
+        dispatched.startsWith(`${declaredWorkspaceRoot}/`),
+        true,
+        `${dispatched} must live under the declared root ${declaredWorkspaceRoot}`
     )
 })
 
@@ -155,19 +167,33 @@ test('rollback discards only an UNBOUND pod runner token', async () => {
 const buildResolver = (opts: {
     hostName?: string
     online?: boolean
+    cliVersion?: string | null
     workspaceBaseDir?: string | null
     workspaceEnsureFails?: boolean
 }): {
     service: RunnerManagerService
-    execCalls: number
     rpcCalls: Array<{ method: string; payload: Record<string, unknown> }>
+    hostReads: () => number
 } => {
     const rpcCalls: Array<{
         method: string
         payload: Record<string, unknown>
     }> = []
     const row = opts.hostName
-        ? { id: 'dh_pod', name: opts.hostName, status: 'active' }
+        ? {
+              id: 'dh_pod',
+              name: opts.hostName,
+              status: 'active',
+              managed: true,
+              cliVersion:
+                  opts.cliVersion === undefined ? '0.30.0' : opts.cliVersion,
+              workspaceBaseDir:
+                  opts.workspaceBaseDir === undefined
+                      ? '/home/node/.manyfold/workspaces'
+                      : opts.workspaceBaseDir,
+              rpcInstanceId: 'api-1',
+              rpcConnectedAt: new Date('2026-09-09T00:00:00Z')
+          }
         : null
     const db = {
         select: () => ({
@@ -178,15 +204,13 @@ const buildResolver = (opts: {
             })
         })
     }
+    let hostReads = 0
     const hosts = {
         isOnline: () => opts.online !== false,
-        findById: async () => ({
-            id: 'dh_pod',
-            workspaceBaseDir:
-                opts.workspaceBaseDir === undefined
-                    ? '/home/node/.manyfold/workspaces'
-                    : opts.workspaceBaseDir
-        })
+        findById: async () => {
+            hostReads++
+            return row
+        }
     }
     const registry = {
         rpc: async (a: {
@@ -214,13 +238,13 @@ const buildResolver = (opts: {
             tokens as never,
             registry as never
         ),
-        execCalls: 0,
-        rpcCalls
+        rpcCalls,
+        hostReads: () => hostReads
     }
 }
 
 test('an online pod runner resolves without any bring-up', async () => {
-    const { service, rpcCalls } = buildResolver({
+    const { service, rpcCalls, hostReads } = buildResolver({
         hostName: podRunnerHostName('art_pod')
     })
     const resolution = await service.resolvePodRunner({
@@ -235,6 +259,39 @@ test('an online pod runner resolves without any bring-up', async () => {
     // `started` is always false: unlike a sprite runner, nothing here can
     // start one, so a true would be a lie the telemetry would carry.
     assert.equal(resolution.handle?.started, false)
+    // The host row read by name is the one the preflight uses; it is not
+    // fetched a second time by id.
+    assert.equal(hostReads(), 0)
+})
+
+test('a pod runner below the CLI floor is not used', async () => {
+    // Nothing per turn checks that the daemon supports the stdin the prompt
+    // arrives on — the sprite runner is reinstalled below the floor instead,
+    // and nothing reinstalls a pod's. Below the floor, the turn stays on
+    // pod-exec until the image moves.
+    const { service } = buildResolver({
+        hostName: podRunnerHostName('art_pod'),
+        cliVersion: '0.21.0'
+    })
+    const resolution = await service.resolvePodRunner({
+        userId: 'user_1',
+        runtimeId: 'art_pod'
+    })
+    assert.equal(resolution.handle, null)
+    assert.equal(resolution.fallbackReason, 'runner_cli_too_old')
+})
+
+test('a pod runner that never reported a version is not used either', async () => {
+    const { service } = buildResolver({
+        hostName: podRunnerHostName('art_pod'),
+        cliVersion: null
+    })
+    const resolution = await service.resolvePodRunner({
+        userId: 'user_1',
+        runtimeId: 'art_pod'
+    })
+    assert.equal(resolution.handle, null)
+    assert.equal(resolution.fallbackReason, 'runner_cli_too_old')
 })
 
 test('an offline pod runner degrades to the pod-exec path', async () => {

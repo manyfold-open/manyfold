@@ -158,7 +158,7 @@ const insertExec = async (
     opts: {
         state: 'running' | 'handoff' | 'adopting' | 'done' | 'failed'
         leaseMs: number
-        runtime?: 'sprites' | 'daemon'
+        runtime?: 'sprites' | 'daemon' | 'k8s'
     }
 ) => {
     await h.db.insert(turnExecutions).values({
@@ -922,6 +922,57 @@ test(
                 'a ref the newest hello omits cannot be resumed from the older one'
             )
             assert.deepEqual(captured.failed, [turn])
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+// The pod-runner twin of the case above. A k8s turn carried by the pod's own
+// daemon is stamped runtime='k8s' — a runtime the adoption sweep never selects,
+// exactly like 'daemon'. Before ADOPTABLE_TURN_RUNTIMES the verdict special-cased
+// the literal 'daemon', so a lapsed k8s lease fell into the "wait for adoption"
+// branches and the turn hung open for the full 45-minute give-up behind a sweep
+// that was never going to look at it.
+test(
+    'a lapsed lease on a pod-runner (k8s) turn converges like a daemon one, not after 45 minutes',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const daemonId = h.id('dh_pod_omit')
+            const turn = h.id('m_pod_omit')
+            await insertMessage(h, turn, daemonId, { ageMs: 7 * 60_000 })
+            await insertExec(h, turn, {
+                state: 'handoff',
+                leaseMs: 15_000,
+                runtime: 'k8s'
+            })
+            const captured = captureHandler(h)
+            captured.ownedElsewhere.add(turn)
+
+            h.service.recheckDelayMs = 60_000
+            await hello(h, daemonId, [turn])
+            assert.equal(h.timers().size, 1)
+
+            await h.db
+                .update(turnExecutions)
+                .set({ leaseExpiresAt: new Date(Date.now() - 1_000) })
+                .where(eq(turnExecutions.messageId, turn))
+            captured.ownedElsewhere.delete(turn)
+            await hello(h, daemonId, [])
+
+            assert.deepEqual(captured.resumed, [])
+            assert.deepEqual(
+                captured.failed,
+                [turn],
+                'a k8s row with a lapsed lease converges on the hello, not after the give-up'
+            )
+            assert.equal(
+                h.timers().size,
+                0,
+                'and nothing is left waiting for an adoption that will not come'
+            )
         } finally {
             await h.close()
         }

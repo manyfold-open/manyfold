@@ -205,14 +205,23 @@ export class K8sAgentOrchestrator {
     // A pod that got far enough to register leaves an online managed daemon
     // host behind; a pod that did not leaves an unbound token. Clear whichever
     // exists, in that order, before the runtime row goes.
+    // Best-effort, like every other rollback step: it runs inside a catch, so
+    // throwing here would skip the runtime delete that follows it and hand the
+    // caller a DB error in place of the provisioning failure.
     private async cleanupPodRunner(
         userId: string,
         runtimeId: string,
         podRunner: PodRunnerProvision | null
     ): Promise<void> {
-        await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
-        if (podRunner)
-            await this.podRunner.discardUnbound(userId, podRunner.tokenId)
+        try {
+            await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+            if (podRunner)
+                await this.podRunner.discardUnbound(userId, podRunner.tokenId)
+        } catch (err) {
+            this.log.warn(
+                `pod runner cleanup failed runtimeId=${runtimeId}: ${(err as Error).message}`
+            )
+        }
     }
 
     async deleteNonPrimary(row: Agent, actorUserId: string): Promise<void> {

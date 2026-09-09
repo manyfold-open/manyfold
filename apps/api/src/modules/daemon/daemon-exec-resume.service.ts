@@ -1,4 +1,5 @@
 import type { DaemonInflightStream } from '@manyfold/shared'
+import { ADOPTABLE_TURN_RUNTIMES } from '@/modules/chat/chat.repository'
 import {
     Inject,
     Injectable,
@@ -617,11 +618,17 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         // #570 stamps daemon-carried turns too, so a matched resume can fence
         // the carrier it displaces. The lease is the only part of that row this
         // verdict may read: everything below waits for an adoption that will
-        // never come for a daemon row (listAdoptableTurnExecutions is
-        // sprites/external only), so reading it would stall the #512 shape for
-        // 45 minutes behind a sweep that is not looking. A lapsed daemon lease
-        // converges exactly as the pre-#570 missing row did.
-        if (exec.runtime === 'daemon') return { action: 'converge' }
+        // never come for a row outside ADOPTABLE_TURN_RUNTIMES — a BYOD daemon
+        // turn, and since pod runners a k8s one — so reading it would stall
+        // the #512 shape for 45 minutes behind a sweep that is not looking. A
+        // lapsed lease on such a row converges exactly as the pre-#570 missing
+        // row did.
+        if (
+            !(ADOPTABLE_TURN_RUNTIMES as readonly string[]).includes(
+                exec.runtime
+            )
+        )
+            return { action: 'converge' }
         if (
             Date.now() - message.createdAt.getTime() >
             UNMATCHED_TURN_GIVE_UP_MS

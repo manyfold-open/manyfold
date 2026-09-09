@@ -9,12 +9,6 @@ import {
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
-// A pod runner's registration credential outlives nothing in particular — the
-// pod consumes it once on first boot and reuses the daemon config afterwards —
-// but a long-lived pod must still be able to re-register after a PVC wipe, so
-// it gets the same 90-day TTL as a sprite runner's.
-const TOKEN_TTL_DAYS = 90
-
 export interface PodRunnerProvision {
     // Merged into the pod's env Secret.
     env: Record<string, string>
@@ -65,10 +59,18 @@ export class PodRunnerProvisioner {
         if (!apiBaseUrl) return null
 
         const hostName = podRunnerHostName(args.runtimeId)
+        // No expiry, deliberately. The daemon presents this token on every
+        // websocket connect, and nothing re-mints it: a sprite runner is
+        // re-registered by the API on each bring-up, but a pod's registration
+        // happens once, inside the pod, from a Secret that is never rewritten
+        // with a fresh token. A TTL would therefore not rotate the credential —
+        // it would simply switch the runner off on the day it lapsed, and put
+        // the daemon into a permanent 4401 reconnect loop. The token's real
+        // lifetime is the host's: teardown deletes the host and the token
+        // cascades with it, and admin revocation is available before then.
         const minted = await this.tokens.mint({
             userId: args.userId,
             name: hostName,
-            expiresInDays: TOKEN_TTL_DAYS,
             purpose: 'pod_runner'
         })
         return {

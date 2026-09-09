@@ -187,24 +187,26 @@ export class K8sContainerProvisioner {
         // 2. Insert agentRuntimes row WITHOUT going through reserveRuntime
         // (subscription replaces plan-quota gating for purchased containers).
         const now = new Date()
-        await this.db.insert(agentRuntimes).values({
-            id: runtimeId,
-            userId,
-            name,
-            framework,
-            kind: 'k8s',
-            status: 'pending',
-            currentPhase: 'preparing_namespace',
-            clusterId: cluster.id,
-            namespace,
-            ingressHost: host,
-            mountPath: plan.pvcMountPath,
-            cpuMillicores: sku.cpuMillicores,
-            memoryMb: sku.memoryMb,
-            diskGb: sku.diskGb,
-            region: sku.region,
-            purchasedAt: now
-        })
+        await this.db
+            .insert(agentRuntimes)
+            .values({
+                id: runtimeId,
+                userId,
+                name,
+                framework,
+                kind: 'k8s',
+                status: 'pending',
+                currentPhase: 'preparing_namespace',
+                clusterId: cluster.id,
+                namespace,
+                ingressHost: host,
+                mountPath: plan.pvcMountPath,
+                cpuMillicores: sku.cpuMillicores,
+                memoryMb: sku.memoryMb,
+                diskGb: sku.diskGb,
+                region: sku.region,
+                purchasedAt: now
+            })
 
         const envSecretName = `${resourceName(runtimeId)}-env`
         let spec!: K8sResourceSpec
@@ -293,9 +295,7 @@ export class K8sContainerProvisioner {
             await this.setPhase(runtimeId, 'waiting_for_ready')
             const timeoutMs =
                 Number(
-                    this.config.get<string>(
-                        'K8S_CONTAINER_PROVISION_TIMEOUT_MS'
-                    )
+                    this.config.get<string>('K8S_CONTAINER_PROVISION_TIMEOUT_MS')
                 ) || DEFAULT_READINESS_TIMEOUT_MS
             await this.waitForReadiness({
                 apis,
@@ -348,10 +348,21 @@ export class K8sContainerProvisioner {
             // The pod may have registered its runner before whatever failed
             // here, so both halves are cleaned: the host row (which the runtime
             // delete cannot reach — a runner hangs off daemon_id, not host_id)
-            // and the token, only if it was never bound.
-            await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
-            if (podRunner)
-                await this.podRunner.discardUnbound(userId, podRunner.tokenId)
+            // and the token, only if it was never bound. Best-effort like the
+            // k8s rollback above it: a failure here must not skip the runtime
+            // delete or replace the provisioning error the caller gets.
+            try {
+                await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+                if (podRunner)
+                    await this.podRunner.discardUnbound(
+                        userId,
+                        podRunner.tokenId
+                    )
+            } catch (cleanupErr) {
+                this.log.warn(
+                    `pod runner cleanup failed runtimeId=${runtimeId}: ${(cleanupErr as Error).message}`
+                )
+            }
             await this.db
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.id, runtimeId))
@@ -368,8 +379,20 @@ export class K8sContainerProvisioner {
         // managed daemon host keyed by name, so deleting the runtime — or
         // deleting the whole namespace — leaves it behind as an online host
         // with no pod. Runs on both the namespace-less DB-only path and the
-        // normal one, because the stranding is a DB fact either way.
-        await deletePodRunnerHostForRuntime(this.db, runtime.userId, runtime.id)
+        // normal one, because the stranding is a DB fact either way. Best
+        // effort: the runtime delete below is the operation the caller asked
+        // for and must not be skipped because this one failed.
+        try {
+            await deletePodRunnerHostForRuntime(
+                this.db,
+                runtime.userId,
+                runtime.id
+            )
+        } catch (err) {
+            this.log.warn(
+                `pod runner host cleanup failed runtimeId=${runtime.id}: ${(err as Error).message}`
+            )
+        }
         if (!runtime.namespace) {
             await this.db
                 .delete(agentRuntimes)

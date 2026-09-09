@@ -55,12 +55,27 @@ export const podRunnerHostName = (runtimeId: string): string =>
 //
 // MF_DAEMON_TOKEN is the one-time `ldt_` registration credential; the entrypoint
 // consumes it into the daemon config on first boot and every later boot starts
-// from that config instead. Absent, the entrypoint runs the framework alone and
-// the pod behaves exactly as it did before pod runners existed.
+// from that config instead. Absent on FIRST boot, the entrypoint runs the
+// framework alone and the pod behaves exactly as it did before pod runners
+// existed; absent on a later boot it is not needed, because the registration
+// already lives on the PVC.
 export const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
 export const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
 export const MF_ENV_PROFILE = 'MF_PROFILE'
 export const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
+
+// Every key buildPodRunnerEnv writes. The Secret has more than one writer: the
+// two provisioners merge these in, but a later credential update REBUILDS the
+// Secret from the bootstrap plan alone — and the plan cannot regenerate a
+// one-shot token. Any writer that is not the provisioner must carry these over
+// from the Secret it is replacing, or the pod restarts without its runner.
+export const POD_RUNNER_ENV_KEYS = [
+    MF_ENV_API_URL,
+    MF_ENV_DAEMON_TOKEN,
+    MF_ENV_DAEMON_HOST_NAME,
+    MF_ENV_PROFILE,
+    MF_ENV_CONFIG_DIR
+] as const
 
 export interface PodRunnerEnvInput {
     // Already `/api`-suffixed: the same base the agent's own MF_API_URL uses.

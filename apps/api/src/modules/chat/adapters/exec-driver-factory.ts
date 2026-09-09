@@ -56,6 +56,7 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
+import { podRunnerEnabledFor } from '@/modules/chat/runner/runner-rollout'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 
@@ -166,15 +167,26 @@ export class ExecDriverFactory {
             //
             // Only exposed, never pushed into K8sExecDriver: the direct pod-exec
             // path keeps inheriting the Secret exactly as before, so this adds a
-            // transport, not a behaviour change to the existing one.
-            const coding =
-                frameworkCapability(agent.framework).kind === 'coding'
+            // transport, not a behaviour change to the existing one. And only
+            // assembled when that transport can actually be chosen: the
+            // connection env is a network mint (a GitHub installation token)
+            // that seven call sites would otherwise pay per turn for nothing.
+            const swapPossible =
+                frameworkCapability(agent.framework).kind === 'coding' &&
+                podRunnerEnabledFor(agent.id)
             const [creds, connectionEnv, identityToken] = await Promise.all([
                 this.decryptCreds(agent.runtimeId),
-                coding ? this.connections.resolveAgentEnv(agent) : undefined,
-                coding ? this.lazyIdentityToken(agent, 'k8s') : null
+                swapPossible
+                    ? this.connections.resolveAgentEnv(agent)
+                    : undefined,
+                // Read, never rotate: the pod is running on the identity its
+                // Secret was provisioned with, and rotating an active row the
+                // platform cannot decrypt would revoke exactly that token
+                // under the pod-exec path nobody opted out of. A missing token
+                // here is fine — the daemon inherits the Secret's.
+                swapPossible ? this.podIdentityToken(agent) : null
             ])
-            const baseEnv = coding
+            const baseEnv = swapPossible
                 ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
                 : undefined
             if (!agent.namespace)
@@ -402,12 +414,28 @@ export class ExecDriverFactory {
     // first turn that needs it: agents attached before daemon identity existed
     // have no 'daemon' token row, and a backfill would mint tokens nothing
     // consumes. Two concurrent first turns can both mint (the second revokes
-    // the first's token for that one turn); the next turn heals.
-    //
-    // The k8s kind takes the same path. Its row normally exists already (the
-    // orchestrator mints one into the pod Secret at provision), but a purchased
-    // container is provisioned without an agent, so the agent attached to it
-    // later has none until this runs.
+    // the first's token for that one turn); the next turn heals. A daemon can
+    // afford that rotation because it holds no baked copy of the token; a pod
+    // cannot, which is why the k8s arm uses podIdentityToken instead.
+    // The k8s twin of lazyIdentityToken, without the rotation. See
+    // RuntimeTokenService.readOrMintRuntimeIdentity for why a pod must never
+    // have an active row rotated out from under it.
+    private async podIdentityToken(agent: Agent): Promise<string | null> {
+        const existing = await decryptActiveIdentityToken(
+            this.db,
+            this.crypto,
+            agent.id,
+            'k8s'
+        )
+        if (existing) return existing
+        if (!this.runtimeTokens) return null
+        return this.runtimeTokens.readOrMintRuntimeIdentity({
+            userId: agent.userId,
+            agentId: agent.id,
+            runtimeKind: 'k8s'
+        })
+    }
+
     private async lazyIdentityToken(
         agent: Agent,
         runtimeKind: RuntimeKind
