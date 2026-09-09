@@ -51,7 +51,19 @@ export class K8sProvisioner {
         // The pod's runner host is keyed by RUNTIME id and hangs off daemon_id,
         // so `runtimes.delete` cannot reach it: without this the host stays
         // behind as a managed daemon with no pod, and its runtimes with it.
-        await deletePodRunnerHostForRuntime(this.db, runtime.userId, runtime.id)
+        // Best-effort, like the other cleanup sites: the runtime delete is what
+        // the caller asked for and a retry of it is idempotent.
+        try {
+            await deletePodRunnerHostForRuntime(
+                this.db,
+                runtime.userId,
+                runtime.id
+            )
+        } catch (err) {
+            this.log.warn(
+                `pod runner host cleanup failed runtimeId=${runtime.id}: ${(err as Error).message}`
+            )
+        }
         await this.runtimes.delete(runtime.id)
     }
 

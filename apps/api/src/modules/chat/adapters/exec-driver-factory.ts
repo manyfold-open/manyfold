@@ -56,7 +56,7 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
-import { podRunnerEnabledFor } from '@/modules/chat/runner/runner-rollout'
+import { podRunnerAttemptedFor } from '@/modules/chat/runner/runner-rollout'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 
@@ -171,9 +171,10 @@ export class ExecDriverFactory {
             // assembled when that transport can actually be chosen: the
             // connection env is a network mint (a GitHub installation token)
             // that seven call sites would otherwise pay per turn for nothing.
-            const swapPossible =
-                frameworkCapability(agent.framework).kind === 'coding' &&
-                podRunnerEnabledFor(agent.id)
+            const swapPossible = podRunnerAttemptedFor(
+                agent.framework,
+                agent.id
+            )
             const [creds, connectionEnv, identityToken] = await Promise.all([
                 this.decryptCreds(agent.runtimeId),
                 swapPossible

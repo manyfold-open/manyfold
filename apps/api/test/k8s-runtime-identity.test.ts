@@ -65,6 +65,8 @@ const minimalPlan = (): K8sBootstrapPlan => ({
 
 interface HarnessOpts {
     apiBaseUrl?: string
+    // Make the pod-runner credential cleanup reject during rollback.
+    podRunnerCleanupFails?: boolean
     mintImpl?: (args: Record<string, unknown>) => Promise<{ plaintext: string }>
     // Inject a failure at a chosen k8s step AFTER the pending insert + mint, to
     // exercise the rollback path.
@@ -153,7 +155,10 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
                 hostName: `pod-runner:${String(args.runtimeId)}`
             }
         },
-        discardUnbound: async () => {}
+        discardUnbound: async () => {
+            if (opts.podRunnerCleanupFails)
+                throw new Error('pod runner cleanup exploded')
+        }
     }
 
     const orchestrator = new K8sAgentOrchestrator(
@@ -550,3 +555,25 @@ class FakeQuery implements PromiseLike<unknown[]> {
         return []
     }
 }
+
+test('a failing pod-runner cleanup during rollback still deletes the runtime and keeps the real error', async () => {
+    // The cleanup runs inside the rollback catch, before the runtime delete.
+    // If it threw, the pending runtime (and its FK-pending agents row) would
+    // be stranded and the caller would get a bare DB error in place of the
+    // provisioning failure — so it must be best-effort.
+    const { orchestrator, runtimeDeletes } = buildHarness({
+        apiBaseUrl: 'https://api.test',
+        failOnCreateSecret: true,
+        podRunnerCleanupFails: true
+    })
+    await assert.rejects(
+        orchestrator.create(createCtx),
+        /k8s agent provisioning failed|createNamespacedSecret/,
+        'the provisioning error, not the cleanup error, reaches the caller'
+    )
+    assert.equal(
+        runtimeDeletes.length,
+        1,
+        'the runtime row is removed even though the cleanup threw'
+    )
+})

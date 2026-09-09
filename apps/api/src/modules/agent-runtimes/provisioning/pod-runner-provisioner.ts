@@ -2,10 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import {
     buildPodRunnerEnv,
-    frameworkCapability,
     podRunnerHostName,
     type AgentFramework
 } from '@manyfold/shared'
+import { podRunnerCarries } from '@/modules/chat/runner/runner-rollout'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
@@ -34,14 +34,11 @@ export class PodRunnerProvisioner {
         private readonly config: ConfigService
     ) {}
 
-    // Service frameworks are deliberately excluded. Their real runtime is the
-    // k8s row itself (the resident gateway IS the framework), so a daemon on
-    // that pod would be a second surface onto the same instance — the shape
-    // oss#192 had to unpick for sprite runners. Their turns also carry a `dir`
-    // the daemon's containment check must accept, which needs a workspace
-    // contract k8s service runtimes do not have yet.
+    // Service frameworks are deliberately excluded; podRunnerCarries says why,
+    // and is the same predicate dispatch consults, so a pod either gets a
+    // credential AND can be routed to, or neither.
     supports(framework: AgentFramework): boolean {
-        return frameworkCapability(framework).kind === 'coding'
+        return podRunnerCarries(framework)
     }
 
     async mint(args: {

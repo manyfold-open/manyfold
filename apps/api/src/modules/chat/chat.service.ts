@@ -11,7 +11,6 @@ import {
     DEFAULT_HERMES_PERMISSION_MODE,
     DEFAULT_OPENCLAW_PERMISSION_MODE,
     createObjectId,
-    frameworkCapability,
     isObjectId
 } from '@manyfold/shared'
 import type {
@@ -141,7 +140,7 @@ import {
     TURN_LEASE_RENEW_MS
 } from '@/modules/chat/turn-adoption.service'
 import {
-    podRunnerEnabledFor,
+    podRunnerAttemptedFor,
     spriteRunnerEnabledFor
 } from '@/modules/chat/runner/runner-rollout'
 import {
@@ -467,19 +466,6 @@ const spriteRunnerAttemptedFor = (
 ): boolean =>
     framework === 'hermes' ||
     (framework !== 'openclaw' && spriteRunnerEnabledFor(agentId))
-
-// Only coding frameworks, and only on the allowlist. A service framework's k8s
-// runtime IS the resident gateway, so a pod daemon would be a second surface on
-// the same instance and its turn carries a `dir` the daemon's containment check
-// would have to accept — neither is settled, so those turns keep the API-driven
-// ACP path (ADR-0027) until they are. Mirrors PodRunnerProvisioner.supports,
-// which decides whether the credential is baked at all.
-const podRunnerAttemptedFor = (
-    framework: AgentFramework,
-    agentId: string
-): boolean =>
-    frameworkCapability(framework).kind === 'coding' &&
-    podRunnerEnabledFor(agentId)
 
 // What a resolved managed runner gives the dispatch site. `exec` is the sprite
 // bootstrap transport, kept only so the caller can hold that VM awake for the
