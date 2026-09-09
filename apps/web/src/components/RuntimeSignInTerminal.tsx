@@ -13,14 +13,22 @@ import { runtimeSignInCommandFor } from '@/lib/runtimeSignIn'
 // follow the link it prints and paste the code back. Lazy-loaded by the
 // account section so xterm stays out of the settings bundle for everyone who
 // only reads usage.
+//
+// With an operationId the shell belongs to an added account instead of the
+// host sign-in: the API opens it already inside the CLI's login, scoped to
+// that account's own credential store, so nothing is typed here and the
+// command is only shown for orientation.
 const RuntimeSignInTerminal: FC<{
     runtimeId: string
     framework: AgentFramework
+    operationId?: string
     onDone: () => void
-}> = ({ runtimeId, framework, onDone }): ReactNode => {
+}> = ({ runtimeId, framework, operationId, onDone }): ReactNode => {
     const { t } = useI18n()
     const { getToken } = useAppAuth()
-    const [sessionId] = useState(() => `signin-${runtimeId}-${Date.now()}`)
+    const [sessionId] = useState(
+        () => `signin-${operationId ?? runtimeId}-${Date.now()}`
+    )
     // Only a shell that opened and then ended is "done"; a session that never
     // connected keeps its error and Reconnect affordance on screen.
     const openedRef = useRef(false)
@@ -43,14 +51,16 @@ const RuntimeSignInTerminal: FC<{
             <div className='border-divider/60 flex flex-wrap items-start gap-x-3 gap-y-2 border-b px-4 py-3'>
                 <div className='min-w-0 flex-1'>
                     <div className='text-ui text-fg font-medium'>
-                        {t('web.runtimeDetails.account.signInBody')}
+                        {operationId
+                            ? t('web.runtimeAuth.signInBody')
+                            : t('web.runtimeDetails.account.signInBody')}
                     </div>
                     {command && (
                         <p className='text-caption text-muted mt-1 flex flex-wrap items-center gap-1.5'>
                             <code className='text-fg bg-surface shadow-ring-light rounded px-1.5 py-0.5 font-mono'>
                                 {command}
                             </code>
-                            <CopyButton value={command} />
+                            {!operationId && <CopyButton value={command} />}
                             <span>{hint}</span>
                         </p>
                     )}
@@ -66,8 +76,14 @@ const RuntimeSignInTerminal: FC<{
             <div className='relative h-72'>
                 <TerminalSession
                     active
-                    tab={{ id: sessionId, runtimeId }}
-                    initialInput={command ? `${command}\r` : undefined}
+                    tab={
+                        operationId
+                            ? { id: sessionId, operationId }
+                            : { id: sessionId, runtimeId }
+                    }
+                    initialInput={
+                        command && !operationId ? `${command}\r` : undefined
+                    }
                     getToken={getToken}
                     onStatusChange={handleStatus}
                 />

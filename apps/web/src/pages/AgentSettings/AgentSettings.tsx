@@ -36,6 +36,7 @@ import {
 } from '@/components/icons'
 import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
+import RuntimeAuthBindingRow from '@/pages/AgentSettings/RuntimeAuthBindingRow'
 import ProductDialog from '@/components/ProductDialog'
 import RenameAgentDialog from '@/components/RenameAgentDialog'
 import { CopyButton } from '@/components/RuntimeDetailPanel'
@@ -2199,6 +2200,28 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                         {sourceError}
                                                     </div>
                                                 )}
+                                                {modelConfigView!.source ===
+                                                    'runtime-local' &&
+                                                    agent.runtimeId && (
+                                                        <RuntimeAuthBindingRow
+                                                            agentId={agent.id}
+                                                            runtimeId={
+                                                                agent.runtimeId
+                                                            }
+                                                            framework={
+                                                                agent.framework
+                                                            }
+                                                            runtimeKind={
+                                                                agent.runtime
+                                                            }
+                                                            view={
+                                                                modelConfigView!
+                                                            }
+                                                            onView={
+                                                                applyModelConfigView
+                                                            }
+                                                        />
+                                                    )}
                                             </dd>
                                         </div>
                                     ) : (

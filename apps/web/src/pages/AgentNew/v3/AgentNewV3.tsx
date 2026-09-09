@@ -20,6 +20,7 @@ import {
     normalizeAgentName,
     isConfigurableFramework,
     providerProtocolForTarget,
+    runtimeAuthSupported,
     providerSupportsTarget,
     suggestAgentName,
     validateAgentName
@@ -110,6 +111,13 @@ import {
     type SpriteBlockedTarget
 } from '@/lib/agentCreate/spriteTargets'
 import { useFrameworkModelConfig } from '@/lib/agentCreate/useFrameworkModelConfig'
+import RuntimeAuthProfileSelect from '@/components/chat/RuntimeAuthProfileSelect'
+import {
+    INHERITED_AUTH_OPTION,
+    initialRuntimeAuthSelection,
+    runtimeAuthPickerState
+} from '@/lib/runtimeAuth'
+import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { BILLING_SURFACE } from '@/edition-capabilities'
 
@@ -321,6 +329,9 @@ const AgentNewV3: FC = (): ReactNode => {
     const [picker, setPicker] = useState<ProviderPickerValue>(initialPicker)
     const [runtimeMode, setRuntimeMode] = useState<RuntimeMode>('sandbox')
     const [pickedRuntimeId, setPickedRuntimeId] = useState('')
+    const [runtimeAuthProfileId, setRuntimeAuthProfileId] = useState(
+        INHERITED_AUTH_OPTION
+    )
     const [attachSandboxHostId, setAttachSandboxHostId] = useState('')
     const [persistentModelProvider, setPersistentModelProvider] =
         useState<PersistentModelProvider>(() => {
@@ -468,6 +479,24 @@ const AgentNewV3: FC = (): ReactNode => {
         () => reusableRuntimes.find((r) => r.id === pickedRuntimeId) ?? null,
         [reusableRuntimes, pickedRuntimeId]
     )
+    // The added accounts on the picked runtime (daemon machine or sandbox with
+    // a coding CLI). Loaded per runtime; the selection resets to that
+    // runtime's own default whenever the list changes hands.
+    const runtimeAuthRuntimeId =
+        runtimeMode === 'existing' &&
+        pickedRuntime &&
+        runtimeAuthSupported(pickedRuntime.framework, pickedRuntime.kind)
+            ? pickedRuntime.id
+            : null
+    const { list: runtimeAuthList } = useRuntimeAuthList(runtimeAuthRuntimeId)
+    useEffect(() => {
+        setRuntimeAuthProfileId(
+            runtimeAuthList
+                ? initialRuntimeAuthSelection(runtimeAuthList)
+                : INHERITED_AUTH_OPTION
+        )
+    }, [runtimeAuthList])
+    const runtimeAuthPicker = runtimeAuthPickerState(runtimeAuthList)
 
     // Honour ?sandboxId=. The pinned sandbox is either an attach target (install
     // this framework onto it) or already runs the framework, in which case it
@@ -935,6 +964,11 @@ const AgentNewV3: FC = (): ReactNode => {
                     cloneFrom:
                         hermesAttach && cloneEnabled
                             ? cloneFromProfile || undefined
+                            : undefined,
+                    runtimeLocal: isConfigurable && picker.mode === 'runtime',
+                    runtimeAuthProfileId:
+                        runtimeAuthPicker === 'ready'
+                            ? runtimeAuthProfileId
                             : undefined
                 })
             })
@@ -1774,6 +1808,26 @@ const AgentNewV3: FC = (): ReactNode => {
                     {t('web.agentNew.subscriptionSignInExplainer')}
                 </p>
             )}
+            {picker.mode === 'runtime' &&
+                runtimeMode === 'existing' &&
+                runtimeAuthPicker !== 'hidden' && (
+                    <div className='mt-3'>
+                        <span className='workbench-field-label mb-1.5 block'>
+                            {t('web.runtimeAuth.accountLabel')}
+                        </span>
+                        <RuntimeAuthProfileSelect
+                            profiles={runtimeAuthList?.profiles ?? []}
+                            value={runtimeAuthProfileId}
+                            onChange={setRuntimeAuthProfileId}
+                            disabled={runtimeAuthPicker !== 'ready'}
+                        />
+                        <p className='text-subtle text-caption mt-1.5'>
+                            {runtimeAuthPicker === 'ready'
+                                ? t('web.runtimeAuth.wizardHint')
+                                : t('web.runtimeAuth.executeUnsupported')}
+                        </p>
+                    </div>
+                )}
             {isConfigurable &&
                 (managedUnavailableForFamily &&
                 persistentModelProvider !== 'anthropic' ? (

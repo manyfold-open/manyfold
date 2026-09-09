@@ -109,6 +109,37 @@ test('builds existing runtime add body with trimmed custom workspace', () => {
     })
 })
 
+test('carries the runtime-local source and account onto an existing runtime', () => {
+    assert.deepEqual(
+        buildAddRuntimeAgentBody({
+            name: 'agent-one',
+            runtimeLocal: true,
+            runtimeAuthProfileId: ' rap_abc '
+        }),
+        {
+            name: 'agent-one',
+            modelConfigSource: 'runtime-local',
+            runtimeAuthProfileId: 'rap_abc'
+        }
+    )
+    assert.deepEqual(
+        buildAddRuntimeAgentBody({
+            name: 'agent-one',
+            runtimeLocal: true,
+            runtimeAuthProfileId: ''
+        }),
+        { name: 'agent-one', modelConfigSource: 'runtime-local' }
+    )
+    assert.deepEqual(
+        buildAddRuntimeAgentBody({
+            name: 'agent-one',
+            runtimeLocal: false,
+            runtimeAuthProfileId: 'rap_abc'
+        }),
+        { name: 'agent-one' }
+    )
+})
+
 test('omits blank workspace from existing runtime add body', () => {
     const body = buildAddRuntimeAgentBody({
         name: 'agent-one',
