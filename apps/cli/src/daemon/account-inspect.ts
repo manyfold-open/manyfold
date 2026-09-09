@@ -1,4 +1,3 @@
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type {
     ConfigurableFramework,
@@ -9,12 +8,13 @@ import type {
     RuntimeAccountVendor
 } from '@manyfold/shared'
 import {
-    codexHomeDir,
     jwtClaims,
     jwtExpiryMs,
+    nativeConfigDirs,
     nestedRecord,
     parseJsonRecord,
-    readTextIfPresent
+    readTextIfPresent,
+    type FrameworkConfigDirs
 } from './inspect-fs'
 
 // account.inspect: who is signed in to a coding CLI on this machine, and what
@@ -33,6 +33,8 @@ export interface AccountInspectDeps {
     now: () => number
     platform: NodeJS.Platform
     cliVersion: string | null
+    // Native dirs for the ambient probe; a profile's view dirs otherwise.
+    dirs: FrameworkConfigDirs
 }
 
 export type RuntimeAccountReport = Omit<RuntimeAccountProbe, 'credentialFacts'>
@@ -52,7 +54,8 @@ const defaultDeps = (): AccountInspectDeps => ({
     fetch: globalThis.fetch,
     now: Date.now,
     platform: process.platform,
-    cliVersion: null
+    cliVersion: null,
+    dirs: nativeConfigDirs()
 })
 
 const trimmed = (value: unknown): string | null =>
@@ -156,7 +159,7 @@ const inspectClaude = async (
     deps: AccountInspectDeps
 ): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
     const credentials = parseJsonRecord(
-        (await readTextIfPresent(join(homedir(), '.claude', '.credentials.json')))
+        (await readTextIfPresent(join(deps.dirs.claudeDir, '.credentials.json')))
             .text
     )
     // Older installs wrote the oauth block under `oauthAccount`; the profile
@@ -166,7 +169,7 @@ const inspectClaude = async (
         nestedRecord(credentials, 'oauthAccount')
     const profile = nestedRecord(
         parseJsonRecord(
-            (await readTextIfPresent(join(homedir(), '.claude.json'))).text
+            (await readTextIfPresent(deps.dirs.claudeJson)).text
         ),
         'oauthAccount'
     )
@@ -206,7 +209,7 @@ const inspectCodex = async (
     deps: AccountInspectDeps
 ): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
     const auth = parseJsonRecord(
-        (await readTextIfPresent(join(codexHomeDir(), 'auth.json'))).text
+        (await readTextIfPresent(join(deps.dirs.codexHome, 'auth.json'))).text
     )
     const tokens = nestedRecord(auth, 'tokens')
     const claims = jwtClaims(tokens?.id_token)
@@ -259,7 +262,7 @@ const geminiProjectId = (body: unknown): string | null => {
 const inspectGemini = async (
     deps: AccountInspectDeps
 ): Promise<Omit<RuntimeAccountReport, 'framework' | 'checkedAt'>> => {
-    const geminiHome = join(homedir(), '.gemini')
+    const geminiHome = deps.dirs.geminiDir
     const creds = parseJsonRecord(
         (await readTextIfPresent(join(geminiHome, 'oauth_creds.json'))).text
     )

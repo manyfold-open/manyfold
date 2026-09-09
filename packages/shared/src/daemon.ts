@@ -192,6 +192,11 @@ export type DaemonRpcMethod =
     | 'turn.permission'
     | 'model.inspect'
     | 'account.inspect'
+    | 'auth.list'
+    | 'auth.create'
+    | 'auth.inspect'
+    | 'auth.logout'
+    | 'auth.operation'
     | 'pty.open'
     | 'pty.input'
     | 'pty.resize'
@@ -528,6 +533,12 @@ export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
 // before calling: an older daemon answers `not_implemented`, which the runtime
 // page has to render as "upgrade the CLI", not as a probe failure.
 export const DAEMON_FEATURE_ACCOUNT_INSPECT = 'account.inspect'
+// The daemon hosts runtime auth profiles (`auth.*` RPCs: list/create/inspect/
+// logout/operation) and honours `pty.open`'s `authLogin` field, running the
+// vendor sign-in inside that profile's own credential context. Management
+// only: executing a turn under a profile is a separate capability, so a
+// daemon that can list accounts is not assumed able to run with one.
+export const DAEMON_FEATURE_AUTH_PROFILES = 'auth-profiles.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -546,5 +557,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
-    DAEMON_FEATURE_TURN_OPENCLAW_ACP
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
+    DAEMON_FEATURE_AUTH_PROFILES
 ]

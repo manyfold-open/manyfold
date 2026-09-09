@@ -73,6 +73,11 @@ export const agentRuntimes = pgTable(
         ingressHost: text('ingress_host'),
         mountPath: text('mount_path').notNull().default('/workspace'),
         primaryAgentId: text('primary_agent_id'),
+        // Pre-selected runtime auth profile for NEW agents only; changing it
+        // never rebinds existing ones. No FK for the same reason as
+        // primaryAgentId (runtimeAuthProfiles imports this table); the service
+        // validates ownership and clears it when the profile is removed.
+        defaultAuthProfileId: text('default_auth_profile_id'),
         controlUiEnabled: boolean('control_ui_enabled').notNull().default(true),
         dashboardEnabled: boolean('dashboard_enabled').notNull().default(false),
         // Dashboard toggle state machine + CAS mutex. Grammar:

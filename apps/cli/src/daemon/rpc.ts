@@ -49,7 +49,14 @@ import type { RpcContext, RpcHandler } from './ws-client'
 import { encodePtyChunk, resolvePtyBackend } from './pty-backend'
 import { machineWorkspacesRoot } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
-import { daemonPaths } from './config'
+import { daemonPaths, loadDaemonConfig } from './config'
+import type { ConfigurableFramework } from '@manyfold/shared'
+import {
+    RuntimeAuthManager,
+    cliBinaryFor
+} from './runtime-auth/manager'
+import { assertOperationId, assertProfileId, authRoot } from './runtime-auth/paths'
+import { ProfileBusyError } from './runtime-auth/lock'
 import {
     ExecStream,
     execStreams,
@@ -68,13 +75,14 @@ import {
 } from './update-drain'
 import { MF_CLI_VERSION } from '@/version'
 import {
-    codexHomeDir,
     expandHome,
     jwtExpiryMs,
     nestedRecord,
     nonEmptyString,
     parseJsonRecord,
-    readTextIfPresent
+    readTextIfPresent,
+    nativeConfigDirs,
+    type FrameworkConfigDirs
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
 
@@ -180,6 +188,7 @@ const allowedRoots = (): string[] => {
     return [
         managedWorkspaceRoot(),
         ...FRAMEWORK_HOME_ROOTS,
+        authRoot(),
         ...registeredWorkspaceRoots
     ]
 }
@@ -225,6 +234,7 @@ export const ensureUnderAllowedRoot = (path: string): string => {
     const lexicallyAllowed =
         isInsideManagedRoot(abs) ||
         FRAMEWORK_HOME_ROOTS.some((root) => isInsideRoot(abs, root)) ||
+        isInsideRoot(abs, authRoot()) ||
         [...registeredWorkspaceRoots].some((root) => isInsideRoot(abs, root))
     if (!lexicallyAllowed)
         throw new Error(
@@ -449,11 +459,11 @@ const codexAuthSummary = (text: string | null): string | null => {
 }
 
 const claudeCredentialFacts = async (
-    configPresent: boolean
+    configPresent: boolean,
+    dirs: FrameworkConfigDirs
 ): Promise<ClaudeCredentialFacts> => {
     const credentials = parseJsonRecord(
-        (await readTextIfPresent(join(homedir(), '.claude', '.credentials.json')))
-            .text
+        (await readTextIfPresent(join(dirs.claudeDir, '.credentials.json'))).text
     )
     // Older installs wrote the same block under `oauthAccount`. This is a
     // different file from the ~/.claude.json read below, which happens to use
@@ -462,14 +472,16 @@ const claudeCredentialFacts = async (
         nestedRecord(credentials, 'claudeAiOauth') ??
         nestedRecord(credentials, 'oauthAccount')
     const claudeJson = parseJsonRecord(
-        (await readTextIfPresent(join(homedir(), '.claude.json'))).text
+        (await readTextIfPresent(dirs.claudeJson)).text
     )
     return {
         framework: 'claude-code',
-        envToken: Boolean(
-            process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
-            process.env.ANTHROPIC_API_KEY?.trim()
-        ),
+        envToken:
+            dirs.envAuth &&
+            Boolean(
+                process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+                process.env.ANTHROPIC_API_KEY?.trim()
+            ),
         credentialsFileParsed: credentials !== null,
         oauthExpiresAt:
             typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : null,
@@ -480,15 +492,18 @@ const claudeCredentialFacts = async (
 }
 
 const inspectClaudeModels =
-    async (): Promise<DaemonFrameworkModelCapability> => {
+    async (
+        dirs: FrameworkConfigDirs = nativeConfigDirs()
+    ): Promise<DaemonFrameworkModelCapability> => {
         const now = new Date().toISOString()
         const cliVersion = await commandVersion('claude')
         const configReadable =
-            (await readablePath(join(homedir(), '.claude'))) ||
-            (await readablePath(join(homedir(), '.claude.json')))
+            (await readablePath(dirs.claudeDir)) ||
+            (await readablePath(dirs.claudeJson))
         const credentialReady = Boolean(
-            process.env.ANTHROPIC_AUTH_TOKEN ||
-            process.env.ANTHROPIC_API_KEY ||
+            (dirs.envAuth &&
+                (process.env.ANTHROPIC_AUTH_TOKEN ||
+                    process.env.ANTHROPIC_API_KEY)) ||
             configReadable
         )
         const mapped = [
@@ -508,7 +523,7 @@ const inspectClaudeModels =
             cliVersion,
             ready: Boolean(cliVersion && credentialReady),
             credentialReady,
-            credentialFacts: await claudeCredentialFacts(configReadable),
+            credentialFacts: await claudeCredentialFacts(configReadable, dirs),
             configReadable,
             current,
             models: uniqueStrings([...mapped, ...claudeLocalModelCatalog]),
@@ -548,10 +563,12 @@ const codexCredentialFacts = (
 }
 
 const inspectCodexModels =
-    async (): Promise<DaemonFrameworkModelCapability> => {
+    async (
+        dirs: FrameworkConfigDirs = nativeConfigDirs()
+    ): Promise<DaemonFrameworkModelCapability> => {
         const now = new Date().toISOString()
         const cliVersion = await commandVersion('codex')
-        const codexHome = codexHomeDir()
+        const codexHome = dirs.codexHome
         const config = await readTextIfPresent(join(codexHome, 'config.toml'))
         const auth = await readTextIfPresent(join(codexHome, 'auth.json'))
         const model = config.text ? tomlString(config.text, 'model') : null
@@ -566,7 +583,7 @@ const inspectCodexModels =
             /^\s*requires_openai_auth\s*=\s*true\s*$/m.test(config.text)
         const authSummary = auth.ok ? codexAuthSummary(auth.text) : null
         const envCredentialReady = Boolean(
-            process.env.OPENAI_API_KEY && !requiresOpenAiAuth
+            dirs.envAuth && process.env.OPENAI_API_KEY && !requiresOpenAiAuth
         )
         const credentialReady = Boolean(authSummary || envCredentialReady)
         const scan = scanCodexConfig(config.text)
@@ -669,10 +686,12 @@ const geminiCredentialFacts = (
 }
 
 const inspectGeminiModels =
-    async (): Promise<DaemonFrameworkModelCapability> => {
+    async (
+        dirs: FrameworkConfigDirs = nativeConfigDirs()
+    ): Promise<DaemonFrameworkModelCapability> => {
         const now = new Date().toISOString()
         const cliVersion = await commandVersion('gemini')
-        const geminiHome = join(homedir(), '.gemini')
+        const geminiHome = dirs.geminiDir
         const settings = await readTextIfPresent(
             join(geminiHome, 'settings.json')
         )
@@ -681,11 +700,12 @@ const inspectGeminiModels =
         )
         const settingsModel = geminiSettingsModel(settings.text)
         const settingsApiKey = geminiSettingsApiKey(settings.text)
-        const envApiKey =
-            process.env.GEMINI_API_KEY?.trim() ||
-            process.env.GOOGLE_API_KEY?.trim() ||
-            process.env.GOOGLE_GEMINI_API_KEY?.trim() ||
-            ''
+        const envApiKey = dirs.envAuth
+            ? process.env.GEMINI_API_KEY?.trim() ||
+              process.env.GOOGLE_API_KEY?.trim() ||
+              process.env.GOOGLE_GEMINI_API_KEY?.trim() ||
+              ''
+            : ''
         const envModel = process.env.GEMINI_MODEL?.trim() || null
         const envBaseUrl =
             process.env.GOOGLE_GEMINI_BASE_URL?.trim() ||
@@ -741,14 +761,15 @@ const inspectGeminiModels =
     }
 
 const inspectModelCapability = async (
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    dirs: FrameworkConfigDirs = nativeConfigDirs()
 ): Promise<DaemonModelInspectResponse> => {
     const requested =
         typeof payload.framework === 'string' ? payload.framework : null
     const all = await Promise.all([
-        inspectClaudeModels(),
-        inspectCodexModels(),
-        inspectGeminiModels()
+        inspectClaudeModels(dirs),
+        inspectCodexModels(dirs),
+        inspectGeminiModels(dirs)
     ])
     return {
         frameworks: requested
@@ -1074,6 +1095,46 @@ const execEof = async (
     return { ok: true }
 }
 
+// One manager per call: the scope needs the registration id, which lives in
+// the daemon config on disk and may be re-registered between calls.
+const runtimeAuthManagerFor = async (
+    runtimeId: unknown
+): Promise<RuntimeAuthManager> => {
+    const config = await loadDaemonConfig()
+    if (!config?.daemonId) throw new Error('daemon is not registered')
+    if (typeof runtimeId !== 'string') throw new Error('runtimeId required')
+    return new RuntimeAuthManager(
+        { daemonId: config.daemonId, runtimeId },
+        {
+            credentialFacts: async (framework, dirs) =>
+                (await inspectModelCapability({ framework }, dirs)).frameworks[0]
+                    ?.credentialFacts ?? null,
+            cliVersion: (framework) => commandVersion(cliBinaryFor(framework)),
+            fetch: globalThis.fetch,
+            now: Date.now,
+            platform: process.platform,
+            env: process.env
+        }
+    )
+}
+
+const configurableFrameworkOf = (
+    payload: Record<string, unknown>
+): ConfigurableFramework => {
+    const framework = String(payload.framework ?? '')
+    if (!isConfigurableFramework(framework))
+        throw new Error(`unsupported framework: ${framework}`)
+    return framework
+}
+
+const authError = (err: unknown): { ok: false; error: string } => ({
+    ok: false,
+    error:
+        err instanceof ProfileBusyError
+            ? 'auth_profile_busy'
+            : (err as Error).message
+})
+
 const handlers: Partial<
     Record<
         DaemonRpcMethod,
@@ -1109,6 +1170,70 @@ const handlers: Partial<
                 ...account,
                 credentialFacts: capability?.credentialFacts ?? null
             }
+        }
+    },
+    'auth.list': async (payload) => {
+        try {
+            const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const result = await manager.list(
+                configurableFrameworkOf(payload),
+                payload.probe !== false
+            )
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            return authError(err)
+        }
+    },
+    'auth.create': async (payload) => {
+        try {
+            const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const result = await manager.create(
+                configurableFrameworkOf(payload),
+                assertProfileId(payload.profileId),
+                payload.authMethod === 'api-key' ? 'api-key' : 'subscription'
+            )
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            return authError(err)
+        }
+    },
+    'auth.inspect': async (payload) => {
+        try {
+            const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const result = await manager.inspect(
+                configurableFrameworkOf(payload),
+                assertProfileId(payload.profileId)
+            )
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            return authError(err)
+        }
+    },
+    'auth.logout': async (payload) => {
+        try {
+            const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const result = await manager.logout(
+                configurableFrameworkOf(payload),
+                assertProfileId(payload.profileId),
+                assertOperationId(payload.operationId),
+                payload.mode === 'remove' ? 'remove' : 'sign-out'
+            )
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            return authError(err)
+        }
+    },
+    'auth.operation': async (payload) => {
+        try {
+            const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const record = await manager.operation(
+                assertOperationId(payload.operationId)
+            )
+            return record
+                ? { ok: true, payload: { ...record } }
+                : { ok: false, error: 'operation not found' }
+        } catch (err) {
+            return authError(err)
         }
     },
     'daemon.update': async (payload) => {
@@ -1387,14 +1512,39 @@ const handlers: Partial<
     'pty.open': async (payload, ctx) => {
         if (updateCoordinator.blocksNewSessions())
             return { ok: false, error: UPDATE_PENDING_ERROR }
-        const cwd = payload.cwd
-            ? ensureUnderAllowedRoot(String(payload.cwd))
-            : homedir()
+        // A sign-in for a runtime auth profile: the manager composes argv and
+        // env from the profile id (holding the profile lock for the shell's
+        // lifetime) and the caller's cwd/command/env are ignored, so nothing
+        // the API sends can point the vendor CLI at another credential dir.
+        const authLogin =
+            payload.authLogin && typeof payload.authLogin === 'object'
+                ? (payload.authLogin as Record<string, unknown>)
+                : null
+        let login: Awaited<
+            ReturnType<RuntimeAuthManager['prepareLogin']>
+        > | null = null
+        if (authLogin) {
+            try {
+                const manager = await runtimeAuthManagerFor(authLogin.runtimeId)
+                login = await manager.prepareLogin(
+                    configurableFrameworkOf(authLogin),
+                    assertProfileId(authLogin.profileId),
+                    assertOperationId(authLogin.operationId)
+                )
+            } catch (err) {
+                return authError(err)
+            }
+        }
+        const cwd = login
+            ? login.cwd
+            : payload.cwd
+              ? ensureUnderAllowedRoot(String(payload.cwd))
+              : homedir()
         const env: Record<string, string> = {}
-        for (const [k, v] of Object.entries(process.env))
+        for (const [k, v] of Object.entries(login ? login.env : process.env))
             if (typeof v === 'string') env[k] = v
         for (const [k, v] of Object.entries(
-            (payload.env ?? {}) as Record<string, string>
+            (login ? {} : (payload.env ?? {})) as Record<string, string>
         ))
             env[k] = v
         const shell = process.env.SHELL || '/bin/bash'
@@ -1410,17 +1560,22 @@ const handlers: Partial<
             )
             return null
         })
-        if (!backend) return openPipeTerminal({ shell, cwd, env }, ctx)
+        if (!backend) {
+            if (login) await login.finish(null)
+            return openPipeTerminal({ shell, cwd, env }, ctx)
+        }
 
         // A supplied command runs as the shell's argv rather than being typed
         // in: there is no prompt-ready signal to wait for, and the trailing
         // exec leaves the interactive shell the user would otherwise have had,
         // so quitting whatever it started is not a dead end.
-        const command = Array.isArray(payload.command)
-            ? (payload.command as unknown[]).filter(
-                  (part): part is string => typeof part === 'string'
-              )
-            : []
+        const command = login
+            ? login.command
+            : Array.isArray(payload.command)
+              ? (payload.command as unknown[]).filter(
+                    (part): part is string => typeof part === 'string'
+                )
+              : []
         const args = command.length
             ? [
                   '-ilc',
@@ -1452,6 +1607,10 @@ const handlers: Partial<
         })
         const exitCode = await term.exited
         releasePtySession(ctx.refId)
+        if (login) {
+            const record = await login.finish(exitCode)
+            return { ok: true, payload: { exitCode, operation: { ...record } } }
+        }
         return { ok: true, payload: { exitCode } }
     },
     'pty.input': async (payload) => {
