@@ -21,7 +21,10 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { deletePodRunnerHostForRuntime } from '@/modules/agent-runtimes/sprite-runner-teardown'
-import { PodRunnerProvisioner } from './pod-runner-provisioner'
+import {
+    PodRunnerProvisioner,
+    type PodRunnerProvision
+} from './pod-runner-provisioner'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     KubernetesService,
@@ -181,45 +184,49 @@ export class K8sContainerProvisioner {
         }
         const plan = bootstrap.plan(bootstrapCtx, credentials)
 
-        // Credential for the daemon inside the image. Minted before the Secret
-        // is built because it is Secret data; unbound-only cleanup on failure
-        // (below) keeps a live runner's credential safe.
-        const podRunner = await this.podRunner.mint({
-            userId,
-            runtimeId,
-            framework,
-            homeRoot: plan.pvcMountPath
-        })
-
         // 2. Insert agentRuntimes row WITHOUT going through reserveRuntime
         // (subscription replaces plan-quota gating for purchased containers).
         const now = new Date()
-        await this.db
-            .insert(agentRuntimes)
-            .values({
-                id: runtimeId,
-                userId,
-                name,
-                framework,
-                kind: 'k8s',
-                status: 'pending',
-                currentPhase: 'preparing_namespace',
-                clusterId: cluster.id,
-                namespace,
-                ingressHost: host,
-                mountPath: plan.pvcMountPath,
-                cpuMillicores: sku.cpuMillicores,
-                memoryMb: sku.memoryMb,
-                diskGb: sku.diskGb,
-                region: sku.region,
-                purchasedAt: now
-            })
+        await this.db.insert(agentRuntimes).values({
+            id: runtimeId,
+            userId,
+            name,
+            framework,
+            kind: 'k8s',
+            status: 'pending',
+            currentPhase: 'preparing_namespace',
+            clusterId: cluster.id,
+            namespace,
+            ingressHost: host,
+            mountPath: plan.pvcMountPath,
+            cpuMillicores: sku.cpuMillicores,
+            memoryMb: sku.memoryMb,
+            diskGb: sku.diskGb,
+            region: sku.region,
+            purchasedAt: now
+        })
 
         const envSecretName = `${resourceName(runtimeId)}-env`
-        const secretData = { ...plan.envSecretData, ...(podRunner?.env ?? {}) }
         let spec!: K8sResourceSpec
+        // Declared out here, assigned inside the try: the catch needs it to
+        // discard a token the pod never bound, and the mint itself has to be
+        // inside so a failure there rolls the runtime row back like any other.
+        let podRunner: PodRunnerProvision | null = null
 
         try {
+            // Credential for the daemon inside the image. It is Secret data, so
+            // it is minted before the Secret is built and after the runtime row
+            // exists — the window on either side is what the catch covers.
+            podRunner = await this.podRunner.mint({
+                userId,
+                runtimeId,
+                framework,
+                homeRoot: plan.pvcMountPath
+            })
+            const secretData = {
+                ...plan.envSecretData,
+                ...(podRunner?.env ?? {})
+            }
             spec = {
                 agentId: runtimeId,
                 runtimeId,
@@ -286,7 +293,9 @@ export class K8sContainerProvisioner {
             await this.setPhase(runtimeId, 'waiting_for_ready')
             const timeoutMs =
                 Number(
-                    this.config.get<string>('K8S_CONTAINER_PROVISION_TIMEOUT_MS')
+                    this.config.get<string>(
+                        'K8S_CONTAINER_PROVISION_TIMEOUT_MS'
+                    )
                 ) || DEFAULT_READINESS_TIMEOUT_MS
             await this.waitForReadiness({
                 apis,
