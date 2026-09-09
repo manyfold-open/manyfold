@@ -3,8 +3,6 @@ import type {
     CliLoginApproveResponse,
     CliLoginExchangeBody,
     CliLoginExchangeResponse,
-    CliLoginPollBody,
-    CliLoginPollResponse,
     CliLoginSessionResponse,
     CliLoginStartBody,
     CliLoginStartResponse
@@ -27,7 +25,6 @@ import { CliAuthService } from './cli-auth.service'
 const RATE_WINDOW_MS = 60_000
 const START_LIMIT = 30
 const EXCHANGE_LIMIT = 60
-const POLL_LIMIT = 120
 const SESSION_LIMIT = 120
 
 @Controller('auth/cli')
@@ -48,9 +45,7 @@ export class CliAuthController {
             windowMs: RATE_WINDOW_MS
         })
         return this.cliAuth.start({
-            redirectUri: body.redirectUri,
-            requestedScopes: body.requestedScopes,
-            requestedAgentId: body.requestedAgentId
+            redirectUri: body.redirectUri
         })
     }
 
@@ -63,7 +58,6 @@ export class CliAuthController {
         return this.cliAuth.approve({
             requestId: body.requestId,
             userCode: body.userCode,
-            approvedScopes: body.approvedScopes,
             userId: user.userId
         })
     }
@@ -79,19 +73,6 @@ export class CliAuthController {
             windowMs: RATE_WINDOW_MS
         })
         return this.cliAuth.exchange(body.authCode)
-    }
-
-    @Post('poll')
-    async poll(
-        @Body() body: CliLoginPollBody,
-        @Req() req: FastifyRequest
-    ): Promise<CliLoginPollResponse> {
-        this.rateLimit.consume({
-            key: `cli-auth:poll:${clientKey(req)}`,
-            limit: POLL_LIMIT,
-            windowMs: RATE_WINDOW_MS
-        })
-        return this.cliAuth.poll({ deviceCode: body.deviceCode })
     }
 
     @Get('session/:requestId/:userCode')

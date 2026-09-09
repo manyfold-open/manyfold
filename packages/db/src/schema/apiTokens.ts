@@ -1,6 +1,5 @@
 import { sql } from 'drizzle-orm'
 import {
-    boolean,
     index,
     jsonb,
     pgTable,
@@ -30,9 +29,6 @@ export const apiTokens = pgTable(
                 onDelete: 'cascade'
             }),
         scopes: jsonb('scopes').$type<string[]>().notNull(),
-        enforceAgentBinding: boolean('enforce_agent_binding')
-            .notNull()
-            .default(false),
         createdVia: text('created_via', {
             enum: ['cli-poll', 'user-grant', 'cli-browser', 'api']
         }),

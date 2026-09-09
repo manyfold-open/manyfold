@@ -32,9 +32,7 @@ test('boundAgentIdFromUser returns undefined for a legacy enforce=false token', 
     assert.equal(boundAgentIdFromUser(user), undefined)
 })
 
-test('boundAgentIdFromUser still returns the agent for an enforce=true bound token', () => {
-    // human-api-token can't carry agentId/enforce in the union, so the bound
-    // enforce=true case is a legacy-runtime — behaviour (returns agt_A) holds.
+test('boundAgentIdFromUser ignores the retired user-grant binding field', () => {
     const user = principal({
         kind: 'legacy-runtime',
         agentId: 'agt_A',
@@ -44,7 +42,7 @@ test('boundAgentIdFromUser still returns the agent for an enforce=true bound tok
         enforceAgentBinding: true,
         createdVia: 'user-grant'
     })
-    assert.equal(boundAgentIdFromUser(user), 'agt_A')
+    assert.equal(boundAgentIdFromUser(user), undefined)
 })
 
 test('boundAgentIdFromUser returns undefined for a human session (no token)', () => {

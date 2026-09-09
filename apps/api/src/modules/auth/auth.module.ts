@@ -18,7 +18,6 @@ import { CliAuthRateLimitService } from '@/modules/auth/cli-auth-rate-limit.serv
 import { CliAuthService } from '@/modules/auth/cli-auth.service'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { EmailVerificationService } from '@/modules/auth/email-verification.service'
-import { GrantsController } from '@/modules/auth/grants.controller'
 import { AgentPermissionsController } from '@/modules/auth/agent-permissions.controller'
 import { AgentPermissionsService } from '@/modules/auth/agent-permissions.service'
 import { OauthFlowService } from '@/modules/auth/oauth-flow.service'
@@ -45,7 +44,6 @@ import { UserSkillAgentResolver } from '@/modules/auth/resolvers/user-skill-agen
         AccountProfileController,
         ApiTokensController,
         CliAuthController,
-        GrantsController,
         AgentPermissionsController
     ],
     providers: [

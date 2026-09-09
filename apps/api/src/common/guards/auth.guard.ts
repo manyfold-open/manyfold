@@ -150,7 +150,6 @@ export class AuthGuard implements CanActivate {
 
         if (apiTokenHasScope(req.auth, API_TOKEN_SCOPE_FULL)) {
             req.auth.matchedScopes = [API_TOKEN_SCOPE_FULL]
-            await this.enforceAgentBinding(context, req)
             return true
         }
 
@@ -173,44 +172,7 @@ export class AuthGuard implements CanActivate {
             )
         }
         req.auth.matchedScopes = matched
-        await this.enforceAgentBinding(context, req)
         return true
-    }
-
-    private async enforceAgentBinding(
-        context: ExecutionContext,
-        req: FastifyRequest & { auth?: AuthPrincipal }
-    ): Promise<void> {
-        // Only legacy-runtime tokens carry an agent binding to enforce/audit.
-        // human-api-token (no agentId) is a personal PAT — nothing to audit.
-        const token = req.auth?.kind === 'legacy-runtime' ? req.auth : null
-        if (!token) return
-        if (token.enforceAgentBinding) {
-            const resolution = await this.authz.resolveSubjectAgent(
-                context,
-                req
-            )
-            this.authz.assertBoundTokenSubject(token.agentId, resolution)
-            return
-        }
-        // Unbound grant token (v1 + v15 cli-poll back-compat). Detect
-        // cross-agent use for v2 observability dashboard. Never block —
-        // just audit (fire-and-forget on a best-effort basis).
-        const resolution = await this.authz.resolveSubjectAgent(context, req)
-        const subject = resolution.subjectAgentId
-        if (!subject || subject === token.agentId) return
-        void this.authz
-            .recordCrossAgentUse({
-                tokenId: token.tokenId,
-                userId: token.userId,
-                fromAgent: token.agentId,
-                toAgent: subject,
-                scopes: req.auth?.matchedScopes ?? token.scopes,
-                endpoint: `${req.method ?? ''} ${req.url ?? ''}`.trim()
-            })
-            .catch(() => {
-                /* already logged inside recordCrossAgentUse */
-            })
     }
 }
 

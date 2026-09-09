@@ -2,7 +2,6 @@ import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import {
     CliLoginApproveResponse,
     CliLoginExchangeResponse,
-    CliLoginPollResponse,
     CliLoginSessionResponse,
     CliLoginStartResponse
 } from '@manyfold/shared'
@@ -19,7 +18,6 @@ import type { OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { and, eq, gt, inArray, isNotNull, lt } from 'drizzle-orm'
 import {
-    agents,
     cliAuthSessions,
     type CliAuthSession,
     type Database
@@ -70,19 +68,7 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         if (this.cleanupTimer) clearInterval(this.cleanupTimer)
     }
 
-    async start(input: {
-        redirectUri?: string
-        requestedScopes?: string[]
-        requestedAgentId?: string
-    }): Promise<CliLoginStartResponse> {
-        // The device-code grant flow is retired: only pre-removal CLI
-        // binaries still send these fields, and the actionable refusal here
-        // is what stops new unbound grants from being minted (Phase 8).
-        if (input.requestedScopes || input.requestedAgentId)
-            throw new GoneException(
-                'the device-code grant flow (mf login --poll) is retired; ' +
-                    'run `mf update`, then `mf auth ensure --scopes <list>`'
-            )
+    async start(input: { redirectUri?: string }): Promise<CliLoginStartResponse> {
         const redirectUri = input.redirectUri?.trim() || null
         if (redirectUri && !isLoopbackRedirectUri(redirectUri))
             throw new BadRequestException('redirectUri must be a loopback URL')
@@ -111,7 +97,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         requestId: string
         userCode?: string
         userId: string
-        approvedScopes?: string[]
     }): Promise<CliLoginApproveResponse> {
         const requestId = input.requestId?.trim()
         if (!requestId) throw new BadRequestException('requestId is required')
@@ -124,14 +109,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         ensurePending(session)
         await this.ensureNotExpired(session, this.db, now)
 
-        // A grant-mode session can only come from a pre-retirement deploy
-        // (they live 15 minutes); approving it as a browser login would mint
-        // the wrong credential, so refuse with the fix in hand.
-        if (session.requestedScopes != null)
-            throw new GoneException(
-                'the device-code grant flow (mf login --poll) is retired; ' +
-                    'run `mf update`, then `mf auth ensure --scopes <list>`'
-            )
         return this.approveBrowser({ session, input, userCode, now })
     }
 
@@ -169,8 +146,7 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
             redirectUrl: row.redirectUri
                 ? appendAuthCode(row.redirectUri, authCode, row.id)
                 : null,
-            expiresAt: row.expiresAt.toISOString(),
-            mode: 'browser'
+            expiresAt: row.expiresAt.toISOString()
         }
     }
 
@@ -199,13 +175,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
                 )
                 .returning()
             if (!row) await this.rejectExchangeConflict(tx, codeHash, now)
-            // Only a pre-retirement deploy could have written this (grant
-            // sessions are no longer creatable and live 15 minutes).
-            if (row.requestedScopes != null)
-                throw new GoneException(
-                    'the device-code grant flow (mf login --poll) is retired; ' +
-                        'run `mf update`, then `mf auth ensure --scopes <list>`'
-                )
             if (!row.userId)
                 throw new BadRequestException('auth code already used')
 
@@ -233,17 +202,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
         })
     }
 
-    // Tombstone for the retired device-code grant flow: pre-removal CLI
-    // binaries poll this in a loop, so the refusal must carry the fix
-    // instead of reading like an outage.
-    async poll(input: { deviceCode: string }): Promise<CliLoginPollResponse> {
-        void input
-        throw new GoneException(
-            'the device-code grant flow (mf login --poll) is retired; ' +
-                'run `mf update`, then `mf auth ensure --scopes <list>`'
-        )
-    }
-
     async getSession(args: {
         requestId: string
         userCode: string
@@ -265,17 +223,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
             .limit(1)
         if (!row) throw new NotFoundException('login request not found')
 
-        const requestedScopes = (row.requestedScopes as string[] | null) ?? null
-        let requestedAgent: { id: string; name: string } | null = null
-        if (row.requestedAgentId) {
-            const [agent] = await this.db
-                .select({ id: agents.id, name: agents.name })
-                .from(agents)
-                .where(eq(agents.id, row.requestedAgentId))
-                .limit(1)
-            requestedAgent = agent ?? null
-        }
-
         const now = new Date()
         const status =
             row.status === 'pending' && row.expiresAt < now
@@ -286,9 +233,6 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
             requestId: row.id,
             status,
             expiresAt: row.expiresAt.toISOString(),
-            isGrantMode: requestedScopes !== null,
-            requestedScopes,
-            requestedAgent,
             hasRedirect: row.redirectUri !== null
         }
     }

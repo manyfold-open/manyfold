@@ -129,11 +129,6 @@ const ApiTokenDetail: FC<{
                                 <code className='text-caption font-mono'>
                                     {token.agentId}
                                 </code>
-                                {token.enforceAgentBinding && (
-                                    <span className='tag tag-neutral'>
-                                        {t('web.apiTokens.bindingEnforced')}
-                                    </span>
-                                )}
                             </span>
                         </Row>
                     )}

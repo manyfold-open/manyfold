@@ -12,8 +12,6 @@ import {
     type Database
 } from '@manyfold/db'
 import { ApiTokenService } from '../src/modules/auth/api-token.service'
-import { CliAuthRateLimitService } from '../src/modules/auth/cli-auth-rate-limit.service'
-import { CliAuthService } from '../src/modules/auth/cli-auth.service'
 import { ConnectA2aService } from '../src/modules/connect-a2a/connect-a2a.service'
 
 // State-machine coverage for the A2A Connect flow on an in-memory fake DB.
@@ -653,24 +651,6 @@ void test('poll rejects device codes without the mf_cnx_ prefix (CLI codes inclu
     )
 })
 
-void test('cli poll rejects connect device codes before any lookup (cross-flow)', async () => {
-    const db = new FakeDb()
-    const cliAuth = new CliAuthService(
-        db as unknown as Database,
-        { get: () => undefined } as never,
-        new ApiTokenService(db as unknown as Database),
-        new CliAuthRateLimitService()
-    )
-
-    // The cli-auth poll endpoint is a retirement tombstone now, so a connect
-    // device code leaking across flows is refused like everything else —
-    // before any lookup, same as the shape gate it replaces.
-    await assert.rejects(
-        () => cliAuth.poll({ deviceCode: 'mf_cnx_from_connect_flow' }),
-        /retired/
-    )
-})
-
 void test('poll: pending session stays pending and records polledAt', async () => {
     const db = new FakeDb()
     const connect = newConnect(db)
@@ -730,7 +710,6 @@ void test('poll after approve mints one caller-less external grant per agent', a
     for (const token of db.tokenRows) {
         assert.equal(token.tokenKind, 'a2a-grant')
         assert.equal(token.callerAgentId, null)
-        assert.equal(token.enforceAgentBinding, true)
         assert.ok(['agt_a', 'agt_b'].includes(token.agentId as string))
     }
     assert.equal(db.sessionRows[0].status, 'exchanged')
