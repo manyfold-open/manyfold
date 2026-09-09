@@ -46,7 +46,6 @@ import RuntimeDetailPanel, {
     runtimeStatusTag,
     spriteStatusTag
 } from '@/components/RuntimeDetailPanel'
-import { Tag } from '@/components/Tag'
 import { formatDuration } from '@/lib/usageFormat'
 import { formatTime } from '@/lib/dateFormat'
 import {
@@ -83,7 +82,7 @@ import SandboxNew from '@/pages/SandboxNew'
 import ExternalAgentProviders from '@/pages/Settings/ExternalAgentProviders'
 import LocalDaemons from '@/pages/Settings/LocalDaemons'
 import { SpriteStatusRefresh } from '@/components/SpriteStatusRefresh'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { VersionTag } from '@/components/VersionTag'
 
 type RuntimeKind = AgentRuntimeSummary['kind']
 type RuntimeStatus = AgentRuntimeSummary['status']
@@ -495,23 +494,20 @@ const HostRuntimeRow: FC<{
                         <span className='settings-card-label'>
                             {frameworkLabel(r.framework)}
                         </span>
-                        <span
-                            className={['tag tag-neutral font-mono'].join(' ')}
-                        >
-                            {r.frameworkVersion
-                                ? `v${r.frameworkVersion}`
-                                : t('web.runtimeDetail.versionPending')}
-                        </span>
-                        {upgradeAvailable && (
-                            // Not a link: the whole row is already a press
-                            // target, and the runtime page it opens carries a
-                            // linked badge of its own.
-                            <UpdateBadge
-                                latest={latest}
-                                kind='framework'
-                                linked={false}
-                            />
-                        )}
+                        {/* Not a link: the whole row is already a press
+                            target, and the runtime page it opens carries a
+                            linked pill of its own. */}
+                        <VersionTag
+                            label={
+                                r.frameworkVersion
+                                    ? `v${r.frameworkVersion}`
+                                    : t('web.runtimeDetail.versionPending')
+                            }
+                            mono={!!r.frameworkVersion}
+                            latest={upgradeAvailable ? latest : null}
+                            kind='framework'
+                            linked={false}
+                        />
                         {r.kind === 'daemon' && r.daemonOnline === false
                             ? daemonOnlineBadge(false)
                             : runtimeStatusTag(r.status)}
@@ -749,26 +745,31 @@ const CliVersionValue: FC<{
     const { t } = useI18n()
     const [open, setOpen] = useState(false)
     const [sel, setSel] = useState('')
+    // An unreported version is an update too: the upgrade installs the first
+    // one, so the pill announces it rather than sitting neutral on "Unknown".
+    const updateTarget = latest && (updateAvailable || !current) ? latest : null
     return (
         <span className='flex flex-wrap items-center gap-2'>
-            {current ? (
-                <Tag mono>v{current}</Tag>
-            ) : (
-                <ShortcutTooltip
-                    label={t('web.agentRuntimesList.noCliVersion')}
-                    className='shrink-0'
-                >
-                    <Tag>{t('web.agentRuntimesList.versionUnknown')}</Tag>
-                </ShortcutTooltip>
+            <VersionTag
+                label={
+                    current
+                        ? `v${current}`
+                        : t('web.agentRuntimesList.versionUnknown')
+                }
+                mono={!!current}
+                latest={updateTarget}
+                kind='cli'
+                hint={
+                    current
+                        ? undefined
+                        : t('web.agentRuntimesList.noCliVersion')
+                }
+            />
+            {latest && !updateTarget && (
+                <span className='text-caption text-subtle'>
+                    {t('web.agentRuntimesList.latest')}
+                </span>
             )}
-            {latest &&
-                (updateAvailable || !current ? (
-                    <UpdateBadge latest={latest} kind='cli' />
-                ) : (
-                    <span className='text-caption text-subtle'>
-                        {t('web.agentRuntimesList.latest')}
-                    </span>
-                ))}
             {busy ? (
                 <span className='text-caption text-muted inline-flex items-center gap-1.5'>
                     <Spinner size={12} />
@@ -1198,37 +1199,36 @@ const HostDetailPanel: FC<{
                 />
             )
         }
-        let affordance: ReactNode = null
-        if (h.updateAvailable && h.latestCliVersion) {
-            // Still a link: this machine cannot be driven from here, and the
-            // Update Center is where that gets said in full.
-            affordance = (
-                <ShortcutTooltip
-                    label={t('web.agentRuntimesList.remoteUpgradeHint')}
-                >
-                    <UpdateBadge latest={h.latestCliVersion} kind='cli' />
-                </ShortcutTooltip>
-            )
-        } else if (h.latestCliVersion) {
-            affordance = (
-                <span className='text-subtle text-caption'>
-                    {t('web.agentRuntimesList.latest')}
-                </span>
-            )
-        }
+        const remoteUpdate =
+            h.updateAvailable && h.latestCliVersion ? h.latestCliVersion : null
         return (
             <span className='flex flex-wrap items-center gap-2'>
-                {h.cliVersion ? (
-                    <Tag mono>v{h.cliVersion}</Tag>
-                ) : (
-                    <ShortcutTooltip
-                        label={t('web.agentRuntimesList.noCliVersionShort')}
-                        className='shrink-0'
-                    >
-                        <Tag>{t('web.agentRuntimesList.versionUnknown')}</Tag>
-                    </ShortcutTooltip>
+                {/* Still a link: this machine cannot be driven from here, and
+                    the Update Center is where that gets said in full — so the
+                    hint takes over the pill's hover label rather than wrapping
+                    it, since two nested tooltips would both open at once. */}
+                <VersionTag
+                    label={
+                        h.cliVersion
+                            ? `v${h.cliVersion}`
+                            : t('web.agentRuntimesList.versionUnknown')
+                    }
+                    mono={!!h.cliVersion}
+                    latest={remoteUpdate}
+                    kind='cli'
+                    hint={
+                        remoteUpdate
+                            ? t('web.agentRuntimesList.remoteUpgradeHint')
+                            : h.cliVersion
+                              ? undefined
+                              : t('web.agentRuntimesList.noCliVersionShort')
+                    }
+                />
+                {!remoteUpdate && h.latestCliVersion && (
+                    <span className='text-subtle text-caption'>
+                        {t('web.agentRuntimesList.latest')}
+                    </span>
                 )}
-                {affordance}
             </span>
         )
     }
@@ -1254,19 +1254,20 @@ const HostDetailPanel: FC<{
             )
         return (
             <span className='flex flex-wrap items-center gap-2'>
-                {sb.cliVersion ? (
-                    <Tag mono>v{sb.cliVersion}</Tag>
-                ) : (
-                    <Tag>{t('web.agentRuntimesList.versionUnknown')}</Tag>
-                )}
-                {sb.cliUpdateAvailable ? (
-                    <UpdateBadge latest={sb.latestCliVersion} kind='cli' />
-                ) : (
-                    sb.latestCliVersion && (
-                        <span className='text-subtle text-caption'>
-                            {t('web.agentRuntimesList.latest')}
-                        </span>
-                    )
+                <VersionTag
+                    label={
+                        sb.cliVersion
+                            ? `v${sb.cliVersion}`
+                            : t('web.agentRuntimesList.versionUnknown')
+                    }
+                    mono={!!sb.cliVersion}
+                    latest={sb.cliUpdateAvailable ? sb.latestCliVersion : null}
+                    kind='cli'
+                />
+                {!sb.cliUpdateAvailable && sb.latestCliVersion && (
+                    <span className='text-subtle text-caption'>
+                        {t('web.agentRuntimesList.latest')}
+                    </span>
                 )}
             </span>
         )

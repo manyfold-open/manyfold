@@ -383,7 +383,6 @@ export interface ApiTokenSummary {
     revokedAt: string | null
     createdAt: string
     agentId?: string | null
-    enforceAgentBinding: boolean
     createdVia: TokenCreatedVia | null
 }
 
@@ -396,22 +395,6 @@ export interface CreateApiTokenBody {
 export interface CreateApiTokenResponse {
     token: string
     summary: ApiTokenSummary
-}
-
-export interface AddAgentGrantBody {
-    approvedScopes: GrantableScope[]
-    enforceAgentBinding?: boolean
-    name?: string
-}
-
-export interface AgentGrantMintResponse {
-    token: string
-    tokenId: string
-    agentId: string
-    scopes: GrantableScope[]
-    expiresAt: string | null
-    enforceAgentBinding: boolean
-    createdVia: TokenCreatedVia
 }
 
 // Agent-initiated incremental permission request (§7.3). The agent holds its

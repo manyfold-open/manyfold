@@ -1,15 +1,9 @@
 import {
-    CliLoginSessionResponse,
-    GrantableScope,
-    ScopeMetadata,
-    isGrantableScope,
-    scopeMetadata
+    CliLoginSessionResponse
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom'
-import { ScopeChecklist } from '@/components/auth/ScopeChecklist'
-import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { SignedIn, SignedOut } from '@/lib/auth'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorDetailMessage } from '@/lib/errorMessage'
@@ -46,7 +40,6 @@ const CliLoginContent: FC<{
 }> = ({ requestId, userCode }): ReactNode => {
     const { t } = useI18n()
     const client = useApiClient()
-    const { confirm, confirmDialog } = useProductConfirm()
     const { user: currentUser } = useCurrentUser()
     const [session, setSession] = useState<CliLoginSessionResponse | null>(
         null
@@ -55,7 +48,6 @@ const CliLoginContent: FC<{
     const [authCode, setAuthCode] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [approve, setApprove] = useState<ApproveState>({ state: 'idle' })
-    const [selected, setSelected] = useState<Set<GrantableScope>>(new Set())
 
     useEffect(() => {
         if (!requestId || !userCode) return
@@ -65,19 +57,6 @@ const CliLoginContent: FC<{
             .then((s) => {
                 if (cancelled) return
                 setSession(s)
-                if (s.isGrantMode) {
-                    const valid =
-                        s.requestedScopes?.filter(isGrantableScope) ?? []
-                    // Don't pre-check high-danger scopes even if the agent
-                    // requested them. The user must explicitly opt in.
-                    const dangerByScope = new Map<GrantableScope, ScopeMetadata['danger']>(
-                        scopeMetadata.map((m) => [m.scope, m.danger])
-                    )
-                    const initiallyChecked = valid.filter(
-                        (s) => dangerByScope.get(s) !== 'high'
-                    )
-                    setSelected(new Set<GrantableScope>(initiallyChecked))
-                }
             })
             .catch((err: unknown) => {
                 if (cancelled) return
@@ -88,75 +67,21 @@ const CliLoginContent: FC<{
         }
     }, [client, requestId, userCode])
 
-    const requestedScopes = useMemo<GrantableScope[]>(
-        () => session?.requestedScopes?.filter(isGrantableScope) ?? [],
-        [session]
-    )
-
-    const dangerHighSelected = useMemo(
-        () =>
-            scopeMetadata.filter(
-                (m: ScopeMetadata) =>
-                    m.danger === 'high' && selected.has(m.scope)
-            ),
-        [selected]
-    )
-
-    const toggleScope = (scope: GrantableScope, next: boolean): void => {
-        setSelected((prev) => {
-            const ns = new Set(prev)
-            if (next) ns.add(scope)
-            else ns.delete(scope)
-            return ns
-        })
-    }
-
     const doApprove = async (): Promise<void> => {
         if (!requestId) return
-        if (session?.isGrantMode && selected.size === 0) {
-            setError(t('web.cliLogin.selectScope'))
-            return
-        }
-        if (session?.isGrantMode && dangerHighSelected.length > 0) {
-            const scopeList = dangerHighSelected
-                .map((m) => m.scope)
-                .join(', ')
-            const ok = await confirm({
-                title: t('web.cliLogin.highRiskTitle'),
-                description: (
-                    <>
-                        <p>{t('web.cliLogin.highRiskBody1')}</p>
-                        <p className='text-fg mt-2 font-mono'>{scopeList}</p>
-                        <p className='mt-2'>
-                            {t('web.cliLogin.highRiskBody2')}
-                        </p>
-                    </>
-                ),
-                confirmLabel: t('web.cliLogin.highRiskConfirm'),
-                tone: 'danger'
-            })
-            if (!ok) return
-        }
         setApprove({ state: 'authorizing' })
         setError(null)
         try {
-            const approvedScopes =
-                session?.isGrantMode && selected.size > 0
-                    ? [...selected]
-                    : undefined
             const result = await client.auth.approveCliLogin({
                 requestId,
                 userCode,
-                approvedScopes
             })
             if (result.redirectUrl) {
                 setApprove({ state: 'redirecting' })
                 window.location.assign(result.redirectUrl)
                 return
             }
-            if (result.mode === 'grant') {
-                setApprove({ state: 'done' })
-            } else if (result.authCode) {
+            if (result.authCode) {
                 setAuthCode(result.authCode)
                 setApprove({ state: 'done' })
             }
@@ -166,13 +91,8 @@ const CliLoginContent: FC<{
         }
     }
 
-    const isGrant = session?.isGrantMode ?? false
-    const title = isGrant
-        ? t('web.cliLogin.titleGrant')
-        : t('web.cliLogin.titleLogin')
-    const subtitle = isGrant
-        ? t('web.cliLogin.subtitleGrant')
-        : t('web.cliLogin.subtitleLogin')
+    const title = t('web.cliLogin.titleLogin')
+    const subtitle = t('web.cliLogin.subtitleLogin')
 
     if (!requestId || !userCode) {
         return (
@@ -222,21 +142,6 @@ const CliLoginContent: FC<{
         )
     }
 
-    if (approve.state === 'done' && session.isGrantMode) {
-        return (
-            <Shell title={title}>
-                <div className='workbench-note'>
-                    <p className='text-fg font-medium'>
-                        {t('web.cliLogin.grantDoneTitle')}
-                    </p>
-                    <p className='text-muted text-ui mt-1'>
-                        {t('web.cliLogin.grantDoneHint')}
-                    </p>
-                </div>
-            </Shell>
-        )
-    }
-
     if (authCode) {
         return (
             <Shell title={t('web.cliLogin.authCodeTitle')}>
@@ -270,28 +175,16 @@ const CliLoginContent: FC<{
                 </p>
             )}
 
-            {session.isGrantMode ? (
-                <GrantBody
-                    session={session}
-                    requestedScopes={requestedScopes}
-                    selected={selected}
-                    onToggle={toggleScope}
-                    busy={approve.state !== 'idle'}
-                    onApprove={() => void doApprove()}
-                />
-            ) : (
-                <BrowserBody
-                    onApprove={() => void doApprove()}
-                    approve={approve}
-                />
-            )}
+            <BrowserBody
+                onApprove={() => void doApprove()}
+                approve={approve}
+            />
 
             {error && <div className='workbench-alert-error'>{error}</div>}
 
             <p className='text-subtle text-caption border-t pt-4'>
                 {t('web.cliLogin.safety')}
             </p>
-            {confirmDialog}
         </Shell>
     )
 }
@@ -338,75 +231,6 @@ const BrowserBody: FC<{
             <p className='text-subtle text-caption mt-2'>
                 {t('web.cliLogin.consequence')}
             </p>
-        </div>
-    )
-}
-
-const GrantBody: FC<{
-    session: CliLoginSessionResponse
-    requestedScopes: GrantableScope[]
-    selected: Set<GrantableScope>
-    onToggle: (scope: GrantableScope, next: boolean) => void
-    busy: boolean
-    onApprove: () => void
-}> = ({
-    session,
-    requestedScopes,
-    selected,
-    onToggle,
-    busy,
-    onApprove
-}): ReactNode => {
-    const { t } = useI18n()
-    const agentLabel = session.requestedAgent
-        ? `${session.requestedAgent.name} (${session.requestedAgent.id})`
-        : t('web.cliLogin.unknownAgent')
-    return (
-        <div className='space-y-4'>
-            <div>
-                <div className='workbench-field-label'>
-                    {t('web.cliLogin.requestingAgent')}
-                </div>
-                <div className='text-fg text-ui'>{agentLabel}</div>
-            </div>
-
-            <div className='workbench-note'>{t('web.cliLogin.grantNote')}</div>
-
-            <div>
-                <div className='workbench-field-label mb-2'>
-                    {t('web.cliLogin.permissionsLabel')}
-                </div>
-                <p className='text-caption text-subtle mb-3'>
-                    {t('web.cliLogin.permissionsHint')}
-                </p>
-                <ScopeChecklist
-                    requestedScopes={requestedScopes}
-                    selectedScopes={[...selected]}
-                    onToggle={onToggle}
-                    disabled={busy}
-                />
-            </div>
-
-            <div className='flex flex-wrap gap-2'>
-                <button
-                    type='button'
-                    className='workbench-button-primary'
-                    disabled={busy || selected.size === 0}
-                    onClick={onApprove}
-                >
-                    {busy
-                        ? t('web.cliLogin.authorizing')
-                        : t('web.cliLogin.approve')}
-                </button>
-                <button
-                    type='button'
-                    className='workbench-button-secondary'
-                    disabled={busy}
-                    onClick={() => window.close()}
-                >
-                    {t('web.cliLogin.cancel')}
-                </button>
-            </div>
         </div>
     )
 }

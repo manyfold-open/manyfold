@@ -15,7 +15,6 @@ import type {
     MintA2aGrantBody,
     MintA2aGrantsBody,
     SetExposureBody,
-    AddAgentGrantBody,
     AgentPermissionsResponse,
     DenyPermissionResponse,
     GrantPermissionBody,
@@ -25,7 +24,6 @@ import type {
     RotateRuntimeTokenResponse,
     AddRuntimeAgentBody,
     AdminDaemonHostSummary,
-    AgentGrantMintResponse,
     ApiTokenSummary,
     UserConnectionSummary,
     CloudflareConnectionResourcesResponse,
@@ -409,10 +407,6 @@ export interface AgentsClient {
     ) => SpriteStatusStreamHandle
     credentials: AgentCredentialsClient
     permissions: AgentPermissionsClient
-    addPermission: (
-        agentId: string,
-        body: AddAgentGrantBody
-    ) => Promise<AgentGrantMintResponse>
     requestPermission: (
         agentId: string,
         body: RequestPermissionBody
@@ -1927,11 +1921,6 @@ const buildAgentsClient = (
                     { method: 'POST', body: JSON.stringify(body) }
                 )
         },
-        addPermission: (agentId, body) =>
-            request<AgentGrantMintResponse>(apiPaths.AGENT_GRANTS(agentId), {
-                method: 'POST',
-                body: JSON.stringify(body)
-            }),
         requestPermission: (agentId, body) =>
             request<RequestPermissionResponse>(
                 apiPaths.AGENT_PERMISSION_REQUEST(agentId),

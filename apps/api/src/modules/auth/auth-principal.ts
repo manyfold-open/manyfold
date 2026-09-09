@@ -42,7 +42,8 @@ export type AuthPrincipal = AuthPrincipalBase &
               tokenId: string
               scopes: ApiTokenScope[]
               callerAgentId: string | null
-              enforceAgentBinding: boolean
+              /** @deprecated User-grant binding was retired in Phase 8. */
+              enforceAgentBinding?: boolean
               createdVia: TokenCreatedVia | null
               // Present on principals resolved by current ApiTokenService.
               // Optional keeps older in-process adapters/tests structurally

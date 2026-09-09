@@ -447,7 +447,6 @@ const ar: Record<string, string> = {
     'web.agents.detail.framework.changeVersionEllipsis': 'تغيير الإصدار…',
     'web.agents.detail.framework.chooseVersion': 'اختر إصدار {{framework}} لتثبيته. تعمل الترقيات في البيئة المعزولة وقد تستغرق ما يصل إلى دقيقة.',
     'web.agents.detail.framework.latest': 'أحدث إصدار {{version}}',
-    'web.agents.detail.framework.latestAvailable': '↑ أحدث إصدار {{version}} متاح',
     'web.agents.detail.framework.notDetected': 'لم يتم اكتشافه',
     'web.agents.detail.framework.refreshVersion': 'تحديث الإصدار',
     'web.agents.detail.framework.upgrade': 'ترقية',

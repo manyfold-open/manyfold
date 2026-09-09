@@ -172,7 +172,6 @@ const ja: Record<string, string> = {
     'web.agents.detail.framework.changeVersionEllipsis': 'バージョンを変更…',
     'web.agents.detail.framework.chooseVersion': 'インストールする {{framework}} バージョンを選択します。アップグレードはサンドボックスで実行され、最大で 1 分かかる場合があります。',
     'web.agents.detail.framework.latest': '最新 {{version}}',
-    'web.agents.detail.framework.latestAvailable': '↑最新の{{version}}が利用可能',
     'web.agents.detail.framework.notDetected': '検出されませんでした',
     'web.agents.detail.framework.refreshVersion': 'バージョンを更新',
     'web.agents.detail.framework.upgrade': 'アップグレード',

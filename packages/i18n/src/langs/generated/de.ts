@@ -172,7 +172,6 @@ const de: Record<string, string> = {
     'web.agents.detail.framework.changeVersionEllipsis': 'Version ändern…',
     'web.agents.detail.framework.chooseVersion': 'Wählen Sie eine {{framework}}-Version zur Installation aus. Upgrades werden in der Sandbox ausgeführt und können bis zu einer Minute dauern.',
     'web.agents.detail.framework.latest': 'neueste {{version}}',
-    'web.agents.detail.framework.latestAvailable': '↑ neueste {{version}} verfügbar',
     'web.agents.detail.framework.notDetected': 'nicht erkannt',
     'web.agents.detail.framework.refreshVersion': 'Version aktualisieren',
     'web.agents.detail.framework.upgrade': 'Upgrade',

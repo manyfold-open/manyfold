@@ -1,5 +1,4 @@
-import { index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
-import { agents } from './agents'
+import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { apiTokens } from './apiTokens'
 import { users } from './users'
 
@@ -21,14 +20,6 @@ export const cliAuthSessions = pgTable(
         tokenId: text('token_id').references(() => apiTokens.id, {
             onDelete: 'set null'
         }),
-        requestedScopes: jsonb('requested_scopes').$type<string[]>(),
-        approvedScopes: jsonb('approved_scopes').$type<string[]>(),
-        requestedAgentId: text('requested_agent_id').references(
-            () => agents.id,
-            { onDelete: 'cascade' }
-        ),
-        deviceCodeHash: text('device_code_hash').unique(),
-        polledAt: timestamp('polled_at', { withTimezone: true }),
         expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
         approvedAt: timestamp('approved_at', { withTimezone: true }),
         exchangedAt: timestamp('exchanged_at', { withTimezone: true }),

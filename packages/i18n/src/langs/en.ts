@@ -323,7 +323,6 @@ const en = {
                     chooseVersion:
                         'Choose a {{framework}} version to install. Upgrades run in the sandbox and may take up to a minute.',
                     latest: 'latest {{version}}',
-                    latestAvailable: '↑ latest {{version}} available',
                     notDetected: 'not detected',
                     refreshVersion: 'Refresh version',
                     upgrade: 'Upgrade',

@@ -172,7 +172,6 @@ const ko: Record<string, string> = {
     "web.agents.detail.framework.changeVersionEllipsis": "버전 변경…",
     "web.agents.detail.framework.chooseVersion": "설치할 {{framework}} 버전을 선택하세요. 업그레이드는 샌드박스에서 실행되며 최대 1분 정도 걸릴 수 있습니다.",
     "web.agents.detail.framework.latest": "최신 {{version}}",
-    "web.agents.detail.framework.latestAvailable": "↑ 최신 {{version}} 사용 가능",
     "web.agents.detail.framework.notDetected": "감지되지 않음",
     "web.agents.detail.framework.refreshVersion": "버전 새로 고침",
     "web.agents.detail.framework.upgrade": "업그레이드",

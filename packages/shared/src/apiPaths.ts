@@ -379,7 +379,6 @@ export const apiPaths = {
     ME_DELETION_RESTORE: '/me/deletion/restore',
     ME_IDENTITY_BY_PROVIDER_SUBJECT: (provider: string, subject: string) =>
         `/me/identities/${encodeURIComponent(provider)}/${encodeURIComponent(subject)}`,
-    AGENT_GRANTS: (agentId: string) => `/agents/${agentId}/grants`,
     AGENT_PERMISSIONS: (agentId: string) => `/agents/${agentId}/permissions`,
     AGENT_PERMISSIONS_REVOKE: (agentId: string) =>
         `/agents/${agentId}/permissions/revoke`,
