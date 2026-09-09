@@ -96,10 +96,7 @@ test('mintRuntimeIdentity writes a runtime credential + identity row and revokes
     assert.equal(db.credentials[0].tokenHash, db.runtimeTokens[0].tokenHash)
 
     // encrypted copy of the plaintext is stored for per-exec identity injection
-    assert.equal(
-        db.runtimeTokens[0].tokenCiphertext,
-        `enc:${minted.plaintext}`
-    )
+    assert.equal(db.runtimeTokens[0].tokenCiphertext, `enc:${minted.plaintext}`)
     assert.equal(db.runtimeTokens[0].tokenKeyVersion, 7)
 
     // prior active row for (agent, kind) is revoked first (partial-unique safety)
@@ -131,4 +128,85 @@ test('ensureRuntimeIdentity does not rotate an already encrypted identity', asyn
     assert.equal(db.credentials.length, 0)
     assert.equal(db.runtimeTokens.length, 0)
     assert.equal(db.revoked.length, 0)
+})
+
+// The pod's read-through. A pod runs on the identity its Secret was
+// provisioned with, so the one thing this path may never do is rotate an
+// active row it cannot decrypt — that revokes the token inside the pod.
+test('readOrMintRuntimeIdentity returns an encrypted active identity without rotating', async () => {
+    const db = new RtFakeDb()
+    db.selectRows = [
+        {
+            id: 'art_tok_1',
+            tokenCiphertext: 'enc:mfr_active',
+            tokenKeyVersion: 1
+        }
+    ]
+    const svc = new RuntimeTokenService(
+        db as unknown as Database,
+        {
+            encrypt: () => ({ ciphertext: 'enc:new', keyVersion: 1 }),
+            decrypt: ({ ciphertext }: { ciphertext: string }) =>
+                ciphertext.replace(/^enc:/, '')
+        } as never
+    )
+    const plaintext = await svc.readOrMintRuntimeIdentity({
+        userId: 'user_1',
+        agentId: 'agt_1',
+        runtimeKind: 'k8s'
+    })
+    assert.equal(plaintext, 'mfr_active')
+    assert.equal(db.revoked.length, 0, 'nothing revoked')
+    assert.equal(db.runtimeTokens.length, 0, 'nothing minted')
+})
+
+test('readOrMintRuntimeIdentity leaves an undecryptable active identity alone', async () => {
+    // A legacy row with no ciphertext. ensureRuntimeIdentity would mint a
+    // replacement here and revoke this one — and this one is the plaintext the
+    // pod Secret carries. The honest answer is "no per-exec token"; the daemon
+    // inherits the Secret's.
+    const db = new RtFakeDb()
+    db.selectRows = [
+        { id: 'art_tok_legacy', tokenCiphertext: null, tokenKeyVersion: null }
+    ]
+    const svc = new RuntimeTokenService(
+        db as unknown as Database,
+        {
+            encrypt: () => ({ ciphertext: 'enc:new', keyVersion: 1 }),
+            decrypt: () => {
+                throw new Error('must not decrypt a row with no ciphertext')
+            }
+        } as never
+    )
+    const plaintext = await svc.readOrMintRuntimeIdentity({
+        userId: 'user_1',
+        agentId: 'agt_1',
+        runtimeKind: 'k8s'
+    })
+    assert.equal(plaintext, null)
+    assert.equal(db.revoked.length, 0, 'the active row must survive')
+    assert.equal(db.runtimeTokens.length, 0, 'no replacement minted')
+})
+
+test('readOrMintRuntimeIdentity mints only when no active identity exists', async () => {
+    // A purchased container is provisioned before any agent exists, so the
+    // agent attached to it later has no k8s identity at all until first use.
+    const db = new RtFakeDb()
+    db.selectRows = []
+    const svc = new RuntimeTokenService(
+        db as unknown as Database,
+        {
+            encrypt: () => ({ ciphertext: 'enc:new', keyVersion: 1 }),
+            decrypt: () => 'unused'
+        } as never
+    )
+    const plaintext = await svc.readOrMintRuntimeIdentity({
+        userId: 'user_1',
+        agentId: 'agt_1',
+        runtimeKind: 'k8s'
+    })
+    assert.equal(typeof plaintext, 'string')
+    assert.ok((plaintext ?? '').length > 20, 'a freshly minted token')
+    assert.equal(db.runtimeTokens.length, 1)
+    assert.equal(db.runtimeTokens[0].runtimeKind, 'k8s')
 })

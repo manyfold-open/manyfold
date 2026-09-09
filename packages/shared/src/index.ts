@@ -1060,11 +1060,15 @@ export {
 } from './exec-env'
 export type { MfRuntimeIdentityEnvKey } from './exec-env'
 export {
+    POD_RUNNER_ENV_KEYS,
+    POD_RUNNER_PROFILE,
     PROFILE_NAME_RE,
     RUNNER_PROFILE,
+    buildPodRunnerEnv,
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,
+    podRunnerHostName,
     profilePaths,
     profilesRoot,
     runnerHostName

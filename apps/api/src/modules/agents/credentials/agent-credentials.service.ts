@@ -70,6 +70,8 @@ import type {
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import {
     buildSecret,
+    mergePreservedSecretEnv,
+    readSecretEnv,
     resourceName,
     type K8sResourceSpec
 } from '@/modules/agents/orchestration/k8s-resource-builder'
@@ -476,10 +478,24 @@ export class AgentCredentialsService {
         }
         const k8sClient = await this.k8s.getClient(agent.clusterId)
         const apis = k8sClient.apis
+        // The plan regenerates provider credentials; it cannot regenerate what
+        // provisioning minted into this Secret once — the agent's runtime
+        // identity and the pod runner's registration credential. Replacing the
+        // Secret from the plan alone restarted the pod as a stranger: no
+        // MF_API_TOKEN for its `mf` calls, and no daemon token, so the runner
+        // that had been carrying its turns never came back.
+        const existing = await readSecretEnv(
+            apis.core,
+            agent.namespace,
+            envSecretName
+        )
         await apis.core.replaceNamespacedSecret({
             name: envSecretName,
             namespace: agent.namespace,
-            body: buildSecret(spec, plan.envSecretData)
+            body: buildSecret(
+                spec,
+                mergePreservedSecretEnv(existing, plan.envSecretData)
+            )
         })
         await apis.apps.patchNamespacedDeployment(
             {

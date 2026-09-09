@@ -14,12 +14,20 @@ export const daemonTokens = pgTable(
         }),
         name: text('name').notNull(),
         // Server-controlled admission claim, set only where the token is
-        // minted. 'sprite_runner' is what makes a register quota-exempt and
-        // its host platform-managed; the user-facing mint
-        // (POST /api/daemon/tokens) can never ask for it, and the register's
+        // minted. Every value other than 'user' is what makes a register
+        // quota-exempt and its host platform-managed; the user-facing mint
+        // (POST /api/daemon/tokens) can never ask for one, and the register's
         // own name/body are the client's word. Defaults to 'user' so every
         // token that already exists keeps paying quota.
-        purpose: text('purpose', { enum: ['user', 'sprite_runner'] })
+        //
+        // 'sprite_runner' is the daemon the platform installs into a sandbox
+        // VM. 'pod_runner' is the daemon that ships inside a k8s agent image;
+        // it is a separate value rather than a reuse because the two differ in
+        // who owns bring-up (we exec a sprite; a pod's entrypoint owns itself),
+        // so a token minted for one must never satisfy the other's lookup.
+        purpose: text('purpose', {
+            enum: ['user', 'sprite_runner', 'pod_runner']
+        })
             .notNull()
             .default('user'),
         tokenHash: text('token_hash').notNull().unique(),
@@ -40,3 +48,20 @@ export const daemonTokens = pgTable(
 
 export type DaemonToken = typeof daemonTokens.$inferSelect
 export type NewDaemonToken = typeof daemonTokens.$inferInsert
+
+export type DaemonTokenPurpose = DaemonToken['purpose']
+
+// The single place that says which purposes mean "the platform created and owns
+// this host". Registration reads it to set runtime_hosts.managed, which in turn
+// exempts the host from quota and hides it from the user's machine list — so a
+// new purpose that forgets to land here silently becomes a user-visible,
+// quota-paying host instead.
+const MANAGED_DAEMON_TOKEN_PURPOSES = [
+    'sprite_runner',
+    'pod_runner'
+] as const satisfies readonly DaemonTokenPurpose[]
+
+export const isManagedDaemonTokenPurpose = (
+    purpose: DaemonTokenPurpose
+): boolean =>
+    (MANAGED_DAEMON_TOKEN_PURPOSES as readonly string[]).includes(purpose)

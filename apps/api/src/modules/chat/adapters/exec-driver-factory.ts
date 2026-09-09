@@ -30,7 +30,8 @@ import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accou
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     RuntimeTokenService,
-    decryptActiveIdentityToken
+    decryptActiveIdentityToken,
+    type RuntimeKind
 } from '@/modules/auth/runtime-token.service'
 import {
     KubernetesService,
@@ -55,6 +56,7 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
+import { podRunnerAttemptedFor } from '@/modules/chat/runner/runner-rollout'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 
@@ -137,7 +139,7 @@ export class ExecDriverFactory {
             const [creds, connectionEnv, identityToken] = await Promise.all([
                 this.tryDecryptCreds(agent.runtimeId),
                 coding ? this.connections.resolveAgentEnv(agent) : undefined,
-                coding ? this.daemonIdentityToken(agent) : null
+                coding ? this.lazyIdentityToken(agent, 'daemon') : null
             ])
             const baseEnv = coding
                 ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
@@ -157,7 +159,47 @@ export class ExecDriverFactory {
         }
 
         if (agent.runtime === 'k8s') {
-            const creds = await this.decryptCreds(agent.runtimeId)
+            // The pod Secret is baked once, at provision, from ONE agent's
+            // identity — so on a pod carrying several agents it names the wrong
+            // one, and it carries no connection env or agent extras at all
+            // (#782). A pod-runner turn spawns per exec and can therefore be
+            // given the same per-agent env every other per-exec surface gets.
+            //
+            // Only exposed, never pushed into K8sExecDriver: the direct pod-exec
+            // transport injects exactly what it injected before. (The pod's
+            // ENVIRONMENT did change — the Secret now also carries the runner's
+            // keys, which every process in the container inherits, the same
+            // way a sprite runner's children inherit its profile — but that is
+            // the provisioner's doing, not this transport's.) And only
+            // assembled when the swap can actually be chosen: the connection
+            // env is a network mint (a GitHub installation token) that seven
+            // call sites would otherwise pay per turn for nothing.
+            const swapPossible = podRunnerAttemptedFor(
+                agent.framework,
+                agent.id
+            )
+            // Identity follows the same rule provisioning applies (§3.5): mint
+            // only with a reachable API URL to use it against. Without one no
+            // pod runner can have been provisioned either, so an identity read
+            // here would only ever create an inert row.
+            const identityPossible =
+                swapPossible &&
+                !!this.config?.get<string>('PUBLIC_API_BASE_URL')?.trim()
+            const [creds, connectionEnv, identityToken] = await Promise.all([
+                this.decryptCreds(agent.runtimeId),
+                swapPossible
+                    ? this.connections.resolveAgentEnv(agent)
+                    : undefined,
+                // Read, never rotate: the pod is running on the identity its
+                // Secret was provisioned with, and rotating an active row the
+                // platform cannot decrypt would revoke exactly that token
+                // under the pod-exec path nobody opted out of. A missing token
+                // here is fine — the daemon inherits the Secret's.
+                identityPossible ? this.podIdentityToken(agent) : null
+            ])
+            const baseEnv = swapPossible
+                ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
+                : undefined
             if (!agent.namespace)
                 throw new Error(`k8s agent ${agentId} missing namespace`)
             const podLookupId = await this.k8sPodLookupId(agent)
@@ -181,7 +223,8 @@ export class ExecDriverFactory {
                 driver: new K8sExecDriver(podExec),
                 creds,
                 runtime: 'k8s',
-                agent
+                agent,
+                ...(baseEnv ? { baseEnv } : {})
             }
         }
 
@@ -378,24 +421,48 @@ export class ExecDriverFactory {
         return client
     }
 
-    // The agent's active daemon identity, minted lazily on the first turn that
-    // needs it: agents attached before daemon identity existed have no
-    // 'daemon' token row, and a backfill would mint tokens nothing consumes.
-    // Two concurrent first turns can both mint (the second revokes the first's
-    // token for that one turn); the next turn heals.
-    private async daemonIdentityToken(agent: Agent): Promise<string | null> {
+    // The agent's active identity for a runtime kind, minted lazily on the
+    // first turn that needs it: agents attached before daemon identity existed
+    // have no 'daemon' token row, and a backfill would mint tokens nothing
+    // consumes. Two concurrent first turns can both mint (the second revokes
+    // the first's token for that one turn); the next turn heals. A daemon can
+    // afford that rotation because it holds no baked copy of the token; a pod
+    // cannot, which is why the k8s arm uses podIdentityToken instead.
+    // The k8s twin of lazyIdentityToken, without the rotation. See
+    // RuntimeTokenService.readOrMintRuntimeIdentity for why a pod must never
+    // have an active row rotated out from under it.
+    private async podIdentityToken(agent: Agent): Promise<string | null> {
         const existing = await decryptActiveIdentityToken(
             this.db,
             this.crypto,
             agent.id,
-            'daemon'
+            'k8s'
+        )
+        if (existing) return existing
+        if (!this.runtimeTokens) return null
+        return this.runtimeTokens.readOrMintRuntimeIdentity({
+            userId: agent.userId,
+            agentId: agent.id,
+            runtimeKind: 'k8s'
+        })
+    }
+
+    private async lazyIdentityToken(
+        agent: Agent,
+        runtimeKind: RuntimeKind
+    ): Promise<string | null> {
+        const existing = await decryptActiveIdentityToken(
+            this.db,
+            this.crypto,
+            agent.id,
+            runtimeKind
         )
         if (existing) return existing
         if (!this.runtimeTokens) return null
         const minted = await this.runtimeTokens.ensureRuntimeIdentity({
             userId: agent.userId,
             agentId: agent.id,
-            runtimeKind: 'daemon'
+            runtimeKind
         })
         return minted.plaintext
     }

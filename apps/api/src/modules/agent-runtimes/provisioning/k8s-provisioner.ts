@@ -45,6 +45,8 @@ export class K8sProvisioner {
                 logger: this.log
             })
         }
+        // `runtimes.delete` also removes the pod's runner host (a managed
+        // daemon bound to the runtime by name), so nothing extra is owed here.
         await this.runtimes.delete(runtime.id)
     }
 

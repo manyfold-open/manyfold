@@ -13,6 +13,7 @@ import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentOrchestratorService } from '@/modules/agents/orchestration/agent-orchestrator.service'
 import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-orchestrator'
 import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
+import { PodRunnerProvisioner } from '@/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtime-agent-attach.service'
 import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
 import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
@@ -105,6 +106,7 @@ import {
         AgentOrchestratorService,
         K8sAgentOrchestrator,
         K8sContainerProvisioner,
+        PodRunnerProvisioner,
         RuntimeAgentAttachService,
         ClaudeCodeK8sBootstrap,
         CodexK8sBootstrap,
@@ -159,6 +161,7 @@ import {
         AgentModelConfigService,
         AgentReconcileService,
         K8sContainerProvisioner,
+        PodRunnerProvisioner,
         RuntimeAgentAttachService,
         SpriteStatusBroadcaster,
         SpriteStatusSyncService,

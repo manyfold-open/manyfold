@@ -20,6 +20,11 @@ import {
     type K8sCluster
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { deletePodRunnerHostForRuntime } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import {
+    PodRunnerProvisioner,
+    type PodRunnerProvision
+} from './pod-runner-provisioner'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     KubernetesService,
@@ -132,7 +137,8 @@ export class K8sContainerProvisioner {
         private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
         private readonly codexK8s: CodexK8sBootstrap,
         private readonly geminiCliK8s: GeminiCliK8sBootstrap,
-        private readonly narraNexusK8s: NarraNexusK8sBootstrap
+        private readonly narraNexusK8s: NarraNexusK8sBootstrap,
+        private readonly podRunner: PodRunnerProvisioner
     ) {}
 
     async provision(
@@ -204,8 +210,25 @@ export class K8sContainerProvisioner {
 
         const envSecretName = `${resourceName(runtimeId)}-env`
         let spec!: K8sResourceSpec
+        // Declared out here, assigned inside the try: the catch needs it to
+        // discard a token the pod never bound, and the mint itself has to be
+        // inside so a failure there rolls the runtime row back like any other.
+        let podRunner: PodRunnerProvision | null = null
 
         try {
+            // Credential for the daemon inside the image. It is Secret data, so
+            // it is minted before the Secret is built and after the runtime row
+            // exists — the window on either side is what the catch covers.
+            podRunner = await this.podRunner.mint({
+                userId,
+                runtimeId,
+                framework,
+                homeRoot: plan.pvcMountPath
+            })
+            const secretData = {
+                ...plan.envSecretData,
+                ...(podRunner?.env ?? {})
+            }
             spec = {
                 agentId: runtimeId,
                 runtimeId,
@@ -221,7 +244,7 @@ export class K8sContainerProvisioner {
                 storageSize: `${sku.diskGb}Gi`,
                 pvcMountPath: plan.pvcMountPath,
                 envSecretName,
-                envSecretKeys: Object.keys(plan.envSecretData),
+                envSecretKeys: Object.keys(secretData),
                 readinessProbe: plan.readinessProbe,
                 resources: {
                     requests: {
@@ -239,7 +262,7 @@ export class K8sContainerProvisioner {
             await this.setPhase(runtimeId, 'creating_secret')
             await apis.core.createNamespacedSecret({
                 namespace,
-                body: buildSecret(spec, plan.envSecretData)
+                body: buildSecret(spec, secretData)
             })
             await this.setPhase(runtimeId, 'creating_storage')
             await apis.core.createNamespacedPersistentVolumeClaim({
@@ -322,6 +345,24 @@ export class K8sContainerProvisioner {
                 resourceId: runtimeId,
                 envSecretName
             })
+            // The pod may have registered its runner before whatever failed
+            // here, so both halves are cleaned: the host row (which the runtime
+            // delete cannot reach — a runner hangs off daemon_id, not host_id)
+            // and the token, only if it was never bound. Best-effort like the
+            // k8s rollback above it: a failure here must not skip the runtime
+            // delete or replace the provisioning error the caller gets.
+            try {
+                await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+                if (podRunner)
+                    await this.podRunner.discardUnbound(
+                        userId,
+                        podRunner.tokenId
+                    )
+            } catch (cleanupErr) {
+                this.log.warn(
+                    `pod runner cleanup failed runtimeId=${runtimeId}: ${(cleanupErr as Error).message}`
+                )
+            }
             await this.db
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.id, runtimeId))
@@ -334,6 +375,24 @@ export class K8sContainerProvisioner {
     }
 
     async teardown(runtime: AgentRuntimeRow): Promise<void> {
+        // Before the runtime row goes: a pod runner registers as its own
+        // managed daemon host keyed by name, so deleting the runtime — or
+        // deleting the whole namespace — leaves it behind as an online host
+        // with no pod. Runs on both the namespace-less DB-only path and the
+        // normal one, because the stranding is a DB fact either way. Best
+        // effort: the runtime delete below is the operation the caller asked
+        // for and must not be skipped because this one failed.
+        try {
+            await deletePodRunnerHostForRuntime(
+                this.db,
+                runtime.userId,
+                runtime.id
+            )
+        } catch (err) {
+            this.log.warn(
+                `pod runner host cleanup failed runtimeId=${runtime.id}: ${(err as Error).message}`
+            )
+        }
         if (!runtime.namespace) {
             await this.db
                 .delete(agentRuntimes)

@@ -104,6 +104,51 @@ export class RuntimeTokenService {
         })
     }
 
+    // The read-through variant for a runtime that already HOLDS a copy of its
+    // identity — a k8s pod, whose provisioning baked the plaintext into the
+    // pod Secret. ensureRuntimeIdentity would rotate an active row it cannot
+    // decrypt (a legacy row with no ciphertext), which revokes the very token
+    // the pod is running on. So: an active row that decrypts is returned, an
+    // active row that does not is left alone (null — the caller falls back to
+    // whatever the runtime already holds), and only the absence of any active
+    // row mints.
+    async readOrMintRuntimeIdentity(args: {
+        userId: string
+        agentId: string
+        runtimeKind: RuntimeKind
+        name?: string
+    }): Promise<string | null> {
+        return this.db.transaction(async (tx) => {
+            await this.lockRuntimeIdentity(tx, args)
+
+            const [active] = await tx
+                .select({
+                    id: agentRuntimeTokens.id,
+                    tokenCiphertext: agentRuntimeTokens.tokenCiphertext,
+                    tokenKeyVersion: agentRuntimeTokens.tokenKeyVersion
+                })
+                .from(agentRuntimeTokens)
+                .where(
+                    and(
+                        eq(agentRuntimeTokens.agentId, args.agentId),
+                        eq(agentRuntimeTokens.runtimeKind, args.runtimeKind),
+                        isNull(agentRuntimeTokens.revokedAt)
+                    )
+                )
+                .limit(1)
+
+            if (active) {
+                if (active.tokenCiphertext && active.tokenKeyVersion !== null)
+                    return this.crypto.decrypt({
+                        ciphertext: active.tokenCiphertext,
+                        keyVersion: active.tokenKeyVersion
+                    })
+                return null
+            }
+            return (await this.mintRuntimeIdentityInTx(tx, args)).plaintext
+        })
+    }
+
     private async lockRuntimeIdentity(
         tx: RuntimeTokenTx,
         args: { agentId: string; runtimeKind: RuntimeKind }
