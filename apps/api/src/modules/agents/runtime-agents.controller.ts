@@ -58,7 +58,9 @@ export class RuntimeAgentsController {
             name: dto.name,
             workspace: dto.workspace,
             model: dto.model,
-            cloneFrom: dto.cloneFrom
+            cloneFrom: dto.cloneFrom,
+            modelConfigSource: dto.modelConfigSource,
+            runtimeAuthProfileId: dto.runtimeAuthProfileId
         })
         // This route never enters orchestrator.create, so the activation
         // conversion hooks here; the owner check above guarantees actor ==
@@ -106,7 +108,9 @@ export class AdminRuntimeAgentsController {
             name: dto.name,
             workspace: dto.workspace,
             model: dto.model,
-            cloneFrom: dto.cloneFrom
+            cloneFrom: dto.cloneFrom,
+            modelConfigSource: dto.modelConfigSource,
+            runtimeAuthProfileId: dto.runtimeAuthProfileId
         })
     }
 

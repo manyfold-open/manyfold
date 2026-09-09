@@ -53,7 +53,8 @@ import { daemonPaths, loadDaemonConfig } from './config'
 import type { ConfigurableFramework } from '@manyfold/shared'
 import {
     RuntimeAuthManager,
-    cliBinaryFor
+    cliBinaryFor,
+    stripAmbientAuthEnv
 } from './runtime-auth/manager'
 import { assertOperationId, assertProfileId, authRoot } from './runtime-auth/paths'
 import { ProfileBusyError } from './runtime-auth/lock'
@@ -311,6 +312,42 @@ interface ExecPayload {
     keepStdinOpen?: boolean
     dir?: string
     timeoutMs?: number
+    authSelection?: unknown
+}
+
+// A profile-bound execution (DAEMON_FEATURE_AUTH_CONTEXT): resolve the
+// profile's context on the host. The caller's env is laid UNDER the
+// profile env with every ambient vendor variable dropped from both sides, so
+// neither the daemon's shell nor the agent's extras can outrank the selected
+// sign-in. Returns null for an inherited selection (today's behaviour).
+const AUTH_CONTEXT_WAIT_MS = 60_000
+
+const resolveAuthContext = async (
+    selection: unknown,
+    callerEnv: Record<string, string>,
+    label: string
+): Promise<{
+    env: Record<string, string>
+    dirs: FrameworkConfigDirs
+    release: () => Promise<void>
+} | null> => {
+    if (!selection || typeof selection !== 'object') return null
+    const ref = selection as Record<string, unknown>
+    if (ref.mode === 'inherited') return null
+    const manager = await runtimeAuthManagerFor(ref.runtimeId)
+    const context = await manager.executionContext(
+        configurableFrameworkOf(ref),
+        assertProfileId(ref.profileId),
+        label,
+        { waitMs: AUTH_CONTEXT_WAIT_MS }
+    )
+    return {
+        ...context,
+        env: {
+            ...stripAmbientAuthEnv(callerEnv),
+            ...context.env
+        }
+    }
 }
 
 const uniqueStrings = (
@@ -890,7 +927,21 @@ const execStart = async (
     // and MF_API_TOKEN since #781), and nothing ever reads it back out of the
     // buffer — a resume re-attaches to the live child. Same rationale as the
     // turn.start meta in acp-turn.
-    const { env: _env, ...metaPayload } = payload
+    const { env: _env, authSelection: _sel, ...metaPayload } = payload
+    let authContext: Awaited<ReturnType<typeof resolveAuthContext>> = null
+    try {
+        authContext = await resolveAuthContext(
+            payload.authSelection,
+            payload.env ?? {},
+            `exec:${ctx.refId}`
+        )
+    } catch (err) {
+        return {
+            ok: false,
+            payload: { exitCode: -1 },
+            error: authError(err).error
+        }
+    }
     const stream = new ExecStream({
         refId: ctx.refId,
         method: 'exec.start',
@@ -899,9 +950,16 @@ const execStart = async (
     execStreams.set(ctx.refId, stream)
     const child = spawn(cmd[0], cmd.slice(1), {
         cwd,
-        env: { ...process.env, ...(payload.env ?? {}) },
+        env: authContext
+            ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
+            : { ...process.env, ...(payload.env ?? {}) },
         stdio: ['pipe', 'pipe', 'pipe']
     })
+    const releaseAuth = (): void => {
+        const pending = authContext
+        authContext = null
+        void pending?.release()
+    }
     const entry: ExecChildEntry = { child, stream, cancelled: false }
     execChildren.set(ctx.refId, entry)
     if (child.stdin) {
@@ -958,6 +1016,7 @@ const execStart = async (
         subscribeCtxToStream(stream, ctx, 0, settle)
 
         child.on('error', (err) => {
+            releaseAuth()
             stream.publish('stderr', `[spawn error] ${err.message}\n`)
             stream.complete(
                 { ok: false, payload: { exitCode: -1 }, error: err.message },
@@ -965,6 +1024,7 @@ const execStart = async (
             )
         })
         child.on('close', (code) => {
+            releaseAuth()
             if (timer) clearTimeout(timer)
             const exitCode = code ?? 0
             if (entry.cancelled)
@@ -1154,10 +1214,32 @@ const handlers: Partial<
         }>
     >
 > = {
-    'model.inspect': async (payload) => ({
-        ok: true,
-        payload: inspectResultToRecord(await inspectModelCapability(payload))
-    }),
+    'model.inspect': async (payload) => {
+        const selection =
+            payload.authSelection && typeof payload.authSelection === 'object'
+                ? (payload.authSelection as Record<string, unknown>)
+                : null
+        if (!selection || selection.mode !== 'profile')
+            return {
+                ok: true,
+                payload: inspectResultToRecord(await inspectModelCapability(payload))
+            }
+        try {
+            const manager = await runtimeAuthManagerFor(selection.runtimeId)
+            const dirs = manager.dirsFor(
+                configurableFrameworkOf(selection),
+                assertProfileId(selection.profileId)
+            )
+            return {
+                ok: true,
+                payload: inspectResultToRecord(
+                    await inspectModelCapability(payload, dirs)
+                )
+            }
+        } catch (err) {
+            return authError(err)
+        }
+    },
     'account.inspect': async (payload) => {
         const framework = String(payload.framework ?? '')
         if (!isConfigurableFramework(framework))
@@ -1541,16 +1623,44 @@ const handlers: Partial<
                 return authError(err)
             }
         }
+        // An agent terminal under a profile: same context as a turn, held
+        // until the shell exits (an interactive shell keeps the lock).
+        let authContext: Awaited<ReturnType<typeof resolveAuthContext>> = null
+        if (!login) {
+            try {
+                authContext = await resolveAuthContext(
+                    payload.authSelection,
+                    (payload.env ?? {}) as Record<string, string>,
+                    `pty:${ctx.refId}`
+                )
+            } catch (err) {
+                return authError(err)
+            }
+        }
+        const releaseAuth = (): void => {
+            const pending = authContext
+            authContext = null
+            void pending?.release()
+        }
         const cwd = login
             ? login.cwd
             : payload.cwd
               ? ensureUnderAllowedRoot(String(payload.cwd))
               : homedir()
         const env: Record<string, string> = {}
-        for (const [k, v] of Object.entries(login ? login.env : process.env))
+        const baseEnv = login
+            ? login.env
+            : authContext
+              ? stripAmbientAuthEnv(process.env)
+              : process.env
+        for (const [k, v] of Object.entries(baseEnv))
             if (typeof v === 'string') env[k] = v
         for (const [k, v] of Object.entries(
-            (login ? {} : (payload.env ?? {})) as Record<string, string>
+            (login
+                ? {}
+                : authContext
+                  ? authContext.env
+                  : (payload.env ?? {})) as Record<string, string>
         ))
             env[k] = v
         const shell = process.env.SHELL || '/bin/bash'
@@ -1568,6 +1678,7 @@ const handlers: Partial<
         })
         if (!backend) {
             if (login) await login.finish(null)
+            releaseAuth()
             return openPipeTerminal({ shell, cwd, env }, ctx)
         }
 
@@ -1589,7 +1700,9 @@ const handlers: Partial<
               ]
             : ['-il']
 
-        const term = backend.spawn({
+        let term: ReturnType<typeof backend.spawn>
+        try {
+            term = backend.spawn({
             shell,
             args,
             cwd,
@@ -1603,7 +1716,12 @@ const handlers: Partial<
                     // ws may be gone; a throw inside Bun's native data callback is uncatchable upstream
                 }
             }
-        })
+            })
+        } catch (err) {
+            releaseAuth()
+            if (login) await login.finish(null)
+            throw err
+        }
         ptySessions.set(ctx.refId, term)
         ctx.onCancel(() => {
             try {
@@ -1613,6 +1731,7 @@ const handlers: Partial<
         })
         const exitCode = await term.exited
         releasePtySession(ctx.refId)
+        releaseAuth()
         if (login) {
             const record = await login.finish(exitCode)
             return { ok: true, payload: { exitCode, operation: { ...record } } }

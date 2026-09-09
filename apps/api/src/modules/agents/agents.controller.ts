@@ -64,6 +64,7 @@ import {
     RefreshAgentModelConfigModelsDto,
     UpdateAgentModelConfigDto
 } from '@/modules/agents/dto/update-agent-model-config.dto'
+import { UpdateAgentRuntimeAuthDto } from '@/modules/agents/dto/update-agent-runtime-auth.dto'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
@@ -410,6 +411,17 @@ export class AgentsController {
         @Body() dto: UpdateAgentModelConfigDto
     ): Promise<AgentModelConfigView> {
         return this.modelConfig.updateForAgent(user.userId, id, dto, false)
+    }
+
+    @Patch(':id/runtime-auth')
+    @RequireApiTokenScope('model-config:edit')
+    @SubjectAgentFromPath('id')
+    async updateRuntimeAuth(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Body() dto: UpdateAgentRuntimeAuthDto
+    ): Promise<AgentModelConfigView> {
+        return this.modelConfig.updateRuntimeAuth(user, id, dto)
     }
 
     @Post(':id/model-config/refresh-models')

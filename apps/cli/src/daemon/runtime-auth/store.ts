@@ -45,7 +45,8 @@ export const readMetadata = async (
             typeof raw.createdAt === 'string'
                 ? raw.createdAt
                 : new Date(0).toISOString(),
-        lastLoginAt: typeof raw.lastLoginAt === 'string' ? raw.lastLoginAt : null,
+        lastLoginAt:
+            typeof raw.lastLoginAt === 'string' ? raw.lastLoginAt : null,
         lastLogoutAt:
             typeof raw.lastLogoutAt === 'string' ? raw.lastLogoutAt : null
     }
@@ -64,7 +65,9 @@ export const listProfileIds = async (
     scope: RuntimeAuthScope
 ): Promise<string[]> => {
     try {
-        const entries = await readdir(profilesDir(scope), { withFileTypes: true })
+        const entries = await readdir(profilesDir(scope), {
+            withFileTypes: true
+        })
         return entries
             .filter((entry) => entry.isDirectory())
             .map((entry) => entry.name)
@@ -90,7 +93,8 @@ export const removeProfileDir = async (
 export const writeOperation = async (
     scope: RuntimeAuthScope,
     record: DaemonAuthOperationRecord
-): Promise<void> => writeProtectedJson(operationPath(scope, record.operationId), record)
+): Promise<void> =>
+    writeProtectedJson(operationPath(scope, record.operationId), record)
 
 export const readOperation = async (
     scope: RuntimeAuthScope,

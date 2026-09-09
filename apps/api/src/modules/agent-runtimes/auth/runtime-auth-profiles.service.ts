@@ -9,6 +9,10 @@ import {
 } from '@nestjs/common'
 import { and, eq, ne } from 'drizzle-orm'
 import {
+    DAEMON_FEATURE_AUTH_CONTEXT,
+    runtimeAuthRoot,
+    runtimeAuthProfileEnv,
+
     DAEMON_FEATURE_AUTH_PROFILES,
     RUNTIME_AUTH_ERROR,
     createObjectId,
@@ -31,6 +35,7 @@ import {
     type RuntimeAuthProfileView
 } from '@manyfold/shared'
 import {
+    type Agent,
     agentRuntimes,
     agents,
     runtimeAuthOperations,
@@ -48,6 +53,7 @@ import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RuntimeAccountService } from '../account/runtime-account.service'
+import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
 
 // Runtime auth profiles, API side: metadata + bindings live here, credentials
 // and their state live on the host (daemon RPC `auth.*`). Every mutation is
@@ -440,7 +446,11 @@ export class RuntimeAuthProfilesService {
             }
         }
         const byProfile = await this.agentsByProfile(runtime.id)
-        const executeCapable = false
+        const executeCapable =
+            resolved.availability === 'ok' &&
+            (resolved.host?.clientFeatures ?? []).includes(
+                DAEMON_FEATURE_AUTH_CONTEXT
+            )
         return {
             runtimeId: runtime.id,
             framework: runtime.framework,
@@ -863,6 +873,39 @@ export class RuntimeAuthProfilesService {
             .where(eq(runtimeAuthOperations.id, operation.id))
             .limit(1)
         return this.operationView(updated ?? operation)
+    }
+
+    // The credential-context env for a profile-bound SPRITES agent's terminal.
+    // A sandbox terminal is a sprites.dev pty, not a daemon call, so the API
+    // composes the (non-secret) relocation vars from the runner's store
+    // layout: <home>/.manyfold/runtime-auth/<runnerDaemonId>/<runtimeId>/…
+    // Daemon runtimes never use this — the daemon resolves its own paths.
+    async sessionEnvForAgent(agent: Agent): Promise<Record<string, string> | null> {
+        const ref = authContextRefFor(agent)
+        if (!ref || agent.runtime !== 'sprites') return null
+        const runtime = await this.runtimes.findById(ref.runtimeId)
+        if (!runtime || runtime.userId !== agent.userId) return null
+        const resolved = await this.resolveHost(runtime)
+        if (
+            resolved.availability !== 'ok' ||
+            !resolved.host ||
+            !resolved.host.clientFeatures.includes(DAEMON_FEATURE_AUTH_CONTEXT)
+        )
+            return null
+        const [profile] = await this.db
+            .select({ id: runtimeAuthProfiles.id, lifecycle: runtimeAuthProfiles.lifecycle })
+            .from(runtimeAuthProfiles)
+            .where(eq(runtimeAuthProfiles.id, ref.profileId))
+            .limit(1)
+        if (!profile || profile.lifecycle === 'deleted') return null
+        const home = runtime.homeDir ?? '/home/sprite'
+        const viewDir = `${runtimeAuthRoot(`${home}/.manyfold`)}/${resolved.host.id}/${runtime.id}/profiles/${ref.profileId}/view`
+        return {
+            ...runtimeAuthProfileEnv(ref.framework, viewDir),
+            ...(ref.framework === 'codex'
+                ? { CODEX_SQLITE_HOME: `${home}/.codex` }
+                : {})
+        }
     }
 
     async setDefault(

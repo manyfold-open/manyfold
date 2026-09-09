@@ -1,4 +1,8 @@
+import type { AgentRuntimeAuthBinding, UpdateAgentRuntimeAuthBody } from '@manyfold/shared'
 import {
+    RUNTIME_AUTH_ERROR,
+    isRuntimeAuthProfileId,
+
     AgentModelConfig,
     AgentModelConfigOption,
     AgentModelConfigSource,
@@ -53,14 +57,20 @@ import {
     type RuntimeLocalCredentialStatus
 } from '@manyfold/shared'
 import {
+    ConflictException,
+    ForbiddenException,
+
     BadRequestException,
     Inject,
     Injectable,
     NotFoundException,
     Optional
 } from '@nestjs/common'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import {
+    runtimeAuthProfiles,
+    runtimeHosts,
+
     agentCredentials,
     agentRuntimes,
     agents,
@@ -69,10 +79,15 @@ import {
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
+import {
+    assertHostHonoursAuthContext,
+    authContextRefFor
+} from './runtime-auth-selection'
 import { FrameworkCatalogService } from '@/modules/framework-catalog/framework-catalog.service'
 import {
     isConfigurableFramework,
@@ -882,6 +897,164 @@ export class AgentModelConfigService {
         )
     }
 
+    private async hostFeatures(
+        daemonId: string
+    ): Promise<{ clientFeatures: string[] } | null> {
+        const [row] = await this.db
+            .select({ clientFeatures: runtimeHosts.clientFeatures })
+            .from(runtimeHosts)
+            .where(eq(runtimeHosts.id, daemonId))
+            .limit(1)
+        return row ? { clientFeatures: row.clientFeatures ?? [] } : null
+    }
+
+    private async runtimeAuthBinding(
+        agent: Agent
+    ): Promise<AgentRuntimeAuthBinding> {
+        const base: AgentRuntimeAuthBinding = {
+            profileId: agent.runtimeAuthProfileId,
+            bindingVersion: agent.runtimeAuthBindingVersion,
+            effectiveFor: 'next-execution',
+            profile: null
+        }
+        if (!agent.runtimeAuthProfileId) return base
+        const [row] = await this.db
+            .select()
+            .from(runtimeAuthProfiles)
+            .where(eq(runtimeAuthProfiles.id, agent.runtimeAuthProfileId))
+            .limit(1)
+        if (!row) return base
+        return {
+            ...base,
+            profile: {
+                id: row.id,
+                label: row.label,
+                lifecycle: row.lifecycle,
+                credentialStatus: row.credentialStatus,
+                identity:
+                    row.email || row.displayName || row.organization || row.plan
+                        ? {
+                              email: row.email,
+                              name: row.displayName,
+                              organization: row.organization,
+                              plan: row.plan,
+                              accountId: row.vendorAccountId
+                          }
+                        : null
+            }
+        }
+    }
+
+    // Rebinds an agent to a runtime auth profile (or back to the ambient
+    // sign-in) under compare-and-set: the caller names the binding version it
+    // saw, so two tabs cannot overwrite each other. Takes effect for the next
+    // execution; a turn already running keeps the context it started with.
+    async updateRuntimeAuth(
+        principal: AuthPrincipal,
+        agentId: string,
+        body: UpdateAgentRuntimeAuthBody
+    ): Promise<AgentModelConfigView> {
+        if (principal.kind === 'agent-runtime')
+            throw new ForbiddenException({
+                code: 'auth_profile_forbidden',
+                message: 'auth bindings are managed by a person, not an agent'
+            })
+        return this.applyRuntimeAuth(principal.userId, agentId, body)
+    }
+
+    // Used by the attach path too (a human route that already authorised
+    // the create), hence no principal here.
+    async applyRuntimeAuth(
+        userId: string,
+        agentId: string,
+        body: UpdateAgentRuntimeAuthBody
+    ): Promise<AgentModelConfigView> {
+        const agent = await this.requireAgent(userId, agentId, false)
+        if (!isConfigurableFramework(agent.framework))
+            throw new ConflictException({
+                code: RUNTIME_AUTH_ERROR.contextUnsupported,
+                message: `${agent.framework} agents have no auth profiles`
+            })
+        const source = body.modelConfigSource ?? this.configSourceFromAgent(agent)
+        if (body.profileId && source !== 'runtime-local')
+            throw new BadRequestException({
+                code: RUNTIME_AUTH_ERROR.targetMismatch,
+                message:
+                    'an auth profile applies to the runtime-local source; switch the source in the same request'
+            })
+        if (body.profileId) {
+            if (!isRuntimeAuthProfileId(body.profileId))
+                throw new BadRequestException('invalid auth profile id')
+            const [profile] = await this.db
+                .select()
+                .from(runtimeAuthProfiles)
+                .where(eq(runtimeAuthProfiles.id, body.profileId))
+                .limit(1)
+            if (
+                !profile ||
+                profile.userId !== agent.userId ||
+                profile.runtimeId !== agent.runtimeId ||
+                profile.lifecycle === 'deleted'
+            )
+                throw new NotFoundException({
+                    code: RUNTIME_AUTH_ERROR.notFound,
+                    message: 'auth profile not found'
+                })
+            if (profile.framework !== agent.framework)
+                throw new ConflictException({
+                    code: RUNTIME_AUTH_ERROR.targetMismatch,
+                    message: 'the profile belongs to another framework'
+                })
+            if (profile.lifecycle === 'deleting')
+                throw new ConflictException({
+                    code: RUNTIME_AUTH_ERROR.stateConflict,
+                    message: 'the profile is being removed'
+                })
+        }
+        const extras = safeRecord(agent.extras)
+        const modelConfig = (asRecord(extras.modelConfig) ?? {}) as Record<
+            string,
+            unknown
+        >
+        const nextExtras: Record<string, unknown> = {
+            ...extras,
+            modelConfig:
+                body.modelConfigSource === 'runtime-local'
+                    ? { ...modelConfig, source: 'runtime-local' }
+                    : modelConfig,
+            // The cached capability was inspected under the previous context;
+            // the next turn re-inspects under the new one.
+            runtimeLocalModelConfig: undefined
+        }
+        delete nextExtras.runtimeLocalModelConfig
+        const [updated] = await this.db
+            .update(agents)
+            .set({
+                runtimeAuthProfileId: body.profileId,
+                runtimeAuthBindingVersion: agent.runtimeAuthBindingVersion + 1,
+                extras: nextExtras,
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(agents.id, agent.id),
+                    eq(
+                        agents.runtimeAuthBindingVersion,
+                        body.expectedBindingVersion
+                    )
+                )
+            )
+            .returning()
+        if (!updated)
+            throw new ConflictException({
+                code: RUNTIME_AUTH_ERROR.bindingConflict,
+                message:
+                    'the binding changed since it was read; reload and choose again',
+                bindingVersion: agent.runtimeAuthBindingVersion
+            })
+        return this.buildView(updated)
+    }
+
     private async buildView(agent: Agent): Promise<AgentModelConfigView> {
         const detail = await this.providerDetail(agent)
         const providerModels = await this.providerModels(agent, detail)
@@ -932,6 +1105,7 @@ export class AgentModelConfigService {
             framework: agent.framework,
             source,
             availableSources,
+            runtimeAuth: await this.runtimeAuthBinding(agent),
             provider: detail.provider,
             providerBaseUrl: detail.baseUrl,
             providerModelsStatus: providerModels.status,
@@ -1358,10 +1532,22 @@ export class AgentModelConfigService {
         if (!daemonId)
             throw new BadRequestException('daemon agent is not connected')
 
+        const authContext = authContextRefFor(agent)
+        if (authContext)
+            assertHostHonoursAuthContext(
+                authContext,
+                await this.hostFeatures(daemonId),
+                'this machine'
+            )
         const payload = await this.daemonRegistry.rpc({
             daemonId,
             method: 'model.inspect',
-            payload: { framework: agent.framework },
+            payload: {
+                framework: agent.framework,
+                ...(authContext
+                    ? { authSelection: { mode: 'profile', ...authContext } }
+                    : {})
+            },
             timeoutMs: 15_000
         })
         const inspect = payload as unknown as DaemonModelInspectResponse
@@ -2134,7 +2320,9 @@ const now = new Date().toISOString()
 let capability
 if (framework === 'claude-code') {
   const cliVersion = commandVersion('claude')
-  const configReadable = readable(path.join(home, '.claude')) || readable(path.join(home, '.claude.json'))
+  const claudeDir = (process.env.CLAUDE_CONFIG_DIR && process.env.CLAUDE_CONFIG_DIR.trim()) || path.join(home, '.claude')
+  const claudeJsonPath = process.env.CLAUDE_CONFIG_DIR && process.env.CLAUDE_CONFIG_DIR.trim() ? path.join(claudeDir, '.claude.json') : path.join(home, '.claude.json')
+  const configReadable = readable(claudeDir) || readable(claudeJsonPath)
   const credentialReady = Boolean(process.env.ANTHROPIC_AUTH_TOKEN || process.env.ANTHROPIC_API_KEY || configReadable)
   const mapped = [
     process.env.ANTHROPIC_DEFAULT_FABLE_MODEL,
@@ -2146,9 +2334,9 @@ if (framework === 'claude-code') {
   const error = cliVersion
     ? (credentialReady ? null : 'Claude Code local credentials were not detected')
     : 'claude CLI is not available on PATH'
-  const claudeCredentials = parseJson(readText(path.join(home, '.claude', '.credentials.json')).text)
+  const claudeCredentials = parseJson(readText(path.join(claudeDir, '.credentials.json')).text)
   const claudeOauth = nested(claudeCredentials, 'claudeAiOauth') || nested(claudeCredentials, 'oauthAccount')
-  const claudeJson = parseJson(readText(path.join(home, '.claude.json')).text)
+  const claudeJson = parseJson(readText(claudeJsonPath).text)
   capability = {
     framework,
     cliVersion,
@@ -2225,7 +2413,7 @@ if (framework === 'claude-code') {
   }
 } else {
   const cliVersion = commandVersion('gemini')
-  const geminiHome = path.join(home, '.gemini')
+  const geminiHome = path.join((process.env.GEMINI_CLI_HOME && process.env.GEMINI_CLI_HOME.trim()) || home, '.gemini')
   const settingsPath = path.join(geminiHome, 'settings.json')
   const oauthPath = path.join(geminiHome, 'oauth_creds.json')
   const settings = readText(settingsPath)

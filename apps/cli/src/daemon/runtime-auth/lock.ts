@@ -39,7 +39,29 @@ export interface ProfileLock {
     release(): Promise<void>
 }
 
+const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, ms))
+
+// `waitMs` turns a busy profile into a bounded queue (same-profile
+// executions run serially; a login shell holds the lock until it closes).
 export const acquireProfileLock = async (
+    lockDir: string,
+    label: string,
+    opts: { waitMs?: number } = {}
+): Promise<ProfileLock> => {
+    const deadline = Date.now() + (opts.waitMs ?? 0)
+    for (;;) {
+        try {
+            return await tryAcquire(lockDir, label)
+        } catch (err) {
+            if (!(err instanceof ProfileBusyError) || Date.now() >= deadline)
+                throw err
+            await sleep(500)
+        }
+    }
+}
+
+const tryAcquire = async (
     lockDir: string,
     label: string
 ): Promise<ProfileLock> => {
@@ -62,7 +84,9 @@ export const acquireProfileLock = async (
             if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
             let holder: LockOwner | null = null
             try {
-                holder = JSON.parse(await readFile(ownerPath, 'utf8')) as LockOwner
+                holder = JSON.parse(
+                    await readFile(ownerPath, 'utf8')
+                ) as LockOwner
             } catch {
                 holder = null
             }

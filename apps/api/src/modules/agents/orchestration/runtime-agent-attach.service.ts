@@ -1,3 +1,4 @@
+import type { AgentModelConfigSource } from '@manyfold/shared'
 import {
     AgentFramework,
     AgentSummary,
@@ -5,6 +6,7 @@ import {
     normalizeAgentName
 } from '@manyfold/shared'
 import {
+    Optional,
     BadRequestException,
     ConflictException,
     Inject,
@@ -26,6 +28,7 @@ import { agentRowToSummary } from '@/modules/agents/agents.service'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
+import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import {
     normalizeWorkspacePathInput,
     workspaceExtras
@@ -50,6 +53,11 @@ export interface AttachAgentInput {
     workspace?: string
     model?: string
     cloneFrom?: string
+    // The joining agent's auth choice (add-agent / create-with-sandboxId):
+    // persisted after the insert so the wizard's pick survives the join,
+    // which used to land every joiner on the runtime's inherited source.
+    modelConfigSource?: AgentModelConfigSource
+    runtimeAuthProfileId?: string | null
 }
 
 @Injectable()
@@ -60,7 +68,9 @@ export class RuntimeAgentAttachService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly adapterRegistry: AgentAdapterRegistry,
         private readonly reconcile: AgentReconcileService,
-        private readonly credentialsResolver: CredentialsResolverService
+        private readonly credentialsResolver: CredentialsResolverService,
+        @Optional()
+        private readonly modelConfig?: AgentModelConfigService
     ) {}
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
@@ -200,6 +210,41 @@ export class RuntimeAgentAttachService {
                     )
                 )
             this.reconcile.touchAfterWrite(runtime.id)
+            // The joiner's own auth choice. Failing here after the insert is
+            // reported, not swallowed: an agent that silently kept the
+            // inherited credentials is the bug this exists to close.
+            if (
+                this.modelConfig &&
+                (input.modelConfigSource === 'runtime-local' ||
+                    input.runtimeAuthProfileId)
+            ) {
+                let bound = await this.modelConfig.updateForAgent(
+                    runtime.userId,
+                    inserted.id,
+                    { modelConfigSource: 'runtime-local' },
+                    true
+                )
+                if (input.runtimeAuthProfileId)
+                    bound = await this.modelConfig.applyRuntimeAuth(
+                        runtime.userId,
+                        inserted.id,
+                        {
+                            profileId: input.runtimeAuthProfileId,
+                            expectedBindingVersion:
+                                bound.runtimeAuth.bindingVersion,
+                            modelConfigSource: 'runtime-local'
+                        }
+                    )
+                void bound
+                inserted =
+                    (
+                        await this.db
+                            .select()
+                            .from(agents)
+                            .where(eq(agents.id, inserted.id))
+                            .limit(1)
+                    )[0] ?? inserted
+            }
             return agentRowToSummary(inserted, null, false, {
                 controlUiEnabled: runtime.controlUiEnabled,
                 dashboardEnabled: runtime.dashboardEnabled,

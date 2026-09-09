@@ -443,6 +443,29 @@ const IsRuntimeLocalSourceShape =
         })
     }
 
+const IsRuntimeAuthProfileShape =
+    (options?: ValidationOptions) =>
+    (target: object, propertyName: string): void => {
+        registerDecorator({
+            name: 'IsRuntimeAuthProfileShape',
+            target: target.constructor,
+            propertyName,
+            options: { ...options },
+            validator: {
+                validate(value: unknown, args: ValidationArguments): boolean {
+                    if (value === undefined || value === null) return true
+                    const o = args.object as CreateAgentDto
+                    return (
+                        o.modelConfigSource === 'runtime-local' && !!o.sandboxId
+                    )
+                },
+                defaultMessage(): string {
+                    return 'runtimeAuthProfileId requires modelConfigSource runtime-local and an existing sandboxId'
+                }
+            }
+        })
+    }
+
 export class CreateAgentDto {
     @NormalizeAgentName()
     @IsString()
@@ -568,6 +591,14 @@ export class CreateAgentDto {
     @IsIn(agentModelConfigSources)
     @IsRuntimeLocalSourceShape()
     modelConfigSource?: AgentModelConfigSource
+
+    // Only meaningful when the create joins an existing runtime (sandboxId);
+    // requires the runtime-local source, like the profile it names.
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @Matches(/^rap_[a-z2-7]{26}$/)
+    @IsRuntimeAuthProfileShape()
+    runtimeAuthProfileId?: string | null
 
     @IsOptional()
     modelConfig?: AgentModelConfig

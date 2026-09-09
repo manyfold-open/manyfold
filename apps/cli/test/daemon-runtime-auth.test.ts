@@ -609,3 +609,275 @@ test('prepareLogin composes the profile context, holds the lock, and judges the 
         delete process.env.ANTHROPIC_API_KEY
     })
 })
+
+// ---- P2: executions under a profile --------------------------------------
+
+const profileSelection = (
+    sb: Sandbox,
+    framework: string,
+    profileId: string
+): Record<string, unknown> => ({
+    mode: 'profile',
+    framework,
+    runtimeId: sb.runtimeId,
+    profileId,
+    bindingVersion: 1
+})
+
+test('exec.start under a codex profile runs in the view with ambient vendor env stripped and sqlite pinned to the native home', async () => {
+    await withSandbox(async (sb) => {
+        process.env.OPENAI_API_KEY = 'ambient-daemon-key'
+        process.env.ANTHROPIC_API_KEY = 'ambient-claude-key'
+        const profileId = createObjectId('runtimeAuthProfile')
+        await rpcHandler(
+            'auth.create',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'subscription'
+            },
+            ctx('c')
+        )
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        await writeFile(
+            join(view, 'auth.json'),
+            '{"auth_mode":"chatgpt","tokens":{"access_token":"x"}}',
+            { mode: 0o600 }
+        )
+        const out = join(sb.base, 'env.txt')
+        const result = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['sh', '-c', 'env > "$OUT"'],
+                env: {
+                    OUT: out,
+                    OPENAI_API_KEY: 'from-agent-extras',
+                    KEEP_ME: 'yes'
+                },
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('exec-profile')
+        )
+        assert.equal(result.ok, true, result.error)
+        const env = Object.fromEntries(
+            (await readFile(out, 'utf8'))
+                .split('\n')
+                .filter(Boolean)
+                .map((line) => [
+                    line.slice(0, line.indexOf('=')),
+                    line.slice(line.indexOf('=') + 1)
+                ])
+        )
+        assert.equal(env.CODEX_HOME, view)
+        assert.equal(env.CODEX_SQLITE_HOME, join(sb.home, '.codex'))
+        assert.equal(
+            'OPENAI_API_KEY' in env,
+            false,
+            'neither the daemon nor the agent env may outrank the profile'
+        )
+        assert.equal('ANTHROPIC_API_KEY' in env, false)
+        assert.equal(
+            env.KEEP_ME,
+            'yes',
+            'non-auth agent env still reaches the child'
+        )
+        delete process.env.OPENAI_API_KEY
+        delete process.env.ANTHROPIC_API_KEY
+    })
+})
+
+test('exec.start with an inherited selection is byte-for-byte the old behaviour', async () => {
+    await withSandbox(async (sb) => {
+        process.env.OPENAI_API_KEY = 'ambient-daemon-key'
+        const out = join(sb.base, 'env-inherited.txt')
+        const result = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['sh', '-c', 'env > "$OUT"'],
+                env: { OUT: out, ANTHROPIC_API_KEY: 'from-agent-extras' },
+                authSelection: { mode: 'inherited' }
+            },
+            ctx('exec-inherited')
+        )
+        assert.equal(result.ok, true, result.error)
+        const text = await readFile(out, 'utf8')
+        assert.match(text, /^OPENAI_API_KEY=ambient-daemon-key$/m)
+        assert.match(text, /^ANTHROPIC_API_KEY=from-agent-extras$/m)
+        assert.doesNotMatch(text, /^CODEX_HOME=/m)
+        delete process.env.OPENAI_API_KEY
+    })
+})
+
+test('a profile with no stored credential refuses to run rather than fall back to the native sign-in', async () => {
+    await withSandbox(async (sb) => {
+        const profileId = createObjectId('runtimeAuthProfile')
+        await rpcHandler(
+            'auth.create',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'subscription'
+            },
+            ctx('c')
+        )
+        const result = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['true'],
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('exec-empty')
+        )
+        assert.equal(result.ok, false)
+        assert.match(result.error ?? '', /auth_reauth_required/)
+        const unknown = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['true'],
+                authSelection: profileSelection(
+                    sb,
+                    'codex',
+                    createObjectId('runtimeAuthProfile')
+                )
+            },
+            ctx('exec-unknown')
+        )
+        assert.equal(unknown.ok, false)
+        assert.match(unknown.error ?? '', /auth_profile_missing/)
+    })
+})
+
+test('an execution holds the profile lock for its lifetime; same-profile work queues behind it', async () => {
+    await withSandbox(async (sb) => {
+        const profileId = createObjectId('runtimeAuthProfile')
+        await rpcHandler(
+            'auth.create',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'subscription'
+            },
+            ctx('c')
+        )
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        await writeFile(join(view, 'auth.json'), '{"auth_mode":"chatgpt"}', {
+            mode: 0o600
+        })
+        const manager = new RuntimeAuthManager(
+            { daemonId: sb.daemonId, runtimeId: sb.runtimeId },
+            {
+                credentialFacts: async () => null,
+                cliVersion: async () => null,
+                fetch: async () => {
+                    throw new Error('no vendor call')
+                },
+                now: Date.now,
+                platform: 'linux',
+                env: process.env
+            }
+        )
+        const running = rpcHandler(
+            'exec.start',
+            {
+                cmd: ['sh', '-c', 'sleep 1'],
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('exec-long')
+        )
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        await assert.rejects(
+            manager.executionContext('codex', profileId, 'probe', {
+                waitMs: 0
+            }),
+            (err: unknown) => err instanceof ProfileBusyError
+        )
+        assert.equal((await running).ok, true)
+        const after = await manager.executionContext(
+            'codex',
+            profileId,
+            'probe',
+            { waitMs: 0 }
+        )
+        await after.release()
+    })
+})
+
+test('model.inspect under a profile reads the view, not the native home', async () => {
+    await withSandbox(async (sb) => {
+        const profileId = createObjectId('runtimeAuthProfile')
+        await rpcHandler(
+            'auth.create',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'subscription'
+            },
+            ctx('c')
+        )
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        await writeFile(
+            join(view, 'auth.json'),
+            '{"auth_mode":"chatgpt","tokens":{"access_token":"a.b.c","refresh_token":"r"}}',
+            { mode: 0o600 }
+        )
+        const native = await rpcHandler(
+            'model.inspect',
+            { framework: 'codex' },
+            ctx('mi-native')
+        )
+        const scoped = await rpcHandler(
+            'model.inspect',
+            {
+                framework: 'codex',
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('mi-profile')
+        )
+        const facts = (r: typeof native) =>
+            (
+                r.payload as {
+                    frameworks: Array<{
+                        credentialFacts: { authFilePresent: boolean }
+                    }>
+                }
+            ).frameworks[0].credentialFacts
+        assert.equal(
+            facts(native).authFilePresent,
+            false,
+            'native home has no auth.json'
+        )
+        assert.equal(
+            facts(scoped).authFilePresent,
+            true,
+            'the profile view does'
+        )
+    })
+})

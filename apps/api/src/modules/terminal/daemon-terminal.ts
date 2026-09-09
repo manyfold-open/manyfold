@@ -1,4 +1,5 @@
-import type { DaemonPtyAuthLogin } from '@manyfold/shared'
+import type {
+    DaemonAuthContextRef, DaemonPtyAuthLogin } from '@manyfold/shared'
 import {
     envTextFromExtras,
     envTextToRecord
@@ -6,6 +7,7 @@ import {
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { WebSocket as WsClient } from 'ws'
 import type { Agent } from '@manyfold/db'
+import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import {
@@ -85,6 +87,7 @@ export class DaemonTerminal {
                 })
                 .catch(() => {})
         }
+        const authContext = authContextRefFor(agent)
         await this.openPty({
             daemonId,
             cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
@@ -99,6 +102,13 @@ export class DaemonTerminal {
                 ...TERMINAL_BASE_ENV
             },
             ...(resume?.command.length ? { command: resume.command } : {}),
+            // A profile-bound agent's shell runs inside that profile's
+            // context (the daemon composes it and holds the lock while the
+            // shell is open), so `claude`/`codex` typed there answer as the
+            // agent's account, not the machine's.
+            ...(authContext
+                ? { authSelection: { mode: 'profile' as const, ...authContext } }
+                : {}),
             cols,
             rows,
             client,
@@ -146,6 +156,7 @@ export class DaemonTerminal {
         // Run the TUI resume as the shell's argv instead of a bare login shell.
         command?: string[]
         authLogin?: DaemonPtyAuthLogin
+        authSelection?: { mode: 'profile' } & DaemonAuthContextRef
         cols: number
         rows: number
         client: WsClient
@@ -158,6 +169,7 @@ export class DaemonTerminal {
             env,
             command,
             authLogin,
+            authSelection,
             cols,
             rows,
             client,
@@ -179,6 +191,7 @@ export class DaemonTerminal {
                     // open a plain shell under a UI that promised a resume.
                     ...(command?.length ? { command } : {}),
                     ...(authLogin ? { authLogin } : {}),
+                    ...(authSelection ? { authSelection } : {}),
                     env
                 },
                 timeoutMs: 24 * 3600 * 1000,

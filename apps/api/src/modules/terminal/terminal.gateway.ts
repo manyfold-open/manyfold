@@ -15,6 +15,10 @@ import { principalScopes } from '@/modules/auth/auth-principal'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
+import {
+    assertHostHonoursAuthContext,
+    authContextRefFor
+} from '@/modules/agents/model-config/runtime-auth-selection'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import {
     TerminalResumeService,
@@ -319,6 +323,21 @@ export class TerminalGateway implements OnModuleInit {
         }
 
         try {
+            // A profile-bound agent: refuse a host that cannot honour the
+            // context rather than open a shell under the wrong sign-in.
+            const authContext = authContextRefFor(agent)
+            if (authContext && agent.runtime === 'daemon' && agent.daemonId)
+                assertHostHonoursAuthContext(
+                    authContext,
+                    await this.daemonHosts.findById(agent.daemonId),
+                    'this machine'
+                )
+            const extraEnv =
+                authContext && agent.runtime === 'sprites'
+                    ? await this.runtimeAuth?.sessionEnvForAgent(agent)
+                    : undefined
+            if (authContext && agent.runtime === 'sprites' && !extraEnv)
+                assertHostHonoursAuthContext(authContext, null, 'this sandbox')
             if (agent.runtime === 'sprites') {
                 await this.sprites.tunnel({
                     userId: agent.userId,
@@ -328,6 +347,7 @@ export class TerminalGateway implements OnModuleInit {
                     hostId: agent.hostId,
                     mountPath: agent.mountPath,
                     extras: agent.extras,
+                    ...(extraEnv ? { extraEnv } : {}),
                     agentId: agent.id,
                     cols,
                     cwd: terminalCwd,
