@@ -38,26 +38,36 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
     const refresh = useCallback(async (): Promise<void> => {
         setLoading(true)
         let failure: unknown = null
-        const orEmpty = <T,>(promise: Promise<T[]>): Promise<T[]> =>
+        const orValue = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
             promise.catch((err: unknown) => {
                 failure ??= err
-                return []
+                return fallback
             })
-        const [daemonHosts, sandboxes, runtimes, frameworkCatalog, skillGroups] =
-            await Promise.all([
-                orEmpty(client.daemons.listHosts()),
-                orEmpty(client.sandboxes.list()),
-                orEmpty(client.agentRuntimes.list()),
-                orEmpty(client.frameworkVersions.list()),
-                orEmpty(client.skills.installed())
-            ])
+        const orEmpty = <T,>(promise: Promise<T[]>): Promise<T[]> =>
+            orValue(promise, [])
+        const [
+            daemonHosts,
+            sandboxes,
+            runtimes,
+            frameworkCatalog,
+            skillGroups,
+            cliVersions
+        ] = await Promise.all([
+            orEmpty(client.daemons.listHosts()),
+            orEmpty(client.sandboxes.list()),
+            orEmpty(client.agentRuntimes.list()),
+            orEmpty(client.frameworkVersions.list()),
+            orEmpty(client.skills.installed()),
+            orValue(client.cliVersions.list(), { stable: [], dev: [] })
+        ])
         if (cancelled.current) return
         setInputs({
             daemonHosts,
             sandboxes,
             runtimes,
             frameworkCatalog,
-            skillGroups
+            skillGroups,
+            cliVersions
         })
         setError(failure === null ? null : apiErrorMessage(failure))
         setLoaded(true)

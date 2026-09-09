@@ -12,6 +12,7 @@ import type {
 import { MANYFOLD_CLI_USAGE_SKILL_ID } from '@manyfold/shared'
 import {
     SKILL_INSTALL_BATCH_LIMIT,
+    blockerStatus,
     buildUpdateRows,
     countUpdates,
     displayStatus,
@@ -218,7 +219,8 @@ test('a daemon host below the minimum version is required, not merely recommende
     assert.equal(displayStatus(rows[0]), 'required')
     assert.deepEqual(rows[0].exec, {
         type: 'daemonCli',
-        hostId: rows[0].id.replace('cli:daemon:', '')
+        hostId: rows[0].id.replace('cli:daemon:', ''),
+        targetVersion: null
     })
 })
 
@@ -272,7 +274,8 @@ test('a sandbox with a stale CLI is executable', () => {
     assert.equal(rows[0].targetLabel, 'box')
     assert.deepEqual(rows[0].exec, {
         type: 'sandboxCli',
-        sandboxId: sandbox.id
+        sandboxId: sandbox.id,
+        targetVersion: null
     })
 })
 
@@ -698,4 +701,181 @@ test('rows the platform cannot drive are dropped from the plan, not failed', () 
     })
     assert.equal(rows.length, 3)
     assert.deepEqual(planBatch(rows), [])
+})
+
+const cliCatalog = (
+    stable: string[],
+    dev: string[] = []
+): UpdateCenterInputs['cliVersions'] => ({ stable, dev })
+
+test('a daemon is offered its own channel only, unless it can cross over', () => {
+    // Mirrors resolveDaemonTarget: a cross-channel target 400s unless the
+    // daemon reports the capability, so offering one would be a dead option.
+    const stable = ['0.31.0', '0.30.0']
+    const dev = ['0.32.0-dev.1.abc1234']
+    const locked = build({
+        daemonHosts: [makeHost({ canCrossChannelUpgrade: false })],
+        cliVersions: cliCatalog(stable, dev)
+    })
+    assert.deepEqual(locked[0].targetChoices, stable)
+
+    const crossing = build({
+        daemonHosts: [makeHost({ canCrossChannelUpgrade: true })],
+        cliVersions: cliCatalog(stable, dev)
+    })
+    assert.deepEqual(crossing[0].targetChoices, [...stable, ...dev])
+})
+
+test('a dev-channel daemon is offered the dev channel, not stable', () => {
+    const rows = build({
+        daemonHosts: [
+            makeHost({
+                cliVersion: '0.31.0-dev.1.abc1234',
+                canCrossChannelUpgrade: false
+            })
+        ],
+        cliVersions: cliCatalog(['0.31.0'], ['0.32.0-dev.2.def5678'])
+    })
+    assert.deepEqual(rows[0].targetChoices, ['0.32.0-dev.2.def5678'])
+})
+
+test('a host nobody can drive from here offers no target at all', () => {
+    const rows = build({
+        daemonHosts: [makeHost({ canRemoteUpgrade: false })],
+        cliVersions: cliCatalog(['0.31.0', '0.30.0'])
+    })
+    assert.deepEqual(rows[0].targetChoices, [])
+})
+
+test('a sandbox is offered both channels, having no channel of its own', () => {
+    const rows = build({
+        sandboxes: [makeSandbox()],
+        cliVersions: cliCatalog(['0.31.0'], ['0.32.0-dev.1.abc1234'])
+    })
+    assert.deepEqual(rows[0].targetChoices, [
+        '0.31.0',
+        '0.32.0-dev.1.abc1234'
+    ])
+})
+
+test('framework targets are only the versions newer than what is installed', () => {
+    const rows = build({
+        runtimes: [makeRuntime({ frameworkVersion: '2.0.0' })],
+        frameworkCatalog: [
+            catalogEntry({
+                latest: '2.2.0',
+                versions: ['2.2.0', '2.1.0', '2.0.0', '1.9.0']
+            })
+        ]
+    })
+    assert.deepEqual(rows[0].targetChoices, ['2.2.0', '2.1.0'])
+})
+
+test('the default target is always one of the offered versions', () => {
+    // npm's own `latest` dist-tag can name a release that is not in the capped
+    // `versions` list; the picker would then open on a value it cannot show.
+    const rows = build({
+        runtimes: [makeRuntime({ frameworkVersion: '2.0.0' })],
+        frameworkCatalog: [
+            catalogEntry({ latest: '2.2.0', versions: ['2.1.0', '2.0.0'] })
+        ]
+    })
+    assert.deepEqual(rows[0].targetChoices, ['2.2.0', '2.1.0'])
+    assert.ok(rows[0].targetChoices.includes(rows[0].latestVersion as string))
+})
+
+test('a framework nobody can drive remotely offers no target', () => {
+    const rows = build({
+        runtimes: [makeRuntime({ primaryAgentId: null })],
+        frameworkCatalog: [catalogEntry()]
+    })
+    assert.equal(rows[0].blocker, 'noAgent')
+    assert.deepEqual(rows[0].targetChoices, [])
+})
+
+test('a skill offers no target: both sides are revisions, not a catalog', () => {
+    const rows = build({
+        skillGroups: [skillGroup('agt_1', 'Alpha', [makeSkill()])]
+    })
+    assert.deepEqual(rows[0].targetChoices, [])
+})
+
+test('blockerStatus names the obstacle where displayStatus names the urgency', () => {
+    const required = build({
+        daemonHosts: [makeHost({ needsUpgrade: true })]
+    })[0]
+    assert.equal(blockerStatus(required), 'required')
+    assert.equal(displayStatus(required), 'required')
+
+    const ready = build({ daemonHosts: [makeHost()] })[0]
+    assert.equal(blockerStatus(ready), 'ready')
+    assert.equal(displayStatus(ready), 'ready')
+
+    const byHand = build({
+        daemonHosts: [makeHost({ canRemoteUpgrade: false })]
+    })[0]
+    assert.equal(blockerStatus(byHand), 'manual')
+    assert.equal(displayStatus(byHand), 'manual')
+
+    const offline = build({ daemonHosts: [makeHost({ online: false })] })[0]
+    assert.equal(blockerStatus(offline), 'offline')
+    assert.equal(displayStatus(offline), 'offline')
+
+    // The one row where the two axes disagree, which is the whole point: the
+    // tag's tone still says "urgent" while its label says "by hand".
+    const both = build({
+        daemonHosts: [
+            makeHost({ needsUpgrade: true, canRemoteUpgrade: false })
+        ]
+    })[0]
+    assert.equal(displayStatus(both), 'required')
+    assert.equal(blockerStatus(both), 'manual')
+})
+
+test('a picked version overrides the default target for every executable kind', () => {
+    const host = makeHost()
+    const sandbox = makeSandbox()
+    const runtime = makeRuntime()
+    const rows = build({
+        daemonHosts: [host],
+        sandboxes: [sandbox],
+        runtimes: [runtime],
+        frameworkCatalog: [catalogEntry()],
+        cliVersions: cliCatalog(['0.31.0', '0.30.0'])
+    })
+    const targets = Object.fromEntries(
+        rows.map((row) => [
+            row.id,
+            row.kind === 'cli' ? '0.30.0' : '2.0.5'
+        ])
+    )
+    assert.deepEqual(
+        planBatch(rows, targets).map((step) =>
+            step.type === 'skillBatch'
+                ? [step.type, null]
+                : [step.type, step.targetVersion]
+        ),
+        [
+            ['sandboxCli', '0.30.0'],
+            ['daemonCli', '0.30.0'],
+            ['framework', '2.0.5']
+        ]
+    )
+})
+
+test('an unpicked row keeps its default target', () => {
+    const rows = build({
+        daemonHosts: [makeHost()],
+        runtimes: [makeRuntime()],
+        frameworkCatalog: [catalogEntry()],
+        cliVersions: cliCatalog(['0.31.0'])
+    })
+    // null for the CLI = omit the parameter and take the channel's latest;
+    // the framework carries the catalog's latest.
+    assert.deepEqual(
+        planBatch(rows).map((step) =>
+            step.type === 'skillBatch' ? null : step.targetVersion
+        ),
+        [null, '2.1.0']
+    )
 })

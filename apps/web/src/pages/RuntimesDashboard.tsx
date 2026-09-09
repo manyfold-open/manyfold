@@ -15,11 +15,11 @@ import {
 import { Ghost } from '@/components/Loading'
 import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
 import Breadcrumb from '@/components/Breadcrumb'
+import { UpdateBadge } from '@/components/UpdateBadge'
 import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
-import { updatesPath } from '@/lib/updateCenter'
 import { providerRuntimeCounts } from '@/lib/runtimesDashboardData'
 import {
     RUNTIMES_DASHBOARD_VIEW_KEY,
@@ -178,12 +178,16 @@ const VMCard: FC<VMItemProps> = ({
                             {vm.host?.cliVersion
                                 ? `v${vm.host.cliVersion}`
                                 : '—'}
-                            {vm.host?.updateAvailable &&
-                                vm.host.latestCliVersion && (
-                                    <span className='text-link'>
-                                        ↑ v{vm.host.latestCliVersion}
-                                    </span>
-                                )}
+                            {vm.host?.updateAvailable && (
+                                // The whole card is a button, so this one
+                                // cannot be a link; the machine it opens shows
+                                // the same badge as a link.
+                                <UpdateBadge
+                                    latest={vm.host.latestCliVersion}
+                                    kind='cli'
+                                    linked={false}
+                                />
+                            )}
                         </MetaRow>
                         <MetaRow label={t('web.runtimesDashboard.agents')}>
                             {vm.agentsCount}
@@ -424,19 +428,20 @@ const VMTable: FC<{
                     </td>
                     <td className={`${bodyCell} whitespace-nowrap`}>
                         {vm.host?.cliVersion ? `v${vm.host.cliVersion}` : '—'}
-                        {vm.host?.updateAvailable &&
-                            vm.host.latestCliVersion && (
-                                <Link
-                                    to={updatesPath('cli')}
-                                    // The whole row navigates to the machine;
-                                    // this one cell goes somewhere else.
-                                    onClick={(event) => event.stopPropagation()}
-                                    className='text-link hover:underline'
-                                >
-                                    {' '}
-                                    ↑ v{vm.host.latestCliVersion}
-                                </Link>
-                            )}
+                        {vm.host?.updateAvailable && (
+                            <>
+                                {' '}
+                                {/* Unlinked: the row already navigates to the
+                                    machine, and a cell that went somewhere
+                                    else made the same click mean two
+                                    things. */}
+                                <UpdateBadge
+                                    latest={vm.host.latestCliVersion}
+                                    kind='cli'
+                                    linked={false}
+                                />
+                            </>
+                        )}
                     </td>
                     <td className={bodyCellRight}>{vm.agentsCount}</td>
                     <td className={`${bodyCell} whitespace-nowrap`}>

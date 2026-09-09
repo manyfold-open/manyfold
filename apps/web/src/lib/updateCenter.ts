@@ -1,5 +1,7 @@
 import {
     MANYFOLD_CLI_USAGE_SKILL_ID,
+    cliChannelOfVersion,
+    compareSemverPrecedence,
     findBlockedVersionRange,
     frameworkUpgradeAvailable,
     frameworkUpgradeMode,
@@ -9,6 +11,7 @@ import type {
     AgentFramework,
     AgentRuntimeSummary,
     AgentSkillsGroup,
+    CliVersionCatalog,
     DaemonHostSummary,
     FrameworkUpgradeMode,
     FrameworkVersionCatalogEntry,
@@ -33,8 +36,10 @@ export type UpdateExec =
           mode: FrameworkUpgradeMode
           targetVersion: string
       }
-    | { type: 'daemonCli'; hostId: string }
-    | { type: 'sandboxCli'; sandboxId: string }
+    // targetVersion null = omit the parameter and take the channel's latest,
+    // which is what the endpoints do with an absent `targetVersion`.
+    | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
+    | { type: 'sandboxCli'; sandboxId: string; targetVersion: string | null }
     | { type: 'skillInstall'; skillId: string; agentId: string }
     // Nothing the platform can run: either a copy-a-command guide for the
     // framework, or a link to wherever the human does it.
@@ -54,6 +59,9 @@ export interface UpdateRow {
     targetLabel: string
     installedVersion: string | null
     latestVersion: string | null
+    // Versions this row may be pointed at, newest-first. Empty = not a choice
+    // at all, so the row can only go to `latestVersion`.
+    targetChoices: string[]
     severity: UpdateSeverity
     blockedReason: string | null
     blocker: UpdateBlocker | null
@@ -66,6 +74,7 @@ export interface UpdateCenterInputs {
     runtimes: AgentRuntimeSummary[]
     frameworkCatalog: FrameworkVersionCatalogEntry[]
     skillGroups: AgentSkillsGroup[]
+    cliVersions: CliVersionCatalog
 }
 
 export const emptyUpdateCenterInputs: UpdateCenterInputs = {
@@ -73,12 +82,13 @@ export const emptyUpdateCenterInputs: UpdateCenterInputs = {
     sandboxes: [],
     runtimes: [],
     frameworkCatalog: [],
-    skillGroups: []
+    skillGroups: [],
+    cliVersions: { stable: [], dev: [] }
 }
 
 // A skill's revision is a git commit SHA; the whole thing is unreadable in a
 // table cell and only the leading characters carry information.
-const shortRevision = (revision: string): string => revision.slice(0, 7)
+export const shortRevision = (revision: string): string => revision.slice(0, 7)
 
 const kindOrder: Record<UpdateKind, number> = {
     cli: 0,
@@ -93,6 +103,23 @@ const compareRows = (a: UpdateRow, b: UpdateRow): number => {
     const byTarget = a.targetLabel.localeCompare(b.targetLabel)
     if (byTarget !== 0) return byTarget
     return a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+}
+
+// mf CLI targets for a daemon. The channel comes from the version string, and
+// the other channel is only merged in when the daemon itself reports it can
+// cross over — the same pair of conditions resolveDaemonTarget enforces
+// server-side, so an option the picker offers can never come back a 400.
+// Own channel first rather than strictly newest-first: the two channels
+// version independently, so interleaving them would read as one broken
+// sequence, and the far channel is a local/staging escape hatch either way.
+const daemonCliTargets = (
+    host: DaemonHostSummary,
+    catalog: CliVersionCatalog
+): string[] => {
+    const onDev = cliChannelOfVersion(host.cliVersion) === 'dev'
+    const own = onDev ? catalog.dev : catalog.stable
+    if (!host.canCrossChannelUpgrade) return own
+    return [...own, ...(onDev ? catalog.stable : catalog.dev)]
 }
 
 const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
@@ -118,12 +145,18 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             targetLabel: host.name,
             installedVersion: host.cliVersion,
             latestVersion: host.latestCliVersion,
+            targetChoices:
+                blocker === null ? daemonCliTargets(host, inputs.cliVersions) : [],
             severity: host.needsUpgrade ? 'required' : 'recommended',
             blockedReason: null,
             blocker,
             exec:
                 blocker === null
-                    ? { type: 'daemonCli', hostId: host.id }
+                    ? {
+                          type: 'daemonCli',
+                          hostId: host.id,
+                          targetVersion: null
+                      }
                     : {
                           type: 'none',
                           guideFramework: null,
@@ -143,10 +176,21 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
             targetLabel: sandbox.name,
             installedVersion: sandbox.cliVersion,
             latestVersion: sandbox.latestCliVersion,
+            // No channel constraint here, unlike a daemon: the sprite has no
+            // installed-from channel to stay on, so upgradeCli only checks
+            // that the version is one we list.
+            targetChoices: [
+                ...inputs.cliVersions.stable,
+                ...inputs.cliVersions.dev
+            ],
             severity: 'recommended',
             blockedReason: null,
             blocker: null,
-            exec: { type: 'sandboxCli', sandboxId: sandbox.id }
+            exec: {
+                type: 'sandboxCli',
+                sandboxId: sandbox.id,
+                targetVersion: null
+            }
         })
     }
     return rows
@@ -186,6 +230,29 @@ const runtimeTarget = (
                 runtime.name
         }
     return { key: `runtime:${runtime.id}`, label: runtime.name }
+}
+
+// Framework targets: whatever the catalog offers that is a strict upgrade over
+// what is installed. The server has already withheld blocked ranges and
+// unadmitted prereleases from `versions`, so no further filtering belongs here.
+//
+// `latest` is folded in because it does not have to be a member of `versions`:
+// it can come from npm's own `latest` dist-tag, and `versions` is capped. It is
+// the row's default target, so a picker that did not offer it would open on a
+// value it cannot show.
+const frameworkTargets = (
+    installed: string | null,
+    entry: FrameworkVersionCatalogEntry
+): string[] => {
+    const offered =
+        entry.latest !== null && !entry.versions.includes(entry.latest)
+            ? [...entry.versions, entry.latest].sort(
+                  (a, b) => -(compareSemverPrecedence(a, b) ?? 0)
+              )
+            : entry.versions
+    return offered.filter((version) =>
+        frameworkUpgradeAvailable(installed, version)
+    )
 }
 
 // One row per runtime, never per agent: the installed version lives on the
@@ -235,6 +302,10 @@ const frameworkRows = (
             targetLabel: target.label,
             installedVersion: runtime.frameworkVersion,
             latestVersion: entry.latest,
+            targetChoices:
+                remote && mode
+                    ? frameworkTargets(runtime.frameworkVersion, entry)
+                    : [],
             severity: blocked ? 'required' : 'recommended',
             blockedReason: blocked?.reason ?? null,
             blocker,
@@ -292,6 +363,10 @@ const skillRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
                 // version were being replaced by one.
                 installedVersion: shortRevision(skill.installedRevision),
                 latestVersion: shortRevision(skill.latestRevision),
+                // No version catalog for a skill: both sides are the one
+                // revision each side happens to be on, so there is nothing to
+                // choose between.
+                targetChoices: [],
                 severity: 'recommended',
                 blockedReason: null,
                 blocker: null,
@@ -328,6 +403,20 @@ export const displayStatus = (row: UpdateRow): UpdateStatus => {
     if (row.blocker !== null) return 'manual'
     return 'ready'
 }
+
+// The label axis, and it ranks the two facts the other way round from
+// displayStatus on purpose. Grouping needs severity on top so the most urgent
+// row cannot land under the calmest heading; a tag does not, because its tone
+// already carries the urgency — which leaves the label free to say the thing
+// tone cannot, namely where the row is stuck.
+export const blockerStatus = (row: UpdateRow): UpdateStatus =>
+    row.blocker === 'offline'
+        ? 'offline'
+        : row.blocker !== null
+          ? 'manual'
+          : row.severity === 'required'
+            ? 'required'
+            : 'ready'
 
 export type UpdateGroupBy = 'kind' | 'target' | 'status' | 'none'
 
@@ -430,8 +519,13 @@ export type BatchStep =
           mode: FrameworkUpgradeMode
           targetVersion: string
       }
-    | { type: 'daemonCli'; rowId: string; hostId: string }
-    | { type: 'sandboxCli'; rowId: string; sandboxId: string }
+    | { type: 'daemonCli'; rowId: string; hostId: string; targetVersion: string | null }
+    | {
+          type: 'sandboxCli'
+          rowId: string
+          sandboxId: string
+          targetVersion: string | null
+      }
 
 export const SKILL_INSTALL_BATCH_LIMIT = 50
 
@@ -454,13 +548,21 @@ const stepOrder = (step: BatchStep): number => {
 // Steps run one at a time, so the order here is the order the user watches them
 // complete in. Rows the platform cannot drive are dropped rather than failed —
 // they are never selectable in the first place.
-export const planBatch = (rows: UpdateRow[]): BatchStep[] => {
+//
+// `targets` is the picked-version overlay, keyed by row id, and it is a
+// parameter rather than part of the row so that choosing a version does not
+// invalidate buildUpdateRows' memo and rebuild the whole table.
+export const planBatch = (
+    rows: UpdateRow[],
+    targets: Record<string, string> = {}
+): BatchStep[] => {
     const steps: BatchStep[] = []
     const skillOrder: string[] = []
     const bySkill = new Map<string, { agentIds: string[]; rowIds: string[] }>()
 
     for (const row of rows) {
         if (row.blocker !== null) continue
+        const picked = targets[row.id] ?? null
         switch (row.exec.type) {
             case 'skillInstall': {
                 const { skillId, agentId } = row.exec
@@ -478,14 +580,16 @@ export const planBatch = (rows: UpdateRow[]): BatchStep[] => {
                 steps.push({
                     type: 'daemonCli',
                     rowId: row.id,
-                    hostId: row.exec.hostId
+                    hostId: row.exec.hostId,
+                    targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
             case 'sandboxCli':
                 steps.push({
                     type: 'sandboxCli',
                     rowId: row.id,
-                    sandboxId: row.exec.sandboxId
+                    sandboxId: row.exec.sandboxId,
+                    targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
             case 'agentFramework':
@@ -495,7 +599,7 @@ export const planBatch = (rows: UpdateRow[]): BatchStep[] => {
                     agentId: row.exec.agentId,
                     framework: row.exec.framework,
                     mode: row.exec.mode,
-                    targetVersion: row.exec.targetVersion
+                    targetVersion: picked ?? row.exec.targetVersion
                 })
                 break
             case 'none':

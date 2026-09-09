@@ -646,11 +646,6 @@ const en = {
             rename: 'Rename',
             deleting: 'Deleting…',
             runtimeFailed: 'Runtime failed',
-            upgradeAvailable: '{{framework}} v{{version}} is available',
-            currentVersion:
-                'This runtime is on v{{version}}. Upgrades run in the sandbox and take up to a minute.',
-            upgradeNotice:
-                'Upgrades run in the sandbox and take up to a minute.',
             upgrade: 'Upgrade',
             agents: 'Agents ({{count}})',
             controls: 'Controls',
@@ -778,10 +773,6 @@ const en = {
                 docsChannels: 'Channels'
             }
         },
-        cliUpgrade: {
-            one: '1 machine needs a CLI upgrade',
-            many: '{{count}} machines need a CLI upgrade'
-        },
         backgroundTasks: {
             running: 'Running',
             finished: 'Finished',
@@ -902,7 +893,6 @@ const en = {
                 provider: 'Provider',
                 cli: 'mf CLI',
                 cliUpToDate: 'up to date',
-                cliUpdate: '{{version}} available',
                 access: 'Manyfold access',
                 accessSkill: 'Manyfold CLI skill',
                 accessSkillMeta:
@@ -2151,8 +2141,6 @@ const en = {
             enableAction: 'Enable',
             disableAction: 'Disable',
             uninstallAction: 'Uninstall',
-            updateAction: 'Update',
-            updateAvailable: 'Update available',
             statusInstalling: 'Installing…',
             statusFailed: 'Install failed',
             retryAction: 'Retry',
@@ -3405,10 +3393,13 @@ const en = {
             selectRow: 'Select {{name}}',
             colUpdate: 'Update',
             colTarget: 'Where',
-            colVersion: 'Version',
+            colFrom: 'From',
+            colTo: 'To',
             colStatus: 'Status',
             colAction: 'Action',
             versionUnknown: 'Unknown',
+            pickTarget: 'Choose a version for {{name}}',
+            badgeCta: 'Update to {{version}}',
             kindCli: 'mf CLI',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
@@ -3416,10 +3407,10 @@ const en = {
             groupKind: 'Type',
             groupTarget: 'Where',
             groupStatus: 'Status',
-            statusRequired: 'Update required',
-            statusReady: 'Ready to update',
-            statusManual: 'Update by hand',
-            statusOffline: 'Machine offline',
+            statusRequired: 'Required',
+            statusReady: 'Ready',
+            statusManual: 'By hand',
+            statusOffline: 'Offline',
             run: {
                 pending: 'Queued',
                 running: 'Updating',
@@ -3963,9 +3954,6 @@ const en = {
             machineMeta:
                 'frameworks: {{frameworks}} · agents: {{agents}} · last seen {{lastSeen}}',
             cliVersion: 'cli {{version}}',
-            upgradeBlockedTip:
-                'Remote upgrade needs the daemon online, autostart-managed, and on a recent CLI. Update the CLI on the machine once to enable it.',
-            upgradeAvailableSuffix: '{{version}} available',
             needsUpgradeTitle: 'CLI upgrade required',
             needsUpgradeHintPrefix:
                 "This machine's mf CLI is below the required minimum version. Run",
@@ -4508,7 +4496,6 @@ const en = {
             serviceFailed: 'Failed',
             sandbox: 'Sandbox',
             cluster: 'Cluster',
-            available: 'available',
             provision: 'Provision',
             alreadyRuns: '{{framework}} already runs here',
             unavailableAction: 'unavailable',
@@ -4520,11 +4507,6 @@ const en = {
             versionPickerSandbox:
                 'Pick a version to install on "{{name}}". The upgrade is in-place; nothing restarts.',
             latestVersion: 'Latest (v{{version}})',
-            cliAvailable: 'mf CLI v{{version}} is available',
-            machineCliDetail:
-                'This machine runs {{version}}. Upgrading restarts the daemon briefly.',
-            sandboxCliDetail:
-                'This sandbox runs {{version}}. The upgrade is in-place; nothing restarts.',
             activePeriod: 'active {{duration}} this period',
             activityDescription:
                 'What keeps this sandbox awake: managed services (e.g. a dev server) and activity leases — the keep-alive toggle installs one. Keep-alive leases are managed from the runtime toggle; agent-registered tasks can be deleted here.',

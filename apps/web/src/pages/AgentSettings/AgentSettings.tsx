@@ -77,7 +77,6 @@ import {
     defaultProviderForFramework,
     frameworkLabel
 } from '@/lib/frameworkMeta'
-import { updatesPath } from '@/lib/updateCenter'
 import {
     frameworkUsesModelConfig,
     mergeCachedRuntimeLocalModelConfigView,
@@ -95,6 +94,7 @@ import {
     dashboardStatePendingLabel
 } from '@/components/ControlRow'
 import { StatusTag, Tag, statusLabel, statusTone } from '@/components/Tag'
+import { UpdateBadge } from '@/components/UpdateBadge'
 
 
 const openNativeUi = (
@@ -1226,14 +1226,14 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             </span>
                                             {fwUpgradeable ? (
                                                 fwUpgradeReady ? (
-                                                    <Link
-                                                        to={updatesPath(
-                                                            'framework'
-                                                        )}
-                                                        className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
-                                                    >
-                                                        {fwLatestLabel}
-                                                    </Link>
+                                                    <span className='mt-1 block'>
+                                                        <UpdateBadge
+                                                            latest={
+                                                                agent.frameworkLatestVersion
+                                                            }
+                                                            kind='framework'
+                                                        />
+                                                    </span>
                                                 ) : (
                                                     <button
                                                         type='button'
@@ -1309,22 +1309,15 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                             )}
                                                         </span>
                                                     )}
-                                                    {agent.cliUpdateAvailable &&
-                                                    agent.cliLatestVersion ? (
-                                                        <Link
-                                                            to={updatesPath(
-                                                                'cli'
-                                                            )}
-                                                            className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
-                                                        >
-                                                            {t(
-                                                                'web.agentSettings.overview.cliUpdate',
-                                                                {
-                                                                    version:
-                                                                        agent.cliLatestVersion
+                                                    {agent.cliUpdateAvailable ? (
+                                                        <span className='mt-1 block'>
+                                                            <UpdateBadge
+                                                                latest={
+                                                                    agent.cliLatestVersion
                                                                 }
-                                                            )}
-                                                        </Link>
+                                                                kind='cli'
+                                                            />
+                                                        </span>
                                                     ) : cliUpToDate ? (
                                                         <span className='text-caption text-subtle mt-1 block'>
                                                             {t(
