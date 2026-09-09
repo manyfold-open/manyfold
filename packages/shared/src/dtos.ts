@@ -1242,6 +1242,9 @@ export interface CreateAgentBody {
     modelConfigSource?: AgentModelConfigSource
     modelConfig?: AgentModelConfig
     saveCredentialAs?: SaveCredentialAs
+    // Only meaningful when the create joins an existing runtime (sandboxId):
+    // a fresh host has no profiles yet.
+    runtimeAuthProfileId?: string | null
 }
 
 export type K8sClusterHealthStatus = 'unknown' | 'ok' | 'failed'
@@ -2400,6 +2403,10 @@ export interface AddRuntimeAgentBody {
     workspace?: string
     model?: string
     cloneFrom?: string
+    // The wizard's auth choice for an agent joining an existing runtime;
+    // omitted = the runtime's existing credentials and default source.
+    modelConfigSource?: AgentModelConfigSource
+    runtimeAuthProfileId?: string | null
 }
 
 export type NotificationProvider = 'slack' | 'discord' | 'lark' | 'telegram'

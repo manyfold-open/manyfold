@@ -110,7 +110,9 @@ export class RuntimeAuthManager {
         }
     }
 
-    async ambient(framework: ConfigurableFramework): Promise<RuntimeAccountProbe> {
+    async ambient(
+        framework: ConfigurableFramework
+    ): Promise<RuntimeAccountProbe> {
         return this.probe(framework, nativeDirsFor())
     }
 
@@ -137,7 +139,10 @@ export class RuntimeAuthManager {
             const { viewDir } = profilePaths(this.scope, profileId)
             return {
                 ...base,
-                probe: await this.probe(framework, viewConfigDirs(framework, viewDir))
+                probe: await this.probe(
+                    framework,
+                    viewConfigDirs(framework, viewDir)
+                )
             }
         } catch (err) {
             return { ...base, error: (err as Error).message.slice(0, 300) }
@@ -177,7 +182,11 @@ export class RuntimeAuthManager {
         const paths = profilePaths(this.scope, profileId)
         await runtimeAuthAdapter(framework).buildView(paths.viewDir)
         if (existing)
-            return { profileId, generation: existing.generation, created: false }
+            return {
+                profileId,
+                generation: existing.generation,
+                created: false
+            }
         const metadata: ProfileMetadata = {
             profileId,
             framework,
@@ -217,7 +226,9 @@ export class RuntimeAuthManager {
         framework: ConfigurableFramework,
         viewDir: string
     ): Promise<boolean> {
-        for (const path of runtimeAuthAdapter(framework).credentialPaths(viewDir))
+        for (const path of runtimeAuthAdapter(framework).credentialPaths(
+            viewDir
+        ))
             try {
                 await lstat(path)
                 return true
@@ -264,7 +275,8 @@ export class RuntimeAuthManager {
                         (await this.credentialPresent(framework, paths.viewDir))
                     if (signedIn) {
                         const latest =
-                            (await readMetadata(this.scope, profileId)) ?? metadata
+                            (await readMetadata(this.scope, profileId)) ??
+                            metadata
                         await writeMetadata(this.scope, {
                             ...latest,
                             generation: latest.generation + 1,
@@ -300,7 +312,10 @@ export class RuntimeAuthManager {
         const metadata = await this.requireMetadata(framework, profileId)
         const paths = profilePaths(this.scope, profileId)
         const adapter = runtimeAuthAdapter(framework)
-        const lock = await acquireProfileLock(paths.lockDir, `${mode}:${operationId}`)
+        const lock = await acquireProfileLock(
+            paths.lockDir,
+            `${mode}:${operationId}`
+        )
         const record = await startOperation(this.scope, {
             operationId,
             profileId,
@@ -349,5 +364,43 @@ export class RuntimeAuthManager {
         operationId: string
     ): Promise<DaemonAuthOperationRecord | null> {
         return readOperation(this.scope, operationId)
+    }
+
+    // The context an execution (exec.start / pty.open) runs in: the profile's
+    // env laid over the daemon environment with every ambient vendor variable
+    // dropped, plus the profile lock held for the process's lifetime. A view
+    // that never completed a login is refused here, not run as ambient.
+    async executionContext(
+        framework: ConfigurableFramework,
+        profileId: string,
+        label: string,
+        opts: { waitMs?: number } = {}
+    ): Promise<{
+        env: Record<string, string>
+        dirs: FrameworkConfigDirs
+        release: () => Promise<void>
+    }> {
+        const metadata = await this.requireMetadata(framework, profileId)
+        const paths = profilePaths(this.scope, profileId)
+        if (!(await this.credentialPresent(framework, paths.viewDir))) {
+            const report = await this.report(framework, profileId, true)
+            if (!report.probe?.identity) throw new Error('auth_reauth_required')
+        }
+        const lock = await acquireProfileLock(paths.lockDir, label, opts)
+        return {
+            env: this.contextEnv(framework, paths.viewDir, metadata.authMethod),
+            dirs: viewConfigDirs(framework, paths.viewDir),
+            release: () => lock.release()
+        }
+    }
+
+    dirsFor(
+        framework: ConfigurableFramework,
+        profileId: string
+    ): FrameworkConfigDirs {
+        return viewConfigDirs(
+            framework,
+            profilePaths(this.scope, profileId).viewDir
+        )
     }
 }

@@ -1,4 +1,4 @@
-import type { DaemonStreamKind } from '@manyfold/shared'
+import type { DaemonAuthContextRef, DaemonStreamKind } from '@manyfold/shared'
 import type { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import type { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import type {
@@ -102,7 +102,7 @@ const shellQuote = (value: string): string =>
     `'${value.replace(/'/g, `'\\''`)}'`
 
 // Codex per-agent skills: the sprite driver runs the final exec under
-// `env HOME=<workspace> CODEX_HOME="$HOME/.codex"`. A runner turn is the same
+// `env HOME=<workspace> CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"`. A runner turn is the same
 // sprite, so it needs the same relocation or codex resolves its USER skill
 // scope (`$HOME/.agents/skills`) against the sprite home and the agent's skills
 // silently disappear. `$HOME` expands inside the sprite (to the real home)
@@ -114,7 +114,7 @@ const withCodexHome = (cmd: string[], codexHome?: string): string[] =>
         ? [
               'bash',
               '-c',
-              `exec env HOME=${shellQuote(codexHome)} CODEX_HOME="$HOME/.codex" ` +
+              `exec env HOME=${shellQuote(codexHome)} CODEX_HOME="\${CODEX_HOME:-$HOME/.codex}" ` +
                   cmd.map(shellQuote).join(' ')
           ]
         : cmd
@@ -133,7 +133,11 @@ export class DaemonExecDriver implements ExecDriver {
         private readonly baseEnv?: Record<string, string>,
         // Appended LAST and optional so existing positional construction keeps
         // working; absent, the driver dispatches unfenced as before.
-        private readonly fencedDispatch?: DaemonFencedDispatchService
+        private readonly fencedDispatch?: DaemonFencedDispatchService,
+        // A profile-bound agent: the daemon resolves this ref into the
+        // credential context itself (DAEMON_FEATURE_AUTH_CONTEXT). Null =
+        // inherited, today's behaviour.
+        private readonly authContext: DaemonAuthContextRef | null = null
     ) {}
 
     stream(req: ExecStreamRequest): ExecStreamHandle {
@@ -143,7 +147,10 @@ export class DaemonExecDriver implements ExecDriver {
             env: { ...(this.baseEnv ?? {}), ...(req.env ?? {}) },
             stdin: req.stdin ?? '',
             dir: req.dir,
-            timeoutMs: req.timeoutMs
+            timeoutMs: req.timeoutMs,
+            ...(this.authContext
+                ? { authSelection: { mode: 'profile', ...this.authContext } }
+                : {})
         }
         // The fence needs a stable exec ref to probe and re-pin (#619); a
         // stream without one (no execHandle) keeps the plain transport.

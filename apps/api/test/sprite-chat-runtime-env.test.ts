@@ -74,7 +74,7 @@ test('wrapSpriteCommand relocates HOME for codex only on the final exec', () => 
     assert.match(wrapped[2], /export MF_API_TOKEN='tok';/)
     assert.match(
         wrapped[2],
-        /exec env HOME='\/home\/sprite\/\.manyfold\/workspaces\/agt_1' CODEX_HOME="\$HOME\/\.codex" 'codex' 'exec' '--json'/
+        /exec env HOME='\/home\/sprite\/\.manyfold\/workspaces\/agt_1' CODEX_HOME="\$\{CODEX_HOME:-\$HOME\/\.codex\}" 'codex' 'exec' '--json'/
     )
 })
 

@@ -137,6 +137,7 @@ import type {
     RefreshAgentModelConfigModelsResponse,
     RuntimeAccessSummary,
     RuntimeAccountView,
+    UpdateAgentRuntimeAuthBody,
     RuntimeAuthListView,
     RuntimeAuthProfileView,
     RuntimeAuthOperationView,
@@ -373,6 +374,10 @@ export interface AgentsClient {
     ) => Promise<AgentSummary>
     update: (agentId: string, body: UpdateAgentBody) => Promise<AgentSummary>
     getModelConfig: (agentId: string) => Promise<AgentModelConfigView>
+    updateRuntimeAuth: (
+        agentId: string,
+        body: UpdateAgentRuntimeAuthBody
+    ) => Promise<AgentModelConfigView>
     updateModelConfig: (
         agentId: string,
         body: UpdateAgentModelConfigBody
@@ -1757,6 +1762,11 @@ const buildAgentsClient = (
             request<AgentModelConfigView>(paths.modelConfig(agentId)),
         updateModelConfig: (agentId, body) =>
             request<AgentModelConfigView>(paths.modelConfig(agentId), {
+                method: 'PATCH',
+                body: JSON.stringify(body)
+            }),
+        updateRuntimeAuth: (agentId, body) =>
+            request<AgentModelConfigView>(apiPaths.AGENT_RUNTIME_AUTH(agentId), {
                 method: 'PATCH',
                 body: JSON.stringify(body)
             }),

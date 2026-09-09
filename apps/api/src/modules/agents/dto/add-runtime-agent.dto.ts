@@ -1,5 +1,16 @@
 import { Transform } from 'class-transformer'
-import { IsOptional, IsString, Length, Matches } from 'class-validator'
+import {
+    IsIn,
+    IsOptional,
+    IsString,
+    Length,
+    Matches,
+    ValidateIf
+} from 'class-validator'
+import {
+    agentModelConfigSources,
+    type AgentModelConfigSource
+} from '@manyfold/shared'
 import {
     IsAgentName,
     NormalizeAgentName
@@ -35,4 +46,16 @@ export class AddRuntimeAgentDto {
     @IsString()
     @Length(1, 64)
     cloneFrom?: string
+
+    // The wizard's auth choice for an agent joining an existing runtime: the
+    // source it picked and, for runtime-local, which of the runtime's auth
+    // profiles to bind (null = the host's own sign-in).
+    @IsOptional()
+    @IsIn(agentModelConfigSources)
+    modelConfigSource?: AgentModelConfigSource
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @Matches(/^rap_[a-z2-7]{26}$/)
+    runtimeAuthProfileId?: string | null
 }

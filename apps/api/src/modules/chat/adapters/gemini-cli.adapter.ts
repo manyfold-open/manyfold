@@ -215,7 +215,8 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             creds,
             runtime,
             agent,
-            baseEnv
+            baseEnv,
+            authContext
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
         // A runner turn swaps the transport only — `runtime` stays
         // 'sprites' so credentials, the bash bootstrap and the workspace cwd all
@@ -223,7 +224,11 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         // baseEnv must ride along (#581).
         const viaRunner = !!ctx.runnerDaemonId
         const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(ctx.runnerDaemonId, baseEnv)
+            ? this.drivers.daemonDriverFor(
+                  ctx.runnerDaemonId,
+                  baseEnv,
+                  authContext
+              )
             : spriteDriver
         // Whoever holds the exec, and can therefore hand it back: losing that
         // socket must SUSPEND the turn (no terminal, so the resume path can

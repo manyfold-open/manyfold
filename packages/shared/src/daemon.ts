@@ -539,6 +539,12 @@ export const DAEMON_FEATURE_ACCOUNT_INSPECT = 'account.inspect'
 // only: executing a turn under a profile is a separate capability, so a
 // daemon that can list accounts is not assumed able to run with one.
 export const DAEMON_FEATURE_AUTH_PROFILES = 'auth-profiles.v1'
+// exec.start, pty.open and model.inspect honour `authSelection`
+// (DaemonAuthContextRef): the process runs inside that profile's credential
+// context. A daemon without this ignores the field and would run the native
+// sign-in instead, so the API refuses a profile-bound execution to it rather
+// than let the wrong account answer.
+export const DAEMON_FEATURE_AUTH_CONTEXT = 'auth-context.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -558,5 +564,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
-    DAEMON_FEATURE_AUTH_PROFILES
+    DAEMON_FEATURE_AUTH_PROFILES,
+    DAEMON_FEATURE_AUTH_CONTEXT
 ]

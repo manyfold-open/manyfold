@@ -1,3 +1,4 @@
+import type { AgentRuntimeAuthBinding } from './runtime-auth'
 import { OFFICIAL_PROVIDER_BASE_URL, type AgentFramework } from './constants'
 import type {
     InferenceProtocol,
@@ -367,6 +368,7 @@ export interface AgentModelConfigView {
     providerModelsSource: AgentModelProviderModelsCache['source'] | null
     providerModels: string[]
     runtimeLocal: AgentRuntimeLocalModelConfigStatus | null
+    runtimeAuth: AgentRuntimeAuthBinding
     config: AgentModelConfig | null
     options: AgentModelConfigOption[]
     validation: AgentModelConfigValidation

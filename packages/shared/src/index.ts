@@ -873,6 +873,7 @@ export {
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_FEATURE_AUTH_PROFILES,
+    DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'
@@ -1087,7 +1088,8 @@ export {
     isRuntimeAuthOperationId,
     runtimeAuthSupported,
     AMBIENT_VENDOR_AUTH_ENV,
-    runtimeAuthProfileEnv
+    runtimeAuthProfileEnv,
+    INHERITED_AUTH
 } from './runtime-auth'
 export type {
     RuntimeAuthMethod,
@@ -1114,7 +1116,11 @@ export type {
     DaemonAuthLogoutResponse,
     DaemonAuthOperationPayload,
     DaemonAuthOperationRecord,
-    DaemonPtyAuthLogin
+    DaemonPtyAuthLogin,
+    RuntimeAuthSelection,
+    AgentRuntimeAuthBinding,
+    UpdateAgentRuntimeAuthBody,
+    DaemonAuthContextRef
 } from './runtime-auth'
 export {
     assignVariant,

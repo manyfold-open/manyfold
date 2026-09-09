@@ -212,6 +212,41 @@ export const runtimeAuthProfileEnv = (
     }
 }
 
+// Which credential context an execution runs under. `inherited` is today's
+// behaviour (the host's native sign-in); `profile` names a runtime auth
+// profile and the binding version the caller observed, so a stale selection
+// can be told apart from a current one in execution evidence.
+export type RuntimeAuthSelection =
+    | { mode: 'inherited' }
+    | { mode: 'profile'; profileId: string; bindingVersion: number }
+
+export const INHERITED_AUTH: RuntimeAuthSelection = { mode: 'inherited' }
+
+// The agent-side binding as the model-config view reports it: the persisted
+// choice, its CAS version, and a safe summary of the profile it names. The
+// choice takes effect for the next execution; a running turn keeps the
+// context it started with.
+export interface AgentRuntimeAuthBinding {
+    profileId: string | null
+    bindingVersion: number
+    effectiveFor: 'next-execution'
+    profile: {
+        id: string
+        label: string
+        lifecycle: RuntimeAuthLifecycle
+        credentialStatus: RuntimeAuthCredentialStatus
+        identity: RuntimeAccountIdentity | null
+    } | null
+}
+
+export interface UpdateAgentRuntimeAuthBody {
+    profileId: string | null
+    expectedBindingVersion: number
+    // Switching a platform agent onto a profile is one transaction: the
+    // source flips to runtime-local together with the binding.
+    modelConfigSource?: 'runtime-local'
+}
+
 // ---- host (daemon) contract ------------------------------------------------
 // Payloads name the profile by ids only; the host derives every path from its
 // own config root and refuses ids that do not parse.
@@ -273,6 +308,16 @@ export interface DaemonAuthLogoutResponse {
 
 export interface DaemonAuthOperationPayload {
     operationId: string
+}
+
+// Rides on exec.start / pty.open / model.inspect: the host resolves the
+// profile's context itself, strips every ambient vendor variable, and holds
+// the profile lock for the process's lifetime.
+export interface DaemonAuthContextRef {
+    framework: ConfigurableFramework
+    runtimeId: string
+    profileId: string
+    bindingVersion: number
 }
 
 export interface DaemonAuthOperationRecord {

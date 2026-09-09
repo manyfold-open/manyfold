@@ -199,6 +199,7 @@ export const apiPaths = {
         `/agent-runtimes/${id}/default-auth`,
     RUNTIME_AUTH_OPERATION_BY_ID: (operationId: string) =>
         `/runtime-auth-operations/${operationId}`,
+    AGENT_RUNTIME_AUTH: (agentId: string) => `/agents/${agentId}/runtime-auth`,
     SANDBOXES: '/sandboxes',
     SANDBOX_BY_ID: (id: string) => `/sandboxes/${id}`,
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,

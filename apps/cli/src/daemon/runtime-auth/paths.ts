@@ -84,7 +84,8 @@ export const profilePaths = (
 export const operationPath = (
     scope: RuntimeAuthScope,
     operationId: string
-): string => join(operationsDir(scope), `${assertOperationId(operationId)}.json`)
+): string =>
+    join(operationsDir(scope), `${assertOperationId(operationId)}.json`)
 
 // The framework dirs a profile view stands in for. The view IS the config
 // dir for claude/codex and the HOME for gemini (which appends .gemini).

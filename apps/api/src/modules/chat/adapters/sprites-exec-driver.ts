@@ -18,6 +18,8 @@ import type {
 } from './exec-driver'
 import { observedResult } from './exec-driver'
 import type { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
+import { RUNTIME_AUTH_ERROR } from '@manyfold/shared'
+import type { DaemonAuthContextRef } from '@manyfold/shared'
 import {
     MF_SHELL_ENV_START,
     MF_SHELL_ENV_END
@@ -56,7 +58,7 @@ export const wrapSpriteCommand = (
     // the real home — only codex inherits HOME=<workspace>, and CODEX_HOME keeps
     // its config/auth/sessions in the real `~/.codex`.
     const execPrefix = codexHome
-        ? `env HOME=${shellQuote(codexHome)} CODEX_HOME="$HOME/.codex" `
+        ? `env HOME=${shellQuote(codexHome)} CODEX_HOME="\${CODEX_HOME:-$HOME/.codex}" `
         : ''
     return [
         'bash',
@@ -69,6 +71,11 @@ export interface SpritesExecDriverDeps {
     sessionRegistry: SpritesSessionRegistry
     agentId: string
     env?: Record<string, string>
+    // A profile-bound agent cannot run over bare sprite exec: no host code
+    // resolves the credential context there, and falling back to the
+    // sprite's native sign-in would silently answer as another account.
+    // The runner transport (DaemonExecDriver) carries the selection instead.
+    authContext?: DaemonAuthContextRef | null
 }
 
 // sprites.dev kills a non-TTY exec 10s after its WSS client disconnects
@@ -137,6 +144,10 @@ export class SpritesExecDriver implements ExecDriver {
     ) {}
 
     stream(req: ExecStreamRequest): ExecStreamHandle {
+        if (this.deps?.authContext)
+            throw new Error(
+                `${RUNTIME_AUTH_ERROR.contextUnsupported}: this sandbox has no sprite runner to run the selected auth profile; bring the runner up or switch the agent back to the sandbox's own sign-in`
+            )
         const env = mergeEnv(this.deps?.env, req.env)
         const handle = execSpriteStream(
             this.client,

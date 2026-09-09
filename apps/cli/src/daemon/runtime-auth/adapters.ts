@@ -147,7 +147,11 @@ const claudeAdapter: RuntimeAuthAdapter = {
                 const parsed: unknown = JSON.parse(
                     await readFile(join(homedir(), '.claude.json'), 'utf8')
                 )
-                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+                if (
+                    parsed &&
+                    typeof parsed === 'object' &&
+                    !Array.isArray(parsed)
+                )
                     base = parsed as Record<string, unknown>
             } catch {}
             const { oauthAccount: _drop, ...rest } = base
@@ -169,7 +173,9 @@ const claudeAdapter: RuntimeAuthAdapter = {
     },
     async logout(viewDir, env) {
         const result = await runCli(['claude', 'auth', 'logout'], env)
-        const fileRemoved = await removeIfPresent(join(viewDir, '.credentials.json'))
+        const fileRemoved = await removeIfPresent(
+            join(viewDir, '.credentials.json')
+        )
         return {
             signedOut: result.code === 0 || fileRemoved,
             revoke: 'unknown',
@@ -216,7 +222,13 @@ const codexAdapter: RuntimeAuthAdapter = {
             await link(viewDir, native, file, 'file')
     },
     env(viewDir) {
-        return runtimeAuthProfileEnv('codex', viewDir)
+        // Measured on codex 0.153.4 [2026-09-09]: CODEX_SQLITE_HOME is read as
+        // the default for `sqlite_home`, so the six state databases stay in
+        // the native home without touching argv or config.
+        return {
+            ...runtimeAuthProfileEnv('codex', viewDir),
+            CODEX_SQLITE_HOME: codexHomeDir()
+        }
     },
     loginArgv() {
         return ['codex', 'login', '--device-auth']
@@ -250,7 +262,12 @@ const geminiAdapter: RuntimeAuthAdapter = {
             await link(geminiDir, native, dir, 'dir')
         // projects.json is rewritten by rename → per view. `.env` is an
         // ambient key source and deliberately not linked.
-        for (const file of ['settings.json', 'state.json', 'GEMINI.md', 'installation_id'])
+        for (const file of [
+            'settings.json',
+            'state.json',
+            'GEMINI.md',
+            'installation_id'
+        ])
             await link(geminiDir, native, file, 'file')
     },
     env(viewDir, authMethod) {
@@ -281,7 +298,9 @@ const geminiAdapter: RuntimeAuthAdapter = {
             'gemini-credentials.json',
             'google_accounts.json'
         ])
-            removed = (await removeIfPresent(join(viewDir, '.gemini', file))) || removed
+            removed =
+                (await removeIfPresent(join(viewDir, '.gemini', file))) ||
+                removed
         return { signedOut: true, revoke: 'local-only', error: null }
     }
 }
