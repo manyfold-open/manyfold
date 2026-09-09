@@ -67,6 +67,15 @@ import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-se
 
 const RPC_TIMEOUT_MS = 20_000
 const LOGOUT_TIMEOUT_MS = 45_000
+// The terminal socket closes before the sign-in shell has exited: the daemon
+// only journals the verdict from the PTY's exit handler, so the first read
+// after a close usually still says running. Seen on a local daemon
+// [2026-09-09]: terminal.closed at .0xx, journal failed at .126 — the verdict
+// was 100 ms behind the close and the row stayed running for good.
+const SETTLE_POLL_MS = 250
+const SETTLE_WAIT_MS = 8_000
+const settled = (status: string): boolean =>
+    status !== 'pending' && status !== 'running'
 const MAX_ERROR_CHARS = 300
 const MAX_IDENTITY_CHARS = 200
 
@@ -511,6 +520,20 @@ export class RuntimeAuthProfilesService {
                 code: RUNTIME_AUTH_ERROR.notFound,
                 message: 'operation not found'
             })
+        // A login still open in the database may already be decided on the
+        // host (the close-time reconcile read the journal too early). One
+        // read, no wait: the poller behind this call supplies the cadence.
+        if (row.kind === 'login' && !settled(row.status)) {
+            const healed = await this.syncLoginFromHost(userId, row, 0).catch(
+                (err) => {
+                    this.log.warn(
+                        `login operation sync skipped operation=${row.id}: ${(err as Error).message}`
+                    )
+                    return null
+                }
+            )
+            if (healed) return this.operationView(healed)
+        }
         return this.operationView(row)
     }
 
@@ -713,34 +736,7 @@ export class RuntimeAuthProfilesService {
             .limit(1)
         if (!operation || operation.userId !== userId) return
         try {
-            const runtime = await this.requireRuntime(userId, operation.runtimeId)
-            const row = await this.requireProfile(runtime, operation.profileId)
-            const host = await this.requireHost(runtime)
-            const record = await this.rpc<DaemonAuthOperationRecord>(
-                host,
-                'auth.operation',
-                { runtimeId: runtime.id, operationId }
-            )
-            await this.finishOperation(operation.id, {
-                status: record.status,
-                resultCode: record.resultCode,
-                error: record.error
-            })
-            if (record.status === 'succeeded') {
-                await this.db
-                    .update(runtimeAuthProfiles)
-                    .set({
-                        lifecycle: 'ready',
-                        lastErrorCode: null,
-                        updatedAt: new Date()
-                    })
-                    .where(eq(runtimeAuthProfiles.id, row.id))
-                await this.inspect(userId, runtime.id, row.id).catch((err) =>
-                    this.log.warn(
-                        `post-login inspect failed profile=${row.id}: ${(err as Error).message}`
-                    )
-                )
-            }
+            await this.syncLoginFromHost(userId, operation, SETTLE_WAIT_MS)
         } catch (err) {
             this.log.warn(
                 `login reconcile failed operation=${operationId}: ${(err as Error).message}`
@@ -751,6 +747,55 @@ export class RuntimeAuthProfilesService {
                 error: ((err as Error).message || String(err)).slice(0, MAX_ERROR_CHARS)
             })
         }
+    }
+
+    // Reads the host's journal for a login until it carries a verdict (or
+    // waitMs runs out) and folds that verdict into the row. Returns the
+    // updated row, or null when the host still says running.
+    private async syncLoginFromHost(
+        userId: string,
+        operation: RuntimeAuthOperationRow,
+        waitMs: number
+    ): Promise<RuntimeAuthOperationRow | null> {
+        const runtime = await this.requireRuntime(userId, operation.runtimeId)
+        const row = await this.requireProfile(runtime, operation.profileId)
+        const host = await this.requireHost(runtime)
+        const deadline = Date.now() + waitMs
+        let record = await this.rpc<DaemonAuthOperationRecord>(
+            host,
+            'auth.operation',
+            { runtimeId: runtime.id, operationId: operation.id }
+        )
+        while (!settled(record.status) && Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
+            record = await this.rpc<DaemonAuthOperationRecord>(
+                host,
+                'auth.operation',
+                { runtimeId: runtime.id, operationId: operation.id }
+            )
+        }
+        if (!settled(record.status)) return null
+        const updated = await this.finishOperation(operation.id, {
+            status: record.status,
+            resultCode: record.resultCode,
+            error: record.error
+        })
+        if (record.status === 'succeeded') {
+            await this.db
+                .update(runtimeAuthProfiles)
+                .set({
+                    lifecycle: 'ready',
+                    lastErrorCode: null,
+                    updatedAt: new Date()
+                })
+                .where(eq(runtimeAuthProfiles.id, row.id))
+            await this.inspect(userId, runtime.id, row.id).catch((err) =>
+                this.log.warn(
+                    `post-login inspect failed profile=${row.id}: ${(err as Error).message}`
+                )
+            )
+        }
+        return updated
     }
 
     async logout(
