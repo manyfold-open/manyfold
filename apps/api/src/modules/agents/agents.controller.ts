@@ -518,8 +518,6 @@ export const boundAgentIdFromUser = (user: AuthPrincipal): string | undefined =>
     // principals keep their existing (broad) behaviour.
     if (user.kind === 'agent-runtime')
         return user.accountScope ? undefined : user.agentId
-    if (user.kind === 'legacy-runtime' && user.enforceAgentBinding)
-        return user.agentId
     return undefined
 }
 

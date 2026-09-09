@@ -71,6 +71,13 @@
       "when": 1788979976126,
       "tag": "0009_runtime_auth_profiles",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1788992412000,
+      "tag": "0010_phase8_user_grant_retirement",
+      "breakpoints": true
     }
   ]
 }

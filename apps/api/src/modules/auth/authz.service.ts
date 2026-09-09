@@ -1,10 +1,8 @@
 import {
     ApiTokenScope,
-    auditAction,
     isApiTokenScope,
     isGrantableScope
 } from '@manyfold/shared'
-import { randomUUID } from 'node:crypto'
 import {
     ForbiddenException,
     Inject,
@@ -13,7 +11,7 @@ import {
     type ExecutionContext
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { agentPermissions, agents, auditLogs, type Database } from '@manyfold/db'
+import { agentPermissions, agents, type Database } from '@manyfold/db'
 import { and, eq } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
 import {
@@ -239,35 +237,9 @@ export class AuthzService {
         await this.assertAgentOwnedByUser(resolution.subjectAgentId, userId)
     }
 
-    async recordCrossAgentUse(args: {
-        tokenId: string
-        userId: string
-        fromAgent: string
-        toAgent: string
-        scopes: readonly string[]
-        endpoint: string
-    }): Promise<void> {
-        try {
-            await this.db.insert(auditLogs).values({
-                id: randomUUID(),
-                actorId: `apiToken:${args.tokenId}`,
-                action: auditAction.GRANT_CROSS_AGENT_USE,
-                subject: args.fromAgent,
-                meta: {
-                    userId: args.userId,
-                    tokenId: args.tokenId,
-                    fromAgent: args.fromAgent,
-                    toAgent: args.toAgent,
-                    scopes: args.scopes,
-                    endpoint: args.endpoint
-                }
-            })
-        } catch (error) {
-            this.log.warn(
-                `failed to record cross-agent use for token ${args.tokenId}: ${(error as Error).message}`
-            )
-        }
-    }
+    /** @deprecated Phase 8 removed the legacy cross-agent audit path. */
+    async recordCrossAgentUse(_args?: unknown): Promise<void> {}
+
 }
 
 const readParam = (

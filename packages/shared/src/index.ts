@@ -34,8 +34,6 @@ export {
     tokenCreatedViaValues
 } from './api-tokens'
 export type {
-    AddAgentGrantBody,
-    AgentGrantMintResponse,
     AgentPermissionsResponse,
     ApiTokenScope,
     ApiTokenSummary,
@@ -155,9 +153,6 @@ export type {
     CliLoginApproveResponse,
     CliLoginExchangeBody,
     CliLoginExchangeResponse,
-    CliLoginMode,
-    CliLoginPollBody,
-    CliLoginPollResponse,
     CliLoginSessionResponse,
     CliLoginSessionStatus,
     CliLoginStartBody,

@@ -32,14 +32,6 @@ export interface SdkUserSummary {
 
 export interface CliLoginStartBody {
     redirectUri?: string
-    /**
-     * @deprecated The device-code grant flow is retired: the API answers 410
-     * with upgrade guidance whenever either field is present. Kept so
-     * pre-removal CLI binaries parse cleanly; Phase 8 removes both.
-     */
-    requestedScopes?: string[]
-    /** @deprecated See requestedScopes. */
-    requestedAgentId?: string
 }
 
 export interface CliLoginStartResponse {
@@ -47,26 +39,17 @@ export interface CliLoginStartResponse {
     userCode: string
     authUrl: string
     expiresAt: string
-    /**
-     * @deprecated Only the retired grant flow ever set it; the API no longer
-     * does. Phase 8 removes it.
-     */
-    deviceCode?: string
 }
 
 export interface CliLoginApproveBody {
     requestId: string
     userCode?: string
-    approvedScopes?: string[]
 }
 
-export type CliLoginMode = 'browser' | 'grant'
-
 export interface CliLoginApproveResponse {
-    authCode: string | null
+    authCode: string
     redirectUrl: string | null
     expiresAt: string
-    mode: CliLoginMode
 }
 
 export interface CliLoginExchangeBody {
@@ -78,26 +61,6 @@ export interface CliLoginExchangeResponse {
     expiresAt: string | null
 }
 
-/**
- * @deprecated The device-code grant flow is retired: /auth/cli/poll is a
- * tombstone that always answers 410 with upgrade guidance. Both types stay
- * only for that tombstone's signature; Phase 8 removes route and types.
- */
-export interface CliLoginPollBody {
-    deviceCode: string
-}
-
-/** @deprecated See CliLoginPollBody. */
-export type CliLoginPollResponse =
-    | { status: 'pending' }
-    | {
-          status: 'approved'
-          token: string
-          scopes: string[]
-          userEmail: string | null
-      }
-    | { status: 'expired' }
-
 export type CliLoginSessionStatus =
     | 'pending'
     | 'approved'
@@ -108,9 +71,6 @@ export interface CliLoginSessionResponse {
     requestId: string
     status: CliLoginSessionStatus
     expiresAt: string
-    isGrantMode: boolean
-    requestedScopes: string[] | null
-    requestedAgent: { id: string; name: string } | null
     hasRedirect: boolean
 }
 
@@ -205,7 +165,6 @@ export type AuthWhoamiResponse =
           role: UserRole
           agentId: string
           tokenId: string
-          enforceAgentBinding: boolean
           createdVia: TokenCreatedVia | null
       }
 

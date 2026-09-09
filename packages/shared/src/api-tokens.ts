@@ -383,7 +383,6 @@ export interface ApiTokenSummary {
     revokedAt: string | null
     createdAt: string
     agentId?: string | null
-    enforceAgentBinding: boolean
     createdVia: TokenCreatedVia | null
 }
 
@@ -400,7 +399,6 @@ export interface CreateApiTokenResponse {
 
 export interface AddAgentGrantBody {
     approvedScopes: GrantableScope[]
-    enforceAgentBinding?: boolean
     name?: string
 }
 
@@ -410,7 +408,6 @@ export interface AgentGrantMintResponse {
     agentId: string
     scopes: GrantableScope[]
     expiresAt: string | null
-    enforceAgentBinding: boolean
     createdVia: TokenCreatedVia
 }
 

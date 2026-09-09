@@ -38,7 +38,6 @@ import {
 } from 'drizzle-orm'
 import {
     a2aAgentGrants,
-    agentPermissions,
     agentRuntimeTokens,
     agents,
     apiTokens,
@@ -133,149 +132,6 @@ export class ApiTokenService {
             agentId: null,
             enforceAgentBinding: false,
             createdVia: null
-        }
-    }
-
-    async mintGrant(args: {
-        userId: string
-        agentId: string
-        scopes: GrantableScope[]
-        name?: string
-        createdVia: TokenCreatedVia
-        enforceAgentBinding: boolean
-        replaceExisting: boolean
-    }): Promise<MintedApiToken> {
-        return this.db.transaction((tx) => this.mintGrantInTx(tx, args))
-    }
-
-    async mintGrantInTx(
-        tx: ApiTokenGrantTx,
-        args: {
-            userId: string
-            agentId: string
-            scopes: GrantableScope[]
-            name?: string
-            createdVia: TokenCreatedVia
-            enforceAgentBinding: boolean
-            replaceExisting: boolean
-        }
-    ): Promise<MintedApiToken> {
-        const scopes = normalizeGrantableScopes(args.scopes)
-        if (!isTokenCreatedVia(args.createdVia))
-            throw new BadRequestException(
-                `unsupported createdVia: ${String(args.createdVia)}`
-            )
-
-        const [owned] = await tx
-            .select({ id: agents.id })
-            .from(agents)
-            .where(
-                and(
-                    eq(agents.id, args.agentId),
-                    eq(agents.userId, args.userId)
-                )
-            )
-            .limit(1)
-        if (!owned)
-            throw new NotFoundException(
-                'agent not owned by user or not found'
-            )
-
-        const [existing] = await tx
-            .select({ id: apiTokens.id })
-            .from(apiTokens)
-            .where(
-                and(
-                    eq(apiTokens.agentId, args.agentId),
-                    eq(apiTokens.tokenKind, 'user-grant'),
-                    isNull(apiTokens.revokedAt)
-                )
-            )
-            .limit(1)
-
-        if (existing) {
-            if (!args.replaceExisting) {
-                throw new ConflictException(
-                    `agent ${args.agentId} already has an active grant; revoke or reauthorize first`
-                )
-            }
-            await tx
-                .update(apiTokens)
-                .set({ revokedAt: new Date() })
-                .where(eq(apiTokens.id, existing.id))
-            await this.writeAuditInTx(tx, {
-                actorId: args.userId,
-                action: auditAction.GRANT_REVOKED,
-                subject: existing.id,
-                meta: {
-                    agentId: args.agentId,
-                    reason: 'replaced-by-new-grant'
-                }
-            })
-        }
-
-        const minted = await this.mint(
-            {
-                userId: args.userId,
-                name: args.name ?? `agent grant ${args.agentId}`,
-                scopes,
-                expiresInDays: undefined
-            },
-            tx
-        )
-
-        await tx
-            .update(apiTokens)
-            .set({
-                agentId: args.agentId,
-                enforceAgentBinding: args.enforceAgentBinding,
-                createdVia: args.createdVia
-            })
-            .where(eq(apiTokens.id, minted.tokenId))
-
-        await this.writeAuditInTx(tx, {
-            actorId: args.userId,
-            action: auditAction.GRANT_MINTED,
-            subject: minted.tokenId,
-            meta: {
-                agentId: args.agentId,
-                scopes,
-                createdVia: args.createdVia,
-                enforceAgentBinding: args.enforceAgentBinding
-            }
-        })
-
-        // Phase 3c dual-write: the agent's capability set also lands in
-        // agent_permissions (one row per agent, UPSERT), the authoritative
-        // source once the agent authenticates as agent-runtime (Phase 5b). The
-        // legacy api_tokens grant above stays the compat bearer until Phase 8.
-        // SET semantics mirror today's replace-grant; the incremental (append)
-        // request-permission flow is a separate later path. scopes are already
-        // GrantableScope[] (normalized), so api.full/chat.completions cannot
-        // appear here by construction (§2.5 write path).
-        await tx
-            .insert(agentPermissions)
-            .values({
-                id: createObjectId('agentPermission'),
-                agentId: args.agentId,
-                userId: args.userId,
-                scopes,
-                grantedBy: args.userId
-            })
-            .onConflictDoUpdate({
-                target: agentPermissions.agentId,
-                set: {
-                    scopes,
-                    grantedBy: args.userId,
-                    updatedAt: new Date()
-                }
-            })
-
-        return {
-            ...minted,
-            agentId: args.agentId,
-            enforceAgentBinding: args.enforceAgentBinding,
-            createdVia: args.createdVia
         }
     }
 
@@ -395,7 +251,6 @@ export class ApiTokenService {
             .set({
                 agentId: args.targetAgentId,
                 callerAgentId,
-                enforceAgentBinding: true,
                 tokenKind: 'a2a-grant',
                 createdVia: 'api'
             })
@@ -845,7 +700,6 @@ export class ApiTokenService {
                     agentId: apiTokens.agentId,
                     callerAgentId: apiTokens.callerAgentId,
                     scopes: apiTokens.scopes,
-                    enforceAgentBinding: apiTokens.enforceAgentBinding,
                     createdVia: apiTokens.createdVia,
                     tokenKind: apiTokens.tokenKind,
                     expiresAt: apiTokens.expiresAt,
@@ -900,13 +754,6 @@ export class ApiTokenService {
         if (apiRow.expiresAt && apiRow.expiresAt < new Date())
             throw new UnauthorizedException('api token expired')
 
-        // Data-integrity invariant (no DB CHECK enforces it): a row may not
-        // claim enforce_agent_binding=true without an agent_id. Fail loud here —
-        // the union below would otherwise silently classify it as a plain PAT.
-        if (apiRow.enforceAgentBinding && !apiRow.agentId)
-            throw new UnauthorizedException(
-                'bound token has enforce_agent_binding=true but no agent_id'
-            )
         // Same class of invariant: the kind is mint-retired and every real
         // a2a-ephemeral row carried a 15-minute expiry, so one that passes
         // the expiry gate above can only be a hand-written row. Fail loud
@@ -932,7 +779,6 @@ export class ApiTokenService {
                   tokenId: apiRow.id,
                   scopes,
                   callerAgentId: apiRow.callerAgentId,
-                  enforceAgentBinding: apiRow.enforceAgentBinding,
                   createdVia,
                   tokenKind: apiRow.tokenKind
               }
@@ -973,7 +819,6 @@ export class ApiTokenService {
                 name: apiTokens.name,
                 scopes: apiTokens.scopes,
                 agentId: apiTokens.agentId,
-                enforceAgentBinding: apiTokens.enforceAgentBinding,
                 createdVia: apiTokens.createdVia,
                 lastUsedAt: apiTokens.lastUsedAt,
                 expiresAt: apiTokens.expiresAt,
@@ -1275,7 +1120,6 @@ type ApiTokenSummaryRow = {
     name: string
     scopes: unknown
     agentId?: string | null
-    enforceAgentBinding?: boolean
     createdVia?: string | null
     lastUsedAt: Date | null
     expiresAt: Date | null
@@ -1290,7 +1134,6 @@ export const apiTokenSummaryFromRow = (
     name: row.name,
     scopes: normalizeStoredScopes(row.scopes),
     agentId: row.agentId ?? null,
-    enforceAgentBinding: row.enforceAgentBinding ?? false,
     createdVia: isTokenCreatedVia(row.createdVia) ? row.createdVia : null,
     lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
     expiresAt: row.expiresAt?.toISOString() ?? null,

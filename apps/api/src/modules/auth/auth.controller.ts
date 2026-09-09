@@ -142,7 +142,6 @@ export class AuthController {
                 kind: user.kind,
                 agentId: user.agentId,
                 tokenId: user.tokenId,
-                enforceAgentBinding: user.enforceAgentBinding,
                 createdVia: user.createdVia
             }
         return { ...base, kind: user.kind }

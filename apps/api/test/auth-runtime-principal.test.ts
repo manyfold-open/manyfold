@@ -708,12 +708,7 @@ test('verify hard-fails when the same hash resolves in both tables', async () =>
     )
 })
 
-test('verify hard-fails when a row sets enforce_agent_binding without agent_id', async () => {
-    // Data-integrity invariant (no DB CHECK enforces it): a row may not claim
-    // enforce_agent_binding=true with a null agent_id. verify() fails loud
-    // rather than silently classifying it as a plain human-api-token. (This
-    // moved up from the AuthGuard, which can no longer receive such a principal
-    // — the legacy-runtime arm always carries a non-null agentId.)
+test('verify ignores the retired enforce_agent_binding field on personal tokens', async () => {
     const db = new VerifyFakeDb()
     db.apiRows = [
         {
@@ -730,10 +725,8 @@ test('verify hard-fails when a row sets enforce_agent_binding without agent_id',
         }
     ]
 
-    await assert.rejects(
-        () => svcWith(db).verify('nca_bad_state'),
-        /no agent_id/
-    )
+    const auth = await svcWith(db).verify('nca_bad_state')
+    assert.equal(auth.kind, 'human-api-token')
 })
 
 test('verify rejects a revoked runtime token', async () => {
