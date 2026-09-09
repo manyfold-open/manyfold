@@ -95,10 +95,14 @@ test('sign-in card hides for platform source and non-coding frameworks', () => {
     assert.equal(shouldShowRuntimeSignIn(null), false)
 })
 
+// The claude literal is pinned whole on purpose: dropping the `cat |` puts
+// claude back in charge of the tty, and it reads the pasted code without
+// echoing a single byte of it (see the note in lib/runtimeSignIn.ts), which
+// is invisible to any rendering test.
 test('per-framework sign-in commands cover exactly the coding CLIs', () => {
     assert.equal(
         runtimeSignInCommandFor('claude-code'),
-        'claude auth login --claudeai'
+        'cat | claude auth login --claudeai'
     )
     assert.equal(runtimeSignInCommandFor('codex'), 'codex login --device-auth')
     assert.equal(runtimeSignInCommandFor('gemini-cli'), 'NO_BROWSER=true gemini')
