@@ -1,12 +1,13 @@
 import type { VersionedFramework } from '@manyfold/shared'
 import { isVersionedFramework } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import EmptyState from '@/components/EmptyState'
 import FrameworkInstallGuide from '@/components/FrameworkInstallGuide'
 import { Ghost } from '@/components/Loading'
 import { StatusTag, type TagTone } from '@/components/Tag'
+import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import {
     AgentIcon,
@@ -30,8 +31,8 @@ import {
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
 import {
+    blockerStatus,
     buildUpdateRows,
-    displayStatus,
     filterRowsByKind,
     groupUpdateRows,
     parseKindParam,
@@ -84,16 +85,53 @@ const targetIcons: Record<UpdateTargetKind, LucideIcon> = {
     agent: AgentIcon
 }
 
-const VersionCell: FC<{ row: UpdateRow }> = ({ row }): ReactNode => {
+const FromCell: FC<{ row: UpdateRow }> = ({ row }): ReactNode => {
     const { t } = useI18n()
     return (
-        <span className='font-mono text-sm whitespace-nowrap'>
-            <span className='text-muted'>
-                {row.installedVersion ?? t('web.updates.versionUnknown')}
-            </span>
-            <span className='text-subtle px-1.5'>→</span>
-            <span className='text-fg'>{row.latestVersion ?? '—'}</span>
+        <span className='text-muted text-ui font-mono whitespace-nowrap'>
+            {row.installedVersion ?? t('web.updates.versionUnknown')}
         </span>
+    )
+}
+
+// A picker only when there is something to pick between; one option is not a
+// choice, it is the answer. The `bare` variant is the one select that costs no
+// row height (§8.9: py-0.5 with a cancelling -my-0.5), which is what lets the
+// target sit inline in a table cell instead of boxing every row.
+const ToCell: FC<{
+    row: UpdateRow
+    value: string | null
+    disabled: boolean
+    onPick: (version: string) => void
+}> = ({ row, value, disabled, onPick }): ReactNode => {
+    const { t } = useI18n()
+    if (row.targetChoices.length < 2)
+        return (
+            <span className='text-fg text-ui font-mono whitespace-nowrap'>
+                {value ?? '—'}
+            </span>
+        )
+    return (
+        <WorkbenchSelect
+            bare
+            mono
+            // Sized to a version plus its chevron rather than to the column:
+            // `bare` justifies the two apart, so a wider box just opens a gap
+            // between the value and the control that changes it. A long dev
+            // build truncates here and reads in full in the menu.
+            className='w-24'
+            menuClassName='min-w-44'
+            ariaLabel={t('web.updates.pickTarget', {
+                name: `${row.subjectLabel} · ${row.targetLabel}`
+            })}
+            disabled={disabled}
+            value={value ?? ''}
+            options={row.targetChoices.map((version) => ({
+                value: version,
+                label: version
+            }))}
+            onChange={onPick}
+        />
     )
 }
 
@@ -111,56 +149,43 @@ const RowStatus: FC<{ row: UpdateRow; run: RowRun | undefined }> = ({
                   : run.state === 'running'
                     ? 'info'
                     : 'idle'
-        const detail =
-            run.detail === null
-                ? null
-                : run.detail.kind === 'waiting'
-                  ? t('web.updates.run.waiting')
-                  : run.detail.kind === 'phase'
-                    ? run.detail.phase.replace(/_/g, ' ')
-                    : run.detail.text
         return (
-            <span className='flex flex-col items-start gap-1'>
-                <StatusTag
-                    tone={tone}
-                    pulse={run.state === 'running'}
-                    label={t(`web.updates.run.${run.state}`)}
-                />
-                {detail && (
-                    <span
-                        className={[
-                            'text-caption',
-                            run.state === 'failed' ? 'text-error' : 'text-muted'
-                        ].join(' ')}
-                    >
-                        {detail}
-                    </span>
-                )}
-            </span>
+            <StatusTag
+                tone={tone}
+                pulse={run.state === 'running'}
+                label={t(`web.updates.run.${run.state}`)}
+            />
         )
     }
-    const status = displayStatus(row)
-    // A required row that nobody can drive from here still has to say so: the
-    // tag carries the urgency, the caption carries how it gets done.
-    const aside =
-        status === 'required' && row.blocker !== null
-            ? t(
-                  row.blocker === 'offline'
-                      ? 'web.updates.statusOffline'
-                      : 'web.updates.statusManual'
-              )
-            : null
-    return (
-        <span className='flex flex-col items-start gap-1'>
-            <StatusTag tone={statusTones[status]} label={t(statusLabelKeys[status])} />
-            {aside && <span className='text-caption text-muted'>{aside}</span>}
-            {row.blockedReason && (
-                <span className='text-caption text-error'>
-                    {row.blockedReason}
-                </span>
-            )}
-        </span>
-    )
+    // One tag, two axes. The tone answers "how urgent" and the label answers
+    // "what is in the way", which is why severity has to override the
+    // blocker's own tone instead of picking one of the two facts to drop.
+    const status = blockerStatus(row)
+    const tone: TagTone =
+        row.severity === 'required' ? 'error' : statusTones[status]
+    return <StatusTag tone={tone} label={t(statusLabelKeys[status])} />
+}
+
+// The long-form half of a row's state, rendered in a row of its own beneath it.
+// It used to live in the ~120px Status cell, where a sentence stretched the row
+// and squeezed every other column; from a full-width cell it structurally
+// cannot, and a row with nothing to say costs no extra markup at all.
+const rowDetail = (
+    row: UpdateRow,
+    run: RowRun | undefined,
+    t: TFn
+): { text: string; error: boolean } | null => {
+    if (run) {
+        if (run.detail === null) return null
+        if (run.detail.kind === 'waiting')
+            return { text: t('web.updates.run.waiting'), error: false }
+        if (run.detail.kind === 'phase')
+            return { text: run.detail.phase.replace(/_/g, ' '), error: false }
+        return { text: run.detail.text, error: run.state === 'failed' }
+    }
+    // Names the blocked range the INSTALLED version sits inside, which is why
+    // the row is required rather than merely available.
+    return row.blockedReason ? { text: row.blockedReason, error: true } : null
 }
 
 const RowAction: FC<{
@@ -176,7 +201,7 @@ const RowAction: FC<{
                 <button
                     type='button'
                     onClick={() => onGuide(row)}
-                    className='workbench-button-secondary'
+                    className='workbench-button-secondary h-8 px-3'
                 >
                     {/* The ellipsis is the product's mark for "opens a dialog";
                         without it this reads as the button that runs the
@@ -200,7 +225,7 @@ const RowAction: FC<{
             type='button'
             disabled={busy}
             onClick={() => onRun(row)}
-            className='workbench-button-secondary'
+            className='workbench-button-secondary h-8 px-3'
         >
             {t('web.updates.updateOne')}
         </button>
@@ -214,6 +239,10 @@ const UpdateCenter: FC = (): ReactNode => {
     const { inputs, loaded, loading, error, refresh } = useUpdateCenterData(true)
     const gate = useLoadingGate(loading && !loaded)
     const [selected, setSelected] = useState<Set<string>>(new Set())
+    // Picked target versions, keyed by row id. Deliberately not part of the
+    // row: buildUpdateRows is memoized on `inputs`, and choosing a version
+    // must not rebuild the table.
+    const [targets, setTargets] = useState<Record<string, string>>({})
     const [guideRow, setGuideRow] = useState<UpdateRow | null>(null)
     const runs = useUpdateRuns()
     const batch = useUpdateBatch()
@@ -270,12 +299,26 @@ const UpdateCenter: FC = (): ReactNode => {
 
     // A row that finished, or vanished because its update landed, must not stay
     // selected — the next batch would then plan work for an id nobody renders.
+    // A pick is dropped on the same event, plus when the refreshed catalog no
+    // longer offers it: a release withdrawn mid-session would otherwise leave
+    // the row pointing at a version the server will refuse.
     useEffect(() => {
         setSelected((prev) => {
             if (prev.size === 0) return prev
             const live = new Set(allRows.map((r) => r.id))
             const next = new Set([...prev].filter((id) => live.has(id)))
             return next.size === prev.size ? prev : next
+        })
+        setTargets((prev) => {
+            const entries = Object.entries(prev)
+            if (entries.length === 0) return prev
+            const byId = new Map(allRows.map((r) => [r.id, r]))
+            const kept = entries.filter(([id, version]) =>
+                byId.get(id)?.targetChoices.includes(version)
+            )
+            return kept.length === entries.length
+                ? prev
+                : Object.fromEntries(kept)
         })
     }, [allRows])
 
@@ -320,15 +363,20 @@ const UpdateCenter: FC = (): ReactNode => {
             return next
         })
 
+    const targetOf = (row: UpdateRow): string | null =>
+        targets[row.id] ?? row.latestVersion
+    const pickTarget = (row: UpdateRow, version: string): void =>
+        setTargets((prev) => ({ ...prev, [row.id]: version }))
+
     const runSelected = (): void => {
         updateRunStore.start(
             client,
-            planBatch(selectedRows),
+            planBatch(selectedRows, targets),
             selectedRows.filter((r) => r.blocker === null).map((r) => r.id)
         )
     }
     const runOne = (row: UpdateRow): void => {
-        updateRunStore.start(client, planBatch([row]), [row.id])
+        updateRunStore.start(client, planBatch([row], targets), [row.id])
     }
 
     const clearKindFilter = (): void => {
@@ -347,11 +395,11 @@ const UpdateCenter: FC = (): ReactNode => {
             : null
 
     return (
-        <div className='workbench-page'>
-            <div className='mb-6 flex items-start justify-between gap-4'>
+        <div className='workbench-page-wide'>
+            <div className='mb-4 flex items-start justify-between gap-4'>
                 <div>
-                    <h1 className='text-h1 text-fg'>{t('web.updates.title')}</h1>
-                    <p className='text-ui text-muted mt-1.5'>
+                    <h1 className='text-h2 text-fg'>{t('web.updates.title')}</h1>
+                    <p className='text-caption text-muted mt-1'>
                         {t('web.updates.subtitle')}
                     </p>
                 </div>
@@ -381,7 +429,7 @@ const UpdateCenter: FC = (): ReactNode => {
 
             {error && <div className='workbench-alert-error mb-5'>{error}</div>}
 
-            <div className='mb-3 flex flex-wrap items-center gap-3'>
+            <div className='mb-2 flex flex-wrap items-center gap-x-3 gap-y-1.5'>
                 <GroupByControl
                     value={groupBy}
                     onChange={setGroupBy}
@@ -447,10 +495,10 @@ const UpdateCenter: FC = (): ReactNode => {
             ) : (
                 <div className='workbench-table-shell' aria-busy={showGhosts}>
                     <div className='overflow-x-auto'>
-                        <table className='workbench-table min-w-[760px]'>
+                        <table className='workbench-table min-w-[880px]'>
                             <thead className='workbench-table-head'>
                                 <tr className='text-caption text-muted'>
-                                    <th className='w-10 px-4 py-3'>
+                                    <th className='w-10 px-3 py-2'>
                                         <input
                                             type='checkbox'
                                             aria-label={t(
@@ -464,19 +512,22 @@ const UpdateCenter: FC = (): ReactNode => {
                                             onChange={toggleAll}
                                         />
                                     </th>
-                                    <th className='px-4 py-3 font-medium'>
+                                    <th className='px-3 py-2 font-medium'>
                                         {t('web.updates.colUpdate')}
                                     </th>
-                                    <th className='px-4 py-3 font-medium'>
+                                    <th className='px-3 py-2 font-medium'>
                                         {t('web.updates.colTarget')}
                                     </th>
-                                    <th className='px-4 py-3 font-medium'>
-                                        {t('web.updates.colVersion')}
+                                    <th className='px-3 py-2 font-medium'>
+                                        {t('web.updates.colFrom')}
                                     </th>
-                                    <th className='px-4 py-3 font-medium'>
+                                    <th className='px-3 py-2 font-medium'>
+                                        {t('web.updates.colTo')}
+                                    </th>
+                                    <th className='px-3 py-2 font-medium'>
                                         {t('web.updates.colStatus')}
                                     </th>
-                                    <th className='px-4 py-3 text-right font-medium'>
+                                    <th className='px-3 py-2 text-right font-medium'>
                                         <span className='sr-only'>
                                             {t('web.updates.colAction')}
                                         </span>
@@ -490,13 +541,13 @@ const UpdateCenter: FC = (): ReactNode => {
                                             key={`ghost-${row}`}
                                             className='border-divider/60 border-t'
                                         >
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
                                                     className='h-4 w-4'
                                                 />
                                             </td>
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
                                                 <span className='flex items-center gap-2'>
                                                     <Ghost
                                                         variant='circle'
@@ -512,7 +563,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                     />
                                                 </span>
                                             </td>
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
                                                     className={
@@ -520,19 +571,25 @@ const UpdateCenter: FC = (): ReactNode => {
                                                     }
                                                 />
                                             </td>
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
-                                                    className='w-28'
+                                                    className='w-16'
                                                 />
                                             </td>
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
+                                                <Ghost
+                                                    variant='cap'
+                                                    className='w-16'
+                                                />
+                                            </td>
+                                            <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
                                                     className='w-20'
                                                 />
                                             </td>
-                                            <td className='px-4 py-3'>
+                                            <td className='px-3 py-2'>
                                                 <Ghost
                                                     variant='cap'
                                                     className='ml-auto w-16'
@@ -551,7 +608,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                             {grouped && (
                                                 <tr className='border-divider/60 bg-surface-subtle border-t'>
                                                     <td
-                                                        colSpan={6}
+                                                        colSpan={7}
                                                         className='px-2 py-0'
                                                     >
                                                         <GroupHeader
@@ -579,108 +636,159 @@ const UpdateCenter: FC = (): ReactNode => {
                                                         targetIcons[
                                                             row.targetKind
                                                         ]
+                                                    const run = runs[row.id]
+                                                    const detail = rowDetail(
+                                                        row,
+                                                        run,
+                                                        t
+                                                    )
                                                     return (
-                                                        <tr
-                                                            key={row.id}
-                                                            className='text-ui text-fg border-divider/60 border-t'
-                                                        >
-                                                            <td className='px-4 py-3 align-top'>
-                                                                <input
-                                                                    type='checkbox'
-                                                                    aria-label={t(
-                                                                        'web.updates.selectRow',
-                                                                        {
-                                                                            name: `${row.subjectLabel} · ${row.targetLabel}`
-                                                                        }
-                                                                    )}
-                                                                    checked={selected.has(
-                                                                        row.id
-                                                                    )}
-                                                                    disabled={
-                                                                        running ||
-                                                                        row.blocker !==
-                                                                            null
-                                                                    }
-                                                                    onChange={() =>
-                                                                        toggleRow(
+                                                        <Fragment key={row.id}>
+                                                            <tr className='text-ui text-fg border-divider/60 border-t'>
+                                                                <td className='px-3 py-2 align-middle'>
+                                                                    <input
+                                                                        type='checkbox'
+                                                                        aria-label={t(
+                                                                            'web.updates.selectRow',
+                                                                            {
+                                                                                name: `${row.subjectLabel} · ${row.targetLabel}`
+                                                                            }
+                                                                        )}
+                                                                        checked={selected.has(
                                                                             row.id
-                                                                        )
-                                                                    }
-                                                                />
-                                                            </td>
-                                                            <td className='px-4 py-3 align-top'>
-                                                                <span className='flex items-center gap-2'>
-                                                                    {row.framework ? (
-                                                                        <FrameworkLogo
-                                                                            framework={
-                                                                                row.framework
-                                                                            }
-                                                                            size={
-                                                                                18
-                                                                            }
-                                                                        />
-                                                                    ) : (
-                                                                        <UpdatesIcon className='text-muted h-[18px] w-[18px] shrink-0' />
-                                                                    )}
-                                                                    <span className='min-w-0 truncate font-medium'>
-                                                                        {
-                                                                            row.subjectLabel
+                                                                        )}
+                                                                        disabled={
+                                                                            running ||
+                                                                            row.blocker !==
+                                                                                null
                                                                         }
-                                                                    </span>
-                                                                </span>
-                                                                {groupBy !==
-                                                                    'kind' && (
-                                                                    <span className='text-caption text-subtle mt-0.5 block'>
-                                                                        {t(
-                                                                            kindLabelKeys[
-                                                                                row
-                                                                                    .kind
-                                                                            ]
+                                                                        onChange={() =>
+                                                                            toggleRow(
+                                                                                row.id
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td className='px-3 py-2 align-middle'>
+                                                                    <span className='flex items-center gap-2'>
+                                                                        {row.framework ? (
+                                                                            <FrameworkLogo
+                                                                                framework={
+                                                                                    row.framework
+                                                                                }
+                                                                                size={
+                                                                                    18
+                                                                                }
+                                                                            />
+                                                                        ) : (
+                                                                            <UpdatesIcon className='text-muted h-[18px] w-[18px] shrink-0' />
+                                                                        )}
+                                                                        <span className='min-w-0 truncate font-medium'>
+                                                                            {
+                                                                                row.subjectLabel
+                                                                            }
+                                                                        </span>
+                                                                        {groupBy !==
+                                                                            'kind' && (
+                                                                            <span className='text-caption text-subtle shrink-0'>
+                                                                                {t(
+                                                                                    kindLabelKeys[
+                                                                                        row
+                                                                                            .kind
+                                                                                    ]
+                                                                                )}
+                                                                            </span>
                                                                         )}
                                                                     </span>
-                                                                )}
-                                                            </td>
-                                                            <td className='text-muted px-4 py-3 align-top'>
-                                                                <span className='flex items-center gap-2'>
-                                                                    <TargetIcon className='text-subtle h-4 w-4 shrink-0' />
-                                                                    <span className='min-w-0 truncate'>
-                                                                        {
-                                                                            row.targetLabel
-                                                                        }
+                                                                </td>
+                                                                <td className='text-muted px-3 py-2 align-middle'>
+                                                                    <span className='flex items-center gap-2'>
+                                                                        <TargetIcon className='text-subtle h-4 w-4 shrink-0' />
+                                                                        <span className='min-w-0 truncate'>
+                                                                            {
+                                                                                row.targetLabel
+                                                                            }
+                                                                        </span>
                                                                     </span>
-                                                                </span>
-                                                            </td>
-                                                            <td className='px-4 py-3 align-top'>
-                                                                <VersionCell
-                                                                    row={row}
-                                                                />
-                                                            </td>
-                                                            <td className='px-4 py-3 align-top'>
-                                                                <RowStatus
-                                                                    row={row}
-                                                                    run={
-                                                                        runs[
+                                                                </td>
+                                                                <td className='px-3 py-2 align-middle'>
+                                                                    <FromCell
+                                                                        row={
                                                                             row
-                                                                                .id
-                                                                        ]
-                                                                    }
-                                                                />
-                                                            </td>
-                                                            <td className='px-4 py-3 text-right align-top'>
-                                                                <RowAction
-                                                                    row={row}
-                                                                    busy={
-                                                                        running
-                                                                    }
-                                                                    onRun={
-                                                                        runOne
-                                                                    }
-                                                                    onGuide={
-                                                                        setGuideRow
-                                                                    }
-                                                                />
-                                                            </td>
-                                                        </tr>
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td className='px-3 py-2 align-middle'>
+                                                                    <ToCell
+                                                                        row={
+                                                                            row
+                                                                        }
+                                                                        value={targetOf(
+                                                                            row
+                                                                        )}
+                                                                        disabled={
+                                                                            running
+                                                                        }
+                                                                        onPick={(
+                                                                            version
+                                                                        ) =>
+                                                                            pickTarget(
+                                                                                row,
+                                                                                version
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td className='px-3 py-2 align-middle'>
+                                                                    <RowStatus
+                                                                        row={
+                                                                            row
+                                                                        }
+                                                                        run={
+                                                                            run
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                                <td className='px-3 py-2 text-right align-middle'>
+                                                                    <RowAction
+                                                                        row={
+                                                                            row
+                                                                        }
+                                                                        busy={
+                                                                            running
+                                                                        }
+                                                                        onRun={
+                                                                            runOne
+                                                                        }
+                                                                        onGuide={
+                                                                            setGuideRow
+                                                                        }
+                                                                    />
+                                                                </td>
+                                                            </tr>
+                                                            {detail && (
+                                                                <tr className='border-none'>
+                                                                    <td />
+                                                                    <td
+                                                                        colSpan={
+                                                                            6
+                                                                        }
+                                                                        className={[
+                                                                            'text-caption px-3 pt-0 pb-2',
+                                                                            detail.error
+                                                                                ? 'text-error'
+                                                                                : 'text-muted'
+                                                                        ].join(
+                                                                            ' '
+                                                                        )}
+                                                                    >
+                                                                        {
+                                                                            detail.text
+                                                                        }
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                        </Fragment>
                                                     )
                                                 })}
                                         </tbody>

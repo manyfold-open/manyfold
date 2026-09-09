@@ -15,11 +15,10 @@ import { GhostSettingsRows } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
-import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { UpdateBadge } from '@/components/UpdateBadge'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { docsHref } from '@/lib/docsLinks'
-import { updatesPath } from '@/lib/updateCenter'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { formatLocalDateTime } from '@/lib/usageFormat'
 
@@ -244,39 +243,16 @@ const LocalDaemons: FC = (): ReactNode => {
                                                     t('common.unknown')
                                             })}
                                         </span>
-                                        {h.updateAvailable &&
-                                            h.latestCliVersion &&
-                                            (h.canRemoteUpgrade ? (
-                                                <ShortcutTooltip
-                                                    label={t(
-                                                        'web.updates.reviewCta'
-                                                    )}
-                                                >
-                                                    <Link
-                                                        to={updatesPath('cli')}
-                                                        className='text-link ml-1 font-mono hover:underline'
-                                                    >
-                                                        ↑ {h.latestCliVersion}
-                                                    </Link>
-                                                </ShortcutTooltip>
-                                            ) : (
-                                                <ShortcutTooltip
-                                                    label={t(
-                                                        'web.selfOwned.upgradeBlockedTip'
-                                                    )}
-                                                >
-                                                    <span className='ml-1 font-mono'>
-                                                        →{' '}
-                                                        {t(
-                                                            'web.selfOwned.upgradeAvailableSuffix',
-                                                            {
-                                                                version:
-                                                                    h.latestCliVersion
-                                                            }
-                                                        )}
-                                                    </span>
-                                                </ShortcutTooltip>
-                                            ))}
+                                        {h.updateAvailable && (
+                                            <>
+                                                {' '}
+                                                <UpdateBadge
+                                                    latest={h.latestCliVersion}
+                                                    kind='cli'
+                                                    required={h.needsUpgrade}
+                                                />
+                                            </>
+                                        )}
                                         {' · '}
                                         {formatStartupMethod(
                                             h.startupMethod,
@@ -286,7 +262,13 @@ const LocalDaemons: FC = (): ReactNode => {
                                     <div className='settings-card-copy text-caption text-muted'>
                                         <DaemonFrameworkTags host={h} />
                                     </div>
-                                    {h.needsUpgrade && (
+                                    {/* Only for a machine the platform cannot
+                                        drive: then these commands ARE the
+                                        upgrade path, not a second copy of the
+                                        badge above. Where a remote upgrade
+                                        works, the badge is the whole
+                                        reminder. */}
+                                    {h.needsUpgrade && !h.canRemoteUpgrade && (
                                         <div className='bg-danger-bg text-fg shadow-ring-light mt-2 rounded-md px-3 py-2'>
                                             <div className='text-caption font-medium'>
                                                 {t(
@@ -321,21 +303,6 @@ const LocalDaemons: FC = (): ReactNode => {
                                                     )}{' '}
                                                     →
                                                 </a>
-                                                {h.canRemoteUpgrade && (
-                                                    <>
-                                                        {' · '}
-                                                        <Link
-                                                            to={updatesPath(
-                                                                'cli'
-                                                            )}
-                                                            className='text-link hover:underline'
-                                                        >
-                                                            {t(
-                                                                'web.updates.reviewCta'
-                                                            )}
-                                                        </Link>
-                                                    </>
-                                                )}
                                             </div>
                                         </div>
                                     )}

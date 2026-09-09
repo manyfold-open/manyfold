@@ -83,6 +83,7 @@ import SandboxNew from '@/pages/SandboxNew'
 import ExternalAgentProviders from '@/pages/Settings/ExternalAgentProviders'
 import LocalDaemons from '@/pages/Settings/LocalDaemons'
 import { SpriteStatusRefresh } from '@/components/SpriteStatusRefresh'
+import { UpdateBadge } from '@/components/UpdateBadge'
 
 type RuntimeKind = AgentRuntimeSummary['kind']
 type RuntimeStatus = AgentRuntimeSummary['status']
@@ -501,11 +502,15 @@ const HostRuntimeRow: FC<{
                                 ? `v${r.frameworkVersion}`
                                 : t('web.runtimeDetail.versionPending')}
                         </span>
-                        {upgradeAvailable && latest && (
-                            <span className='text-caption text-link'>
-                                ↑ v{latest}{' '}
-                                {t('web.agentRuntimesList.available')}
-                            </span>
+                        {upgradeAvailable && (
+                            // Not a link: the whole row is already a press
+                            // target, and the runtime page it opens carries a
+                            // linked badge of its own.
+                            <UpdateBadge
+                                latest={latest}
+                                kind='framework'
+                                linked={false}
+                            />
                         )}
                         {r.kind === 'daemon' && r.daemonOnline === false
                             ? daemonOnlineBadge(false)
@@ -758,12 +763,7 @@ const CliVersionValue: FC<{
             )}
             {latest &&
                 (updateAvailable || !current ? (
-                    <Link
-                        to={updatesPath('cli')}
-                        className='text-caption text-link hover:underline'
-                    >
-                        ↑ v{latest} {t('web.agentRuntimesList.available')}
-                    </Link>
+                    <UpdateBadge latest={latest} kind='cli' />
                 ) : (
                     <span className='text-caption text-subtle'>
                         {t('web.agentRuntimesList.latest')}
@@ -1200,14 +1200,13 @@ const HostDetailPanel: FC<{
         }
         let affordance: ReactNode = null
         if (h.updateAvailable && h.latestCliVersion) {
+            // Still a link: this machine cannot be driven from here, and the
+            // Update Center is where that gets said in full.
             affordance = (
                 <ShortcutTooltip
                     label={t('web.agentRuntimesList.remoteUpgradeHint')}
                 >
-                    <span className='text-subtle text-caption'>
-                        ↑ v{h.latestCliVersion}{' '}
-                        {t('web.agentRuntimesList.available')}
-                    </span>
+                    <UpdateBadge latest={h.latestCliVersion} kind='cli' />
                 </ShortcutTooltip>
             )
         } else if (h.latestCliVersion) {
@@ -1260,11 +1259,14 @@ const HostDetailPanel: FC<{
                 ) : (
                     <Tag>{t('web.agentRuntimesList.versionUnknown')}</Tag>
                 )}
-                {sb.latestCliVersion && (
-                    <span className='text-subtle text-caption'>
-                        {t('web.agentRuntimesList.latest')} · v
-                        {sb.latestCliVersion}
-                    </span>
+                {sb.cliUpdateAvailable ? (
+                    <UpdateBadge latest={sb.latestCliVersion} kind='cli' />
+                ) : (
+                    sb.latestCliVersion && (
+                        <span className='text-subtle text-caption'>
+                            {t('web.agentRuntimesList.latest')}
+                        </span>
+                    )
                 )}
             </span>
         )
@@ -1393,54 +1395,10 @@ const HostDetailPanel: FC<{
                     }
                 />
             )}
-            {host && host.updateAvailable && host.latestCliVersion && (
-                <NoticeRow
-                    title={t('web.agentRuntimesList.cliAvailable', {
-                        version: host.latestCliVersion
-                    })}
-                    detail={
-                        host.canRemoteUpgrade
-                            ? t('web.agentRuntimesList.machineCliDetail', {
-                                  version: host.cliVersion
-                                      ? `v${host.cliVersion}`
-                                      : t('common.unknown')
-                              })
-                            : t('web.agentRuntimesList.remoteUpgradeHint')
-                    }
-                    action={
-                        host.canRemoteUpgrade ? (
-                            <Link
-                                to={updatesPath('cli')}
-                                className='workbench-button-secondary'
-                            >
-                                {t('web.updates.reviewCta')}
-                            </Link>
-                        ) : undefined
-                    }
-                />
-            )}
-            {sandbox &&
-                sandbox.cliUpdateAvailable &&
-                sandbox.latestCliVersion && (
-                    <NoticeRow
-                        title={t('web.agentRuntimesList.cliAvailable', {
-                            version: sandbox.latestCliVersion
-                        })}
-                        detail={t('web.agentRuntimesList.sandboxCliDetail', {
-                            version: sandbox.cliVersion
-                                ? `v${sandbox.cliVersion}`
-                                : t('common.unknown')
-                        })}
-                        action={
-                            <Link
-                                to={updatesPath('cli')}
-                                className='workbench-button-secondary'
-                            >
-                                {t('web.updates.reviewCta')}
-                            </Link>
-                        }
-                    />
-                )}
+            {/* No CLI-upgrade strip for the host or the sandbox: the mf CLI
+                property row below already shows the installed version with a
+                badge beside it, so a strip here said the same thing twice and
+                pushed the rest of the panel down. */}
 
             <Section
                 title={t('web.agentRuntimesList.runtimesTitle')}

@@ -113,7 +113,6 @@ import {
 import AgentCredentialsDialog from '@/components/chat/AgentCredentialsDialog'
 import { BrandMark } from '@/components/Brand'
 import QuotaBanner from '@/components/QuotaBanner'
-import CliUpgradeBanner from '@/components/CliUpgradeBanner'
 import WorkspaceChallengeCard from '@/components/challenge/WorkspaceChallengeCard'
 import QuotaConflictModal, {
     type QuotaConflictRequest
@@ -126,7 +125,7 @@ import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
 import SessionStreamingDot from '@/components/chat/SessionStreamingDot'
 import SessionContextMenu from '@/components/chat/SessionContextMenu'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { StatusTag } from '@/components/Tag'
+import { StatusTag, tagToneClass } from '@/components/Tag'
 import {
     applyAgentStatusSnapshots,
     getAgentChatAvailability,
@@ -1672,12 +1671,20 @@ const useAccountUsage = (active: boolean): AccountUsageWindows | null => {
 
 // Counted only while the menu is open: the five list endpoints behind it are
 // not worth polling for a badge nobody is looking at.
-const useAvailableUpdateCount = (active: boolean): number => {
+// The count, plus whether any of it is overdue rather than merely available.
+// Both come from the same build so the badge's tone and its number can never
+// disagree about the same set of rows.
+const useAvailableUpdateCount = (
+    active: boolean
+): { count: number; required: boolean } => {
     const { inputs } = useUpdateCenterData(active)
-    return useMemo(
-        () => countUpdates(buildUpdateRows(inputs, frameworkDisplayLabel)),
-        [inputs]
-    )
+    return useMemo(() => {
+        const rows = buildUpdateRows(inputs, frameworkDisplayLabel)
+        return {
+            count: countUpdates(rows),
+            required: rows.some((row) => row.severity === 'required')
+        }
+    }, [inputs])
 }
 
 const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
@@ -1691,7 +1698,8 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
     const { theme, toggleTheme } = useTheme()
     const [open, setOpen] = useState(false)
     const usage = useAccountUsage(open)
-    const updateCount = useAvailableUpdateCount(open)
+    const { count: updateCount, required: updatesRequired } =
+        useAvailableUpdateCount(open)
     const updateRunning = useIsUpdateBatchRunning()
     const [languageOpen, setLanguageOpen] = useState(false)
     const [learnMoreOpen, setLearnMoreOpen] = useState(false)
@@ -1915,7 +1923,17 @@ const SidebarSettingsMenu: FC<{ collapsed?: boolean }> = ({
                             />
                         ) : (
                             updateCount > 0 && (
-                                <span className='tag tag-neutral tabular-nums'>
+                                // Toned only when something in there is
+                                // overdue: a rail badge that is red for every
+                                // available patch stops meaning anything.
+                                <span
+                                    className={[
+                                        'tag tabular-nums',
+                                        updatesRequired
+                                            ? tagToneClass.error
+                                            : 'tag-neutral'
+                                    ].join(' ')}
+                                >
                                     {updateCount}
                                 </span>
                             )
@@ -4095,10 +4113,6 @@ const AppShell: FC = (): ReactNode => {
                 </div>
 
                 <div className='pt-2'>
-                    <CliUpgradeBanner
-                        daemons={daemonHosts}
-                        collapsed={collapsed}
-                    />
                     <WorkspaceChallengeCard collapsed={collapsed} />
                     {/* Account-level resource meters. They sit above the
                         account row because that is the question they answer —

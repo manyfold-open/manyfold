@@ -636,10 +636,6 @@ const zh: Translations = {
             rename: '重命名',
             deleting: '删除中…',
             runtimeFailed: '运行时失败',
-            upgradeAvailable: '{{framework}} v{{version}} 可用',
-            currentVersion:
-                '此运行时当前为 v{{version}}。升级在沙箱中进行，最多需要一分钟。',
-            upgradeNotice: '升级在沙箱中进行，最多需要一分钟。',
             upgrade: '升级',
             agents: 'Agent（{{count}}）',
             controls: '控制',
@@ -763,10 +759,6 @@ const zh: Translations = {
                 docsChannels: '渠道'
             }
         },
-        cliUpgrade: {
-            one: '1 台机器需要升级 CLI',
-            many: '{{count}} 台机器需要升级 CLI'
-        },
         backgroundTasks: {
             running: '运行中',
             finished: '已完成',
@@ -884,7 +876,6 @@ const zh: Translations = {
                 provider: '提供方',
                 cli: 'mf CLI',
                 cliUpToDate: '已是最新',
-                cliUpdate: '可升级到 {{version}}',
                 access: 'Manyfold 操作能力',
                 accessSkill: 'Manyfold CLI 技能',
                 accessSkillMeta: 'manyfold-cli-usage · 平台托管 · 新 Agent 默认安装',
@@ -2089,8 +2080,6 @@ const zh: Translations = {
             enableAction: '启用',
             disableAction: '禁用',
             uninstallAction: '卸载',
-            updateAction: '更新',
-            updateAvailable: '有可用更新',
             statusInstalling: '安装中…',
             statusFailed: '安装失败',
             retryAction: '重试',
@@ -3240,10 +3229,13 @@ const zh: Translations = {
             selectRow: '选中 {{name}}',
             colUpdate: '更新项',
             colTarget: '位置',
-            colVersion: '版本',
+            colFrom: '当前',
+            colTo: '目标',
             colStatus: '状态',
             colAction: '操作',
             versionUnknown: '未知',
+            pickTarget: '为 {{name}} 选择版本',
+            badgeCta: '更新到 {{version}}',
             kindCli: 'mf CLI',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
@@ -3252,9 +3244,9 @@ const zh: Translations = {
             groupTarget: '位置',
             groupStatus: '状态',
             statusRequired: '必须更新',
-            statusReady: '可以更新',
-            statusManual: '需手动更新',
-            statusOffline: '机器离线',
+            statusReady: '可更新',
+            statusManual: '手动',
+            statusOffline: '离线',
             run: {
                 pending: '排队中',
                 running: '更新中',
@@ -3755,9 +3747,6 @@ const zh: Translations = {
             machineMeta:
                 '框架：{{frameworks}} · agent：{{agents}} · 最近在线 {{lastSeen}}',
             cliVersion: 'cli {{version}}',
-            upgradeBlockedTip:
-                '远程升级需要 daemon 在线、由自启动管理且 CLI 版本较新。先在机器上手动升级一次 CLI 即可启用。',
-            upgradeAvailableSuffix: '有 {{version}} 可用',
             needsUpgradeTitle: '需要升级 CLI',
             needsUpgradeHintPrefix: '这台机器的 mf CLI 低于所需最低版本。运行',
             needsUpgradeHintThen: '然后',
@@ -4277,7 +4266,6 @@ const zh: Translations = {
             serviceFailed: '失败',
             sandbox: '沙箱',
             cluster: '集群',
-            available: '可用',
             provision: '配置',
             alreadyRuns: '{{framework}} 已在此运行',
             unavailableAction: '不可用',
@@ -4289,11 +4277,6 @@ const zh: Translations = {
             versionPickerSandbox:
                 '选择要在“{{name}}”上安装的版本。升级会原地完成，不会重启任何内容。',
             latestVersion: '最新（v{{version}}）',
-            cliAvailable: 'mf CLI v{{version}} 可用',
-            machineCliDetail:
-                '此机器当前运行 {{version}}。升级会短暂重启守护进程。',
-            sandboxCliDetail:
-                '此沙箱当前运行 {{version}}。升级会原地完成，不会重启任何内容。',
             activePeriod: '活跃 {{duration}}（本周期）',
             activityDescription:
                 '让此沙箱保持唤醒的是托管服务（例如开发服务器）和活动租约 — 保持运行开关会安装一个租约。租约由运行时开关管理；Agent 注册的任务可在此删除。',
