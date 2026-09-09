@@ -70,6 +70,12 @@ const codexView: AgentModelConfigView = {
     framework: 'codex',
     source: 'platform',
     availableSources: ['platform'],
+    runtimeAuth: {
+        profileId: null,
+        bindingVersion: 0,
+        effectiveFor: 'next-execution',
+        profile: null
+    },
     provider: 'openai',
     providerBaseUrl: null,
     providerModelsStatus: 'ready',
@@ -433,12 +439,16 @@ test('mergeCachedRuntimeLocalModelConfigView keeps newer cached local capability
 })
 
 test('validateModelConfigDraft blocks fast speed for non-fast Codex model', () => {
-    const result = validateModelConfigDraft(codexView, {
-        framework: 'codex',
-        model: 'foo/gpt-5.4-mini',
-        speed: 'fast',
-        intelligence: 'medium'
-    }, testT)
+    const result = validateModelConfigDraft(
+        codexView,
+        {
+            framework: 'codex',
+            model: 'foo/gpt-5.4-mini',
+            speed: 'fast',
+            intelligence: 'medium'
+        },
+        testT
+    )
 
     assert.equal(result.valid, false)
     assert.match(result.message ?? '', /fast-capable/)
@@ -535,10 +545,7 @@ test('Claude effort helpers follow selected provider model support', () => {
         'medium'
     )
     assert.equal(
-        normalizeClaudeCodeEffortForModel(
-            'xhigh',
-            'anthropic/claude-opus-4-7'
-        ),
+        normalizeClaudeCodeEffortForModel('xhigh', 'anthropic/claude-opus-4-7'),
         'xhigh'
     )
     assert.equal(
@@ -1126,7 +1133,11 @@ test('Fable family maps, injects env and keeps the full effort range', () => {
         'fable'
     )
 
-    for (const model of ['claude-fable-5', 'claude-opus-4-8', 'claude-sonnet-5']) {
+    for (const model of [
+        'claude-fable-5',
+        'claude-opus-4-8',
+        'claude-sonnet-5'
+    ]) {
         assert.deepEqual(claudeCodeEffortsForModel(model), [
             'low',
             'medium',
@@ -1348,6 +1359,12 @@ const geminiGatewayView: AgentModelConfigView = {
     framework: 'gemini-cli',
     source: 'platform',
     availableSources: ['platform'],
+    runtimeAuth: {
+        profileId: null,
+        bindingVersion: 0,
+        effectiveFor: 'next-execution',
+        profile: null
+    },
     provider: 'google',
     providerBaseUrl: 'https://api.netmind.ai/inference-api/gemini',
     providerModelsStatus: 'ready',
@@ -1395,28 +1412,40 @@ test('gemini validation stays as loose as the API on a gateway', () => {
     // the gateway default server-side — blocking it here would strand every
     // auto agent the moment it is pointed at a gateway.
     assert.deepEqual(
-        validateModelConfigDraft(geminiGatewayView, {
-            framework: 'gemini-cli',
-            model: 'auto'
-        }, testT),
+        validateModelConfigDraft(
+            geminiGatewayView,
+            {
+                framework: 'gemini-cli',
+                model: 'auto'
+            },
+            testT
+        ),
         { valid: true, message: null }
     )
     // The provider list is the source of truth: a stored bare id is the same
     // model as the gateway's prefixed id, which assertGeminiConfig accepts.
     assert.deepEqual(
-        validateModelConfigDraft(geminiGatewayView, {
-            framework: 'gemini-cli',
-            model: 'gemini-2.5-flash'
-        }, testT),
+        validateModelConfigDraft(
+            geminiGatewayView,
+            {
+                framework: 'gemini-cli',
+                model: 'gemini-2.5-flash'
+            },
+            testT
+        ),
         { valid: true, message: null }
     )
     // Still rejected: the gateway serves gemini-3-flash-preview, never plain
     // gemini-3-flash, so there is no model behind this selection.
     assert.deepEqual(
-        validateModelConfigDraft(geminiGatewayView, {
-            framework: 'gemini-cli',
-            model: 'gemini-3-flash'
-        }, testT),
+        validateModelConfigDraft(
+            geminiGatewayView,
+            {
+                framework: 'gemini-cli',
+                model: 'gemini-3-flash'
+            },
+            testT
+        ),
         { valid: false, message: 'Choose a supported Gemini model' }
     )
 })
@@ -1455,9 +1484,7 @@ test('gemini draft reconciles onto the newly picked provider', () => {
 })
 
 const runtimeLocalStatus = (
-    overrides: Partial<
-        NonNullable<AgentModelConfigView['runtimeLocal']>
-    > = {}
+    overrides: Partial<NonNullable<AgentModelConfigView['runtimeLocal']>> = {}
 ): NonNullable<AgentModelConfigView['runtimeLocal']> => ({
     available: true,
     ready: true,
@@ -1501,7 +1528,10 @@ test('validateModelConfigDraft blocks a runtime-local source with expired creden
     )
 
     assert.equal(result.valid, false)
-    assert.equal(result.message, 'web.credentials.runtimeLocal.credentialsExpired')
+    assert.equal(
+        result.message,
+        'web.credentials.runtimeLocal.credentialsExpired'
+    )
 })
 
 test('validateModelConfigDraft allows a runtime-local source it cannot judge', () => {

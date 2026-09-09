@@ -140,6 +140,13 @@ export const useFrameworkModelConfig = ({
             framework,
             source: 'platform',
             availableSources: ['platform'],
+            // A draft agent has no runtime yet, hence no profile to bind.
+            runtimeAuth: {
+                profileId: null,
+                bindingVersion: 0,
+                effectiveFor: 'next-execution',
+                profile: null
+            },
             provider: modelProviderForRuntime,
             providerBaseUrl:
                 picker.mode === 'inline'
