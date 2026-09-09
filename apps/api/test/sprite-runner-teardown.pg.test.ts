@@ -14,8 +14,9 @@ import {
     users,
     type Database
 } from '@manyfold/db'
-import { runnerHostName } from '@manyfold/shared'
+import { podRunnerHostName, runnerHostName } from '@manyfold/shared'
 import { AgentRuntimesService } from '../src/modules/agent-runtimes/agent-runtimes.service'
+import { deletePodRunnerHostForRuntime } from '../src/modules/agent-runtimes/sprite-runner-teardown'
 import type { TelemetryService } from '../src/common/telemetry/telemetry.service'
 
 // A sprite-runner lives on its OWN managed daemon host (host_id null,
@@ -201,6 +202,157 @@ test(
         } finally {
             // users cascade removes every seeded row (hosts, runtimes, agents,
             // tokens) whether or not the assertions reached them.
+            await db
+                .delete(users)
+                .where(inArray(users.id, [userId, otherUserId]))
+            const client = (
+                db as unknown as { $client?: { end?: () => Promise<void> } }
+            ).$client
+            if (client?.end) await client.end()
+        }
+    }
+)
+
+// The pod twin of the case above, and it strands the same way: a pod-runner is
+// its own managed daemon host keyed by RUNTIME id, so deleting the k8s runtime
+// row (which is all teardown does after the namespace is gone) leaves the host,
+// its runtimes and any agent on them behind. The scoping controls are the same
+// two that matter — another runtime's runner for the same user, and another
+// user's runner with an identical name — because both are ways a name-keyed
+// delete can reach too far.
+test(
+    "deletePodRunnerHostForRuntime removes only this runtime's pod runner",
+    { skip: !RUN },
+    async () => {
+        const url = process.env.DATABASE_URL
+        assert.ok(url, 'DATABASE_URL must be set')
+        const db = createDb(url)
+        const sfx = randomBytes(8).toString('hex')
+        const id = (n: string): string => `${n}_${sfx}`
+        const userId = id('user')
+        const otherUserId = id('user_other')
+        const runtimeId = id('art_pod')
+        const otherRuntimeId = id('art_pod_other')
+
+        try {
+            await db.insert(users).values([
+                { id: userId, email: `${sfx}@pgtest.local` },
+                { id: otherUserId, email: `other-${sfx}@pgtest.local` }
+            ])
+
+            await db.insert(runtimeHosts).values([
+                {
+                    id: id('pod_runner'),
+                    userId,
+                    kind: 'daemon',
+                    managed: true,
+                    name: podRunnerHostName(runtimeId)
+                },
+                {
+                    id: id('pod_runner_other_runtime'),
+                    userId,
+                    kind: 'daemon',
+                    managed: true,
+                    name: podRunnerHostName(otherRuntimeId)
+                },
+                {
+                    id: id('pod_runner_other_user'),
+                    userId: otherUserId,
+                    kind: 'daemon',
+                    managed: true,
+                    name: podRunnerHostName(runtimeId)
+                }
+            ])
+
+            await db.insert(agentRuntimes).values([
+                {
+                    id: id('rt_pod_claude'),
+                    userId,
+                    name: 'pod-runner-claude',
+                    framework: 'claude-code',
+                    kind: 'daemon',
+                    daemonId: id('pod_runner')
+                },
+                {
+                    id: id('rt_pod_other'),
+                    userId,
+                    name: 'pod-runner-other-claude',
+                    framework: 'claude-code',
+                    kind: 'daemon',
+                    daemonId: id('pod_runner_other_runtime')
+                }
+            ])
+            await db.insert(agents).values({
+                id: id('agt_pod'),
+                userId,
+                name: 'pod agent',
+                framework: 'claude-code',
+                runtime: 'daemon',
+                runtimeId: id('rt_pod_claude'),
+                internalId: id('agt_pod'),
+                daemonId: id('pod_runner')
+            })
+            await db.insert(daemonTokens).values({
+                id: id('tok_pod'),
+                userId,
+                name: podRunnerHostName(runtimeId),
+                tokenHash: id('hash_pod'),
+                daemonId: id('pod_runner'),
+                purpose: 'pod_runner'
+            })
+
+            await deletePodRunnerHostForRuntime(db, userId, runtimeId)
+
+            const hosts = await db
+                .select({ id: runtimeHosts.id })
+                .from(runtimeHosts)
+                .where(
+                    inArray(runtimeHosts.id, [
+                        id('pod_runner'),
+                        id('pod_runner_other_runtime'),
+                        id('pod_runner_other_user')
+                    ])
+                )
+            assert.deepEqual(
+                hosts.map((h) => h.id).sort(),
+                [
+                    id('pod_runner_other_runtime'),
+                    id('pod_runner_other_user')
+                ].sort(),
+                "this runtime's pod runner gone; the two look-alikes survive"
+            )
+
+            const rts = await db
+                .select({ id: agentRuntimes.id })
+                .from(agentRuntimes)
+                .where(
+                    inArray(agentRuntimes.id, [
+                        id('rt_pod_claude'),
+                        id('rt_pod_other')
+                    ])
+                )
+            assert.deepEqual(
+                rts.map((r) => r.id),
+                [id('rt_pod_other')],
+                'the runner runtime gone; the control runtime survives'
+            )
+
+            const agt = await db
+                .select({ id: agents.id })
+                .from(agents)
+                .where(eq(agents.id, id('agt_pod')))
+            assert.equal(agt.length, 0, 'the agent cascades with its runtime')
+
+            const tok = await db
+                .select({ id: daemonTokens.id })
+                .from(daemonTokens)
+                .where(eq(daemonTokens.id, id('tok_pod')))
+            assert.equal(
+                tok.length,
+                0,
+                'the pod runner token cascades with its host'
+            )
+        } finally {
             await db
                 .delete(users)
                 .where(inArray(users.id, [userId, otherUserId]))

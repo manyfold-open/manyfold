@@ -1,3 +1,5 @@
+import { MF_ENV_API_URL } from './exec-env'
+
 // ADR-0014: a profile is the local projection of one environment, and it
 // projects the CONTROL PLANE only (credentials, pending login, daemon state)
 // under `<configRoot>/profiles/<name>/`. The data plane — workspaces and the
@@ -29,6 +31,67 @@ export const RUNNER_PROFILE = 'spriterunner'
 // off this single source rather than the sprite-self-reported hostname.
 export const runnerHostName = (spriteName: string): string =>
     `sprite-runner:${spriteName}`
+
+// Reserved profile for the daemon that ships INSIDE a k8s agent image. A pod is
+// the third managed-runner host: unlike a sprite the platform never installs or
+// starts it (the image owns the binary and the entrypoint owns the process), so
+// the API only ever looks the host up. It gets its own profile name so a pod and
+// a sprite runner can never collide on the daemon state dir if an image is ever
+// run somewhere unexpected.
+export const POD_RUNNER_PROFILE = 'podrunner'
+
+// A pod runner registers under a name derived from the RUNTIME it serves, not
+// from an agent: the container provisioner creates the pod before any agent
+// exists, and the agent orchestrator's pod is likewise addressed by its runtime
+// row. Same contract as runnerHostName — this is the authoritative name the
+// platform bakes into the pod's Secret and the only key lookup and teardown use.
+export const podRunnerHostName = (runtimeId: string): string =>
+    `pod-runner:${runtimeId}`
+
+// The env a k8s agent image's entrypoint reads to enrol its daemon. These names
+// are a cross-repo contract — the API writes them into the pod's Secret, the
+// image's entrypoint reads them — so they live here beside the profile and host
+// name rather than being re-typed on either side.
+//
+// MF_DAEMON_TOKEN is the one-time `ldt_` registration credential; the entrypoint
+// consumes it into the daemon config on first boot and every later boot starts
+// from that config instead. Absent, the entrypoint runs the framework alone and
+// the pod behaves exactly as it did before pod runners existed.
+export const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
+export const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
+export const MF_ENV_PROFILE = 'MF_PROFILE'
+export const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
+
+export interface PodRunnerEnvInput {
+    // Already `/api`-suffixed: the same base the agent's own MF_API_URL uses.
+    apiBaseUrl: string
+    daemonToken: string
+    runtimeId: string
+    // The image's manyfold home root, which for a coding agent image is exactly
+    // the PVC mount path. Two things have to land inside it, and both are why
+    // this is passed rather than defaulted:
+    //   - the daemon's control plane (`profiles/podrunner/daemon/`), including
+    //     the stable daemon uuid. Off the PVC the uuid is regenerated on every
+    //     restart, and the token — bound to the first uuid it registered — is
+    //     then refused for the new one.
+    //   - the machine-scoped workspace root the registration DECLARES
+    //     (`<root>/workspaces`, ADR-0014), which must be the parent of every
+    //     agent workspace on this pod or the daemon's own containment check
+    //     rejects the dir the API dispatches with.
+    // `codingAgentWorkspacePath('k8s', id)` is `<K8S_HOME_BASE>/.manyfold/
+    // workspaces/<id>`, so passing the coding pvcMountPath satisfies both.
+    homeRoot: string
+}
+
+export const buildPodRunnerEnv = (
+    input: PodRunnerEnvInput
+): Record<string, string> => ({
+    [MF_ENV_API_URL]: input.apiBaseUrl,
+    [MF_ENV_DAEMON_TOKEN]: input.daemonToken,
+    [MF_ENV_DAEMON_HOST_NAME]: podRunnerHostName(input.runtimeId),
+    [MF_ENV_PROFILE]: POD_RUNNER_PROFILE,
+    [MF_ENV_CONFIG_DIR]: input.homeRoot.replace(/\/+$/, '')
+})
 
 export interface ProfilePaths {
     dir: string

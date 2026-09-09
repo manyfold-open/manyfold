@@ -11,6 +11,7 @@ import {
     DEFAULT_HERMES_PERMISSION_MODE,
     DEFAULT_OPENCLAW_PERMISSION_MODE,
     createObjectId,
+    frameworkCapability,
     isObjectId
 } from '@manyfold/shared'
 import type {
@@ -478,6 +479,41 @@ const spriteRunnerAttemptedFor = (
 ): boolean =>
     framework === 'hermes' ||
     (framework !== 'openclaw' && spriteRunnerEnabledFor(agentId))
+
+// The pod twin of the sprite rollout list, with the same semantics and its own
+// value: the two runners come up by completely different means (we install and
+// launch a sprite's; a pod's ships in the image), so an operator has to be able
+// to roll them out and roll them back independently.
+const podRunnerEnabledFor = (agentId: string): boolean => {
+    const raw = (process.env.MF_POD_RUNNER_AGENTS ?? '').trim()
+    if (raw === '*') return true
+    return raw
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .includes(agentId)
+}
+
+// Only coding frameworks, and only on the allowlist. A service framework's k8s
+// runtime IS the resident gateway, so a pod daemon would be a second surface on
+// the same instance and its turn carries a `dir` the daemon's containment check
+// would have to accept — neither is settled, so those turns keep the API-driven
+// ACP path (ADR-0027) until they are. Mirrors PodRunnerProvisioner.supports,
+// which decides whether the credential is baked at all.
+const podRunnerAttemptedFor = (
+    framework: AgentFramework,
+    agentId: string
+): boolean =>
+    frameworkCapability(framework).kind === 'coding' &&
+    podRunnerEnabledFor(agentId)
+
+// What a resolved managed runner gives the dispatch site. `exec` is the sprite
+// bootstrap transport, kept only so the caller can hold that VM awake for the
+// duration of the turn; a pod never sleeps, so its runner carries none.
+interface ManagedRunner {
+    daemonId: string
+    exec: SpriteExecFn | null
+}
 
 // Thrown when a turn cannot start because the session already has one running.
 // Extends ConflictException so HTTP callers get a 409; the channel bridge catches
@@ -4281,6 +4317,74 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // because the sprite's exec endpoint could not give it a socket has proven
     // something about the fallback too, and the caller terminalizes on it
     // instead of walking into the same transport (#730).
+    // Which managed runner, if any, carries this turn. Both kinds hand back the
+    // same thing — a daemon id the transport swaps onto — but they are reached
+    // by completely different means, so the runtime picks the resolver rather
+    // than one resolver branching internally.
+    private async resolveManagedRunner(args: {
+        agentId: string
+        userId: string
+        framework: AgentFramework
+        runtime: AgentRuntime
+        runtimeId: string | null
+        spriteName: string | null
+        workspacePath?: string | null
+    }): Promise<{
+        runner: ManagedRunner | null
+        execFailure?: RunnerExecFailure
+    }> {
+        if (args.runtime === 'k8s')
+            return { runner: await this.resolvePodRunner(args) }
+        return this.resolveSpriteRunner(args)
+    }
+
+    // A pod's runner needs no bring-up, no exec transport and no awake lease:
+    // the daemon is in the image and the pod never sleeps. So this is a lookup
+    // and a workspace preflight, and anything less than an online runner simply
+    // leaves the turn on the pod-exec path.
+    private async resolvePodRunner(args: {
+        agentId: string
+        userId: string
+        framework: AgentFramework
+        runtimeId: string | null
+        workspacePath?: string | null
+    }): Promise<ManagedRunner | null> {
+        const { agentId, userId, runtimeId } = args
+        if (!this.runnerManager || !runtimeId) return null
+        if (!podRunnerAttemptedFor(args.framework, agentId)) return null
+        const startedAt = Date.now()
+        try {
+            const resolution = await this.runnerManager.resolvePodRunner({
+                userId,
+                runtimeId,
+                workspacePath: args.workspacePath ?? null
+            })
+            this.telemetry.event('chat.runner.resolve', {
+                agentId,
+                runnerKind: 'pod',
+                outcome: resolution.handle ? 'runner' : 'fallback',
+                broughtUp: false,
+                durationMs: Date.now() - startedAt,
+                workspacePreflight: resolution.workspace.outcome,
+                resolvedGeneration: resolution.handle?.generation ?? null,
+                ...(resolution.fallbackReason
+                    ? { fallbackReason: resolution.fallbackReason }
+                    : {}),
+                ...(resolution.workspace.ensureMs !== undefined
+                    ? { workspaceEnsureMs: resolution.workspace.ensureMs }
+                    : {})
+            })
+            return resolution.handle
+                ? { daemonId: resolution.handle.daemonId, exec: null }
+                : null
+        } catch (err) {
+            this.logger.warn(
+                `pod runner unavailable agentId=${agentId} class=${safeErrorClass(err)}`
+            )
+            return null
+        }
+    }
+
     private async resolveSpriteRunner(args: {
         agentId: string
         userId: string
@@ -4289,7 +4393,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         spriteName: string | null
         workspacePath?: string | null
     }): Promise<{
-        runner: { daemonId: string; exec: SpriteExecFn } | null
+        runner: ManagedRunner | null
         execFailure?: RunnerExecFailure
     }> {
         const { agentId, userId } = args
@@ -4348,6 +4452,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // doing its job on a turn that used to pay an RPC.
             this.telemetry.event('chat.runner.resolve', {
                 agentId,
+                runnerKind: 'sprite',
                 outcome: runner ? 'runner' : 'fallback',
                 broughtUp: runner?.started ?? false,
                 durationMs: Date.now() - startedAt,
@@ -5510,11 +5615,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         const resolution =
             fastFail || blockedTerminal
                 ? null
-                : await this.resolveSpriteRunner({
+                : await this.resolveManagedRunner({
                       agentId: session.agentId,
                       userId: session.userId,
                       framework: agentCtx.framework,
                       runtime: agentCtx.runtime,
+                      runtimeId: agentCtx.runtimeId,
                       spriteName: agentCtx.spriteName,
                       workspacePath: agentCtx.workspacePath
                   })
@@ -5539,10 +5645,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // at the terminal; if THIS instance dies mid-turn the lease survives on
         // its TTL, which is what keeps the runner executing and the turn
         // resumable.
+        // Only a sprite runner carries an exec: a pod never suspends, so there
+        // is nothing to hold awake and no lease to pay for.
+        const runnerExec = runner?.exec ?? null
         const awakeHold =
-            runner && this.runnerManager
+            runnerExec && this.runnerManager
                 ? this.runnerManager.keepSpriteAwake({
-                      exec: runner.exec,
+                      exec: runnerExec,
                       turnId: assistantMessageId
                   })
                 : null
@@ -5574,8 +5683,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // no way back to the result.
         //
         // Daemon-runtime turns are stamped too, and NOT so they can be adopted:
-        // listAdoptableTurnExecutions filters to sprites/external, so a
-        // runtime='daemon' row is never a sweep candidate. The row is the only
+        // listAdoptableTurnExecutions filters to sprites/external, so neither a
+        // runtime='daemon' nor a runtime='k8s' row is ever a sweep candidate. The row is the only
         // cross-replica place a daemon turn's ownership can live, and #570 is
         // precisely two replicas each believing they own one — a hello that
         // lands on the peer while this dispatch is still streaming has nothing
@@ -5584,6 +5693,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         const stampedRuntime =
             agentCtx.runtime === 'sprites' ||
             agentCtx.runtime === 'external' ||
+            // A pod-runner turn is stamped for the same reason a daemon one is,
+            // and just as deliberately not for adoption: the sweep's filter
+            // excludes runtime='k8s' too, so this row exists only to give the
+            // reverse-WS resume path something to arbitrate ownership against
+            // across replicas (#570). Without a runner the API owns the
+            // pod-exec stream and losing the process loses the turn — there is
+            // no second writer to arbitrate with, so no row.
+            (agentCtx.runtime === 'k8s' && carryingDaemonId !== null) ||
             (agentCtx.runtime === 'daemon' && carryingDaemonId !== null)
         if (stampedRuntime && this.turnAdoption && !fastFail && !execTerminal) {
             const ownerId = this.turnAdoption.ownerId

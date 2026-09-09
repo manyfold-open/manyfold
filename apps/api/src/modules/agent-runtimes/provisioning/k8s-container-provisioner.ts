@@ -20,6 +20,8 @@ import {
     type K8sCluster
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { deletePodRunnerHostForRuntime } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import { PodRunnerProvisioner } from './pod-runner-provisioner'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     KubernetesService,
@@ -132,7 +134,8 @@ export class K8sContainerProvisioner {
         private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
         private readonly codexK8s: CodexK8sBootstrap,
         private readonly geminiCliK8s: GeminiCliK8sBootstrap,
-        private readonly narraNexusK8s: NarraNexusK8sBootstrap
+        private readonly narraNexusK8s: NarraNexusK8sBootstrap,
+        private readonly podRunner: PodRunnerProvisioner
     ) {}
 
     async provision(
@@ -178,6 +181,16 @@ export class K8sContainerProvisioner {
         }
         const plan = bootstrap.plan(bootstrapCtx, credentials)
 
+        // Credential for the daemon inside the image. Minted before the Secret
+        // is built because it is Secret data; unbound-only cleanup on failure
+        // (below) keeps a live runner's credential safe.
+        const podRunner = await this.podRunner.mint({
+            userId,
+            runtimeId,
+            framework,
+            homeRoot: plan.pvcMountPath
+        })
+
         // 2. Insert agentRuntimes row WITHOUT going through reserveRuntime
         // (subscription replaces plan-quota gating for purchased containers).
         const now = new Date()
@@ -203,6 +216,7 @@ export class K8sContainerProvisioner {
             })
 
         const envSecretName = `${resourceName(runtimeId)}-env`
+        const secretData = { ...plan.envSecretData, ...(podRunner?.env ?? {}) }
         let spec!: K8sResourceSpec
 
         try {
@@ -221,7 +235,7 @@ export class K8sContainerProvisioner {
                 storageSize: `${sku.diskGb}Gi`,
                 pvcMountPath: plan.pvcMountPath,
                 envSecretName,
-                envSecretKeys: Object.keys(plan.envSecretData),
+                envSecretKeys: Object.keys(secretData),
                 readinessProbe: plan.readinessProbe,
                 resources: {
                     requests: {
@@ -239,7 +253,7 @@ export class K8sContainerProvisioner {
             await this.setPhase(runtimeId, 'creating_secret')
             await apis.core.createNamespacedSecret({
                 namespace,
-                body: buildSecret(spec, plan.envSecretData)
+                body: buildSecret(spec, secretData)
             })
             await this.setPhase(runtimeId, 'creating_storage')
             await apis.core.createNamespacedPersistentVolumeClaim({
@@ -322,6 +336,13 @@ export class K8sContainerProvisioner {
                 resourceId: runtimeId,
                 envSecretName
             })
+            // The pod may have registered its runner before whatever failed
+            // here, so both halves are cleaned: the host row (which the runtime
+            // delete cannot reach — a runner hangs off daemon_id, not host_id)
+            // and the token, only if it was never bound.
+            await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+            if (podRunner)
+                await this.podRunner.discardUnbound(userId, podRunner.tokenId)
             await this.db
                 .delete(agentRuntimes)
                 .where(eq(agentRuntimes.id, runtimeId))
@@ -334,6 +355,12 @@ export class K8sContainerProvisioner {
     }
 
     async teardown(runtime: AgentRuntimeRow): Promise<void> {
+        // Before the runtime row goes: a pod runner registers as its own
+        // managed daemon host keyed by name, so deleting the runtime — or
+        // deleting the whole namespace — leaves it behind as an online host
+        // with no pod. Runs on both the namespace-less DB-only path and the
+        // normal one, because the stranding is a DB fact either way.
+        await deletePodRunnerHostForRuntime(this.db, runtime.userId, runtime.id)
         if (!runtime.namespace) {
             await this.db
                 .delete(agentRuntimes)

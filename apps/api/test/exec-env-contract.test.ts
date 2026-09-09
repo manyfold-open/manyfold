@@ -100,6 +100,50 @@ test('a coding framework on sprites declares both its direct and runner surfaces
     }
 })
 
+test('a coding framework on k8s declares both its direct and runner surfaces', () => {
+    // The k8s twin of the sprites ratchet above, and it exists for the same
+    // reason: the pod-runner transport is the one that carries identity,
+    // connection and extras env, so a framework that grows a pod-exec row
+    // without a runner-exec row is a cell nobody would notice was never
+    // wired — exactly #581's blind spot, one runtime over.
+    for (const framework of ALL_FRAMEWORKS) {
+        const capability = frameworkCapabilities[framework]
+        if (capability.kind !== 'coding') continue
+        if (!capability.runtimes.includes('k8s')) continue
+        const transports = execEnvSurfacesFor(framework, 'k8s').map(
+            (surface) => surface.transport
+        )
+        assert.ok(
+            transports.includes('pod-exec'),
+            `${framework} × k8s is missing its pod-exec surface`
+        )
+        assert.ok(
+            transports.includes('runner-exec'),
+            `${framework} × k8s is missing its runner-exec surface`
+        )
+    }
+})
+
+test('every runner-exec surface carries the full per-exec base env', () => {
+    // What the transport swap is FOR. A runner-exec row that declares any of
+    // the three groups absent is a row that silently reintroduces #581: the
+    // swapped transport would dispatch a child with less env than the direct
+    // transport it replaced.
+    for (const surface of execEnvSurfaces) {
+        if (surface.transport !== 'runner-exec') continue
+        assert.deepEqual(
+            [surface.identity, surface.connections, surface.extras],
+            ['per-exec', 'per-exec', 'per-exec'],
+            `${execEnvSurfaceKey(surface)} must carry identity, connections and extras per exec`
+        )
+        assert.equal(
+            surface.resume,
+            'attach-no-env',
+            `${execEnvSurfaceKey(surface)} is carried by a daemon, so it is resumable`
+        )
+    }
+})
+
 test('external frameworks declare exactly one all-absent provider surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
         if (frameworkCapabilities[framework].kind !== 'external') continue
@@ -202,6 +246,10 @@ const factoryDb = (
                                 hostId: 'rth_factory',
                                 daemonId:
                                     runtime === 'daemon' ? 'dh_byod' : null,
+                                namespace:
+                                    runtime === 'k8s' ? 'ns-factory' : null,
+                                clusterId:
+                                    runtime === 'k8s' ? 'clus_factory' : null,
                                 workspacePath: '/workspace',
                                 extras: {
                                     envText: `${Object.entries(EXTRAS_MARKERS)
@@ -234,8 +282,26 @@ const buildFactory = (
                     ? IDENTITY_TOKEN
                     : JSON.stringify({ anthropicAuthToken: 'sk-factory' })
         } as never,
-        {} as never,
-        {} as never,
+        // k8s: enough of a client + pod lookup for the arm to reach its return.
+        // The pod-exec transport itself is not what these tests pin — the env
+        // the handle EXPOSES for the transport swap is.
+        {
+            getClient: async () => ({
+                apis: {
+                    core: {
+                        listNamespacedPod: async () => ({
+                            items: [
+                                {
+                                    metadata: { name: 'pod-factory' },
+                                    status: { phase: 'Running' }
+                                }
+                            ]
+                        })
+                    }
+                }
+            })
+        } as never,
+        { forClient: () => ({}) } as never,
         {} as never,
         { reserveActiveSlot: async () => {} } as never,
         { measureIfDue: () => {} } as never,
@@ -279,6 +345,33 @@ test('a BYOD daemon coding agent gets the full per-exec base env', async () => {
         assert.equal(baseEnv[key], value, `connection env ${key} not carried`)
     for (const [key, value] of Object.entries(EXTRAS_MARKERS))
         assert.equal(baseEnv[key], value, `agent extras ${key} not carried`)
+})
+
+test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', async () => {
+    // #782 in one assertion. The pod Secret is baked once at provision and
+    // carries no connection env or extras at all, and its MF_AGENT_ID names
+    // whichever agent provisioned the pod — so a turn carried by the pod's own
+    // runner has to be handed the per-agent env instead of inheriting it.
+    const handle = await buildFactory('k8s').forAgent('agt_factory')
+    assert.equal(handle.runtime, 'k8s')
+    const baseEnv = handle.baseEnv ?? {}
+    for (const key of MF_RUNTIME_IDENTITY_ENV_KEYS)
+        assert.ok(baseEnv[key], `k8s base env is missing ${key}`)
+    assert.equal(baseEnv.MF_API_TOKEN, IDENTITY_TOKEN)
+    assert.equal(baseEnv.MF_AGENT_ID, 'agt_factory')
+    for (const [key, value] of Object.entries(CONNECTION_MARKERS))
+        assert.equal(baseEnv[key], value, `connection env ${key} not carried`)
+    for (const [key, value] of Object.entries(EXTRAS_MARKERS))
+        assert.equal(baseEnv[key], value, `agent extras ${key} not carried`)
+})
+
+test('a k8s service agent still gets no platform base env', async () => {
+    // Symmetric with the BYOD daemon case below: only coding frameworks take
+    // the pod-runner transport, so assembling an env for a service framework
+    // would build a channel nothing reads.
+    const handle = await buildFactory('k8s', 'openclaw').forAgent('agt_factory')
+    assert.equal(handle.runtime, 'k8s')
+    assert.equal(handle.baseEnv, undefined)
 })
 
 test('a daemon agent with no identity row gets one ensured on first use', async () => {

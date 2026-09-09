@@ -79,6 +79,7 @@ interface Harness {
     mintCalls: Array<{ agentRowCount: number; args: Record<string, unknown> }>
     runtimeDeletes: string[]
     tokenRows: Array<{ agentId: string }>
+    podRunnerMints: Array<Record<string, unknown>>
 }
 
 const buildHarness = (opts: HarnessOpts = {}): Harness => {
@@ -140,6 +141,21 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
         reserveRuntime: async () => baseRuntime()
     }
 
+    // The pod-runner credential is minted into the same Secret as the agent
+    // identity, so it is on this path whether or not a pod ever uses it.
+    const podRunnerMints: Array<Record<string, unknown>> = []
+    const podRunner = {
+        mint: async (args: Record<string, unknown>) => {
+            podRunnerMints.push(args)
+            return {
+                env: { MF_DAEMON_TOKEN: 'ldt_pod', MF_PROFILE: 'podrunner' },
+                tokenId: 'ldt_pod_id',
+                hostName: `pod-runner:${String(args.runtimeId)}`
+            }
+        },
+        discardUnbound: async () => {}
+    }
+
     const orchestrator = new K8sAgentOrchestrator(
         db as never, // db
         {
@@ -187,10 +203,18 @@ const buildHarness = (opts: HarnessOpts = {}): Harness => {
             ensureProviderModelsReady: async () => {},
             updateForAgent: async () => {}
         } as never, // modelConfig
+        podRunner as never, // podRunner
         (opts.noTokenService ? undefined : runtimeToken) as never // runtimeToken (@Optional)
     )
 
-    return { orchestrator, db, mintCalls, runtimeDeletes, tokenRows }
+    return {
+        orchestrator,
+        db,
+        mintCalls,
+        runtimeDeletes,
+        tokenRows,
+        podRunnerMints
+    }
 }
 
 const createCtx = {

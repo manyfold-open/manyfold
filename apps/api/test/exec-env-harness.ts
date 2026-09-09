@@ -66,6 +66,16 @@ export const DAEMON_BASE_ENV: Record<string, string> = {
     ...IDENTITY_MARKERS
 }
 
+// Same composition again for a coding k8s agent, and it exists for the same
+// reason: a pod-runner turn spawns per exec. Note where it is and is not
+// attached below — the handle exposes it, the pod-exec driver never receives
+// it, which is what keeps the direct k8s transport on the pod Secret.
+export const K8S_BASE_ENV: Record<string, string> = {
+    ...EXTRAS_MARKERS,
+    ...CONNECTION_MARKERS,
+    ...IDENTITY_MARKERS
+}
+
 export const PROVIDER_MARKERS = {
     anthropicAuthToken: 'sk-anthropic-marker',
     openaiApiKey: 'sk-openai-marker',
@@ -159,23 +169,30 @@ const captureDriver = (
 })
 
 // The factory handle each runtime produces. The sprites branch builds the full
-// baseEnv; a coding daemon gets the connection + extras env (#781); k8s
-// identity lives in the pod Secret and a service/external daemon hands the
-// adapter a driver with nothing attached.
+// baseEnv; a coding daemon gets the connection + extras env (#781); a coding
+// k8s agent gets it too, but ONLY on the handle — its direct pod-exec driver
+// still inherits the pod Secret and nothing else. A service or external daemon
+// hands the adapter a driver with nothing attached.
 const factoryHandleFor = (
     seam: Seam,
     runtime: AgentRuntime,
     framework: AgentFramework
 ): Record<string, unknown> => {
+    const coding = frameworkCapability(framework).kind === 'coding'
     const baseEnv =
         runtime === 'sprites'
             ? SPRITE_BASE_ENV
-            : runtime === 'daemon' &&
-                frameworkCapability(framework).kind === 'coding'
+            : runtime === 'daemon' && coding
               ? DAEMON_BASE_ENV
-              : undefined
+              : runtime === 'k8s' && coding
+                ? K8S_BASE_ENV
+                : undefined
+    // Mirrors ExecDriverFactory: the sprites driver is CONSTRUCTED with the
+    // base env, the k8s one is not. Getting this wrong would let the pod-exec
+    // cell claim env its production driver never carries.
+    const driverEnv = runtime === 'k8s' ? undefined : baseEnv
     return {
-        driver: captureDriver(seam, 'factory', baseEnv),
+        driver: captureDriver(seam, 'factory', driverEnv),
         creds: {
             anthropicBaseUrl: 'https://anthropic.marker.test',
             anthropicAuthToken: PROVIDER_MARKERS.anthropicAuthToken,

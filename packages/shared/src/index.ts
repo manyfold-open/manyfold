@@ -1060,16 +1060,23 @@ export {
 } from './exec-env'
 export type { MfRuntimeIdentityEnvKey } from './exec-env'
 export {
+    MF_ENV_CONFIG_DIR,
+    MF_ENV_DAEMON_HOST_NAME,
+    MF_ENV_DAEMON_TOKEN,
+    MF_ENV_PROFILE,
+    POD_RUNNER_PROFILE,
     PROFILE_NAME_RE,
     RUNNER_PROFILE,
+    buildPodRunnerEnv,
     isValidProfileName,
     machineSkillsDir,
     machineWorkspacesRoot,
+    podRunnerHostName,
     profilePaths,
     profilesRoot,
     runnerHostName
 } from './profile-paths'
-export type { ProfilePaths } from './profile-paths'
+export type { PodRunnerEnvInput, ProfilePaths } from './profile-paths'
 export {
     assignVariant,
     generateExperimentSalt,

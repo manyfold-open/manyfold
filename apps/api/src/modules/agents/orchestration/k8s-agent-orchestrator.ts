@@ -33,6 +33,11 @@ import {
 import type { V1Pod } from '@kubernetes/client-node'
 import type { AgentProgressEmitter } from './agent-orchestrator.service'
 import { DRIZZLE } from '@/db/tokens'
+import { deletePodRunnerHostForRuntime } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import {
+    PodRunnerProvisioner,
+    type PodRunnerProvision
+} from '@/modules/agent-runtimes/provisioning/pod-runner-provisioner'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
     KubernetesService,
@@ -193,8 +198,22 @@ export class K8sAgentOrchestrator {
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly backups: BackupsService,
         private readonly modelConfig: AgentModelConfigService,
+        private readonly podRunner: PodRunnerProvisioner,
         @Optional() private readonly runtimeToken?: RuntimeTokenService
     ) {}
+
+    // A pod that got far enough to register leaves an online managed daemon
+    // host behind; a pod that did not leaves an unbound token. Clear whichever
+    // exists, in that order, before the runtime row goes.
+    private async cleanupPodRunner(
+        userId: string,
+        runtimeId: string,
+        podRunner: PodRunnerProvision | null
+    ): Promise<void> {
+        await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+        if (podRunner)
+            await this.podRunner.discardUnbound(userId, podRunner.tokenId)
+    }
 
     async deleteNonPrimary(row: Agent, actorUserId: string): Promise<void> {
         if (!row.runtimeId)
@@ -305,6 +324,8 @@ export class K8sAgentOrchestrator {
         const envSecretName = `${resourceName(agentId)}-env`
         let agentMountPath!: string
         let spec!: K8sResourceSpec
+        let secretData!: Record<string, string>
+        let podRunner: PodRunnerProvision | null = null
         try {
             emitter.step('preparing_namespace')
             const requestedClusterId = dto.clusterId ?? null
@@ -381,6 +402,16 @@ export class K8sAgentOrchestrator {
             }
             plan = bootstrap.plan(bootstrapCtx, credentials)
             agentMountPath = plan.workspacePath ?? plan.pvcMountPath
+            // Credential for the daemon in the image, keyed to the runtime (a
+            // pod outlives any one agent attached to it). Merged into the same
+            // Secret so there is one place the pod reads its environment from.
+            podRunner = await this.podRunner.mint({
+                userId,
+                runtimeId,
+                framework,
+                homeRoot: plan.pvcMountPath
+            })
+            secretData = { ...plan.envSecretData, ...(podRunner?.env ?? {}) }
             spec = {
                 agentId,
                 userId,
@@ -394,7 +425,7 @@ export class K8sAgentOrchestrator {
                     DEFAULT_STORAGE_CLASS,
                 pvcMountPath: plan.pvcMountPath,
                 envSecretName,
-                envSecretKeys: Object.keys(plan.envSecretData),
+                envSecretKeys: Object.keys(secretData),
                 readinessProbe: plan.readinessProbe,
                 resources: plan.resources,
                 sidecars: plan.sidecars
@@ -409,6 +440,9 @@ export class K8sAgentOrchestrator {
         } catch (err) {
             // Deleting the runtime FK-cascades the pending agents row and any
             // runtime token already minted above, so there is no orphan left.
+            // The pod runner is the exception: its host hangs off daemon_id and
+            // its token off that host, so neither is reachable from here.
+            await this.cleanupPodRunner(userId, runtimeId, podRunner)
             await this.runtimes.delete(runtimeId)
             await this.audit(
                 actorUserId,
@@ -448,7 +482,7 @@ export class K8sAgentOrchestrator {
             emitter.step('creating_secret')
             await apis.core.createNamespacedSecret({
                 namespace,
-                body: buildSecret(spec, plan.envSecretData)
+                body: buildSecret(spec, secretData)
             })
             emitter.step('creating_storage')
             await apis.core.createNamespacedPersistentVolumeClaim({
@@ -725,6 +759,7 @@ export class K8sAgentOrchestrator {
                 agentId,
                 envSecretName
             })
+            await this.cleanupPodRunner(userId, runtimeId, podRunner)
             await this.runtimes.delete(runtimeId)
             await this.audit(
                 actorUserId,

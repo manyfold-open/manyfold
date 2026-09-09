@@ -4,7 +4,7 @@ import { and, eq, isNull, notExists } from 'drizzle-orm'
 import {
     daemonTokens,
     runtimeHosts,
-    type DaemonToken,
+    type DaemonTokenPurpose,
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -12,8 +12,9 @@ import { DRIZZLE } from '@/db/tokens'
 const TOKEN_PREFIX = 'ldt_'
 const TOKEN_BYTES = 32
 
-// The column's own union, so the trust boundary has exactly one spelling.
-export type DaemonTokenPurpose = DaemonToken['purpose']
+// The column's own union, re-exported so the trust boundary keeps exactly one
+// spelling and every consumer can keep importing it from here.
+export type { DaemonTokenPurpose }
 
 export interface DaemonAuthContext {
     tokenId: string
