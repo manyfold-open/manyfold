@@ -1,4 +1,5 @@
 import {
+    integer,
     foreignKey,
     bigint,
     index,
@@ -14,6 +15,7 @@ import { k8sClusters } from './k8sClusters'
 import { runtimeHosts } from './runtimeHosts'
 import { agentRuntimes } from './agentRuntimes'
 import { userModelProviders } from './userModelProviders'
+import { runtimeAuthProfiles } from './runtimeAuthProfiles'
 
 export type FileRootTransport = 'dufs' | 'pod-exec'
 
@@ -90,6 +92,18 @@ export const agents = pgTable(
         // databases hold the constraint under that name (it predates the
         // drizzle baseline), and renaming buys nothing but schema/DB drift.
         modelProviderId: text('model_provider_id'),
+        // Explicit runtime-local auth binding (runtime auth profiles). NULL =
+        // ambient: the host's native sign-in, as before. RESTRICT on purpose —
+        // deleting a profile must never silently move an agent onto another
+        // account; the service unbinds first or refuses.
+        runtimeAuthProfileId: text('runtime_auth_profile_id').references(
+            () => runtimeAuthProfiles.id,
+            { onDelete: 'restrict' }
+        ),
+        // CAS token for binding updates: two tabs cannot overwrite each other.
+        runtimeAuthBindingVersion: integer('runtime_auth_binding_version')
+            .notNull()
+            .default(0),
         extras: jsonb('extras')
             .$type<Record<string, unknown>>()
             .notNull()
@@ -147,7 +161,10 @@ export const agents = pgTable(
         daemonIdx: index('agents_daemon_id_idx').on(table.daemonId),
         // Per-host occupancy: the sandbox listings count agents per host via a
         // correlated subquery on host_id, once per sandbox row (#607).
-        hostIdx: index('agents_host_id_idx').on(table.hostId)
+        hostIdx: index('agents_host_id_idx').on(table.hostId),
+        runtimeAuthProfileIdx: index('agents_runtime_auth_profile_idx').on(
+            table.runtimeAuthProfileId
+        )
     })
 )
 

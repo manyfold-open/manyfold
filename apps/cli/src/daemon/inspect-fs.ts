@@ -81,3 +81,24 @@ export const jwtExpiryMs = (value: unknown): number | null => {
         ? Math.round(exp * 1000)
         : null
 }
+
+// Where a framework's credential and config files live for one inspection:
+// the host's native dirs (ambient sign-in) or a runtime auth profile's view.
+// `envAuth` says whether the daemon's own environment counts as a credential
+// source — true for the ambient probe, false for a profile, whose executions
+// strip every ambient vendor variable.
+export interface FrameworkConfigDirs {
+    claudeDir: string
+    claudeJson: string
+    codexHome: string
+    geminiDir: string
+    envAuth: boolean
+}
+
+export const nativeConfigDirs = (): FrameworkConfigDirs => ({
+    claudeDir: join(homedir(), '.claude'),
+    claudeJson: join(homedir(), '.claude.json'),
+    codexHome: codexHomeDir(),
+    geminiDir: join(homedir(), '.gemini'),
+    envAuth: true
+})

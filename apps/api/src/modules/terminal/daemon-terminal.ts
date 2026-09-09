@@ -1,3 +1,4 @@
+import type { DaemonPtyAuthLogin } from '@manyfold/shared'
 import {
     envTextFromExtras,
     envTextToRecord
@@ -119,12 +120,32 @@ export class DaemonTerminal {
         })
     }
 
+    // A runtime auth profile sign-in: the daemon composes argv and the
+    // credential-context env from the ids (DAEMON_FEATURE_AUTH_PROFILES), so
+    // this sends no command, no cwd and only the terminal base env.
+    async tunnelAuthLogin(
+        req: DaemonHostTerminalRequest & { authLogin: DaemonPtyAuthLogin }
+    ): Promise<void> {
+        await this.openPty({
+            daemonId: req.daemonId,
+            cwd: undefined,
+            env: { ...TERMINAL_BASE_ENV },
+            authLogin: req.authLogin,
+            cols: req.cols,
+            rows: req.rows,
+            client: req.client,
+            onClose: req.onClose,
+            release: () => {}
+        })
+    }
+
     private async openPty(args: {
         daemonId: string
         cwd: string | undefined
         env: Record<string, string>
         // Run the TUI resume as the shell's argv instead of a bare login shell.
         command?: string[]
+        authLogin?: DaemonPtyAuthLogin
         cols: number
         rows: number
         client: WsClient
@@ -136,6 +157,7 @@ export class DaemonTerminal {
             cwd,
             env,
             command,
+            authLogin,
             cols,
             rows,
             client,
@@ -156,6 +178,7 @@ export class DaemonTerminal {
                     // (checked by the gateway) — an older one would drop it and
                     // open a plain shell under a UI that promised a resume.
                     ...(command?.length ? { command } : {}),
+                    ...(authLogin ? { authLogin } : {}),
                     env
                 },
                 timeoutMs: 24 * 3600 * 1000,

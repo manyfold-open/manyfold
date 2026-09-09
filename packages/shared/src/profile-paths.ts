@@ -140,3 +140,9 @@ export const machineWorkspacesRoot = (configRoot: string): string =>
 
 export const machineSkillsDir = (configRoot: string): string =>
     `${configRoot}/skills`
+
+// Host-local auth store (runtime auth profiles): machine-scoped like the
+// workspaces root, namespaced below by the daemon registration id so two
+// control planes on one machine never read each other's credentials.
+export const runtimeAuthRoot = (configRoot: string): string =>
+    `${configRoot}/runtime-auth`
