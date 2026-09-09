@@ -1,5 +1,13 @@
 # @manyfold/web
 
+## 0.68.0
+
+### Minor Changes
+
+- [#288](https://github.com/manyfold-open/manyfold/pull/288) [`6b4d090`](https://github.com/manyfold-open/manyfold/commit/6b4d090f692764c94d2367b014e153b2c63d2dcd) Thanks [@yingca1](https://github.com/yingca1)! - Retire the Phase 8 user-grant compatibility layer. The API no longer exposes the legacy CLI poll route or bearer-grant endpoint, runtime authorization no longer uses `enforce_agent_binding`, and the web CLI approval screen keeps only browser login. External A2A grants remain supported.
+
+- [#289](https://github.com/manyfold-open/manyfold/pull/289) [`0929915`](https://github.com/manyfold-open/manyfold/commit/0929915546b0f5cd7ebba6dc72b1bea82c81e4d1) Thanks [@yingca1](https://github.com/yingca1)! - A version and its update are now one pill. Wherever a surface shows an installed version — an agent's framework and mf CLI, a runtime, a machine, a sandbox, a skill — that pill is also the update reminder: it stays neutral while the version is current, and when something newer is out it takes the tone (blue, or red when the upgrade is required) and grows an arrow that opens the Update Center. The separate badge that printed the available version beside the installed one is gone, along with the agent overview's "↑ latest v… available" caption; the version being offered now shows on hover, and the full comparison stays in the Update Center.
+
 ## 0.67.0
 
 ### Minor Changes
