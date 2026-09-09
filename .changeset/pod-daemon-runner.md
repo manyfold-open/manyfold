@@ -21,8 +21,11 @@ turn takes exactly the same transport a sandbox runner turn already took, so it
 becomes resumable and carries per-agent environment on every dispatch.
 
 This is opt-in per agent through `MF_POD_RUNNER_AGENTS`, and every failure
-degrades: no runner, an offline runner, or a workspace that cannot be
-registered all fall back to the pod exec path unchanged. The daemon inside a
+degrades: no runner, an offline runner, a daemon below the supported CLI floor,
+or a workspace that cannot be registered all fall back to the pod exec
+transport, whose own behaviour is unchanged. (The pod's environment does gain
+the daemon's registration keys, which every process in the container can see,
+exactly as a sandbox runner's processes see its profile.) The daemon inside a
 pod never updates itself — it reports its startup as unmanaged, which makes it
 refuse remote upgrades and disable background updates, so its version moves
 only when the image tag does.

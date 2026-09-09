@@ -8,6 +8,7 @@ import {
 } from '@manyfold/shared'
 import { isManagedDaemonTokenPurpose } from '@manyfold/db'
 import { PodRunnerProvisioner } from '../src/modules/agent-runtimes/provisioning/pod-runner-provisioner'
+import { ClaudeCodeK8sBootstrap } from '../src/modules/agents/bootstrap/claude-code-k8s'
 import { RunnerManagerService } from '../src/modules/chat/runner/runner-manager.service'
 
 // A pod runner is the third managed runner, and it differs from the sprite one
@@ -80,7 +81,6 @@ test('a coding pod gets a pod_runner credential and the daemon env', async () =>
         false,
         'pod runner tokens must not expire'
     )
-    assert.equal(provision.hostName, podRunnerHostName('art_pod'))
     assert.deepEqual(provision.env, {
         MF_API_URL: 'https://api.test/api',
         MF_DAEMON_TOKEN: 'ldt_pod_secret',
@@ -94,20 +94,34 @@ test('a coding pod gets a pod_runner credential and the daemon env', async () =>
 })
 
 test('the declared workspace root contains the agent workspaces on that pod', () => {
-    // ADR-0014: registration DECLARES the host's roots, and the daemon refuses
-    // any dispatch dir outside them. The API sends
-    // codingAgentWorkspacePath('k8s', id); if MF_CONFIG_DIR does not make that
-    // path fall under <root>/workspaces, every pod-runner turn is refused
-    // `outside allowed roots` — the exact failure a custom sprite workspace hit.
+    // ADR-0014: registration DECLARES the host's roots (`<MF_CONFIG_DIR>/
+    // workspaces`). The API dispatches codingAgentWorkspacePath('k8s', id); a
+    // dir outside the declared root is not refused outright — the preflight
+    // registers it with a `workspace.ensure` RPC per generation, or falls the
+    // turn back to pod-exec if that fails — but the whole point of aligning the
+    // two is that the common path never pays that RPC. Both sides are DERIVED:
+    // homeRoot from the same bootstrap plan the provisioner hands the mint,
+    // and the dispatched dir from the same helper the orchestrator uses.
+    const plan = new ClaudeCodeK8sBootstrap({} as never).plan(
+        {
+            agentId: 'agt_1',
+            runtimeId: 'art_pod',
+            userId: 'user_1',
+            namespace: 'ns',
+            host: 'agent.test',
+            image: 'img',
+            controlUiEnabled: false,
+            dashboardEnabled: false
+        },
+        { anthropicAuthToken: 'sk-test' }
+    )
     const env = buildPodRunnerEnv({
         apiBaseUrl: 'https://api.test/api',
         daemonToken: 'ldt_x',
         runtimeId: 'art_pod',
-        homeRoot: '/home/node/.manyfold'
+        homeRoot: plan.pvcMountPath
     })
     const declaredWorkspaceRoot = `${env.MF_CONFIG_DIR}/workspaces`
-    // Derived, not typed: this is the path the API actually dispatches with,
-    // so a change to the k8s home base or the workspace layout reddens here.
     const dispatched = codingAgentWorkspacePath('k8s', 'agt_1')
     assert.equal(
         dispatched.startsWith(`${declaredWorkspaceRoot}/`),

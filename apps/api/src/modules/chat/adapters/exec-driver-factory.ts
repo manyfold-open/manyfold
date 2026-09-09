@@ -166,15 +166,25 @@ export class ExecDriverFactory {
             // given the same per-agent env every other per-exec surface gets.
             //
             // Only exposed, never pushed into K8sExecDriver: the direct pod-exec
-            // path keeps inheriting the Secret exactly as before, so this adds a
-            // transport, not a behaviour change to the existing one. And only
-            // assembled when that transport can actually be chosen: the
-            // connection env is a network mint (a GitHub installation token)
-            // that seven call sites would otherwise pay per turn for nothing.
+            // transport injects exactly what it injected before. (The pod's
+            // ENVIRONMENT did change — the Secret now also carries the runner's
+            // keys, which every process in the container inherits, the same
+            // way a sprite runner's children inherit its profile — but that is
+            // the provisioner's doing, not this transport's.) And only
+            // assembled when the swap can actually be chosen: the connection
+            // env is a network mint (a GitHub installation token) that seven
+            // call sites would otherwise pay per turn for nothing.
             const swapPossible = podRunnerAttemptedFor(
                 agent.framework,
                 agent.id
             )
+            // Identity follows the same rule provisioning applies (§3.5): mint
+            // only with a reachable API URL to use it against. Without one no
+            // pod runner can have been provisioned either, so an identity read
+            // here would only ever create an inert row.
+            const identityPossible =
+                swapPossible &&
+                !!this.config?.get<string>('PUBLIC_API_BASE_URL')?.trim()
             const [creds, connectionEnv, identityToken] = await Promise.all([
                 this.decryptCreds(agent.runtimeId),
                 swapPossible
@@ -185,7 +195,7 @@ export class ExecDriverFactory {
                 // platform cannot decrypt would revoke exactly that token
                 // under the pod-exec path nobody opted out of. A missing token
                 // here is fine — the daemon inherits the Secret's.
-                swapPossible ? this.podIdentityToken(agent) : null
+                identityPossible ? this.podIdentityToken(agent) : null
             ])
             const baseEnv = swapPossible
                 ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)

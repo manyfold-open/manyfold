@@ -234,7 +234,7 @@ const createCtx = {
 } as never
 
 test('k8s create inserts a pending agents row BEFORE minting the identity (FK-safe order)', async () => {
-    const { orchestrator, db, mintCalls } = buildHarness({
+    const { orchestrator, db, mintCalls, podRunnerMints } = buildHarness({
         apiBaseUrl: 'https://api.test'
     })
 
@@ -242,6 +242,14 @@ test('k8s create inserts a pending agents row BEFORE minting the identity (FK-sa
 
     assert.equal(result.status, 'running')
     assert.equal(mintCalls.length, 1)
+    // The pod runner credential is minted once, keyed to the RUNTIME (a pod
+    // outlives any one agent), and rooted where the plan mounts the PVC.
+    assert.equal(podRunnerMints.length, 1)
+    assert.equal(podRunnerMints[0].framework, 'claude-code')
+    assert.equal(typeof podRunnerMints[0].runtimeId, 'string')
+    // The harness plan mounts the PVC at /data; the mint must be rooted there,
+    // not at a default the orchestrator guessed.
+    assert.equal(podRunnerMints[0].homeRoot, '/data')
     // The agents row must already be inserted when the mint runs, otherwise the
     // agent_runtime_tokens.agent_id FK would be violated.
     assert.equal(

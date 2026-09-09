@@ -363,3 +363,72 @@ test(
         }
     }
 )
+
+// The choke point. Every k8s runtime deletion that goes through the service
+// removes the pod runner without the caller knowing it exists — the property
+// the sprite twin only got after oss#192 found the caller that did not.
+test(
+    'AgentRuntimesService.delete on a k8s runtime removes its pod runner host',
+    { skip: !RUN },
+    async () => {
+        const url = process.env.DATABASE_URL
+        assert.ok(url, 'DATABASE_URL must be set')
+        const db = createDb(url)
+        const sfx = randomBytes(8).toString('hex')
+        const id = (n: string): string => `${n}_${sfx}`
+        const userId = id('user')
+        const runtimeId = id('art_k8s')
+
+        try {
+            await db
+                .insert(users)
+                .values({ id: userId, email: `${sfx}@pgtest.local` })
+            await db.insert(agentRuntimes).values({
+                id: runtimeId,
+                userId,
+                name: 'pod-claude',
+                framework: 'claude-code',
+                kind: 'k8s'
+            })
+            await db.insert(runtimeHosts).values({
+                id: id('pod_runner_svc'),
+                userId,
+                kind: 'daemon',
+                managed: true,
+                name: podRunnerHostName(runtimeId)
+            })
+            await db.insert(daemonTokens).values({
+                id: id('tok_svc'),
+                userId,
+                name: podRunnerHostName(runtimeId),
+                tokenHash: id('hash_svc'),
+                daemonId: id('pod_runner_svc'),
+                purpose: 'pod_runner'
+            })
+
+            await svc(db).delete(runtimeId)
+
+            const hosts = await db
+                .select({ id: runtimeHosts.id })
+                .from(runtimeHosts)
+                .where(eq(runtimeHosts.id, id('pod_runner_svc')))
+            assert.equal(hosts.length, 0, 'the pod runner host is gone')
+            const toks = await db
+                .select({ id: daemonTokens.id })
+                .from(daemonTokens)
+                .where(eq(daemonTokens.id, id('tok_svc')))
+            assert.equal(toks.length, 0, 'and its token cascaded')
+            const rts = await db
+                .select({ id: agentRuntimes.id })
+                .from(agentRuntimes)
+                .where(eq(agentRuntimes.id, runtimeId))
+            assert.equal(rts.length, 0, 'the runtime row itself is gone too')
+        } finally {
+            await db.delete(users).where(eq(users.id, userId))
+            const client = (
+                db as unknown as { $client?: { end?: () => Promise<void> } }
+            ).$client
+            if (client?.end) await client.end()
+        }
+    }
+)

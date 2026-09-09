@@ -59,10 +59,10 @@ export const podRunnerHostName = (runtimeId: string): string =>
 // framework alone and the pod behaves exactly as it did before pod runners
 // existed; absent on a later boot it is not needed, because the registration
 // already lives on the PVC.
-export const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
-export const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
-export const MF_ENV_PROFILE = 'MF_PROFILE'
-export const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
+const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
+const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
+const MF_ENV_PROFILE = 'MF_PROFILE'
+const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
 
 // Every key buildPodRunnerEnv writes. The Secret has more than one writer: the
 // two provisioners merge these in, but a later credential update REBUILDS the
@@ -77,7 +77,7 @@ export const POD_RUNNER_ENV_KEYS = [
     MF_ENV_CONFIG_DIR
 ] as const
 
-export interface PodRunnerEnvInput {
+interface PodRunnerEnvInput {
     // Already `/api`-suffixed: the same base the agent's own MF_API_URL uses.
     apiBaseUrl: string
     daemonToken: string

@@ -14,7 +14,6 @@ export interface PodRunnerProvision {
     env: Record<string, string>
     // So a failed provision can discard a credential the pod never bound.
     tokenId: string
-    hostName: string
 }
 
 // Bakes the credential that lets a k8s agent pod enrol its own `mf daemon`.
@@ -55,7 +54,6 @@ export class PodRunnerProvisioner {
         // the pod is better off with no credential than with one it cannot use.
         if (!apiBaseUrl) return null
 
-        const hostName = podRunnerHostName(args.runtimeId)
         // No expiry, deliberately. The daemon presents this token on every
         // websocket connect, and nothing re-mints it: a sprite runner is
         // re-registered by the API on each bring-up, but a pod's registration
@@ -67,7 +65,9 @@ export class PodRunnerProvisioner {
         // cascades with it, and admin revocation is available before then.
         const minted = await this.tokens.mint({
             userId: args.userId,
-            name: hostName,
+            // The host name the pod will register under; teardown re-derives
+            // it from the runtime id, so it is not carried on the result.
+            name: podRunnerHostName(args.runtimeId),
             purpose: 'pod_runner'
         })
         return {
@@ -77,8 +77,7 @@ export class PodRunnerProvisioner {
                 runtimeId: args.runtimeId,
                 homeRoot: args.homeRoot
             }),
-            tokenId: minted.tokenId,
-            hostName
+            tokenId: minted.tokenId
         }
     }
 

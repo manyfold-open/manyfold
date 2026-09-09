@@ -1,7 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
-import type { AgentRuntimeRow, Database } from '@manyfold/db'
-import { DRIZZLE } from '@/db/tokens'
-import { deletePodRunnerHostForRuntime } from '@/modules/agent-runtimes/sprite-runner-teardown'
+import { Injectable, Logger } from '@nestjs/common'
+import type { AgentRuntimeRow } from '@manyfold/db'
 import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import type { K8sApis } from '@/modules/k8s/kubernetes.service'
 import { teardownAgent } from '@/modules/agents/orchestration/k8s-teardown'
@@ -13,7 +11,6 @@ export class K8sProvisioner {
     private readonly log = new Logger(K8sProvisioner.name)
 
     constructor(
-        @Inject(DRIZZLE) private readonly db: Database,
         private readonly k8s: KubernetesService,
         private readonly runtimes: AgentRuntimesService
     ) {}
@@ -48,22 +45,8 @@ export class K8sProvisioner {
                 logger: this.log
             })
         }
-        // The pod's runner host is keyed by RUNTIME id and hangs off daemon_id,
-        // so `runtimes.delete` cannot reach it: without this the host stays
-        // behind as a managed daemon with no pod, and its runtimes with it.
-        // Best-effort, like the other cleanup sites: the runtime delete is what
-        // the caller asked for and a retry of it is idempotent.
-        try {
-            await deletePodRunnerHostForRuntime(
-                this.db,
-                runtime.userId,
-                runtime.id
-            )
-        } catch (err) {
-            this.log.warn(
-                `pod runner host cleanup failed runtimeId=${runtime.id}: ${(err as Error).message}`
-            )
-        }
+        // `runtimes.delete` also removes the pod's runner host (a managed
+        // daemon bound to the runtime by name), so nothing extra is owed here.
         await this.runtimes.delete(runtime.id)
     }
 

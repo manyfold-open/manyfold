@@ -56,7 +56,7 @@ export type DaemonTokenPurpose = DaemonToken['purpose']
 // exempts the host from quota and hides it from the user's machine list — so a
 // new purpose that forgets to land here silently becomes a user-visible,
 // quota-paying host instead.
-export const MANAGED_DAEMON_TOKEN_PURPOSES = [
+const MANAGED_DAEMON_TOKEN_PURPOSES = [
     'sprite_runner',
     'pod_runner'
 ] as const satisfies readonly DaemonTokenPurpose[]
