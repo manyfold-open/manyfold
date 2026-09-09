@@ -94,8 +94,8 @@ import {
     dashboardStatePending,
     dashboardStatePendingLabel
 } from '@/components/ControlRow'
-import { StatusTag, Tag, statusLabel, statusTone } from '@/components/Tag'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { StatusTag, statusLabel, statusTone } from '@/components/Tag'
+import { VersionTag } from '@/components/VersionTag'
 
 
 const openNativeUi = (
@@ -952,20 +952,22 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 const fwVersioned = isVersionedFramework(agent.framework)
                 const fwUpgradeable =
                     fwSprite && isUpgradeableFramework(agent.framework)
-                const fwUpgradeReady =
-                    fwUpgradeable &&
+                const fwUpdateAvailable =
                     agent.frameworkUpgradeAvailable &&
                     !!agent.frameworkLatestVersion
-                const fwLatestLabel = agent.frameworkLatestVersion
-                    ? agent.frameworkUpgradeAvailable
-                        ? t(
-                              'web.agents.detail.framework.latestAvailable',
-                              { version: agent.frameworkLatestVersion }
-                          )
-                        : t('web.agents.detail.framework.latest', {
+                // The picker is the affordance while there is nothing newer to
+                // install; once there is, the badge takes the row over and the
+                // Update Center is where the version gets chosen.
+                const fwPickVersion = fwUpgradeable && !fwUpdateAvailable
+                // Only the up-to-date half: an available upgrade is the badge's
+                // job on every surface, and this caption used to be the one
+                // place that still spelled the newer version out in prose.
+                const fwLatestLabel =
+                    agent.frameworkLatestVersion && !fwUpdateAvailable
+                        ? t('web.agents.detail.framework.latest', {
                               version: agent.frameworkLatestVersion
                           })
-                    : null
+                        : null
                 const hasEndpoint =
                     (agent.framework === 'narranexus' && !!agent.runtimeId) ||
                     !!agent.endpointUrl
@@ -1182,11 +1184,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                 </span>
                                                 {fwVersioned ? (
                                                     agent.frameworkVersion ? (
-                                                        <Tag mono>
-                                                            {
+                                                        <VersionTag
+                                                            label={
                                                                 agent.frameworkVersion
                                                             }
-                                                        </Tag>
+                                                            latest={
+                                                                fwUpdateAvailable
+                                                                    ? agent.frameworkLatestVersion
+                                                                    : null
+                                                            }
+                                                            kind='framework'
+                                                        />
                                                     ) : (
                                                         <span className='text-caption text-subtle'>
                                                             {t(
@@ -1225,29 +1233,18 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                     </ShortcutTooltip>
                                                 )}
                                             </span>
-                                            {fwUpgradeable ? (
-                                                fwUpgradeReady ? (
-                                                    <span className='mt-1 block'>
-                                                        <UpdateBadge
-                                                            latest={
-                                                                agent.frameworkLatestVersion
-                                                            }
-                                                            kind='framework'
-                                                        />
-                                                    </span>
-                                                ) : (
-                                                    <button
-                                                        type='button'
-                                                        onClick={() =>
-                                                            void handleOpenVersionPicker()
-                                                        }
-                                                        className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
-                                                    >
-                                                        {t(
-                                                            'web.agents.detail.framework.changeVersion'
-                                                        )}
-                                                    </button>
-                                                )
+                                            {fwPickVersion ? (
+                                                <button
+                                                    type='button'
+                                                    onClick={() =>
+                                                        void handleOpenVersionPicker()
+                                                    }
+                                                    className='text-caption text-subtle hover:text-fg mt-1 block transition-colors'
+                                                >
+                                                    {t(
+                                                        'web.agents.detail.framework.changeVersion'
+                                                    )}
+                                                </button>
                                             ) : fwLatestLabel ? (
                                                 <span className='text-caption text-subtle mt-1 block'>
                                                     {fwLatestLabel}
@@ -1300,9 +1297,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             value={
                                                 <>
                                                     {agent.cliVersion ? (
-                                                        <Tag mono>
-                                                            {agent.cliVersion}
-                                                        </Tag>
+                                                        <VersionTag
+                                                            label={
+                                                                agent.cliVersion
+                                                            }
+                                                            latest={
+                                                                agent.cliUpdateAvailable
+                                                                    ? agent.cliLatestVersion
+                                                                    : null
+                                                            }
+                                                            kind='cli'
+                                                        />
                                                     ) : (
                                                         <span className='text-caption text-subtle'>
                                                             {t(
@@ -1310,16 +1315,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                                             )}
                                                         </span>
                                                     )}
-                                                    {agent.cliUpdateAvailable ? (
-                                                        <span className='mt-1 block'>
-                                                            <UpdateBadge
-                                                                latest={
-                                                                    agent.cliLatestVersion
-                                                                }
-                                                                kind='cli'
-                                                            />
-                                                        </span>
-                                                    ) : cliUpToDate ? (
+                                                    {cliUpToDate ? (
                                                         <span className='text-caption text-subtle mt-1 block'>
                                                             {t(
                                                                 'web.agentSettings.overview.cliUpToDate'

@@ -172,7 +172,6 @@ const hi: Record<string, string> = {
     'web.agents.detail.framework.changeVersionEllipsis': 'संस्करण बदलें…',
     'web.agents.detail.framework.chooseVersion': 'इंस्टॉल करने के लिए {{framework}} संस्करण चुनें। अपग्रेड सैंडबॉक्स में चलते हैं और इसमें एक मिनट तक का समय लग सकता है।',
     'web.agents.detail.framework.latest': 'नवीनतम {{version}}',
-    'web.agents.detail.framework.latestAvailable': '↑ नवीनतम {{version}} उपलब्ध',
     'web.agents.detail.framework.notDetected': 'का पता नहीं चला',
     'web.agents.detail.framework.refreshVersion': 'संस्करण ताज़ा करें',
     'web.agents.detail.framework.upgrade': 'अपग्रेड करें',

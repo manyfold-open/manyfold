@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom'
 import { Ghost, Spinner } from '@/components/Loading'
 import { NoticeRow } from '@/components/RuntimeDetailPanel'
 import { StatusTag, Tag } from '@/components/Tag'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { VersionTag } from '@/components/VersionTag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
@@ -317,12 +317,43 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                                       : 'web.skills.managedSource'
                                             )}
                                         </Tag>
-                                        {skill.installedVersion && (
+                                        {(skill.installedVersion ||
+                                            (!skill.readonly &&
+                                                hasUpdate(skill))) && (
                                             <>
                                                 <span> · </span>
-                                                <span className='font-mono'>
-                                                    v{skill.installedVersion}
-                                                </span>
+                                                {/* No `v` on a revision: both
+                                                    sides of a skill update are
+                                                    git revisions, and a `v` in
+                                                    front of one claims a
+                                                    release that does not
+                                                    exist. */}
+                                                <VersionTag
+                                                    label={
+                                                        skill.installedVersion
+                                                            ? `v${skill.installedVersion}`
+                                                            : shortRevision(
+                                                                  skill.installedRevision ??
+                                                                      ''
+                                                              )
+                                                    }
+                                                    latest={
+                                                        !skill.readonly &&
+                                                        hasUpdate(skill)
+                                                            ? shortRevision(
+                                                                  skill.latestRevision ??
+                                                                      ''
+                                                              )
+                                                            : null
+                                                    }
+                                                    kind={
+                                                        skill.skillId ===
+                                                        MANYFOLD_CLI_USAGE_SKILL_ID
+                                                            ? 'cliUsage'
+                                                            : 'skill'
+                                                    }
+                                                    prefix=''
+                                                />
                                             </>
                                         )}
                                         <span> · </span>
@@ -365,30 +396,6 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                                     />
                                                 </>
                                             )}
-                                        {!skill.readonly && hasUpdate(skill) && (
-                                            <>
-                                                <span> · </span>
-                                                {/* No `v`: both sides of a
-                                                    skill update are git
-                                                    revisions, and a `v` in
-                                                    front of one claims a
-                                                    release that does not
-                                                    exist. */}
-                                                <UpdateBadge
-                                                    latest={shortRevision(
-                                                        skill.latestRevision ??
-                                                            ''
-                                                    )}
-                                                    kind={
-                                                        skill.skillId ===
-                                                        MANYFOLD_CLI_USAGE_SKILL_ID
-                                                            ? 'cliUsage'
-                                                            : 'skill'
-                                                    }
-                                                    prefix=''
-                                                />
-                                            </>
-                                        )}
                                     </div>
                                     {skill.description && (
                                         <p className='text-ui text-muted mt-2'>

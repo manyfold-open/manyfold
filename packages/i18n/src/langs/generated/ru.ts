@@ -172,7 +172,6 @@ const ru: Record<string, string> = {
     'web.agents.detail.framework.changeVersionEllipsis': 'Изменить версию…',
     'web.agents.detail.framework.chooseVersion': 'Выберите версию {{framework}} для установки. Обновления выполняются в песочнице и могут занять до минуты.',
     'web.agents.detail.framework.latest': 'последний {{version}}',
-    'web.agents.detail.framework.latestAvailable': '↑ Доступна последняя версия {{version}}.',
     'web.agents.detail.framework.notDetected': 'не обнаружено',
     'web.agents.detail.framework.refreshVersion': 'Обновить версию',
     'web.agents.detail.framework.upgrade': 'Обновление',
