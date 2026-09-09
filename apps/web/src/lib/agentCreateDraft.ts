@@ -192,9 +192,21 @@ export const buildAddRuntimeAgentBody = (draft: {
     workspace?: string
     cloneFrom?: string
     model?: string
+    // The wizard's "use your own subscription" choice on an existing runtime:
+    // the attach persists the runtime-local source, and optionally which of
+    // the runtime's added accounts the agent runs under. An empty profile id
+    // (the host sign-in row) is omitted so the server keeps the inherited
+    // binding rather than validating an empty string.
+    runtimeLocal?: boolean
+    runtimeAuthProfileId?: string
 }): AddRuntimeAgentBody => {
     const body: AddRuntimeAgentBody = {
         name: normalizeAgentName(draft.name)
+    }
+    if (draft.runtimeLocal) {
+        body.modelConfigSource = 'runtime-local'
+        const profileId = draft.runtimeAuthProfileId?.trim()
+        if (profileId) body.runtimeAuthProfileId = profileId
     }
     const workspace = optionalWorkspace(draft.workspace)
     if (workspace) body.workspace = workspace

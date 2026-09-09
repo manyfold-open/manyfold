@@ -730,6 +730,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'lib/fontSize.tsx': ['default'],
     'lib/i18n.tsx': ['zh'],
     // Shell commands the sign-in card shows verbatim, not display copy.
+    // The account picker's visibility union (hidden / ready / …), not copy.
+    'lib/runtimeAuth.ts': ['hidden'],
     'lib/runtimeSignIn.ts': [
         'claude auth login --claudeai',
         'codex login --device-auth',

@@ -3,13 +3,18 @@ import type { FC, ReactNode } from 'react'
 import type {
     AgentRuntimeSummary,
     RuntimeAccountUsageWindow,
-    RuntimeAccountView
+    RuntimeAccountView,
+    RuntimeAuthListView,
+    RuntimeAuthOperationView,
+    RuntimeAuthProfileView
 } from '@manyfold/shared'
 import { Link } from 'react-router-dom'
 import { GhostSettingsRows, Spinner } from '@/components/Loading'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import { NoticeRow, relative, Section } from '@/components/RuntimeDetailPanel'
 import { StatusTag, Tag, type TagTone } from '@/components/Tag'
+import { CheckIcon } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n, type TFn } from '@/lib/i18n'
@@ -21,8 +26,14 @@ import {
     usageTone,
     usageWindowLabelKey
 } from '@/lib/runtimeAccount'
+import {
+    profileDisplayName,
+    profileNeedsSignIn,
+    profileStatusTag
+} from '@/lib/runtimeAuth'
 import { updatesPath } from '@/lib/updateCenter'
 import { formatDuration } from '@/lib/usageFormat'
+import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 
 const RuntimeSignInTerminal = lazyChunk(
     () => import('@/components/RuntimeSignInTerminal')
@@ -51,13 +62,19 @@ const credentialTag = (
                   label: t('web.runtimeDetails.account.signedIn')
               }
     if (view.credentialStatus === 'expired')
-        return { tone: 'warning', label: t('web.runtimeDetails.account.expired') }
+        return {
+            tone: 'warning',
+            label: t('web.runtimeDetails.account.expired')
+        }
     if (view.credentialStatus === 'missing')
         return {
             tone: 'error',
             label: t('web.runtimeDetails.account.notSignedIn')
         }
-    return { tone: 'idle', label: t('web.runtimeDetails.account.unknownStatus') }
+    return {
+        tone: 'idle',
+        label: t('web.runtimeDetails.account.unknownStatus')
+    }
 }
 
 // One line under the bars explaining why usage is thin or absent. Silent
@@ -93,10 +110,10 @@ const usageNote = (view: RuntimeAccountView, t: TFn): string | null => {
     return null
 }
 
-const UsageWindowRow: FC<{ window: RuntimeAccountUsageWindow; now: number }> = ({
-    window,
-    now
-}): ReactNode => {
+const UsageWindowRow: FC<{
+    window: RuntimeAccountUsageWindow
+    now: number
+}> = ({ window, now }): ReactNode => {
     const { t } = useI18n()
     const labelKey = usageWindowLabelKey(window.key)
     const label = [labelKey ? t(labelKey) : window.key, window.scope]
@@ -141,10 +158,122 @@ const UsageWindowRow: FC<{ window: RuntimeAccountUsageWindow; now: number }> = (
     )
 }
 
-// The runtime page's Account section: who the runtime's CLI is signed in as,
-// what that account has used, and — when nothing usable is signed in — a
-// shell on the host to sign in from. Opening the page reads a host that is
-// awake; Refresh (and a sign-in) is the user's explicit consent to wake a
+// The account's login/logout/remove all run as operations the host journals;
+// the API settles the ones this page started when the shell closes, but that
+// settlement races the page's own reload, so wait for it to leave the
+// running states before reading the list back.
+// Measured on a local daemon [2026-09-09]: the post-close reconcile takes one
+// auth.operation + one auth.inspect round trip, well under a second.
+const SETTLE_POLL_MS = 500
+const SETTLE_POLL_LIMIT = 20
+
+const operationSettled = (op: RuntimeAuthOperationView): boolean =>
+    op.status !== 'pending' && op.status !== 'running'
+
+const ProfileRow: FC<{
+    profile: RuntimeAuthProfileView
+    busy: boolean
+    onSignIn: () => void
+    onSignOut: () => void
+    onRemove: () => void
+    onSetDefault: (profileId: string | null) => void
+}> = ({
+    profile,
+    busy,
+    onSignIn,
+    onSignOut,
+    onRemove,
+    onSetDefault
+}): ReactNode => {
+    const { t } = useI18n()
+    const tag = profileStatusTag(profile, t)
+    const headline = profileDisplayName(profile)
+    const plan = planLabel(profile.identity?.plan ?? null)
+    const subline = [
+        headline !== profile.label ? profile.label : null,
+        profile.identity?.organization,
+        profile.agentCount > 0
+            ? t('web.runtimeAuth.usedBy', { count: profile.agentCount })
+            : null,
+        profile.checkedAt
+            ? t('web.runtimeDetails.checked', {
+                  time: relative(profile.checkedAt)
+              })
+            : null
+    ]
+        .filter((part): part is string => Boolean(part))
+        .join(' · ')
+    const removable = profile.lifecycle !== 'deleting'
+    const items: OverflowMenuEntry[] = [
+        {
+            label: t('web.runtimeDetails.account.signIn'),
+            onSelect: onSignIn,
+            disabled: busy || !removable
+        },
+        profile.isDefault
+            ? {
+                  label: t('web.runtimeAuth.clearDefault'),
+                  onSelect: () => onSetDefault(null),
+                  disabled: busy
+              }
+            : {
+                  label: t('web.runtimeAuth.makeDefault'),
+                  onSelect: () => onSetDefault(profile.id),
+                  disabled: busy || !removable
+              },
+        { separator: true },
+        {
+            label: t('web.runtimeAuth.signOut'),
+            onSelect: onSignOut,
+            disabled: busy || !removable || profileNeedsSignIn(profile)
+        },
+        {
+            label: t('web.runtimeAuth.remove'),
+            onSelect: onRemove,
+            danger: true,
+            disabled: busy || !removable || profile.agentCount > 0,
+            disabledReason:
+                profile.agentCount > 0
+                    ? t('web.runtimeAuth.removeBlocked', {
+                          count: profile.agentCount
+                      })
+                    : undefined
+        }
+    ]
+    return (
+        <div className='settings-card-row'>
+            <div className='min-w-0'>
+                <div className='settings-card-label break-all'>{headline}</div>
+                {subline && <div className='settings-card-copy'>{subline}</div>}
+            </div>
+            <div className='settings-card-side'>
+                {profile.isDefault && (
+                    <span className='text-caption text-link inline-flex items-center gap-1 font-medium'>
+                        {t('web.runtimeAuth.defaultForNewAgents')}
+                        <CheckIcon className='h-3.5 w-3.5' />
+                    </span>
+                )}
+                {plan && <Tag>{plan}</Tag>}
+                <StatusTag tone={tag.tone} label={tag.label} />
+                {busy ? (
+                    <Spinner size={12} />
+                ) : (
+                    <OverflowMenu ariaLabel={headline} compact items={items} />
+                )}
+            </div>
+        </div>
+    )
+}
+
+interface SignInTarget {
+    operationId?: string
+}
+
+// The runtime page's Account section: who the runtime's CLI is signed in as
+// (the host sign-in), what that account has used, the extra accounts added
+// on this runtime for agents to run under, and — when a sign-in is needed —
+// a shell on the host to do it from. Opening the page reads a host that is
+// awake; Refresh (and any sign-in) is the user's explicit consent to wake a
 // sleeping sandbox.
 const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     runtime
@@ -156,15 +285,25 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [enablingTerminal, setEnablingTerminal] = useState(false)
-    const [signingIn, setSigningIn] = useState(false)
+    const [signIn, setSignIn] = useState<SignInTarget | null>(null)
+    const [busyProfile, setBusyProfile] = useState<string | null>(null)
+    const [adding, setAdding] = useState(false)
     const runtimeId = runtime.id
+    const {
+        list: auth,
+        loading: authLoading,
+        error: authError,
+        reload: reloadAuth
+    } = useRuntimeAuthList(runtimeId)
 
     const probe = useCallback(
         async (wake: boolean): Promise<void> => {
             setLoading(true)
             setError(null)
             try {
-                setView(await client.agentRuntimes.getAccount(runtimeId, { wake }))
+                setView(
+                    await client.agentRuntimes.getAccount(runtimeId, { wake })
+                )
             } catch (e) {
                 setError(apiErrorMessage(e))
             } finally {
@@ -178,7 +317,41 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
         void probe(false)
     }, [probe])
 
-    const handleSignIn = async (): Promise<void> => {
+    const refreshAll = useCallback(
+        async (wake: boolean): Promise<void> => {
+            await probe(wake)
+            await reloadAuth()
+        },
+        [probe, reloadAuth]
+    )
+
+    const settleOperation = async (
+        operationId: string
+    ): Promise<RuntimeAuthOperationView | null> => {
+        let last: RuntimeAuthOperationView | null = null
+        for (let i = 0; i < SETTLE_POLL_LIMIT; i += 1) {
+            try {
+                last = await client.runtimeAuth.operation(operationId)
+            } catch (e) {
+                setError(apiErrorMessage(e))
+                return null
+            }
+            if (operationSettled(last)) return last
+            await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
+        }
+        return last
+    }
+
+    const reportOperation = (
+        op: RuntimeAuthOperationView | null,
+        failureKey: 'web.runtimeAuth.signInFailed' | null
+    ): void => {
+        if (!op || op.status !== 'failed') return
+        const reason = op.error ?? op.resultCode ?? op.status
+        setError(failureKey ? t(failureKey, { reason }) : reason)
+    }
+
+    const handleHostSignIn = async (): Promise<void> => {
         if (!view) return
         if (
             runtime.kind === 'sprites' &&
@@ -200,7 +373,10 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                 await client.sandboxes.setTerminal(runtime.hostId, true)
                 setView((prev) =>
                     prev?.host
-                        ? { ...prev, host: { ...prev.host, terminalEnabled: true } }
+                        ? {
+                              ...prev,
+                              host: { ...prev.host, terminalEnabled: true }
+                          }
                         : prev
                 )
             } catch (e) {
@@ -210,12 +386,227 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                 setEnablingTerminal(false)
             }
         }
-        setSigningIn(true)
+        setSignIn({})
     }
 
-    const handleSignInDone = (): void => {
-        setSigningIn(false)
+    const startProfileSignIn = async (profileId: string): Promise<void> => {
+        setBusyProfile(profileId)
+        setError(null)
+        try {
+            const op = await client.runtimeAuth.login(runtimeId, profileId, {
+                wake: true
+            })
+            setSignIn({ operationId: op.id })
+        } catch (e) {
+            setError(apiErrorMessage(e))
+        } finally {
+            setBusyProfile(null)
+        }
+    }
+
+    const handleAdd = async (): Promise<void> => {
+        setAdding(true)
+        setError(null)
+        try {
+            const profile = await client.runtimeAuth.create(runtimeId, {
+                authMethod: 'subscription'
+            })
+            await reloadAuth()
+            await startProfileSignIn(profile.id)
+        } catch (e) {
+            setError(apiErrorMessage(e))
+        } finally {
+            setAdding(false)
+        }
+    }
+
+    const handleSignInDone = async (): Promise<void> => {
+        const target = signIn
+        setSignIn(null)
+        if (target?.operationId) {
+            reportOperation(
+                await settleOperation(target.operationId),
+                'web.runtimeAuth.signInFailed'
+            )
+            await reloadAuth()
+            return
+        }
         void probe(true)
+    }
+
+    const handleSignOut = async (
+        profile: RuntimeAuthProfileView
+    ): Promise<void> => {
+        const name = profileDisplayName(profile)
+        if (
+            !(await confirm({
+                title: t('web.runtimeAuth.signOutConfirmTitle', {
+                    account: name
+                }),
+                description: t('web.runtimeAuth.signOutConfirmBody'),
+                confirmLabel: t('web.runtimeAuth.signOut')
+            }))
+        )
+            return
+        setBusyProfile(profile.id)
+        setError(null)
+        try {
+            const op = await client.runtimeAuth.logout(runtimeId, profile.id, {
+                wake: true
+            })
+            reportOperation(
+                operationSettled(op) ? op : await settleOperation(op.id),
+                null
+            )
+        } catch (e) {
+            setError(apiErrorMessage(e))
+        } finally {
+            setBusyProfile(null)
+            await reloadAuth()
+        }
+    }
+
+    const handleRemove = async (
+        profile: RuntimeAuthProfileView
+    ): Promise<void> => {
+        const name = profileDisplayName(profile)
+        if (
+            !(await confirm({
+                title: t('web.runtimeAuth.removeConfirmTitle', {
+                    account: name
+                }),
+                description: t('web.runtimeAuth.removeConfirmBody'),
+                confirmLabel: t('web.runtimeAuth.remove'),
+                tone: 'danger'
+            }))
+        )
+            return
+        setBusyProfile(profile.id)
+        setError(null)
+        try {
+            const op = await client.runtimeAuth.remove(runtimeId, profile.id, {
+                wake: true
+            })
+            reportOperation(
+                operationSettled(op) ? op : await settleOperation(op.id),
+                null
+            )
+        } catch (e) {
+            setError(apiErrorMessage(e))
+        } finally {
+            setBusyProfile(null)
+            await reloadAuth()
+        }
+    }
+
+    const handleSetDefault = async (
+        profileId: string | null
+    ): Promise<void> => {
+        setBusyProfile(profileId ?? auth?.defaultProfileId ?? null)
+        setError(null)
+        try {
+            await client.runtimeAuth.setDefault(runtimeId, { profileId })
+        } catch (e) {
+            setError(apiErrorMessage(e))
+        } finally {
+            setBusyProfile(null)
+            await reloadAuth()
+        }
+    }
+
+    const renderProfiles = (list: RuntimeAuthListView): ReactNode => {
+        if (list.availability === 'host-unavailable')
+            return <NoticeRow title={t('web.runtimeAuth.hostUnavailable')} />
+        if (list.availability === 'daemon-upgrade-required')
+            return (
+                <NoticeRow
+                    title={t('web.runtimeAuth.upgradeRequired')}
+                    action={
+                        <Link
+                            to={updatesPath('cli')}
+                            className='workbench-button-secondary'
+                        >
+                            {t('web.updates.reviewCta')}
+                        </Link>
+                    }
+                />
+            )
+        // Offline and asleep are already explained by the host sign-in block
+        // above; a second notice for the same host says nothing new.
+        if (list.availability !== 'ok') return null
+        return (
+            <div className='settings-card'>
+                <div className='settings-card-row'>
+                    <div className='min-w-0'>
+                        <div className='settings-card-label'>
+                            {t('web.runtimeAuth.managedTitle')}
+                        </div>
+                        <div className='settings-card-copy'>
+                            {t('web.runtimeAuth.addAccountHint')}
+                        </div>
+                    </div>
+                    <div className='settings-card-side'>
+                        <button
+                            type='button'
+                            className='workbench-button-secondary'
+                            disabled={adding || !list.capabilities.manage}
+                            onClick={(): void => {
+                                void handleAdd()
+                            }}
+                        >
+                            {adding && <Spinner size={12} />}
+                            {t('web.runtimeAuth.addAccount')}
+                        </button>
+                    </div>
+                </div>
+                {list.error && (
+                    <div className='settings-card-row'>
+                        <p className='text-caption text-error'>
+                            {t('web.runtimeAuth.listFailed')} ({list.error})
+                        </p>
+                    </div>
+                )}
+                {list.profiles.length === 0 && (
+                    <div className='settings-card-row'>
+                        <p className='text-caption text-muted'>
+                            {t('web.runtimeAuth.empty')}
+                        </p>
+                    </div>
+                )}
+                {list.profiles.map((profile) => (
+                    <ProfileRow
+                        key={profile.id}
+                        profile={profile}
+                        busy={busyProfile === profile.id}
+                        onSignIn={(): void => {
+                            void startProfileSignIn(profile.id)
+                        }}
+                        onSignOut={(): void => {
+                            void handleSignOut(profile)
+                        }}
+                        onRemove={(): void => {
+                            void handleRemove(profile)
+                        }}
+                        onSetDefault={(profileId): void => {
+                            void handleSetDefault(profileId)
+                        }}
+                    />
+                ))}
+                {list.profiles.length > 0 && !list.capabilities.execute && (
+                    <div className='settings-card-row'>
+                        <p className='text-caption text-muted'>
+                            {t('web.runtimeAuth.executeUnsupported')}{' '}
+                            <Link
+                                to={updatesPath('cli')}
+                                className='text-link hover:text-fg font-medium'
+                            >
+                                {t('web.updates.reviewCta')}
+                            </Link>
+                        </p>
+                    </div>
+                )}
+            </div>
+        )
     }
 
     const renderBody = (): ReactNode => {
@@ -236,7 +627,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                             className='workbench-button-secondary'
                             disabled={loading}
                             onClick={(): void => {
-                                void probe(true)
+                                void refreshAll(true)
                             }}
                         >
                             {loading && <Spinner size={12} />}
@@ -255,7 +646,9 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
         if (view.status === 'daemon-upgrade-required')
             return (
                 <NoticeRow
-                    title={t('web.runtimeDetails.account.daemonUpgradeRequired')}
+                    title={t(
+                        'web.runtimeDetails.account.daemonUpgradeRequired'
+                    )}
                     action={
                         <Link
                             to={updatesPath('cli')}
@@ -312,6 +705,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                             </div>
                         </div>
                         <div className='settings-card-side'>
+                            <Tag>{t('web.runtimeAuth.hostSignIn')}</Tag>
                             {plan && <Tag>{plan}</Tag>}
                             <StatusTag tone={tag.tone} label={tag.label} />
                         </div>
@@ -329,7 +723,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                         </div>
                     )}
                 </div>
-                {signInNeeded(view) && !signingIn && (
+                {signInNeeded(view) && !signIn && (
                     <NoticeRow
                         title={t('web.chat.runtimeSignIn.title')}
                         detail={t('web.runtimeDetails.account.signInHint')}
@@ -339,7 +733,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                                 className='workbench-button-primary'
                                 disabled={enablingTerminal}
                                 onClick={(): void => {
-                                    void handleSignIn()
+                                    void handleHostSignIn()
                                 }}
                             >
                                 {enablingTerminal && <Spinner size={12} />}
@@ -348,7 +742,20 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                         }
                     />
                 )}
-                {signingIn && (
+                {auth ? (
+                    renderProfiles(auth)
+                ) : authLoading ? (
+                    <div className='settings-card' aria-busy='true'>
+                        <GhostSettingsRows rows={1} action={false} />
+                    </div>
+                ) : authError ? (
+                    <NoticeRow
+                        tone='danger'
+                        title={t('web.runtimeAuth.listFailed')}
+                        detail={authError}
+                    />
+                ) : null}
+                {signIn && (
                     <Suspense
                         fallback={
                             <div className='text-caption text-muted flex items-center gap-2 py-4'>
@@ -360,7 +767,10 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                         <RuntimeSignInTerminal
                             runtimeId={runtime.id}
                             framework={runtime.framework}
-                            onDone={handleSignInDone}
+                            operationId={signIn.operationId}
+                            onDone={(): void => {
+                                void handleSignInDone()
+                            }}
                         />
                     </Suspense>
                 )}
@@ -375,12 +785,12 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                 <button
                     type='button'
                     className='text-caption text-link hover:text-fg disabled:text-muted font-medium disabled:cursor-not-allowed'
-                    disabled={loading}
+                    disabled={loading || authLoading}
                     onClick={(): void => {
-                        void probe(true)
+                        void refreshAll(true)
                     }}
                 >
-                    {loading
+                    {loading || authLoading
                         ? t('web.chat.runtimeSignIn.checking')
                         : t('web.runtimeDetails.refresh')}
                 </button>
