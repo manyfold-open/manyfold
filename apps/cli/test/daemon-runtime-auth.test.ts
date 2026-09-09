@@ -39,6 +39,16 @@ interface Sandbox {
     bin: string
 }
 
+const stubCli = async (
+    bin: string,
+    name: string,
+    script: string
+): Promise<void> => {
+    const path = join(bin, name)
+    await writeFile(path, `#!/bin/sh\n${script}\n`)
+    await chmod(path, 0o755)
+}
+
 const withSandbox = async (
     fn: (sb: Sandbox) => Promise<void>
 ): Promise<void> => {
@@ -63,6 +73,18 @@ const withSandbox = async (
     process.env.HOME = home
     delete process.env.CODEX_HOME
     process.env.PATH = `${bin}${delimiter}${process.env.PATH ?? ''}`
+    // The sealed test env fails a run that reaches a real vendor CLI; every
+    // probe spawns `<cli> --version`, so the three binaries are stubs here.
+    for (const [name, version] of [
+        ['claude', '2.1.259 (Claude Code)'],
+        ['codex', 'codex-cli 0.153.4'],
+        ['gemini', '0.58.0']
+    ])
+        await stubCli(
+            bin,
+            name,
+            `[ "$1" = "--version" ] && { echo "${version}"; exit 0; }; exit 0`
+        )
     const daemonId = createObjectId('daemonHost')
     const runtimeId = createObjectId('agentRuntime')
     // The registration the manager scopes the store by.
@@ -84,16 +106,6 @@ const withSandbox = async (
             if (value === undefined) delete process.env[key]
             else process.env[key] = value
     }
-}
-
-const stubCli = async (
-    bin: string,
-    name: string,
-    script: string
-): Promise<void> => {
-    const path = join(bin, name)
-    await writeFile(path, `#!/bin/sh\n${script}\n`)
-    await chmod(path, 0o755)
 }
 
 const isSymlink = async (path: string): Promise<boolean> =>

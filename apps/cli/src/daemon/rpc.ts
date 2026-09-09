@@ -766,15 +766,21 @@ const inspectModelCapability = async (
 ): Promise<DaemonModelInspectResponse> => {
     const requested =
         typeof payload.framework === 'string' ? payload.framework : null
-    const all = await Promise.all([
-        inspectClaudeModels(dirs),
-        inspectCodexModels(dirs),
-        inspectGeminiModels(dirs)
-    ])
+    // A framework-scoped inspect (account / auth-profile probes) runs only
+    // that CLI: each inspector spawns `<cli> --version`, and a profile probe
+    // must not touch the other two vendors' binaries at all.
+    const inspectors: Array<
+        [ConfigurableFramework, () => Promise<DaemonFrameworkModelCapability>]
+    > = [
+        ['claude-code', () => inspectClaudeModels(dirs)],
+        ['codex', () => inspectCodexModels(dirs)],
+        ['gemini-cli', () => inspectGeminiModels(dirs)]
+    ]
+    const selected = requested
+        ? inspectors.filter(([framework]) => framework === requested)
+        : inspectors
     return {
-        frameworks: requested
-            ? all.filter((item) => item.framework === requested)
-            : all
+        frameworks: await Promise.all(selected.map(([, run]) => run()))
     }
 }
 
