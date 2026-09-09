@@ -15,7 +15,7 @@ import {
 import { Ghost } from '@/components/Loading'
 import { relative, runtimeStatusTag } from '@/components/RuntimeDetailPanel'
 import Breadcrumb from '@/components/Breadcrumb'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { VersionTag } from '@/components/VersionTag'
 import { CloudComputerIcon, PlusIcon } from '@/components/icons'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
@@ -33,6 +33,23 @@ import { formatDuration } from '@/lib/usageFormat'
 import type { RuntimeVM } from '@/pages/AgentRuntimesList'
 
 type RuntimeKind = RuntimeVM['kind']
+
+// The mf CLI version reads as plain text until there is something newer, at
+// which point it becomes the pill that says so. Unlinked in both places the
+// dashboard uses it: the card and the row already navigate to the machine, and
+// a version that went somewhere else made the same click mean two things.
+const cliVersionCell = (host: RuntimeVM['host']): ReactNode => {
+    if (!host?.cliVersion) return '—'
+    if (!host.updateAvailable) return `v${host.cliVersion}`
+    return (
+        <VersionTag
+            label={`v${host.cliVersion}`}
+            latest={host.latestCliVersion}
+            kind='cli'
+            linked={false}
+        />
+    )
+}
 
 const SECTION_KINDS: RuntimeKind[] = ['sprites', 'k8s', 'daemon', 'external']
 
@@ -175,19 +192,7 @@ const VMCard: FC<VMItemProps> = ({
                     />
                     <span className='flex flex-col gap-1.5'>
                         <MetaRow label={t('web.agentRuntimesList.cliLabel')}>
-                            {vm.host?.cliVersion
-                                ? `v${vm.host.cliVersion}`
-                                : '—'}
-                            {vm.host?.updateAvailable && (
-                                // The whole card is a button, so this one
-                                // cannot be a link; the machine it opens shows
-                                // the same badge as a link.
-                                <UpdateBadge
-                                    latest={vm.host.latestCliVersion}
-                                    kind='cli'
-                                    linked={false}
-                                />
-                            )}
+                            {cliVersionCell(vm.host)}
                         </MetaRow>
                         <MetaRow label={t('web.runtimesDashboard.agents')}>
                             {vm.agentsCount}
@@ -427,21 +432,7 @@ const VMTable: FC<{
                             : '—'}
                     </td>
                     <td className={`${bodyCell} whitespace-nowrap`}>
-                        {vm.host?.cliVersion ? `v${vm.host.cliVersion}` : '—'}
-                        {vm.host?.updateAvailable && (
-                            <>
-                                {' '}
-                                {/* Unlinked: the row already navigates to the
-                                    machine, and a cell that went somewhere
-                                    else made the same click mean two
-                                    things. */}
-                                <UpdateBadge
-                                    latest={vm.host.latestCliVersion}
-                                    kind='cli'
-                                    linked={false}
-                                />
-                            </>
-                        )}
+                        {cliVersionCell(vm.host)}
                     </td>
                     <td className={bodyCellRight}>{vm.agentsCount}</td>
                     <td className={`${bodyCell} whitespace-nowrap`}>

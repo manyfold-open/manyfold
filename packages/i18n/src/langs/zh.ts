@@ -318,7 +318,6 @@ const zh: Translations = {
                     chooseVersion:
                         '选择要安装的 {{framework}} 版本。升级会在 sandbox 内执行，最多约一分钟。',
                     latest: '最新 {{version}}',
-                    latestAvailable: '↑ 最新 {{version}} 可用',
                     notDetected: '未检测到',
                     refreshVersion: '刷新版本',
                     upgrade: '升级',

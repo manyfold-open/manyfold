@@ -15,7 +15,7 @@ import { GhostSettingsRows } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { VersionTag } from '@/components/VersionTag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { docsHref } from '@/lib/docsLinks'
@@ -236,23 +236,24 @@ const LocalDaemons: FC = (): ReactNode => {
                                         )}
                                     </div>
                                     <div className='settings-card-copy text-caption text-muted'>
-                                        <span className='font-mono'>
-                                            {t('web.selfOwned.cliVersion', {
-                                                version:
-                                                    h.cliVersion ??
-                                                    t('common.unknown')
-                                            })}
-                                        </span>
-                                        {h.updateAvailable && (
-                                            <>
-                                                {' '}
-                                                <UpdateBadge
-                                                    latest={h.latestCliVersion}
-                                                    kind='cli'
-                                                    required={h.needsUpgrade}
-                                                />
-                                            </>
-                                        )}
+                                        <VersionTag
+                                            label={t(
+                                                'web.selfOwned.cliVersion',
+                                                {
+                                                    version:
+                                                        h.cliVersion ??
+                                                        t('common.unknown')
+                                                }
+                                            )}
+                                            mono={!!h.cliVersion}
+                                            latest={
+                                                h.updateAvailable
+                                                    ? h.latestCliVersion
+                                                    : null
+                                            }
+                                            required={h.needsUpgrade}
+                                            kind='cli'
+                                        />
                                         {' · '}
                                         {formatStartupMethod(
                                             h.startupMethod,

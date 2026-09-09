@@ -43,7 +43,7 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import RenameDialog from '@/components/RenameDialog'
 import RuntimeAccountSection from '@/components/RuntimeAccountSection'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { UpdateBadge } from '@/components/UpdateBadge'
+import { VersionTag } from '@/components/VersionTag'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useApiClient } from '@/lib/apiClient'
@@ -151,14 +151,6 @@ export const NoticeRow: FC<{
             <div className='flex shrink-0 items-center gap-2'>{action}</div>
         )}
     </div>
-)
-
-const VersionPill: FC<{ version: string | null }> = ({
-    version
-}): ReactNode => (
-    <span className='tag tag-neutral font-mono'>
-        {version ? `v${version}` : translate('web.runtimeDetails.versionPending')}
-    </span>
 )
 
 export const IdentityHeader: FC<{
@@ -680,10 +672,22 @@ const RuntimeDetailPanel: FC<{
                         <span className='text-ui text-fg font-medium'>
                             {frameworkLabel(runtime.framework)}
                         </span>
-                        <VersionPill version={runtime.frameworkVersion} />
-                        {fwUpgradeable && fwUpgradeAvailable && (
-                            <UpdateBadge latest={fwLatest} kind='framework' />
-                        )}
+                        <VersionTag
+                            label={
+                                runtime.frameworkVersion
+                                    ? `v${runtime.frameworkVersion}`
+                                    : translate(
+                                          'web.runtimeDetails.versionPending'
+                                      )
+                            }
+                            mono={!!runtime.frameworkVersion}
+                            latest={
+                                fwUpgradeable && fwUpgradeAvailable
+                                    ? fwLatest
+                                    : null
+                            }
+                            kind='framework'
+                        />
                         {fwUpgradeable && (
                             <>
                                 <ShortcutTooltip
