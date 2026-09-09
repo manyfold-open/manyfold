@@ -9,10 +9,11 @@ import { Link } from 'react-router-dom'
 import { Ghost, Spinner } from '@/components/Loading'
 import { NoticeRow } from '@/components/RuntimeDetailPanel'
 import { StatusTag, Tag } from '@/components/Tag'
+import { UpdateBadge } from '@/components/UpdateBadge'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
-import { updatesPath } from '@/lib/updateCenter'
+import { shortRevision } from '@/lib/updateCenter'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { shouldPromptFirstPartyInstall } from './firstPartySkill'
 
@@ -367,11 +368,24 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                         {!skill.readonly && hasUpdate(skill) && (
                                             <>
                                                 <span> · </span>
-                                                <StatusTag
-                                                    tone='warning'
-                                                    label={t(
-                                                        'web.skills.updateAvailable'
+                                                {/* No `v`: both sides of a
+                                                    skill update are git
+                                                    revisions, and a `v` in
+                                                    front of one claims a
+                                                    release that does not
+                                                    exist. */}
+                                                <UpdateBadge
+                                                    latest={shortRevision(
+                                                        skill.latestRevision ??
+                                                            ''
                                                     )}
+                                                    kind={
+                                                        skill.skillId ===
+                                                        MANYFOLD_CLI_USAGE_SKILL_ID
+                                                            ? 'cliUsage'
+                                                            : 'skill'
+                                                    }
+                                                    prefix=''
                                                 />
                                             </>
                                         )}
@@ -405,19 +419,10 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                                 ? t('web.skills.disableAction')
                                                 : t('web.skills.enableAction')}
                                         </button>
-                                        {hasUpdate(skill) && (
-                                            <Link
-                                                to={updatesPath(
-                                                    skill.skillId ===
-                                                        MANYFOLD_CLI_USAGE_SKILL_ID
-                                                        ? 'cliUsage'
-                                                        : 'skill'
-                                                )}
-                                                className='workbench-button-secondary'
-                                            >
-                                                {t('web.skills.updateAction')}
-                                            </Link>
-                                        )}
+                                        {/* No "Update" button here: it only
+                                            ever navigated to the Update
+                                            Center, which the badge beside the
+                                            revision now does. */}
                                         {skill.materializeStatus ===
                                             'failed' && (
                                             <button

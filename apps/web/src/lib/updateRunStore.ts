@@ -149,7 +149,10 @@ const runSteps = async (
                         break
                     }
                     case 'sandboxCli':
-                        await client.sandboxes.upgradeCli(step.sandboxId)
+                        await client.sandboxes.upgradeCli(
+                            step.sandboxId,
+                            step.targetVersion ?? undefined
+                        )
                         succeed(ids)
                         break
                     case 'daemonCli': {
@@ -169,8 +172,12 @@ const runSteps = async (
                         if (daemonsThisWindow === 0)
                             windowStartedAt = timers.now()
                         daemonsThisWindow += 1
+                        const target = step.targetVersion ?? undefined
                         try {
-                            await client.daemons.upgradeHost(step.hostId)
+                            await client.daemons.upgradeHost(
+                                step.hostId,
+                                target
+                            )
                         } catch (err) {
                             // The window is server-side and shared with every
                             // other session for this account, so it can be
@@ -186,7 +193,10 @@ const runSteps = async (
                             if (stale()) return
                             daemonsThisWindow = 1
                             windowStartedAt = timers.now()
-                            await client.daemons.upgradeHost(step.hostId)
+                            await client.daemons.upgradeHost(
+                                step.hostId,
+                                target
+                            )
                         }
                         succeed(ids)
                         break

@@ -489,7 +489,7 @@ If a tag ever looks like it's missing an edge, the fix is to retune these fills 
 - Rings, borders, and shadows on a product tag — the divider-ring era is over; the contrast-budgeted fill is the edge.
 - The legacy `.status-tag` and `.workbench-pill` classes — both removed; `.tag-neutral` is the single survivor.
 
-A tag is never interactive chrome. The one sanctioned press-target wearing the tag anatomy is the sandbox `SpriteStatusRefresh` control, which _is_ the status it refreshes — it adds only hover opacity, no shadow, no new shape.
+A tag is never interactive chrome. Two press-targets wear the tag anatomy, and both qualify on the same test — the tag _is_ the thing the press acts on, and it adds only hover opacity, no shadow, no new shape: the sandbox `SpriteStatusRefresh` control, which is the status it refreshes, and `UpdateBadge`, which is the available release it takes you to. Anything that merely sits next to what it acts on is a button (§8.10), not a tag.
 
 **Never construct a tone class as a template string (`` `tag-${tone}` ``).** Tailwind emits `@layer components` rules only when the class name appears _verbatim_ somewhere in the content scan, so a computed class silently ships no CSS (this exact bug shipped `.tag-success` / `.tag-idle` as unstyled text). Always go through the `tagToneClass` map in `Tag.tsx` — its literal values are what keep the five tone classes alive in the build.
 

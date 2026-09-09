@@ -46,11 +46,16 @@ interface SkillBatchResult {
     }>
 }
 
+interface CliCall {
+    id: string
+    targetVersion: string | undefined
+}
+
 interface Calls {
     order: string[]
     installBatch: SkillBatchBody[]
-    upgradeCli: string[]
-    upgradeHost: string[]
+    upgradeCli: CliCall[]
+    upgradeHost: CliCall[]
     upgradeFramework: Array<{ agentId: string; targetVersion: string }>
     upgradeFrameworkStream: Array<{ agentId: string; targetVersion: string }>
 }
@@ -101,17 +106,23 @@ const fakeClient = (
             }
         },
         sandboxes: {
-            upgradeCli: async (sandboxId: string): Promise<unknown> => {
+            upgradeCli: async (
+                sandboxId: string,
+                targetVersion?: string
+            ): Promise<unknown> => {
                 calls.order.push('upgradeCli')
-                calls.upgradeCli.push(sandboxId)
+                calls.upgradeCli.push({ id: sandboxId, targetVersion })
                 clock.now += 1_000
                 return over.upgradeCli ? over.upgradeCli(sandboxId) : {}
             }
         },
         daemons: {
-            upgradeHost: async (hostId: string): Promise<unknown> => {
+            upgradeHost: async (
+                hostId: string,
+                targetVersion?: string
+            ): Promise<unknown> => {
                 calls.order.push('upgradeHost')
-                calls.upgradeHost.push(hostId)
+                calls.upgradeHost.push({ id: hostId, targetVersion })
                 clock.now += 1_000
                 return over.upgradeHost
                     ? over.upgradeHost(hostId)
@@ -157,15 +168,23 @@ const skillStep = (skillId: string, agentIds: string[]): BatchStep => ({
     agentIds,
     rowIds: agentIds.map((agentId) => `skill:${agentId}:${skillId}`)
 })
-const sandboxStep = (n: number): BatchStep => ({
+const sandboxStep = (
+    n: number,
+    targetVersion: string | null = null
+): BatchStep => ({
     type: 'sandboxCli',
     rowId: `cli:sandbox:sbx_${n}`,
-    sandboxId: `sbx_${n}`
+    sandboxId: `sbx_${n}`,
+    targetVersion
 })
-const daemonStep = (n: number): BatchStep => ({
+const daemonStep = (
+    n: number,
+    targetVersion: string | null = null
+): BatchStep => ({
     type: 'daemonCli',
     rowId: `cli:daemon:dmn_${n}`,
-    hostId: `dmn_${n}`
+    hostId: `dmn_${n}`,
+    targetVersion
 })
 const frameworkStep = (mode: 'npm' | 'rebuild', n: number): BatchStep => ({
     type: 'framework',
@@ -233,7 +252,9 @@ test('a started batch dispatches every step with no page mounted and no subscrib
     assert.deepEqual(calls.installBatch, [
         { skillId: 'skl_a', agentIds: ['agt_1', 'agt_2'] }
     ])
-    assert.deepEqual(calls.upgradeCli, ['sbx_1'])
+    assert.deepEqual(calls.upgradeCli, [
+        { id: 'sbx_1', targetVersion: undefined }
+    ])
     assert.deepEqual(calls.upgradeFramework, [
         { agentId: 'agt_1', targetVersion: '2.1.0' }
     ])
@@ -320,7 +341,7 @@ test('the sixth daemon upgrade waits out the rate window and says so', async () 
     const observed: Array<RowRun | undefined> = []
     onSleep = () => observed.push(runOf('cli:daemon:dmn_6'))
     const { client, calls } = fakeClient()
-    const steps = [1, 2, 3, 4, 5, 6].map(daemonStep)
+    const steps = [1, 2, 3, 4, 5, 6].map((n) => daemonStep(n))
 
     updateRunStore.start(client, steps, rowIdsOf(steps))
     await waitFor(finished)
@@ -453,7 +474,9 @@ test('start() is refused while a batch is running, and for an empty plan', async
 
     gate.resolve({})
     await waitFor(finished)
-    assert.deepEqual(calls.upgradeCli, ['sbx_1'])
+    assert.deepEqual(calls.upgradeCli, [
+        { id: 'sbx_1', targetVersion: undefined }
+    ])
     assert.equal(updateRunStore.start(client, [], []), false)
     assert.equal(updateRunStore.getState().batch?.state, 'finished')
 })
@@ -472,5 +495,69 @@ test('clear() empties the store and a loop released afterwards writes nothing', 
     await settle()
 
     assert.deepEqual(updateRunStore.getState(), { runs: {}, batch: null })
-    assert.deepEqual(calls.upgradeCli, ['sbx_1'])
+    assert.deepEqual(calls.upgradeCli, [
+        { id: 'sbx_1', targetVersion: undefined }
+    ])
+})
+
+test('a picked target version reaches the CLI endpoints', async () => {
+    const { client, calls } = fakeClient()
+    const steps = [sandboxStep(1, '0.29.0'), daemonStep(1, '0.30.0')]
+
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    await waitFor(finished)
+
+    assert.deepEqual(calls.upgradeCli, [
+        { id: 'sbx_1', targetVersion: '0.29.0' }
+    ])
+    assert.deepEqual(calls.upgradeHost, [
+        { id: 'dmn_1', targetVersion: '0.30.0' }
+    ])
+})
+
+test('no picked version omits the parameter rather than sending null', async () => {
+    // The endpoints read an absent targetVersion as "the channel's latest";
+    // a literal null would fail validation.
+    const { client, calls } = fakeClient()
+    const steps = [sandboxStep(1), daemonStep(1)]
+
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    await waitFor(finished)
+
+    assert.deepEqual(calls.upgradeCli, [
+        { id: 'sbx_1', targetVersion: undefined }
+    ])
+    assert.deepEqual(calls.upgradeHost, [
+        { id: 'dmn_1', targetVersion: undefined }
+    ])
+})
+
+test('the rate-limit retry re-sends the same target version', async () => {
+    // The retry is a second call, not a resumed one, so it has to carry the
+    // pick again or the wait silently installs a different version.
+    let attempts = 0
+    const { client, calls } = fakeClient({
+        upgradeHost: async () => {
+            attempts += 1
+            if (attempts === 1)
+                throw new ApiError({
+                    status: 429,
+                    statusText: 'Too Many Requests',
+                    code: 'too_many_requests',
+                    message: 'rate limited',
+                    body: ''
+                })
+            return { ok: true }
+        }
+    })
+    const steps = [daemonStep(1, '0.30.0')]
+
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    await waitFor(finished)
+
+    assert.deepEqual(sleeps, [DAEMON_RATE_WINDOW_MS])
+    assert.deepEqual(calls.upgradeHost, [
+        { id: 'dmn_1', targetVersion: '0.30.0' },
+        { id: 'dmn_1', targetVersion: '0.30.0' }
+    ])
 })

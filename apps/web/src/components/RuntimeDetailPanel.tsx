@@ -43,9 +43,9 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import RenameDialog from '@/components/RenameDialog'
 import RuntimeAccountSection from '@/components/RuntimeAccountSection'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { UpdateBadge } from '@/components/UpdateBadge'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
-import { updatesPath } from '@/lib/updateCenter'
 import { useApiClient } from '@/lib/apiClient'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
@@ -681,6 +681,9 @@ const RuntimeDetailPanel: FC<{
                             {frameworkLabel(runtime.framework)}
                         </span>
                         <VersionPill version={runtime.frameworkVersion} />
+                        {fwUpgradeable && fwUpgradeAvailable && (
+                            <UpdateBadge latest={fwLatest} kind='framework' />
+                        )}
                         {fwUpgradeable && (
                             <>
                                 <ShortcutTooltip
@@ -763,29 +766,9 @@ const RuntimeDetailPanel: FC<{
                     detail={runtime.failureReason}
                 />
             )}
-            {fwUpgradeable && fwUpgradeAvailable && fwLatest && (
-                <NoticeRow
-                    title={translate('web.runtimeDetails.upgradeAvailable', {
-                        framework: frameworkLabel(runtime.framework),
-                        version: fwLatest
-                    })}
-                    detail={
-                        runtime.frameworkVersion
-                            ? translate('web.runtimeDetails.currentVersion', {
-                                  version: runtime.frameworkVersion
-                              })
-                            : translate('web.runtimeDetails.upgradeNotice')
-                    }
-                    action={
-                        <Link
-                            to={updatesPath('framework')}
-                            className='workbench-button-secondary'
-                        >
-                            {translate('web.updates.reviewCta')}
-                        </Link>
-                    }
-                />
-            )}
+            {/* No upgrade-available notice here: the badge beside the version
+                in the header carries that, and a strip repeating it pushed the
+                actual runtime detail below the fold. */}
 
             <Section
                 title={translate('web.runtimeDetails.agents', {
