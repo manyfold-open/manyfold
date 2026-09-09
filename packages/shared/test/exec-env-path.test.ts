@@ -75,7 +75,31 @@ test('the managed block re-takes the front after something else prepends', () =>
             MANAGED_PATH_BLOCK,
             'printf "%s\\n" "$PATH"'
         ])
-        assert.equal(out.split(':')[0], `${home}/.local/bin`)
+        assert.equal(out, `${home}/.local/bin:/image/node/bin:/usr/bin`)
+    })
+})
+
+test('the managed block drains inherited duplicates without changing other PATH entries', () => {
+    withTempHome((home) => {
+        const out = runShell(home, [
+            'PATH=":$HOME/.local/bin:/custom path:$HOME/.local/bin-tools:/usr/bin:/usr/bin:$HOME/.local/bin:"',
+            MANAGED_PATH_BLOCK,
+            MANAGED_PATH_BLOCK,
+            'printf "%s\\n" "$PATH"'
+        ])
+        assert.equal(out, `${home}/.local/bin::/custom path:${home}/.local/bin-tools:/usr/bin:/usr/bin:`)
+    })
+})
+
+test('the managed block works in POSIX sh before PATH can locate any tools', () => {
+    withTempHome((home) => {
+        const out = execFileSync('sh', ['-c', [
+            'set -eu',
+            'unset PATH',
+            MANAGED_PATH_BLOCK,
+            'printf "%s" "$PATH"'
+        ].join('\n')], { encoding: 'utf8', env: { ...process.env, HOME: home } })
+        assert.equal(out, `${home}/.local/bin:`)
     })
 })
 
