@@ -1,5 +1,16 @@
 # @manyfold/web
 
+## 0.65.1
+
+### Patch Changes
+
+- [#268](https://github.com/manyfold-open/manyfold/pull/268) [`3a2ec8a`](https://github.com/manyfold-open/manyfold/commit/3a2ec8afa20124a0f5ca4cc7f32731c211d035a7) Thanks [@yingca1](https://github.com/yingca1)! - The runtime page's sign-in terminal now shows what you type. `claude auth
+login` does read the code pasted at its `Paste code here if prompted >`
+  prompt, but it echoes none of it, so the terminal looked dead and there was
+  no way to tell whether anything had been entered. The sign-in command now
+  leaves the terminal to `cat` and pipes it into the CLI, which is enough to
+  get the echo back — the same code, typed or pasted, still reaches the CLI.
+
 ## 0.65.0
 
 ### Minor Changes
