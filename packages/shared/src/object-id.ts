@@ -12,6 +12,8 @@ export const objectIdPrefixes = Object.freeze({
     agentRuntimeToken: 'rtk',
     agentPermission: 'agp',
     permissionConsentRequest: 'pcr',
+    runtimeAuthProfile: 'rap',
+    runtimeAuthOperation: 'rao',
     a2aContext: 'aac',
     a2aTask: 'aat',
     a2aAgentGrant: 'a2g',

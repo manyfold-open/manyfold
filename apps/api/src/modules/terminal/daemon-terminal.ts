@@ -1,3 +1,5 @@
+import type {
+    DaemonAuthContextRef, DaemonPtyAuthLogin } from '@manyfold/shared'
 import {
     envTextFromExtras,
     envTextToRecord
@@ -5,6 +7,7 @@ import {
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { WebSocket as WsClient } from 'ws'
 import type { Agent } from '@manyfold/db'
+import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import {
@@ -84,6 +87,7 @@ export class DaemonTerminal {
                 })
                 .catch(() => {})
         }
+        const authContext = authContextRefFor(agent)
         await this.openPty({
             daemonId,
             cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
@@ -98,6 +102,13 @@ export class DaemonTerminal {
                 ...TERMINAL_BASE_ENV
             },
             ...(resume?.command.length ? { command: resume.command } : {}),
+            // A profile-bound agent's shell runs inside that profile's
+            // context (the daemon composes it and holds the lock while the
+            // shell is open), so `claude`/`codex` typed there answer as the
+            // agent's account, not the machine's.
+            ...(authContext
+                ? { authSelection: { mode: 'profile' as const, ...authContext } }
+                : {}),
             cols,
             rows,
             client,
@@ -119,12 +130,33 @@ export class DaemonTerminal {
         })
     }
 
+    // A runtime auth profile sign-in: the daemon composes argv and the
+    // credential-context env from the ids (DAEMON_FEATURE_AUTH_PROFILES), so
+    // this sends no command, no cwd and only the terminal base env.
+    async tunnelAuthLogin(
+        req: DaemonHostTerminalRequest & { authLogin: DaemonPtyAuthLogin }
+    ): Promise<void> {
+        await this.openPty({
+            daemonId: req.daemonId,
+            cwd: undefined,
+            env: { ...TERMINAL_BASE_ENV },
+            authLogin: req.authLogin,
+            cols: req.cols,
+            rows: req.rows,
+            client: req.client,
+            onClose: req.onClose,
+            release: () => {}
+        })
+    }
+
     private async openPty(args: {
         daemonId: string
         cwd: string | undefined
         env: Record<string, string>
         // Run the TUI resume as the shell's argv instead of a bare login shell.
         command?: string[]
+        authLogin?: DaemonPtyAuthLogin
+        authSelection?: { mode: 'profile' } & DaemonAuthContextRef
         cols: number
         rows: number
         client: WsClient
@@ -136,6 +168,8 @@ export class DaemonTerminal {
             cwd,
             env,
             command,
+            authLogin,
+            authSelection,
             cols,
             rows,
             client,
@@ -156,6 +190,8 @@ export class DaemonTerminal {
                     // (checked by the gateway) — an older one would drop it and
                     // open a plain shell under a UI that promised a resume.
                     ...(command?.length ? { command } : {}),
+                    ...(authLogin ? { authLogin } : {}),
+                    ...(authSelection ? { authSelection } : {}),
                     env
                 },
                 timeoutMs: 24 * 3600 * 1000,

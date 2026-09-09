@@ -91,7 +91,8 @@ export class CodexAdapter implements ApiChatAdapter {
             agent,
             creds,
             runtime,
-            baseEnv
+            baseEnv,
+            authContext
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
         // Only the TRANSPORT changes for a runner turn — `runtime`
         // stays 'sprites', so credentials, workspace cwd and the codex HOME
@@ -99,7 +100,11 @@ export class CodexAdapter implements ApiChatAdapter {
         // including why baseEnv must ride along (#581).
         const viaRunner = !!ctx.runnerDaemonId
         const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(ctx.runnerDaemonId, baseEnv)
+            ? this.drivers.daemonDriverFor(
+                  ctx.runnerDaemonId,
+                  baseEnv,
+                  authContext
+              )
             : spriteDriver
         // Whoever holds the exec, and can therefore hand it back: losing that
         // socket must SUSPEND the turn (no terminal, so the resume path can

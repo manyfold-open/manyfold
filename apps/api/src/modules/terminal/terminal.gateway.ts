@@ -1,5 +1,6 @@
 import { narraNexusBaseWorkingPath } from '@manyfold/shared'
 import {
+    Optional,
     BadRequestException,
     Injectable,
     Logger,
@@ -13,6 +14,11 @@ import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { principalScopes } from '@/modules/auth/auth-principal'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
+import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
+import {
+    assertHostHonoursAuthContext,
+    authContextRefFor
+} from '@/modules/agents/model-config/runtime-auth-selection'
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import {
     TerminalResumeService,
@@ -33,6 +39,7 @@ interface TerminalQuery {
     agentId?: string
     sandboxId?: string
     runtimeId?: string
+    operationId?: string
     token?: string
     cols?: string
     cwdPath?: string
@@ -60,7 +67,11 @@ export class TerminalGateway implements OnModuleInit {
         private readonly daemon: DaemonTerminal,
         private readonly daemonHosts: DaemonHostService,
         private readonly files: FilesContextBuilder,
-        private readonly resume: TerminalResumeService
+        private readonly resume: TerminalResumeService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, the operationId branch reports unavailable.
+        @Optional()
+        private readonly runtimeAuth?: RuntimeAuthProfilesService
     ) {}
 
     onModuleInit(): void {
@@ -103,12 +114,16 @@ export class TerminalGateway implements OnModuleInit {
         const agentId = query.agentId?.trim()
         const sandboxId = query.sandboxId?.trim()
         const runtimeId = query.runtimeId?.trim()
+        const operationId = query.operationId?.trim()
         const token = query.token?.trim()
         const cols = clampDim(query.cols, 80, 20, 500)
         const rows = clampDim(query.rows, 24, 5, 200)
 
-        if (!token || (!agentId && !sandboxId && !runtimeId)) {
-            sendError(socket, 'missing token or agentId/sandboxId/runtimeId')
+        if (!token || (!agentId && !sandboxId && !runtimeId && !operationId)) {
+            sendError(
+                socket,
+                'missing token or agentId/sandboxId/runtimeId/operationId'
+            )
             socket.close(4400, 'bad request')
             return
         }
@@ -138,6 +153,18 @@ export class TerminalGateway implements OnModuleInit {
         if (sandboxId && !agentId) {
             await this.handleSandboxSession(socket, {
                 sandboxId,
+                userId: auth.userId,
+                cols,
+                rows
+            })
+            return
+        }
+        // Runtime auth profile sign-in: addressed by the login operation the
+        // API minted; the daemon runs the vendor sign-in inside that profile's
+        // credential context and the outcome is reconciled when it closes.
+        if (operationId && !agentId) {
+            await this.handleAuthLoginSession(socket, {
+                operationId,
                 userId: auth.userId,
                 cols,
                 rows
@@ -296,6 +323,21 @@ export class TerminalGateway implements OnModuleInit {
         }
 
         try {
+            // A profile-bound agent: refuse a host that cannot honour the
+            // context rather than open a shell under the wrong sign-in.
+            const authContext = authContextRefFor(agent)
+            if (authContext && agent.runtime === 'daemon' && agent.daemonId)
+                assertHostHonoursAuthContext(
+                    authContext,
+                    await this.daemonHosts.findById(agent.daemonId),
+                    'this machine'
+                )
+            const extraEnv =
+                authContext && agent.runtime === 'sprites'
+                    ? await this.runtimeAuth?.sessionEnvForAgent(agent)
+                    : undefined
+            if (authContext && agent.runtime === 'sprites' && !extraEnv)
+                assertHostHonoursAuthContext(authContext, null, 'this sandbox')
             if (agent.runtime === 'sprites') {
                 await this.sprites.tunnel({
                     userId: agent.userId,
@@ -305,6 +347,7 @@ export class TerminalGateway implements OnModuleInit {
                     hostId: agent.hostId,
                     mountPath: agent.mountPath,
                     extras: agent.extras,
+                    ...(extraEnv ? { extraEnv } : {}),
                     agentId: agent.id,
                     cols,
                     cwd: terminalCwd,
@@ -478,6 +521,76 @@ export class TerminalGateway implements OnModuleInit {
         try {
             await this.daemon.tunnelHost({
                 daemonId: host.id,
+                cols: args.cols,
+                rows: args.rows,
+                client: socket,
+                onClose
+            })
+        } catch (err) {
+            const message = (err as Error).message
+            this.log.warn(`terminal.tunnel_failed ${message}`)
+            sendError(socket, message)
+            try {
+                socket.close(1011, 'tunnel failed')
+            } catch {}
+        }
+    }
+
+    private async handleAuthLoginSession(
+        socket: WsClient,
+        args: {
+            operationId: string
+            userId: string
+            cols: number
+            rows: number
+        }
+    ): Promise<void> {
+        if (!this.runtimeAuth) {
+            sendError(socket, 'runtime auth profiles are unavailable')
+            socket.close(4404, 'not supported')
+            return
+        }
+        const runtimeAuth = this.runtimeAuth
+        let target: Awaited<
+            ReturnType<RuntimeAuthProfilesService['loginTarget']>
+        >
+        try {
+            target = await runtimeAuth.loginTarget(
+                args.userId,
+                args.operationId
+            )
+        } catch (err) {
+            sendError(socket, (err as Error).message)
+            socket.close(4404, 'not found')
+            return
+        }
+        try {
+            socket.send(
+                JSON.stringify({
+                    type: 'session_info',
+                    runtime_id: target.runtime.id,
+                    runtime: target.runtime.kind,
+                    framework: target.runtime.framework,
+                    auth_operation_id: args.operationId,
+                    cwd: target.host.homeDir,
+                    cols: args.cols,
+                    rows: args.rows,
+                    terminal_pty: target.host.terminalPty ?? null
+                })
+            )
+        } catch {}
+        const connectedAt = Date.now()
+        this.attachHeartbeat(socket, `auth-login=${args.operationId}`)
+        const onClose = (): void => {
+            this.log.log(
+                `terminal.closed auth_operation=${args.operationId} durationMs=${Date.now() - connectedAt}`
+            )
+            void runtimeAuth.reconcileLogin(args.userId, args.operationId)
+        }
+        try {
+            await this.daemon.tunnelAuthLogin({
+                daemonId: target.host.id,
+                authLogin: target.authLogin,
                 cols: args.cols,
                 rows: args.rows,
                 client: socket,

@@ -137,6 +137,14 @@ import type {
     RefreshAgentModelConfigModelsResponse,
     RuntimeAccessSummary,
     RuntimeAccountView,
+    UpdateAgentRuntimeAuthBody,
+    RuntimeAuthListView,
+    RuntimeAuthProfileView,
+    RuntimeAuthOperationView,
+    CreateRuntimeAuthProfileBody,
+    RuntimeAuthOperationBody,
+    SetRuntimeDefaultAuthBody,
+
     Plan,
     PlanId,
     SandboxUsageBreakdown,
@@ -366,6 +374,10 @@ export interface AgentsClient {
     ) => Promise<AgentSummary>
     update: (agentId: string, body: UpdateAgentBody) => Promise<AgentSummary>
     getModelConfig: (agentId: string) => Promise<AgentModelConfigView>
+    updateRuntimeAuth: (
+        agentId: string,
+        body: UpdateAgentRuntimeAuthBody
+    ) => Promise<AgentModelConfigView>
     updateModelConfig: (
         agentId: string,
         body: UpdateAgentModelConfigBody
@@ -585,6 +597,41 @@ export interface AgentRuntimesClient {
         runtimeId: string,
         opts?: { wake?: boolean }
     ) => Promise<RuntimeAccountView>
+}
+
+// Runtime auth profiles: the vendor sign-ins a runtime's host holds. Login
+// returns an operation; the terminal attaches to it (`?operationId=`) and the
+// operation resolves once that shell closes.
+export interface RuntimeAuthClient {
+    list: (runtimeId: string) => Promise<RuntimeAuthListView>
+    create: (
+        runtimeId: string,
+        body: CreateRuntimeAuthProfileBody
+    ) => Promise<RuntimeAuthProfileView>
+    inspect: (
+        runtimeId: string,
+        profileId: string
+    ) => Promise<RuntimeAuthProfileView>
+    login: (
+        runtimeId: string,
+        profileId: string,
+        body?: RuntimeAuthOperationBody
+    ) => Promise<RuntimeAuthOperationView>
+    logout: (
+        runtimeId: string,
+        profileId: string,
+        body?: RuntimeAuthOperationBody
+    ) => Promise<RuntimeAuthOperationView>
+    remove: (
+        runtimeId: string,
+        profileId: string,
+        body?: RuntimeAuthOperationBody
+    ) => Promise<RuntimeAuthOperationView>
+    setDefault: (
+        runtimeId: string,
+        body: SetRuntimeDefaultAuthBody
+    ) => Promise<RuntimeAuthListView>
+    operation: (operationId: string) => Promise<RuntimeAuthOperationView>
 }
 
 export interface SandboxesClient {
@@ -982,6 +1029,7 @@ export interface NcaClient {
     }
     agents: AgentsClient
     agentRuntimes: AgentRuntimesClient
+    runtimeAuth: RuntimeAuthClient
     sandboxes: SandboxesClient
     cliVersions: CliVersionsClient
     daemons: DaemonsClient
@@ -1717,6 +1765,11 @@ const buildAgentsClient = (
                 method: 'PATCH',
                 body: JSON.stringify(body)
             }),
+        updateRuntimeAuth: (agentId, body) =>
+            request<AgentModelConfigView>(apiPaths.AGENT_RUNTIME_AUTH(agentId), {
+                method: 'PATCH',
+                body: JSON.stringify(body)
+            }),
         refreshModelConfigModels: (agentId, body) =>
             request<RefreshAgentModelConfigModelsResponse>(
                 paths.modelConfigRefreshModels(agentId),
@@ -2227,6 +2280,46 @@ export const createClient = (options: ClientOptions): NcaClient => {
         rename: apiPaths.AGENT_RUNTIME_RENAME,
         account: apiPaths.AGENT_RUNTIME_ACCOUNT
     })
+    const runtimeAuth: RuntimeAuthClient = {
+        list: (runtimeId) =>
+            request<RuntimeAuthListView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILES(runtimeId)
+            ),
+        create: (runtimeId, body) =>
+            request<RuntimeAuthProfileView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILES(runtimeId),
+                { method: 'POST', body: JSON.stringify(body) }
+            ),
+        inspect: (runtimeId, profileId) =>
+            request<RuntimeAuthProfileView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_INSPECT(runtimeId, profileId),
+                { method: 'POST', body: JSON.stringify({}) }
+            ),
+        login: (runtimeId, profileId, body = {}) =>
+            request<RuntimeAuthOperationView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_LOGIN(runtimeId, profileId),
+                { method: 'POST', body: JSON.stringify(body) }
+            ),
+        logout: (runtimeId, profileId, body = {}) =>
+            request<RuntimeAuthOperationView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_LOGOUT(runtimeId, profileId),
+                { method: 'POST', body: JSON.stringify(body) }
+            ),
+        remove: (runtimeId, profileId, body = {}) =>
+            request<RuntimeAuthOperationView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_BY_ID(runtimeId, profileId),
+                { method: 'DELETE', body: JSON.stringify(body) }
+            ),
+        setDefault: (runtimeId, body) =>
+            request<RuntimeAuthListView>(
+                apiPaths.AGENT_RUNTIME_DEFAULT_AUTH(runtimeId),
+                { method: 'PATCH', body: JSON.stringify(body) }
+            ),
+        operation: (operationId) =>
+            request<RuntimeAuthOperationView>(
+                apiPaths.RUNTIME_AUTH_OPERATION_BY_ID(operationId)
+            )
+    }
     const backups = buildBackupsClient({
         list: apiPaths.BACKUPS,
         byId: apiPaths.BACKUP_BY_ID,
@@ -2368,6 +2461,7 @@ export const createClient = (options: ClientOptions): NcaClient => {
         },
         agents: buildAgentsClient(userAgentPaths, deps),
         agentRuntimes,
+        runtimeAuth,
         sandboxes: {
             list: () => request<SandboxSummary[]>(apiPaths.SANDBOXES),
             get: (id) => request<SandboxSummary>(apiPaths.SANDBOX_BY_ID(id)),

@@ -1,4 +1,5 @@
 import {
+    DAEMON_FEATURE_AUTH_CONTEXT,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
@@ -73,6 +74,7 @@ import {
     type TurnExecutionRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { runtimeAuthSelectionFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import {
     decodeMessageCursor,
     encodeMessageCursor,
@@ -4281,6 +4283,28 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     // same thing — a daemon id the transport swaps onto — but they are reached
     // by completely different means, so the runtime picks the resolver rather
     // than one resolver branching internally.
+    // A profile-bound agent may only run on a runner that honours the auth
+    // context; the runner manager treats a runner without it as unavailable.
+    private async requiredRunnerFeatures(
+        agentId: string,
+        preloaded: Agent | null | undefined
+    ): Promise<readonly string[]> {
+        const agent =
+            preloaded && preloaded.id === agentId
+                ? preloaded
+                : (
+                      await this.db
+                          .select()
+                          .from(agents)
+                          .where(eq(agents.id, agentId))
+                          .limit(1)
+                  )[0]
+        if (!agent) return []
+        return runtimeAuthSelectionFor(agent).mode === 'profile'
+            ? [DAEMON_FEATURE_AUTH_CONTEXT]
+            : []
+    }
+
     private async resolveManagedRunner(args: {
         agentId: string
         userId: string
@@ -4289,6 +4313,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         runtimeId: string | null
         spriteName: string | null
         workspacePath?: string | null
+        requiredFeatures?: readonly string[]
     }): Promise<{
         runner: ManagedRunner | null
         execFailure?: RunnerExecFailure
@@ -4352,6 +4377,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         runtime: AgentRuntime
         spriteName: string | null
         workspacePath?: string | null
+        requiredFeatures?: readonly string[]
     }): Promise<{
         runner: ManagedRunner | null
         execFailure?: RunnerExecFailure
@@ -4371,6 +4397,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 agentId,
                 userId,
                 spriteName,
+                requiredFeatures: args.requiredFeatures,
                 exec,
                 workspacePath: args.workspacePath ?? null,
                 // The inspect is the turn's first exec and the one a dead
@@ -5582,7 +5609,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                       runtime: agentCtx.runtime,
                       runtimeId: agentCtx.runtimeId,
                       spriteName: agentCtx.spriteName,
-                      workspacePath: agentCtx.workspacePath
+                      workspacePath: agentCtx.workspacePath,
+                      requiredFeatures: await this.requiredRunnerFeatures(
+                          session.agentId,
+                          agent
+                      )
                   })
         const runner = resolution?.runner ?? null
         // A runner bring-up that died ON the exec endpoint is the one fallback

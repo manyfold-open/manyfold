@@ -14,6 +14,7 @@ import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
 import type { V1Pod } from '@kubernetes/client-node'
 import {
+    runtimeHosts,
     agentRuntimes,
     agents,
     agentCredentials,
@@ -25,7 +26,12 @@ import {
     type SpritesClient,
     type SpritesLogger
 } from '@manyfold/sprites'
+import type { DaemonAuthContextRef } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
+import {
+    assertHostHonoursAuthContext,
+    authContextRefFor
+} from '@/modules/agents/model-config/runtime-auth-selection'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import {
@@ -70,6 +76,10 @@ export interface ExecDriverHandle {
     // so a runner turn that swaps the transport via daemonDriverFor() can
     // carry the same identity (#581).
     baseEnv?: Record<string, string>
+    // The agent's auth selection resolved once per exec: a runner turn that
+    // swaps onto daemonDriverFor() must pass it along, or the runner would
+    // run the sprite's native sign-in for a profile-bound agent.
+    authContext: DaemonAuthContextRef | null
 }
 
 export interface RecoveryFsHandle {
@@ -144,17 +154,26 @@ export class ExecDriverFactory {
             const baseEnv = coding
                 ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
                 : undefined
+            const authContext = authContextRefFor(agent)
+            if (authContext)
+                assertHostHonoursAuthContext(
+                    authContext,
+                    await this.hostFeatures(agent.daemonId),
+                    'this machine'
+                )
             return {
                 driver: new DaemonExecDriver(
                     this.daemonRegistry,
                     agent.daemonId,
                     baseEnv,
-                    this.fencedDispatch
+                    this.fencedDispatch,
+                    authContext
                 ),
                 creds,
                 runtime: 'daemon',
                 agent,
-                ...(baseEnv ? { baseEnv } : {})
+                ...(baseEnv ? { baseEnv } : {}),
+                authContext
             }
         }
 
@@ -219,12 +238,14 @@ export class ExecDriverFactory {
                 pod.metadata.name,
                 AGENT_CONTAINER_NAME
             )
+            assertHostHonoursAuthContext(authContextRefFor(agent), null, 'a pod')
             return {
                 driver: new K8sExecDriver(podExec),
                 creds,
                 runtime: 'k8s',
                 agent,
-                ...(baseEnv ? { baseEnv } : {})
+                ...(baseEnv ? { baseEnv } : {}),
+                authContext: null
             }
         }
 
@@ -275,17 +296,33 @@ export class ExecDriverFactory {
             connectionEnv,
             identityToken
         )
+        const authContext = authContextRefFor(agent)
         return {
             driver: new SpritesExecDriver(client, agent.spriteName, logger, {
                 sessionRegistry: this.sessionRegistry,
                 agentId: agent.id,
-                env: baseEnv
+                env: baseEnv,
+                authContext
             }),
             creds,
             runtime: 'sprites',
             agent,
-            baseEnv
+            baseEnv,
+            authContext
         }
+    }
+
+    // Capability lookup for the auth-context gate: the registration row is
+    // the only place a daemon's advertised features live.
+    private async hostFeatures(
+        daemonId: string
+    ): Promise<{ clientFeatures: string[] } | null> {
+        const [row] = await this.db
+            .select({ clientFeatures: runtimeHosts.clientFeatures })
+            .from(runtimeHosts)
+            .where(eq(runtimeHosts.id, daemonId))
+            .limit(1)
+        return row ? { clientFeatures: row.clientFeatures ?? [] } : null
     }
 
     // Dispatch a sprite turn through that sprite's own runner instead of a
@@ -296,13 +333,15 @@ export class ExecDriverFactory {
     // runner child falls back to the shared spriterunner profile (#581).
     daemonDriverFor(
         daemonId: string,
-        baseEnv?: Record<string, string>
+        baseEnv?: Record<string, string>,
+        authContext: DaemonAuthContextRef | null = null
     ): ExecDriver {
         return new DaemonExecDriver(
             this.daemonRegistry,
             daemonId,
             baseEnv,
-            this.fencedDispatch
+            this.fencedDispatch,
+            authContext
         )
     }
 

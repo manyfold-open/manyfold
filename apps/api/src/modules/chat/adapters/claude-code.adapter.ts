@@ -105,7 +105,8 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             creds,
             runtime,
             agent,
-            baseEnv
+            baseEnv,
+            authContext
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
         const claudeCreds = creds as ResolvedClaudeCodeCredentials | null
         // Only the TRANSPORT changes for a runner turn: runtime stays 'sprites'
@@ -115,7 +116,11 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         // (MF_API_TOKEN et al) internally, so the swapped transport must carry
         // the same or every `mf` call in the turn 401s (#581).
         const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(ctx.runnerDaemonId, baseEnv)
+            ? this.drivers.daemonDriverFor(
+                  ctx.runnerDaemonId,
+                  baseEnv,
+                  authContext
+              )
             : spriteDriver
         const prompt = messageToPromptText(userMessage)
 

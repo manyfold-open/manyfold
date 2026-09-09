@@ -3,6 +3,7 @@ import type { FC, ReactNode } from 'react'
 import type { AgentModelConfigView } from '@manyfold/shared'
 import { Spinner } from '@/components/Loading'
 import { useI18n } from '@/lib/i18n'
+import { profileDisplayName } from '@/lib/runtimeAuth'
 import { runtimeSignInCommandFor } from '@/lib/runtimeSignIn'
 
 interface Props {
@@ -38,6 +39,12 @@ export const RuntimeLocalSignInCard: FC<Props> = ({
             : view.framework === 'codex'
               ? t('web.chat.runtimeSignIn.codexHint')
               : t('web.chat.runtimeSignIn.geminiHint')
+    // A bound account: the terminal below opens inside that account's own
+    // credential store, so signing in there signs in the account, not the
+    // host. Name it so the user knows which one the CLI will ask for.
+    const boundAccount = view.runtimeAuth.profile
+        ? profileDisplayName(view.runtimeAuth.profile)
+        : null
     const status = refreshing
         ? t('web.chat.runtimeSignIn.checking')
         : view.runtimeLocal?.credentialStatus === 'expired'
@@ -52,6 +59,13 @@ export const RuntimeLocalSignInCard: FC<Props> = ({
             <p className='text-caption text-muted mt-1'>
                 {t('web.chat.runtimeSignIn.body')}
             </p>
+            {boundAccount && (
+                <p className='text-caption text-fg mt-1'>
+                    {t('web.runtimeAuth.chatBoundAccount', {
+                        account: boundAccount
+                    })}
+                </p>
+            )}
             {command && (
                 <p className='text-caption text-muted mt-1.5'>
                     <code className='text-fg bg-surface shadow-ring-light rounded px-1.5 py-0.5 font-mono'>

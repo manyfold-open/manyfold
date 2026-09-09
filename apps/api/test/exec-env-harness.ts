@@ -6,6 +6,7 @@ import {
     frameworkCapability
 } from '@manyfold/shared'
 import type {
+    DaemonAuthContextRef,
     AgentFramework,
     AgentRuntime,
     DetectedFramework
@@ -108,6 +109,7 @@ export interface Seam {
     runnerDrivers: Array<{
         daemonId: string
         baseEnv?: Record<string, string>
+        authContext?: DaemonAuthContextRef | null
     }>
     rpcs: CapturedRpc[]
     gatewayCalls: string[]
@@ -176,7 +178,8 @@ const captureDriver = (
 const factoryHandleFor = (
     seam: Seam,
     runtime: AgentRuntime,
-    framework: AgentFramework
+    framework: AgentFramework,
+    authContext: DaemonAuthContextRef | null = null
 ): Record<string, unknown> => {
     const coding = frameworkCapability(framework).kind === 'coding'
     const baseEnv =
@@ -214,7 +217,8 @@ const factoryHandleFor = (
             workspacePath: '/home/sprite/.manyfold/workspaces/agt_marker',
             extras: {}
         },
-        ...(baseEnv ? { baseEnv } : {})
+        ...(baseEnv ? { baseEnv } : {}),
+        authContext
     }
 }
 
@@ -229,11 +233,17 @@ export const createSeam = (): Seam => ({
 const driversFor = (
     seam: Seam,
     runtime: AgentRuntime,
-    framework: AgentFramework
+    framework: AgentFramework,
+    authContext: DaemonAuthContextRef | null = null
 ) => ({
-    forAgent: async () => factoryHandleFor(seam, runtime, framework),
-    daemonDriverFor: (daemonId: string, baseEnv?: Record<string, string>) => {
-        seam.runnerDrivers.push({ daemonId, baseEnv })
+    forAgent: async () =>
+        factoryHandleFor(seam, runtime, framework, authContext),
+    daemonDriverFor: (
+        daemonId: string,
+        baseEnv?: Record<string, string>,
+        authContext: DaemonAuthContextRef | null = null
+    ) => {
+        seam.runnerDrivers.push({ daemonId, baseEnv, authContext })
         return captureDriver(seam, 'runner')
     },
     recoveryFsForAgent: async () => ({
@@ -353,6 +363,9 @@ export interface AdapterUnderTest {
 export interface BuildOptions {
     framework: AgentFramework
     runtime: AgentRuntime
+    // A profile-bound agent: the factory handle carries this ref and the
+    // adapter must hand it to daemonDriverFor() on the runner swap.
+    authContext?: DaemonAuthContextRef | null
     clientFeatures?: string[]
     // What the daemon's last heartbeat detected. The openclaw ACP daemon cell
     // refuses to dispatch unless this reports a gateway it could reach, so the
@@ -379,7 +392,12 @@ export const buildAdapter = (
     seam: Seam,
     opts: BuildOptions
 ): AdapterUnderTest => {
-    const drivers = driversFor(seam, opts.runtime, opts.framework)
+    const drivers = driversFor(
+        seam,
+        opts.runtime,
+        opts.framework,
+        opts.authContext ?? null
+    )
     const registry = registryFor(seam)
     const db = dbFor({
         runtime: opts.runtime,

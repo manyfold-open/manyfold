@@ -872,6 +872,8 @@ export {
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
+    DAEMON_FEATURE_AUTH_PROFILES,
+    DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'
@@ -1071,9 +1073,55 @@ export {
     podRunnerHostName,
     profilePaths,
     profilesRoot,
-    runnerHostName
+    runnerHostName,
+    runtimeAuthRoot
 } from './profile-paths'
 export type { ProfilePaths } from './profile-paths'
+export {
+    RUNTIME_AUTH_METHODS,
+    RUNTIME_AUTH_LIFECYCLES,
+    RUNTIME_AUTH_CREDENTIAL_STATUSES,
+    RUNTIME_AUTH_OPERATION_KINDS,
+    RUNTIME_AUTH_OPERATION_STATUSES,
+    RUNTIME_AUTH_ERROR,
+    isRuntimeAuthProfileId,
+    isRuntimeAuthOperationId,
+    runtimeAuthSupported,
+    AMBIENT_VENDOR_AUTH_ENV,
+    runtimeAuthProfileEnv,
+    INHERITED_AUTH
+} from './runtime-auth'
+export type {
+    RuntimeAuthMethod,
+    RuntimeAuthLifecycle,
+    RuntimeAuthCredentialStatus,
+    RuntimeAuthOperationKind,
+    RuntimeAuthOperationStatus,
+    RuntimeAuthRevokeResult,
+    RuntimeAuthErrorCode,
+    RuntimeAuthProfileView,
+    RuntimeAuthAvailability,
+    RuntimeAuthListView,
+    CreateRuntimeAuthProfileBody,
+    RuntimeAuthOperationBody,
+    SetRuntimeDefaultAuthBody,
+    RuntimeAuthOperationView,
+    DaemonAuthProfileRef,
+    DaemonAuthListPayload,
+    DaemonAuthProfileReport,
+    DaemonAuthListResponse,
+    DaemonAuthCreatePayload,
+    DaemonAuthCreateResponse,
+    DaemonAuthLogoutPayload,
+    DaemonAuthLogoutResponse,
+    DaemonAuthOperationPayload,
+    DaemonAuthOperationRecord,
+    DaemonPtyAuthLogin,
+    RuntimeAuthSelection,
+    AgentRuntimeAuthBinding,
+    UpdateAgentRuntimeAuthBody,
+    DaemonAuthContextRef
+} from './runtime-auth'
 export {
     assignVariant,
     generateExperimentSalt,

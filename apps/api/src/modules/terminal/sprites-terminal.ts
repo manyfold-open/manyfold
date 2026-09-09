@@ -36,6 +36,10 @@ export interface SpritesTerminalRequest {
     // Set to open straight into a framework TUI instead of a bare login
     // shell. The argv is built server-side by TerminalResumeService.
     resume?: ResolvedTerminalResume | null
+    // A profile-bound agent's credential context (non-secret relocation
+    // vars composed by the API), laid over the agent env but under the
+    // platform's own MF_* / TERM block.
+    extraEnv?: Record<string, string>
     client: WsClient
     onClose: () => void
 }
@@ -145,6 +149,7 @@ export class SpritesTerminal {
                     ...connectionEnv,
                     ...(agentId ? { MF_AGENT_ID: agentId } : {}),
                     ...(resume?.env ?? {}),
+                    ...(req.extraEnv ?? {}),
                     MF_API_TOKEN: terminalToken.plaintext,
                     TERM: 'xterm-256color',
                     LANG: 'C.UTF-8',

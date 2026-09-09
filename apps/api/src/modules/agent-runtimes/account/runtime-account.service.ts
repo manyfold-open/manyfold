@@ -217,6 +217,16 @@ export class RuntimeAccountService {
         )
     }
 
+    // Public seam for the auth-profiles listing, which receives the ambient
+    // probe from the same host RPC and must render it identically.
+    fromProbe(
+        row: AgentRuntimeRow,
+        raw: unknown,
+        host: HostView
+    ): RuntimeAccountView {
+        return this.viewFromProbe(row, raw, host)
+    }
+
     private viewFromProbe(
         row: AgentRuntimeRow,
         raw: unknown,

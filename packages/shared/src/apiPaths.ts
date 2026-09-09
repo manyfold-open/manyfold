@@ -185,6 +185,21 @@ export const apiPaths = {
         `/agent-runtimes/${id}/keep-alive`,
     AGENT_RUNTIME_RENAME: (id: string) => `/agent-runtimes/${id}/name`,
     AGENT_RUNTIME_ACCOUNT: (id: string) => `/agent-runtimes/${id}/account`,
+    AGENT_RUNTIME_AUTH_PROFILES: (id: string) =>
+        `/agent-runtimes/${id}/auth-profiles`,
+    AGENT_RUNTIME_AUTH_PROFILE_BY_ID: (id: string, profileId: string) =>
+        `/agent-runtimes/${id}/auth-profiles/${profileId}`,
+    AGENT_RUNTIME_AUTH_PROFILE_LOGIN: (id: string, profileId: string) =>
+        `/agent-runtimes/${id}/auth-profiles/${profileId}/login`,
+    AGENT_RUNTIME_AUTH_PROFILE_INSPECT: (id: string, profileId: string) =>
+        `/agent-runtimes/${id}/auth-profiles/${profileId}/inspect`,
+    AGENT_RUNTIME_AUTH_PROFILE_LOGOUT: (id: string, profileId: string) =>
+        `/agent-runtimes/${id}/auth-profiles/${profileId}/logout`,
+    AGENT_RUNTIME_DEFAULT_AUTH: (id: string) =>
+        `/agent-runtimes/${id}/default-auth`,
+    RUNTIME_AUTH_OPERATION_BY_ID: (operationId: string) =>
+        `/runtime-auth-operations/${operationId}`,
+    AGENT_RUNTIME_AUTH: (agentId: string) => `/agents/${agentId}/runtime-auth`,
     SANDBOXES: '/sandboxes',
     SANDBOX_BY_ID: (id: string) => `/sandboxes/${id}`,
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,

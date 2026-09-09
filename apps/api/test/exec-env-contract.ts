@@ -1,7 +1,4 @@
-import type {
-    AgentFramework,
-    AgentRuntime
-} from '@manyfold/shared'
+import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
 
 // Test-only mirror of what a chat turn's process is launched with, declared per
 // execution surface. It stays outside src so the API build does not ship a
@@ -88,10 +85,19 @@ export type ResumeSemantics =
     // No resume path on this surface.
     | 'none'
 
+// Who resolves the vendor sign-in an execution runs under:
+//   host-resolved — the daemon composes a runtime auth profile's context from
+//                   the `authSelection` the API stamps on the exec payload
+//   ambient       — the host's native sign-in; a profile-bound agent is REFUSED
+//                   on this surface rather than downgraded to it
+//   none          — the framework has no vendor sign-in concept here
+export type AuthResolution = 'host-resolved' | 'ambient' | 'none'
+
 export interface ExecEnvSurface {
     framework: AgentFramework
     runtime: AgentRuntime
     transport: ExecTransport
+    auth: AuthResolution
     // Flags and daemon capabilities that must all hold for this cell to be
     // reachable. Declared as facts; the gate predicates themselves stay pinned
     // by the per-adapter transport tests. `daemon:<feature>` is a client
@@ -133,6 +139,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'ambient',
         path: 'wrapper-prepend',
         resume: 'transparent-reattach'
     },
@@ -145,6 +152,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
         note: 'The swapped transport must carry the same baseEnv as the sprite driver it replaced (#581). Its argv is bare `claude`: the activation dir has to already be on the runner process PATH, which the sprite bootstrap now guarantees through the managed profile block rather than this cell (#611).'
@@ -157,6 +165,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'none',
         providerCreds: 'pod-secret',
+        auth: 'ambient',
         path: 'image-env',
         resume: 'none',
         note: 'Connection env and the agent extras reach sprites only; on k8s neither is provisioned into the Secret.'
@@ -170,6 +179,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'pod-secret',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
         note: "The pod-runner cell. Everything the pod-exec row below declares absent arrives here instead: the daemon spawns per exec, so the factory hands the swapped transport the same identity + connection + extras base env a sprite runner turn carries (#581's shape, #782's gap). Provider creds stay on the pod Secret — the daemon inherits the container env and passes it to the child, so re-injecting them would only duplicate what is already there. 'daemon-ambient' is literal: the carrier's PATH is the image's ENV PATH, and nothing prepends."
@@ -182,6 +192,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec-model-config',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
         note: 'A coding daemon turn spawns per exec, so the factory hands it the same identity + connection + extras base env a sprite turn gets (#781). Model creds ride the request env and win over the base env.'
@@ -194,6 +205,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'sprite-resident',
+        auth: 'ambient',
         path: 'wrapper-prepend',
         resume: 'transparent-reattach',
         note: 'Sprite codex authenticates from its own ~/.codex written at bootstrap, so no credential env rides the turn.'
@@ -207,6 +219,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'sprite-resident',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env'
     },
@@ -218,6 +231,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'none',
         providerCreds: 'pod-secret',
+        auth: 'ambient',
         path: 'image-env',
         resume: 'none'
     },
@@ -230,6 +244,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'pod-secret',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env',
         note: "Same shape as the claude-code pod-runner cell. The identity env matters more here than on a single-agent pod: the Secret's MF_AGENT_ID names whichever agent provisioned the pod, so on a pod carrying several agents only the per-exec value is right."
@@ -242,6 +257,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec-model-config',
+        auth: 'host-resolved',
         path: 'daemon-ambient',
         resume: 'attach-no-env'
     },
@@ -253,6 +269,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'ambient',
         path: 'adapter-bootstrap',
         resume: 'transparent-reattach',
         note: 'Gemini always wraps its argv in its own auth bootstrap, which prepends the activation dir itself — so this cell keeps the guarantee even where the driver wrapper is absent.'
@@ -266,6 +283,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'host-resolved',
         path: 'adapter-bootstrap',
         resume: 'attach-no-env'
     },
@@ -277,6 +295,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'none',
         providerCreds: 'pod-secret',
+        auth: 'ambient',
         path: 'adapter-bootstrap',
         resume: 'none'
     },
@@ -289,6 +308,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'pod-secret',
+        auth: 'host-resolved',
         // Not 'daemon-ambient' like its claude/codex siblings: gemini is the
         // one coding adapter whose argv is never bare — every transport gets
         // GEMINI_CLI_AUTH_BOOTSTRAP, which prepends the activation dir itself.
@@ -305,6 +325,7 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'daemon-local',
+        auth: 'host-resolved',
         path: 'adapter-bootstrap',
         resume: 'attach-no-env',
         note: 'Unlike claude and codex, gemini resolves no platform provider credentials on a daemon runtime at all — the daemon CLI uses its own auth. Identity, connection and extras env still ride each exec.'
@@ -325,10 +346,11 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'none',
         providerCreds: 'daemon-local',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: [],
-        note: 'The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST\'s own resident gateway — discovered from the user\'s openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box\'s own openclaw.json, and the model call runs inside that gateway with its provider key. The daemon must advertise turn.openclaw.acp and its last heartbeat must report a gateway it could reach; a daemon that does neither is refused with openclaw_daemon_upgrade_required / openclaw_daemon_gateway_unavailable rather than falling back — the CLI spawn it used to fall back to is gone (ADR-0027 O9). Resumable — the daemon buffers the ACP frames, replayed via exec.resume.'
+        note: "The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST's own resident gateway — discovered from the user's openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box's own openclaw.json, and the model call runs inside that gateway with its provider key. The daemon must advertise turn.openclaw.acp and its last heartbeat must report a gateway it could reach; a daemon that does neither is refused with openclaw_daemon_upgrade_required / openclaw_daemon_gateway_unavailable rather than falling back — the CLI spawn it used to fall back to is gone (ADR-0027 O9). Resumable — the daemon buffers the ACP frames, replayed via exec.resume."
     },
     {
         framework: 'openclaw',
@@ -338,6 +360,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'service-env',
+        auth: 'none',
         path: 'wrapper-prepend',
         resume: 'none',
         note: "The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable. A clean turn is followed by one one-shot exec on the same channel (`openclaw gateway call sessions.get`, same token env) that reads the turn's token usage back from the gateway transcript, because the ACP stream carries none; openclaw-acp-interactive.test.ts pins that call."
@@ -350,6 +373,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'service-env',
         providerCreds: 'service-env',
+        auth: 'none',
         path: 'image-env',
         resume: 'none',
         note: "The k8s ACP cell (ADR-0027): the API drives `openclaw acp` over an interactive pod exec. The gateway token is inherited from the pod Secret the resident gateway already reads, so the exec injects nothing; the model call runs inside that gateway with its provider key. The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF and a pod exec abort only closes the stream — without it the bridge would outlive every turn in the pod. The same post-turn `sessions.get` read-back as the sprite cell follows a clean turn."
@@ -364,6 +388,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY'],
@@ -377,6 +402,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'per-exec',
         extras: 'per-exec',
         providerCreds: 'per-exec',
+        auth: 'none',
         path: 'wrapper-prepend',
         resume: 'none',
         note: 'The no-runner fallback since gateway-http chat was retired: the API drives `hermes acp` over the duplex sprite exec channel. Same protocol as every other hermes turn; the API owning the client is exactly why it is not resumable.'
@@ -389,6 +415,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'none',
         providerCreds: 'per-exec',
+        auth: 'none',
         path: 'image-env',
         resume: 'none',
         note: 'The only k8s hermes transport since gateway-http chat was retired. The pod Secret carries HERMES_* but the alias key hermes actually reads is re-exported only inside the container entrypoint, which an exec session never runs — so the alias rides each exec. Extras are not in the Secret at all (#782 owns k8s Environment delivery).'
@@ -402,6 +429,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'per-exec',
         providerCreds: 'daemon-local',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: ['HERMES_YOLO_MODE'],
@@ -415,6 +443,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'service-env',
         providerCreds: 'service-env',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'none'
     },
@@ -431,6 +460,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'service-env',
         providerCreds: 'service-env',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'attach-no-env',
         payloadEnvKeys: [],
@@ -444,6 +474,7 @@ const serviceSurfaces: readonly ExecEnvSurface[] = [
         connections: 'none',
         extras: 'service-env',
         providerCreds: 'service-env',
+        auth: 'none',
         path: 'not-applicable',
         resume: 'none'
     }
@@ -461,6 +492,7 @@ const externalSurfaces: readonly ExecEnvSurface[] = (
     connections: 'none' as const,
     extras: 'none' as const,
     providerCreds: 'none' as const,
+    auth: 'none' as const,
     path: 'not-applicable' as const,
     resume: 'none' as const
 }))

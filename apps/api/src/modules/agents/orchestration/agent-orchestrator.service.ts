@@ -1241,7 +1241,9 @@ export class AgentOrchestratorService {
                 const joined = await this.attach.attach({
                     runtime: instance,
                     name: dto.name,
-                    workspace: dto.workspace
+                    workspace: dto.workspace,
+                    modelConfigSource: dto.modelConfigSource,
+                    runtimeAuthProfileId: dto.runtimeAuthProfileId
                 })
                 // The inherited instance credentials stay untouched; a
                 // runtime-local agent doesn't read them at turn time. But the

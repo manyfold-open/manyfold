@@ -28,6 +28,8 @@ import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
+import { RuntimeAuthProfilesService } from './auth/runtime-auth-profiles.service'
+import { RuntimeAuthProfilesController } from './auth/runtime-auth-profiles.controller'
 
 @Module({
     imports: [
@@ -44,7 +46,8 @@ import { RuntimeAccountService } from './account/runtime-account.service'
     ],
     controllers: [
         AgentRuntimesController,
-        AdminAgentRuntimesController
+        AdminAgentRuntimesController,
+        RuntimeAuthProfilesController
     ],
     providers: [
         AdminGuard,
@@ -63,10 +66,12 @@ import { RuntimeAccountService } from './account/runtime-account.service'
         NarraNexusSpriteBootstrap,
         SpriteKeepAliveLeaseService,
         McpConfigMaterializer,
-        RuntimeAccountService
+        RuntimeAccountService,
+        RuntimeAuthProfilesService
     ],
     exports: [
         AgentRuntimesService,
+        RuntimeAuthProfilesService,
         K8sRuntimeSidecarService,
         RuntimeDashboardService,
         SpritesProvisioner,

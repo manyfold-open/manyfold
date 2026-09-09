@@ -29,6 +29,9 @@ export interface TerminalSessionTarget {
     // that chat session. Only the id travels: the API builds the argv from
     // the session's own stored reference.
     resumeChatSessionId?: string
+    // A runtime auth sign-in: the API resolves the operation to its runtime,
+    // profile and the CLI's own login argv, so no other target field applies.
+    operationId?: string
 }
 
 export interface TerminalTabModel {
@@ -134,7 +137,8 @@ const buildWsUrl = (
         cols: String(cols),
         rows: String(rows)
     })
-    if (tab.runtimeId) params.set('runtimeId', tab.runtimeId)
+    if (tab.operationId) params.set('operationId', tab.operationId)
+    else if (tab.runtimeId) params.set('runtimeId', tab.runtimeId)
     else if (tab.agentId) params.set('agentId', tab.agentId)
     if (tab.cwdPath) params.set('cwdPath', tab.cwdPath)
     if (tab.cwdRootId) params.set('cwdRootId', tab.cwdRootId)
@@ -360,6 +364,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
         t,
         tab.agentId,
         tab.runtimeId,
+        tab.operationId,
         tab.cwdPath,
         tab.cwdRootId,
         tab.resumeChatSessionId

@@ -100,6 +100,11 @@ export interface EnsureRunnerArgs {
     exec: SpriteExecFn
     workspacePath?: string | null
     waitOnlineMs?: number
+    // Daemon client features the turn cannot run without (a profile-bound
+    // agent needs auth-context.v1). An online runner lacking one is reported
+    // unavailable rather than handed out — the direct-exec fallback then
+    // refuses too, so the wrong sign-in never answers.
+    requiredFeatures?: readonly string[]
     // The budget for the INSPECT, the first exec of the turn and the one a dead
     // exec endpoint surfaces on. The caller passes its exec-health budget here
     // so the endpoint's own fault is bounded by a health deadline instead of by
@@ -341,6 +346,15 @@ export class RunnerManagerService {
             userId: args.userId,
             hostName: runnerHostName(args.spriteName)
         })
+        const missing = (args.requiredFeatures ?? []).filter(
+            (feature) => !(existing?.clientFeatures ?? []).includes(feature)
+        )
+        if (existing?.online && missing.length) {
+            this.logger.warn(
+                `runner ${existing.id} lacks required features ${missing.join(',')} for agent ${args.agentId}`
+            )
+            return { handle: null }
+        }
         if (existing?.online)
             return {
                 handle: {
@@ -452,6 +466,7 @@ export class RunnerManagerService {
         online: boolean
         generation: string | null
         cliVersion: string | null
+        clientFeatures: string[]
         // What workspacePreflight reads, so the pod path can hand this row
         // over instead of reading it a second time.
         workspaceBaseDir: string | null
@@ -491,6 +506,7 @@ export class RunnerManagerService {
                     ? `${row.rpcInstanceId}:${row.rpcConnectedAt.getTime()}`
                     : null,
             cliVersion: row.cliVersion ?? null,
+            clientFeatures: row.clientFeatures ?? [],
             workspaceBaseDir: row.workspaceBaseDir ?? null,
             rpcInstanceId: row.rpcInstanceId ?? null,
             rpcConnectedAt: row.rpcConnectedAt ?? null
