@@ -397,20 +397,6 @@ export interface CreateApiTokenResponse {
     summary: ApiTokenSummary
 }
 
-export interface AddAgentGrantBody {
-    approvedScopes: GrantableScope[]
-    name?: string
-}
-
-export interface AgentGrantMintResponse {
-    token: string
-    tokenId: string
-    agentId: string
-    scopes: GrantableScope[]
-    expiresAt: string | null
-    createdVia: TokenCreatedVia
-}
-
 // Agent-initiated incremental permission request (§7.3). The agent holds its
 // injected runtime identity and asks for the scope it is missing; approval
 // APPENDS to agent_permissions and mints NO bearer (the identity already
