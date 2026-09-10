@@ -39,6 +39,10 @@ const buildDrivers = (stdout: string) => {
     return {
         resumes,
         drivers: {
+            // The settled turn counts its rollout through the recovery fs.
+            recoveryFsForAgent: async () => ({
+                fs: { exec: async () => '1\n' }
+            }),
             daemonDriverFor: (daemonId: string) => ({
                 stream: () => handleFor(stdout),
                 resumeStream: (r: { refId: string; fromSeq: number }) => {
@@ -96,7 +100,10 @@ test('a codex resume replays through the same parser, from the cursor', async ()
     const { drivers, resumes } = buildDrivers(stdout)
     const adapter = new CodexAdapter(
         drivers as never,
-        { updateFrameworkSessionRef: async () => {} } as never,
+        {
+            updateFrameworkSessionRef: async () => {},
+            setRuntimeSyncCursor: async () => {}
+        } as never,
         { priceFor: () => null } as never,
         adminSettings as never
     )
@@ -127,7 +134,10 @@ test('a gemini resume replays through the same parser, from the cursor', async (
     const { drivers, resumes } = buildDrivers(stdout)
     const adapter = new GeminiCliAdapter(
         drivers as never,
-        { updateFrameworkSessionRef: async () => {} } as never,
+        {
+            updateFrameworkSessionRef: async () => {},
+            setRuntimeSyncCursor: async () => {}
+        } as never,
         { priceFor: () => null } as never,
         adminSettings as never
     )
@@ -148,7 +158,10 @@ test('a resume without a resume-capable transport says so instead of hanging', a
     const drivers = { daemonDriverFor: () => ({ stream: () => handleFor('') }) }
     const adapter = new CodexAdapter(
         drivers as never,
-        { updateFrameworkSessionRef: async () => {} } as never,
+        {
+            updateFrameworkSessionRef: async () => {},
+            setRuntimeSyncCursor: async () => {}
+        } as never,
         { priceFor: () => null } as never,
         adminSettings as never
     )
@@ -175,7 +188,10 @@ test('codex stamps a resume watermark on lines that end on a chunk boundary', as
     )
     const adapter = new CodexAdapter(
         drivers as never,
-        { updateFrameworkSessionRef: async () => {} } as never,
+        {
+            updateFrameworkSessionRef: async () => {},
+            setRuntimeSyncCursor: async () => {}
+        } as never,
         { priceFor: () => null } as never,
         adminSettings as never
     )
@@ -193,11 +209,137 @@ test('gemini stamps a resume watermark too', async () => {
     )
     const adapter = new GeminiCliAdapter(
         drivers as never,
-        { updateFrameworkSessionRef: async () => {} } as never,
+        {
+            updateFrameworkSessionRef: async () => {},
+            setRuntimeSyncCursor: async () => {}
+        } as never,
         { priceFor: () => null } as never,
         adminSettings as never
     )
     const events = await drain(adapter.resumeMessage(resumeCtx() as never))
     const raw = events.find((e) => e.type === 'raw_source')
     assert.ok(raw && 'runnerSeq' in raw)
+})
+
+// ---- transcript cursor -----------------------------------------------------
+//
+// The rollout codex just wrote is already in the cloud through the stream;
+// the runtime-session sync must not read it back as the TUI's. So once codex
+// exits the adapter counts the file's lines and stores that on the session,
+// before `done` frees the turn slot the sync waits on.
+
+const cursorHarness = (
+    stdout: string,
+    options: {
+        lineCount?: string | null
+        fsThrows?: boolean
+        exit?: { exitCode: number; stderr: string }
+        streamThrows?: boolean
+    } = {}
+) => {
+    const log: string[] = []
+    const execs: string[] = []
+    const handle = {
+        stdout: (async function* () {
+            if (options.streamThrows) throw new Error('socket closed')
+            yield stdout
+        })(),
+        stderr: (async function* () {})(),
+        result: Promise.resolve({
+            exitCode: options.exit?.exitCode ?? 0,
+            stdout: '',
+            stderr: options.exit?.stderr ?? ''
+        }),
+        abort: () => {},
+        lastDeliveredSeq: () => 0
+    }
+    const drivers = {
+        daemonDriverFor: () => ({
+            stream: () => handle,
+            resumeStream: () => handle
+        }),
+        recoveryFsForAgent: async (agentId: string) => {
+            if (options.fsThrows) throw new Error('sprite unreachable')
+            log.push(`fs:${agentId}`)
+            return {
+                fs: {
+                    exec: async (script: string) => {
+                        execs.push(script)
+                        return options.lineCount === undefined
+                            ? '22\n'
+                            : options.lineCount
+                    }
+                }
+            }
+        }
+    }
+    const cursors: Array<number | null> = []
+    const chatRepo = {
+        updateFrameworkSessionRef: async () => {},
+        setRuntimeSyncCursor: async (
+            sessionId: string,
+            cursor: number | null
+        ) => {
+            cursors.push(cursor)
+            log.push(`cursor:${sessionId}:${cursor}`)
+        }
+    }
+    const adapter = new CodexAdapter(
+        drivers as never,
+        chatRepo as never,
+        { priceFor: () => null } as never,
+        adminSettings as never
+    )
+    return { adapter, log, execs, cursors }
+}
+
+test('codex records the rollout line count before it yields done', async () => {
+    const h = cursorHarness(
+        LINE({
+            type: 'item.completed',
+            item: { type: 'agent_message', text: 'ok' }
+        }) + LINE({ type: 'turn.completed' })
+    )
+    const events: string[] = []
+    for await (const ev of h.adapter.resumeMessage(resumeCtx() as never)) {
+        events.push(ev.type)
+        h.log.push(`event:${ev.type}`)
+    }
+    assert.deepEqual(h.cursors, [22])
+    assert.match(h.execs[0], /01a08b38|thread-1/)
+    assert.equal(h.log.indexOf('cursor:cts_1:22') > -1, true)
+    assert.ok(
+        h.log.indexOf('cursor:cts_1:22') < h.log.indexOf('event:done'),
+        `cursor must land before done: ${h.log.join(' ')}`
+    )
+    assert.equal(events.at(-1), 'done')
+})
+
+test('codex drops the cursor when the rollout cannot be counted', async () => {
+    for (const options of [{ fsThrows: true }, { lineCount: 'wc: no file' }]) {
+        const h = cursorHarness(LINE({ type: 'turn.completed' }), options)
+        await drain(h.adapter.resumeMessage(resumeCtx() as never))
+        assert.deepEqual(h.cursors, [null], JSON.stringify(options))
+    }
+})
+
+test('codex drops the cursor after a lost stream and a failed exec, but keeps it over a busy thread', async () => {
+    const lost = cursorHarness('', { streamThrows: true })
+    await drain(lost.adapter.resumeMessage(resumeCtx() as never))
+    assert.deepEqual(lost.cursors, [null])
+
+    const failed = cursorHarness('', {
+        exit: { exitCode: 1, stderr: 'boom' }
+    })
+    await drain(failed.adapter.resumeMessage(resumeCtx() as never))
+    assert.deepEqual(failed.cursors, [null])
+
+    const busy = cursorHarness('', {
+        exit: {
+            exitCode: 1,
+            stderr: 'thread/resume failed: thread x already has an active writer (code -32600)'
+        }
+    })
+    await drain(busy.adapter.resumeMessage(resumeCtx() as never))
+    assert.deepEqual(busy.cursors, [])
 })

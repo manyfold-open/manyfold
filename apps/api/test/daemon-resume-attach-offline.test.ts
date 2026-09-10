@@ -93,7 +93,10 @@ const adminSettings = {
     })
 }
 
-const chatRepo = { updateFrameworkSessionRef: async () => {} }
+const chatRepo = {
+    updateFrameworkSessionRef: async () => {},
+    setRuntimeSyncCursor: async () => {}
+}
 const pricing = { priceFor: () => null }
 
 const resumeCtx = (): ApiChatResumeContext =>

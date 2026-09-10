@@ -99,6 +99,13 @@
       "when": 1789042690395,
       "tag": "0013_a2a_peer_authority_preparation",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1789048834519,
+      "tag": "0014_chat_sessions_runtime_sync_cursor",
+      "breakpoints": true
     }
   ]
 }

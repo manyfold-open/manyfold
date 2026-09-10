@@ -1,4 +1,4 @@
-import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
 import { users } from './users'
 import { agents } from './agents'
 
@@ -19,6 +19,14 @@ export const chatSessions = pgTable(
         // turn start and cleared when that message gets a done/error stream event,
         // so at most one turn runs per session across API instances.
         inflightMessageId: text('inflight_message_id'),
+        // How far into the framework's own transcript for frameworkSessionRef
+        // the cloud already reaches: the count of newline-terminated lines the
+        // file had when the API's last turn on it settled (or the last sync
+        // consumed it). The runtime-session sync appends only what lies past
+        // it. Null until a turn on the ref settles, and again whenever the ref
+        // moves — a new file has no covered prefix — which sends the next sync
+        // back to the content diff.
+        runtimeSyncCursor: integer('runtime_sync_cursor'),
         createdAt: timestamp('created_at', { withTimezone: true })
             .notNull()
             .defaultNow(),
