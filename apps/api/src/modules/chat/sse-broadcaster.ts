@@ -10,6 +10,7 @@ import {
     type OnModuleDestroy
 } from '@nestjs/common'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
+import { normalizeChatErrorPayload } from '@/modules/chat/chat-failure-cause'
 import {
     ChatRepository,
     type TerminalStreamContent
@@ -715,7 +716,11 @@ export class ChatSseBroadcaster
                 messageId: stream.messageId,
                 seq: row.seq,
                 eventType: row.eventType,
-                payloadJson: sanitizeForJsonb(row.payload),
+                payloadJson: sanitizeForJsonb(
+                    row.eventType === 'error'
+                        ? normalizeChatErrorPayload(row.payload)
+                        : row.payload
+                ),
                 sourceEventKey: row.sourceEventKey,
                 sourceEventOrdinal: row.sourceEventOrdinal,
                 runnerSeq: row.runnerSeq,
@@ -999,7 +1004,9 @@ export class ChatSseBroadcaster
             createdAt
         }
         return {
-            ...(event.payload as object),
+            ...(event.type === 'error'
+                ? normalizeChatErrorPayload(event.payload)
+                : event.payload),
             ...base,
             type: event.type
         } as ChatStreamEvent

@@ -210,6 +210,21 @@ const makeService = (
         }).repo
     )
 
+test('historical terminal errors expose the same cause as live adapter errors', async () => {
+    const world: World = {
+        rows: [{ message: messageRow('msg-error', 'assistant'), usage: null }],
+        inflight: null,
+        terminalErrors: new Map([['msg-error', { error: {
+            code: 'claude_exec_failed', message: 'authentication_error: invalid x-api-key', retryable: true
+        } }]]),
+        streamMaxEventId: 10n
+    }
+    const service = serviceOver(makeWorldRepo(world).repo)
+    const messages = await service.listMessages('user-1', 'agent-1', 'session-1')
+    assert.equal(messages[0].error?.cause, 'auth_invalid')
+    assert.equal(messages[0].error?.retryable, true)
+})
+
 test('listMessages attaches usage to assistant messages with a usage row', async () => {
     const userMsg = messageRow('msg-user-1', 'user')
     const asstMsg = messageRow(

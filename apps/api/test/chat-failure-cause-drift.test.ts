@@ -66,20 +66,11 @@ const EXCLUDED_CODES = new Map<string, string>([
     ['external_converge_unavailable', PINNED_NULL],
     ['sprite_exec_result_lost', UNMAPPED],
     ['external_provider_unavailable', UNMAPPED],
-    ['external_provider_failed', UNMAPPED],
-    ['external_converge_failed', UNMAPPED],
-    ['provider_kind_mismatch', UNMAPPED],
     ['openclaw_network', UNMAPPED],
     ['server_restart', UNMAPPED],
     ['a2a_resolve_failed', UNMAPPED],
-    ['a2a_stream_error', UNMAPPED],
-    ['a2a_converge_no_ref', UNMAPPED],
     ['unsafe_provider_endpoint', UNMAPPED],
-    ['dify_stream_error', UNMAPPED],
-    ['dify_converge_no_ref', UNMAPPED],
-    ['dify_upload_no_id', UNMAPPED],
-    ['missing_flow_id', UNMAPPED],
-    ['langflow_stream_error', UNMAPPED]
+    ['dify_upload_no_id', UNMAPPED]
 ])
 
 // `code:` template literals whose value is computed at runtime. Accounted by
@@ -104,7 +95,7 @@ const DYNAMIC_CODE_SOURCES = new Map<string, string>([
     ],
     [
         'dify_http_${res.status}',
-        'typed per-status family: 400/401 are in CAUSE_BY_CODE, other statuses deliberately null (pinned in chat-failure-cause.test.ts)'
+        'typed per-status family: 400/401/402/429 are mapped; other statuses remain deliberately unclassified'
     ],
     [
         'dify_upload_http_${res.status}',
@@ -112,7 +103,7 @@ const DYNAMIC_CODE_SOURCES = new Map<string, string>([
     ],
     [
         'langflow_http_${res.status}',
-        'typed per-status family: 400/401 are in CAUSE_BY_CODE, other statuses deliberately null (pinned in chat-failure-cause.test.ts)'
+        'typed per-status family: 400/401/402/429 are mapped; other statuses remain deliberately unclassified'
     ]
 ])
 

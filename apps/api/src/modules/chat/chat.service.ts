@@ -120,6 +120,7 @@ import {
 } from '@/common/telemetry/chat-failure-taxonomy'
 import {
     classifyChatFailureCause,
+    normalizeChatError,
     explainChatFailureCause
 } from '@/modules/chat/chat-failure-cause'
 import {
@@ -220,7 +221,7 @@ export type ChatTurnObserver = (event: EmittedChatEvent) => void
 
 const durableErrorEvent = (event: EmittedErrorEvent): EmittedErrorEvent => ({
     type: 'error',
-    error: event.error
+    error: normalizeChatError(event.error)
 })
 
 export type ChatTurnOutcome =
@@ -6885,11 +6886,11 @@ const chatErrorFromPayload = (
     }
     if (typeof e.code !== 'string' || typeof e.message !== 'string') return null
     if (e.code === CANCELLED_BY_USER_CODE) return null
-    return {
+    return normalizeChatError({
         code: e.code,
         message: e.message,
         retryable: typeof e.retryable === 'boolean' ? e.retryable : false
-    }
+    })
 }
 
 const toApiSession = (
@@ -7052,11 +7053,11 @@ const adapterErrorEvent = (
     code = 'adapter_error'
 ): EmittedErrorEvent => ({
     type: 'error',
-    error: {
+    error: normalizeChatError({
         code,
         message,
         retryable: true
-    }
+    })
 })
 
 const safeErrorClass = (err: unknown): string => {
@@ -7091,7 +7092,7 @@ const notifyObserver = (
 ): void => {
     if (!observer) return
     try {
-        observer(event)
+        observer(event.type === 'error' ? durableErrorEvent(event) : event)
     } catch {
         /* observers must not interrupt the chat pipeline */
     }
