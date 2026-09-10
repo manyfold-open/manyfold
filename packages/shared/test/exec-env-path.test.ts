@@ -11,7 +11,11 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildManagedPathScript, MANAGED_PATH_BLOCK } from '../src/exec-env'
+import {
+    buildManagedPathScript,
+    MANAGED_PATH_BLOCK,
+    PATH_PREPEND_LOCAL_BIN
+} from '../src/exec-env'
 
 const script = buildManagedPathScript()
 
@@ -76,6 +80,20 @@ test('the managed block re-takes the front after something else prepends', () =>
             'printf "%s\\n" "$PATH"'
         ])
         assert.equal(out, `${home}/.local/bin:/image/node/bin:/usr/bin`)
+    })
+})
+
+test('exec wrappers preserve one activation entry after login and repeated dispatch', () => {
+    withTempHome((home) => {
+        const out = runShell(home, [
+            'PATH=/image/node/bin:/usr/bin:/usr/bin:',
+            MANAGED_PATH_BLOCK,
+            PATH_PREPEND_LOCAL_BIN,
+            'PATH="/custom path:$PATH"',
+            PATH_PREPEND_LOCAL_BIN,
+            '/bin/sh -c \'printf "%s" "$PATH"\''
+        ])
+        assert.equal(out, `${home}/.local/bin:/custom path:/image/node/bin:/usr/bin:/usr/bin:`)
     })
 })
 

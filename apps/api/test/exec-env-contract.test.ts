@@ -1,6 +1,5 @@
 import {
     MF_RUNTIME_IDENTITY_ENV_KEYS,
-    PATH_PREPEND_LOCAL_BIN,
     agentFramework,
     frameworkCapabilities,
     supportsRuntime
@@ -48,7 +47,6 @@ test('the identity env vocabulary is pinned', () => {
         [...MF_RUNTIME_IDENTITY_ENV_KEYS],
         ['MF_API_TOKEN', 'MF_AGENT_ID', 'MF_API_URL', 'MF_DEPLOY_ENV']
     )
-    assert.equal(PATH_PREPEND_LOCAL_BIN, 'export PATH="$HOME/.local/bin:$PATH"')
 })
 
 test('every surface is declared once and targets a supported runtime', () => {
