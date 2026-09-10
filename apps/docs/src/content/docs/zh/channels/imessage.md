@@ -4,7 +4,7 @@ description: 通过运行在你自己 Mac 上的 BlueBubbles 服务器，把 iMe
 order: 19
 ---
 
-当你希望 Agent 可以通过「信息」App 被找到时，就连接 iMessage —— 一对一会话和群聊都支持。Apple 没有公开的 iMessage API，因此这个渠道通过 [BlueBubbles Server](https://bluebubbles.app) 工作：它运行在一台已登录 iMessage 的 Mac 上。Manyfold 会在该服务器上注册入站 Webhook，并通过它的 REST API 发送回复。
+当你希望 Agent 可以通过「信息」App 被找到时，就连接 iMessage，一对一会话和群聊都支持。Apple 没有公开的 iMessage API，因此这个渠道通过 [BlueBubbles Server](https://bluebubbles.app) 工作：它运行在一台已登录 iMessage 的 Mac 上。Manyfold 会在该服务器上注册入站 Webhook，并通过它的 REST API 发送回复。
 
 这是唯一一个需要你自备硬件的渠道。在配置之前请先读 [限制与安全](#限制与安全)：它的信任模型比 Manyfold 的其他所有渠道都弱，而这是 BlueBubbles 能力边界决定的，不是靠配置能解决的。
 
@@ -28,24 +28,42 @@ order: 19
 
 你需要：
 
-- **一台已登录 iMessage 的 Mac**，并保持唤醒和联网。会休眠的笔记本会停止投递消息 —— 参见 [限制与安全](#限制与安全)。
+- **一台已登录 iMessage 的 Mac**，并保持唤醒和联网。只要这个渠道还在使用，这台 Mac 就必须一直开机并联网，因为会休眠的笔记本会停止投递消息。参见 [限制与安全](#限制与安全)。
 - 在这台 Mac 上安装 **BlueBubbles Server**，并设置服务器密码。
-- **该服务器的公网地址。** Manyfold 运行在云端，必须能访问到你的 Mac。Cloudflare Tunnel、ngrok 或 Tailscale Funnel 都可以。优先选择能终结 TLS 的方案。
+- **该服务器的公网地址。** Manyfold 运行在云端，必须能访问到你的 Mac。BlueBubbles 内置的 Cloudflare 代理会在配置过程中给你一个，因此你不需要自己搭隧道。
 
-## 配置步骤
+## 配置 BlueBubbles Server
 
 1. 在这台 Mac 上安装 BlueBubbles Server 并完成初始化，按提示授予「完全磁盘访问权限」。
-2. 在 BlueBubbles Server 中设置**服务器密码**。Manyfold 用它进行认证。
-3. 把服务器暴露到公网。以 Cloudflare 为例：
+2. 设置**服务器密码**（一定要记下来，稍后要粘贴到 Manyfold），并在 **Proxy Setup** 里选择 **Cloudflare**。Manyfold 用这个密码进行认证；代理则让这台服务器可以从你自己的网络之外被访问到。
 
-   ```sh
-   cloudflared tunnel --url http://localhost:1234
-   ```
+   ![BlueBubbles 的 Connection Setup 页面，已设置服务器密码并选择 Cloudflare 作为代理服务](../../../../assets/docs/channels/imessage-01-connection-setup-demo.webp)
 
-   复制它输出的 `https://…` 地址。
-4. 在 Manyfold 中创建一个 provider 为 **iMessage** 的频道。填入服务器地址和密码，并至少设置一个唤醒词（例如 `hey manyfold`）。
-5. 保存。Manyfold 会 ping 该服务器、读取版本，并自行注册 Webhook —— 你不需要手动把 URL 粘贴到 BlueBubbles 里。
-6. 运行 **测试**。每一行都应该是 `✓`。
+3. 在 **Permissions** 里勾选 **Messages Private API**。
+
+   ![BlueBubbles 的 Permissions 步骤，Messages Private API 已勾选](../../../../assets/docs/channels/imessage-02-private-api-permission.webp)
+
+   这个勾选项只是让服务器去使用该辅助组件；在这台 Mac 上安装组件本身是另一步。它能带来什么、代价是什么，见 [Private API 辅助组件](#private-api-辅助组件)。
+
+4. 在配置的最后一步，把 **Auto Start Method** 设为 **Do Not Auto Start**，并打开 **Keep macOS Awake**。
+
+   ![BlueBubbles 的 Setup Complete 步骤，显示 Auto Start Method 与 Keep macOS Awake](../../../../assets/docs/channels/imessage-03-setup-complete-features.webp)
+
+   **Keep macOS Awake** 只能防止 Mac 在闲置时休眠，重启或者合盖之后就不生效了。而选了 **Do Not Auto Start** 之后，Mac 重启后 BlueBubbles 不会自己起来，你得手动再打开一次。这台 Mac 必须持续开机、联网，并且 BlueBubbles 保持运行，否则不会投递任何消息。
+
+5. 服务器跑起来之后，打开 **Server Information** 并复制 **Server URL**。记下来，这就是要填给 Manyfold 的地址。
+
+   ![BlueBubbles 的 Server Information，显示对外的 Server URL](../../../../assets/docs/channels/imessage-04-server-information-demo.webp)
+
+## 连接到 Manyfold
+
+1. 在 Manyfold 中创建一个 provider 为 **iMessage** 的频道。粘贴 BlueBubbles 的**服务器地址**和**服务器密码**，至少设置一个唤醒词（例如 `hey manyfold`），然后点击 **Create**。
+
+   ![Manyfold 创建 iMessage 频道的 New channel 表单，包含 Agent、标签、服务器地址、密码与唤醒词栏位](../../../../assets/docs/channels/imessage-05-manyfold-new-channel-demo.webp)
+
+   Manyfold 会 ping 该服务器、读取版本，并自行注册 Webhook，因此你不需要手动把 URL 粘贴到 BlueBubbles 里。
+
+2. 运行**测试**，每一行都应该是 `✓`。然后从 iMessage 发一条消息，确认 Agent 会回复。
 
 ## 唤醒词
 
@@ -69,9 +87,9 @@ iMessage 没有机器人账号，群成员没有可以 @ 的对象。因此群�
 
 BlueBubbles 提供一个可选的 Private API 辅助组件，用于解锁 Apple 未公开的能力。Manyfold 会检测它是否已连接，并在**测试**中报告结果。
 
-这个渠道的绝大部分能力 —— 收发消息、双向附件 —— **不需要**它。唯一需要它的场景是：向一个从未给这台 Mac 发过消息的号码发起全新会话。没有该组件时，向未知号码主动发送会返回一个明确的错误，而不是静默失败。
+这个渠道的绝大部分能力（收发消息、双向附件）**不需要**它。唯一需要它的场景是：向一个从未给这台 Mac 发过消息的号码发起全新会话。没有该组件时，向未知号码主动发送会返回一个明确的错误，而不是静默失败。
 
-安装该组件需要在这台 Mac 上关闭 System Integrity Protection。这是一个关于你自己机器的真实安全决策，而正常使用本渠道并不需要它。
+安装该组件需要在这台 Mac 上关闭 System Integrity Protection。这是一个关于你自己机器的真实安全决策。配置时勾选 **Messages Private API** 只是在 BlueBubbles 里把这个功能打开。如果你不装该组件，上面这些能力依然可用，只有向全新号码主动发起会话会失败。
 
 ## 限制与安全
 
@@ -83,7 +101,7 @@ BlueBubbles 提供一个可选的 Private API 辅助组件，用于解锁 Apple 
 
 **一台服务器对应一个频道。** BlueBubbles 的 Webhook 是按服务器注册的，而不是按会话。指向同一台 Mac 的两个 Manyfold 频道都会收到每一条消息，并且都会回复。请用「允许的会话 GUID」把它们分开，或者一台 Mac 只跑一个频道。
 
-**Mac 休眠时频道看起来仍然正常。** 入站走的是普通 Webhook，Manyfold 没有可监控的长连接。如果 Mac 休眠或隧道断开，频道状态仍显示 `active`，但什么都不会被投递。回复停止时请运行**测试** —— 它才是权威检查。在 Mac 上可以用「节能」设置或 `caffeinate -s` 阻止休眠。
+**Mac 休眠时频道看起来仍然正常。** 入站走的是普通 Webhook，Manyfold 没有可监控的长连接。如果 Mac 休眠或隧道断开，频道状态仍显示 `active`，但什么都不会被投递。回复停止时请运行**测试**，它才是权威检查。在 Mac 上可以用「节能」设置或 `caffeinate -s` 阻止休眠。
 
 **被编辑的消息不会触达 Agent。** iMessage 把编辑作为同一条消息的更新投递，会被 Manyfold 的去重机制丢弃。请改为发送一条新消息。
 

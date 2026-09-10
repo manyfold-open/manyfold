@@ -78,7 +78,7 @@ type UiCopy = {
     searchHintOpen: string
     consoleLabel: string
     loginLabel: string
-    requestAccess: string
+    openWorkspace: string
     themeToggle: string
     joinDiscord: string
     followX: string
@@ -158,7 +158,7 @@ const defaultUi: UiCopy = {
     searchHintOpen: 'Press / or Ctrl K to search',
     consoleLabel: 'Console',
     loginLabel: 'Log in',
-    requestAccess: 'Request access',
+    openWorkspace: 'Open workspace',
     themeToggle: 'Toggle theme',
     // "Discord", not "our Discord": the invite opens the NetMind.AI server.
     joinDiscord: 'Join Discord',
@@ -243,7 +243,7 @@ const uiOverrides: Partial<Record<Locale, Partial<UiCopy>>> = {
         searchHintOpen: '按 / 或 Ctrl K 搜索',
         consoleLabel: '控制台',
         loginLabel: '登录',
-        requestAccess: '申请使用',
+        openWorkspace: '打开工作区',
         themeToggle: '切换主题',
         onThisPage: '本页内容',
         copyPage: '复制页面',

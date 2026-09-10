@@ -4,9 +4,9 @@ description: Connect iMessage to a Manyfold agent through a BlueBubbles server o
 order: 19
 ---
 
-Connect iMessage when you want an agent reachable from the Messages app — in one-on-one conversations and in group chats. Apple publishes no iMessage API, so this channel talks to [BlueBubbles Server](https://bluebubbles.app), which you run on a Mac that is signed in to iMessage. Manyfold registers its inbound webhook on that server and sends replies back through its REST API.
+Connect iMessage when you want an agent reachable from the Messages app, in one-on-one conversations and in group chats. Apple publishes no iMessage API, so this channel talks to [BlueBubbles Server](https://bluebubbles.app), which you run on a Mac that is signed in to iMessage. Manyfold registers its inbound webhook on that server and sends replies back through its REST API.
 
-This is the one channel that needs hardware you own. Read [Limits and security](#limits-and-security) before you set it up — the trust model is weaker than every other Manyfold channel, and that is a property of what BlueBubbles can and cannot do, not something configuration fixes.
+This is the one channel that needs hardware you own. Read [Limits and security](#limits-and-security) before you set it up. The trust model is weaker than every other Manyfold channel, and that is a property of what BlueBubbles can and cannot do, not something configuration fixes.
 
 ## What the channel supports
 
@@ -28,24 +28,42 @@ This is the one channel that needs hardware you own. Read [Limits and security](
 
 You need:
 
-- **A Mac signed in to iMessage** that stays awake and online. A laptop that sleeps will stop delivering messages — see [Limits and security](#limits-and-security).
+- **A Mac signed in to iMessage** that stays awake and online. It has to stay powered on and connected for as long as the channel is in use, because a laptop that sleeps will stop delivering messages. See [Limits and security](#limits-and-security).
 - **BlueBubbles Server** installed on it, with a server password set.
-- **A public URL for that server.** Manyfold runs in the cloud and has to reach your Mac. A Cloudflare Tunnel, ngrok, or Tailscale Funnel all work. Prefer one that terminates TLS.
+- **A public URL for that server.** Manyfold runs in the cloud and has to reach your Mac. BlueBubbles' built-in Cloudflare proxy gives you one during setup, so you do not have to run a tunnel yourself.
 
-## Set it up
+## Set up BlueBubbles Server
 
 1. Install BlueBubbles Server on the Mac and complete its setup, including granting Full Disk Access when prompted.
-2. In BlueBubbles Server, set a **server password**. This is what Manyfold authenticates with.
-3. Expose the server. With Cloudflare:
+2. Set a **server password** (keep a copy, you have to paste it into Manyfold later) and choose **Cloudflare** under **Proxy Setup**. The password is what Manyfold authenticates with; the proxy is what makes the server reachable from outside your own network.
 
-   ```sh
-   cloudflared tunnel --url http://localhost:1234
-   ```
+   ![BlueBubbles Connection Setup with a server password set and Cloudflare chosen as the proxy service](../../../assets/docs/channels/imessage-01-connection-setup-demo.webp)
 
-   Copy the `https://…` address it prints.
-4. In Manyfold, create a channel with provider **iMessage**. Paste the server URL and password, and set at least one wake word (for example `hey manyfold`).
-5. Save. Manyfold pings the server, reads its version, and registers its own webhook — you do not paste a URL into BlueBubbles yourself.
-6. Run **Test**. Every line should be a `✓`.
+3. Under **Permissions**, enable **Messages Private API**.
+
+   ![The BlueBubbles Permissions step with Messages Private API enabled](../../../assets/docs/channels/imessage-02-private-api-permission.webp)
+
+   The checkbox only tells the server to use the helper; installing the helper on that Mac is a separate step. See [The Private API helper](#the-private-api-helper) for what it adds and what it costs.
+
+4. On the final setup step, set **Auto Start Method** to **Do Not Auto Start** and turn on **Keep macOS Awake**.
+
+   ![The BlueBubbles Setup Complete step, showing Auto Start Method and Keep macOS Awake](../../../assets/docs/channels/imessage-03-setup-complete-features.webp)
+
+   **Keep macOS Awake** only stops the Mac sleeping when idle; it does not survive a reboot or a closed lid. With **Do Not Auto Start**, BlueBubbles does not come back by itself after the Mac restarts, so you have to launch it again. The Mac has to stay powered on and online, with BlueBubbles running, or nothing is delivered.
+
+5. Once the server is running, open **Server Information** and copy the **Server URL**. Keep it: this is the address you give Manyfold.
+
+   ![BlueBubbles Server Information showing the public Server URL](../../../assets/docs/channels/imessage-04-server-information-demo.webp)
+
+## Connect it to Manyfold
+
+1. In Manyfold, create a channel with provider **iMessage**. Paste the BlueBubbles **server URL** and **server password**, set at least one wake word (for example `hey manyfold`), then click **Create**.
+
+   ![The Manyfold New iMessage channel form, with agent, label, server URL, password and wake word fields](../../../assets/docs/channels/imessage-05-manyfold-new-channel-demo.webp)
+
+   Manyfold pings the server, reads its version, and registers its own webhook, so you never paste a URL into BlueBubbles yourself.
+
+2. Run **Test**; every line should be a `✓`. Then send a message from iMessage and check that the agent answers.
 
 ## Wake words
 
@@ -55,7 +73,7 @@ iMessage has no bot account, so there is nothing for a group member to @-mention
 
 becomes `what did we ship this week?`.
 
-Wake words are matched case-insensitively at a word boundary, so `manyfold` does not match `manyfoldish`. They are always literal text — regular expressions are not accepted. One-on-one conversations ignore wake words entirely; every message is a turn.
+Wake words are matched case-insensitively at a word boundary, so `manyfold` does not match `manyfoldish`. They are always literal text; regular expressions are not accepted. One-on-one conversations ignore wake words entirely; every message is a turn.
 
 ## Who can use it
 
@@ -69,9 +87,9 @@ Leave **allowed handles** empty and anyone who can message that Mac can drive th
 
 BlueBubbles ships an optional Private API helper that unlocks features Apple does not expose. Manyfold detects whether it is connected and reports it in **Test**.
 
-Everything this channel does — sending, receiving, attachments in both directions — works **without** it. The single thing that needs it is starting a brand-new conversation with a handle that has never messaged this Mac. Without the helper, an agent-initiated send to an unknown number fails with a clear error instead.
+Everything this channel does (sending, receiving, attachments in both directions) works **without** it. The single thing that needs it is starting a brand-new conversation with a handle that has never messaged this Mac. Without the helper, an agent-initiated send to an unknown number fails with a clear error instead.
 
-Installing the helper requires disabling System Integrity Protection on that Mac. That is a real security decision about your own machine, and it is not required for normal use of this channel.
+Installing the helper requires disabling System Integrity Protection on that Mac. That is a real security decision about your own machine. Enabling **Messages Private API** during setup only switches the feature on in BlueBubbles. If you leave the helper uninstalled, everything above still works and only an agent-initiated send to a brand-new handle fails.
 
 ## Limits and security
 
@@ -83,7 +101,7 @@ Installing the helper requires disabling System Integrity Protection on that Mac
 
 **One server, one channel.** BlueBubbles webhooks are per-server, not per-conversation. Two Manyfold channels pointed at the same Mac will both receive every message and both reply. Use allowed chat GUIDs to separate them, or run one channel per Mac.
 
-**The channel can look healthy while the Mac is asleep.** Inbound arrives as an ordinary webhook, so Manyfold has no live connection to monitor. If the Mac sleeps or loses its tunnel, the channel still reads `active` while nothing is delivered. If replies stop, run **Test** — it is the authoritative check. On the Mac, prevent sleep with Energy Saver or `caffeinate -s`.
+**The channel can look healthy while the Mac is asleep.** Inbound arrives as an ordinary webhook, so Manyfold has no live connection to monitor. If the Mac sleeps or loses its tunnel, the channel still reads `active` while nothing is delivered. If replies stop, run **Test**, which is the authoritative check. On the Mac, prevent sleep with Energy Saver or `caffeinate -s`.
 
 **Edited messages do not reach the agent.** iMessage delivers an edit as an update to the same message, which Manyfold's duplicate protection discards. Send a new message instead.
 
