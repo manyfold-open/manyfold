@@ -38,7 +38,7 @@ import { DaemonFencedDispatchService } from '@/modules/chat/adapters/daemon-fenc
 import { ConnectionsModule } from '@/modules/connections/connections.module'
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { ModelProvidersModule } from '@/modules/model-providers/model-providers.module'
-import { RunnerManagerService } from './runner/runner-manager.service'
+import { RunnerModule } from './runner/runner.module'
 import { UserExternalAgentProvidersModule } from '@/modules/user-external-agent-providers/user-external-agent-providers.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
@@ -73,7 +73,8 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         SpriteExecHealthModule,
         AdminSettingsModule,
         ChatUploadsModule,
-        ConnectionsModule
+        ConnectionsModule,
+        RunnerModule
     ],
     controllers: [
         ChatController,
@@ -94,7 +95,6 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         ChatPermissionBus,
         HermesPermissionCoordinator,
         TurnAdoptionService,
-        RunnerManagerService,
         ChatAdapterRegistry,
         ExecDriverFactory,
         DaemonFencedDispatchService,
