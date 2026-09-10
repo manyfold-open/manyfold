@@ -63,6 +63,7 @@ import {
 } from '@/modules/daemon/daemon-cli-version.service'
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
 import { buildCliInstallScript } from '@/modules/agent-self/sprite-shell-env.service'
+import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 
 // The coding-agent CLIs every sprite image ships pre-installed. Probed as a unit
 // so a bare sandbox can advertise what it can host before any runtime exists.
@@ -88,7 +89,8 @@ export class SandboxesService {
         private readonly activeDuration: SandboxActiveDurationService,
         private readonly agents: AgentsService,
         private readonly keepAliveLease: SpriteKeepAliveLeaseService,
-        @Inject(DRIZZLE) private readonly db: Database
+        @Inject(DRIZZLE) private readonly db: Database,
+        private readonly runnerManager: RunnerManagerService
     ) {}
 
     async list(
@@ -296,10 +298,12 @@ export class SandboxesService {
     }
 
     // Upgrade the platform-managed mf CLI on the sprite to the latest version for
-    // the deploy channel. Unlike daemons (which self-update + restart), a sprite
-    // has no long-lived process — we exec the channel install script over
-    // ~/.local/bin/mf and re-read the version. The fresh binary is picked up by
-    // the next per-exec mf invocation, so nothing needs restarting.
+    // the deploy channel. Unlike a daemon host, a sprite has nothing to hand the
+    // update to: we exec the channel install script over ~/.local/bin/mf and
+    // re-read the version. Per-exec mf invocations pick the fresh binary up on
+    // their own; the sprite runner does not — it is the one long-lived process
+    // on the sprite, and left alone it keeps running (and heartbeating) the
+    // build it was started with — so it is restarted here when one is up.
     async upgradeCli(
         userId: string,
         hostId: string,
@@ -332,17 +336,20 @@ export class SandboxesService {
         } else {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
+        const spriteName = host.spriteName
+        const client = this.spritesClientFor(account)
+        const exec = (opts: {
+            cmd: string[]
+            stdin?: string
+            timeoutMs: number
+        }): Promise<ExecResult> => this.exec(client, spriteName, opts)
         const shell = [
             buildCliInstallScript(channel, targetVersion, {
                 purgeLegacyIdentity: identityReady
             }),
             'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"'
         ].join('\n')
-        const client = createSpritesClient({
-            token: this.accounts.decryptToken(account),
-            accountSlug: account.slug
-        })
-        const result = await execSprite(client, host.spriteName, {
+        const result = await exec({
             cmd: ['bash', '-lc', shell],
             stdin: '',
             timeoutMs: CLI_UPGRADE_TIMEOUT_MS
@@ -362,6 +369,18 @@ export class SandboxesService {
                 `mf CLI upgrade did not complete on ${host.spriteName}`
             )
         await this.runtimes.setSandboxCliVersion(owner, hostId, installed)
+        // The binary is swapped; a runner process that is up still runs the old
+        // one and keeps heartbeating its version and features. Its outcome is
+        // logged, never thrown: the upgrade itself has landed.
+        const runner = await this.runnerManager.restartForInstalledCli({
+            userId: owner,
+            spriteName,
+            exec,
+            installedVersion: installed
+        })
+        this.log.log(
+            `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
+        )
         return this.get(owner, hostId)
     }
 

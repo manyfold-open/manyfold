@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+    parseRunnerStatus,
     RunnerManagerService,
     RUNNER_PROFILE,
     runnerHostName
@@ -1071,4 +1072,211 @@ test('releasing waits for the in-flight create so the DELETE cannot overtake it'
     assert.equal(calls.length, 2)
     assert.match(calls[0], /-X POST \/v1\/tasks/)
     assert.match(calls[1], /-X DELETE .*\/v1\/tasks\/mfturn-msg-fast/)
+})
+
+// The sandbox CLI upgrade swaps ~/.local/bin/mf under a runner that keeps
+// running — and heartbeating — the build it was started with: nothing re-execs
+// a `setsid nohup` daemon, its own daemon.update refuses without an init unit,
+// and a warm sprite resume brings the old process back (staging 2026-09-10:
+// sandbox row on the new build, runner row on the old one without
+// auth-profiles.v1). These pin what restartForInstalledCli does about that
+// process, and what it refuses to do.
+
+const OLD_BUILD = '0.31.2-dev.202609091242.909c84a'
+const NEW_BUILD = '0.33.1-dev.202609100748.ab03120'
+
+const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
+    JSON.stringify({ configured: true, localPid: pid, local })
+
+const restartHarness = (opts: {
+    hostRow?: boolean
+    statusStdout?: string
+    statusExit?: number
+    // what the host row reports once `daemon start` ran; null = it never moves
+    versionAfterStart?: string | null
+    execThrowOn?: (cmd: string) => boolean
+}) => {
+    const calls: string[] = []
+    let rowVersion = OLD_BUILD
+    const exec = async (a: {
+        cmd: string[]
+        timeoutMs: number
+    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+        const cmd = a.cmd.join(' ')
+        calls.push(cmd)
+        if (opts.execThrowOn?.(cmd)) throw new Error('exec transport failed')
+        if (cmd.includes('daemon status'))
+            return {
+                exitCode: opts.statusExit ?? 0,
+                stdout: opts.statusStdout ?? statusJson(null, null as never),
+                stderr: ''
+            }
+        if (cmd.includes('daemon start')) {
+            if (opts.versionAfterStart) rowVersion = opts.versionAfterStart
+            return { exitCode: 0, stdout: '1', stderr: '' }
+        }
+        if (cmd.includes('tail -n'))
+            return { exitCode: 0, stdout: 'daemon running pid=1', stderr: '' }
+        return { exitCode: 0, stdout: '', stderr: '' }
+    }
+    const db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () =>
+                        opts.hostRow === false
+                            ? []
+                            : [
+                                  {
+                                      id: 'dh_runner',
+                                      status: 'active',
+                                      cliVersion: rowVersion
+                                  }
+                              ]
+                })
+            })
+        })
+    }
+    const hosts = { isOnline: () => true }
+    class TestRunnerManager extends RunnerManagerService {
+        protected override delay(): Promise<void> {
+            return Promise.resolve()
+        }
+    }
+    const service = new TestRunnerManager(
+        db as never,
+        hosts as never,
+        {} as never,
+        { rpc: async () => ({}) } as never
+    )
+    const restart = () =>
+        service.restartForInstalledCli({
+            userId: 'user_1',
+            spriteName: 'art-1',
+            exec,
+            installedVersion: NEW_BUILD,
+            waitMs: 20
+        })
+    return { restart, calls }
+}
+
+test('parseRunnerStatus: the running daemon, shell noise, and every way there is no answer', () => {
+    assert.deepEqual(
+        parseRunnerStatus(
+            `Last login: today\n${statusJson({
+                version: OLD_BUILD,
+                activeExecs: 1,
+                activePtys: 0,
+                wsConnected: true
+            })}\n`
+        ),
+        {
+            kind: 'running',
+            version: OLD_BUILD,
+            activeExecs: 1,
+            activePtys: 0
+        }
+    )
+    // Missing counters read as idle rather than as a parse failure.
+    assert.deepEqual(parseRunnerStatus(statusJson({ version: OLD_BUILD })), {
+        kind: 'running',
+        version: OLD_BUILD,
+        activeExecs: 0,
+        activePtys: 0
+    })
+    assert.deepEqual(parseRunnerStatus('{"configured":false}'), {
+        kind: 'not-running'
+    })
+    assert.deepEqual(parseRunnerStatus(statusJson(null, null as never)), {
+        kind: 'not-running'
+    })
+    // A pid with no health: a daemon older than the control socket.
+    assert.deepEqual(parseRunnerStatus(statusJson(null)), { kind: 'unknown' })
+    assert.deepEqual(parseRunnerStatus('no daemon configured'), {
+        kind: 'unknown'
+    })
+})
+
+test('restart: no managed runner host means nothing runs the old build — no exec at all', async () => {
+    const h = restartHarness({ hostRow: false })
+    assert.equal(await h.restart(), 'no-runner')
+    assert.deepEqual(h.calls, [])
+})
+
+test('restart: a registered runner with no process is left to the next bring-up', async () => {
+    const h = restartHarness({ statusStdout: statusJson(null, null as never) })
+    assert.equal(await h.restart(), 'not-running')
+    assert.equal(h.calls.length, 1)
+    assert.match(h.calls[0], /MF_PROFILE=spriterunner/)
+    assert.match(h.calls[0], /daemon status --json/)
+})
+
+test('restart: a daemon already on the installed build is not touched', async () => {
+    const h = restartHarness({
+        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 })
+    })
+    assert.equal(await h.restart(), 'current')
+    assert.equal(h.calls.length, 1)
+})
+
+test('restart: live sessions win — a busy runner keeps its old build', async () => {
+    for (const local of [
+        { version: OLD_BUILD, activeExecs: 1, activePtys: 0 },
+        { version: OLD_BUILD, activeExecs: 0, activePtys: 1 }
+    ]) {
+        const h = restartHarness({ statusStdout: statusJson(local) })
+        assert.equal(await h.restart(), 'busy')
+        assert.equal(h.calls.length, 1, JSON.stringify(local))
+        assert.ok(!h.calls.some((c) => c.includes('daemon start')))
+    }
+})
+
+test('restart: an idle runner on the old build is stopped and started, and counts as restarted once the row reports the installed build', async () => {
+    const h = restartHarness({
+        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
+        versionAfterStart: NEW_BUILD
+    })
+    assert.equal(await h.restart(), 'restarted')
+    assert.equal(h.calls.length, 2)
+    const start = h.calls[1]
+    assert.match(start, /MF_PROFILE=spriterunner/)
+    assert.ok(
+        start.indexOf('daemon stop') < start.indexOf('daemon start'),
+        'stop precedes start in the same exec'
+    )
+    assert.match(start, /setsid nohup .* daemon start --foreground/)
+})
+
+test('restart: the row still on the old build after the wait is a timeout, with the runner log read for the report', async () => {
+    const h = restartHarness({
+        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
+        versionAfterStart: null
+    })
+    assert.equal(await h.restart(), 'restart-timeout')
+    assert.ok(h.calls.some((c) => c.includes('daemon start')))
+    assert.ok(h.calls.some((c) => c.includes('tail -n')))
+})
+
+test('restart: a daemon that cannot answer its control socket is restarted anyway', async () => {
+    for (const h of [
+        restartHarness({
+            statusStdout: statusJson(null),
+            versionAfterStart: NEW_BUILD
+        }),
+        restartHarness({
+            statusExit: 1,
+            statusStdout: '',
+            versionAfterStart: NEW_BUILD
+        })
+    ]) {
+        assert.equal(await h.restart(), 'restarted')
+        assert.ok(h.calls.some((c) => c.includes('daemon start')))
+    }
+})
+
+test('restart: an exec that throws is reported as failed, never thrown', async () => {
+    const h = restartHarness({
+        execThrowOn: (cmd) => cmd.includes('daemon status')
+    })
+    assert.equal(await h.restart(), 'failed')
 })

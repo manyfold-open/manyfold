@@ -164,7 +164,8 @@ const makeStop = (opts: {
         {} as never,
         agents as never,
         keepAliveLease as never,
-        db as never
+        db as never,
+        {} as never
     )
     svc.fakeClient = {
         listServices: async () => (opts.services ?? []) as never,

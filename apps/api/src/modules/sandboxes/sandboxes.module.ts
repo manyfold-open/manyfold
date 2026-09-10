@@ -6,6 +6,7 @@ import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accoun
 import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.module'
 import { AdminSettingsModule } from '@/modules/admin-settings/admin-settings.module'
+import { RunnerModule } from '@/modules/chat/runner/runner.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { SandboxesController } from './sandboxes.controller'
@@ -21,7 +22,8 @@ import { ActiveHoursEnforcementService } from './active-hours-enforcement.servic
         SpritesAccountsModule,
         DaemonModule,
         SandboxActiveDurationModule,
-        AdminSettingsModule
+        AdminSettingsModule,
+        RunnerModule
     ],
     controllers: [SandboxesController, AdminSandboxesController],
     providers: [
