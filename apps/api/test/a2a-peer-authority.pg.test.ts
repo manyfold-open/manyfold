@@ -14,7 +14,10 @@ import {
     users
 } from '@manyfold/db'
 import { withScratchDatabase } from '../scripts/scratch-db'
-import { ApiTokenService } from '../src/modules/auth/api-token.service'
+import {
+    ApiTokenService,
+    hashApiToken
+} from '../src/modules/auth/api-token.service'
 
 const RUN = process.env.RUN_PG_E2E === '1'
 const tag = '0013_a2a_peer_authority_preparation'
@@ -29,6 +32,7 @@ interface Harness {
     db: Db
     tokens: ApiTokenService
     prepare(): Promise<void>
+    switchWriter(): Promise<void>
 }
 
 const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
@@ -94,6 +98,16 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                         await db.$client.begin(async (sql) => {
                             for (const statement of statements)
                                 await sql.unsafe(statement)
+                        })
+                    },
+                    switchWriter: async () => {
+                        const sql = readFileSync(
+                            'drizzle/0015_a2a_peer_writer_switch.sql',
+                            'utf8'
+                        ).split('--> statement-breakpoint')
+                        await db.$client.begin(async (tx) => {
+                            for (const statement of sql)
+                                await tx.unsafe(statement)
                         })
                     }
                 })
@@ -261,6 +275,7 @@ test(
                 false
             )
 
+            await h.switchWriter()
             const [replacement] = await h.tokens.mintA2aGrants({
                 userId: 'owner',
                 targetAgentId: 'target',
@@ -294,11 +309,23 @@ test(
     async () => {
         await withHarness(async (h) => {
             await h.prepare()
+            await h.switchWriter()
+            const [before] = await h.db.$client`select
+                (select count(*)::int from api_tokens) as tokens,
+                (select count(*)::int from token_credentials) as credentials`
             const [first] = await h.tokens.mintA2aGrants({
                 userId: 'owner',
                 targetAgentId: 'target',
                 callerAgentIds: ['live']
             })
+            const [after] = await h.db.$client`select
+                (select count(*)::int from api_tokens) as tokens,
+                (select count(*)::int from token_credentials) as credentials`
+            assert.deepEqual(
+                after,
+                before,
+                'peer creation must not allocate any credential or mirror'
+            )
             await h.tokens.revokeA2aGrant({
                 tokenId: first.tokenId,
                 userId: 'other',
@@ -318,10 +345,28 @@ test(
                 await h.tokens.isActiveA2aGrant('live', 'target'),
                 false
             )
-            await h.db
-                .update(apiTokens)
-                .set({ revokedAt: null })
-                .where(eq(apiTokens.id, first.tokenId))
+            const retiredBearer = 'nca_fixture_retired_peer'
+            await h.db.insert(apiTokens).values({
+                id: first.tokenId,
+                userId: 'owner',
+                agentId: 'target',
+                callerAgentId: 'live',
+                tokenKind: 'a2a-grant',
+                tokenHash: hashApiToken(retiredBearer),
+                name: 'stale mirror',
+                scopes: ['a2a:edit']
+            })
+            await assert.rejects(
+                () => h.tokens.verify(retiredBearer),
+                /caller-bound A2A tokens are retired/
+            )
+            assert.equal(
+                await h.tokens.isActiveExternalA2aGrant(
+                    first.tokenId,
+                    'target'
+                ),
+                false
+            )
             assert.equal(
                 await h.tokens.isActiveA2aGrant('live', 'target'),
                 false
