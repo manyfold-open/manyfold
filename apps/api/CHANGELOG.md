@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 0.76.1
+
+### Patch Changes
+
+- [#293](https://github.com/manyfold-open/manyfold/pull/293) [`1b6ad5f`](https://github.com/manyfold-open/manyfold/commit/1b6ad5f1a50f601935b69de878ccd00b4a641d6e) Thanks [@yingca1](https://github.com/yingca1)! - Preserve External A2A target binding while rejecting retired agent bearer grants. The migration checks that legacy identities have been reconciled and keeps old columns until the switch release has reached every API instance.
+
+- [#287](https://github.com/manyfold-open/manyfold/pull/287) [`86b872a`](https://github.com/manyfold-open/manyfold/commit/86b872a4e98422eebec26a01cfb50c96d7759ae2) Thanks [@yingca1](https://github.com/yingca1)! - Sprite shell reconciliation now removes duplicate managed activation directories
+  from inherited PATH values. Login shells keep one activation entry first while
+  preserving custom paths, empty entries and all other directories in their original order.
+
 ## 0.76.0
 
 ### Minor Changes
