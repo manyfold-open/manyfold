@@ -27,13 +27,34 @@ const CODEX_RECOVERY_PARSER_VERSION = '1'
 
 const CODEX_FIND = `find "$HOME"/.codex/sessions -type f -name 'rollout-*.jsonl'`
 
+// rollout-<timestamp>-<thread id>.jsonl, found by the thread id substring.
+const rolloutLocateScript = (threadId: string): string =>
+    `find "$HOME"/.codex/sessions -type f -name ${shellEscape(`*${threadId}*.jsonl`)} 2>/dev/null | head -1`
+
+// `wc -l` of the thread's rollout: its newline-terminated lines, which is the
+// sourceSeq a full read assigns to the last complete line — the unit the
+// session's runtime-sync cursor is kept in. Exit 2 when there is no file yet.
+export const codexRolloutLineCountScript = (threadId: string): string =>
+    [
+        `f=$(${rolloutLocateScript(threadId)})`,
+        'if [ -z "$f" ]; then exit 2; fi',
+        'wc -l < "$f"'
+    ].join('; ')
+
+export const parseCodexRolloutLineCount = (
+    stdout: string | null
+): number | null => {
+    const match = stdout?.trim().match(/^\d+$/)
+    return match ? Number(match[0]) : null
+}
+
 export class CodexSessionReader implements SessionReader {
     readonly framework: AgentFramework = 'codex'
 
     async readMessages(ctx: ReaderContext): Promise<ReaderResult> {
-        const pattern = `*${ctx.frameworkSessionRef}*.jsonl`
-        const script = `find "$HOME"/.codex/sessions -type f -name ${shellEscape(pattern)} 2>/dev/null | head -1`
-        const sourceFile = await ctx.fs.locate(script)
+        const sourceFile = await ctx.fs.locate(
+            rolloutLocateScript(ctx.frameworkSessionRef)
+        )
         if (!sourceFile)
             return {
                 sourceFile: null,
@@ -63,13 +84,15 @@ export class CodexSessionReader implements SessionReader {
             }
 
         const fallbackModel = await readCodexConfigModel(ctx)
-        const { messages, warnings } = parseCodexJsonl(
-            text,
+        return {
             sourceFile,
-            ctx.frameworkSessionRef,
-            fallbackModel
-        )
-        return { sourceFile, messages, warnings }
+            ...parseCodexJsonl(
+                text,
+                sourceFile,
+                ctx.frameworkSessionRef,
+                fallbackModel
+            )
+        }
     }
 
     async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
@@ -179,6 +202,7 @@ const summarizeCodexJsonl = (
         if (stringField(payload, 'type') !== 'message') continue
         const role = stringField(payload, 'role')
         if (role !== 'user' && role !== 'assistant') continue
+        if (role === 'user' && isCodexContextualUserMessage(payload)) continue
         const text = extractCodexText(payload.content)
         if (!text) continue
         messageCount++
@@ -193,10 +217,17 @@ export const parseCodexJsonl = (
     sourceFile?: string | null,
     sourceRef?: string | null,
     fallbackModel?: string | null
-): { messages: RecoveredMessage[]; warnings: string[] } => {
+): Pick<
+    ReaderResult,
+    'messages' | 'warnings' | 'lineCount' | 'openTurnStartSeq'
+> => {
     const messages: RecoveredMessage[] = []
     const warnings: string[] = []
     let pending: PendingAssistant | null = null
+    // Codex brackets each turn with `task_started` … `task_complete` (or
+    // `turn_aborted`) events; a start with no end at EOF is a turn still
+    // being written, and everything from it on is reported as unsettled.
+    let openTurnStartSeq: number | null = null
     let currentModel = normalizeModel(fallbackModel)
 
     const flush = (): void => {
@@ -234,6 +265,18 @@ export const parseCodexJsonl = (
             currentModel = eventModel
             if (pending) pending.model = eventModel
         }
+        if (row.type === 'event_msg' && isRecord(row.payload)) {
+            const eventType = stringField(row.payload, 'type')
+            if (eventType === 'task_started' || eventType === 'turn_started')
+                openTurnStartSeq = lineNo
+            else if (
+                eventType === 'task_complete' ||
+                eventType === 'turn_complete' ||
+                eventType === 'turn_aborted'
+            )
+                openTurnStartSeq = null
+            continue
+        }
         if (row.type !== 'response_item' || !isRecord(row.payload)) continue
         const payload = row.payload
         const itemType = stringField(payload, 'type')
@@ -250,6 +293,8 @@ export const parseCodexJsonl = (
         if (itemType === 'message') {
             const role = stringField(payload, 'role')
             if (role !== 'user' && role !== 'assistant') continue
+            if (role === 'user' && isCodexContextualUserMessage(payload))
+                continue
             const messageText = extractCodexText(payload.content)
             if (!messageText) continue
             if (role === 'user') {
@@ -368,7 +413,12 @@ export const parseCodexJsonl = (
         }
     }
     flush()
-    return { messages, warnings }
+    return {
+        messages,
+        warnings,
+        lineCount: (text.match(/\n/g) ?? []).length,
+        openTurnStartSeq
+    }
 }
 
 interface PendingAssistant {
@@ -500,6 +550,85 @@ const stringField = (
 ): string | null => {
     const value = obj[key]
     return typeof value === 'string' ? value : null
+}
+
+// Codex opens every thread by writing its own preamble into the rollout as
+// user-role messages — `# AGENTS.md instructions for <cwd>`, then
+// `<environment_context>` — and appends `<turn_aborted>` after an interrupt.
+// They are the model's context, not the user's words, and codex's own UI
+// never shows them (core/src/event_mapping.rs, `parse_user_message` returns
+// nothing for a contextual message). Read as user messages they reached the
+// chat as if the user had typed them.
+// Seen on staging [2026-09-10]: the sync that follows a sprite agent's first
+// turn appended the AGENTS.md preamble as a user bubble.
+//
+// Recent codex (0.153 on staging) labels every content item in
+// `content_item_kinds` — `user.text` for what the user typed,
+// `agents_md.instructions` / `environments.environment_context` for context —
+// and its `is_user_authorization_message` reads a message as the user's when
+// any kind is `user.*` or one of the placeholders below, treating a missing or
+// incomplete list as the user's. Rollouts from before the labels get the
+// marker table its display filter uses: any fragment that opens with the
+// start marker and closes with the end marker, ASCII case-insensitive.
+const USER_AUTHORED_CONTENT_KINDS = new Set([
+    '',
+    'unknown',
+    'images.preparation_error',
+    'images.unsupported',
+    'audio.unsupported'
+])
+
+const CODEX_CONTEXTUAL_USER_MARKERS: ReadonlyArray<readonly [string, string]> =
+    [
+        ['# agents.md instructions', '</instructions>'],
+        ['<user_instructions>', '</user_instructions>'],
+        ['<environment_context>', '</environment_context>'],
+        ['<turn_aborted>', '</turn_aborted>'],
+        ['<user_shell_command>', '</user_shell_command>'],
+        ['<subagent_notification>', '</subagent_notification>'],
+        ['<codex_internal_context', '</codex_internal_context>'],
+        ['<goal_context>', '</goal_context>']
+    ]
+
+const isCodexContextualUserMessage = (
+    payload: Record<string, unknown>
+): boolean => {
+    const content = payload.content
+    const meta = payload.internal_chat_message_metadata_passthrough
+    const kinds = isRecord(meta) ? meta.content_item_kinds : undefined
+    if (
+        Array.isArray(kinds) &&
+        Array.isArray(content) &&
+        kinds.length > 0 &&
+        kinds.length === content.length &&
+        kinds.every((kind) => typeof kind === 'string')
+    )
+        return !kinds.some(
+            (kind) =>
+                kind.startsWith('user.') ||
+                USER_AUTHORED_CONTENT_KINDS.has(kind)
+        )
+    return isCodexContextualUserContent(content)
+}
+
+const isCodexContextualUserText = (text: string): boolean => {
+    const head = text.trimStart().toLowerCase()
+    const trimmed = head.trimEnd()
+    return CODEX_CONTEXTUAL_USER_MARKERS.some(
+        ([open, close]) => head.startsWith(open) && trimmed.endsWith(close)
+    )
+}
+
+const isCodexContextualUserContent = (content: unknown): boolean => {
+    if (typeof content === 'string') return isCodexContextualUserText(content)
+    if (!Array.isArray(content)) return false
+    return content.some(
+        (item) =>
+            isRecord(item) &&
+            stringField(item, 'type') === 'input_text' &&
+            typeof item.text === 'string' &&
+            isCodexContextualUserText(item.text)
+    )
 }
 
 const extractCodexText = (content: unknown): string => {

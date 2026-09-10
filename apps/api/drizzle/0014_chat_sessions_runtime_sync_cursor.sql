@@ -1,0 +1,1 @@
+ALTER TABLE "chat_sessions" ADD COLUMN "runtime_sync_cursor" integer;

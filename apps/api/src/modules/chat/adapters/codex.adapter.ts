@@ -34,6 +34,10 @@ import {
     CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
     CODEX_THREAD_BUSY_SIGNATURE
 } from '@/modules/chat/codex-resume-signal'
+import {
+    codexRolloutLineCountScript,
+    parseCodexRolloutLineCount
+} from '@/modules/chat/recovery/readers/codex-reader'
 
 const CODEX_STREAM_PARSER_NAME = 'codex-exec-json'
 const CODEX_STREAM_PARSER_VERSION = '1'
@@ -528,6 +532,10 @@ export class CodexAdapter implements ApiChatAdapter {
             this.logger.warn(
                 `codex exec transport error: ${transportError.message}`
             )
+            // The stream is gone but codex may still be writing its rollout;
+            // a count taken now would hand those lines to the runtime-session
+            // sync as the TUI's. The next sync diffs content instead.
+            await this.settleTranscriptCursor(ctx, null)
             yield {
                 type: 'error',
                 error: {
@@ -574,6 +582,12 @@ export class CodexAdapter implements ApiChatAdapter {
                         )
                     )
             }
+            // A refused (busy) thread was never written by this turn, so the
+            // cursor it had still holds. Any other failure leaves the rollout
+            // in a state the stream did not fully mirror, so the next sync
+            // must diff content rather than trust a count.
+            if (!isCodexThreadBusy(failureDetail))
+                await this.settleTranscriptCursor(ctx, null)
             yield {
                 type: 'error',
                 ...(managedChannelFailure ? { managedChannelFailure } : {}),
@@ -602,9 +616,56 @@ export class CodexAdapter implements ApiChatAdapter {
                 ctx.turnFence
             )
 
+        await this.recordTranscriptCursor(ctx, threadId)
+
         if (pendingUsage) yield { type: 'usage', usage: pendingUsage }
 
         yield { type: 'done', finalMessageId: ctx.messageId }
+    }
+
+    // Every line codex wrote this turn already reached the cloud through the
+    // stream above, and the runtime-session sync must not read the rollout
+    // back as something the TUI added. Content cannot tell the two apart —
+    // the rollout names a command `exec_command`/`call_…` where the stream
+    // said `command_execution`/`item_N` — but a line count can: the sync only
+    // takes what lies past it. Taken once codex has exited, so the file is
+    // settled, and before `done` releases the session's turn slot, so no sync
+    // runs against a stale count in between. Costs one exec on the runtime.
+    private async recordTranscriptCursor(
+        ctx: ApiChatAdapterContext,
+        threadId: string | null
+    ): Promise<void> {
+        if (!threadId) return
+        let cursor: number | null = null
+        try {
+            const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
+            cursor = parseCodexRolloutLineCount(
+                await handle.fs.exec(codexRolloutLineCountScript(threadId))
+            )
+        } catch (err) {
+            this.logger.warn(
+                `codex rollout line count failed agent=${ctx.agentId} session=${ctx.sessionId}: ${(err as Error).message}`
+            )
+        }
+        if (cursor === null)
+            this.logger.warn(
+                `codex rollout cursor unavailable agent=${ctx.agentId} session=${ctx.sessionId} thread=${threadId}; the next runtime-session sync diffs content`
+            )
+        await this.settleTranscriptCursor(ctx, cursor)
+    }
+
+    private async settleTranscriptCursor(
+        ctx: ApiChatAdapterContext,
+        cursor: number | null
+    ): Promise<void> {
+        await this.chatRepo
+            .setRuntimeSyncCursor(ctx.sessionId, cursor, ctx.turnFence)
+            .catch((err: Error) => {
+                if (err instanceof TurnFenceLostError) throw err
+                this.logger.warn(
+                    `codex rollout cursor persist failed session=${ctx.sessionId}: ${err.message}`
+                )
+            })
     }
 }
 

@@ -47,6 +47,15 @@ export interface ReaderResult {
     messages: RecoveredMessage[]
     warnings: string[]
     summary?: RecoverySummary
+    // Newline-terminated lines the transcript had at read time, numbered as
+    // RecoveredRawSource.sourceSeq is. The runtime-session cursor is kept in
+    // this unit; a reader that cannot count leaves it undefined and the sync
+    // stays on the content diff.
+    lineCount?: number
+    // First line of a turn the transcript shows started but not finished —
+    // codex: a `task_started` event with no `task_complete`/`turn_aborted`
+    // after it. Everything from that line on is still being written.
+    openTurnStartSeq?: number | null
 }
 
 export interface CandidateSession {

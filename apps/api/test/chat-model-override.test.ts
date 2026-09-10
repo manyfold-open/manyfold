@@ -209,7 +209,10 @@ test('Claude adapter passes model override to CLI', async () => {
     })
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -248,7 +251,10 @@ test('Claude adapter applies non-default permission modes', async () => {
         })
         const adapter = new ClaudeCodeAdapter(
             handle.drivers as never,
-            { updateFrameworkSessionRef: async () => undefined } as never
+            {
+                updateFrameworkSessionRef: async () => undefined,
+                setRuntimeSyncCursor: async () => undefined
+            } as never
         )
 
         await drain(
@@ -275,7 +281,10 @@ test('Claude adapter injects alias mappings and effort', async () => {
     })
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -314,7 +323,10 @@ test('Claude adapter normalizes unsupported selected effort', async () => {
     })
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -348,7 +360,10 @@ test('Claude adapter omits effort for unsupported provider models', async () => 
     })
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -387,7 +402,10 @@ test('Claude adapter keeps xhigh on a supporting CLI across every exec boundary'
         )
         const adapter = new ClaudeCodeAdapter(
             handle.drivers as never,
-            { updateFrameworkSessionRef: async () => undefined } as never
+            {
+                updateFrameworkSessionRef: async () => undefined,
+                setRuntimeSyncCursor: async () => undefined
+            } as never
         )
 
         await drain(
@@ -430,7 +448,10 @@ test('Claude adapter falls back from xhigh on an older CLI across every exec bou
         )
         const adapter = new ClaudeCodeAdapter(
             handle.drivers as never,
-            { updateFrameworkSessionRef: async () => undefined } as never
+            {
+                updateFrameworkSessionRef: async () => undefined,
+                setRuntimeSyncCursor: async () => undefined
+            } as never
         )
 
         await drain(
@@ -473,7 +494,10 @@ test('Claude adapter records an attributable fallback when CLI version cannot be
         []
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         undefined,
         {
             event: (event: string, attrs: Record<string, unknown>) =>
@@ -532,7 +556,10 @@ test('Claude adapter passes through every advertised effort unchanged on a curre
         )
         const adapter = new ClaudeCodeAdapter(
             handle.drivers as never,
-            { updateFrameworkSessionRef: async () => undefined } as never
+            {
+                updateFrameworkSessionRef: async () => undefined,
+                setRuntimeSyncCursor: async () => undefined
+            } as never
         )
 
         await drain(
@@ -650,7 +677,10 @@ test('Claude adapter emits raw_source for each stream JSONL row', async () => {
     )
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
     const events = await collect(
         adapter.sendMessage(
@@ -948,7 +978,10 @@ test('Codex adapter passes model override to CLI', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
 
@@ -978,7 +1011,7 @@ test('Codex adapter applies auto-review permission mode', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1002,7 +1035,7 @@ test('Codex adapter applies full-access permission mode', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1028,7 +1061,7 @@ test('Codex runtime-local tuning sets speed and effort without credentials', asy
     const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1058,7 +1091,7 @@ test('Codex runtime-local turn without tuning leaves the local config alone', as
     const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1095,7 +1128,7 @@ test('Codex sprites runtime-local turn stays free of platform provider wiring', 
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1124,7 +1157,7 @@ test('Codex adapter resumes existing session ref', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1155,7 +1188,7 @@ test('Codex adapter replays transcript when starting a fresh runtime session', a
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
     const priorUser: ChatMessage = {
@@ -1199,7 +1232,7 @@ test('Codex adapter applies auto-review permission mode when resuming', async ()
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1224,7 +1257,7 @@ test('Codex adapter passes intelligence and fast tier overrides', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1264,7 +1297,10 @@ test('Codex adapter emits raw_source for each exec JSON row', async () => {
     )
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
     const events = await collect(
@@ -1297,6 +1333,7 @@ test('Codex adapter stores session_id as framework session ref', async () => {
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1482,7 +1519,7 @@ test('Codex daemon platform config injects saved platform provider', async () =>
     )
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        {} as never,
+        { setRuntimeSyncCursor: async () => undefined } as never,
         {} as never
     )
 
@@ -1673,7 +1710,10 @@ test('Codex adapter sends the prompt via stdin with a "-" positional', async () 
     const handle = makeDriverFactory({ openaiApiKey: 'token' })
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
 
@@ -1699,7 +1739,10 @@ test('Claude adapter sends the prompt via stdin instead of argv', async () => {
     })
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -1729,7 +1772,10 @@ test('Claude adapter on daemon runtime puts the prompt on argv, not stdin', asyn
     )
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never
     )
 
     await drain(
@@ -1747,7 +1793,10 @@ test('Codex adapter on daemon runtime puts the prompt on argv, not stdin', async
     const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
 
@@ -1780,6 +1829,7 @@ test('Codex adapter persists the session ref before a mid-stream failure', async
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1822,6 +1872,7 @@ test('Claude adapter persists the session ref before a mid-stream failure', asyn
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1861,6 +1912,7 @@ test('Gemini adapter persists the session ref before a mid-stream failure', asyn
     const adapter = new GeminiCliAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1905,6 +1957,7 @@ test('Claude adapter clears the frozen session ref when --resume cannot load the
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1950,6 +2003,7 @@ test('Claude adapter keeps the session ref when an in-turn error is not a resume
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -1995,6 +2049,7 @@ test('Claude adapter keeps the session ref when a resume error omits num_turns',
     const adapter = new ClaudeCodeAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2033,6 +2088,7 @@ test('Codex adapter clears the frozen session ref when resume rollout is missing
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2080,6 +2136,7 @@ test('Codex adapter keeps the session ref when the thread is still being written
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2129,6 +2186,7 @@ test('Codex adapter keeps the session ref when the resume failed for a reason ot
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2166,6 +2224,7 @@ test('Codex adapter keeps the session ref on a non-resume exec failure', async (
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2204,7 +2263,10 @@ test('Codex adapter surfaces the stdout turn.failed reason when codex exits non-
     )
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
 
@@ -2236,7 +2298,10 @@ test('Codex adapter marks only an owned structured 503 pool exhaustion', async (
     )
     const adapter = new CodexAdapter(
         handle.drivers as never,
-        { updateFrameworkSessionRef: async () => undefined } as never,
+        {
+            updateFrameworkSessionRef: async () => undefined,
+            setRuntimeSyncCursor: async () => undefined
+        } as never,
         {} as never
     )
 
@@ -2266,6 +2331,7 @@ test('Codex adapter self-heals when the resume rollout failure is reported on st
     const adapter = new CodexAdapter(
         handle.drivers as never,
         {
+            setRuntimeSyncCursor: async () => undefined,
             updateFrameworkSessionRef: async (
                 _sessionId: string,
                 ref: string | null
@@ -2303,12 +2369,18 @@ const makeDriverFactory = (
         claudeVersionExitCode?: number
     } = {}
 ): {
-    drivers: { forAgent: () => Promise<unknown> }
+    drivers: {
+        forAgent: () => Promise<unknown>
+        recoveryFsForAgent: () => Promise<unknown>
+    }
     request: ExecStreamRequest | null
     requests: ExecStreamRequest[]
 } => {
     const out: {
-        drivers: { forAgent: () => Promise<unknown> }
+        drivers: {
+            forAgent: () => Promise<unknown>
+            recoveryFsForAgent: () => Promise<unknown>
+        }
         request: ExecStreamRequest | null
         requests: ExecStreamRequest[]
     } = {
@@ -2320,6 +2392,10 @@ const makeDriverFactory = (
                 creds,
                 runtime,
                 agent: { workspacePath: '/workspace', ...agent }
+            }),
+            // The settled turn counts its transcript through the recovery fs.
+            recoveryFsForAgent: async () => ({
+                fs: { exec: async () => '1\n' }
             })
         }
     }

@@ -7,7 +7,9 @@ import {
 import {
     CodexSessionReader,
     codexRefFromPath,
-    parseCodexJsonl
+    codexRolloutLineCountScript,
+    parseCodexJsonl,
+    parseCodexRolloutLineCount
 } from '../src/modules/chat/recovery/readers/codex-reader'
 import {
     GeminiCliSessionReader,
@@ -314,6 +316,294 @@ test('parseCodexJsonl uses config fallback model for assistant messages only', (
     assert.equal(messages[0].model, undefined)
     assert.equal(messages[1].role, 'assistant')
     assert.equal(messages[1].model, 'gpt-5.4')
+})
+
+// Codex writes its own preamble into the rollout as user-role messages:
+// `# AGENTS.md instructions for <cwd>` plus `<environment_context>` open the
+// thread, `<turn_aborted>` follows an interrupted turn. Its own UI hides them
+// (core/src/event_mapping.rs `parse_user_message` returns None for a
+// contextual message); the reader must too, or the sync appends the model's
+// context to the chat as if the user had typed it.
+// Seen on staging [2026-09-10]: the first sync after a sprite agent's first
+// turn appended the AGENTS.md preamble as a user bubble.
+test('parseCodexJsonl drops the contextual user messages codex itself hides', () => {
+    const lines = [
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:21.000Z',
+            type: 'session_meta',
+            payload: { id: 'thread-1' }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:21.100Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [
+                    {
+                        type: 'input_text',
+                        text: '# AGENTS.md instructions for /home/sprite/ws\n\n<INSTRUCTIONS>\nRead AGENTS.manyfold.md first.\n</INSTRUCTIONS>'
+                    },
+                    {
+                        type: 'input_text',
+                        text: '<environment_context>\n  <cwd>/home/sprite/ws</cwd>\n</environment_context>'
+                    }
+                ]
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:21.200Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'hello?' }]
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:25.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Checking.' }]
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:25.100Z',
+            type: 'response_item',
+            payload: {
+                type: 'function_call',
+                name: 'exec_command',
+                arguments: '{"cmd":"cat AGENTS.manyfold.md"}',
+                call_id: 'call_1'
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:26.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'function_call_output',
+                call_id: 'call_1',
+                output: 'No connections are linked to this agent.'
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:29.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Hello. Ready.' }]
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:10:00.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [
+                    {
+                        type: 'input_text',
+                        text: '<turn_aborted>\nThe user interrupted the previous turn.\n</turn_aborted>'
+                    }
+                ]
+            }
+        }),
+        JSON.stringify({
+            timestamp: '2026-09-10T12:10:05.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'second question' }]
+            }
+        })
+    ].join('\n')
+
+    const { messages, warnings } = parseCodexJsonl(lines)
+
+    assert.deepEqual(warnings, [])
+    assert.deepEqual(
+        messages.map((m) => [m.role, m.contentBlocks[0]]),
+        [
+            ['user', { type: 'text', text: 'hello?' }],
+            ['assistant', { type: 'text', text: 'Checking.' }],
+            ['user', { type: 'text', text: 'second question' }]
+        ]
+    )
+    assert.equal(messages[1].contentBlocks.length, 4)
+    assert.equal(messages[1].parentExternalId, messages[0].externalId)
+})
+
+test('codex listCandidates excerpts the first real user line, not the AGENTS.md preamble', async () => {
+    const reader = new CodexSessionReader()
+    const head = [
+        JSON.stringify({
+            type: 'session_meta',
+            timestamp: '2026-09-10T12:09:21.000Z',
+            payload: { id: 'rollout-2' }
+        }),
+        JSON.stringify({
+            type: 'response_item',
+            timestamp: '2026-09-10T12:09:21.100Z',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [
+                    {
+                        type: 'input_text',
+                        text: '# AGENTS.md instructions for /home/sprite/ws\n\n<INSTRUCTIONS>\nbody\n</INSTRUCTIONS>'
+                    }
+                ]
+            }
+        }),
+        JSON.stringify({
+            type: 'response_item',
+            timestamp: '2026-09-10T12:09:21.200Z',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: 'refactor this' }]
+            }
+        }),
+        JSON.stringify({
+            type: 'response_item',
+            timestamp: '2026-09-10T12:09:30.000Z',
+            payload: {
+                type: 'message',
+                role: 'assistant',
+                content: [{ type: 'output_text', text: 'Refactor done.' }]
+            }
+        })
+    ].join('\n')
+
+    const {
+        candidates: [candidate]
+    } = await reader.listCandidates({
+        fs: scanFs({ '/h/.codex/sessions/rollout-2.jsonl': { head } }),
+        agentId: 'agt'
+    })
+
+    assert.equal(candidate.firstUserMessage, 'refactor this')
+    assert.equal(candidate.messageCount, 2)
+})
+
+// Recent codex labels each content item; the label decides, not the text.
+test('parseCodexJsonl reads content_item_kinds before the marker table', () => {
+    const userMessage = (text: string, kinds?: string[]) =>
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:21.100Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text }],
+                ...(kinds
+                    ? {
+                          internal_chat_message_metadata_passthrough: {
+                              turn_id: 't1',
+                              content_item_kinds: kinds
+                          }
+                      }
+                    : {})
+            }
+        })
+    const lines = [
+        // Labelled as context although the text matches no marker.
+        userMessage('Sprite environment notes', ['agents_md.instructions']),
+        // Labelled as the user's although the text looks like a marker.
+        userMessage(
+            '<environment_context>my literal question</environment_context>',
+            ['user.text']
+        ),
+        // Unlabelled: the marker table decides.
+        userMessage(
+            '<environment_context>\n  <cwd>/ws</cwd>\n</environment_context>'
+        ),
+        userMessage('plain question')
+    ].join('\n')
+
+    const { messages } = parseCodexJsonl(lines)
+
+    assert.deepEqual(
+        messages.map((m) => (m.contentBlocks[0] as { text: string }).text),
+        [
+            '<environment_context>my literal question</environment_context>',
+            'plain question'
+        ]
+    )
+})
+
+// The sync keeps a per-session cursor in this file's line numbering and only
+// consumes complete turns, so the reader reports both.
+test('parseCodexJsonl reports the line count and a turn still being written', () => {
+    const event = (type: string) =>
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:21.894Z',
+            type: 'event_msg',
+            payload: { type, turn_id: 't' }
+        })
+    const message = (role: string, text: string) =>
+        JSON.stringify({
+            timestamp: '2026-09-10T12:09:22.000Z',
+            type: 'response_item',
+            payload: {
+                type: 'message',
+                role,
+                content: [
+                    {
+                        type: role === 'user' ? 'input_text' : 'output_text',
+                        text
+                    }
+                ]
+            }
+        })
+    const finished = [
+        JSON.stringify({ type: 'session_meta', payload: { id: 'thread-1' } }),
+        event('task_started'),
+        message('user', 'one'),
+        message('assistant', 'done one'),
+        event('task_complete')
+    ]
+    const running = [
+        event('task_started'),
+        message('user', 'two'),
+        message('assistant', 'still typing')
+    ]
+
+    const complete = parseCodexJsonl(finished.join('\n') + '\n')
+    assert.equal(complete.lineCount, 5)
+    assert.equal(complete.openTurnStartSeq, null)
+
+    const open = parseCodexJsonl([...finished, ...running].join('\n') + '\n')
+    assert.equal(open.lineCount, 8)
+    assert.equal(open.openTurnStartSeq, 6)
+    assert.equal(open.messages.length, 4)
+    assert.deepEqual(
+        open.messages[3].sources.map((s) => s.sourceSeq),
+        [8]
+    )
+
+    const aborted = parseCodexJsonl(
+        [...finished, ...running, event('turn_aborted')].join('\n') + '\n'
+    )
+    assert.equal(aborted.openTurnStartSeq, null)
+    assert.equal(aborted.lineCount, 9)
+})
+
+test('codexRolloutLineCountScript finds the thread rollout and counts its lines', () => {
+    const script = codexRolloutLineCountScript('01a08b38-f86f')
+    assert.match(
+        script,
+        /find "\$HOME"\/\.codex\/sessions .*'\*01a08b38-f86f\*\.jsonl'/
+    )
+    assert.match(script, /wc -l < "\$f"/)
+    assert.equal(parseCodexRolloutLineCount('      22\n'), 22)
+    assert.equal(parseCodexRolloutLineCount(''), null)
+    assert.equal(parseCodexRolloutLineCount(null), null)
+    assert.equal(parseCodexRolloutLineCount('wc: no such file'), null)
 })
 
 test('parseGeminiJson maps user/gemini and skips info entries', () => {
