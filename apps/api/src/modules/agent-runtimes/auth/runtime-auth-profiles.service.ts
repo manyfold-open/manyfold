@@ -45,12 +45,24 @@ import {
     type Database,
     type RuntimeAuthOperationRow,
     type RuntimeAuthProfileRow,
-    type RuntimeHostRow
+    type RuntimeHostRow,
+    type SpritesAccount
 } from '@manyfold/db'
+import {
+    createClient as createSpritesClient,
+    execSprite
+} from '@manyfold/sprites'
+import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
 import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    RunnerManagerService,
+    type SpriteExecFn
+} from '@/modules/chat/runner/runner-manager.service'
+import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RuntimeAccountService } from '../account/runtime-account.service'
 import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
@@ -64,6 +76,15 @@ import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-se
 // the sprite-runner daemon registered from that sandbox (the same host code,
 // the same capability gate). No runner, or a runner without the capability,
 // reads as unavailable — never as "use the native home instead".
+//
+// A sprite's runner is only reachable while the VM is awake, and nothing on
+// this path keeps it awake: unlike a turn, an auth.* RPC carries no exec that
+// would resume the sprite and no lease that would hold it. So a sprites host
+// is resolved against the SANDBOX row's sprite status (what the VM is doing)
+// rather than the runner row's socket lease (which a frozen process keeps for
+// 45s), and waking is explicit — `wake` on a mutation, `?wake=1` on the
+// list — because an exec starts the VM's billed running time. The same rule
+// the ambient account probe applies, for the same reason.
 
 const RPC_TIMEOUT_MS = 20_000
 const LOGOUT_TIMEOUT_MS = 45_000
@@ -108,7 +129,10 @@ export class RuntimeAuthProfilesService {
         private readonly runtimes: AgentRuntimesService,
         private readonly daemonHosts: DaemonHostService,
         private readonly daemonRegistry: DaemonRegistryService,
-        private readonly account: RuntimeAccountService
+        private readonly account: RuntimeAccountService,
+        private readonly accounts: SpritesAccountsService,
+        private readonly runtimeAccess: RuntimeAccessService,
+        private readonly runnerManager: RunnerManagerService
     ) {}
 
     // ---- lookups -----------------------------------------------------------
@@ -147,7 +171,10 @@ export class RuntimeAuthProfilesService {
         return row
     }
 
-    private async resolveHost(runtime: AgentRuntimeRow): Promise<ResolvedHost> {
+    private async resolveHost(
+        runtime: AgentRuntimeRow,
+        opts: { wake: boolean }
+    ): Promise<ResolvedHost> {
         if (!runtimeAuthSupported(runtime.framework, runtime.kind))
             return { host: null, availability: 'unsupported' }
         let host: RuntimeHostRow | null = null
@@ -160,34 +187,105 @@ export class RuntimeAuthProfilesService {
             if (!this.daemonHosts.isOnline(host))
                 return { host, availability: 'daemon-offline' }
         } else {
-            if (!runtime.spriteName)
+            if (!runtime.spriteName || !runtime.hostId)
                 return { host: null, availability: 'host-unavailable' }
-            const [runner] = await this.db
-                .select()
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.userId, runtime.userId),
-                        eq(runtimeHosts.kind, 'daemon'),
-                        eq(runtimeHosts.managed, true),
-                        eq(runtimeHosts.name, runnerHostName(runtime.spriteName))
-                    )
-                )
-                .limit(1)
-            host = runner ?? null
-            if (!host) return { host: null, availability: 'host-unavailable' }
-            // A sleeping sandbox has no runner heartbeat; waking is the
-            // user's explicit choice and rides the existing sandbox flows.
-            if (!this.daemonHosts.isOnline(host))
-                return { host, availability: 'sandbox-asleep' }
+            const sandbox = await this.runtimes.findHostById(runtime.hostId)
+            if (
+                !sandbox ||
+                sandbox.userId !== runtime.userId ||
+                sandbox.kind !== 'sandbox'
+            )
+                return { host: null, availability: 'host-unavailable' }
+            let runner = await this.findRunner(runtime)
+            // The runner answers only while the VM is awake. The sandbox row
+            // is the authority on that: reserveActiveSlot commits it running
+            // on every admitted wake and the status sync settles it back when
+            // the VM idles. The runner row's socket lease is not — a frozen
+            // process misses pings but stays "online" for up to 45s, which is
+            // exactly long enough to eat a 20s RPC timeout.
+            if (
+                !runner ||
+                sandbox.spriteStatus !== 'running' ||
+                !this.daemonHosts.isOnline(runner)
+            ) {
+                if (!opts.wake)
+                    return runner
+                        ? { host: runner, availability: 'sandbox-asleep' }
+                        : { host: null, availability: 'host-unavailable' }
+                runner = await this.wakeRunner(runtime, sandbox)
+                if (!runner)
+                    return { host: null, availability: 'host-unavailable' }
+            }
+            host = runner
         }
         if (!host.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES))
             return { host, availability: 'daemon-upgrade-required' }
         return { host, availability: 'ok' }
     }
 
-    private async requireHost(runtime: AgentRuntimeRow): Promise<RuntimeHostRow> {
-        const resolved = await this.resolveHost(runtime)
+    private async findRunner(
+        runtime: AgentRuntimeRow
+    ): Promise<RuntimeHostRow | null> {
+        if (!runtime.spriteName) return null
+        const [runner] = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(
+                    eq(runtimeHosts.userId, runtime.userId),
+                    eq(runtimeHosts.kind, 'daemon'),
+                    eq(runtimeHosts.managed, true),
+                    eq(runtimeHosts.name, runnerHostName(runtime.spriteName))
+                )
+            )
+            .limit(1)
+        return runner ?? null
+    }
+
+    // The user's explicit wake: admit the sandbox to an active slot first
+    // (quota and the running-status write happen there, as for every other
+    // wake), then let the runner manager resume the VM and hand back a
+    // runner that answers — thawed, reconnected, restarted or, for a sprite
+    // that never had one, brought up. Null means the sprite could not be
+    // reached or its runner could not be started; the caller reports that
+    // as unavailable rather than guessing.
+    private async wakeRunner(
+        runtime: AgentRuntimeRow,
+        sandbox: RuntimeHostRow
+    ): Promise<RuntimeHostRow | null> {
+        const spriteName = runtime.spriteName
+        if (!spriteName || !sandbox.accountId) return null
+        await this.runtimeAccess.reserveActiveSlot({
+            userId: runtime.userId,
+            hostId: sandbox.id
+        })
+        const account = await this.accounts.getById(sandbox.accountId)
+        if (!account) return null
+        const client = this.spritesClientFor(account)
+        const exec: SpriteExecFn = (a) =>
+            this.exec(client, spriteName, {
+                cmd: a.cmd,
+                stdin: a.stdin ?? '',
+                timeoutMs: a.timeoutMs
+            })
+        const woken = await this.runnerManager.wakeRunner({
+            userId: runtime.userId,
+            spriteName,
+            exec
+        })
+        this.log.log(
+            `runtime auth runner wake runtime=${runtime.id} sprite=${spriteName} outcome=${woken.outcome}`
+        )
+        if (!woken.handle) return null
+        const runner = await this.daemonHosts.findById(woken.handle.daemonId)
+        return runner && runner.userId === runtime.userId ? runner : null
+    }
+
+    private async requireHost(
+        runtime: AgentRuntimeRow,
+        opts: { wake: boolean }
+    ): Promise<RuntimeHostRow> {
+        const resolved = await this.resolveHost(runtime, opts)
         if (resolved.availability === 'ok' && resolved.host) return resolved.host
         if (resolved.availability === 'unsupported')
             throw conflict(
@@ -403,9 +501,13 @@ export class RuntimeAuthProfilesService {
 
     // ---- reads -------------------------------------------------------------
 
-    async list(userId: string, runtimeId: string): Promise<RuntimeAuthListView> {
+    async list(
+        userId: string,
+        runtimeId: string,
+        opts: { wake: boolean } = { wake: false }
+    ): Promise<RuntimeAuthListView> {
         const runtime = await this.requireRuntime(userId, runtimeId)
-        const resolved = await this.resolveHost(runtime)
+        const resolved = await this.resolveHost(runtime, opts)
         let rows = await this.db
             .select()
             .from(runtimeAuthProfiles)
@@ -491,7 +593,7 @@ export class RuntimeAuthProfilesService {
     ): Promise<RuntimeAuthProfileView> {
         const runtime = await this.requireRuntime(userId, runtimeId)
         const row = await this.requireProfile(runtime, profileId)
-        const host = await this.requireHost(runtime)
+        const host = await this.requireHost(runtime, { wake: false })
         const report = await this.rpc<DaemonAuthProfileReport>(
             host,
             'auth.inspect',
@@ -553,7 +655,11 @@ export class RuntimeAuthProfilesService {
     async create(
         principal: AuthPrincipal,
         runtimeId: string,
-        body: { label?: string; authMethod: 'subscription' | 'api-key' }
+        body: {
+            label?: string
+            authMethod: 'subscription' | 'api-key'
+            wake?: boolean
+        }
     ): Promise<RuntimeAuthProfileView> {
         this.assertHuman(principal)
         const runtime = await this.requireRuntime(principal.userId, runtimeId)
@@ -565,7 +671,9 @@ export class RuntimeAuthProfilesService {
                 RUNTIME_AUTH_ERROR.contextUnsupported,
                 'only subscription profiles can be created yet'
             )
-        const host = await this.requireHost(runtime)
+        const host = await this.requireHost(runtime, {
+            wake: body.wake === true
+        })
         const framework = runtime.framework as ConfigurableFramework
         const existingCount = (
             await this.db
@@ -670,14 +778,14 @@ export class RuntimeAuthProfilesService {
         principal: AuthPrincipal,
         runtimeId: string,
         profileId: string,
-        body: { requestId?: string }
+        body: { requestId?: string; wake?: boolean }
     ): Promise<RuntimeAuthOperationView> {
         this.assertHuman(principal)
         const runtime = await this.requireRuntime(principal.userId, runtimeId)
         const row = await this.requireProfile(runtime, profileId)
         if (row.lifecycle === 'deleting')
             throw conflict(RUNTIME_AUTH_ERROR.stateConflict, 'profile is being removed')
-        await this.requireHost(runtime)
+        await this.requireHost(runtime, { wake: body.wake === true })
         const operation = await this.mintOperation({
             runtime,
             profileId: row.id,
@@ -714,7 +822,10 @@ export class RuntimeAuthProfilesService {
             )
         const runtime = await this.requireRuntime(userId, operation.runtimeId)
         const row = await this.requireProfile(runtime, operation.profileId)
-        const host = await this.requireHost(runtime)
+        // startLogin just woke the sandbox on the user's behalf; the terminal
+        // attaching moments later reads that state rather than spending a
+        // second admission.
+        const host = await this.requireHost(runtime, { wake: false })
         await this.finishOperation(operation.id, { status: 'running' })
         return {
             host,
@@ -759,7 +870,7 @@ export class RuntimeAuthProfilesService {
     ): Promise<RuntimeAuthOperationRow | null> {
         const runtime = await this.requireRuntime(userId, operation.runtimeId)
         const row = await this.requireProfile(runtime, operation.profileId)
-        const host = await this.requireHost(runtime)
+        const host = await this.requireHost(runtime, { wake: false })
         const deadline = Date.now() + waitMs
         let record = await this.rpc<DaemonAuthOperationRecord>(
             host,
@@ -802,7 +913,7 @@ export class RuntimeAuthProfilesService {
         principal: AuthPrincipal,
         runtimeId: string,
         profileId: string,
-        body: { requestId?: string }
+        body: { requestId?: string; wake?: boolean }
     ): Promise<RuntimeAuthOperationView> {
         return this.signOutOrRemove(principal, runtimeId, profileId, body, 'sign-out')
     }
@@ -811,7 +922,7 @@ export class RuntimeAuthProfilesService {
         principal: AuthPrincipal,
         runtimeId: string,
         profileId: string,
-        body: { requestId?: string }
+        body: { requestId?: string; wake?: boolean }
     ): Promise<RuntimeAuthOperationView> {
         return this.signOutOrRemove(principal, runtimeId, profileId, body, 'remove')
     }
@@ -820,7 +931,7 @@ export class RuntimeAuthProfilesService {
         principal: AuthPrincipal,
         runtimeId: string,
         profileId: string,
-        body: { requestId?: string },
+        body: { requestId?: string; wake?: boolean },
         mode: 'sign-out' | 'remove'
     ): Promise<RuntimeAuthOperationView> {
         this.assertHuman(principal)
@@ -840,7 +951,9 @@ export class RuntimeAuthProfilesService {
                     'this profile is the runtime default; change the default first'
                 )
         }
-        const host = await this.requireHost(runtime)
+        const host = await this.requireHost(runtime, {
+            wake: body.wake === true
+        })
         const operation = await this.mintOperation({
             runtime,
             profileId: row.id,
@@ -930,11 +1043,16 @@ export class RuntimeAuthProfilesService {
         if (!ref || agent.runtime !== 'sprites') return null
         const runtime = await this.runtimes.findById(ref.runtimeId)
         if (!runtime || runtime.userId !== agent.userId) return null
-        const resolved = await this.resolveHost(runtime)
+        // The env is a path under the runner's store, derived from the
+        // runner ROW (its id, and whether that build lays the store out);
+        // the runner does not have to be answering for it — the terminal's
+        // own exec is what wakes the sandbox, and a warm sandbox must not
+        // turn a profile-bound shell away.
+        const runner = await this.findRunner(runtime)
         if (
-            resolved.availability !== 'ok' ||
-            !resolved.host ||
-            !resolved.host.clientFeatures.includes(DAEMON_FEATURE_AUTH_CONTEXT)
+            !runner ||
+            !runner.clientFeatures.includes(DAEMON_FEATURE_AUTH_PROFILES) ||
+            !runner.clientFeatures.includes(DAEMON_FEATURE_AUTH_CONTEXT)
         )
             return null
         const [profile] = await this.db
@@ -944,7 +1062,7 @@ export class RuntimeAuthProfilesService {
             .limit(1)
         if (!profile || profile.lifecycle === 'deleted') return null
         const home = runtime.homeDir ?? '/home/sprite'
-        const viewDir = `${runtimeAuthRoot(`${home}/.manyfold`)}/${resolved.host.id}/${runtime.id}/profiles/${ref.profileId}/view`
+        const viewDir = `${runtimeAuthRoot(`${home}/.manyfold`)}/${runner.id}/${runtime.id}/profiles/${ref.profileId}/view`
         return {
             ...runtimeAuthProfileEnv(ref.framework, viewDir),
             ...(ref.framework === 'codex'
@@ -970,5 +1088,22 @@ export class RuntimeAuthProfilesService {
             .set({ defaultAuthProfileId: profileId, updatedAt: new Date() })
             .where(eq(agentRuntimes.id, runtime.id))
         return this.list(principal.userId, runtime.id)
+    }
+
+    // Seams so tests can fake the sprites.dev control plane and exec transport
+    // (same shape as RuntimeAccountService and SandboxesService).
+    protected spritesClientFor(account: SpritesAccount): SpritesClient {
+        return createSpritesClient({
+            token: this.accounts.decryptToken(account),
+            accountSlug: account.slug
+        })
+    }
+
+    protected exec(
+        client: SpritesClient,
+        spriteName: string,
+        opts: ExecOptions
+    ): Promise<ExecResult> {
+        return execSprite(client, spriteName, opts)
     }
 }

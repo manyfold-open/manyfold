@@ -597,7 +597,10 @@ export interface AgentRuntimesClient {
 // returns an operation; the terminal attaches to it (`?operationId=`) and the
 // operation resolves once that shell closes.
 export interface RuntimeAuthClient {
-    list: (runtimeId: string) => Promise<RuntimeAuthListView>
+    list: (
+        runtimeId: string,
+        opts?: { wake?: boolean }
+    ) => Promise<RuntimeAuthListView>
     create: (
         runtimeId: string,
         body: CreateRuntimeAuthProfileBody
@@ -2270,9 +2273,9 @@ export const createClient = (options: ClientOptions): NcaClient => {
         account: apiPaths.AGENT_RUNTIME_ACCOUNT
     })
     const runtimeAuth: RuntimeAuthClient = {
-        list: (runtimeId) =>
+        list: (runtimeId, opts) =>
             request<RuntimeAuthListView>(
-                apiPaths.AGENT_RUNTIME_AUTH_PROFILES(runtimeId)
+                `${apiPaths.AGENT_RUNTIME_AUTH_PROFILES(runtimeId)}${opts?.wake ? '?wake=1' : ''}`
             ),
         create: (runtimeId, body) =>
             request<RuntimeAuthProfileView>(

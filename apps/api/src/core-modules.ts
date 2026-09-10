@@ -16,6 +16,7 @@ import { UserDeletionModule } from '@/modules/user-deletion/user-deletion.module
 import { UserExportModule } from '@/modules/user-export/user-export.module'
 import { AgentsModule } from '@/modules/agents/agents.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
+import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { SandboxesModule } from '@/modules/sandboxes/sandboxes.module'
 import { ChatModule } from '@/modules/chat/chat.module'
 import { SecretsModule } from '@/modules/secrets/secrets.module'
@@ -77,6 +78,7 @@ export const CORE_MODULES = [
     ClustersModule,
     AgentsModule,
     AgentRuntimesModule,
+    RuntimeAuthModule,
     SandboxesModule,
     ChatModule,
     TerminalModule,
