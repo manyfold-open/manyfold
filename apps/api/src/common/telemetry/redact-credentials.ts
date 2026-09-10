@@ -6,7 +6,7 @@ const SENSITIVE_FIELD =
 
 export const redactCredentialText = (text: string): string =>
     text
-        .replace(/(?:\b[a-z][a-z0-9+.-]*:\/\/|\/|\?)[^\s<>"']+/gi, (url) =>
+        .replace(/(?:\b[a-z][a-z0-9+.-]{0,31}:\/\/|\/|\?)[^\s<>"']+/gi, (url) =>
             redactSensitiveUrlQuery(url)
         )
         .replace(/\bBearer\s+[^\s"',;<>]+/gi, `Bearer ${REDACTED}`)
