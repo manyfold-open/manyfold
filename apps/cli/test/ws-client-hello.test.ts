@@ -24,11 +24,18 @@ process.env.MF_PROFILE = 'hellotest'
 const { DaemonWsClient } = await import('../src/daemon/ws-client')
 
 test('hello carries inflightStreams even when empty, plus the feature flag', async () => {
+    const token = 'fixture-daemon-bearer/+='
+    const logs: string[] = []
+    let receivedToken: string | null = null
     const httpServer = createServer()
     const wss = new WebSocketServer({ server: httpServer })
     const firstMessage = new Promise<Record<string, unknown>>(
         (resolve, reject) => {
-            wss.on('connection', (socket: WebSocket) => {
+            wss.on('connection', (socket: WebSocket, request) => {
+                receivedToken = new URL(
+                    request.url ?? '/',
+                    'http://localhost'
+                ).searchParams.get('token')
                 socket.once('message', (raw) =>
                     resolve(JSON.parse(String(raw)) as Record<string, unknown>)
                 )
@@ -44,14 +51,27 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
 
     const client = new DaemonWsClient({
         apiUrl: `http://127.0.0.1:${address.port}`,
-        token: 'test-token',
+        token,
         daemonUuid: 'uuid-hello-test',
-        cliVersion: '0.0.0-test'
+        cliVersion: '0.0.0-test',
+        log: (message) => logs.push(message)
     })
     client.start()
     try {
         const hello = await firstMessage
         assert.equal(hello.type, 'hello')
+        assert.equal(
+            receivedToken,
+            token,
+            'legacy server authentication still receives the bearer'
+        )
+        assert.ok(logs.some((message) => message.startsWith('ws connected')))
+        assert.ok(!logs.some((message) => message.includes(token)))
+        assert.ok(
+            !logs.some((message) =>
+                message.includes(encodeURIComponent(token))
+            )
+        )
         assert.deepEqual(
             hello.inflightStreams,
             [],

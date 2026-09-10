@@ -102,7 +102,7 @@ export class DaemonWsClient {
         this.ws = ws
 
         ws.on('open', () => {
-            this.log(`ws connected ${url}`)
+            this.log('ws connected')
             this.backoffMs = BACKOFF_INITIAL_MS
             // Present-but-empty and absent mean different things to the
             // server (hello.inflight-authoritative): an empty list is proof
