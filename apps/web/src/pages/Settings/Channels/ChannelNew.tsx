@@ -17,7 +17,12 @@ import type {
 } from '@manyfold/shared'
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate, useParams } from 'react-router-dom'
+import {
+    Navigate,
+    useNavigate,
+    useParams,
+    useSearchParams
+} from 'react-router-dom'
 import type { SdkAgent } from '@manyfold/sdk'
 import { t as translate } from '@manyfold/i18n'
 import EmptyState from '@/components/EmptyState'
@@ -47,6 +52,8 @@ const ChannelNew: FC = (): ReactNode => {
     const client = useApiClient()
     const { t } = useI18n()
     const navigate = useNavigate()
+    const [searchParams] = useSearchParams()
+    const requestedAgentId = searchParams.get('agent')
     const params = useParams<{ provider: string }>()
     const known = isCreateProvider(params.provider)
     // A typo in the URL renders nothing useful, so send it back to the rail
@@ -127,10 +134,14 @@ const ChannelNew: FC = (): ReactNode => {
             .then((rows) => {
                 if (cancelled) return
                 setAgents(rows)
-                setAgentId((prev) => prev || (rows[0]?.id ?? ''))
+                const requestedAgent = rows.find(
+                    (agent) => agent.id === requestedAgentId
+                )
+                const initialAgent = requestedAgent ?? rows[0]
+                setAgentId((prev) => prev || (initialAgent?.id ?? ''))
                 // Only seed the bot name while the user has not typed one.
                 if (!quickBotNameTouched.current)
-                    setQuickBotName(rows[0]?.name ?? '')
+                    setQuickBotName(initialAgent?.name ?? '')
             })
             .catch(() => undefined)
             .finally(() => {
@@ -139,7 +150,7 @@ const ChannelNew: FC = (): ReactNode => {
         return () => {
             cancelled = true
         }
-    }, [client])
+    }, [client, requestedAgentId])
 
     const larkQuickActive =
         larkQuickState.status === 'starting' ||

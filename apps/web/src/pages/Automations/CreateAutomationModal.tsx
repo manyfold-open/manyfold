@@ -40,6 +40,7 @@ import { useI18n } from '@/lib/i18n'
 interface CreateAutomationModalProps {
     agents: SdkAgent[]
     agentsLoading: boolean
+    initialAgentId?: string | null
     template: AutomationTemplate | null
     onClose: () => void
     onCreated: (automation: AutomationDetail) => void
@@ -48,6 +49,7 @@ interface CreateAutomationModalProps {
 const CreateAutomationModal: FC<CreateAutomationModalProps> = ({
     agents,
     agentsLoading,
+    initialAgentId,
     template,
     onClose,
     onCreated
@@ -58,7 +60,11 @@ const CreateAutomationModal: FC<CreateAutomationModalProps> = ({
         () => agents.filter((agent) => agent.framework !== 'narranexus'),
         [agents]
     )
-    const [agentId, setAgentId] = useState(runnableAgents[0]?.id ?? '')
+    const [agentId, setAgentId] = useState(
+        runnableAgents.find((agent) => agent.id === initialAgentId)?.id ??
+            runnableAgents[0]?.id ??
+            ''
+    )
     const [title, setTitle] = useState(template ? t(template.titleKey) : '')
     const [prompt, setPrompt] = useState(template ? t(template.promptKey) : '')
     const [preset, setPreset] = useState<AutomationSchedulePreset>(
@@ -80,8 +86,13 @@ const CreateAutomationModal: FC<CreateAutomationModalProps> = ({
     const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
-        if (!agentId && runnableAgents[0]) setAgentId(runnableAgents[0].id)
-    }, [agentId, runnableAgents])
+        if (agentId) return
+        const initialAgent = runnableAgents.find(
+            (agent) => agent.id === initialAgentId
+        )
+        const fallbackAgent = initialAgent ?? runnableAgents[0]
+        if (fallbackAgent) setAgentId(fallbackAgent.id)
+    }, [agentId, initialAgentId, runnableAgents])
 
     useEffect(() => {
         client.channels

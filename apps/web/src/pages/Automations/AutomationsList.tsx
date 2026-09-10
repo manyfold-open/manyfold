@@ -1,6 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { AutomationSummary } from '@manyfold/shared'
 import {
     automationTemplates,
@@ -36,13 +36,15 @@ const templateIcons: Record<string, FC<{ className?: string }>> = {
 const AutomationsList: FC = (): ReactNode => {
     const client = useApiClient()
     const navigate = useNavigate()
+    const [searchParams, setSearchParams] = useSearchParams()
+    const requestedAgentId = searchParams.get('agent')
     const { agents, agentsLoading } = useAppShellContext()
     const { t } = useI18n()
     const [automations, setAutomations] = useState<AutomationSummary[]>([])
     const [loading, setLoading] = useState(true)
     const gate = useLoadingGate(loading)
     const [error, setError] = useState<string | null>(null)
-    const [createOpen, setCreateOpen] = useState(false)
+    const [createOpen, setCreateOpen] = useState(Boolean(requestedAgentId))
     const [template, setTemplate] = useState<AutomationTemplate | null>(null)
     // Soonest first: the run that is about to happen is the one worth
     // scanning for, and a failing hourly automation floats to the top.
@@ -78,6 +80,10 @@ const AutomationsList: FC = (): ReactNode => {
     useEffect(() => {
         void refresh()
     }, [client])
+
+    useEffect(() => {
+        if (requestedAgentId) setCreateOpen(true)
+    }, [requestedAgentId])
 
     const openCreate = (next: AutomationTemplate | null): void => {
         setTemplate(next)
@@ -137,8 +143,12 @@ const AutomationsList: FC = (): ReactNode => {
                 <CreateAutomationModal
                     agents={agents}
                     agentsLoading={agentsLoading}
+                    initialAgentId={requestedAgentId}
                     template={template}
-                    onClose={() => setCreateOpen(false)}
+                    onClose={() => {
+                        setCreateOpen(false)
+                        if (requestedAgentId) setSearchParams({}, { replace: true })
+                    }}
                     onCreated={(created) => {
                         setCreateOpen(false)
                         navigate(`/automations/${created.id}`)

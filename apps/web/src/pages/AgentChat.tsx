@@ -95,9 +95,13 @@ import { matchesKeyboardShortcut } from '@/lib/keyboardShortcuts'
 import Composer, {
     type ComposerAgentOption,
     type ComposerContextRef,
+    type ComposerSuggestion,
     type ComposerSendAttachment,
     type ComposerSendHelpers
 } from '@/components/chat/Composer'
+import NewChatLaunchpad, {
+    NewChatLaunchpadIntro
+} from '@/components/chat/NewChatLaunchpad'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { ChatGrantProvider } from '@/components/chat/ChatGrantContext'
@@ -292,6 +296,9 @@ const AgentChat: FC = (): ReactNode => {
     const olderMessagesAbortRef = useRef<AbortController | null>(null)
     const activeSessionId = searchParams.get('sessionId')
     const [shareSessionOpen, setShareSessionOpen] = useState(false)
+    const [composerSuggestion, setComposerSuggestion] =
+        useState<ComposerSuggestion | null>(null)
+    const [composerHasText, setComposerHasText] = useState(false)
     const activeSession = activeSessionId
         ? (sessions.find((session) => session.id === activeSessionId) ?? null)
         : null
@@ -2210,6 +2217,8 @@ const AgentChat: FC = (): ReactNode => {
             contextRefs={composerContextRefs}
             draftKey={draftKey}
             onRemoveContextRef={handleRemoveComposerContextRef}
+            suggestion={composerSuggestion}
+            onHasTextChange={setComposerHasText}
         />
     )
 
@@ -2425,19 +2434,25 @@ const AgentChat: FC = (): ReactNode => {
                         >
                             <div className='w-full'>
                                 {showEmptyState && (
-                                    <div className='mx-auto mb-7 max-w-3xl text-center'>
-                                        <h2 className='text-display text-fg'>
-                                            {t('web.chat.whatNext', {
-                                                name: currentAgent.name
-                                            })}
-                                        </h2>
-                                    </div>
+                                    <NewChatLaunchpadIntro />
                                 )}
                                 <div ref={composerDockRef}>
                                     {renderComposer(
                                         showEmptyState ? 'inline' : 'dock'
                                     )}
                                 </div>
+                                {showEmptyState && (
+                                    <NewChatLaunchpad
+                                        agent={currentAgent}
+                                        showPrompts={!composerHasText}
+                                        onSelectPrompt={(text) =>
+                                            setComposerSuggestion((current) => ({
+                                                id: (current?.id ?? 0) + 1,
+                                                text
+                                            }))
+                                        }
+                                    />
+                                )}
                             </div>
                         </div>
                         {/* Kept mounted once opened, and only hidden when the

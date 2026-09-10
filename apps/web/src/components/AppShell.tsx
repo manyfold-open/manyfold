@@ -34,6 +34,7 @@ import {
     ChevronRightIcon,
     EllipsisHorizontalIcon,
     AutomationsIcon,
+    ChannelIcon,
     ExternalLinkIcon,
     GlobeIcon,
     InfoIcon,
@@ -2224,6 +2225,7 @@ const AppShell: FC = (): ReactNode => {
     const connectionsMatch = useMatch('/connections/*')
     const mcpMatch = useMatch('/mcp/*')
     const customizeMatch = skillsMatch ?? connectionsMatch ?? mcpMatch
+    const channelsMatch = useMatch('/settings/channels/*')
     const automationsMatch = useMatch('/automations/*')
     // This header holds the only button that opens the sidebar on a narrow
     // screen, so a route qualifies here only if its own page draws a menu
@@ -3162,6 +3164,7 @@ const AppShell: FC = (): ReactNode => {
         const newChatLabel = t('web.shell.newChat')
         const newAgentLabel = t('web.shell.newAgent')
         const customizeLabel = t('web.shell.customize')
+        const channelsLabel = t('web.agents.detail.channels.title')
         const automationsLabel = t('web.shell.automations')
         const readOnlyLabel = t('web.shell.readOnly')
         const concurrencyLimit = runtimeAccess?.plan.maxConcurrentActive ?? null
@@ -3306,6 +3309,36 @@ const AppShell: FC = (): ReactNode => {
                                 customizeLabel
                             )}
                         </button>
+                    </ShortcutTooltip>
+                    <ShortcutTooltip
+                        label={collapsed ? channelsLabel : undefined}
+                        placement='right'
+                    >
+                        <Link
+                            to='/settings/channels'
+                            className={[
+                                collapsed
+                                    ? railIconButtonClass(
+                                          Boolean(channelsMatch)
+                                      )
+                                    : [
+                                          'text-ui flex w-full items-center gap-2.5 rounded-sm px-2 py-2 text-left font-medium transition-colors',
+                                          channelsMatch
+                                              ? 'text-fg bg-rail-hover'
+                                              : 'text-muted hover:text-fg hover:bg-rail-hover'
+                                      ].join(' '),
+                                collapsed ? 'mt-2' : 'mt-1'
+                            ].join(' ')}
+                        >
+                            <ChannelIcon className={iconClass} />
+                            {collapsed ? (
+                                <span className='sr-only'>
+                                    {channelsLabel}
+                                </span>
+                            ) : (
+                                channelsLabel
+                            )}
+                        </Link>
                     </ShortcutTooltip>
                     <ShortcutTooltip
                         label={collapsed ? automationsLabel : undefined}
