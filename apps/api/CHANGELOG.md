@@ -1,5 +1,25 @@
 # @manyfold/api
 
+## 3.1.0
+
+### Minor Changes
+
+- [#336](https://github.com/manyfold-open/manyfold/pull/336) [`c532eb3`](https://github.com/manyfold-open/manyfold/commit/c532eb3b60bd6d140aeb54ba4fbf11d48143d1db) Thanks [@yingca1](https://github.com/yingca1)! - Retire the remaining internal peer credential mirrors and their shared hash
+  records after every API instance uses the canonical policy writer. Remove the
+  temporary revocation bridge. External A2A credentials, personal API tokens and
+  runtime identities are preserved; peer policy and public grant IDs remain.
+
+    The migration refuses unmigrated or recently used caller-bound credentials.
+    Rollback after this contract must use the canonical writer, not the older
+    mirror-writing preparation release.
+
+### Patch Changes
+
+- [#334](https://github.com/manyfold-open/manyfold/pull/334) [`b6d67ed`](https://github.com/manyfold-open/manyfold/commit/b6d67ed2424d073fab956c43e0b77633326b00eb) Thanks [@yingca1](https://github.com/yingca1)! - Keep failures from daemon WebSocket frame handling and connection cleanup
+  inside their connection boundary. A failed presence update or malformed frame
+  closes the affected connection for retry instead of escaping as an unhandled
+  rejection. Cleanup failures are recorded without terminating the API process.
+
 ## 3.0.0
 
 ### Major Changes
