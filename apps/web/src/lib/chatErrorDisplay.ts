@@ -17,49 +17,26 @@ export interface ChatErrorDisplay {
     detail: string | null
 }
 
-// Upstream model-provider auth rejections (expired/invalid sign-in or API key)
-// reach the UI under different framework codes — codex_exec_failed,
-// claude_exec_failed, gemini_exec_failed, … — but share a recognizable
-// signature in the surfaced message text (the codex adapter now forwards the
-// stdout 401 body; claude/gemini carry the provider error likewise).
-const MODEL_AUTH_SIGNATURE =
-    /\b401\b|unauthorized|invalid[\s_-]?api[\s_-]?key|invalid[\s_-]?x-api-key|authentication[\s_-]?error|api[\s_-]?key[\s_-]?(?:is[\s_-]?)?(?:invalid|expired|missing|revoked)/i
-
-// Upstream billing / out-of-credit rejections reach the UI under the same
-// generic framework codes as auth errors, but carry a 402 / insufficient-funds
-// signature in the message. A valid-but-broke key passes the create-time key
-// check (models list is free) and only fails here on the first real call.
-const MODEL_BILLING_SIGNATURE =
-    /\b402\b|payment[\s_-]?required|insufficient[\s_-]?(?:credit|balance|funds|quota)|credit[\s_-]?balance[\s_-]?(?:is[\s_-]?)?too[\s_-]?low|out[\s_-]?of[\s_-]?credit|billing|quota[\s_-]?exceeded/i
-
-// Codex admits one writer per thread. A chat turn sent while this session's
-// TUI is open in a terminal tab (which holds that writer for its lifetime)
-// fails with the refusal verbatim — a JSON-RPC line that names nothing the
-// user did. The API keeps the session ref on purpose here, so the turn is
-// retryable the moment the TUI is closed; the copy has to say so.
-const THREAD_BUSY_SIGNATURE = /already has an active writer/i
-
 export const resolveChatErrorDisplay = (
     error: ChatError,
     t: TFn
 ): ChatErrorDisplay => {
     const message = error.message.trim()
-    const signature = `${error.code} ${message}`
-    if (MODEL_AUTH_SIGNATURE.test(signature)) {
+    if (error.cause === 'auth_invalid') {
         return {
             kind: 'model_auth',
             title: t('web.chat.error.modelAuth'),
             detail: message || null
         }
     }
-    if (MODEL_BILLING_SIGNATURE.test(signature)) {
+    if (error.cause === 'balance_exhausted') {
         return {
             kind: 'model_billing',
             title: t('web.chat.error.modelBilling'),
             detail: message || null
         }
     }
-    if (THREAD_BUSY_SIGNATURE.test(signature)) {
+    if (error.cause === 'resume_contention') {
         return {
             kind: 'thread_busy',
             title: t('web.chat.error.threadBusy'),

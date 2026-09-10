@@ -2,6 +2,7 @@ import type { AgentFramework, AgentRuntime } from './constants'
 import type { ChannelProviderName } from './channels'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
 import type { ChatUsage } from './usage'
+import type { ChatFailureCause } from './chat-failure'
 
 export type ChatRole = 'user' | 'assistant' | 'system'
 
@@ -303,6 +304,7 @@ export interface ChatError {
     code: string
     message: string
     retryable: boolean
+    cause?: ChatFailureCause
 }
 
 export type ChatStreamEventType =

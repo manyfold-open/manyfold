@@ -22,27 +22,8 @@ export const CHAT_STREAM_ERROR_EVENT = 'chat.stream.error'
 // version is for.
 export const CHAT_STREAM_ERROR_FINGERPRINT_VERSION = 'chat.stream.error.v1'
 
-export const chatFailureCauses = [
-    'balance_exhausted',
-    'account_pool_empty',
-    'rate_limited',
-    'auth_invalid',
-    'invalid_request',
-    'stale_resume_ref',
-    // The resume ref is GOOD and someone else is still holding it. Split from
-    // stale_resume_ref because the two call for opposite responses: a stale ref
-    // is fixed by dropping it, a contended one by leaving it alone and waiting
-    // for the holder to finish.
-    'resume_contention',
-    'daemon_offline',
-    'exec_handshake_failed',
-    'empty_response',
-    'inactivity_timeout',
-    'turn_duration_exceeded',
-    'unsupported_capability'
-] as const
-
-export type ChatFailureCause = (typeof chatFailureCauses)[number]
+export { chatFailureCauses, isChatFailureCause } from '@manyfold/shared'
+export type { ChatFailureCause } from '@manyfold/shared'
 
 // Which emitter wrote the terminal: `dispatch` is the pre-context rejection,
 // `stream` the live adapter loop, and the last two are the recovery loop's own
@@ -67,16 +48,12 @@ export const UNKNOWN_RUNTIME_KIND = 'unknown'
 
 export type ChatFailureRuntimeKind = AgentRuntime | typeof UNKNOWN_RUNTIME_KIND
 
-const causes: ReadonlySet<string> = new Set(chatFailureCauses)
 const phases: ReadonlySet<string> = new Set(chatTurnPhases)
 const frameworks: ReadonlySet<string> = new Set(Object.values(agentFramework))
 const runtimeKinds: ReadonlySet<string> = new Set([
     ...Object.values(agentRuntime),
     UNKNOWN_RUNTIME_KIND
 ])
-
-export const isChatFailureCause = (value: unknown): value is ChatFailureCause =>
-    typeof value === 'string' && causes.has(value)
 
 export const isChatTurnPhase = (value: unknown): value is ChatTurnPhase =>
     typeof value === 'string' && phases.has(value)

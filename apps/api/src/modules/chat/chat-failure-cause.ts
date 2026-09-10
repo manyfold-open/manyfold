@@ -1,4 +1,6 @@
 import type { ChatFailureCause } from '@/common/telemetry/chat-failure-taxonomy'
+import type { ChatError } from '@manyfold/shared'
+import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { MANAGED_CHANNEL_UNAVAILABLE_CODE } from '@/common/ports/managed-models.ports'
 import {
     isDaemonNotDispatchedError,
@@ -61,6 +63,18 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     langflow_http_400: 'invalid_request',
     dify_http_401: 'auth_invalid',
     langflow_http_401: 'auth_invalid',
+    dify_http_402: 'balance_exhausted',
+    langflow_http_402: 'balance_exhausted',
+    dify_http_429: 'rate_limited',
+    langflow_http_429: 'rate_limited',
+    dify_upload_http_400: 'invalid_request',
+    dify_upload_http_401: 'auth_invalid',
+    dify_upload_http_402: 'balance_exhausted',
+    dify_upload_http_429: 'rate_limited',
+    provider_kind_mismatch: 'invalid_request',
+    missing_flow_id: 'invalid_request',
+    a2a_converge_no_ref: 'stale_resume_ref',
+    dify_converge_no_ref: 'stale_resume_ref',
     // The provider rejected what WE sent: an empty user message is a bad
     // request, not a model that answered with nothing.
     empty_message: 'invalid_request'
@@ -83,7 +97,12 @@ const MESSAGE_FALLBACK_CODES: ReadonlySet<string> = new Set([
     // The BYOD daemon ACP transport (O6): a generic retryable failure whose
     // message carries the daemon-forwarded cause, grouped like the pair above.
     'openclaw_daemon_acp_failed',
-    'langflow_error'
+    'langflow_error',
+    'external_provider_failed',
+    'external_converge_failed',
+    'a2a_stream_error',
+    'dify_stream_error',
+    'langflow_stream_error'
 ])
 
 const isBroadMessageCode = (code: string): boolean =>
@@ -115,6 +134,10 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
     // different fix, and folding it in here would page the wrong person. Since
     // #803 it has its own cause, immediately below.
     [/balance is too low|out of credits?\b/, 'balance_exhausted'],
+    [
+        /insufficient[ _-]?funds|credit[ _-]?balance[ _-]?(?:is[ _-]?)?too[ _-]?low|payment[ _-]?required/,
+        'balance_exhausted'
+    ],
     // #803: the structured HTTP 429 / RESOURCE_EXHAUSTED envelope. Ranked above
     // the auth and request anchors, which match sentences: a throttled turn's
     // terminal carries the tail of a whole retry ladder, so prose from one
@@ -122,7 +145,7 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
     // with. Ranked below the pool and balance anchors for the reasons they give.
     [UPSTREAM_RATE_LIMIT_SIGNATURE, 'rate_limited'],
     [
-        /invalid[ _-]?api[ _-]?key|incorrect api key|invalid_api_key/,
+        /invalid[ _-]?(?:x[ _-]?)?api[ _-]?key|incorrect api key|invalid_api_key/,
         'auth_invalid'
     ],
     [
@@ -130,7 +153,7 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
         'auth_invalid'
     ],
     [
-        /failed to authenticate|authentication (?:failed|error)|\bunauthorized\b/,
+        /failed to authenticate|authentication[ _-](?:failed|error)|\bunauthorized\b/,
         'auth_invalid'
     ],
     // packages/sprites preserves the real HTTP status in this exact literal.
@@ -203,11 +226,7 @@ const CAUSE_BY_MESSAGE: readonly (readonly [RegExp, ChatFailureCause])[] = [
 // taxonomy plus the branch token. The message is read here and never travels
 // any further — no caller tags, persists or fingerprints the raw detail.
 export type ChatFailureCauseVia =
-    | 'code'
-    | 'message'
-    | 'daemon_transport'
-    | 'code_unmapped'
-    | 'none'
+    'code' | 'message' | 'daemon_transport' | 'code_unmapped' | 'none'
 
 export const explainChatFailureCause = (signal: {
     errorCode?: string | null
@@ -238,3 +257,37 @@ export const classifyChatFailureCause = (signal: {
     errorCode?: string | null
     message?: string | null
 }): ChatFailureCause | null => explainChatFailureCause(signal).cause
+
+export const normalizeChatError = (error: ChatError): ChatError => {
+    const clean = sanitizeForJsonb({
+        code: error.code,
+        message: error.message,
+        retryable: error.retryable
+    })
+    const cause = classifyChatFailureCause({
+        errorCode: clean.code,
+        message: clean.message
+    })
+    return cause ? { ...clean, cause } : clean
+}
+
+// Runtime input and stored pre-contract events both enter through this shape.
+// Classification belongs to the API, so an upstream cause is never trusted.
+export const normalizeChatErrorPayload = (
+    payload: Record<string, unknown>
+): Record<string, unknown> => {
+    const value = payload.error
+    if (!value || typeof value !== 'object') return payload
+    const error = value as Record<string, unknown>
+    if (typeof error.code !== 'string' || typeof error.message !== 'string')
+        return payload
+    return {
+        ...payload,
+        error: normalizeChatError({
+            code: error.code,
+            message: error.message,
+            retryable:
+                typeof error.retryable === 'boolean' ? error.retryable : false
+        })
+    }
+}

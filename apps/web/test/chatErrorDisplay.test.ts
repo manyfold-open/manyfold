@@ -7,13 +7,14 @@ const t = ((key: string) => key) as Parameters<
     typeof resolveChatErrorDisplay
 >[1]
 
-test('classifies a codex 401 INVALID_API_KEY failure as model_auth and keeps the raw detail', () => {
+test('renders the API auth cause and keeps the diagnostic detail', () => {
     const display = resolveChatErrorDisplay(
         {
             code: 'codex_exec_failed',
             message:
                 'codex exited 1: unexpected status 401 Unauthorized: {"code":"INVALID_API_KEY","message":"Invalid API key"}',
-            retryable: false
+            retryable: false,
+            cause: 'auth_invalid'
         },
         t
     )
@@ -22,12 +23,13 @@ test('classifies a codex 401 INVALID_API_KEY failure as model_auth and keeps the
     assert.match(display.detail ?? '', /INVALID_API_KEY/)
 })
 
-test('classifies an anthropic invalid x-api-key failure as model_auth regardless of framework code', () => {
+test('auth display follows the API cause independently of framework code', () => {
     const display = resolveChatErrorDisplay(
         {
             code: 'claude_exec_failed',
             message: 'authentication_error: invalid x-api-key',
-            retryable: false
+            retryable: false,
+            cause: 'auth_invalid'
         },
         t
     )
@@ -70,11 +72,39 @@ test('classifies a codex thread held by another writer as thread_busy and keeps 
             code: 'codex_exec_failed',
             message:
                 'codex exited 1: thread/resume failed: thread 01a07b93-bb59-7023-83ba-872ae3b88750 already has an active writer (code -32600)',
-            retryable: true
+            retryable: true,
+            cause: 'resume_contention'
         },
         t
     )
     assert.equal(display.kind, 'thread_busy')
     assert.equal(display.title, 'web.chat.error.threadBusy')
     assert.match(display.detail ?? '', /active writer/)
+})
+
+test('the API balance cause wins over authentication words in the message', () => {
+    const display = resolveChatErrorDisplay(
+        {
+            code: 'claude_exec_failed',
+            message: 'Failed to authenticate: insufficient account balance',
+            retryable: false,
+            cause: 'balance_exhausted'
+        },
+        t
+    )
+    assert.equal(display.kind, 'model_billing')
+    assert.equal(display.title, 'web.chat.error.modelBilling')
+})
+
+test('the web never reclassifies an unclassified error by its wording', () => {
+    const display = resolveChatErrorDisplay(
+        {
+            code: 'service_restarting',
+            message: '401 unauthorized',
+            retryable: true
+        },
+        t
+    )
+    assert.equal(display.kind, null)
+    assert.equal(display.title, '401 unauthorized')
 })

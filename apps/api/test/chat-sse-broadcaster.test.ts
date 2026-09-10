@@ -31,6 +31,38 @@ const collectEvents = (
     }
 }
 
+test('live errors persist a cause and old replay rows receive the same contract', async (t) => {
+    const store = makeStore()
+    const node = makeNode(store)
+    const events: ChatStreamEvent[] = []
+    const subscription = await node.broadcaster.subscribe(
+        'session-1', { send: event => events.push(event), close: () => {} }, null
+    )
+    t.after(subscription)
+    node.broadcaster.beginStream('session-1', 'message-1')
+    await node.broadcaster.emit('message-1', {
+        type: 'error',
+        payload: { error: { code: 'claude_exec_failed', message: 'invalid x-api-key', retryable: false } }
+    })
+    await waitFor(() => events.length === 1)
+    assert.equal((store.rows[0].payloadJson.error as { cause: string }).cause, 'auth_invalid')
+    const live = events[0]
+    assert(live.type === 'error')
+    assert.equal(live.error.cause, 'auth_invalid')
+    subscription()
+
+    delete (store.rows[0].payloadJson.error as { cause?: string }).cause
+    const replayed: ChatStreamEvent[] = []
+    const replay = await node.broadcaster.subscribe(
+        'session-1', { send: event => replayed.push(event), close: () => {} }, '0'
+    )
+    t.after(replay)
+    await waitFor(() => replayed.length === 1)
+    assert(replayed[0].type === 'error')
+    assert.equal(replayed[0].error.cause, 'auth_invalid')
+    replay()
+})
+
 test('live emit reaches a local subscriber in order via the pump', async () => {
     const store = makeStore()
     const node = makeNode(store)

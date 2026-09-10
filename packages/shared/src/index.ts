@@ -1129,3 +1129,5 @@ export type {
     ExperimentAssignmentReason,
     ExperimentAssignment
 } from './experiments'
+export { chatFailureCauses, isChatFailureCause } from './chat-failure'
+export type { ChatFailureCause } from './chat-failure'
