@@ -65,7 +65,7 @@ const buildHarness = (opts: {
                 exitCode,
                 stdout: `installed=${opts.installed === false ? 0 : 1}\nregistered=${
                     opts.registered === false ? 0 : 1
-                }\nversion=${opts.version ?? '0.22.3'}`,
+                }\nversion=${opts.version ?? '0.34.0'}`,
                 stderr: ''
             }
         }
@@ -347,6 +347,7 @@ test('the runner token goes over STDIN and never appears in argv', async () => {
     // and the CLI itself warns that argv tokens leak there.
     assert.equal(register!.stdin, 'ldt_secret_value')
     assert.match(register!.cmd, /--token -/)
+    assert.doesNotMatch(register!.cmd, /(?:^|\s)(?:-y|--yes)(?:\s|$)/)
     for (const call of h.calls)
         assert.ok(
             !call.cmd.includes('ldt_secret_value'),
@@ -730,7 +731,7 @@ test('a CLI too old to read the token from stdin is reinstalled and retried', as
             // backstop unreachable.
             return {
                 exitCode: 0,
-                stdout: 'installed=1\nregistered=0\nversion=0.22.3',
+                stdout: 'installed=1\nregistered=0\nversion=0.34.0',
                 stderr: ''
             }
         if (cmd.includes('install.sh')) {
@@ -816,32 +817,27 @@ test('a sprite running an outdated runner CLI is upgraded, not just started', as
     )
 })
 
-// The floor is the ONLY upgrade lever for an existing runner, and 0.22.3 is the
-// first build whose exec-buffer hello keeps completed streams for 60 minutes and
-// asserts hello.inflight-authoritative. A staging runner stuck on
-// 0.22.2-staging.* was structurally unable to adopt the #518 fix precisely
-// because it sat above the previous 0.21.0 floor — the prerelease tag is
-// stripped before comparison, so a staging build sorts by its base version.
-test('a runner below 0.22.3 is upgraded even though it cleared the old floor', async () => {
-    const h = buildHarness({ version: '0.22.2-staging.202608041828.aa9739f' })
+test('a runner predating header authentication is upgraded even though it cleared the old floor', async () => {
+    const h = buildHarness({ version: '0.33.1' })
 
     await h.service.ensureRunner(args(h.exec as never))
 
     assert.ok(
         h.calls.some((c) => c.cmd.includes('install.sh')),
-        '0.22.2 predates the completed-buffer hello grace and must reinstall'
+        '0.33.1 authenticates with a query credential and must reinstall'
     )
 })
 
-test('a sprite already on the floor version is not reinstalled', async () => {
-    const h = buildHarness({ version: '0.22.3' })
+for (const version of ['0.34.0', '0.34.0-dev.test'])
+    test(`a sprite on ${version} is not reinstalled`, async () => {
+        const h = buildHarness({ version })
 
-    await h.service.ensureRunner(args(h.exec as never))
+        await h.service.ensureRunner(args(h.exec as never))
 
-    // WHY: this runs on the turn path. Reinstalling a current CLI would add tens
-    // of seconds to a turn for nothing.
-    assert.ok(!h.calls.some((c) => c.cmd.includes('install.sh')))
-})
+        // WHY: this runs on the turn path. Reinstalling a current CLI would add tens
+        // of seconds to a turn for nothing.
+        assert.ok(!h.calls.some((c) => c.cmd.includes('install.sh')))
+    })
 
 test('registering a runner mints a token the server marks as platform-managed', async () => {
     const h = buildHarness({ installed: false, registered: false })
@@ -1119,7 +1115,7 @@ test('releasing waits for the in-flight create so the DELETE cannot overtake it'
 // process, and what it refuses to do.
 
 const OLD_BUILD = '0.31.2-dev.202609091242.909c84a'
-const NEW_BUILD = '0.33.1-dev.202609100748.ab03120'
+const NEW_BUILD = '0.34.0-dev.test'
 
 const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
     JSON.stringify({ configured: true, localPid: pid, local })
@@ -1366,7 +1362,7 @@ const wakeHarness = (opts: {
         if (cmd.includes('test -x'))
             return {
                 exitCode: 0,
-                stdout: `installed=1\nregistered=${opts.registered === false ? 0 : 1}\nversion=0.33.1`,
+                stdout: `installed=1\nregistered=${opts.registered === false ? 0 : 1}\nversion=${NEW_BUILD}`,
                 stderr: ''
             }
         if (cmd.includes('daemon status')) {
@@ -1462,7 +1458,7 @@ test('wake: a registered runner whose socket the API still holds is live after t
 test('wake: a dropped socket with a live process is a reconnect, not a restart', async () => {
     const h = wakeHarness({
         online: false,
-        statusStdout: statusJson({ version: '0.33.1', activeExecs: 0 }),
+        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 }),
         reconnectsAfterStatus: true
     })
     const res = await h.wake()
@@ -1482,7 +1478,7 @@ test('wake: no process (a cold VM keeps the config) is started and proven by a f
 test('wake: a silent idle process is restarted; a silent busy one is left alone', async () => {
     const idle = wakeHarness({
         online: false,
-        statusStdout: statusJson({ version: '0.33.1', activeExecs: 0 })
+        statusStdout: statusJson({ version: NEW_BUILD, activeExecs: 0 })
     })
     assert.equal((await idle.wake()).outcome, 'restarted')
     assert.ok(idle.calls.some((c) => c.includes('daemon start')))
@@ -1490,7 +1486,7 @@ test('wake: a silent idle process is restarted; a silent busy one is left alone'
     const busy = wakeHarness({
         online: false,
         statusStdout: statusJson({
-            version: '0.33.1',
+            version: NEW_BUILD,
             activeExecs: 1,
             activePtys: 0
         })
