@@ -95,10 +95,10 @@ export class DaemonWsClient {
 
     private connect(): void {
         const wsUrl = this.opts.apiUrl.replace(/^http/, 'ws')
-        const url = `${wsUrl}/daemon/ws?token=${encodeURIComponent(
-            this.opts.token
-        )}`
-        const ws = new WebSocket(url)
+        const url = `${wsUrl}/daemon/ws`
+        const ws = new WebSocket(url, {
+            headers: { Authorization: `Bearer ${this.opts.token}` }
+        })
         this.ws = ws
 
         ws.on('open', () => {
@@ -163,6 +163,10 @@ export class DaemonWsClient {
         ws.on('close', (code, reason) => {
             const why = `code=${code} reason=${reason.toString()}`
             this.log(`ws closed ${why}`)
+            if (code === 4400 && reason.toString() === 'missing token')
+                this.log(
+                    'daemon header authentication was not accepted; upgrade the API and ensure the proxy forwards Authorization'
+                )
             this.cleanupSocket(why)
             this.opts.onDisconnected?.(why)
             this.scheduleReconnect()
