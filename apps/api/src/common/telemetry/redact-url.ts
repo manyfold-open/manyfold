@@ -1,11 +1,41 @@
 const REDACTED_QUERY_VALUE = 'REDACTED'
 // 'env'/'cmd' scrub the sprites exec WSS URL, whose query carries the command
 // and every injected env secret as KEY=VALUE pairs (#264).
-const SENSITIVE_QUERY_KEYS = new Set(['key', 'env', 'cmd'])
+const SENSITIVE_QUERY_KEYS = new Set([
+    'key',
+    'env',
+    'cmd',
+    'token',
+    'api_key',
+    'apikey',
+    'api_token',
+    'access_token',
+    'refresh_token',
+    'authorization',
+    'password',
+    'secret',
+    'sig',
+    'signature',
+    'awsaccesskeyid',
+    'x-goog-signature'
+])
 
 export const redactSensitiveUrlQuery = (raw: string): string => {
     const fallback = (): string =>
-        raw.replace(/([?&]key=)[^&#\s]+/gi, `$1${REDACTED_QUERY_VALUE}`)
+        raw.replace(
+            /([?&])([^=&#\s]+)=([^&#\s]*)/g,
+            (match, separator, key) => {
+                let decoded: string
+                try {
+                    decoded = decodeURIComponent(key).toLowerCase()
+                } catch {
+                    return `${separator}${key}=${REDACTED_QUERY_VALUE}`
+                }
+                return SENSITIVE_QUERY_KEYS.has(decoded)
+                    ? `${separator}${key}=${REDACTED_QUERY_VALUE}`
+                    : match
+            }
+        )
     try {
         const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
         const parsed = new URL(
@@ -13,6 +43,11 @@ export const redactSensitiveUrlQuery = (raw: string): string => {
             absolute ? undefined : 'http://manyfold.local'
         )
         let changed = false
+        if (parsed.username || parsed.password) {
+            parsed.username = ''
+            parsed.password = ''
+            changed = true
+        }
         for (const key of Array.from(parsed.searchParams.keys())) {
             if (!SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) continue
             parsed.searchParams.set(key, REDACTED_QUERY_VALUE)

@@ -21,7 +21,6 @@ import * as Sentry from '@sentry/node'
 import { SentrySpanProcessor } from '@sentry/opentelemetry'
 import {
     diag,
-    DiagConsoleLogger,
     DiagLogLevel,
     type Span
 } from '@opentelemetry/api'
@@ -56,6 +55,11 @@ import {
 } from './common/telemetry/filtering-span-processor'
 import { HandlerStatusSpanProcessor } from './common/telemetry/handler-status-span-processor'
 import { SentryRatioSpanProcessor } from './common/telemetry/sentry-ratio-span-processor'
+import { credentialDiagLogger } from './common/telemetry/credential-diag-logger'
+import {
+    CredentialRedactionLogProcessor,
+    CredentialRedactionSpanProcessor
+} from './common/telemetry/credential-redaction-processors'
 import {
     redactedQueryString,
     redactSensitiveUrlQuery
@@ -93,7 +97,10 @@ const traceExporter = enabled
 
 const spanProcessors: SpanProcessor[] = []
 if (traceExporter || sentryEnabled)
-    spanProcessors.push(new HandlerStatusSpanProcessor())
+    spanProcessors.push(
+        new CredentialRedactionSpanProcessor(),
+        new HandlerStatusSpanProcessor()
+    )
 if (traceExporter)
     spanProcessors.push(
         new FilteringSpanProcessor(
@@ -135,11 +142,13 @@ export const flushOtelLogs = async (): Promise<void> => {
 }
 
 const defaultLogProcessor: LogRecordProcessor | undefined = enabled
-    ? new BatchLogRecordProcessor(
-          new OTLPLogExporter({
-              url: `${endpoint}/v1/logs`,
-              headers: buildHeaders(dataset)
-          })
+    ? new CredentialRedactionLogProcessor(
+          new BatchLogRecordProcessor(
+              new OTLPLogExporter({
+                  url: `${endpoint}/v1/logs`,
+                  headers: buildHeaders(dataset)
+              })
+          )
       )
     : undefined
 
@@ -178,6 +187,9 @@ export const otel = new NodeSDK({
                     'AWSAccessKeyId',
                     'X-Goog-Signature',
                     'key',
+                    'token',
+                    'access_token',
+                    'refresh_token',
                     // sprites exec WSS carries the command and every env
                     // (KEY=VALUE, incl. injected secrets) as query params (#264)
                     'env',
@@ -209,11 +221,14 @@ export const otel = new NodeSDK({
 })
 
 const diagLevel = process.env.OTEL_LOG_LEVEL?.toLowerCase()
-if (diagLevel === 'debug')
-    diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.DEBUG)
-else if (diagLevel === 'info')
-    diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.INFO)
-else diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN)
+diag.setLogger(
+    credentialDiagLogger(),
+    diagLevel === 'debug'
+        ? DiagLogLevel.DEBUG
+        : diagLevel === 'info'
+          ? DiagLogLevel.INFO
+          : DiagLogLevel.WARN
+)
 
 if (enabled) {
     console.log(

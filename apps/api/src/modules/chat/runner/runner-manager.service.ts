@@ -1,4 +1,5 @@
 import { DEFAULT_API_BASE_URL } from '@/common/brand'
+import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     RUNNER_PROFILE,
     isCliVersionTooOld,
@@ -1011,7 +1012,9 @@ export class RunnerManagerService {
         // (no systemd) and is expected — registration itself is what matters.
         const ok =
             res.exitCode === 0 || res.stdout.includes('daemon registered')
-        const detail = `${res.stdout} ${res.stderr}`.slice(0, 400)
+        const detail = redactCredentialText(
+            `${res.stdout} ${res.stderr}`
+        ).slice(0, 400)
         if (!ok) {
             this.logger.warn(
                 `runner register failed sprite=${args.spriteName} exit=${res.exitCode}`
@@ -1103,7 +1106,7 @@ export class RunnerManagerService {
                 return null
             })
         if (!res) return null
-        const tail = res.stdout.replace(/\s+/g, ' ')
+        const tail = redactCredentialText(res.stdout).replace(/\s+/g, ' ')
         return tail
     }
 

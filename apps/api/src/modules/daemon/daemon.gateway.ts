@@ -77,7 +77,13 @@ export class DaemonGateway implements OnModuleInit {
         earlyMessageListener: (raw: unknown) => void
     ): Promise<void> {
         const query = (req.query ?? {}) as DaemonWsQuery
-        const token = query.token?.trim()
+        const authorization = req.headers?.authorization
+        const token =
+            authorization !== undefined
+                ? /^Bearer\s+(\S+)$/i.exec(authorization)?.[1]
+                : typeof query.token === 'string'
+                  ? query.token.trim()
+                  : undefined
         if (!token) {
             socket.close(4400, 'missing token')
             return
@@ -105,6 +111,9 @@ export class DaemonGateway implements OnModuleInit {
             socket.close(4403, 'daemon revoked')
             return
         }
+
+        if (authorization === undefined)
+            this.log.warn(`daemon.ws.legacy_query_auth daemonId=${host.id}`)
 
         const runtimes = await this.db
             .select()
