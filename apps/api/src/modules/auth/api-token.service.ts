@@ -33,7 +33,7 @@ import {
     isNull,
     like,
     lt,
-    notInArray,
+    ne,
     or
 } from 'drizzle-orm'
 import {
@@ -92,8 +92,6 @@ export class ApiTokenService {
             expiresInSeconds?: number
             // Tags ephemeral/session tokens (e.g. 'terminal') so the reaper and
             // the personal-token list can target them. Defaults to 'user-grant'.
-            // 'a2a-ephemeral' is mint-retired (stateless tickets replaced it);
-            // the column enum keeps the value only for pre-existing rows.
             tokenKind?: 'user-grant' | 'a2a-grant' | 'terminal'
         },
         db: ApiTokenWriter = this.db
@@ -752,7 +750,7 @@ export class ApiTokenService {
         // a2a-ephemeral row carried a 15-minute expiry, so one that passes
         // the expiry gate above can only be a hand-written row. Fail loud
         // instead of widening the principal union back around a retired kind.
-        if (apiRow.tokenKind === 'a2a-ephemeral')
+        if ((apiRow.tokenKind as string) === 'a2a-ephemeral')
             throw new UnauthorizedException('a2a-ephemeral tokens are retired')
         if (apiRow.agentId && apiRow.tokenKind !== 'a2a-grant')
             throw new UnauthorizedException(
@@ -795,14 +793,10 @@ export class ApiTokenService {
         userId: string,
         opts: { agentId?: string; includeGrants?: boolean } = {}
     ): Promise<ApiTokenSummary[]> {
-        // Internal machinery, never surfaced in any user-facing token list:
-        // terminal tokens are ephemeral session credentials, and
-        // 'a2a-ephemeral' rows are retired per-turn delegation bearers that
-        // may still sit expired in databases whose deploys predate the
-        // stateless-ticket switch (the reaper below deletes them hourly).
+        // Terminal tokens are ephemeral session credentials, never listed.
         const filters = [
             eq(apiTokens.userId, userId),
-            notInArray(apiTokens.tokenKind, ['a2a-ephemeral', 'terminal'])
+            ne(apiTokens.tokenKind, 'terminal')
         ]
         if (opts.agentId) {
             // agentId filter is the strongest signal: caller wants this agent's
@@ -964,15 +958,6 @@ export class ApiTokenService {
                 or(
                     and(
                         eq(apiTokens.tokenKind, 'terminal'),
-                        isNotNull(apiTokens.expiresAt),
-                        lt(apiTokens.expiresAt, now)
-                    ),
-                    // Retired kind: every a2a-ephemeral was minted with a
-                    // 15-minute TTL and minting is gone, so expired-only
-                    // deletion drains any pre-switch residue without ever
-                    // touching a usable credential.
-                    and(
-                        eq(apiTokens.tokenKind, 'a2a-ephemeral'),
                         isNotNull(apiTokens.expiresAt),
                         lt(apiTokens.expiresAt, now)
                     ),

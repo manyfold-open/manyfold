@@ -33,11 +33,7 @@ export const apiTokens = pgTable(
             enum: ['cli-poll', 'user-grant', 'cli-browser', 'api']
         }),
         tokenKind: text('token_kind', {
-            // 'a2a-ephemeral' is mint-retired (replaced by stateless a2a
-            // tickets) but stays in the enum: rows may survive in databases
-            // whose deploys predate the switch, and the hourly reaper only
-            // deletes them once seen expired.
-            enum: ['user-grant', 'a2a-grant', 'a2a-ephemeral', 'terminal']
+            enum: ['user-grant', 'a2a-grant', 'terminal']
         })
             .notNull()
             .default('user-grant'),
@@ -59,11 +55,6 @@ export const apiTokens = pgTable(
         createdViaIdx: index('api_tokens_created_via_idx').on(
             table.createdVia
         ),
-        agentActiveUnique: uniqueIndex('api_tokens_agent_id_active_uq')
-            .on(table.agentId)
-            .where(
-                sql`${table.revokedAt} is null and ${table.agentId} is not null and ${table.tokenKind} = 'user-grant'`
-            ),
         a2aGrantUnique: uniqueIndex('api_tokens_a2a_grant_uq')
             .on(table.agentId, table.callerAgentId)
             .where(
