@@ -517,3 +517,16 @@ test(
         })
     }
 )
+
+test('writer switch refuses a recently used caller-bound credential', { skip: !RUN }, async () => {
+    await withHarness(async h => {
+        await legacy(h.db, 'live')
+        await policy(h.db, 'live')
+        await h.prepare()
+        await h.db.update(apiTokens).set({ lastUsedAt: new Date() }).where(eq(apiTokens.id, 'apt_live'))
+        await assert.rejects(h.switchWriter, /recently used caller-bound credentials/)
+        await h.db.update(apiTokens).set({ lastUsedAt: createdAt }).where(eq(apiTokens.id, 'apt_live'))
+        await h.switchWriter()
+        assert.equal(await h.tokens.isActiveA2aGrant('live', 'target'), true)
+    })
+})
