@@ -1,6 +1,10 @@
-import { CHAT_EXEC_MAX_TIMEOUT_MS } from '@manyfold/shared'
+import { CHAT_EXEC_MAX_TIMEOUT_MS, PATH_PREPEND_LOCAL_BIN } from '@manyfold/shared'
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { manyfoldRuntimeEnv } from '../src/modules/chat/adapters/exec-driver-factory'
 import {
     deriveMaxRunAfterDisconnectSeconds,
@@ -38,7 +42,7 @@ test('wrapSpriteCommand always wraps and sources managed env even without a dir'
     assert.equal(wrapped[1], '-c')
     // No cd when dir is undefined, but it must still wrap and source the token.
     assert.doesNotMatch(wrapped[2], /\bcd /)
-    assert.match(wrapped[2], /export PATH="\$HOME\/\.local\/bin:\$PATH"/)
+    assert.ok(wrapped[2].includes(PATH_PREPEND_LOCAL_BIN))
     assert.match(wrapped[2], /exec 'claude' '--version'/)
     assert.match(wrapped[2], /\/etc\/profile\.d\/mf\.sh/)
     assert.match(wrapped[2], /\/etc\/profile\.d\/nca\.sh/)
@@ -50,7 +54,7 @@ test('wrapSpriteCommand prefers staging mf installed in home local bin', () => {
     const wrapped = wrapSpriteCommand(['claude', '--version'], '/workspace/a b')
     assert.equal(wrapped[0], 'bash')
     assert.equal(wrapped[1], '-c')
-    assert.match(wrapped[2], /export PATH="\$HOME\/\.local\/bin:\$PATH"/)
+    assert.ok(wrapped[2].includes(PATH_PREPEND_LOCAL_BIN))
     assert.match(
         wrapped[2],
         /cd '\/workspace\/a b' && exec 'claude' '--version'/
@@ -70,7 +74,7 @@ test('wrapSpriteCommand relocates HOME for codex only on the final exec', () => 
     )
     // PATH + managed-env still resolve against the REAL $HOME (pinned codex
     // binary, MF_API_TOKEN), because HOME is set only on the child exec.
-    assert.match(wrapped[2], /export PATH="\$HOME\/\.local\/bin:\$PATH"/)
+    assert.ok(wrapped[2].includes(PATH_PREPEND_LOCAL_BIN))
     assert.match(wrapped[2], /export MF_API_TOKEN='tok';/)
     assert.match(
         wrapped[2],
@@ -81,6 +85,23 @@ test('wrapSpriteCommand relocates HOME for codex only on the final exec', () => 
 test('wrapSpriteCommand leaves HOME untouched without codex relocation', () => {
     const wrapped = wrapSpriteCommand(['claude', '--version'], '/ws')
     assert.doesNotMatch(wrapped[2], /HOME=/)
+})
+
+test('wrapSpriteCommand passes one activation directory to its actual child', (t) => {
+    const home = mkdtempSync(join(tmpdir(), 'mf-exec-path-'))
+    t.after(() => rmSync(home, { recursive: true, force: true }))
+    const wrapped = wrapSpriteCommand(
+        ['/bin/sh', '-c', 'printf "%s" "$PATH"'],
+        undefined
+    )
+    const out = execFileSync(wrapped[0], wrapped.slice(1), {
+        encoding: 'utf8',
+        env: {
+            HOME: home,
+            PATH: `/usr/bin:${home}/.local/bin:/custom path:${home}/.local/bin:/bin`
+        }
+    })
+    assert.equal(out, `${home}/.local/bin:/usr/bin:/custom path:/bin`)
 })
 
 test('deriveMaxRunAfterDisconnectSeconds tracks finite turn caps (rounded up)', () => {

@@ -27,8 +27,6 @@ export type MfRuntimeIdentityEnvKey =
 // the prepend resolve whatever the image installed instead (#611).
 export const HOME_LOCAL_BIN = '$HOME/.local/bin'
 
-export const PATH_PREPEND_LOCAL_BIN = `export PATH="${HOME_LOCAL_BIN}:$PATH"`
-
 // `zz-` is load-bearing, not decoration: /etc/profile sources profile.d in glob
 // (alphabetical) order, so a managed fragment named `mf.sh` runs BEFORE the
 // image's own node fragment, which then re-prepends its global bin and puts the
@@ -37,7 +35,7 @@ export const PATH_PREPEND_LOCAL_BIN = `export PATH="${HOME_LOCAL_BIN}:$PATH"`
 const MANAGED_PATH_PROFILE_D_FILE = '/etc/profile.d/zz-manyfold-path.sh'
 
 // Exported because the legacy-residue purge has to recognise the block it must
-// NOT touch: the guarded prepend is the one `.local/bin` PATH statement that
+// NOT touch: the managed block is the one `.local/bin` PATH statement that
 // survives a cleanup pass (#650).
 export const MANAGED_PATH_BLOCK_START = '# mf-path-start'
 export const MANAGED_PATH_BLOCK_END = '# mf-path-end'
@@ -63,6 +61,8 @@ const ENSURE_LOCAL_BIN_FIRST = [
     'export PATH',
     'unset mf_path_rest mf_path_new mf_path_part mf_path_last'
 ].join('\n')
+
+export const PATH_PREPEND_LOCAL_BIN = ENSURE_LOCAL_BIN_FIRST
 
 export const MANAGED_PATH_BLOCK = [
     MANAGED_PATH_BLOCK_START,

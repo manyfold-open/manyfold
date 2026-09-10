@@ -95,7 +95,7 @@ const runLauncher = async (
     const binDir = path.join(home, '.local', 'bin')
     mkdirSync(binDir, { recursive: true })
     const stub = path.join(binDir, 'gemini')
-    writeFileSync(stub, '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+    writeFileSync(stub, '#!/bin/sh\nprintf "%s" "$PATH" > "$HOME/child-path"\n', { mode: 0o755 })
     if (seedSettings) {
         mkdirSync(path.join(home, '.gemini'), { recursive: true })
         writeFileSync(
@@ -116,11 +116,15 @@ const runLauncher = async (
             env: {
                 ...request.env,
                 HOME: home,
-                PATH: process.env.PATH ?? ''
+                PATH: `${binDir}:${process.env.PATH ?? ''}:${binDir}`
             }
         }
     )
     assert.equal(run.status, 0, run.stderr)
+    assert.equal(
+        readFileSync(path.join(home, 'child-path'), 'utf8'),
+        `${binDir}:${process.env.PATH ?? ''}`
+    )
     return JSON.parse(
         readFileSync(path.join(home, '.gemini', 'settings.json'), 'utf8')
     ) as Record<string, any>
