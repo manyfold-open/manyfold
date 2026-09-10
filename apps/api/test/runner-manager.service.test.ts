@@ -1280,3 +1280,218 @@ test('restart: an exec that throws is reported as failed, never thrown', async (
     })
     assert.equal(await h.restart(), 'failed')
 })
+
+// ---- wakeRunner ---------------------------------------------------------------
+// An auth.* RPC has no exec to thaw the sprite and no lease to hold it, and the
+// host row cannot tell it the runner is frozen (a suspended process keeps its
+// 45s socket lease). Seen on staging [2026-09-10]: heartbeat at :27, sprite
+// suspended at :35, `auth.create` at :41 sat on the frozen socket for the full
+// RPC timeout, twice. These pin how a wake resolves each state a suspension
+// leaves a runner in, and what proves the runner is back.
+
+const wakeHarness = (opts: {
+    // host row present at all (a sprite that never had a runner has none)
+    hostRow?: boolean
+    // what the inspect exec reports
+    registered?: boolean
+    // the row's lease as the wake finds it
+    online?: boolean
+    // `mf daemon status --json` inside the sprite
+    statusStdout?: string
+    // whether the process dials back in on its own after the status probe
+    // (a thawed process reconnecting) — refreshes the lease without a start
+    reconnectsAfterStatus?: boolean
+    // whether `daemon start` brings a fresh lease; false = the row stays as
+    // it was
+    leaseAfterStart?: boolean
+    // the trap: after the start the row reads online, but on the lease the
+    // frozen process left behind — nothing new has connected
+    staleOnlineAfterStart?: boolean
+    execThrowOn?: (cmd: string) => boolean
+}) => {
+    const calls: string[] = []
+    let online = opts.online ?? false
+    // A register is what creates the host row.
+    let hasRow = opts.hostRow !== false
+    // Older than any `since` the wake can take: the lease a frozen process
+    // left behind.
+    let rpcLastSeenAt = new Date(Date.now() - 60_000)
+    const refreshLease = (): void => {
+        online = true
+        rpcLastSeenAt = new Date(Date.now() + 1_000)
+    }
+    const exec = async (a: {
+        cmd: string[]
+        timeoutMs: number
+    }): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
+        const cmd = a.cmd.join(' ')
+        calls.push(cmd)
+        if (opts.execThrowOn?.(cmd)) throw new Error('exec transport failed')
+        if (cmd.includes('test -x'))
+            return {
+                exitCode: 0,
+                stdout: `installed=1\nregistered=${opts.registered === false ? 0 : 1}\nversion=0.33.1`,
+                stderr: ''
+            }
+        if (cmd.includes('daemon status')) {
+            if (opts.reconnectsAfterStatus) refreshLease()
+            return {
+                exitCode: 0,
+                stdout: opts.statusStdout ?? statusJson(null, null as never),
+                stderr: ''
+            }
+        }
+        if (cmd.includes('daemon register')) {
+            hasRow = true
+            refreshLease()
+            return { exitCode: 0, stdout: 'daemon registered', stderr: '' }
+        }
+        if (cmd.includes('daemon start')) {
+            if (opts.staleOnlineAfterStart) online = true
+            else if (opts.leaseAfterStart !== false) refreshLease()
+            return { exitCode: 0, stdout: '1', stderr: '' }
+        }
+        if (cmd.includes('tail -n'))
+            return { exitCode: 0, stdout: 'daemon running pid=1', stderr: '' }
+        return { exitCode: 0, stdout: '', stderr: '' }
+    }
+    const db = {
+        select: () => ({
+            from: () => ({
+                where: () => ({
+                    limit: async () =>
+                        hasRow
+                            ? [
+                                  {
+                                      id: 'dh_runner',
+                                      status: 'active',
+                                      rpcLastSeenAt,
+                                      rpcInstanceId: 'api-1',
+                                      rpcConnectedAt: rpcLastSeenAt
+                                  }
+                              ]
+                            : []
+                })
+            })
+        })
+    }
+    const hosts = { isOnline: () => online }
+    const tokens = {
+        mint: async (x: { name: string }) => ({
+            tokenId: 't',
+            plaintext: 'ldt_fresh',
+            name: x.name,
+            expiresAt: null,
+            createdAt: new Date()
+        }),
+        deleteUnbound: async () => true
+    }
+    class TestRunnerManager extends RunnerManagerService {
+        protected override delay(): Promise<void> {
+            return Promise.resolve()
+        }
+    }
+    const service = new TestRunnerManager(
+        db as never,
+        hosts as never,
+        tokens as never,
+        { rpc: async () => ({}) } as never
+    )
+    const wake = () =>
+        service.wakeRunner({
+            userId: 'user_1',
+            spriteName: 'art-1',
+            exec,
+            waitOnlineMs: 20
+        })
+    return { wake, calls }
+}
+
+test('wake: a registered runner whose socket the API still holds is live after the one exec that thawed it', async () => {
+    const h = wakeHarness({ online: true })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'live')
+    assert.equal(res.handle?.daemonId, 'dh_runner')
+    assert.deepEqual(
+        h.calls.filter((c) => /daemon (status|start|register)/.test(c)),
+        [],
+        'no probe, no restart: the RPC that follows is the proof'
+    )
+    assert.ok(
+        h.calls.some((c) => c.includes('test -x')),
+        'the inspect ran'
+    )
+})
+
+test('wake: a dropped socket with a live process is a reconnect, not a restart', async () => {
+    const h = wakeHarness({
+        online: false,
+        statusStdout: statusJson({ version: '0.33.1', activeExecs: 0 }),
+        reconnectsAfterStatus: true
+    })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'reconnected')
+    assert.equal(res.handle?.daemonId, 'dh_runner')
+    assert.ok(!h.calls.some((c) => c.includes('daemon start')))
+})
+
+test('wake: no process (a cold VM keeps the config) is started and proven by a fresh lease', async () => {
+    const h = wakeHarness({ online: false })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'restarted')
+    assert.equal(res.handle?.daemonId, 'dh_runner')
+    assert.ok(h.calls.some((c) => c.includes('daemon start')))
+})
+
+test('wake: a silent idle process is restarted; a silent busy one is left alone', async () => {
+    const idle = wakeHarness({
+        online: false,
+        statusStdout: statusJson({ version: '0.33.1', activeExecs: 0 })
+    })
+    assert.equal((await idle.wake()).outcome, 'restarted')
+    assert.ok(idle.calls.some((c) => c.includes('daemon start')))
+
+    const busy = wakeHarness({
+        online: false,
+        statusStdout: statusJson({
+            version: '0.33.1',
+            activeExecs: 1,
+            activePtys: 0
+        })
+    })
+    const res = await busy.wake()
+    assert.equal(res.outcome, 'busy')
+    assert.equal(res.handle, null)
+    assert.ok(!busy.calls.some((c) => c.includes('daemon start')))
+})
+
+test('wake: after a start, an online row with the OLD lease is not proof — the restart times out', async () => {
+    // The frozen process's lease can outlive the start by up to 45s; a wake
+    // that trusted `online` here would hand back a daemon that is not there.
+    const h = wakeHarness({ online: false, staleOnlineAfterStart: true })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'not-online')
+    assert.equal(res.handle, null)
+    assert.ok(
+        h.calls.some((c) => c.includes('tail -n')),
+        'the runner log was read for the report'
+    )
+})
+
+test('wake: a sprite that never had a runner takes the bring-up path', async () => {
+    const h = wakeHarness({ hostRow: false, registered: false })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'brought-up')
+    assert.ok(h.calls.some((c) => c.includes('daemon register')))
+    assert.ok(h.calls.some((c) => c.includes('daemon start')))
+})
+
+test('wake: an exec that throws is exec-failed, never thrown', async () => {
+    const h = wakeHarness({
+        online: true,
+        execThrowOn: (cmd) => cmd.includes('test -x')
+    })
+    const res = await h.wake()
+    assert.equal(res.outcome, 'exec-failed')
+    assert.equal(res.handle, null)
+})

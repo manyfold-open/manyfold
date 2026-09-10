@@ -5,27 +5,33 @@ import { apiErrorMessage } from '@/lib/errorMessage'
 
 // The runtime's auth profiles for one surface. Loads when a runtime id
 // arrives, reloads on demand, and forgets everything when the id goes away
-// (the wizard switching runtimes must not show the previous list).
+// (the wizard switching runtimes must not show the previous list). The
+// initial load never wakes a sleeping sandbox; `reload({ wake: true })` is
+// the user's explicit click.
 export const useRuntimeAuthList = (
     runtimeId: string | null
 ): {
     list: RuntimeAuthListView | null
     loading: boolean
     error: string | null
-    reload: () => Promise<RuntimeAuthListView | null>
+    reload: (opts?: { wake?: boolean }) => Promise<RuntimeAuthListView | null>
 } => {
     const client = useApiClient()
     const [list, setList] = useState<RuntimeAuthListView | null>(null)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
 
-    const reload =
-        useCallback(async (): Promise<RuntimeAuthListView | null> => {
+    const reload = useCallback(
+        async (opts?: {
+            wake?: boolean
+        }): Promise<RuntimeAuthListView | null> => {
             if (!runtimeId) return null
             setLoading(true)
             setError(null)
             try {
-                const next = await client.runtimeAuth.list(runtimeId)
+                const next = await client.runtimeAuth.list(runtimeId, {
+                    wake: opts?.wake === true
+                })
                 setList(next)
                 return next
             } catch (e) {
@@ -34,7 +40,9 @@ export const useRuntimeAuthList = (
             } finally {
                 setLoading(false)
             }
-        }, [client, runtimeId])
+        },
+        [client, runtimeId]
+    )
 
     useEffect(() => {
         setList(null)

@@ -1,6 +1,12 @@
 import { RUNTIME_AUTH_METHODS, type RuntimeAuthMethod } from '@manyfold/shared'
 import type { CreateRuntimeAuthProfileBody } from '@manyfold/shared'
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator'
+import {
+    IsBoolean,
+    IsIn,
+    IsOptional,
+    IsString,
+    MaxLength
+} from 'class-validator'
 
 export class CreateRuntimeAuthProfileDto implements CreateRuntimeAuthProfileBody {
     @IsOptional()
@@ -15,4 +21,8 @@ export class CreateRuntimeAuthProfileDto implements CreateRuntimeAuthProfileBody
     @IsString()
     @MaxLength(100)
     requestId?: string
+
+    @IsOptional()
+    @IsBoolean()
+    wake?: boolean
 }

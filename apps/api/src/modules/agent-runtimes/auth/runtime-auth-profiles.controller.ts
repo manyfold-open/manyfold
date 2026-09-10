@@ -12,6 +12,7 @@ import {
     Param,
     Patch,
     Post,
+    Query,
     UseGuards
 } from '@nestjs/common'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
@@ -31,14 +32,19 @@ import { RuntimeAuthProfilesService } from './runtime-auth-profiles.service'
 export class RuntimeAuthProfilesController {
     constructor(private readonly profiles: RuntimeAuthProfilesService) {}
 
+    // A page open must not wake a sleeping sandbox; `wake=1` is the user's
+    // explicit click, the same contract as the ambient account probe.
     @Get('agent-runtimes/:id/auth-profiles')
     @RequireApiTokenScope('agent-runtimes:read')
     @SubjectAgentFromResource('agentRuntime', 'id')
     list(
         @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
+        @Param('id') id: string,
+        @Query('wake') wake?: string
     ): Promise<RuntimeAuthListView> {
-        return this.profiles.list(user.userId, id)
+        return this.profiles.list(user.userId, id, {
+            wake: wake === '1' || wake === 'true'
+        })
     }
 
     @Post('agent-runtimes/:id/auth-profiles')

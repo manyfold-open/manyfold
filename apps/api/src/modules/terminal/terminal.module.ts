@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AgentsModule } from '@/modules/agents/agents.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
+import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
 import { TerminalGateway } from '@/modules/terminal/terminal.gateway'
@@ -20,6 +21,7 @@ import { ConnectionsModule } from '@/modules/connections/connections.module'
         AuthModule,
         AgentsModule,
         AgentRuntimesModule,
+        RuntimeAuthModule,
         SpritesAccountsModule,
         DaemonModule,
         FilesModule,
