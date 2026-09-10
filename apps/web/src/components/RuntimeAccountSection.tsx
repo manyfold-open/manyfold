@@ -320,7 +320,7 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     const refreshAll = useCallback(
         async (wake: boolean): Promise<void> => {
             await probe(wake)
-            await reloadAuth()
+            await reloadAuth({ wake })
         },
         [probe, reloadAuth]
     )
@@ -409,7 +409,8 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
         setError(null)
         try {
             const profile = await client.runtimeAuth.create(runtimeId, {
-                authMethod: 'subscription'
+                authMethod: 'subscription',
+                wake: true
             })
             await reloadAuth()
             await startProfileSignIn(profile.id)
@@ -515,8 +516,38 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     }
 
     const renderProfiles = (list: RuntimeAuthListView): ReactNode => {
-        if (list.availability === 'host-unavailable')
-            return <NoticeRow title={t('web.runtimeAuth.hostUnavailable')} />
+        // A sprite's runner is brought up by its first turn and answers only
+        // while the VM is awake, so a runtime that has never run a turn, or
+        // whose runner froze with the VM, needs the user's click to start it
+        // — that click is what spends the sandbox's running time.
+        if (
+            list.availability === 'host-unavailable' ||
+            list.availability === 'sandbox-asleep'
+        )
+            return (
+                <NoticeRow
+                    title={
+                        list.availability === 'host-unavailable'
+                            ? t('web.runtimeAuth.hostUnavailable')
+                            : t('web.runtimeAuth.runnerAsleep')
+                    }
+                    action={
+                        list.kind === 'sprites' ? (
+                            <button
+                                type='button'
+                                className='workbench-button-secondary'
+                                disabled={authLoading}
+                                onClick={(): void => {
+                                    void reloadAuth({ wake: true })
+                                }}
+                            >
+                                {authLoading && <Spinner size={12} />}
+                                {t('web.runtimeAuth.startRunner')}
+                            </button>
+                        ) : undefined
+                    }
+                />
+            )
         if (list.availability === 'daemon-upgrade-required')
             return (
                 <NoticeRow
@@ -531,8 +562,8 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
                     }
                 />
             )
-        // Offline and asleep are already explained by the host sign-in block
-        // above; a second notice for the same host says nothing new.
+        // Offline is already explained by the host sign-in block above; a
+        // second notice for the same host says nothing new.
         if (list.availability !== 'ok') return null
         return (
             <div className='settings-card'>

@@ -200,12 +200,17 @@ const buildHarness = async (): Promise<Harness> => {
         {} as never,
         {} as never
     )
+    // The sprite-only collaborators (sandbox admission, sprites.dev account,
+    // runner wake) are never reached by a daemon runtime.
     const service = new RuntimeAuthProfilesService(
         db,
         runtimes as never,
         daemonHosts as never,
         daemonRegistry as never,
-        account
+        account,
+        {} as never,
+        {} as never,
+        {} as never
     )
     const principal = {
         userId,

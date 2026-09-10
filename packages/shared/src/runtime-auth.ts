@@ -136,10 +136,15 @@ export interface RuntimeAuthListView {
     error: string | null
 }
 
+// `wake`: the caller's consent to resume a sleeping sandbox for this call
+// (an exec starts the VM's billed running time). Without it a mutation on an
+// asleep sprite is refused rather than silently started; the list reports
+// `sandbox-asleep` instead.
 export interface CreateRuntimeAuthProfileBody {
     label?: string
     authMethod: RuntimeAuthMethod
     requestId?: string
+    wake?: boolean
 }
 
 export interface RuntimeAuthOperationBody {

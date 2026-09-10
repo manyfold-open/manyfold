@@ -12,13 +12,14 @@ export const loginUrl = (next: string): string =>
         ? `/login?redirect_url=${encodeURIComponent(next)}`
         : '/login'
 
-// Internal paths only. The absolute-URL allowance (and the `rd` parameter it
-// served) existed for the k8s hermes dashboard's nginx auth-signin bounce,
-// which was removed; every in-app producer passes a path, and rejecting the
-// rest closes an open-redirect-shaped door. Distinct from lib/safeRedirect.ts,
-// which is the deployment-owned allowlist for absolute dashboard origins.
+// Resolve as a browser would: backslashes and stripped control characters
+// can turn an apparently internal path into a protocol-relative URL.
 export const safeRedirectPath = (value: string | null): string | null => {
-    if (!value) return null
-    if (value.startsWith('/') && !value.startsWith('//')) return value
-    return null
+    if (!value?.startsWith('/') || value.startsWith('//')) return null
+    const origin = 'https://manyfold.invalid'
+    try {
+        return new URL(value, origin).origin === origin ? value : null
+    } catch {
+        return null
+    }
 }

@@ -93,6 +93,13 @@ const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
 // DEFAULT_WAIT_ONLINE_MS); a restart skips the register.
 const RESTART_WAIT_MS = 45_000
 const STATUS_PROBE_TIMEOUT_MS = 30_000
+// After a wake exec thawed a registered runner whose socket the API had already
+// dropped, how long its own reconnect gets before the process is restarted.
+// The daemon's ws client forces a reconnect when it detects the clock jump a
+// suspension leaves behind, and its backoff starts at 1s, so a live process is
+// back on a fresh lease within a few seconds; a process that is not back by
+// then is wedged or gone, and `daemon stop; daemon start` is what helps.
+const WAKE_RECONNECT_WAIT_MS = 15_000
 
 export interface SpriteExecFn {
     (args: {
@@ -231,6 +238,32 @@ interface RunnerSpriteState {
     installed: boolean
     registered: boolean
     version: string | null
+}
+
+// How wakeRunner got to an answering runner, for the caller's log line. The
+// handle is what matters; the outcome says which of the three ways a sprite
+// suspension leaves a runner (frozen with its socket intact, frozen past the
+// API's pong deadline, or gone with the VM) this call actually met.
+export type RunnerWakeOutcome =
+    // the API still held the socket: the thawed process answers on it
+    | 'live'
+    // the API had dropped the socket: the thawed process dialled back in
+    | 'reconnected'
+    // no process (cold VM) or a silent one: stopped, started, dialled in
+    | 'restarted'
+    // never registered on this sprite (or a stale binary): the turn path's
+    // install/register/start
+    | 'brought-up'
+    // a silent process with live exec/pty sessions: not restarted under a turn
+    | 'busy'
+    // the wake exec itself failed: the sprite could not be reached
+    | 'exec-failed'
+    // started, but no fresh lease within the budget
+    | 'not-online'
+
+export interface RunnerWakeResult {
+    handle: RunnerHandle | null
+    outcome: RunnerWakeOutcome
 }
 
 // A bring-up either produced a handle or did not, and a bring-up that died on
@@ -481,6 +514,143 @@ export class RunnerManagerService {
         }
     }
 
+    // A runner that is registered but not answering, made to answer — for the
+    // callers that talk to it OUTSIDE a turn (the runtime page's auth.* RPCs).
+    // A turn never needs this: its own execs wake the sprite and its awake
+    // lease keeps it up, so a frozen runner thaws under the turn's first RPC.
+    // An auth.* call has neither, and the host row cannot tell it the runner
+    // is frozen: a suspended process misses pings but keeps its 45s lease, so
+    // isOnline() says yes for up to a minute after the VM went to sleep.
+    // Seen on staging 2026-09-10: the runner heartbeated at :27, the sprite
+    // suspended at :35, `auth.create` at :41 sat on the frozen socket for the
+    // full 20s RPC timeout, twice, before the pong deadline finally dropped it.
+    //
+    // One exec (the inspect) resumes the VM; what happens next depends on
+    // whether the API still holds the socket — and the row's lease says
+    // which. Nothing here throws: no runner is a legitimate answer.
+    async wakeRunner(args: {
+        userId: string
+        spriteName: string
+        exec: SpriteExecFn
+        waitOnlineMs?: number
+    }): Promise<RunnerWakeResult> {
+        const since = new Date()
+        const hostName = runnerHostName(args.spriteName)
+        try {
+            const existing = await this.findRunnerHost({
+                userId: args.userId,
+                hostName
+            })
+            const inspected = await this.inspectSprite(args)
+            const state = inspected.state
+            if (!state) return { handle: null, outcome: 'exec-failed' }
+            if (
+                !existing ||
+                !state.installed ||
+                !state.registered ||
+                isCliVersionTooOld(state.version, RUNNER_MIN_CLI)
+            ) {
+                // Nothing to thaw: the sprite has never had a runner (a new
+                // agent before its first turn — the "no runner yet" state) or
+                // keeps a binary below the floor. Same path a turn takes.
+                const up = await this.bringUp({ ...args, agentId: '-' })
+                return {
+                    handle: up.handle,
+                    outcome: up.handle ? 'brought-up' : 'not-online'
+                }
+            }
+            // The API still holds the socket: the process that just thawed
+            // answers on it, and the next RPC is the proof. Waiting for a
+            // pong here would only add up to a ping interval of latency.
+            const current = await this.findRunnerHost({
+                userId: args.userId,
+                hostName
+            })
+            if (current?.online)
+                return {
+                    handle: {
+                        daemonId: current.id,
+                        started: false,
+                        generation: current.generation
+                    },
+                    outcome: 'live'
+                }
+            // The socket is gone. Either the process thawed and is dialling
+            // back in, or it is gone with the VM (a cold start keeps the
+            // config on disk, so the inspect still says registered=1).
+            const process = await this.probeRunnerProcess(args)
+            if (process.kind !== 'not-running') {
+                const reconnected = await this.waitForLease({
+                    userId: args.userId,
+                    hostName,
+                    since,
+                    waitMs: WAKE_RECONNECT_WAIT_MS
+                })
+                if (reconnected)
+                    return { handle: reconnected, outcome: 'reconnected' }
+                if (
+                    process.kind === 'running' &&
+                    (process.activeExecs > 0 || process.activePtys > 0)
+                ) {
+                    this.logger.warn(
+                        `runner silent but busy, not restarting sprite=${args.spriteName} execs=${process.activeExecs} ptys=${process.activePtys}`
+                    )
+                    return { handle: null, outcome: 'busy' }
+                }
+            }
+            await this.start(args)
+            const started = await this.waitForLease({
+                userId: args.userId,
+                hostName,
+                since,
+                waitMs: args.waitOnlineMs ?? DEFAULT_WAIT_ONLINE_MS
+            })
+            if (!started) {
+                const tail = await this.logRunnerTail(args)
+                this.logger.warn(
+                    `runner did not come back after wake sprite=${args.spriteName} daemonId=${existing.id} tail=${tail ?? '(none)'}`
+                )
+                return { handle: null, outcome: 'not-online' }
+            }
+            return { handle: started, outcome: 'restarted' }
+        } catch (err) {
+            this.logger.warn(
+                `runner wake failed sprite=${args.spriteName} class=${errorClass(err)}`
+            )
+            return { handle: null, outcome: 'exec-failed' }
+        }
+    }
+
+    // A lease the API recorded AFTER `since`: a pong or a connect from a
+    // process that was demonstrably running at that moment. `online` alone is
+    // the wrong test here — it is what a frozen process still passes.
+    private async waitForLease(args: {
+        userId: string
+        hostName: string
+        since: Date
+        waitMs: number
+    }): Promise<RunnerHandle | null> {
+        const deadline = Date.now() + args.waitMs
+        for (;;) {
+            const host = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: args.hostName
+            })
+            if (
+                host?.online &&
+                host.rpcLastSeenAt &&
+                host.rpcLastSeenAt.getTime() > args.since.getTime()
+            )
+                return {
+                    daemonId: host.id,
+                    started: true,
+                    generation: host.generation
+                }
+            if (Date.now() >= deadline) return null
+            await this.delay(POLL_INTERVAL_MS)
+        }
+    }
+
     // A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
     // outside the machine-scoped root the runner registered, and the daemon
     // exec guard refuses a cwd it does not know.
@@ -580,6 +750,11 @@ export class RunnerManagerService {
         workspaceBaseDir: string | null
         rpcInstanceId: string | null
         rpcConnectedAt: Date | null
+        // The last pong (or connect) the API recorded, so a caller that just
+        // woke the sprite can tell a lease refreshed by the thawed process
+        // from the one a frozen process left behind (`online` cannot: the
+        // 45s window outlives a suspension by design).
+        rpcLastSeenAt: Date | null
     } | null> {
         const [row] = await this.db
             .select()
@@ -617,7 +792,8 @@ export class RunnerManagerService {
             clientFeatures: row.clientFeatures ?? [],
             workspaceBaseDir: row.workspaceBaseDir ?? null,
             rpcInstanceId: row.rpcInstanceId ?? null,
-            rpcConnectedAt: row.rpcConnectedAt ?? null
+            rpcConnectedAt: row.rpcConnectedAt ?? null,
+            rpcLastSeenAt: row.rpcLastSeenAt ?? null
         }
     }
 
@@ -722,7 +898,10 @@ export class RunnerManagerService {
     // that could have broken the socket. A failure of any later exec could be a
     // consequence of what that exec did, so those keep degrading silently.
     private async inspectSprite(
-        args: EnsureRunnerArgs
+        args: Pick<
+            EnsureRunnerArgs,
+            'exec' | 'spriteName' | 'firstExecTimeoutMs'
+        >
     ): Promise<RunnerInspection> {
         const script = [
             `test -x "$HOME/.local/bin/mf" && echo installed=1 || echo installed=0`,

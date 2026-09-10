@@ -24,8 +24,8 @@ import { extraTranslations } from '@/lib/i18n-extra'
 // Module scope, before any component renders: the extras must be in place
 // for the first paint's translations (the cloud overlay swaps the module).
 registerExtraTranslations(extraTranslations)
-// Build-time like VITE_DASHBOARD_ORIGIN_SUFFIXES (§5.4): the operator owns
-// the brand, and the first paint cannot wait on a capabilities fetch.
+// The operator owns the brand at build time; the first paint cannot wait on
+// a capabilities fetch.
 setBrandName(import.meta.env?.VITE_BRAND_NAME)
 
 const languageStorageKey = 'nca.web.language'
