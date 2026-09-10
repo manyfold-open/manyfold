@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import postgres from 'postgres'
+import { readMigrationFiles } from 'drizzle-orm/migrator'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import { ConfigService } from '@nestjs/config'
 import { agents, agentRuntimes, apiTokens, schema, users } from '@manyfold/db'
@@ -21,6 +22,97 @@ const RUN = process.env.RUN_PG_E2E === '1'
 const retirement = readFileSync(
     'drizzle/0010_phase8_user_grant_retirement.sql',
     'utf8'
+)
+const bindingSwitch = readFileSync(
+    'drizzle/0011_phase8_a2a_binding_switch.sql',
+    'utf8'
+)
+
+test(
+    'A2A switch preparation binds existing and newly minted grants for old API readers',
+    { skip: !RUN },
+    async () => {
+        await withScratchDatabase(
+            'phase8_binding',
+            async ({ url }) => {
+                const sql = postgres(url, { max: 1, onnotice: () => {} })
+                const db = drizzle(sql, { schema })
+                try {
+                    const journal = JSON.parse(
+                        readFileSync('drizzle/meta/_journal.json', 'utf8')
+                    )
+                    const boundary = journal.entries.find(
+                        (entry: { tag: string }) =>
+                            entry.tag === '0011_phase8_a2a_binding_switch'
+                    ).when as number
+                    for (const migration of readMigrationFiles({
+                        migrationsFolder: 'drizzle'
+                    })) {
+                        if (migration.folderMillis >= boundary) break
+                        for (const statement of migration.sql)
+                            await sql.unsafe(statement)
+                    }
+                    const userId = 'usr_binding_switch'
+                    const agentId = 'agt_binding_switch'
+                    await db
+                        .insert(users)
+                        .values({ id: userId, email: 'binding@example.test' })
+                    await db.insert(agentRuntimes).values({
+                        id: 'art_binding_switch',
+                        userId,
+                        name: 'binding',
+                        kind: 'sprites',
+                        framework: 'codex'
+                    })
+                    await db.insert(agents).values({
+                        id: agentId,
+                        userId,
+                        runtimeId: 'art_binding_switch',
+                        internalId: 'default',
+                        name: 'binding',
+                        runtime: 'sprites',
+                        framework: 'codex'
+                    })
+                    const tokens = new ApiTokenService(db)
+                    const existing = await tokens.mintA2aGrant({
+                        userId,
+                        targetAgentId: agentId
+                    })
+                    await sql`update api_tokens set enforce_agent_binding=false where id=${existing.tokenId}`
+                    await sql.begin((tx) => tx.unsafe(bindingSwitch))
+                    const fresh = await tokens.mintA2aGrant({
+                        userId,
+                        targetAgentId: agentId
+                    })
+                    for (const tokenId of [existing.tokenId, fresh.tokenId]) {
+                        const [row] =
+                            await sql`select enforce_agent_binding from api_tokens where id=${tokenId}`
+                        assert.equal(row.enforce_agent_binding, true)
+                    }
+                    await sql.begin((tx) => tx.unsafe(bindingSwitch))
+                    assert.equal(
+                        (await tokens.verify(fresh.plaintext)).kind,
+                        'legacy-runtime'
+                    )
+                    const pat = await tokens.mint({ userId, name: 'personal' })
+                    const [patBinding] =
+                        await sql`select enforce_agent_binding from api_tokens where id=${pat.tokenId}`
+                    assert.equal(patBinding.enforce_agent_binding, false)
+                    assert.equal(
+                        (await tokens.verify(pat.plaintext)).kind,
+                        'human-api-token'
+                    )
+                    await sql`drop trigger phase8_guard_legacy_binding on api_tokens`
+                    await sql`drop function public.phase8_guard_legacy_binding()`
+                    await sql`alter table api_tokens drop column enforce_agent_binding`
+                    await sql.begin((tx) => tx.unsafe(bindingSwitch))
+                } finally {
+                    await sql.end()
+                }
+            },
+            { migrate: async () => {} }
+        )
+    }
 )
 
 test(

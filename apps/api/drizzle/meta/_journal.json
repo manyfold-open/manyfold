@@ -78,6 +78,13 @@
       "when": 1788992412000,
       "tag": "0010_phase8_user_grant_retirement",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1789004348448,
+      "tag": "0011_phase8_a2a_binding_switch",
+      "breakpoints": true
     }
   ]
 }
