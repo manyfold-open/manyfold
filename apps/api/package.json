@@ -1,6 +1,6 @@
 {
     "name": "@manyfold/api",
-    "version": "0.76.2",
+    "version": "0.76.3",
     "private": true,
     "scripts": {
         "build": "nest build",
