@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 0.76.4
+
+### Patch Changes
+
+- [#295](https://github.com/manyfold-open/manyfold/pull/295) [`70c24ec`](https://github.com/manyfold-open/manyfold/commit/70c24ec1870bf210be935c4ede7445d4be945d19) Thanks [@yingca1](https://github.com/yingca1)! - Finish the Phase 8 database contract after the switch release is running: remove the retired agent-binding column, CLI grant session columns, and user-grant index. Drain retired A2A ephemeral credentials while retaining External A2A grants and their target/caller indexes. Deployments must run the switch release on every API instance before applying this contract.
+
+## 0.76.3
+
+### Patch Changes
+
+- [#302](https://github.com/manyfold-open/manyfold/pull/302) [`ae1dd05`](https://github.com/manyfold-open/manyfold/commit/ae1dd05c14776e00811e1b9c29edc4593513f12d) Thanks [@yingca1](https://github.com/yingca1)! - Keep External A2A grants target-bound during a rolling Phase 8 upgrade while leaving personal tokens unbound. A temporary database trigger maintains the binding flag for older API readers when switch writers omit it. Deploy this preparation release across the fleet before the separate column-removal release, which also removes the trigger.
+
 ## 0.76.2
 
 ### Patch Changes
