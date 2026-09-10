@@ -1,5 +1,12 @@
 # @manyfold/cli
 
+## 0.33.1
+
+### Patch Changes
+
+- [#287](https://github.com/manyfold-open/manyfold/pull/287) [`86b872a`](https://github.com/manyfold-open/manyfold/commit/86b872a4e98422eebec26a01cfb50c96d7759ae2) Thanks [@yingca1](https://github.com/yingca1)! - Daemon connection-success logs no longer include the authentication URL or its
+  bearer token. Existing server authentication remains compatible.
+
 ## 0.33.0
 
 ### Minor Changes
