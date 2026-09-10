@@ -84,6 +84,15 @@ const WORKSPACE_ENSURE_TIMEOUT_MS = 5_000
 // What the inspect got before a caller could bound it. Kept as the default so a
 // caller without an exec-health budget behaves exactly as it did.
 const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
+// After the sandbox CLI upgrade restarts the runner, how long to wait for the
+// restarted process's first heartbeat to carry the installed version (that
+// heartbeat is the write that moves cliVersion and clientFeatures). Bounded by
+// the caller's budget, not by a measurement: the upgrade request already spends
+// up to 180s on the install, and a wait that runs out only means the host row
+// catches up a little later. A fresh register+start reconnects at ~60-75s (see
+// DEFAULT_WAIT_ONLINE_MS); a restart skips the register.
+const RESTART_WAIT_MS = 45_000
+const STATUS_PROBE_TIMEOUT_MS = 30_000
 
 export interface SpriteExecFn {
     (args: {
@@ -183,6 +192,40 @@ export interface RunnerResolution {
     execFailure?: RunnerExecFailure
     workspace: { outcome: WorkspacePreflightOutcome; ensureMs?: number }
 }
+
+// What restartForInstalledCli did about the runner PROCESS after the sandbox
+// CLI upgrade swapped the binary under it. Every value is a valid end state for
+// the upgrade — the binary on disk is the new one regardless — and the three
+// that leave the old process running ('busy', 'restart-timeout', 'failed') are
+// exactly the pre-existing behaviour, now logged.
+export type RunnerRestartOutcome =
+    // no managed runner host for this sprite: nothing runs the old build
+    | 'no-runner'
+    // registered but no process: the next bring-up starts the new binary
+    | 'not-running'
+    // the running daemon already reports the installed version
+    | 'current'
+    // live exec/pty sessions: left on the old build, a turn is worth more
+    | 'busy'
+    // stopped, started, and the host row reports the installed version
+    | 'restarted'
+    // started, but the row did not report it within RESTART_WAIT_MS
+    | 'restart-timeout'
+    // the status probe or the restart exec itself failed
+    | 'failed'
+
+// `mf daemon status --json` as seen from the runner profile inside the sprite.
+export type RunnerProcessState =
+    | { kind: 'not-running' }
+    // A process is there but answered no health: a daemon older than the
+    // control socket. Its version and activity cannot be read from outside.
+    | { kind: 'unknown' }
+    | {
+          kind: 'running'
+          version: string | null
+          activeExecs: number
+          activePtys: number
+      }
 
 interface RunnerSpriteState {
     installed: boolean
@@ -371,6 +414,71 @@ export class RunnerManagerService {
         })
         this.bringUps.set(args.spriteName, attempt)
         return attempt
+    }
+
+    // The sandbox CLI upgrade installs over ~/.local/bin/mf, but the runner is a
+    // long-lived process with no supervisor: nothing re-execs it, its own
+    // daemon.update refuses without an init unit, auto-update is off for a
+    // manual start, and a warm sprite resume brings the OLD process back. Its
+    // heartbeat keeps reporting the build it was started with — cliVersion and
+    // clientFeatures alike — so every capability gate reads the pre-upgrade
+    // daemon while the sandbox row says the upgrade landed.
+    // Seen on staging 2026-09-10: sandbox row 0.33.1-dev…ab03120, runner row
+    // 0.31.2-dev…909c84a without auth-profiles.v1, and the runtime page kept
+    // asking for the CLI update the Update Center had just reported done.
+    //
+    // Never at the cost of a turn: a runner with live sessions is left alone,
+    // and nothing here throws — the caller's upgrade already landed on disk.
+    async restartForInstalledCli(args: {
+        userId: string
+        spriteName: string
+        exec: SpriteExecFn
+        installedVersion: string
+        waitMs?: number
+    }): Promise<RunnerRestartOutcome> {
+        try {
+            const existing = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: runnerHostName(args.spriteName)
+            })
+            if (!existing) return 'no-runner'
+            const state = await this.probeRunnerProcess(args)
+            if (state.kind === 'not-running') return 'not-running'
+            if (state.kind === 'running') {
+                if (state.version === args.installedVersion) return 'current'
+                if (state.activeExecs > 0 || state.activePtys > 0) {
+                    this.logger.warn(
+                        `runner busy, keeping ${state.version ?? 'unknown'} sprite=${args.spriteName} execs=${state.activeExecs} ptys=${state.activePtys}`
+                    )
+                    return 'busy'
+                }
+            }
+            // 'unknown' falls through on purpose: a daemon too old to answer
+            // its own control socket is the one a restart helps most.
+            await this.start(args)
+            const reported = await this.waitForCliVersion({
+                userId: args.userId,
+                spriteName: args.spriteName,
+                version: args.installedVersion,
+                waitMs: args.waitMs
+            })
+            if (!reported) {
+                const tail = await this.logRunnerTail(args)
+                this.logger.warn(
+                    `runner did not report ${args.installedVersion} after restart sprite=${args.spriteName} daemonId=${existing.id} tail=${tail ?? '(none)'}`
+                )
+                return 'restart-timeout'
+            }
+            this.logger.log(
+                `runner restarted on ${args.installedVersion} sprite=${args.spriteName} daemonId=${existing.id}`
+            )
+            return 'restarted'
+        } catch (err) {
+            this.logger.warn(
+                `runner restart failed sprite=${args.spriteName} class=${errorClass(err)}`
+            )
+            return 'failed'
+        }
     }
 
     // A custom workspace (CreateAgentDto.workspace on a shared sandbox) lives
@@ -761,7 +869,9 @@ export class RunnerManagerService {
             )
     }
 
-    private async start(args: EnsureRunnerArgs): Promise<void> {
+    private async start(
+        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName'>
+    ): Promise<void> {
         // `daemon stop` first: we only get here because the runner is NOT online,
         // and a runner frozen by sprite suspension leaves its pid/lock behind, so
         // `daemon start` refuses and nothing ever connects. Stopping is a no-op
@@ -796,7 +906,7 @@ export class RunnerManagerService {
     // bring-up is a dead end from the API side — which is exactly where the
     // first staging attempt stalled.
     private async logRunnerTail(
-        args: EnsureRunnerArgs
+        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName'>
     ): Promise<string | null> {
         const res = await args
             .exec({
@@ -956,10 +1066,93 @@ export class RunnerManagerService {
         }
     }
 
+    // Online is not enough after a restart: the socket lease flips on connect,
+    // the version on the first heartbeat, and a row that is online on the OLD
+    // version is exactly the state a restart is meant to leave.
+    private async waitForCliVersion(args: {
+        userId: string
+        spriteName: string
+        version: string
+        waitMs?: number
+    }): Promise<boolean> {
+        const deadline = Date.now() + (args.waitMs ?? RESTART_WAIT_MS)
+        for (;;) {
+            const host = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: runnerHostName(args.spriteName)
+            })
+            if (host?.online && host.cliVersion === args.version) return true
+            if (Date.now() >= deadline) return false
+            await this.delay(POLL_INTERVAL_MS)
+        }
+    }
+
+    // The running daemon's own word on what it is and whether it is busy, via
+    // the control socket the runner profile owns. The host row cannot answer
+    // either: its cliVersion is whatever the process last heartbeated (true,
+    // but that is the question), and the API has no cross-instance view of
+    // live sessions.
+    private async probeRunnerProcess(
+        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName'>
+    ): Promise<RunnerProcessState> {
+        const res = await args.exec({
+            cmd: [
+                'bash',
+                '-lc',
+                `export MF_PROFILE=${RUNNER_PROFILE}; "$HOME/.local/bin/mf" daemon status --json`
+            ],
+            timeoutMs: STATUS_PROBE_TIMEOUT_MS
+        })
+        if (res.exitCode !== 0) {
+            this.logger.warn(
+                `runner status probe failed sprite=${args.spriteName} exit=${res.exitCode}`
+            )
+            return { kind: 'unknown' }
+        }
+        return parseRunnerStatus(res.stdout)
+    }
+
     private apiUrl(): string {
         const base = process.env.PUBLIC_API_BASE_URL?.replace(/\/+$/, '')
         return base ? `${base}/api` : DEFAULT_API_BASE_URL
     }
+}
+
+// The `--json` payload of `mf daemon status`: `local` is the control-socket
+// health of the running process (null when there is none, or when the daemon
+// predates the socket), `localPid` the pid-file process if any. Read from the
+// first `{` to the last `}` because a login shell may print before the CLI does.
+export const parseRunnerStatus = (stdout: string): RunnerProcessState => {
+    let body: {
+        configured?: unknown
+        localPid?: unknown
+        local?: {
+            version?: unknown
+            activeExecs?: unknown
+            activePtys?: unknown
+        } | null
+    }
+    try {
+        body = JSON.parse(
+            stdout.slice(stdout.indexOf('{'), stdout.lastIndexOf('}') + 1)
+        ) as typeof body
+    } catch {
+        return { kind: 'unknown' }
+    }
+    if (body.configured === false) return { kind: 'not-running' }
+    const local = body.local
+    if (local && typeof local === 'object')
+        return {
+            kind: 'running',
+            version: typeof local.version === 'string' ? local.version : null,
+            activeExecs:
+                typeof local.activeExecs === 'number' ? local.activeExecs : 0,
+            activePtys:
+                typeof local.activePtys === 'number' ? local.activePtys : 0
+        }
+    if (body.localPid === null || body.localPid === undefined)
+        return { kind: 'not-running' }
+    return { kind: 'unknown' }
 }
 
 // The token we send IS `ldt_`-prefixed, so the CLI complaining that it is not
