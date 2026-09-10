@@ -27,15 +27,14 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
     const token = 'fixture-daemon-bearer/+='
     const logs: string[] = []
     let receivedToken: string | null = null
+    let receivedUrl: string | undefined
     const httpServer = createServer()
     const wss = new WebSocketServer({ server: httpServer })
     const firstMessage = new Promise<Record<string, unknown>>(
         (resolve, reject) => {
             wss.on('connection', (socket: WebSocket, request) => {
-                receivedToken = new URL(
-                    request.url ?? '/',
-                    'http://localhost'
-                ).searchParams.get('token')
+                receivedUrl = request.url
+                receivedToken = request.headers.authorization ?? null
                 socket.once('message', (raw) =>
                     resolve(JSON.parse(String(raw)) as Record<string, unknown>)
                 )
@@ -62,9 +61,10 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
         assert.equal(hello.type, 'hello')
         assert.equal(
             receivedToken,
-            token,
-            'legacy server authentication still receives the bearer'
+            `Bearer ${token}`,
+            'daemon authentication travels only in the Authorization header'
         )
+        assert.equal(receivedUrl, '/daemon/ws')
         assert.ok(logs.some((message) => message.startsWith('ws connected')))
         assert.ok(!logs.some((message) => message.includes(token)))
         assert.ok(
@@ -98,6 +98,10 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
         assert.ok(
             (hello.clientFeatures as string[]).includes('account.inspect'),
             'the client declares it answers account.inspect for the runtime page'
+        )
+        assert.ok(
+            (hello.clientFeatures as string[]).includes('ws.auth-header'),
+            'the fleet can prove when legacy query authentication is unused'
         )
     } finally {
         client.stop()

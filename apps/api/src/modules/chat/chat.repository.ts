@@ -404,6 +404,8 @@ export class ChatRepository {
             .where(eq(chatSessions.id, sessionId))
     }
 
+    // A moved ref names a different transcript file, so the covered prefix
+    // recorded for the old one (runtimeSyncCursor) starts over with it.
     async updateFrameworkSessionRef(
         sessionId: string,
         ref: string | null,
@@ -415,15 +417,72 @@ export class ChatRepository {
                     throw new TurnFenceLostError(fence.messageId)
                 await tx
                     .update(chatSessions)
-                    .set({ frameworkSessionRef: ref, updatedAt: new Date() })
+                    .set({
+                        frameworkSessionRef: ref,
+                        runtimeSyncCursor: null,
+                        updatedAt: new Date()
+                    })
                     .where(eq(chatSessions.id, sessionId))
             })
             return
         }
         await this.db
             .update(chatSessions)
-            .set({ frameworkSessionRef: ref, updatedAt: new Date() })
+            .set({
+                frameworkSessionRef: ref,
+                runtimeSyncCursor: null,
+                updatedAt: new Date()
+            })
             .where(eq(chatSessions.id, sessionId))
+    }
+
+    // The turn that just settled on the runtime records how far its transcript
+    // file now reaches (see chatSessions.runtimeSyncCursor); null when it could
+    // not count, which sends the next sync back to the content diff.
+    async setRuntimeSyncCursor(
+        sessionId: string,
+        cursor: number | null,
+        fence?: TurnExecutionFence
+    ): Promise<void> {
+        const apply = async (tx: Database | DatabaseTx): Promise<void> => {
+            await tx
+                .update(chatSessions)
+                .set({ runtimeSyncCursor: cursor })
+                .where(eq(chatSessions.id, sessionId))
+        }
+        if (fence) {
+            await this.db.transaction(async (tx) => {
+                if (!(await lockTurnSessionFence(tx, fence, sessionId)))
+                    throw new TurnFenceLostError(fence.messageId)
+                await apply(tx)
+            })
+            return
+        }
+        await apply(this.db)
+    }
+
+    // The sync moves the cursor only over an idle session and only from the
+    // value it read, so a turn that settled in between — whose own cursor is
+    // newer and covers more — is never rolled back to a shorter prefix.
+    async advanceRuntimeSyncCursor(
+        sessionId: string,
+        from: number | null,
+        to: number
+    ): Promise<boolean> {
+        const rows = await this.db
+            .update(chatSessions)
+            .set({ runtimeSyncCursor: to })
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    isNull(chatSessions.inflightMessageId),
+                    from === null
+                        ? isNull(chatSessions.runtimeSyncCursor)
+                        : eq(chatSessions.runtimeSyncCursor, from)
+                )
+            )
+            .returning({ id: chatSessions.id })
+        return rows.length > 0
     }
 
     // Shallow-merges a patch into the message's capability metadata (the jsonb
@@ -492,7 +551,11 @@ export class ChatRepository {
                     throw new TurnFenceLostError(fence.messageId)
                 const cleared = await tx
                     .update(chatSessions)
-                    .set({ frameworkSessionRef: null, updatedAt: new Date() })
+                    .set({
+                        frameworkSessionRef: null,
+                        runtimeSyncCursor: null,
+                        updatedAt: new Date()
+                    })
                     .where(
                         and(
                             eq(chatSessions.id, sessionId),
@@ -504,7 +567,11 @@ export class ChatRepository {
             })
         const cleared = await this.db
             .update(chatSessions)
-            .set({ frameworkSessionRef: null, updatedAt: new Date() })
+            .set({
+                frameworkSessionRef: null,
+                runtimeSyncCursor: null,
+                updatedAt: new Date()
+            })
             .where(
                 and(
                     eq(chatSessions.id, sessionId),

@@ -155,7 +155,7 @@ const authReturning = (principal: Record<string, unknown>): BearerAuthService =>
         verifyBearerToken: async () => principal
     }) as unknown as BearerAuthService
 
-test('legacy a2a-grant token (callerAgentId set) still authenticates', async () => {
+test('retired caller-bound tokens have no internal DB-token fallback', async () => {
     const tickets = ticketSvc()
     const auth = authReturning({
         userId: 'user-1',
@@ -167,17 +167,16 @@ test('legacy a2a-grant token (callerAgentId set) still authenticates', async () 
         callerAgentId: 'agt_caller',
         createdVia: 'api'
     })
-    const ctx = await authenticateA2aRequest(
-        auth,
-        reqWith('nca_legacy'),
-        'agt_target',
-        tickets,
-        tokensAllowing(false)
+    await assert.rejects(
+        () => authenticateA2aRequest(
+            auth,
+            reqWith('nca_legacy'),
+            'agt_target',
+            tickets,
+            tokensAllowing(false)
+        ),
+        (error: unknown) => error instanceof A2aHttpError && error.status === 403
     )
-    assert.equal(ctx.callerAgentId, 'agt_caller')
-    assert.equal(ctx.targetAgentId, 'agt_target')
-    assert.equal(ctx.tokenId, 'pat_1')
-    assert.equal(ctx.externalSubject, null)
 })
 
 test('external client token bound to this target authenticates as an external subject', async () => {

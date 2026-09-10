@@ -50,6 +50,7 @@ import {
     SessionReaderRegistry,
     CandidateScanCache,
     type CandidateListing,
+    type ReaderResult,
     type RecoveredMessage,
     type RecoveredRawSource,
     type SessionReader
@@ -811,85 +812,117 @@ export class SessionRecoveryService {
             openclawRpc?.disconnect()
         }
 
-        const comparison = compareRecoveryMessages(
-            result.messages,
-            existingMessages,
-            session.id
-        )
-        // A TUI turn that is still streaming has already written its user line
-        // but an assistant entry with no text yet; storing that shell would
-        // freeze an empty bubble (the finished turn later diffs as a NEW
-        // message, so the shell never fills in). Skip anything that collapses
-        // to no content — the next sync picks the finished turn up whole.
-        const missing = comparison.missingRecoveredMessages.filter(
-            (msg) => collapseTextBlocks(msg.contentBlocks).length > 0
-        )
         const warnings = [...result.warnings]
-        if (comparison.degraded)
-            warnings.push(
-                'session too large for an exact diff; some terminal messages may not have synced'
+        // Past the cursor the file holds only what the TUI added since the
+        // API's last turn on it (or the last sync), so those lines go in as
+        // they are. There is nothing to diff them against: the cloud's rows
+        // for the API's own turns were persisted from the live stream, whose
+        // shape (`command_execution`/`item_N`) never equals the transcript's
+        // (`exec_command`/`call_…`), so a content diff read every such turn
+        // as new and appended it a second time. A session with no cursor yet
+        // — made before cursors, ref just moved, or the last turn could not
+        // count — diffs by content once and leaves with one.
+        const cursor =
+            typeof session.runtimeSyncCursor === 'number'
+                ? session.runtimeSyncCursor
+                : null
+        const settledEnd = settledTranscriptEnd(result)
+        let candidates: RecoveredMessage[]
+        if (cursor !== null && settledEnd !== null) {
+            candidates = result.messages.filter((msg) =>
+                messageStartsAfter(msg, cursor)
             )
-        if (missing.length === 0)
-            return {
-                appended: 0,
-                recoveredSourceCount: 0,
-                skipped: null,
-                warnings
-            }
-
-        // Order the appended messages after everything already stored, then let
-        // their own transcript timestamps sequence them among themselves.
-        const lastExistingMs = existingRows.reduce(
-            (max, row) => Math.max(max, row.createdAt.getTime()),
-            0
+        } else {
+            const comparison = compareRecoveryMessages(
+                result.messages,
+                existingMessages,
+                session.id
+            )
+            candidates = comparison.missingRecoveredMessages
+            if (comparison.degraded)
+                warnings.push(
+                    'session too large for an exact diff; some terminal messages may not have synced'
+                )
+        }
+        // A turn the transcript shows still running stays out whole until a
+        // later sync. Where the reader cannot see turn boundaries, an
+        // assistant entry with no content yet is the tell; storing that shell
+        // would freeze an empty bubble in (the finished turn later reads as
+        // new).
+        const missing = candidates.filter(
+            (msg) =>
+                messageEndsBy(msg, settledEnd) &&
+                collapseTextBlocks(msg.contentBlocks).length > 0
         )
-        const fallback = new Date(Math.max(Date.now(), lastExistingMs + 1))
-        const messageCreatedAts = orderedRecoveredMessageDates(
-            missing,
-            fallback
-        )
-        const messageRows = missing.map(
-            (msg, index): NewChatMessage => ({
-                id: randomUUID(),
+        let appended = 0
+        let recoveredSourceCount = 0
+        if (missing.length > 0) {
+            // Order the appended messages after everything already stored,
+            // then let their own transcript timestamps sequence them among
+            // themselves.
+            const lastExistingMs = existingRows.reduce(
+                (max, row) => Math.max(max, row.createdAt.getTime()),
+                0
+            )
+            const fallback = new Date(Math.max(Date.now(), lastExistingMs + 1))
+            const messageCreatedAts = orderedRecoveredMessageDates(
+                missing,
+                fallback
+            )
+            const messageRows = missing.map(
+                (msg, index): NewChatMessage => ({
+                    id: randomUUID(),
+                    sessionId: session.id,
+                    role: msg.role,
+                    contentBlocksJson: collapseTextBlocks(msg.contentBlocks),
+                    capabilityEventsJson: recoveredMessageMetadata({
+                        sourceRef: ref,
+                        sourceFile: result.sourceFile,
+                        externalId: msg.externalId,
+                        model: msg.model ?? null
+                    }),
+                    createdAt: messageCreatedAts[index]
+                })
+            )
+            const sourceRows = buildRecoverySourceRowsForMessages({
+                recoveredMessages: missing,
+                messageRows,
                 sessionId: session.id,
-                role: msg.role,
-                contentBlocksJson: collapseTextBlocks(msg.contentBlocks),
-                capabilityEventsJson: recoveredMessageMetadata({
-                    sourceRef: ref,
-                    sourceFile: result.sourceFile,
-                    externalId: msg.externalId,
-                    model: msg.model ?? null
-                }),
-                createdAt: messageCreatedAts[index]
+                framework: agent.framework,
+                runtime: agent.runtime,
+                sourceRef: ref,
+                sourceFile: result.sourceFile
             })
-        )
-        const sourceRows = buildRecoverySourceRowsForMessages({
-            recoveredMessages: missing,
-            messageRows,
-            sessionId: session.id,
-            framework: agent.framework,
-            runtime: agent.runtime,
-            sourceRef: ref,
-            sourceFile: result.sourceFile
-        })
-        const appendResult = await this.repo.appendRecoveredMessages(
-            session.id,
-            messageRows,
-            sourceRows
-        )
-        if (appendResult.conflicted)
-            return {
-                appended: 0,
-                recoveredSourceCount: 0,
-                skipped: 'inflight',
-                warnings
-            }
-        this.log.log(
-            `synced runtime session into cloud session=${session.id} framework=${agent.framework} appended=${appendResult.appended} from=${result.sourceFile}`
-        )
+            const appendResult = await this.repo.appendRecoveredMessages(
+                session.id,
+                messageRows,
+                sourceRows
+            )
+            if (appendResult.conflicted)
+                return {
+                    appended: 0,
+                    recoveredSourceCount: 0,
+                    skipped: 'inflight',
+                    warnings
+                }
+            appended = appendResult.appended
+            recoveredSourceCount = appendResult.upsertedSources
+            this.log.log(
+                `synced runtime session into cloud session=${session.id} framework=${agent.framework} appended=${appended} from=${result.sourceFile}`
+            )
+        }
+        // Everything up to settledEnd is now in the cloud — appended, already
+        // there, or contextual and dropped. A turn that settled meanwhile
+        // holds a newer count and wins.
+        if (settledEnd !== null && settledEnd !== cursor)
+            await this.repo.advanceRuntimeSyncCursor(
+                session.id,
+                cursor,
+                settledEnd
+            )
         return {
-            appended: appendResult.appended,
-            recoveredSourceCount: appendResult.upsertedSources,
+            appended,
+            recoveredSourceCount,
             skipped: null,
             warnings
         }
@@ -1012,6 +1045,22 @@ export class SessionRecoveryService {
         }
     }
 }
+
+// Where the transcript is settled up to: its last complete line, or the line
+// before a turn it shows still running. Null when the reader cannot count.
+const settledTranscriptEnd = (result: ReaderResult): number | null => {
+    if (result.lineCount === undefined) return null
+    return result.openTurnStartSeq != null
+        ? result.openTurnStartSeq - 1
+        : result.lineCount
+}
+
+const messageStartsAfter = (msg: RecoveredMessage, cursor: number): boolean =>
+    msg.sources.length > 0 &&
+    msg.sources.every((source) => source.sourceSeq > cursor)
+
+const messageEndsBy = (msg: RecoveredMessage, end: number | null): boolean =>
+    end === null || msg.sources.every((source) => source.sourceSeq <= end)
 
 // The cloud's version of a transcript's one-line excerpt: the text of a stored
 // message, collapsed the same way.
