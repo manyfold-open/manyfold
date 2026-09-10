@@ -1,5 +1,15 @@
 # @manyfold/web
 
+## 0.69.1
+
+### Patch Changes
+
+- [#323](https://github.com/manyfold-open/manyfold/pull/323) [`3eede59`](https://github.com/manyfold-open/manyfold/commit/3eede59bbfb385092e23bede3639732864a90e1e) Thanks [@yingca1](https://github.com/yingca1)! - Chat errors now include a server-classified cause used by the web workbench and
+  terminal telemetry. Live events, replayed streams and historical messages use
+  the same classification rules. The web no longer guesses authentication,
+  billing or thread contention from error wording. Retryability remains the
+  adapter's explicit decision.
+
 ## 0.69.0
 
 ### Minor Changes
