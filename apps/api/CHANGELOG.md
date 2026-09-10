@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 0.76.2
+
+### Patch Changes
+
+- [#296](https://github.com/manyfold-open/manyfold/pull/296) [`d1ab6b5`](https://github.com/manyfold-open/manyfold/commit/d1ab6b5baa4837222aef6194c23d6a90ef4751a0) Thanks [@yingca1](https://github.com/yingca1)! - Keep a single managed activation directory in framework tool-child PATH after login and repeated execution, including Gemini bootstrap and direct Sprite execution.
+
 ## 0.76.1
 
 ### Patch Changes
