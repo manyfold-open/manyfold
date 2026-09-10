@@ -56,11 +56,10 @@ export class A2aGrantsController {
         @Param('agentId') agentId: string,
         @Body() body: MintA2aGrantBody
     ): Promise<A2aGrantMintResponse> {
-        const callerAgentId = body?.callerAgentId?.trim() || null
         const minted = await this.tokens.mintA2aGrant({
             userId: user.userId,
             targetAgentId: agentId,
-            callerAgentId,
+            callerAgentId: body?.callerAgentId ?? null,
             name: body?.name?.trim() || undefined,
             expiresInDays: body?.expiresInDays,
             replaceExisting: body?.replaceExisting ?? false
@@ -69,7 +68,7 @@ export class A2aGrantsController {
             token: minted.plaintext,
             tokenId: minted.tokenId,
             scopes: minted.scopes,
-            callerAgentId,
+            callerAgentId: null,
             expiresAt: minted.expiresAt ? minted.expiresAt.toISOString() : null
         }
     }

@@ -15,6 +15,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import {
     BadRequestException,
     ConflictException,
+    GoneException,
     Inject,
     Injectable,
     InternalServerErrorException,
@@ -140,7 +141,15 @@ export class ApiTokenService {
         expiresInDays?: number
         replaceExisting?: boolean
     }): Promise<MintedApiToken> {
-        return this.db.transaction((tx) => this.mintA2aGrantInTx(tx, args))
+        if (args.callerAgentId != null && args.callerAgentId !== '')
+            throw new GoneException({
+                code: 'a2a_peer_bearer_retired',
+                message:
+                    'Caller-bound A2A tokens are retired. Use the batch peer-grant endpoint.'
+            })
+        return this.db.transaction((tx) =>
+            this.mintA2aGrantInTx(tx, { ...args, callerAgentId: null })
+        )
     }
 
     async mintA2aGrantInTx(
@@ -153,7 +162,6 @@ export class ApiTokenService {
             name?: string
             expiresInDays?: number
             replaceExisting?: boolean
-            issueBearer?: boolean
         }
     ): Promise<MintedApiToken> {
         const scopes = normalizeGrantableScopes(
@@ -191,14 +199,14 @@ export class ApiTokenService {
                 )
 
             const [existing] = await tx
-                .select({ id: apiTokens.id })
-                .from(apiTokens)
+                .select({ id: a2aAgentGrants.id })
+                .from(a2aAgentGrants)
                 .where(
                     and(
-                        eq(apiTokens.agentId, args.targetAgentId),
-                        eq(apiTokens.callerAgentId, callerAgentId),
-                        eq(apiTokens.tokenKind, 'a2a-grant'),
-                        isNull(apiTokens.revokedAt)
+                        eq(a2aAgentGrants.userId, args.userId),
+                        eq(a2aAgentGrants.targetAgentId, args.targetAgentId),
+                        eq(a2aAgentGrants.callerAgentId, callerAgentId),
+                        isNull(a2aAgentGrants.revokedAt)
                     )
                 )
                 .limit(1)
@@ -207,10 +215,6 @@ export class ApiTokenService {
                     throw new ConflictException(
                         `caller ${callerAgentId} already has an active A2A grant for agent ${args.targetAgentId}`
                     )
-                await tx
-                    .update(apiTokens)
-                    .set({ revokedAt: new Date() })
-                    .where(eq(apiTokens.id, existing.id))
                 await this.writeAuditInTx(tx, {
                     actorId: args.userId,
                     action: auditAction.GRANT_REVOKED,
@@ -222,25 +226,38 @@ export class ApiTokenService {
                     }
                 })
             }
+            // Keep the legacy uniqueness slot clear while prepared and final
+            // writers overlap. Authorization already reads the typed grant.
+            await tx
+                .update(apiTokens)
+                .set({ revokedAt: new Date() })
+                .where(
+                    and(
+                        eq(apiTokens.userId, args.userId),
+                        eq(apiTokens.agentId, args.targetAgentId),
+                        eq(apiTokens.callerAgentId, callerAgentId),
+                        eq(apiTokens.tokenKind, 'a2a-grant'),
+                        isNull(apiTokens.revokedAt)
+                    )
+                )
         }
 
-        const minted =
-            args.issueBearer === false
-                ? await this.mintBearerlessA2aGrantRecord(tx, {
+        const minted = callerAgentId
+            ? await this.mintBearerlessA2aGrantRecord(tx, {
+                  userId: args.userId,
+                  name: args.name ?? `a2a grant ${args.targetAgentId}`,
+                  scopes,
+                  expiresInDays: args.expiresInDays
+              })
+            : await this.mint(
+                  {
                       userId: args.userId,
                       name: args.name ?? `a2a grant ${args.targetAgentId}`,
                       scopes,
                       expiresInDays: args.expiresInDays
-                  })
-                : await this.mint(
-                      {
-                          userId: args.userId,
-                          name: args.name ?? `a2a grant ${args.targetAgentId}`,
-                          scopes,
-                          expiresInDays: args.expiresInDays
-                      },
-                      tx
-                  )
+                  },
+                  tx
+              )
 
         await tx
             .update(apiTokens)
@@ -264,8 +281,8 @@ export class ApiTokenService {
             }
         })
 
-        // Peer grants still mirror their relationship in a2a_agent_grants.
-        // External caller-less tokens keep their target allowlist in api_tokens.
+        // The mirror keeps old API instances working during the preparation
+        // rollout; the policy owns the same externally visible identifier.
         if (callerAgentId) {
             await tx
                 .update(a2aAgentGrants)
@@ -278,7 +295,7 @@ export class ApiTokenService {
                     )
                 )
             await tx.insert(a2aAgentGrants).values({
-                id: createObjectId('a2aAgentGrant'),
+                id: minted.tokenId,
                 callerAgentId,
                 targetAgentId: args.targetAgentId,
                 userId: args.userId,
@@ -351,7 +368,11 @@ export class ApiTokenService {
         expiresInDays?: number
         replaceExisting?: boolean
     }): Promise<
-        Array<{ callerAgentId: string; tokenId: string; expiresAt: Date | null }>
+        Array<{
+            callerAgentId: string
+            tokenId: string
+            expiresAt: Date | null
+        }>
     > {
         const unique = [
             ...new Set(
@@ -371,8 +392,7 @@ export class ApiTokenService {
                     targetAgentId: args.targetAgentId,
                     callerAgentId,
                     expiresInDays: args.expiresInDays,
-                    replaceExisting: args.replaceExisting ?? false,
-                    issueBearer: false
+                    replaceExisting: args.replaceExisting ?? false
                 })
                 out.push({
                     callerAgentId,
@@ -453,28 +473,55 @@ export class ApiTokenService {
         userId: string,
         targetAgentId: string
     ): Promise<A2aGrantSummary[]> {
-        const rows = await this.db
-            .select({
-                id: apiTokens.id,
-                callerAgentId: apiTokens.callerAgentId,
-                callerAgentName: agents.name,
-                name: apiTokens.name,
-                scopes: apiTokens.scopes,
-                createdAt: apiTokens.createdAt,
-                expiresAt: apiTokens.expiresAt,
-                lastUsedAt: apiTokens.lastUsedAt
-            })
-            .from(apiTokens)
-            .leftJoin(agents, eq(agents.id, apiTokens.callerAgentId))
-            .where(
-                and(
-                    eq(apiTokens.userId, userId),
-                    eq(apiTokens.agentId, targetAgentId),
-                    eq(apiTokens.tokenKind, 'a2a-grant'),
-                    isNull(apiTokens.revokedAt)
+        const [peers, external] = await Promise.all([
+            this.db
+                .select({
+                    id: a2aAgentGrants.id,
+                    callerAgentId: a2aAgentGrants.callerAgentId,
+                    callerAgentName: agents.name,
+                    name: a2aAgentGrants.name,
+                    scopes: a2aAgentGrants.scopes,
+                    createdAt: a2aAgentGrants.createdAt,
+                    expiresAt: a2aAgentGrants.expiresAt,
+                    lastUsedAt: a2aAgentGrants.lastUsedAt
+                })
+                .from(a2aAgentGrants)
+                .leftJoin(agents, eq(agents.id, a2aAgentGrants.callerAgentId))
+                .where(
+                    and(
+                        eq(a2aAgentGrants.userId, userId),
+                        eq(a2aAgentGrants.targetAgentId, targetAgentId),
+                        isNull(a2aAgentGrants.revokedAt)
+                    )
+                ),
+            this.db
+                .select({
+                    id: apiTokens.id,
+                    callerAgentId: apiTokens.callerAgentId,
+                    callerAgentName: agents.name,
+                    name: apiTokens.name,
+                    scopes: apiTokens.scopes,
+                    createdAt: apiTokens.createdAt,
+                    expiresAt: apiTokens.expiresAt,
+                    lastUsedAt: apiTokens.lastUsedAt
+                })
+                .from(apiTokens)
+                .leftJoin(agents, eq(agents.id, apiTokens.callerAgentId))
+                .where(
+                    and(
+                        eq(apiTokens.userId, userId),
+                        eq(apiTokens.agentId, targetAgentId),
+                        eq(apiTokens.tokenKind, 'a2a-grant'),
+                        isNull(apiTokens.callerAgentId),
+                        isNull(apiTokens.revokedAt)
+                    )
                 )
-            )
-            .orderBy(desc(apiTokens.createdAt))
+                .orderBy(desc(apiTokens.createdAt))
+        ])
+        // Peer policies and external credentials are disjoint list items.
+        const rows = [...peers, ...external].sort(
+            (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+        )
         return rows.map((row) => ({
             tokenId: row.id,
             callerAgentId: row.callerAgentId ?? null,
@@ -496,26 +543,25 @@ export class ApiTokenService {
     ): Promise<A2aOutboundGrantSummary[]> {
         const rows = await this.db
             .select({
-                id: apiTokens.id,
-                targetAgentId: apiTokens.agentId,
+                id: a2aAgentGrants.id,
+                targetAgentId: a2aAgentGrants.targetAgentId,
                 targetAgentName: agents.name,
                 targetExtras: agents.extras,
-                scopes: apiTokens.scopes,
-                createdAt: apiTokens.createdAt,
-                expiresAt: apiTokens.expiresAt,
-                lastUsedAt: apiTokens.lastUsedAt
+                scopes: a2aAgentGrants.scopes,
+                createdAt: a2aAgentGrants.createdAt,
+                expiresAt: a2aAgentGrants.expiresAt,
+                lastUsedAt: a2aAgentGrants.lastUsedAt
             })
-            .from(apiTokens)
-            .leftJoin(agents, eq(agents.id, apiTokens.agentId))
+            .from(a2aAgentGrants)
+            .leftJoin(agents, eq(agents.id, a2aAgentGrants.targetAgentId))
             .where(
                 and(
-                    eq(apiTokens.userId, userId),
-                    eq(apiTokens.callerAgentId, callerAgentId),
-                    eq(apiTokens.tokenKind, 'a2a-grant'),
-                    isNull(apiTokens.revokedAt)
+                    eq(a2aAgentGrants.userId, userId),
+                    eq(a2aAgentGrants.callerAgentId, callerAgentId),
+                    isNull(a2aAgentGrants.revokedAt)
                 )
             )
-            .orderBy(desc(apiTokens.createdAt))
+            .orderBy(desc(a2aAgentGrants.createdAt))
         return rows.map((row) => ({
             tokenId: row.id,
             targetAgentId: row.targetAgentId ?? '',
@@ -539,51 +585,22 @@ export class ApiTokenService {
         callerAgentId: string
     ): Promise<Array<{ userId: string; targetAgentId: string }>> {
         const now = new Date()
-        const [legacyRows, freshRows] = await Promise.all([
-            this.db
-                .select({
-                    userId: apiTokens.userId,
-                    targetAgentId: apiTokens.agentId
-                })
-                .from(apiTokens)
-                .where(
-                    and(
-                        eq(apiTokens.callerAgentId, callerAgentId),
-                        eq(apiTokens.tokenKind, 'a2a-grant'),
-                        isNull(apiTokens.revokedAt),
-                        or(
-                            isNull(apiTokens.expiresAt),
-                            gt(apiTokens.expiresAt, now)
-                        )
-                    )
-                ),
-            this.db
-                .select({
-                    userId: a2aAgentGrants.userId,
-                    targetAgentId: a2aAgentGrants.targetAgentId
-                })
-                .from(a2aAgentGrants)
-                .where(
-                    and(
-                        eq(a2aAgentGrants.callerAgentId, callerAgentId),
-                        isNull(a2aAgentGrants.revokedAt),
-                        or(
-                            isNull(a2aAgentGrants.expiresAt),
-                            gt(a2aAgentGrants.expiresAt, now)
-                        )
+        return this.db
+            .select({
+                userId: a2aAgentGrants.userId,
+                targetAgentId: a2aAgentGrants.targetAgentId
+            })
+            .from(a2aAgentGrants)
+            .where(
+                and(
+                    eq(a2aAgentGrants.callerAgentId, callerAgentId),
+                    isNull(a2aAgentGrants.revokedAt),
+                    or(
+                        isNull(a2aAgentGrants.expiresAt),
+                        gt(a2aAgentGrants.expiresAt, now)
                     )
                 )
-        ])
-        const seen = new Set<string>()
-        const out: Array<{ userId: string; targetAgentId: string }> = []
-        for (const row of [...legacyRows, ...freshRows]) {
-            if (!row.targetAgentId) continue
-            const key = `${row.userId}:${row.targetAgentId}`
-            if (seen.has(key)) continue
-            seen.add(key)
-            out.push({ userId: row.userId, targetAgentId: row.targetAgentId })
-        }
-        return out
+            )
     }
 
     // Whether a caller still holds an active (non-revoked, non-expired) A2A
@@ -595,40 +612,22 @@ export class ApiTokenService {
         targetAgentId: string
     ): Promise<boolean> {
         const now = new Date()
-        const [legacy, fresh] = await Promise.all([
-            this.db
-                .select({ id: apiTokens.id })
-                .from(apiTokens)
-                .where(
-                    and(
-                        eq(apiTokens.callerAgentId, callerAgentId),
-                        eq(apiTokens.agentId, targetAgentId),
-                        eq(apiTokens.tokenKind, 'a2a-grant'),
-                        isNull(apiTokens.revokedAt),
-                        or(
-                            isNull(apiTokens.expiresAt),
-                            gt(apiTokens.expiresAt, now)
-                        )
+        const [grant] = await this.db
+            .select({ id: a2aAgentGrants.id })
+            .from(a2aAgentGrants)
+            .where(
+                and(
+                    eq(a2aAgentGrants.callerAgentId, callerAgentId),
+                    eq(a2aAgentGrants.targetAgentId, targetAgentId),
+                    isNull(a2aAgentGrants.revokedAt),
+                    or(
+                        isNull(a2aAgentGrants.expiresAt),
+                        gt(a2aAgentGrants.expiresAt, now)
                     )
                 )
-                .limit(1),
-            this.db
-                .select({ id: a2aAgentGrants.id })
-                .from(a2aAgentGrants)
-                .where(
-                    and(
-                        eq(a2aAgentGrants.callerAgentId, callerAgentId),
-                        eq(a2aAgentGrants.targetAgentId, targetAgentId),
-                        isNull(a2aAgentGrants.revokedAt),
-                        or(
-                            isNull(a2aAgentGrants.expiresAt),
-                            gt(a2aAgentGrants.expiresAt, now)
-                        )
-                    )
-                )
-                .limit(1)
-        ])
-        return Boolean(legacy[0]) || Boolean(fresh[0])
+            )
+            .limit(1)
+        return Boolean(grant)
     }
 
     // Whether a token is the external-client A2A credential for a specific
@@ -832,6 +831,8 @@ export class ApiTokenService {
                 .select({
                     id: apiTokens.id,
                     agentId: apiTokens.agentId,
+                    callerAgentId: apiTokens.callerAgentId,
+                    tokenKind: apiTokens.tokenKind,
                     revokedAt: apiTokens.revokedAt
                 })
                 .from(apiTokens)
@@ -842,7 +843,14 @@ export class ApiTokenService {
                     )
                 )
                 .limit(1)
-            if (!row) return
+            if (!row) {
+                await this.revokePeerGrantInTx(tx, args)
+                return
+            }
+            if (row.tokenKind === 'a2a-grant' && row.callerAgentId) {
+                if (await this.revokePeerGrantInTx(tx, args)) return
+            }
+            if (row.revokedAt) return
             await tx
                 .update(apiTokens)
                 .set({ revokedAt: new Date() })
@@ -866,6 +874,7 @@ export class ApiTokenService {
         targetAgentId: string
     }): Promise<void> {
         await this.db.transaction(async (tx) => {
+            if (await this.revokePeerGrantInTx(tx, args)) return
             const [row] = await tx
                 .select({
                     id: apiTokens.id,
@@ -878,6 +887,7 @@ export class ApiTokenService {
                         eq(apiTokens.userId, args.userId),
                         eq(apiTokens.agentId, args.targetAgentId),
                         eq(apiTokens.tokenKind, 'a2a-grant'),
+                        isNull(apiTokens.callerAgentId),
                         isNull(apiTokens.revokedAt)
                     )
                 )
@@ -888,22 +898,6 @@ export class ApiTokenService {
                 .update(apiTokens)
                 .set({ revokedAt })
                 .where(eq(apiTokens.id, row.id))
-            if (row.callerAgentId) {
-                await tx
-                    .update(a2aAgentGrants)
-                    .set({ revokedAt })
-                    .where(
-                        and(
-                            eq(a2aAgentGrants.userId, args.userId),
-                            eq(
-                                a2aAgentGrants.targetAgentId,
-                                args.targetAgentId
-                            ),
-                            eq(a2aAgentGrants.callerAgentId, row.callerAgentId),
-                            isNull(a2aAgentGrants.revokedAt)
-                        )
-                    )
-            }
             await this.writeAuditInTx(tx, {
                 actorId: args.userId,
                 action: auditAction.GRANT_REVOKED,
@@ -917,6 +911,71 @@ export class ApiTokenService {
         })
     }
 
+    private async revokePeerGrantInTx(
+        tx: ApiTokenGrantTx,
+        args: { tokenId: string; userId: string; targetAgentId?: string }
+    ): Promise<boolean> {
+        const [grant] = await tx
+            .select({
+                id: a2aAgentGrants.id,
+                callerAgentId: a2aAgentGrants.callerAgentId,
+                targetAgentId: a2aAgentGrants.targetAgentId,
+                revokedAt: a2aAgentGrants.revokedAt
+            })
+            .from(a2aAgentGrants)
+            .where(
+                and(
+                    eq(a2aAgentGrants.id, args.tokenId),
+                    eq(a2aAgentGrants.userId, args.userId),
+                    args.targetAgentId === undefined
+                        ? undefined
+                        : eq(a2aAgentGrants.targetAgentId, args.targetAgentId)
+                )
+            )
+            .limit(1)
+        if (!grant) return false
+        const revokedAt = grant.revokedAt ?? new Date()
+        // Match the old writers' API-token -> policy lock order. Matching the
+        // grant ID prevents a stale revoke from closing its replacement.
+        const mirrored = await tx
+            .update(apiTokens)
+            .set({ revokedAt })
+            .where(
+                and(
+                    eq(apiTokens.id, grant.id),
+                    eq(apiTokens.userId, args.userId),
+                    eq(apiTokens.agentId, grant.targetAgentId),
+                    eq(apiTokens.callerAgentId, grant.callerAgentId),
+                    eq(apiTokens.tokenKind, 'a2a-grant'),
+                    isNull(apiTokens.revokedAt)
+                )
+            )
+            .returning({ id: apiTokens.id })
+        const changed = await tx
+            .update(a2aAgentGrants)
+            .set({ revokedAt })
+            .where(
+                and(
+                    eq(a2aAgentGrants.id, grant.id),
+                    eq(a2aAgentGrants.userId, args.userId),
+                    isNull(a2aAgentGrants.revokedAt)
+                )
+            )
+            .returning({ id: a2aAgentGrants.id })
+        if (mirrored.length || changed.length)
+            await this.writeAuditInTx(tx, {
+                actorId: args.userId,
+                action: auditAction.GRANT_REVOKED,
+                subject: grant.id,
+                meta: {
+                    agentId: grant.targetAgentId,
+                    callerAgentId: grant.callerAgentId,
+                    reason: 'user-revoke'
+                }
+            })
+        return true
+    }
+
     // Hard-delete a token and its shared credential. For ephemeral session
     // tokens (e.g. terminal) a soft-revoke would pile up dead rows forever;
     // deleting the token_credentials parent cascades to api_tokens (FK
@@ -925,7 +984,11 @@ export class ApiTokenService {
     async hardDelete(args: { tokenId: string; userId: string }): Promise<void> {
         await this.db.transaction(async (tx) => {
             const [row] = await tx
-                .select({ tokenHash: apiTokens.tokenHash })
+                .select({
+                    tokenHash: apiTokens.tokenHash,
+                    tokenKind: apiTokens.tokenKind,
+                    callerAgentId: apiTokens.callerAgentId
+                })
                 .from(apiTokens)
                 .where(
                     and(
@@ -935,6 +998,8 @@ export class ApiTokenService {
                 )
                 .limit(1)
             if (!row) return
+            if (row.tokenKind === 'a2a-grant' && row.callerAgentId)
+                await this.revokePeerGrantInTx(tx, args)
             await tx
                 .delete(tokenCredentials)
                 .where(eq(tokenCredentials.tokenHash, row.tokenHash))
@@ -973,9 +1038,7 @@ export class ApiTokenService {
             .where(inArray(tokenCredentials.tokenHash, stale))
             .returning({ tokenHash: tokenCredentials.tokenHash })
         if (deleted.length > 0)
-            this.log.log(
-                `reaped ${deleted.length} ephemeral terminal token(s)`
-            )
+            this.log.log(`reaped ${deleted.length} ephemeral terminal token(s)`)
     }
 
     private async writeAuditInTx(
@@ -1054,9 +1117,7 @@ export const normalizeApiTokenScopes = (
     return unique
 }
 
-export const normalizeGrantableScopes = (
-    scopes: unknown
-): GrantableScope[] => {
+export const normalizeGrantableScopes = (scopes: unknown): GrantableScope[] => {
     if (!Array.isArray(scopes) || scopes.length === 0)
         throw new BadRequestException(
             'grantable scopes must be a non-empty array'

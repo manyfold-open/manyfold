@@ -92,6 +92,13 @@
       "when": 1789005023332,
       "tag": "0012_phase8_user_grant_columns.contract",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1789042690395,
+      "tag": "0013_a2a_peer_authority_preparation",
+      "breakpoints": true
     }
   ]
 }
