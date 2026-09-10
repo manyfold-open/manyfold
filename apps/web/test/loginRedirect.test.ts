@@ -58,6 +58,27 @@ test('safeRedirectPath rejects anything that is not an internal path', () => {
     assert.equal(safeRedirectPath(null), null)
 })
 
+test('login destinations stay internal after browser URL normalization', () => {
+    for (const value of [
+        '/\\evil.com/agents',
+        '/\t/evil.com/agents',
+        '/\n/evil.com/agents',
+        '/\r/evil.com/agents',
+        'https://agent-x-dashboard.manyfold.ai/',
+        'http://agent-x-dashboard.manyfold.ai/',
+        'https://manyfold.ai/pricing'
+    ]) {
+        assert.equal(safeRedirectPath(value), null, JSON.stringify(value))
+    }
+    for (const value of [
+        '/agents?next=https://example.org/',
+        '/connections?connected=github',
+        '/agents/ag_1/chat#session=cs_1'
+    ]) {
+        assert.equal(safeRedirectPath(value), value)
+    }
+})
+
 // The guard is a React component and this suite has no renderer, so pin the
 // one property that matters: it must never bounce to a destination-less
 // /login. Reverting it to `to='/login'` has to fail something.

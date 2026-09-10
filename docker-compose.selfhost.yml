@@ -92,10 +92,6 @@ services:
             dockerfile: apps/web/Dockerfile
             args:
                 VITE_API_URL: ${MF_SELFHOST_API_URL:-http://localhost:2222/api}
-                # Absolute post-sign-in redirect targets. Empty = same-origin
-                # paths only (the safe self-host default); set to your domain
-                # when agent dashboards live on sibling subdomains.
-                VITE_DASHBOARD_ORIGIN_SUFFIXES: ${MF_SELFHOST_DASHBOARD_SUFFIXES:-}
         environment:
             # /r/* short links proxy to the API service-side.
             MF_API_ORIGIN: http://api:2222

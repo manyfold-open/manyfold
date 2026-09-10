@@ -119,7 +119,6 @@ const makeRuntime = (
         dashboardEnabled: false,
         dashboardState: null,
         keepAliveEnabled: false,
-        dashboardUrl: null,
         currentPhase: null,
         failureReason: null,
         primaryAgentId: `agt_${seq}`,
