@@ -1,5 +1,21 @@
 # @manyfold/api
 
+## 1.0.0
+
+### Major Changes
+
+- [#312](https://github.com/manyfold-open/manyfold/pull/312) [`540b929`](https://github.com/manyfold-open/manyfold/commit/540b929109ce074d666aa11e7e482477ce1fb9b3) Thanks [@yingca1](https://github.com/yingca1)! - Remove the retired k8s dashboard's `dashboardUrl` field from runtime summaries
+  and the exported `AgentRuntimeSummary` type. The field always returned null;
+  sprite dashboards continue to use the existing control-ui URL endpoint.
+
+    All web sign-in methods now accept only internal redirect paths. Remove
+    `VITE_DASHBOARD_ORIGIN_SUFFIXES` and `MF_SELFHOST_DASHBOARD_SUFFIXES` from build
+    configuration; the retired dashboard redirect flow no longer uses them.
+
+### Patch Changes
+
+- [#314](https://github.com/manyfold-open/manyfold/pull/314) [`6afa649`](https://github.com/manyfold-open/manyfold/commit/6afa6490cc45ec2a17b1da73f7bee8e7896cc173) Thanks [@yingca1](https://github.com/yingca1)! - Managing added accounts on a sandbox runtime now wakes the sandbox and its runner instead of timing out against a frozen one. Adding, signing in, signing out and removing an account resume a sleeping sandbox on the user's behalf; a runtime whose sandbox has never run a turn, or whose runner is not answering, shows a "Start runner" action on the runtime page instead of a dead-end notice.
+
 ## 0.76.5
 
 ### Patch Changes
