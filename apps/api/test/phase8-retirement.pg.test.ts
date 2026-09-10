@@ -27,6 +27,154 @@ const bindingSwitch = readFileSync(
     'drizzle/0011_phase8_a2a_binding_switch.sql',
     'utf8'
 )
+const contract = readFileSync(
+    'drizzle/0012_phase8_user_grant_columns.contract.sql',
+    'utf8'
+)
+
+test(
+    'contract upgrades the switched schema without changing A2A or browser credentials',
+    { skip: !RUN },
+    async () => {
+        await withScratchDatabase(
+            'phase8_contract',
+            async ({ url }) => {
+                const sql = postgres(url, { max: 1, onnotice: () => {} })
+                const db = drizzle(sql, { schema })
+                try {
+                    const journal = JSON.parse(
+                        readFileSync('drizzle/meta/_journal.json', 'utf8')
+                    )
+                    const boundary = journal.entries.find(
+                        (entry: { tag: string }) =>
+                            entry.tag ===
+                            '0012_phase8_user_grant_columns.contract'
+                    ).when as number
+                    for (const migration of readMigrationFiles({
+                        migrationsFolder: 'drizzle'
+                    })) {
+                        if (migration.folderMillis >= boundary) break
+                        for (const statement of migration.sql)
+                            await sql.unsafe(statement)
+                    }
+                    const userId = 'usr_phase8_contract'
+                    await db
+                        .insert(users)
+                        .values({ id: userId, email: 'contract@example.test' })
+                    await db.insert(agentRuntimes).values({
+                        id: 'art_contract',
+                        userId,
+                        name: 'contract',
+                        kind: 'sprites',
+                        framework: 'codex'
+                    })
+                    await db.insert(agents).values({
+                        id: 'agt_contract',
+                        userId,
+                        runtimeId: 'art_contract',
+                        internalId: 'default',
+                        name: 'contract',
+                        runtime: 'sprites',
+                        framework: 'codex'
+                    })
+                    const tokens = new ApiTokenService(db)
+                    const external = await tokens.mintA2aGrant({
+                        userId,
+                        targetAgentId: 'agt_contract'
+                    })
+                    const pat = await tokens.mint({ userId, name: 'personal' })
+                    const cli = new CliAuthService(
+                        db,
+                        new ConfigService(),
+                        tokens,
+                        new CliAuthRateLimitService()
+                    )
+                    const browser = await cli.start({})
+                    await db.insert(apiTokens).values({
+                        id: 'pat_old_contract',
+                        userId,
+                        agentId: 'agt_contract',
+                        name: 'old',
+                        scopes: ['agents:read'],
+                        tokenKind: 'user-grant',
+                        tokenHash: hashApiToken('nca_old_contract')
+                    })
+                    await assert.rejects(
+                        sql.unsafe(contract),
+                        /all agent user-grants/
+                    )
+                    await tokens.revoke({ userId, tokenId: 'pat_old_contract' })
+                    await sql.unsafe(
+                        "insert into api_tokens(id,user_id,name,scopes,token_kind,token_hash) values ($1,$2,'retired ephemeral','[]','a2a-ephemeral',$3)",
+                        [
+                            'pat_retired_ephemeral',
+                            userId,
+                            hashApiToken('nca_retired_ephemeral')
+                        ]
+                    )
+                    await sql.unsafe(contract)
+                    await sql.unsafe(contract)
+                    const [{ remaining }] = await sql`
+                select count(*)::int as remaining from information_schema.columns
+                where (table_name='api_tokens' and column_name='enforce_agent_binding')
+                   or (table_name='cli_auth_sessions' and column_name in (
+                       'requested_scopes','approved_scopes','requested_agent_id','device_code_hash','polled_at'
+                   ))
+            `
+                    assert.equal(remaining, 0)
+                    assert.equal(
+                        (await tokens.verify(external.plaintext)).kind,
+                        'legacy-runtime'
+                    )
+                    assert.equal(
+                        await tokens.isActiveExternalA2aGrant(
+                            external.tokenId,
+                            'agt_contract'
+                        ),
+                        true
+                    )
+                    assert.equal(
+                        (await tokens.verify(pat.plaintext)).kind,
+                        'human-api-token'
+                    )
+                    const approved = await cli.approve({
+                        requestId: browser.requestId,
+                        userCode: browser.userCode,
+                        userId
+                    })
+                    assert.ok((await cli.exchange(approved.authCode)).token)
+                    assert.equal(
+                        (
+                            await sql`select id from api_tokens where token_kind='a2a-ephemeral'`
+                        ).length,
+                        0
+                    )
+                    assert.equal(
+                        (
+                            await sql`select token_hash from token_credentials where token_hash=${hashApiToken('nca_retired_ephemeral')}`
+                        ).length,
+                        0
+                    )
+                    const [indexes] = await sql`
+                select to_regclass('api_tokens_agent_id_active_uq')::text as retired,
+                    to_regclass('api_tokens_a2a_grant_uq')::text as retained
+            `
+                    assert.equal(indexes.retired, null)
+                    assert.equal(indexes.retained, 'api_tokens_a2a_grant_uq')
+                    const [compatibility] = await sql`
+                        select to_regprocedure('public.phase8_guard_legacy_binding()')::text as binding_function,
+                            (select count(*)::int from pg_trigger where tgname='phase8_guard_legacy_binding' and not tgisinternal) as binding_triggers
+                    `
+                    assert.equal(compatibility.binding_function, null)
+                    assert.equal(compatibility.binding_triggers, 0)
+                } finally {
+                    await sql.end()
+                }
+            },
+            { migrate: async () => {} }
+        )
+    }
+)
 
 test(
     'A2A switch preparation binds existing and newly minted grants for old API readers',
