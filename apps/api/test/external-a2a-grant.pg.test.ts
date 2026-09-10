@@ -114,12 +114,11 @@ test('external A2A grant allowlist admits only the caller-less grant for that ag
         'an external grant must not admit any other agent'
     )
 
-    // A caller-bound peer grant is the INTERNAL credential; it must not pass as
-    // an external client (its authority is re-checked as a peer grant instead).
-    const peer = await h.tokens.mintA2aGrant({
+    // Internal peer policy is not an external client's bearer credential.
+    const [peer] = await h.tokens.mintA2aGrants({
         userId: h.userId,
         targetAgentId: h.targetId,
-        callerAgentId: h.callerId
+        callerAgentIds: [h.callerId]
     })
     assert.equal(
         await h.tokens.isActiveExternalA2aGrant(peer.tokenId, h.targetId),
