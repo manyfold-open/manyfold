@@ -73,7 +73,9 @@ test('the actual telemetry bootstrap scrubs console, OTLP and Sentry payloads', 
         ['--import', 'tsx', '-e', child],
         {
             cwd: process.cwd(),
-            timeout: 30_000,
+            // The full API suite starts many TS/SDK processes concurrently.
+            // This bounds startup and shutdown, not a transport latency SLA.
+            timeout: 90_000,
             env: {
                 ...process.env,
                 FLY_APP_NAME: 'fixture-api',
