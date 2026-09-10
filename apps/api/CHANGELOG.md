@@ -1,5 +1,22 @@
 # @manyfold/api
 
+## 3.0.0
+
+### Major Changes
+
+- [#326](https://github.com/manyfold-open/manyfold/pull/326) [`6e8ebb9`](https://github.com/manyfold-open/manyfold/commit/6e8ebb9ba5d21bf2b6c2b954ac71364197ec1113) Thanks [@yingca1](https://github.com/yingca1)! - Internal A2A grants now write only the policy table. Remove the fake credential
+  hash generator, mirror mutations and caller-bound database bearer path. New
+  grants use their own IDs; existing public IDs continue to work. External A2A
+  credentials retain their target-bound storage and behavior.
+
+    Deploy the prior authority preparation release to every API instance first.
+    This migration removes its ID alignment trigger. Mirror data and the remaining
+    revocation bridge are cleaned up only after every instance uses this writer.
+
+### Patch Changes
+
+- [#319](https://github.com/manyfold-open/manyfold/pull/319) [`b7b59f2`](https://github.com/manyfold-open/manyfold/commit/b7b59f24c68786370d8ecc34456921416e755156) Thanks [@yingca1](https://github.com/yingca1)! - Opening a Codex session right after a turn no longer appends the model's own preamble (`# AGENTS.md instructions for …` plus the environment context) to the chat as a user message, and no longer duplicates a reply whose turn ran a command. Each settled turn now records how far the runtime's transcript reached, and the runtime-session sync appends only what a terminal session added past that point, complete turns only, instead of diffing the transcript against the chat by content.
+
 ## 2.0.0
 
 ### Major Changes
