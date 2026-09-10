@@ -42,17 +42,26 @@ const MANAGED_PATH_PROFILE_D_FILE = '/etc/profile.d/zz-manyfold-path.sh'
 export const MANAGED_PATH_BLOCK_START = '# mf-path-start'
 export const MANAGED_PATH_BLOCK_END = '# mf-path-end'
 
-// Take the front of PATH only when the activation dir is not already there.
-// A blind prepend grows PATH on every re-source (profile.d + rc file + the exec
-// wrapper all run it) and asserts nothing about position; what the activation
-// contract needs is "first", which is exactly what this states. POSIX `case`
-// because /etc/profile.d fragments are also sourced by dash.
+// Keep exactly one activation entry, first. Image fragments can prepend paths
+// between sources, so merely checking the first entry accumulates duplicates.
+// Preserve every other entry (including empty entries and spaces) using POSIX
+// builtins: profile.d is also sourced by dash and PATH may not locate tools yet.
 const ENSURE_LOCAL_BIN_FIRST = [
-    `case "$PATH:" in`,
-    `    "${HOME_LOCAL_BIN}:"*) ;;`,
-    `    *) PATH="${HOME_LOCAL_BIN}:$PATH" ;;`,
-    'esac',
-    'export PATH'
+    'mf_path_rest="${PATH-}"',
+    `mf_path_new="${HOME_LOCAL_BIN}"`,
+    'while :; do',
+    '    case "$mf_path_rest" in',
+    '        *:*) mf_path_part="${mf_path_rest%%:*}"; mf_path_rest="${mf_path_rest#*:}"; mf_path_last=0 ;;',
+    '        *) mf_path_part="$mf_path_rest"; mf_path_last=1 ;;',
+    '    esac',
+    `    if [ "$mf_path_part" != "${HOME_LOCAL_BIN}" ]; then`,
+    '        mf_path_new="$mf_path_new:$mf_path_part"',
+    '    fi',
+    '    [ "$mf_path_last" = 1 ] && break',
+    'done',
+    'PATH="$mf_path_new"',
+    'export PATH',
+    'unset mf_path_rest mf_path_new mf_path_part mf_path_last'
 ].join('\n')
 
 export const MANAGED_PATH_BLOCK = [

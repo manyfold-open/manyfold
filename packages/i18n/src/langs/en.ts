@@ -3859,9 +3859,6 @@ const en = {
             titleLogin: 'Approve sign-in from your terminal',
             subtitleLogin:
                 'A command you ran in a terminal (mf login or mf setup) wants to use your Manyfold account.',
-            titleGrant: 'Approve agent permissions',
-            subtitleGrant:
-                'An agent you own is asking for permission to act on its own resources.',
             codeCheckHint:
                 'Make sure this code matches the one shown in your terminal:',
             signedInAs: 'Signed in as',
@@ -3877,27 +3874,10 @@ const en = {
             expired:
                 'This request has expired. Run the command in your terminal again to get a fresh link.',
             alreadyDone: 'This request was already completed in another tab.',
-            grantDoneTitle: 'Authorization complete.',
-            grantDoneHint:
-                'You can close this window. The agent will continue once it picks up the new token.',
             missingRequest:
                 'This link is missing its login request. Copy the full URL from your terminal.',
             loading: 'Loading request…',
-            requestingAgent: 'Requesting agent',
-            unknownAgent: 'an unknown agent (it may have been deleted)',
-            grantNote:
-                'These permissions apply only to this agent and its own resources, not to your other agents.',
-            permissionsLabel: 'Permissions to grant',
-            permissionsHint:
-                'Pre-checked items are what the agent asked for. You can uncheck any, but you cannot add scopes it did not request.',
-            approve: 'Approve',
-            cancel: 'Cancel',
-            selectScope: 'Select at least one scope to approve.',
             highRiskTitle: 'Grant high-risk scopes',
-            highRiskBody1: 'You are about to grant high-risk scopes:',
-            highRiskBody2:
-                'These let this agent act on your resources. Continue?',
-            highRiskConfirm: 'Grant'
         },
         connectA2a: {
             title: 'Connect agents to an application',
@@ -4164,7 +4144,6 @@ const en = {
             countNeverUsed: '{{count}} never used',
             createdVia: 'Created via',
             boundAgent: 'Bound agent',
-            bindingEnforced: 'Enforced',
             tokenId: 'Token ID',
             scopesTitle: 'Scopes',
             scopesMultiple: 'Multiple scopes',

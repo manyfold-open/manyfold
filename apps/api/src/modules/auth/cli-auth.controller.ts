@@ -10,6 +10,7 @@ import type {
 import {
     Body,
     Controller,
+    GoneException,
     Get,
     Param,
     Post,
@@ -44,6 +45,10 @@ export class CliAuthController {
             limit: START_LIMIT,
             windowMs: RATE_WINDOW_MS
         })
+        if ('requestedScopes' in body || 'requestedAgentId' in body)
+            throw new GoneException(
+                'agent bearer grants are retired; run mf auth ensure --scopes <list>'
+            )
         return this.cliAuth.start({
             redirectUri: body.redirectUri
         })

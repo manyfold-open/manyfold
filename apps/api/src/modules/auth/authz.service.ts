@@ -237,9 +237,6 @@ export class AuthzService {
         await this.assertAgentOwnedByUser(resolution.subjectAgentId, userId)
     }
 
-    /** @deprecated Phase 8 removed the legacy cross-agent audit path. */
-    async recordCrossAgentUse(_args?: unknown): Promise<void> {}
-
 }
 
 const readParam = (
