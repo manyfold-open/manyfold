@@ -113,6 +113,13 @@
       "when": 1789054925511,
       "tag": "0015_a2a_peer_writer_switch",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1789055258192,
+      "tag": "0016_a2a_peer_mirror_retirement.contract",
+      "breakpoints": true
     }
   ]
 }

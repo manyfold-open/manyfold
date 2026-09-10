@@ -161,27 +161,34 @@ export class DaemonGateway implements OnModuleInit {
                 )
         }
 
-        socket.off('message', earlyMessageListener)
-        socket.on('message', (raw: unknown) => {
+        const handleMessage = (raw: unknown): void => {
             void this.handleFrame(
                 host.id,
                 socket,
                 raw,
                 armPongDeadline,
                 handleInflightWhenReady
-            )
-        })
-        for (const queued of earlyMessages)
-            void this.handleFrame(
-                host.id,
-                socket,
-                queued,
-                armPongDeadline,
-                handleInflightWhenReady
-            )
+            ).catch((err: unknown) => {
+                this.log.warn(
+                    `daemon.ws.frame_failed daemonId=${host.id} ${(err as Error).message}`
+                )
+                try {
+                    socket.close(1011, 'frame failed')
+                } catch {}
+            })
+        }
+        socket.off('message', earlyMessageListener)
+        socket.on('message', handleMessage)
+        for (const queued of earlyMessages) handleMessage(queued)
         socket.on('close', () => {
             stopTimers()
-            void this.registry.unregister(host.id, socket)
+            void this.registry
+                .unregister(host.id, socket)
+                .catch((err: unknown) => {
+                    this.log.warn(
+                        `daemon.ws.unregister_failed daemonId=${host.id} ${(err as Error).message}`
+                    )
+                })
         })
         socket.on('error', (err) => {
             this.log.warn(
