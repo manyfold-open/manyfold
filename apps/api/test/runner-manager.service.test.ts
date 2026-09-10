@@ -171,7 +171,9 @@ const buildHarness = (opts: {
 // config, so inspect keeps reporting registered=1 and nothing ever mints a
 // replacement. It happened on staging exactly 24h after registering, because the
 // token TTL was 1 day and the token also authenticates every websocket connect.
-const rejectedCredentialHarness = () => {
+const rejectedCredentialHarness = (
+    logTail = 'ws closed code=4401 reason=unauthorized'
+) => {
     const calls: string[] = []
     let registrations = 0
     let online = false
@@ -181,7 +183,7 @@ const rejectedCredentialHarness = () => {
         if (cmd.includes('tail -n'))
             return {
                 exitCode: 0,
-                stdout: 'ws closed code=4401 reason=unauthorized',
+                stdout: logTail,
                 stderr: ''
             }
         if (cmd.includes('test -x'))
@@ -252,6 +254,40 @@ test('a runner whose credential is rejected is re-registered once', async () => 
     // It must have LOOKED at the runner log to decide that — re-registering on
     // every failed bring-up would mint tokens for unrelated problems.
     assert.ok(h.calls.some((c) => c.includes('tail -n')))
+})
+
+test('old credential-bearing runner logs are scrubbed before warning and re-registration', async (t) => {
+    const secret = 'sentinel-runner-private/+='
+    const encoded = encodeURIComponent(secret)
+    const h = rejectedCredentialHarness(
+        `ws connected wss://api.test/api/daemon/ws?token=${encoded}\nws closed code=4401 reason=unauthorized`
+    )
+    const warnings: string[] = []
+    const diagnostics = h.service as unknown as {
+        logger: { warn(message: string): void }
+        logRunnerTail(args: unknown): Promise<string | null>
+    }
+    const logger = diagnostics.logger
+    const tails: string[] = []
+    const readTail = diagnostics.logRunnerTail.bind(h.service)
+    t.mock.method(diagnostics, 'logRunnerTail', async (args: unknown) => {
+        const tail = await readTail(args)
+        tails.push(tail ?? '')
+        return tail
+    })
+    t.mock.method(logger, 'warn', (message: string) => warnings.push(message))
+    const result = await h.service.ensureRunner({
+        agentId: 'agt_1',
+        userId: 'user-1',
+        spriteName: 'art-abc',
+        exec: h.exec as never,
+        waitOnlineMs: 50
+    })
+    assert.equal(result.handle?.daemonId, 'dh_runner')
+    assert.equal(h.registrations(), 1)
+    assert(warnings.some(message => message.includes('credential rejected')))
+    assert(tails.some(message => message.includes('4401')))
+    assert(![...warnings, ...tails].some(message => message.includes(secret) || message.includes(encoded)))
 })
 
 const args = (exec: never, extra: Record<string, unknown> = {}) => ({

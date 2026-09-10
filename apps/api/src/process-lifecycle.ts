@@ -1,5 +1,6 @@
 import { SeverityNumber, type LogAttributes } from '@opentelemetry/api-logs'
 import { otelEventsLogger } from './otel'
+import { redactCredentialValue } from './common/telemetry/redact-credentials'
 
 export type ProcessExitReason =
     | 'signal'
@@ -58,4 +59,4 @@ export const emitProcessExit = (record: ProcessExitRecord): void => {
 }
 
 export const processExitLogLine = (record: ProcessExitRecord): string =>
-    `process.exit ${JSON.stringify(record)}`
+    `process.exit ${JSON.stringify(redactCredentialValue(record))}`

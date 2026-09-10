@@ -1,4 +1,5 @@
 import { inspect } from 'node:util'
+import { redactCredentialText } from './common/telemetry/redact-credentials'
 
 const ERROR_MESSAGE_MAX_CHARS = 2_048
 const STACK_MAX_CHARS = 4_096
@@ -19,19 +20,24 @@ export const describeFatalError = (error: unknown): FatalErrorDetail => {
     try {
         if (error instanceof Error)
             return {
-                errorClass: error.name || 'Error',
+                errorClass: redactCredentialText(error.name || 'Error'),
                 errorMessage: truncated(
-                    String(error.message),
+                    redactCredentialText(String(error.message)),
                     ERROR_MESSAGE_MAX_CHARS
                 ),
                 ...(typeof error.stack === 'string'
-                    ? { stack: truncated(error.stack, STACK_MAX_CHARS) }
+                    ? {
+                          stack: truncated(
+                              redactCredentialText(error.stack),
+                              STACK_MAX_CHARS
+                          )
+                      }
                     : {})
             }
         return {
             errorClass: `NonError(${typeof error})`,
             errorMessage: truncated(
-                inspect(error, { depth: 2 }),
+                redactCredentialText(inspect(error, { depth: 2 })),
                 ERROR_MESSAGE_MAX_CHARS
             )
         }
