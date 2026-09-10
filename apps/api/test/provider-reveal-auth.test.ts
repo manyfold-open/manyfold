@@ -9,18 +9,20 @@ import {
     type AuthPrincipal
 } from '../src/modules/auth/auth-principal'
 
-// An agent-bound grant token carries an agentId even when enforce_agent_binding
-// is false (the cli-poll default) — the exact case that used to slip past the
-// boundary guard and reach the account provider-key reveal.
-const agentToken = (enforce: boolean): AuthPrincipal => ({
+const agentToken = (runtime: boolean): AuthPrincipal => runtime ? ({
+    userId: 'user_1',
+    kind: 'agent-runtime',
+    agentId: 'agt_x',
+    runtimeTokenId: 'rtk_x'
+}) : ({
     userId: 'user_1',
     kind: 'legacy-runtime',
+    tokenKind: 'a2a-grant',
     agentId: 'agt_x',
     tokenId: 'pat_agent',
     scopes: ['secrets:read'],
     callerAgentId: null,
-    enforceAgentBinding: enforce,
-    createdVia: 'cli-poll'
+    createdVia: 'api'
 })
 
 const humanSession = (): AuthPrincipal => ({
@@ -37,7 +39,7 @@ const humanApiToken = (): AuthPrincipal => ({
     scopes: ['secrets:read']
 })
 
-test('runtimeAgentId resolves the agent id regardless of enforce_agent_binding', () => {
+test('runtimeAgentId recognizes runtime identities and retained A2A grants', () => {
     assert.equal(runtimeAgentId(agentToken(false)), 'agt_x')
     assert.equal(runtimeAgentId(agentToken(true)), 'agt_x')
     assert.equal(runtimeAgentId(humanApiToken()), undefined)

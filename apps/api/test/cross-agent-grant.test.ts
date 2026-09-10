@@ -1,179 +1,120 @@
-/**
- * Phase 9 — cross-agent grant property tests.
- *
- * Locks in decision #5 from PLAN-02: a grant token bound to agent A may be
- * used to act on agent B as long as the requesting user owns B. Agent
- * ownership is enforced at the resource layer (user_id check), not by tying
- * the token to a specific agent in the AuthGuard.
- *
- * What this test proves:
- *   - AuthGuard does NOT inspect URL params or token.agentId when deciding
- *     whether to admit a request. Scope is the only authorization signal.
- *   - The token's agentId is metadata for revoke/audit, not an ACL.
- *   - Cross-USER blocks happen further down the stack (resource service
- *     queries `agents WHERE id = ? AND user_id = ?`).
- */
 import 'reflect-metadata'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { ExecutionContext } from '@nestjs/common'
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
-import { REQUIRED_API_TOKEN_SCOPES_META } from '../src/common/decorators/require-api-token-scope.decorator'
+import { ACCOUNT_SCOPE_HEADER } from '@manyfold/shared'
 import { AuthGuard } from '../src/common/guards/auth.guard'
-import type { AuthzService } from '../src/modules/auth/authz.service'
+import { AuthzService } from '../src/modules/auth/authz.service'
+import type { AuthPrincipal } from '../src/modules/auth/auth-principal'
+import { REQUIRED_API_TOKEN_SCOPES_META } from '../src/common/decorators/require-api-token-scope.decorator'
+import {
+    SUBJECT_AGENT_META,
+    type SubjectAgentClassification
+} from '../src/common/decorators/subject-agent.decorator'
+import { boundAgentIdFromUser } from '../src/modules/agents/agents.controller'
 
-const passThroughAuthz = {
-    resolveSubjectAgent: async () => ({
-        classification: null,
-        subjectAgentId: null
-    }),
-    assertBoundTokenSubject: () => {}
-} as unknown as AuthzService
-
-const decorate = (
-    handler: () => unknown,
-    scopes: readonly string[]
-): (() => unknown) => {
-    Reflect.defineMetadata(REQUIRED_API_TOKEN_SCOPES_META, scopes, handler)
-    return handler
+const makeGuard = (principal: AuthPrincipal): AuthGuard => {
+    const reflector = new Reflector()
+    const resolver = { resolveAgentId: async () => 'agt_B' } as never
+    const authz = new AuthzService(
+        reflector,
+        {} as never,
+        resolver,
+        resolver,
+        resolver,
+        resolver,
+        resolver,
+        resolver
+    )
+    return new AuthGuard(
+        { verifyBearerToken: async () => principal } as never,
+        reflector,
+        authz
+    )
 }
 
-const ctx = (
-    request: unknown,
-    handler: () => unknown,
-    klass: { new (): unknown } = class {}
-): ExecutionContext =>
-    ({
-        switchToHttp: () => ({ getRequest: () => request }),
+const context = (
+    subject: SubjectAgentClassification | null,
+    target: string,
+    account = false
+): ExecutionContext => {
+    const handler = () => {}
+    Reflect.defineMetadata(
+        REQUIRED_API_TOKEN_SCOPES_META,
+        ['a2a:edit'],
+        handler
+    )
+    if (subject) Reflect.defineMetadata(SUBJECT_AGENT_META, subject, handler)
+    return {
+        switchToHttp: () => ({
+            getRequest: () => ({
+                headers: {
+                    authorization: 'Bearer nca_test',
+                    ...(account ? { [ACCOUNT_SCOPE_HEADER]: '1' } : {})
+                },
+                params: { id: target },
+                body: { agentId: target },
+                query: { agentId: target }
+            })
+        }),
         getHandler: () => handler,
-        getClass: () => klass
-    }) as unknown as ExecutionContext
+        getClass: () => class {}
+    } as unknown as ExecutionContext
+}
 
-const guardFor = (verify: () => Promise<unknown>): AuthGuard =>
-    new AuthGuard(
-        { verifyBearerToken: verify } as never,
-        new Reflector(),
-        passThroughAuthz
-    )
-
-test('grant token bound to agent A admits a request that mutates agent B (same user)', async () => {
-    // The grant token's agentId field is metadata for revocation/auditing;
-    // it does NOT scope-down which agents the caller can address. The
-    // resource controller resolves ownership via user_id (covered separately
-    // by channels-service unit tests).
-    const verify = async () => ({
+for (const callerAgentId of [null, 'agt_caller']) {
+    const principal: AuthPrincipal = {
         userId: 'user-1',
         kind: 'legacy-runtime',
-        tokenId: 'pat_grant',
-        scopes: ['channels:edit'],
+        tokenKind: 'a2a-grant',
         agentId: 'agt_A',
-        callerAgentId: null,
-        enforceAgentBinding: false,
-        createdVia: null
-    })
-    const handler = decorate(() => {}, ['channels:edit'])
-    // The request body says agt_B, but the guard does not even look.
-    const request = {
-        headers: { authorization: 'Bearer nca_grant_xxx' },
-        body: { agentId: 'agt_B' },
-        auth: undefined as unknown
+        tokenId: 'pat_a2a',
+        callerAgentId,
+        scopes: ['a2a:edit'],
+        createdVia: 'api'
     }
 
-    const guard = guardFor(verify)
-    assert.equal(await guard.canActivate(ctx(request, handler)), true)
-})
-
-test('AuthGuard never reads URL params or body when authorizing — only token scope', async () => {
-    const verify = async () => ({
-        userId: 'user-1',
-        kind: 'legacy-runtime',
-        tokenId: 'pat_grant',
-        scopes: ['channels:edit'],
-        agentId: 'agt_A',
-        callerAgentId: null,
-        enforceAgentBinding: false,
-        createdVia: null
-    })
-    const handler = decorate(() => {}, ['channels:edit'])
-    // Same token, totally different request path/body. Guard should not care.
-    for (const params of [
-        { body: { agentId: 'agt_A' } },
-        { body: { agentId: 'agt_B' } },
-        { body: {}, params: { id: 'chn_other' } },
-        { url: '/api/channels/chn_xyz/test' }
-    ]) {
-        const request = {
-            headers: { authorization: 'Bearer nca_grant_xxx' },
-            auth: undefined as unknown,
-            ...params
+    test(`A2A ${callerAgentId ?? 'external'} grant stays bound across request shapes`, async () => {
+        const guard = makeGuard(principal)
+        for (const subject of [
+            { type: 'path', param: 'id' },
+            { type: 'body', field: 'agentId' },
+            { type: 'query', field: 'agentId' }
+        ] as const) {
+            assert.equal(
+                await guard.canActivate(context(subject, 'agt_A')),
+                true
+            )
+            await assert.rejects(
+                guard.canActivate(context(subject, 'agt_B')),
+                ForbiddenException
+            )
         }
-        const guard = guardFor(verify)
-        assert.equal(
-            await guard.canActivate(ctx(request, handler)),
-            true,
-            `guard rejected request with ${JSON.stringify(params)}`
+        await assert.rejects(
+            guard.canActivate(
+                context({ type: 'path', param: 'id' }, 'agt_B', true)
+            ),
+            ForbiddenException
         )
-    }
-})
-
-test('grant token with channels:edit cannot reach an undecorated endpoint (safe default)', async () => {
-    // Decision: skills/repos/* and similar admin-ish paths stay api.full-only.
-    // A grant token must NOT be able to escalate by hitting an undecorated
-    // controller method.
-    const verify = async () => ({
-        userId: 'user-1',
-        kind: 'legacy-runtime',
-        tokenId: 'pat_grant',
-        scopes: ['channels:edit'],
-        agentId: 'agt_A',
-        callerAgentId: null,
-        enforceAgentBinding: false,
-        createdVia: null
     })
-    const handler = () => {} // No @RequireApiTokenScope decorator at all.
-    const guard = guardFor(verify)
-    await assert.rejects(
-        () =>
-            guard.canActivate(
-                ctx(
-                    {
-                        headers: { authorization: 'Bearer nca_grant_xxx' },
-                        auth: undefined as unknown
-                    },
-                    handler
-                )
-            ),
-        /requires api.full/
-    )
-})
 
-test('grant token without the required scope is rejected even for the matching agentId', async () => {
-    // Even when the token is bound to the agent under discussion, the scope
-    // gate is the authoritative signal.
-    const verify = async () => ({
-        userId: 'user-1',
-        kind: 'legacy-runtime',
-        tokenId: 'pat_grant',
-        scopes: ['channels:read'],
-        agentId: 'agt_A',
-        callerAgentId: null,
-        enforceAgentBinding: false,
-        createdVia: null
-    })
-    const handler = decorate(() => {}, ['channels:edit'])
-    const guard = guardFor(verify)
-    await assert.rejects(
-        () =>
-            guard.canActivate(
-                ctx(
-                    {
-                        headers: { authorization: 'Bearer nca_grant_xxx' },
-                        body: { agentId: 'agt_A' },
-                        auth: undefined as unknown
-                    },
-                    handler
-                )
+    test(`A2A ${callerAgentId ?? 'external'} grant fails closed and retains list filtering`, async () => {
+        const guard = makeGuard(principal)
+        await assert.rejects(
+            guard.canActivate(context(null, 'agt_A')),
+            ForbiddenException
+        )
+        await assert.rejects(
+            guard.canActivate(context({ type: 'deny-bound' }, 'agt_A')),
+            ForbiddenException
+        )
+        assert.equal(
+            await guard.canActivate(
+                context({ type: 'list-filtered' }, 'agt_A')
             ),
-        /token missing scope: one of \[channels:edit\]/
-    )
-})
+            true
+        )
+        assert.equal(boundAgentIdFromUser(principal), 'agt_A')
+    })
+}

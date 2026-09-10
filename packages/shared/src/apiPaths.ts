@@ -7,7 +7,6 @@ export const apiPaths = {
     AUTH_CLI_START: '/auth/cli/start',
     AUTH_CLI_APPROVE: '/auth/cli/approve',
     AUTH_CLI_EXCHANGE: '/auth/cli/exchange',
-    AUTH_CLI_POLL: '/auth/cli/poll',
     AUTH_CLI_SESSION: (requestId: string, userCode: string) =>
         `/auth/cli/session/${encodeURIComponent(requestId)}/${encodeURIComponent(userCode)}`,
     AUTH_REGISTER: '/auth/register',

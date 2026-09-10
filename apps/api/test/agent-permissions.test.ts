@@ -57,7 +57,6 @@ const authzSelf = (subjectAgentId: string, sink?: string[]): AuthzService =>
                     `token bound to ${bound}, request targets ${res.subjectAgentId}`
                 )
         },
-        recordCrossAgentUse: async () => {}
     }) as unknown as AuthzService
 
 const runtimeReq = () => ({

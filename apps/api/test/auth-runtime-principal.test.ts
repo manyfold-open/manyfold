@@ -44,7 +44,6 @@ const authzWith = (granted: string[], sink?: string[]): AuthzService =>
             subjectAgentId: null
         }),
         assertBoundTokenSubject: () => {},
-        recordCrossAgentUse: async () => {}
     }) as unknown as AuthzService
 
 const runtimePrincipal = () => ({
@@ -157,7 +156,6 @@ test('agent-runtime is 403 on a subject-bound resource owned by another agent', 
                     `token bound to ${boundAgentId}, request targets ${resolution.subjectAgentId}`
                 )
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['channels:edit'], authz)
 
@@ -190,7 +188,6 @@ test('agent-runtime passes the subject-bound check when the resource is its own'
             if (resolution.subjectAgentId !== boundAgentId)
                 throw new ForbiddenException('mismatch')
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['channels:edit'], authz)
 
@@ -222,7 +219,6 @@ test('agent-runtime operates its OWN resource with NO agent_permissions scope (a
             if (res.subjectAgentId !== bound)
                 throw new ForbiddenException('mismatch')
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:read'], authz)
 
@@ -247,7 +243,6 @@ test('agent-runtime bound-filtered list is free under agent scope', async () => 
             subjectAgentId: null
         }),
         assertBoundTokenSubject: () => {},
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:read'], authz)
 
@@ -275,7 +270,6 @@ test('agent-runtime targeting ANOTHER agent (no --account) stays denied even tho
                     `token bound to ${bound}, request targets ${res.subjectAgentId}`
                 )
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:read'], authz)
 
@@ -312,7 +306,6 @@ test('account scope: cross-agent with the fine-grained scope + same-account owne
                 'self-bind must NOT run under account scope'
             )
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:read'], authz)
 
@@ -337,7 +330,6 @@ test('account scope still requires the fine-grained scope (denied when missing)'
         }),
         assertAccountSubject: async () => {},
         assertBoundTokenSubject: () => {},
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:read'], authz)
 
@@ -364,7 +356,6 @@ test('account scope rejects a target agent outside the account (intra-user)', as
             )
         },
         assertBoundTokenSubject: () => {},
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['automations:edit'], authz)
 
@@ -393,7 +384,6 @@ test('account scope unlocks an account-level (deny-bound) endpoint with the scop
                 'deny-bound must not self-bind under account scope'
             )
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['usage:read'], authz)
 
@@ -420,7 +410,6 @@ test('account scope allows agent creation (deny-bound POST /agents) with agents:
                 'must not self-bind agent creation under account scope'
             )
         },
-        recordCrossAgentUse: async () => {}
     } as unknown as AuthzService
     const guard = guardFor(runtimePrincipal(), ['agents:edit'], authz)
 
@@ -480,11 +469,11 @@ test('OpenAI /v1 surface rejects a legacy-runtime bearer (post-verify kind)', as
         verifyBearerToken: async () => ({
             userId: 'user-1',
             kind: 'legacy-runtime' as const,
+            tokenKind: 'a2a-grant',
             agentId: 'agt_A',
             tokenId: 'pat_1',
             scopes: ['chat.completions'],
             callerAgentId: null,
-            enforceAgentBinding: false,
             createdVia: 'cli-poll' as const
         })
     } as unknown as BearerAuthService
@@ -509,11 +498,11 @@ test('OpenAI /v1 surface rejects any principal that carries an agentId', async (
         verifyBearerToken: async () => ({
             userId: 'user-1',
             kind: 'legacy-runtime' as const,
+            tokenKind: 'a2a-grant',
             agentId: 'agt_B',
             tokenId: 'pat_2',
             scopes: ['chat.completions'],
             callerAgentId: null,
-            enforceAgentBinding: false,
             createdVia: null
         })
     } as unknown as BearerAuthService
@@ -626,7 +615,7 @@ test('verify resolves an agent_runtime_tokens hit as kind=agent-runtime', async 
     assert.deepEqual(db.updated, [agentRuntimeTokens])
 })
 
-test('verify resolves an api_tokens hit with agentId as kind=legacy-runtime', async () => {
+test('verify retains the External A2A principal and target', async () => {
     const db = new VerifyFakeDb()
     db.apiRows = [
         {
@@ -634,10 +623,9 @@ test('verify resolves an api_tokens hit with agentId as kind=legacy-runtime', as
             userId: 'user-1',
             agentId: 'agt_A',
             callerAgentId: null,
-            scopes: ['channels:read'],
-            enforceAgentBinding: false,
-            createdVia: 'cli-poll',
-            tokenKind: 'user-grant',
+            scopes: ['a2a:edit'],
+            createdVia: 'api',
+            tokenKind: 'a2a-grant',
             expiresAt: null,
             revokedAt: null,
             email: 'u@example.com'
@@ -648,8 +636,32 @@ test('verify resolves an api_tokens hit with agentId as kind=legacy-runtime', as
     assert.equal(auth.kind, 'legacy-runtime')
     assert.equal(principalAgentId(auth), 'agt_A')
     if (auth.kind === 'legacy-runtime')
-        assert.equal(auth.tokenKind, 'user-grant')
+        assert.equal(auth.tokenKind, 'a2a-grant')
     assert.deepEqual(db.updated, [apiTokens])
+})
+
+test('verify rejects retired agent user-grants before touching lastUsedAt', async () => {
+    for (const createdVia of ['cli-poll', 'user-grant']) {
+        const db = new VerifyFakeDb()
+        db.apiRows = [{
+            id: 'pat_old', userId: 'user-1', agentId: 'agt_A',
+            scopes: ['agents:edit'], tokenKind: 'user-grant', createdVia,
+            expiresAt: null, revokedAt: null
+        }]
+        await assert.rejects(svcWith(db).verify('nca_old'), /agent bearer grants are retired/)
+        assert.deepEqual(db.updated, [])
+    }
+})
+
+test('verify refuses an A2A grant whose target is missing', async () => {
+    const db = new VerifyFakeDb()
+    db.apiRows = [{
+        id: 'pat_bad', userId: 'user-1', agentId: null,
+        scopes: ['a2a:edit'], tokenKind: 'a2a-grant',
+        expiresAt: null, revokedAt: null
+    }]
+    await assert.rejects(svcWith(db).verify('nca_bad'), /no target agent/)
+    assert.deepEqual(db.updated, [])
 })
 
 test('verify resolves a plain api_tokens hit as kind=human-api-token', async () => {

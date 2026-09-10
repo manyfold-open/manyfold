@@ -73,9 +73,6 @@ const stubAuthz = (overrides: Partial<AuthzService> = {}): AuthzService => {
         assertBoundTokenSubject: () => {
             // Default: pass through (treated as allowed).
         },
-        recordCrossAgentUse: async () => {
-            // Default: noop.
-        },
         ...overrides
     }
     return stub as AuthzService
@@ -150,11 +147,11 @@ test('AuthGuard accepts narrow scope when method requires it', async () => {
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:edit'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     const request = makeRequest('nca_narrow')
@@ -173,11 +170,11 @@ test('AuthGuard accepts narrow scope when method accepts one-of', async () => {
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:read'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     const ok = await guard.canActivate(
@@ -193,11 +190,11 @@ test('AuthGuard rejects narrow scope when method requires a different scope', as
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:read'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     await assert.rejects(
@@ -216,11 +213,11 @@ test('AuthGuard rejects narrow scope on undecorated endpoint (safe default)', as
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:edit'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     await assert.rejects(
@@ -239,11 +236,11 @@ test('AuthGuard method-level decorator overrides class-level decorator', async (
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:edit'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     // Method needs channels:edit; class would say channels:read but method wins
@@ -287,11 +284,11 @@ test('AuthGuard rejects narrow PAT on session-only endpoint', async () => {
     const guard = guardWith(async () => ({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         tokenId: 'pat_1',
         scopes: ['channels:edit'],
         agentId: 'agt_1',
         callerAgentId: null,
-        enforceAgentBinding: false,
         createdVia: null
     }))
     const handler = sessionOnly(() => {})
@@ -360,77 +357,7 @@ test('AuthGuard session-only does not affect non-decorated endpoints (api.full s
     assert.equal(ok, true)
 })
 
-test('AuthGuard skips binding enforcement when token is unbound (enforce_agent_binding=false)', async () => {
-    let assertCalls = 0
-    const authz = stubAuthz({
-        // v15-6: unbound grants still resolve subject for cross-agent audit,
-        // but never call assertBoundTokenSubject (no enforcement).
-        resolveSubjectAgent: async () =>
-            ({
-                classification: { type: 'path', param: 'id' },
-                subjectAgentId: 'agt_A'
-            }) as SubjectResolution,
-        assertBoundTokenSubject: () => {
-            assertCalls += 1
-        }
-    })
-    const guard = guardWith(
-        async () => ({
-            userId: 'user-1',
-            kind: 'legacy-runtime',
-            tokenId: 'pat_1',
-            scopes: ['channels:edit'],
-            agentId: 'agt_A',
-            callerAgentId: null,
-            enforceAgentBinding: false,
-            createdVia: 'cli-poll'
-        }),
-        authz
-    )
-    const handler = decorate(() => {}, ['channels:edit'])
-    const ok = await guard.canActivate(
-        makeCtx(makeRequest('nca_unbound'), handler)
-    )
-    assert.equal(ok, true)
-    assert.equal(assertCalls, 0)
-})
-
-test('AuthGuard records cross-agent use for unbound grant on mismatch', async () => {
-    const recordCalls: Array<Record<string, unknown>> = []
-    const authz = stubAuthz({
-        resolveSubjectAgent: async () =>
-            ({
-                classification: { type: 'path', param: 'id' },
-                subjectAgentId: 'agt_B'
-            }) as SubjectResolution,
-        recordCrossAgentUse: async (args) => {
-            recordCalls.push(args as unknown as Record<string, unknown>)
-        }
-    })
-    const guard = guardWith(
-        async () => ({
-            userId: 'user-1',
-            kind: 'legacy-runtime',
-            tokenId: 'pat_1',
-            scopes: ['channels:edit'],
-            agentId: 'agt_A',
-            callerAgentId: null,
-            enforceAgentBinding: false,
-            createdVia: 'cli-poll'
-        }),
-        authz
-    )
-    const handler = decorate(() => {}, ['channels:edit'])
-    const ok = await guard.canActivate(
-        makeCtx(makeRequest('nca_cross'), handler)
-    )
-    assert.equal(ok, true)
-    // recordCrossAgentUse is fire-and-forget via void; give it a tick.
-    await new Promise((r) => setImmediate(r))
-    assert.equal(recordCalls.length, 0)
-})
-
-test('AuthGuard allows bound token when subject agent matches binding', async () => {
+test('AuthGuard allows an A2A grant when the target matches', async () => {
     const authz = stubAuthz({
         resolveSubjectAgent: async () =>
             ({
@@ -443,11 +370,11 @@ test('AuthGuard allows bound token when subject agent matches binding', async ()
         async () => ({
             userId: 'user-1',
             kind: 'legacy-runtime',
+            tokenKind: 'a2a-grant',
             tokenId: 'pat_1',
             scopes: ['agents:read'],
             agentId: 'agt_A',
             callerAgentId: null,
-            enforceAgentBinding: true,
             createdVia: 'user-grant'
         }),
         authz
@@ -462,7 +389,7 @@ test('AuthGuard allows bound token when subject agent matches binding', async ()
     assert.equal(ok, true)
 })
 
-test('AuthGuard rejects bound token when AuthzService throws Forbidden', async () => {
+test('AuthGuard rejects an A2A grant when its target does not match', async () => {
     const authz = stubAuthz({
         assertBoundTokenSubject: () => {
             throw new ForbiddenException(
@@ -474,11 +401,11 @@ test('AuthGuard rejects bound token when AuthzService throws Forbidden', async (
         async () => ({
             userId: 'user-1',
             kind: 'legacy-runtime',
+            tokenKind: 'a2a-grant',
             tokenId: 'pat_1',
             scopes: ['agents:read'],
             agentId: 'agt_A',
             callerAgentId: null,
-            enforceAgentBinding: true,
             createdVia: 'user-grant'
         }),
         authz
@@ -487,13 +414,13 @@ test('AuthGuard rejects bound token when AuthzService throws Forbidden', async (
         decorate(() => {}, ['agents:read']),
         { type: 'path', param: 'id' }
     )
-    assert.equal(
-        await guard.canActivate(makeCtx(makeRequest('nca_bound'), handler)),
-        true
+    await assert.rejects(
+        guard.canActivate(makeCtx(makeRequest('nca_bound'), handler)),
+        ForbiddenException
     )
 })
 
-test('AuthGuard runs binding enforcement on api.full token when bound', async () => {
+test('AuthGuard does not let api.full bypass an A2A target binding', async () => {
     let assertCalls = 0
     const authz = stubAuthz({
         assertBoundTokenSubject: () => {
@@ -504,11 +431,11 @@ test('AuthGuard runs binding enforcement on api.full token when bound', async ()
         async () => ({
             userId: 'user-1',
             kind: 'legacy-runtime',
+            tokenKind: 'a2a-grant',
             tokenId: 'pat_1',
             scopes: ['api.full'],
             agentId: 'agt_A',
             callerAgentId: null,
-            enforceAgentBinding: true,
             createdVia: 'user-grant'
         }),
         authz
@@ -518,14 +445,8 @@ test('AuthGuard runs binding enforcement on api.full token when bound', async ()
         makeCtx(makeRequest('nca_full_bound'), handler)
     )
     assert.equal(ok, true)
-    assert.equal(assertCalls, 0)
+    assert.equal(assertCalls, 1)
 })
-
-// Data-integrity invariant (enforce_agent_binding=true requires agent_id) is
-// now type-impossible to construct as a principal — the legacy-runtime arm
-// always carries a non-null agentId. The invariant is enforced (and fail-loud
-// tested) at the verify() boundary instead; see auth-runtime-principal.test.ts
-// 'verify hard-fails when a row sets enforce_agent_binding without agent_id'.
 
 test('AuthGuard surfaces auth store migration errors as 500', async () => {
     const guard = guardWith(async () => {

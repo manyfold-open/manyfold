@@ -17,32 +17,31 @@ test('boundAgentIdFromUser returns own agent id for an agent-runtime principal',
     assert.equal(boundAgentIdFromUser(user), 'agt_A')
 })
 
-test('boundAgentIdFromUser returns undefined for a legacy enforce=false token', () => {
-    // Legacy poll/grant tokens keep their broad list-all behaviour; narrowing
-    // them is the separately-announced split, out of scope here.
+test('boundAgentIdFromUser filters a retained A2A grant to its target', () => {
     const user = principal({
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         agentId: 'agt_A',
         tokenId: 'tok_1',
         scopes: [],
         callerAgentId: null,
-        enforceAgentBinding: false,
-        createdVia: 'cli-poll'
+        createdVia: 'api'
     })
-    assert.equal(boundAgentIdFromUser(user), undefined)
+    assert.equal(boundAgentIdFromUser(user), 'agt_A')
 })
 
-test('boundAgentIdFromUser ignores the retired user-grant binding field', () => {
+test('account intent does not widen an A2A grant', () => {
     const user = principal({
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         agentId: 'agt_A',
         tokenId: 'tok_1',
         scopes: [],
         callerAgentId: null,
-        enforceAgentBinding: true,
-        createdVia: 'user-grant'
+        createdVia: 'api',
+        accountScope: true
     })
-    assert.equal(boundAgentIdFromUser(user), undefined)
+    assert.equal(boundAgentIdFromUser(user), 'agt_A')
 })
 
 test('boundAgentIdFromUser returns undefined for a human session (no token)', () => {

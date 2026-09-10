@@ -150,6 +150,7 @@ export class AuthGuard implements CanActivate {
 
         if (apiTokenHasScope(req.auth, API_TOKEN_SCOPE_FULL)) {
             req.auth.matchedScopes = [API_TOKEN_SCOPE_FULL]
+            await this.enforceA2aGrantTarget(context, req)
             return true
         }
 
@@ -172,7 +173,17 @@ export class AuthGuard implements CanActivate {
             )
         }
         req.auth.matchedScopes = matched
+        await this.enforceA2aGrantTarget(context, req)
         return true
+    }
+
+    private async enforceA2aGrantTarget(
+        context: ExecutionContext,
+        req: FastifyRequest & { auth?: AuthPrincipal }
+    ): Promise<void> {
+        if (req.auth?.kind !== 'legacy-runtime') return
+        const resolution = await this.authz.resolveSubjectAgent(context, req)
+        this.authz.assertBoundTokenSubject(req.auth.agentId, resolution)
     }
 }
 

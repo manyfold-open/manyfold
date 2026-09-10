@@ -3669,8 +3669,6 @@ const zh: Translations = {
             titleLogin: '批准终端登录',
             subtitleLogin:
                 '你在终端运行的命令（mf login 或 mf setup）请求使用你的 Manyfold 账号。',
-            titleGrant: '批准 agent 权限',
-            subtitleGrant: '你的一个 agent 请求授权，以操作它自己的资源。',
             codeCheckHint: '确认下方代码与终端里显示的一致：',
             signedInAs: '当前身份',
             authorize: '授权登录',
@@ -3682,24 +3680,9 @@ const zh: Translations = {
             authCodeHint: '把这段代码粘贴回终端，完成登录：',
             expired: '该请求已过期。回到终端重新运行命令，获取新的链接。',
             alreadyDone: '该请求已在其他标签页完成。',
-            grantDoneTitle: '授权完成。',
-            grantDoneHint: '可以关闭本窗口，agent 拿到新 token 后会自动继续。',
             missingRequest: '链接缺少登录请求参数，请从终端复制完整 URL。',
             loading: '正在加载请求…',
-            requestingAgent: '发起请求的 agent',
-            unknownAgent: '未知 agent（可能已被删除）',
-            grantNote:
-                '这些权限仅作用于该 agent 自己的资源，不会影响你的其他 agent。',
-            permissionsLabel: '要授予的权限',
-            permissionsHint:
-                '预勾选项为 agent 申请的权限。你可以取消勾选，但不能新增它未申请的权限。',
-            approve: '批准',
-            cancel: '取消',
-            selectScope: '请至少选择一个权限。',
             highRiskTitle: '授予高风险权限',
-            highRiskBody1: '你即将授予高风险权限：',
-            highRiskBody2: '这些权限允许该 agent 操作你的资源。是否继续？',
-            highRiskConfirm: '授予'
         },
         connectA2a: {
             title: '将 agent 连接到应用',
@@ -3946,7 +3929,6 @@ const zh: Translations = {
             countNeverUsed: '{{count}} 个从未使用',
             createdVia: '创建方式',
             boundAgent: '绑定的智能体',
-            bindingEnforced: '强制绑定',
             tokenId: '令牌 ID',
             scopesTitle: '权限范围',
             scopesMultiple: '多个权限范围',

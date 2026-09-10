@@ -442,11 +442,11 @@ const makeHarness = (
                     userId: user.userId,
                     email: user.email,
                     kind: 'legacy-runtime',
+                    tokenKind: 'a2a-grant',
                     agentId: 'agt_bound',
                     tokenId: 'pat_bound',
                     scopes: ['chat.completions'],
                     callerAgentId: null,
-                    enforceAgentBinding: false,
                     createdVia: null
                 }
             if (token === 'nca_full')
