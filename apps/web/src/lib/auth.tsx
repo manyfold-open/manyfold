@@ -17,7 +17,7 @@ import {
 } from 'react'
 import { t } from '@manyfold/i18n'
 import { attributionTokens, withAttributionParams } from '@/lib/attribution'
-import { safeRedirect } from '@/lib/safeRedirect'
+import { safeRedirectPath } from '@/lib/loginRedirect'
 import { useI18n } from '@/lib/i18n'
 import { isMarketingPath } from '@/seo/pages'
 import { clearSession, getSession, storeSession } from '@/lib/session'
@@ -511,7 +511,7 @@ const NativeCredentialForm: FC<{
 
     const completeSession = (res: AuthSessionResponse): void => {
         storeSession(res.token)
-        window.location.assign(safeRedirect(redirectUrl) ?? '/workspace')
+        window.location.assign(safeRedirectPath(redirectUrl) ?? '/workspace')
     }
 
     const netmindLogin = async (loginToken: string): Promise<void> => {
@@ -523,7 +523,7 @@ const NativeCredentialForm: FC<{
     }
 
     const startOauth = (provider: 'google' | 'oidc'): void => {
-        const target = safeRedirect(redirectUrl) ?? '/workspace'
+        const target = safeRedirectPath(redirectUrl) ?? '/workspace'
         const path =
             provider === 'google'
                 ? apiPaths.AUTH_OAUTH_GOOGLE_START

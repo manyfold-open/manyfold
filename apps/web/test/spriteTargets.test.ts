@@ -32,7 +32,6 @@ const runtime = (
     dashboardEnabled: false,
     dashboardState: null,
     keepAliveEnabled: false,
-    dashboardUrl: null,
     currentPhase: null,
     failureReason: null,
     primaryAgentId: null,

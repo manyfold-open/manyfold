@@ -850,11 +850,6 @@ export class AgentRuntimesService {
                 dashboardEnabled: runtime.dashboardEnabled,
                 dashboardState: runtime.dashboardState,
                 keepAliveEnabled: runtime.keepAliveEnabled,
-                // Always null since the k8s dashboard host was removed; the
-                // field stays because AgentRuntimeSummary is an exported
-                // shared type (dropping a field is a contract-surface break).
-                // Sprite dashboards are reached via the minted control-ui URL.
-                dashboardUrl: null,
                 currentPhase: runtime.currentPhase,
                 failureReason: runtime.failureReason,
                 primaryAgentId: runtime.primaryAgentId,

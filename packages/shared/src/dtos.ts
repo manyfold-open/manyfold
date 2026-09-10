@@ -2230,7 +2230,6 @@ export interface AgentRuntimeSummary {
     dashboardEnabled: boolean
     dashboardState: string | null
     keepAliveEnabled: boolean
-    dashboardUrl: string | null
     currentPhase: string | null
     failureReason: string | null
     primaryAgentId: string | null
