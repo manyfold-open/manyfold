@@ -410,7 +410,7 @@ test('daemon gateway rejects websocket connections for revoked hosts', async () 
         gateway as unknown as {
             handleConnection(socket: unknown, req: unknown): Promise<void>
         }
-    ).handleConnection(socket, { query: { token: 'ldt_token' } })
+    ).handleConnection(socket, { headers: { authorization: 'Bearer ldt_token' } })
 
     assert.equal(socket.code, 4403)
     assert.equal(socket.reason, 'daemon revoked')

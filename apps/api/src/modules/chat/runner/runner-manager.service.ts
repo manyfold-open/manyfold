@@ -51,8 +51,8 @@ const RUNNER_PROBE_PATH = profilePaths(
     RUNNER_PROFILE
 ).daemonConfigPath
 
-// The runner token authenticates EVERY websocket connect (it rides in the ws
-// URL), not just the one-off register — a short TTL therefore bricks the runner
+// The runner token authenticates EVERY websocket connect through its bearer
+// header, not just the one-off register — a short TTL therefore bricks the runner
 // a day later, which is exactly what happened on staging: `ws closed code=4401
 // reason=unauthorized`, and inspectSprite kept reporting registered=1 so it
 // never re-registered. Match the user-daemon default instead.

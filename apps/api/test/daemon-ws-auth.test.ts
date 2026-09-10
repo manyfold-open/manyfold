@@ -9,7 +9,7 @@ import { DaemonGateway } from '../src/modules/daemon/daemon.gateway'
 
 Logger.overrideLogger(false)
 
-test('daemon websocket authenticates headers authoritatively during query migration', async (t) => {
+test('daemon websocket requires bearer headers and never verifies query credentials', async (t) => {
     const fastify = Fastify()
     await fastify.register(websocket)
     const verified: string[] = []
@@ -78,24 +78,21 @@ test('daemon websocket authenticates headers authoritatively during query migrat
         })
 
     assert.equal(await connect('', 'Bearer fixture-header'), 'welcome')
-    assert.equal(await connect('?token=fixture-query'), 'welcome')
+    assert.equal(await connect('?token=fixture-query'), 4400)
+    assert.equal(await connect('?to%6ben=fixture-query'), 4400)
+    assert.equal(await connect('?token=fixture-query&token=fixture-header'), 4400)
     assert.equal(
         await connect('?token=fixture-query', 'Bearer fixture-header'),
         'welcome'
     )
-    assert.deepEqual(verified, [
-        'fixture-header',
-        'fixture-query',
-        'fixture-header'
-    ])
+    assert.deepEqual(verified, ['fixture-header', 'fixture-header'])
     assert.equal(await connect('?token=fixture-query', 'Bearer invalid'), 4401)
     assert.equal(await connect('?token=fixture-query', 'Basic invalid'), 4400)
     assert.equal(await connect(''), 4400)
     assert.equal(await connect('?token=a&token=b'), 4400)
-    assert.equal(registered.length, 3)
+    assert.equal(registered.length, 2)
     assert.deepEqual(verified, [
         'fixture-header',
-        'fixture-query',
         'fixture-header',
         'invalid'
     ])
