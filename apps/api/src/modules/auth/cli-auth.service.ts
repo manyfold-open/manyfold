@@ -27,8 +27,7 @@ import { configString } from '@/common/config-alias'
 import { API_TOKEN_SCOPE_FULL, ApiTokenService } from './api-token.service'
 import { CliAuthRateLimitService } from './cli-auth-rate-limit.service'
 
-// Chat-delivered consent links are often opened minutes later; resumable
-// poll-mode logins (mf login --resume) stay redeemable for this window.
+// Browser approval links expire independently of the resulting personal token.
 const LOGIN_TTL_MS = 15 * 60_000
 const CLI_TOKEN_EXPIRES_DAYS = 90
 const AUTH_CODE_PREFIX = 'mf_auth_'

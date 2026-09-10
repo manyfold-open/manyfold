@@ -28,7 +28,6 @@ const externalCaller = {
     tokenKind: 'a2a-grant',
     scopes: ['a2a:edit'],
     callerAgentId: null,
-    enforceAgentBinding: true,
     createdVia: 'api'
 } as never
 

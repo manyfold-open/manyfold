@@ -42,22 +42,14 @@ export type AuthPrincipal = AuthPrincipalBase &
               tokenId: string
               scopes: ApiTokenScope[]
               callerAgentId: string | null
-              /** @deprecated User-grant binding was retired in Phase 8. */
-              enforceAgentBinding?: boolean
               createdVia: TokenCreatedVia | null
-              // Present on principals resolved by current ApiTokenService.
-              // Optional keeps older in-process adapters/tests structurally
-              // compatible while authorization can distinguish caller grants
-              // from real runtime/user-grant credentials. 'a2a-ephemeral'
-              // cannot appear: minting stopped with the stateless-ticket
-              // switch and its 15-minute TTL means no row can authenticate.
-              tokenKind?: 'user-grant' | 'a2a-grant' | 'terminal'
+              // The wire kind is retained for A2A clients. User-grant bearers
+              // no longer authenticate through this arm.
+              tokenKind: 'a2a-grant'
           }
     )
 
-// The caller agent's identity, derived from the token alone — set whenever the
-// token belongs to an agent runtime, regardless of enforce_agent_binding. This
-// is identity, not boundary: use it to resolve "which agent is calling".
+// Runtime identity or the target of a retained A2A grant.
 export const runtimeAgentId = (auth: AuthPrincipal): string | undefined =>
     principalAgentId(auth)
 

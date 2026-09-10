@@ -72,7 +72,6 @@ export interface MintedApiToken {
     expiresAt: Date | null
     scopes: ApiTokenScope[]
     agentId: string | null
-    enforceAgentBinding: boolean
     createdVia: TokenCreatedVia | null
 }
 
@@ -130,7 +129,6 @@ export class ApiTokenService {
             expiresAt,
             scopes,
             agentId: null,
-            enforceAgentBinding: false,
             createdVia: null
         }
     }
@@ -268,10 +266,8 @@ export class ApiTokenService {
             }
         })
 
-        // Phase 3c dual-write: the relationship also lands in a2a_agent_grants
-        // (the new typed table). Only caller-bound grants move — external
-        // (caller-less) a2a tokens stay api_tokens-only (§4.2c). The legacy
-        // api_tokens row above remains the compat bearer until Phase 8.
+        // Peer grants still mirror their relationship in a2a_agent_grants.
+        // External caller-less tokens keep their target allowlist in api_tokens.
         if (callerAgentId) {
             await tx
                 .update(a2aAgentGrants)
@@ -297,7 +293,6 @@ export class ApiTokenService {
         return {
             ...minted,
             agentId: args.targetAgentId,
-            enforceAgentBinding: true,
             createdVia: 'api'
         }
     }
@@ -343,7 +338,6 @@ export class ApiTokenService {
             expiresAt,
             scopes: args.scopes,
             agentId: null,
-            enforceAgentBinding: false,
             createdVia: null
         }
     }
@@ -760,6 +754,12 @@ export class ApiTokenService {
         // instead of widening the principal union back around a retired kind.
         if (apiRow.tokenKind === 'a2a-ephemeral')
             throw new UnauthorizedException('a2a-ephemeral tokens are retired')
+        if (apiRow.agentId && apiRow.tokenKind !== 'a2a-grant')
+            throw new UnauthorizedException(
+                'agent bearer grants are retired; use a runtime identity'
+            )
+        if (apiRow.tokenKind === 'a2a-grant' && !apiRow.agentId)
+            throw new UnauthorizedException('A2A grant has no target agent')
 
         const scopes = normalizeStoredScopes(apiRow.scopes)
         const createdVia = isTokenCreatedVia(apiRow.createdVia)
@@ -780,7 +780,7 @@ export class ApiTokenService {
                   scopes,
                   callerAgentId: apiRow.callerAgentId,
                   createdVia,
-                  tokenKind: apiRow.tokenKind
+                  tokenKind: 'a2a-grant'
               }
             : {
                   userId: apiRow.userId,

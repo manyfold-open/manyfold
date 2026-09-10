@@ -160,11 +160,11 @@ test('legacy a2a-grant token (callerAgentId set) still authenticates', async () 
     const auth = authReturning({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         agentId: 'agt_target',
         tokenId: 'pat_1',
         scopes: ['a2a:edit'],
         callerAgentId: 'agt_caller',
-        enforceAgentBinding: true,
         createdVia: 'api'
     })
     const ctx = await authenticateA2aRequest(
@@ -190,11 +190,11 @@ test('external client token bound to this target authenticates as an external su
     const auth = authReturning({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         agentId: 'agt_target',
         tokenId: 'pat_ext',
         scopes: ['a2a:edit'],
         callerAgentId: null,
-        enforceAgentBinding: true,
         createdVia: 'api'
     })
     const ctx = await authenticateA2aRequest(
@@ -247,11 +247,11 @@ test('legacy token missing a2a:edit scope → A2aHttpError(403)', async () => {
     const auth = authReturning({
         userId: 'user-1',
         kind: 'legacy-runtime',
+        tokenKind: 'a2a-grant',
         agentId: 'agt_target',
         tokenId: 'pat_1',
         scopes: ['channels:read'],
         callerAgentId: 'agt_caller',
-        enforceAgentBinding: true,
         createdVia: 'api'
     })
     await assert.rejects(
@@ -381,11 +381,11 @@ test('controller dispatches an external client call even though it holds no peer
         bearer: authReturning({
             userId: 'user-1',
             kind: 'legacy-runtime',
+            tokenKind: 'a2a-grant',
             agentId: 'agt_target',
             tokenId: 'pat_ext',
             scopes: ['a2a:edit'],
             callerAgentId: null,
-            enforceAgentBinding: true,
             createdVia: 'api'
         }),
         isActiveExternalA2aGrant: true,

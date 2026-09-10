@@ -514,10 +514,10 @@ export const boundAgentIdFromUser = (user: AuthPrincipal): string | undefined =>
     // Runtime tokens are self-scoped by default: list endpoints see only the
     // agent's own resources — UNLESS the request opted into account scope
     // (ADR-0010), where the guard has authorized account-wide reach and the
-    // list widens to the whole account. Legacy enforce=false grants and human
-    // principals keep their existing (broad) behaviour.
+    // list widens to the whole account. A2A grants retain their target filter.
     if (user.kind === 'agent-runtime')
         return user.accountScope ? undefined : user.agentId
+    if (user.kind === 'legacy-runtime') return user.agentId
     return undefined
 }
 
