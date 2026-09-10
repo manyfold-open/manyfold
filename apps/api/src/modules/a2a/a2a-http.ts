@@ -60,7 +60,7 @@ export const authenticateA2aRequest = async (
         }
     }
 
-    // DB-token path: internal a2a-grant bearers authenticate here.
+    // External-client credentials retain their target-bound database token.
     if (!isApiToken(token)) throw new A2aHttpError(401, 'invalid api token')
     let user
     try {
@@ -70,20 +70,6 @@ export const authenticateA2aRequest = async (
     }
     if (!apiTokenHasScope(user, API_TOKEN_SCOPE_A2A))
         throw new A2aHttpError(403, 'token missing a2a:edit scope')
-
-    // Internal caller: an a2a-grant bearer that names the calling agent. The
-    // controller re-checks the grant per call (real-time revoke).
-    if (user.kind === 'legacy-runtime' && user.callerAgentId) {
-        if (user.agentId !== targetAgentId)
-            throw new A2aHttpError(403, 'token not authorized for this agent')
-        return {
-            userId: user.userId,
-            targetAgentId,
-            callerAgentId: user.callerAgentId,
-            externalSubject: null,
-            tokenId: user.tokenId
-        }
-    }
 
     // External caller (third-party client / SDK): authority is the caller-less
     // `a2a-grant` row bound to THIS target, which is the durable per-token
