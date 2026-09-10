@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 0.76.3
+
+### Patch Changes
+
+- [#302](https://github.com/manyfold-open/manyfold/pull/302) [`ae1dd05`](https://github.com/manyfold-open/manyfold/commit/ae1dd05c14776e00811e1b9c29edc4593513f12d) Thanks [@yingca1](https://github.com/yingca1)! - Keep External A2A grants target-bound during a rolling Phase 8 upgrade while leaving personal tokens unbound. A temporary database trigger maintains the binding flag for older API readers when switch writers omit it. Deploy this preparation release across the fleet before the separate column-removal release, which also removes the trigger.
+
 ## 0.76.2
 
 ### Patch Changes
