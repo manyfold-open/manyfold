@@ -1,8 +1,10 @@
 import type { FC, ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { t } from '@manyfold/i18n'
 import { EllipsisHorizontalIcon } from '@/components/icons'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
+import { useAnchoredMenuPosition } from '@/hooks/useAnchoredMenuPosition'
 
 export interface OverflowMenuItem {
     label: string
@@ -26,6 +28,12 @@ const isSeparator = (
     entry: OverflowMenuEntry
 ): entry is OverflowMenuSeparator => 'separator' in entry
 
+/* The panel portals to <body> with fixed positioning, like WorkbenchSelect,
+   so a host with `overflow: hidden` cannot clip it. Seen on staging
+   [2026-09-10]: the runtime page's added-accounts rows live in a
+   `.settings-card` (overflow-hidden for its rounded corners), and an
+   absolutely positioned panel opening below the last row was cut off at
+   the card edge — the menu was open, just invisible. */
 const OverflowMenu: FC<{
     ariaLabel?: string
     items: OverflowMenuEntry[]
@@ -42,11 +50,22 @@ const OverflowMenu: FC<{
 }): ReactNode => {
     const [open, setOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement>(null)
+    const menuRef = useRef<HTMLDivElement>(null)
+    const menuStyle = useAnchoredMenuPosition(open, rootRef, menuRef, {
+        align: 'end',
+        matchAnchorWidth: false
+    })
 
     useEffect(() => {
         if (!open) return
+        // The panel is not a DOM descendant of the trigger any more, so a
+        // click inside it has to be recognised through its own ref.
         const onDocClick = (e: MouseEvent): void => {
-            if (rootRef.current && !rootRef.current.contains(e.target as Node))
+            const target = e.target as Node
+            if (
+                !rootRef.current?.contains(target) &&
+                !menuRef.current?.contains(target)
+            )
                 setOpen(false)
         }
         const onKey = (e: KeyboardEvent): void => {
@@ -89,62 +108,69 @@ const OverflowMenu: FC<{
             >
                 <EllipsisHorizontalIcon className='h-4 w-4' />
             </button>
-            {open && (
-                <div
-                    role='menu'
-                    aria-label={ariaLabel}
-                    className='popover-panel bg-surface-elevated shadow-elevated absolute right-0 top-full z-50 mt-1 w-48 rounded-md p-1'
-                >
-                    {items.map((entry, index) => {
-                        if (isSeparator(entry))
-                            return (
-                                <div
-                                    key={`separator-${index}`}
-                                    className='popover-separator'
-                                />
-                            )
-                        const item = entry
-                        const row = (
-                            <button
-                                key={item.label}
-                                type='button'
-                                role='menuitem'
-                                disabled={item.disabled}
-                                onClick={() => {
-                                    if (item.disabled) return
-                                    setOpen(false)
-                                    item.onSelect()
-                                }}
-                                className={itemClass(item)}
-                            >
-                                <span className='min-w-0 flex-1 truncate'>
-                                    {item.label}
-                                </span>
-                                {item.trailing && (
-                                    <span
-                                        aria-hidden='true'
-                                        className='text-subtle shrink-0'
-                                    >
-                                        {item.trailing}
+            {open &&
+                createPortal(
+                    <div
+                        ref={menuRef}
+                        role='menu'
+                        aria-label={ariaLabel}
+                        className={[
+                            'popover-panel bg-surface-elevated shadow-elevated fixed z-[110] w-48 overflow-auto rounded-md p-1',
+                            menuStyle ? '' : 'invisible'
+                        ].join(' ')}
+                        style={menuStyle}
+                    >
+                        {items.map((entry, index) => {
+                            if (isSeparator(entry))
+                                return (
+                                    <div
+                                        key={`separator-${index}`}
+                                        className='popover-separator'
+                                    />
+                                )
+                            const item = entry
+                            const row = (
+                                <button
+                                    key={item.label}
+                                    type='button'
+                                    role='menuitem'
+                                    disabled={item.disabled}
+                                    onClick={() => {
+                                        if (item.disabled) return
+                                        setOpen(false)
+                                        item.onSelect()
+                                    }}
+                                    className={itemClass(item)}
+                                >
+                                    <span className='min-w-0 flex-1 truncate'>
+                                        {item.label}
                                     </span>
-                                )}
-                            </button>
-                        )
-                        return item.disabled && item.disabledReason ? (
-                            <ShortcutTooltip
-                                key={item.label}
-                                label={item.disabledReason}
-                                placement='bottom-end'
-                                className='block w-full'
-                            >
-                                {row}
-                            </ShortcutTooltip>
-                        ) : (
-                            row
-                        )
-                    })}
-                </div>
-            )}
+                                    {item.trailing && (
+                                        <span
+                                            aria-hidden='true'
+                                            className='text-subtle shrink-0'
+                                        >
+                                            {item.trailing}
+                                        </span>
+                                    )}
+                                </button>
+                            )
+                            return item.disabled && item.disabledReason ? (
+                                <ShortcutTooltip
+                                    key={item.label}
+                                    label={item.disabledReason}
+                                    placement='bottom-end'
+                                    className='block w-full'
+                                >
+                                    {row}
+                                </ShortcutTooltip>
+                            ) : (
+                                row
+                            )
+                        })}
+                    </div>,
+                    document.body
+                )}
         </div>
     )
 }
