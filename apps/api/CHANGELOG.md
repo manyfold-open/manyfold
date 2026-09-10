@@ -1,5 +1,30 @@
 # @manyfold/api
 
+## 2.0.0
+
+### Major Changes
+
+- [#322](https://github.com/manyfold-open/manyfold/pull/322) [`a681865`](https://github.com/manyfold-open/manyfold/commit/a6818656b58ac333c45f46095453851944e2ba73) Thanks [@yingca1](https://github.com/yingca1)! - Use the dedicated A2A peer-grant table for authorization, caller lists and
+  revocation. Reconcile previously revoked token mirrors that left policy active,
+  backfill older grants and preserve existing public grant IDs. Temporary database
+  compatibility triggers protect old writers during rolling deployment.
+
+    Caller-bound long-lived A2A token creation now returns 410. Use the existing
+    batch peer-grant endpoint and per-call peer tickets for internal agent access.
+    External caller-less A2A credentials retain their single-target behavior.
+
+    Deploy this preparation version to every API instance before stopping mirror
+    writes and applying the final cleanup. The mirrors and compatibility triggers
+    remain only for that deployment transition.
+
+### Minor Changes
+
+- [#323](https://github.com/manyfold-open/manyfold/pull/323) [`3eede59`](https://github.com/manyfold-open/manyfold/commit/3eede59bbfb385092e23bede3639732864a90e1e) Thanks [@yingca1](https://github.com/yingca1)! - Chat errors now include a server-classified cause used by the web workbench and
+  terminal telemetry. Live events, replayed streams and historical messages use
+  the same classification rules. The web no longer guesses authentication,
+  billing or thread contention from error wording. Retryability remains the
+  adapter's explicit decision.
+
 ## 1.1.0
 
 ### Minor Changes
