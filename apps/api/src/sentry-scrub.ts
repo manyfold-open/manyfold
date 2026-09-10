@@ -1,5 +1,9 @@
 import type { Breadcrumb, Event } from '@sentry/node'
 import {
+    redactCredentialText,
+    redactCredentialValue
+} from './common/telemetry/redact-credentials'
+import {
     redactedQueryString,
     redactSensitiveUrlQuery
 } from './common/telemetry/redact-url'
@@ -17,18 +21,29 @@ export const scrubSentryEvent = <T extends Event>(event: T): T => {
         // in case that option ever stops being honoured.
         delete request.data
     }
-    if (event.message) event.message = redactSensitiveUrlQuery(event.message)
+    if (request?.headers)
+        request.headers = redactCredentialValue(
+            request.headers
+        ) as typeof request.headers
+    if (event.extra)
+        event.extra = redactCredentialValue(event.extra) as typeof event.extra
+    if (event.message) event.message = redactCredentialText(event.message)
     for (const value of event.exception?.values ?? []) {
-        if (value.value) value.value = redactSensitiveUrlQuery(value.value)
+        if (value.value) value.value = redactCredentialText(value.value)
     }
     return event
 }
 
 export const scrubSentryBreadcrumb = (crumb: Breadcrumb): Breadcrumb => {
-    const url = crumb.data?.url
-    if (typeof url !== 'string') return crumb
+    const message = crumb.message
+        ? redactCredentialText(crumb.message)
+        : crumb.message
+    if (!crumb.data && message === crumb.message) return crumb
     return {
         ...crumb,
-        data: { ...crumb.data, url: redactSensitiveUrlQuery(url) }
+        ...(message ? { message } : {}),
+        ...(crumb.data
+            ? { data: redactCredentialValue(crumb.data) as typeof crumb.data }
+            : {})
     }
 }

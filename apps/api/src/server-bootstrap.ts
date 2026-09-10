@@ -107,7 +107,7 @@ const handleFatal = (reason: ProcessExitReason, error: unknown): void => {
     fatalHandling = true
     const startedAt = Date.now()
     const detail = describeFatalError(error)
-    console.error(`process fatal reason=${reason}`, error)
+    console.error(`process fatal reason=${reason}`, detail)
     const hardExit = setTimeout(() => process.exit(1), 3_000)
     void fatalTurnResult()
         .catch(() => null)
@@ -335,8 +335,9 @@ export const startApiServer = (rootModule: Type<unknown>): void => {
     bootstrap(rootModule).catch((error) => {
         // bufferLogs + OtelNestLogger swallow Logger output when init fails before the
         // buffer flushes; raw console.error keeps boot crashes (e.g. Postgres down) visible
-        console.error('bootstrap failed', error)
-        Logger.error('bootstrap', error)
+        const detail = describeFatalError(error)
+        console.error('bootstrap failed', detail)
+        Logger.error('bootstrap', detail)
         handleFatal('bootstrap_failure', error)
     })
 }

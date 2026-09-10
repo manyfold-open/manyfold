@@ -5,6 +5,10 @@ import {
 } from '@nestjs/common'
 import { logs, SeverityNumber } from '@opentelemetry/api-logs'
 import { trace } from '@opentelemetry/api'
+import {
+    redactCredentialText,
+    redactCredentialValue
+} from './redact-credentials'
 
 const severityFor = (
     level: LogLevel
@@ -40,28 +44,34 @@ export class OtelNestLogger extends ConsoleLogger implements LoggerService {
     private readonly otel = logs.getLogger('manyfold-api')
 
     log(message: unknown, ...rest: unknown[]): void {
-        super.log(message as never, ...(rest as never[]))
-        this.emit('log', message, rest)
+        this.write('log', message, rest)
     }
 
     warn(message: unknown, ...rest: unknown[]): void {
-        super.warn(message as never, ...(rest as never[]))
-        this.emit('warn', message, rest)
+        this.write('warn', message, rest)
     }
 
     error(message: unknown, ...rest: unknown[]): void {
-        super.error(message as never, ...(rest as never[]))
-        this.emit('error', message, rest)
+        this.write('error', message, rest)
     }
 
     debug(message: unknown, ...rest: unknown[]): void {
-        super.debug(message as never, ...(rest as never[]))
-        this.emit('debug', message, rest)
+        this.write('debug', message, rest)
     }
 
     verbose(message: unknown, ...rest: unknown[]): void {
-        super.verbose(message as never, ...(rest as never[]))
-        this.emit('verbose', message, rest)
+        this.write('verbose', message, rest)
+    }
+
+    fatal(message: unknown, ...rest: unknown[]): void {
+        this.write('fatal', message, rest)
+    }
+
+    private write(level: LogLevel, message: unknown, rest: unknown[]): void {
+        const safeMessage = redactCredentialValue(message)
+        const safeRest = rest.map(redactCredentialValue)
+        super[level](safeMessage as never, ...(safeRest as never[]))
+        this.emit(level, safeMessage, safeRest)
     }
 
     private emit(level: LogLevel, message: unknown, rest: unknown[]): void {
@@ -91,7 +101,7 @@ export class OtelNestLogger extends ConsoleLogger implements LoggerService {
         this.otel.emit({
             severityNumber: severity.number,
             severityText: severity.text,
-            body: stringify(message),
+            body: redactCredentialText(stringify(message)),
             attributes
         })
     }
