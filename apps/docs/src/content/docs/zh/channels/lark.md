@@ -26,13 +26,27 @@ order: 12
 
 ## 扫码快捷创建（推荐）
 
-扫码快捷创建会让开放平台自动创建并配置 bot，生成的 App Secret 始终只由 Manyfold 服务端处理。
+扫码快捷创建会让开放平台自动创建并配置 bot，生成的 App Secret 始终只由 Manyfold 服务端处理。整个流程分两边进行：Manyfold 负责生成二维码，手机上的 Lark 或飞书才是你批准并真正创建 app 的地方。
+
+### Manyfold 这边
 
 1. 打开 **Settings -> Channels**，创建渠道并选择 **飞书** 或 **Lark**。
 2. 选择目标 Agent、app 区域、label 和 bot name。
 3. 保持选中 **二维码**，然后生成二维码。
 4. 使用有权批准创建 app 的账号扫码，检查请求的权限并批准。扫码账号决定 app 创建在哪个平台：飞书账号创建在 `open.feishu.cn`，Lark 账号创建在 `open.larksuite.com`。
 5. 等待 Manyfold 创建 active 长连接/WebSocket channel，然后运行 **Test** 并给 bot 发消息。
+
+![Manyfold 新建 Lark 渠道的表单，处于扫码快捷创建模式，显示 Agent、label、bot name 字段和生成的二维码](../../../../assets/docs/channels/lark-01-manyfold-new-channel-qr.webp)
+
+### Lark（飞书）这边
+
+1. 用手机上的 Lark 或飞书扫描二维码，按引导创建 app：选择头像、确认名称，然后点 **Create**。
+
+   ![手机上的 Lark Developer 页面，正在为 Agent 创建 Lark app，可选择头像和名称](../../../../assets/docs/channels/lark-02-create-app-in-lark.webp)
+
+   app 创建完成后 bot 立刻出现在 Lark 里，可以直接对话。
+
+   ![在 Lark 中与刚创建的 Agent 对话](../../../../assets/docs/channels/lark-03-chat-with-the-bot.webp)
 
 扫码人的 app-scoped `open_id` 会自动加入 operator 列表，可执行 `/model` 等 agent 级命令。通过此流程注册的 app 不需要再单独发布版本。在等待扫码时关闭面板会取消该注册；拒绝或过期后可以重新生成二维码。
 
