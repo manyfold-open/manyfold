@@ -23,63 +23,90 @@ Connect Slack when you want an agent in direct messages, public or private chann
 - Permission to create and install a Slack app in the workspace.
 - Permission to invite the app to each target channel.
 
-## Set up from Manyfold's manifest
+## Set up the Slack app
 
-The generated manifest becomes available after a Manyfold channel has its channel-specific inbound URL. It is useful when you are recreating/migrating an app or want Slack to validate the complete configuration in one operation.
+Manyfold can generate a manifest that configures the whole Slack app in one paste: Request URL, event subscriptions, bot scopes and every slash command. That manifest only exists once the channel has an inbound URL, and the channel cannot be created without a bot token — so the app is built in two passes. First a minimal app, just to get credentials out of Slack; then the full manifest applied back onto that same app.
 
-For a new setup, use this bootstrap flow:
+1. In [Slack API Apps](https://api.slack.com/apps), choose **Create an App**.
 
-1. Create and install a minimal bootstrap Slack app so you have an `xoxb-` token and signing secret.
-2. Use those credentials to create the Slack channel in Manyfold and obtain its inbound URL.
-3. Open the channel detail page and choose **Copy manifest JSON**.
-4. In [Slack API Apps](https://api.slack.com/apps), choose **Create New App -> From an app manifest**.
-5. Select the workspace, paste the JSON, review it, and create the app.
-6. Under **OAuth & Permissions**, install or reinstall the app to the workspace.
-7. Replace the bootstrap credentials in the Manyfold channel with the final app's Bot User OAuth Token and signing secret.
-8. Remove the bootstrap app if it is no longer used, then run the channel registration and test actions.
+   ![The Slack API Your Apps page with the Create an App button](../../../assets/docs/channels/slack-01-create-an-app.webp)
 
-The manifest configures the Request URL, all event subscriptions, all 11 slash commands, and the scopes needed for files. Slash command names are workspace-wide; if another app already owns a name such as `/new`, rename that command in the manifest before installing.
+2. Choose **From a manifest**, select the workspace, and continue. There is nothing to paste yet; an empty app is all this first pass needs.
 
-## Manual Slack app setup
+   ![The Create new app dialog with From a manifest selected](../../../assets/docs/channels/slack-02-from-a-manifest.webp)
 
-Create an app from scratch, add a bot user, and add these bot token scopes:
+   Slack creates the app with no scopes, so it cannot be installed yet.
 
-| Scope | Required for |
-| ----- | ------------ |
-| `app_mentions:read` | Receiving @mentions in channels. |
-| `channels:history` | Public channel message events. |
-| `groups:history` | Private channel message events. |
-| `im:history` | Direct-message events. |
-| `mpim:history` | Multiparty direct-message events. |
-| `chat:write` | Replies and live progress messages. |
-| `commands` | Native slash commands. |
-| `files:read` | Downloading files users attach. |
-| `files:write` | Uploading workspace files produced by the agent. |
+   ![Slack confirming the app was created and warning that it has no scopes configured](../../../assets/docs/channels/slack-03-app-created-add-scopes.webp)
 
-Under **Event Subscriptions**, set the channel's Manyfold inbound URL as the Request URL and subscribe to:
+3. Open **OAuth & Permissions** and add the bot token scopes. `app_mentions:read`, `chat:write` and a history scope for each conversation type you want are the minimum; the rest unlock commands and files.
 
-| Bot event | Required for |
-| --------- | ------------ |
-| `app_mention` | Explicit @mentions in channels. |
-| `message.channels` | Public channel messages, including file shares. |
-| `message.groups` | Private channel messages. |
-| `message.im` | Direct messages and Assistant conversations. |
-| `message.mpim` | Multiparty direct messages. |
+   | Scope | Required for |
+   | ----- | ------------ |
+   | `app_mentions:read` | Receiving @mentions in channels. |
+   | `channels:history` | Public channel message events. |
+   | `groups:history` | Private channel message events. |
+   | `im:history` | Direct-message events. |
+   | `mpim:history` | Multiparty direct-message events. |
+   | `chat:write` | Replies and live progress messages. |
+   | `commands` | Native slash commands. |
+   | `files:read` | Downloading files users attach. |
+   | `files:write` | Uploading workspace files produced by the agent. |
 
-Create each command listed by `/help` under **Slash Commands** and point every command to the same Manyfold inbound URL. After changing scopes, events, or commands, reinstall the app to the workspace.
+   ![The Bot Token Scopes list in OAuth & Permissions with the scopes added](../../../assets/docs/channels/slack-04-bot-token-scopes.webp)
+
+4. Still under **OAuth & Permissions**, install the app to the workspace.
+
+   ![The OAuth Tokens section before installation, with the install button](../../../assets/docs/channels/slack-05-install-to-workspace.webp)
+
+   Copy the **Bot User OAuth Token** that appears afterwards. It starts with `xoxb-` and it is a credential: anyone holding it can post as the bot, so keep it out of shared documents and screenshots.
+
+   ![The Bot User OAuth Token shown after the app is installed](../../../assets/docs/channels/slack-06-bot-user-oauth-token-demo.webp)
+
+5. Open **Basic Information**, find **Signing Secret** under **App Credentials**, and press **Show** to copy it. Slack signs every request it sends with this secret, and Manyfold rejects anything it cannot verify.
+
+   ![The App Credentials section on Basic Information with the Signing Secret field highlighted](../../../assets/docs/channels/slack-07-signing-secret-demo.webp)
 
 ## Connect it to Manyfold
 
-1. Open **Settings -> Channels**.
-2. Create a channel and choose **Slack**.
-3. Select the agent and enter a label.
-4. Paste the `xoxb-` Bot User OAuth Token and signing secret.
-5. Create the channel.
-6. Copy its inbound URL into Slack's Event Subscriptions and slash commands, unless you used the generated manifest.
-7. Install/reinstall the Slack app and invite it to each target channel.
-8. Run **Register**, then **Test**.
+1. Open **Settings -> Channels**, create a channel, and choose **Slack**.
 
-Registration uses `auth.test` to store the bot user and workspace IDs. Messages from a different workspace are rejected, so register again after moving or reinstalling the app in another workspace.
+   | Field | What to enter | Where it comes from |
+   | ----- | ------------- | ------------------- |
+   | Agent | The agent that should answer | Already filled in if you started from the agent |
+   | Label | Any name that identifies this channel | Your choice |
+   | Bot token | The `xoxb-` string | Slack, **OAuth & Permissions** |
+   | Signing secret | The signing secret | Slack, **Basic Information -> App Credentials** |
+   | Allowed user IDs | Optional. Empty lets anyone in the workspace use the bot | — |
+   | Operator user IDs | Optional. Who may run agent-wide commands such as `/model`; empty disables them | — |
+
+   ![The Manyfold New Slack channel form with the agent, label, bot token and signing secret fields](../../../assets/docs/channels/slack-08-manyfold-new-channel.webp)
+
+2. Create the channel, then run **Register**. Registration calls `auth.test` and stores the bot user and workspace IDs.
+
+3. On the channel page, choose **Copy manifest JSON**. The same page shows the channel's inbound webhook URL, which the manifest already points at.
+
+   ![A Manyfold Slack channel page showing the inbound webhook URL and the Slack app manifest](../../../assets/docs/channels/slack-09-channel-manifest-demo.webp)
+
+4. Back in the Slack app, open **App Manifest** in the left-hand menu. Select the whole existing JSON, delete it, paste the manifest you copied, and save. Slack validates on save: if another installed app already owns a slash command name such as `/new`, rename that command in the manifest and save again.
+
+   ![The Slack App Manifest page showing the app's current JSON manifest](../../../assets/docs/channels/slack-10-paste-app-manifest.webp)
+
+   The manifest subscribes the bot to these events:
+
+   | Bot event | Required for |
+   | --------- | ------------ |
+   | `app_mention` | Explicit @mentions in channels. |
+   | `message.channels` | Public channel messages, including file shares. |
+   | `message.groups` | Private channel messages. |
+   | `message.im` | Direct messages and Assistant conversations. |
+   | `message.mpim` | Multiparty direct messages. |
+
+5. Go back to **OAuth & Permissions** and reinstall the app. Scope and slash-command changes only take effect on reinstall. The token is unchanged, so nothing needs updating in Manyfold.
+
+6. Run **Test** on the channel.
+
+Messages from a workspace other than the registered one are rejected, so register again after moving or reinstalling the app in another workspace.
 
 ## Messages and files
 
@@ -124,7 +151,10 @@ Find a Slack user ID from the member profile's three-dot menu with **Copy member
 Run **Test** to verify the token with `auth.test` and confirm the channel is active. Then:
 
 1. DM the app.
-2. Invite it to a channel and @mention it.
+2. Invite it to a channel and @mention it. Open the channel, choose **Add people**, and pick the app by name.
+
+   ![Adding the Slack app to a channel through the Add people dialog](../../../assets/docs/channels/slack-11-invite-app-to-channel-demo.webp)
+
 3. Run `/help` from Slack's command menu.
 4. Upload a small file if file input is required.
 
