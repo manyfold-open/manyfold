@@ -98,6 +98,9 @@ import Composer, {
     type ComposerSendAttachment,
     type ComposerSendHelpers
 } from '@/components/chat/Composer'
+import NewChatLaunchpad, {
+    NewChatLaunchpadIntro
+} from '@/components/chat/NewChatLaunchpad'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
 import { ChatGrantProvider } from '@/components/chat/ChatGrantContext'
@@ -2425,19 +2428,16 @@ const AgentChat: FC = (): ReactNode => {
                         >
                             <div className='w-full'>
                                 {showEmptyState && (
-                                    <div className='mx-auto mb-7 max-w-3xl text-center'>
-                                        <h2 className='text-display text-fg'>
-                                            {t('web.chat.whatNext', {
-                                                name: currentAgent.name
-                                            })}
-                                        </h2>
-                                    </div>
+                                    <NewChatLaunchpadIntro />
                                 )}
                                 <div ref={composerDockRef}>
                                     {renderComposer(
                                         showEmptyState ? 'inline' : 'dock'
                                     )}
                                 </div>
+                                {showEmptyState && (
+                                    <NewChatLaunchpad agent={currentAgent} />
+                                )}
                             </div>
                         </div>
                         {/* Kept mounted once opened, and only hidden when the

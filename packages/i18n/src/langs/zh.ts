@@ -2563,7 +2563,51 @@ const zh: Translations = {
             savingDraftAndSending: '保存草稿并发送中…',
             stoppingResponse: '停止回复中…',
             streamingEsc: '生成中… 按 Esc 取消',
-            whatNext: '{{name}} 接下来要做什么？',
+            launchpad: {
+                heading: '你想先让它完成什么？',
+                workflowTitle: '让它进入你的工作流',
+                recommended: '推荐',
+                actions: {
+                    configure: '配置',
+                    view: '查看',
+                    connect: '连接',
+                    create: '创建',
+                    open: '去设置',
+                    check: '检查',
+                    github: {
+                        title: '连接 GitHub',
+                        body: '关联 GitHub 账号，让它能访问你的仓库'
+                    },
+                    skills: {
+                        title: '安装技能',
+                        body: '从共享目录里给这个 Agent 添加专项能力'
+                    },
+                    mcp: {
+                        title: '添加 MCP 工具',
+                        body: '为这个 Agent 配置 MCP 服务器，用它自己的配置语法'
+                    },
+                    channel: {
+                        title: '连接{{provider}}',
+                        body: '在你本来就在用的聊天软件里直接使用这个 Agent'
+                    },
+                    automation: {
+                        title: '定时自动运行',
+                        body: '让任务自动执行，并把结果发到渠道'
+                    },
+                    native: {
+                        title: '开启框架自带的面板',
+                        body: '框架自己的 Web 界面，首次开启时才会构建'
+                    },
+                    provider: {
+                        title: '检查外部服务方',
+                        body: '确认这个 Agent 实际调用的 Dify 或 Langflow 端点'
+                    },
+                    a2a: {
+                        title: '配置 A2A',
+                        body: '检查 Agent Card、授权方式与任务调用'
+                    }
+                }
+            },
             sessionMessageLimit:
                 '此会话有 {{count}} 条消息。建议开始新会话以获得更好的性能。',
             failedToCreateSession: '创建聊天会话失败。',

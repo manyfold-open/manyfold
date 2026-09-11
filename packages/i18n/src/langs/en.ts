@@ -2645,7 +2645,51 @@ const en = {
             savingDraftAndSending: 'Saving draft and sending…',
             stoppingResponse: 'Stopping response…',
             streamingEsc: 'Streaming… Esc to cancel',
-            whatNext: 'What should {{name}} work on next?',
+            launchpad: {
+                heading: 'What should it work on first?',
+                workflowTitle: 'Bring it into your workflow',
+                recommended: 'Recommended',
+                actions: {
+                    configure: 'Configure',
+                    view: 'View',
+                    connect: 'Connect',
+                    create: 'Create',
+                    open: 'Set up',
+                    check: 'Check',
+                    github: {
+                        title: 'Connect GitHub',
+                        body: 'Link a GitHub account so it can reach your repositories'
+                    },
+                    skills: {
+                        title: 'Install skills',
+                        body: 'Give this agent specialized capabilities from the shared catalog'
+                    },
+                    mcp: {
+                        title: 'Add MCP tools',
+                        body: 'Point this agent at MCP servers, written in its own config syntax'
+                    },
+                    channel: {
+                        title: 'Connect {{provider}}',
+                        body: 'Use this agent from the chat app you already live in'
+                    },
+                    automation: {
+                        title: 'Run it on a schedule',
+                        body: 'Run a task automatically and send the result to a channel'
+                    },
+                    native: {
+                        title: 'Turn on the framework dashboard',
+                        body: 'Its own web UI, built the first time you enable it'
+                    },
+                    provider: {
+                        title: 'Check the external provider',
+                        body: 'Confirm the Dify or Langflow endpoint this agent runs against'
+                    },
+                    a2a: {
+                        title: 'Configure A2A',
+                        body: 'Review the Agent Card, authorization, and task calls'
+                    }
+                }
+            },
             sessionMessageLimit:
                 'This session has {{count}} messages. Consider starting a new session for better performance.',
             failedToCreateSession: 'Failed to create chat session.',
