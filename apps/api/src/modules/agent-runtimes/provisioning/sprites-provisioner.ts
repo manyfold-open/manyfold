@@ -288,19 +288,17 @@ export class SpritesProvisioner {
 
 
     /**
-     * Mint the agent's runtime identity token and inject it into the sprite's
-     * managed shell-env block. Split out of provisioning because the mint writes
+     * Mint and persist the agent's runtime identity for per-exec injection.
+     * Split out of provisioning because the mint writes
      * an agent_runtime_tokens row whose agent_id FK references agents.id — so it
      * MUST run AFTER the agents row is inserted, not during bootstrap.
      *
      * Fail-loud (§3.5 gate): when there is a reachable API URL the identity is
-     * mandatory — a missing token service, a mint failure, or a shell-env-write
+     * mandatory — a missing token service or a mint failure
      * failure all throw so the caller rolls the half-provisioned runtime back
      * via teardownRuntime (never a tokenless agent in a gated env). Without an
      * API URL the token is inert (the agent falls back to `mf login`), so we
      * skip with a single WARN — preserving local/non-gated provisions.
-     * Re-issues the whole NCA_* block, so it's idempotent over the no-token
-     * block written during provisioning.
      */
     async installRuntimeIdentity(args: {
         userId: string

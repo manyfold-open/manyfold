@@ -1,4 +1,7 @@
-
+// Scripts for the sprite-local /v1/tasks activity API, reachable only from
+// inside the VM via /.sprite/api.sock. POST creates {name, expire}; PUT
+// renews {expire}; DELETE releases the named task. Framework services and
+// renewable keep-alive leases have separate scripts and lifetimes.
 
 export interface ServiceStartScriptOptions {
     /** Argv to exec as the framework service process. */
