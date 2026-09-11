@@ -33,6 +33,12 @@ const FRAMEWORK_INSTALL_GUIDE: Partial<
         upgrade: 'npm install -g @google/gemini-cli@latest',
         docs: 'https://github.com/google-gemini/gemini-cli'
     },
+    pi: {
+        bin: 'pi',
+        install: 'npm install -g @earendil-works/pi-coding-agent',
+        upgrade: 'npm install -g @earendil-works/pi-coding-agent@latest',
+        docs: 'https://pi.dev'
+    },
     openclaw: {
         bin: 'openclaw',
         install: 'npm install -g openclaw',

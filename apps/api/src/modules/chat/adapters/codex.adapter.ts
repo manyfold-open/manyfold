@@ -1,7 +1,6 @@
 import {
     AgentFramework,
     ChatCapabilities,
-    ChatContentBlock,
     ChatMessage,
     ChatUsage,
     CodexAgentModelConfig,
@@ -26,6 +25,7 @@ import type { ExecStreamHandle } from '@/modules/chat/adapters/exec-driver'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { extractCodexUsage } from './codex-usage'
+import { forkTranscriptPrompt } from './fork-transcript-prompt'
 import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -702,93 +702,10 @@ const applyCodexPermissionMode = (
     cmd.push('--dangerously-bypass-approvals-and-sandbox')
 }
 
-// Same budget/shape as openclaw/hermes truncateHistory: the fork transcript is
-// re-inlined into the prompt of every non-resume turn, so an unbounded history
-// grows token cost and TTFT linearly with conversation length.
-const CODEX_HISTORY_BUDGET = 30
-
-const truncateHistory = (
-    history: ChatMessage[],
-    budget: number
-): ChatMessage[] => {
-    const systemPrefix: ChatMessage[] = []
-    const rest: ChatMessage[] = []
-    for (const msg of history) {
-        if (msg.role === 'system' && rest.length === 0) systemPrefix.push(msg)
-        else rest.push(msg)
-    }
-    const recent = rest.slice(-budget)
-    return [...systemPrefix, ...recent]
-}
-
 const codexPromptWithHistory = (
     history: ChatMessage[],
     userMessage: ChatMessage
-): string => {
-    const latestPrompt = messageToPromptText(userMessage)
-    const priorMessages = truncateHistory(history, CODEX_HISTORY_BUDGET).filter(
-        (message) => message.id !== userMessage.id
-    )
-    if (priorMessages.length === 0) return latestPrompt
-
-    const transcript = priorMessages
-        .map((message) => {
-            const role =
-                message.role === 'assistant' ? 'assistant' : message.role
-            return `<message role="${role}">\n${messageToTranscriptText(message)}\n</message>`
-        })
-        .join('\n\n')
-
-    return [
-        'You are continuing a Manyfold chat in a fresh Codex runtime session.',
-        'The prior runtime session was intentionally forked after the user edited an earlier message.',
-        'Use the transcript below as conversation context; do not mention the replay unless it is directly relevant.',
-        '',
-        '<previous_transcript>',
-        transcript,
-        '</previous_transcript>',
-        '',
-        'Continue from this latest user message:',
-        '<latest_user_message>',
-        latestPrompt,
-        '</latest_user_message>'
-    ].join('\n')
-}
-
-const messageToTranscriptText = (message: ChatMessage): string => {
-    const visibleText = messageToPromptText(message)
-    const activity = message.contentBlocks
-        .map(summarizeNonTextBlock)
-        .filter((line): line is string => Boolean(line))
-    const parts = [visibleText, ...activity].filter(Boolean)
-    return parts.length > 0 ? parts.join('\n') : '(no visible content)'
-}
-
-const summarizeNonTextBlock = (block: ChatContentBlock): string | null => {
-    if (
-        block.type === 'text' ||
-        block.type === 'attachment' ||
-        block.type === 'context_ref'
-    )
-        return null
-    if (block.type === 'thinking') return `[thinking] ${block.text}`
-    if (block.type === 'tool_call')
-        return `[tool_call ${block.toolName}] ${safeStringify(block.args)}`
-    if (block.type === 'tool_result')
-        return `[tool_result ${block.toolCallId}] ${safeStringify(
-            block.result
-        )}`
-    return null
-}
-
-const safeStringify = (value: unknown): string => {
-    if (typeof value === 'string') return value
-    try {
-        return JSON.stringify(value)
-    } catch {
-        return String(value)
-    }
-}
+): string => forkTranscriptPrompt(history, userMessage, 'Codex')
 
 const tomlString = (value: string): string =>
     `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`

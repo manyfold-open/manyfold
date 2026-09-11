@@ -14,12 +14,15 @@ import type {
    gemini-cli is absent because its --resume takes a session index or the
    literal "latest", not the id we store, so there is nothing to point it at.
    codex needs no credential opt-in: it logs in on the sandbox at bootstrap
-   and its auth lives on disk where a login shell reads it. */
+   and its auth lives on disk where a login shell reads it. pi reads its key
+   from the vendor env var the turn injects, so like claude it needs the
+   opt-in before a login shell can authenticate. */
 const RESUME_SUPPORT: Partial<
     Record<AgentFramework, { needsModelCredentials: boolean }>
 > = {
     'claude-code': { needsModelCredentials: true },
-    codex: { needsModelCredentials: false }
+    codex: { needsModelCredentials: false },
+    pi: { needsModelCredentials: true }
 }
 
 export type TerminalResumeBlocked =

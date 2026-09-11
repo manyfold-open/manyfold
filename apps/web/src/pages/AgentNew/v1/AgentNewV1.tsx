@@ -65,6 +65,8 @@ import {
     isExternalFramework,
     isK8sOnlyFramework,
     REUSE_FRAMEWORKS,
+    defaultPersistentModelProvider,
+    persistentModelProvidersFor,
     reuseRuntimeKindsFor,
     supportsSandbox,
     usesConfigurableModelProvider,
@@ -106,7 +108,8 @@ const persistentProviderOptions: Array<{
     label: string
 }> = [
     { value: 'anthropic', label: 'Anthropic' },
-    { value: 'openai', label: 'OpenAI' }
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'google', label: 'Google Gemini' }
 ]
 
 const cardClass = (active: boolean, disabled = false): string =>
@@ -946,12 +949,7 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
         setFrameworkVersionSel('')
-        const nextPersistentProvider: PersistentModelProvider =
-            usesConfigurableModelProvider(next)
-                ? 'openai'
-                : modelProviderForFramework(next) === 'google'
-                  ? 'anthropic'
-                  : (modelProviderForFramework(next) as PersistentModelProvider)
+        const nextPersistentProvider = defaultPersistentModelProvider(next)
         setPersistentModelProvider(nextPersistentProvider)
         const nextTargetProvider: UserModelProvider =
             usesConfigurableModelProvider(next)
@@ -1869,24 +1867,30 @@ const AgentNew: FC = (): ReactNode => {
                         {t('web.agentNew.apiProvider')}
                     </span>
                     <div className='grid gap-2 md:grid-cols-2'>
-                        {persistentProviderOptions.map((opt) => (
-                            <button
-                                key={opt.value}
-                                type='button'
-                                onClick={() => {
-                                    setPersistentModelProvider(opt.value)
-                                    setPicker(initialPicker())
-                                    setPrimaryModelName('')
-                                    setPrimaryModelCustom(false)
-                                    setFrameworkModelConfig(null)
-                                }}
-                                className={cardClass(
-                                    persistentModelProvider === opt.value
-                                )}
-                            >
-                                <span>{opt.label}</span>
-                            </button>
-                        ))}
+                        {persistentProviderOptions
+                            .filter((opt) =>
+                                persistentModelProvidersFor(framework).includes(
+                                    opt.value
+                                )
+                            )
+                            .map((opt) => (
+                                <button
+                                    key={opt.value}
+                                    type='button'
+                                    onClick={() => {
+                                        setPersistentModelProvider(opt.value)
+                                        setPicker(initialPicker())
+                                        setPrimaryModelName('')
+                                        setPrimaryModelCustom(false)
+                                        setFrameworkModelConfig(null)
+                                    }}
+                                    className={cardClass(
+                                        persistentModelProvider === opt.value
+                                    )}
+                                >
+                                    <span>{opt.label}</span>
+                                </button>
+                            ))}
                     </div>
                 </div>
             )}
@@ -1903,7 +1907,9 @@ const AgentNew: FC = (): ReactNode => {
                     usesConfigurableModelProvider(framework)
                         ? persistentModelProvider === 'anthropic'
                             ? t('web.agentNew.anthropicAuthToken')
-                            : t('web.agentNew.openAiApiKey')
+                            : persistentModelProvider === 'google'
+                              ? t('web.agentNew.geminiApiKey')
+                              : t('web.agentNew.openAiApiKey')
                         : apiKeyLabelForProvider(credentialProvider)
                 }
                 apiKeyHint={t('web.agentNew.providerKeyHint')}
@@ -2953,6 +2959,7 @@ const AgentNew: FC = (): ReactNode => {
                                                         'claude-code',
                                                         'codex',
                                                         'gemini-cli',
+                                                        'pi',
                                                         'openclaw',
                                                         'hermes',
                                                         'narranexus'
@@ -2973,6 +2980,7 @@ const AgentNew: FC = (): ReactNode => {
                                                         'claude-code',
                                                         'codex',
                                                         'gemini-cli',
+                                                        'pi',
                                                         'openclaw',
                                                         'hermes',
                                                         'narranexus'
@@ -2994,6 +3002,7 @@ const AgentNew: FC = (): ReactNode => {
                                                         'claude-code',
                                                         'codex',
                                                         'gemini-cli',
+                                                        'pi',
                                                         'openclaw',
                                                         'hermes'
                                                     ]}

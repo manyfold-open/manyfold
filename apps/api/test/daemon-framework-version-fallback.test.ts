@@ -24,6 +24,7 @@ const emptyProvisioner = (): SpritesProvisioner =>
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
         {} as never
     )
 

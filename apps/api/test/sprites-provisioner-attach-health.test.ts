@@ -209,6 +209,7 @@ const buildHarness = (opts: {
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
+        { run: async () => ({ homeDir: undefined }) } as never,
         runtimeAccess as never,
         { get: () => undefined } as never,
         {} as never,

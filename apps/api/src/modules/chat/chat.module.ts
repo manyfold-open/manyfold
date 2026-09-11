@@ -26,6 +26,7 @@ import { ClaudeCodeAdapter } from '@/modules/chat/adapters/claude-code.adapter'
 import { OpenclawAdapter } from '@/modules/chat/adapters/openclaw.adapter'
 import { CodexAdapter } from '@/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '@/modules/chat/adapters/gemini-cli.adapter'
+import { PiAdapter } from '@/modules/chat/adapters/pi.adapter'
 import { HermesAdapter } from '@/modules/chat/adapters/hermes.adapter'
 import { NarraNexusChatAdapter } from '@/modules/narranexus/narranexus-chat.adapter'
 import {
@@ -103,6 +104,7 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
         OpenclawAdapter,
         CodexAdapter,
         GeminiCliAdapter,
+        PiAdapter,
         HermesAdapter,
         NarraNexusChatAdapter,
         DifyChatAdapter,

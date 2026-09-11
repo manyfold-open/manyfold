@@ -1,4 +1,5 @@
 import type { AgentFramework } from './constants'
+import { isPiProtocol } from './pi'
 import type {
     HermesModelProvider,
     InferenceProtocol,
@@ -87,6 +88,7 @@ export const frameworkSupportsProtocol = (
     if (framework === 'codex') return protocol === 'openai_responses'
     if (framework === 'gemini-cli')
         return protocol === 'google_generate_content'
+    if (framework === 'pi') return isPiProtocol(protocol)
     if (framework === 'openclaw' || framework === 'hermes') {
         return (
             protocol === 'anthropic_messages' ||

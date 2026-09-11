@@ -15,6 +15,7 @@ import { runtimeHosts, agentCredentials } from '@manyfold/db'
 import { ClaudeCodeAdapter } from '../src/modules/chat/adapters/claude-code.adapter'
 import { CodexAdapter } from '../src/modules/chat/adapters/codex.adapter'
 import { GeminiCliAdapter } from '../src/modules/chat/adapters/gemini-cli.adapter'
+import { PiAdapter } from '../src/modules/chat/adapters/pi.adapter'
 import { OpenclawAdapter } from '../src/modules/chat/adapters/openclaw.adapter'
 import { HermesAdapter } from '../src/modules/chat/adapters/hermes.adapter'
 import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
@@ -207,7 +208,15 @@ const factoryHandleFor = (
             // the alias env (OPENROUTER_API_KEY) is derivable and measurable.
             primaryModelProvider: 'openrouter',
             primaryModelApiKey: PROVIDER_MARKERS.openrouterApiKey,
-            primaryModelName: 'marker-model'
+            primaryModelName: 'marker-model',
+            // The pi shape: one vendor key named by its provider. Only for pi,
+            // because openclaw reads `apiKey` from the same blob.
+            ...(framework === 'pi'
+                ? {
+                      apiKey: PROVIDER_MARKERS.anthropicAuthToken,
+                      provider: 'anthropic'
+                  }
+                : {})
         },
         runtime,
         agent: {
@@ -422,6 +431,13 @@ export const buildAdapter = (
             ) as unknown as AdapterUnderTest
         case 'gemini-cli':
             return new GeminiCliAdapter(
+                drivers as never,
+                chatRepo as never,
+                pricing as never,
+                adminSettings as never
+            ) as unknown as AdapterUnderTest
+        case 'pi':
+            return new PiAdapter(
                 drivers as never,
                 chatRepo as never,
                 pricing as never,

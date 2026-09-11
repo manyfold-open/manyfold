@@ -54,7 +54,7 @@ export interface BootstrapResult {
 }
 
 export interface FrameworkBootstrap {
-    framework: 'claude-code' | 'codex' | 'gemini-cli'
+    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi'
     run(ctx: BootstrapContext, credentials: unknown): Promise<BootstrapResult>
 }
 

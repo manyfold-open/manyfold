@@ -319,7 +319,16 @@ const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     replace: EDIT,
     run_shell_command: BASH,
     glob: GLOB,
-    search_file_content: GREP
+    search_file_content: GREP,
+
+    // pi (lowercase, `edit` shared with gemini above; its args carry an
+    // `edits[]` list, which DiffBody renders per edit).
+    read: READ,
+    write: WRITE,
+    bash: BASH,
+    grep: GREP,
+    find: GLOB,
+    ls: GLOB
 }
 
 const FALLBACK: ToolDisplayConfig = {

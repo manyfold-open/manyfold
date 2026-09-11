@@ -74,6 +74,14 @@ export const frameworkCapabilities: Record<AgentFramework, FrameworkCapability> 
             ]
         }
     },
+    // pi reads MCP servers only through extensions (no config file), so it
+    // carries no `mcp` entry; the config home is the parent of ~/.pi/agent so
+    // the file root shows sessions and settings alike.
+    pi: {
+        kind: 'coding',
+        runtimes: ['sprites', 'k8s', 'daemon'],
+        configHome: { rootId: 'pi-home', label: 'Pi config', subdir: '.pi' }
+    },
     openclaw: { kind: 'service', runtimes: ['sprites', 'k8s', 'daemon'] },
     hermes: { kind: 'service', runtimes: ['sprites', 'k8s', 'daemon'] },
     narranexus: { kind: 'service', runtimes: ['sprites', 'k8s'] },

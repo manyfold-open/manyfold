@@ -88,7 +88,8 @@ const schedulePresets: AutomationSchedulePreset[] = [
 const modelOverrideFrameworks: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    'pi'
 ])
 
 @Injectable()

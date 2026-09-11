@@ -367,9 +367,12 @@ const AgentChat: FC = (): ReactNode => {
     // hermes and openclaw both source their model list from the provider-
     // models cache and persist the pick in the runtime session (hermes state.db
     // / openclaw gateway key), so they share the runtime model-switch path.
+    // pi has no model-config drawer either; its picker shows the static
+    // presets plus whatever the bound provider's catalog lists.
     const runtimeModelSwitching =
         currentAgentFramework === 'hermes' ||
-        currentAgentFramework === 'openclaw'
+        currentAgentFramework === 'openclaw' ||
+        currentAgentFramework === 'pi'
     const frameworkModelConfigSupported = frameworkUsesModelConfig(
         currentAgentFramework,
         currentAgent?.runtime

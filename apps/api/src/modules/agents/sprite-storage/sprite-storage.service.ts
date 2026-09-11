@@ -254,6 +254,8 @@ const frameworkHomeDir = (framework: Agent['framework']): string | null => {
             return '~/.codex'
         case 'gemini-cli':
             return '~/.gemini'
+        case 'pi':
+            return '~/.pi'
         default:
             return null
     }

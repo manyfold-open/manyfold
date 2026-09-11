@@ -220,12 +220,17 @@ const DiffBody: FC<{ cfg: ToolDisplayConfig; call: ChatToolCallBlock }> = ({
 }) => {
     const { t } = useI18n()
     const a = call.args as Record<string, unknown>
-    if (cfg.diff === 'edit-pair') {
-        const oldText = asStr(a.old_string ?? a.old_str ?? a.before)
-        const newText = asStr(a.new_string ?? a.new_str ?? a.after)
+    // pi's `edit` always ships `edits[]` (oldText/newText per entry) under the
+    // same tool name gemini uses for a single pair, so the pair renderer
+    // defers to the list whenever one is present.
+    if (cfg.diff === 'edit-pair' && !Array.isArray(a.edits)) {
+        const oldText = asStr(
+            a.old_string ?? a.old_str ?? a.oldText ?? a.before
+        )
+        const newText = asStr(a.new_string ?? a.new_str ?? a.newText ?? a.after)
         return <ToolDiffViewer oldText={oldText} newText={newText} />
     }
-    if (cfg.diff === 'multi-edit') {
+    if (cfg.diff === 'multi-edit' || cfg.diff === 'edit-pair') {
         const edits = Array.isArray(a.edits) ? a.edits : []
         if (edits.length === 0) return <EmptyHint />
         return (
@@ -241,8 +246,12 @@ const DiffBody: FC<{ cfg: ToolDisplayConfig; call: ChatToolCallBlock }> = ({
                                 })}
                             </div>
                             <ToolDiffViewer
-                                oldText={asStr(eo.old_string ?? eo.old_str)}
-                                newText={asStr(eo.new_string ?? eo.new_str)}
+                                oldText={asStr(
+                                    eo.old_string ?? eo.old_str ?? eo.oldText
+                                )}
+                                newText={asStr(
+                                    eo.new_string ?? eo.new_str ?? eo.newText
+                                )}
                             />
                         </div>
                     )

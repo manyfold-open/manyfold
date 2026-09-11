@@ -9,6 +9,7 @@ import type {
 import type { TokenCreatedVia } from './api-tokens'
 import type { AgentModelConfig, AgentModelConfigSource } from './model-config'
 import type { DetectedFramework } from './daemon'
+import type { PiProvider } from './pi'
 
 export interface SdkUserSummary {
     id: string
@@ -910,6 +911,16 @@ export interface GeminiCliCredentialsInput {
     providerId?: string
 }
 
+// Either a saved/managed provider (`providerId`, protocol decides the pi
+// provider) or a raw key paired with the pi provider it belongs to.
+export interface PiCredentialsInput {
+    apiKey?: string
+    provider?: PiProvider
+    baseUrl?: string
+    model?: string | null
+    providerId?: string
+}
+
 export type OpenclawModelProvider = 'anthropic' | 'openai' | 'openrouter'
 
 export interface OpenclawCredentialsInput {
@@ -1001,6 +1012,7 @@ export interface UpdateAgentCredentialsBody {
     claudeCodeCredentials?: ClaudeCodeCredentialsInput
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
+    piCredentials?: PiCredentialsInput
     openclawCredentials?: UpdateOpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     saveCredentialAs?: SaveCredentialAs
@@ -1193,6 +1205,7 @@ export interface CreateAgentBody {
     claudeCodeCredentials?: ClaudeCodeCredentialsInput
     codexCredentials?: CodexCredentialsInput
     geminiCliCredentials?: GeminiCliCredentialsInput
+    piCredentials?: PiCredentialsInput
     openclawCredentials?: OpenclawCredentialsInput
     hermesCredentials?: HermesCredentialsInput
     difyBinding?: DifyBindingInput
@@ -1316,6 +1329,7 @@ export const SKILL_FRAMEWORKS = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'hermes'
 ] as const
 export type SkillFramework = (typeof SKILL_FRAMEWORKS)[number]

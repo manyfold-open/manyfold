@@ -121,6 +121,7 @@ const zh: Translations = {
             claudeCode: 'Claude Code',
             codex: 'Codex',
             geminiCli: 'Gemini CLI',
+            pi: 'Pi',
             openclaw: 'OpenClaw',
             hermes: 'Hermes Agent',
             narraNexus: 'NarraNexus',
@@ -3657,6 +3658,7 @@ const zh: Translations = {
                 codex: 'OpenAI 编程 Agent，适合代码库修改、审查和面向工作区的开发任务。',
                 geminiCli:
                     'Google Gemini CLI，用于在托管工作区中编程和执行通用终端自动化。',
+                pi: '开源编程 Agent CLI，可运行在 Anthropic、OpenAI 或 Google 模型上，内置会话、skills 和 AGENTS.md 支持。',
                 narraNexus:
                     '叙事驱动、可热插拔的 Agent 框架，每个运行时都有独立工作区；聊天和 Provider 在 NarraNexus 原生界面中管理。',
                 hermes: '面向连接器、自动化和后台工作流的持久服务 Agent，需要长期运行环境。',
@@ -3680,6 +3682,7 @@ const zh: Translations = {
             apiKey: 'API key',
             anthropicAuthToken: 'Anthropic auth token',
             openAiApiKey: 'OpenAI API key',
+            geminiApiKey: 'Gemini API key',
             providerKeyHint: '使用与你的 provider 兼容的 key。',
             baseUrlProxyPlaceholder: '留空则使用 Netmind 代理默认值',
             customModel: '自定义模型',
@@ -4491,6 +4494,7 @@ const zh: Translations = {
                 frameworkClaudeCode: 'Claude Code',
                 frameworkCodex: 'Codex',
                 frameworkGeminiCli: 'Gemini CLI',
+                frameworkPi: 'Pi',
                 frameworkOpenclaw: 'OpenClaw',
                 frameworkHermes: 'Hermes',
                 frameworkDify: 'Dify',
@@ -4536,6 +4540,19 @@ const zh: Translations = {
                 openclawModelNameHint:
                     '所选厂商下的模型 id，例如 gpt-4o-mini、claude-3.5-sonnet、anthropic/claude-3.5-sonnet。',
                 openclawBaseUrlLabel: 'Base URL（可选）',
+                piProviderLabel: '模型厂商',
+                piProviderAnthropic: 'Anthropic',
+                piProviderOpenai: 'OpenAI',
+                piProviderGoogle: 'Google Gemini',
+                piApiKeyLabel: 'API Key',
+                piApiKeyHint:
+                    '所选厂商的 API Key；pi 会从该厂商对应的环境变量读取，加密存储。',
+                piBaseUrlLabel: 'Base URL（可选）',
+                piBaseUrlHint:
+                    '自有电脑只接受厂商官方端点；sandbox 还可以使用网关地址。',
+                piModelLabel: '默认模型（可选）',
+                piModelHint:
+                    '格式为 provider/model，例如 anthropic/claude-sonnet-4-6；只写模型 id 时会自动加上上方所选厂商的前缀。',
                 hermesPrimaryModelSection: '主模型',
                 hermesPrimaryProviderLabel: '模型厂商',
                 hermesPrimaryProviderOpenrouter: 'OpenRouter',

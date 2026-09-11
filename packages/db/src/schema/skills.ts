@@ -85,7 +85,7 @@ export const userSkills = pgTable(
             onDelete: 'cascade'
         }),
         framework: text('framework', {
-            enum: ['claude-code', 'codex', 'gemini-cli', 'hermes']
+            enum: ['claude-code', 'codex', 'gemini-cli', 'pi', 'hermes']
         }).notNull(),
         enabled: boolean('enabled').notNull().default(true),
         installDir: text('install_dir').notNull(),

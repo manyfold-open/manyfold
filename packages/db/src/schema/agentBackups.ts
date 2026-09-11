@@ -28,6 +28,7 @@ export const agentBackups = pgTable(
                 'claude-code',
                 'codex',
                 'gemini-cli',
+                'pi',
                 'dify',
                 'langflow',
                 'a2a'

@@ -12,6 +12,7 @@ const FRAMEWORKS: { key: AgentFramework; label: string }[] = [
     { key: 'claude-code', label: 'Claude Code' },
     { key: 'codex', label: 'Codex' },
     { key: 'gemini-cli', label: 'Gemini CLI' },
+    { key: 'pi', label: 'Pi' },
     { key: 'openclaw', label: 'OpenClaw' },
     { key: 'narranexus', label: 'NarraNexus' },
     { key: 'hermes', label: 'Hermes' }

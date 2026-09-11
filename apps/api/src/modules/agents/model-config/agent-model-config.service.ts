@@ -1,6 +1,8 @@
 import type { AgentRuntimeAuthBinding, UpdateAgentRuntimeAuthBody } from '@manyfold/shared'
 import {
+    PI_PROTOCOL_BY_PROVIDER,
     RUNTIME_AUTH_ERROR,
+    isPiProvider,
     isRuntimeAuthProfileId,
 
     AgentModelConfig,
@@ -1692,6 +1694,7 @@ export class AgentModelConfigService {
             agent.framework !== 'claude-code' &&
             agent.framework !== 'codex' &&
             agent.framework !== 'gemini-cli' &&
+            agent.framework !== 'pi' &&
             agent.framework !== 'hermes' &&
             agent.framework !== 'openclaw'
         )
@@ -1735,6 +1738,21 @@ export class AgentModelConfigService {
                 inferenceProtocol: storedProtocol ?? 'openai_responses',
                 apiKey: normalizeNullable(parsed.openaiApiKey),
                 baseUrl: normalizeNullable(parsed.openaiBaseUrl)
+            }
+        }
+        if (agent.framework === 'pi') {
+            // A pi credential names its vendor outright (PiProvider is a
+            // UserModelProvider subset); the protocol follows the provider.
+            const provider = normalizeNullable(parsed.provider)
+            return {
+                provider: (provider as UserModelProvider | null) ?? null,
+                inferenceProtocol:
+                    storedProtocol ??
+                    (isPiProvider(provider)
+                        ? PI_PROTOCOL_BY_PROVIDER[provider]
+                        : null),
+                apiKey: normalizeNullable(parsed.apiKey),
+                baseUrl: normalizeNullable(parsed.baseUrl)
             }
         }
         if (agent.framework === 'hermes') {

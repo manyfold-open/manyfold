@@ -135,6 +135,7 @@ const makeProvisioner = (
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
         { settleHostNotRunning: async () => {} } as never
     )
 }
@@ -158,6 +159,7 @@ test('provisionSandbox preserves a revoked host when create-failure cleanup cann
                 revokedHosts.push(id)
             }
         } as never,
+        {} as never,
         {} as never,
         {} as never,
         {} as never,
