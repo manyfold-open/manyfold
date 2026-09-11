@@ -40,6 +40,7 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
         } as never,
         {
             register: async () => {},
+            recordHelloForSocket: () => null,
             unregister: async () => {
                 if (failure === 'close')
                     throw new Error('CONNECTION_CLOSED fixture')
@@ -73,7 +74,17 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
         )
         sockets.push(socket)
         socket.on('error', () => {})
-        if (early) socket.once('open', () => socket.send(early))
+        socket.once('open', () =>
+            socket.send(
+                early ??
+                    JSON.stringify({
+                        type: 'hello',
+                        daemonUuid: 'fixture',
+                        cliVersion: '0.34.0',
+                        inflightStreams: []
+                    })
+            )
+        )
         const closed = new Promise<number>((resolve) =>
             socket.once('close', resolve)
         )
