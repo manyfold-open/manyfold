@@ -1,5 +1,22 @@
 # @manyfold/api
 
+## 4.0.0
+
+### Major Changes
+
+- [#340](https://github.com/manyfold-open/manyfold/pull/340) [`99a20ff`](https://github.com/manyfold-open/manyfold/commit/99a20ffb31d07d1ac6df7023a3ad265e5200ab9e) Thanks [@yingca1](https://github.com/yingca1)! - Daemon WebSocket connections now require an Authorization bearer header. Query
+  parameters no longer authenticate a daemon. Upgrade every daemon to a CLI that
+  advertises `ws.auth-header` before deploying this version; older clients are
+  rejected with close code 4400.
+
+    Credential scrubbing remains enabled for logs, traces and error reports,
+    including rejected requests that still contain legacy query parameters.
+
+    Sprite runner registration no longer attempts to install a system init unit.
+    The platform starts the registered runner explicitly.
+    Managed runners require CLI 0.34.0 or newer; older sprite installations are
+    upgraded through the existing bring-up path.
+
 ## 3.1.0
 
 ### Minor Changes
