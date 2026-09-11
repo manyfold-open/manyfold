@@ -1,6 +1,5 @@
 ---
 '@manyfold/web': minor
-'@manyfold/i18n': minor
 ---
 
 The /channels page now lists every channel the product supports. Microsoft
