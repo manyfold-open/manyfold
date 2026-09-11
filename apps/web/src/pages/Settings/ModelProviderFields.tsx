@@ -51,6 +51,9 @@ export const emptyModelProviderForm = (): ModelProviderFormState => ({
 interface Props {
     form: ModelProviderFormState
     onChange: (next: ModelProviderFormState) => void
+    // The protocols offered; the agent form narrows this to what its
+    // framework can talk, the settings page offers them all.
+    protocols?: readonly InferenceProtocol[]
     onTest?: (snapshot: {
         inferenceProtocol: InferenceProtocol
         apiKey: string
@@ -62,6 +65,7 @@ interface Props {
 const ModelProviderFields: FC<Props> = ({
     form,
     onChange,
+    protocols = INFERENCE_PROTOCOLS,
     onTest
 }): ReactNode => {
     const { t } = useI18n()
@@ -102,7 +106,9 @@ const ModelProviderFields: FC<Props> = ({
                         {t('web.modelProviderFields.inferenceProtocol')}
                     </span>
                     <WorkbenchSelect
-                        ariaLabel={t('web.modelProviderFields.inferenceProtocol')}
+                        ariaLabel={t(
+                            'web.modelProviderFields.inferenceProtocol'
+                        )}
                         value={form.inferenceProtocol}
                         onChange={(next) =>
                             onChange({
@@ -110,14 +116,16 @@ const ModelProviderFields: FC<Props> = ({
                                 inferenceProtocol: next as InferenceProtocol
                             })
                         }
-                        options={INFERENCE_PROTOCOLS.map((protocol) => ({
+                        options={protocols.map((protocol) => ({
                             value: protocol,
                             label: inferenceProtocolLabel[protocol]
                         }))}
                     />
                 </div>
                 <label className='block'>
-                    <span className='workbench-field-label'>{t('web.modelProviderFields.providerName')}</span>
+                    <span className='workbench-field-label'>
+                        {t('web.modelProviderFields.providerName')}
+                    </span>
                     <input
                         required
                         pattern='^[A-Za-z0-9][A-Za-z0-9_\- .]*$'
@@ -127,13 +135,17 @@ const ModelProviderFields: FC<Props> = ({
                         onChange={(e) =>
                             onChange({ ...form, providerName: e.target.value })
                         }
-                        placeholder={t('web.modelProviderFields.providerNamePlaceholder')}
+                        placeholder={t(
+                            'web.modelProviderFields.providerNamePlaceholder'
+                        )}
                         className='workbench-input'
                     />
                 </label>
             </div>
             <label className='block'>
-                <span className='workbench-field-label'>{t('web.modelProviderFields.apiKey')}</span>
+                <span className='workbench-field-label'>
+                    {t('web.modelProviderFields.apiKey')}
+                </span>
                 <input
                     type='password'
                     autoComplete='off'
@@ -151,7 +163,9 @@ const ModelProviderFields: FC<Props> = ({
                 />
             </label>
             <label className='block'>
-                <span className='workbench-field-label'>{t('web.modelProviderFields.baseUrl')}</span>
+                <span className='workbench-field-label'>
+                    {t('web.modelProviderFields.baseUrl')}
+                </span>
                 <input
                     type='text'
                     required
@@ -159,7 +173,9 @@ const ModelProviderFields: FC<Props> = ({
                     onChange={(e) =>
                         onChange({ ...form, baseUrl: e.target.value })
                     }
-                    placeholder={t('web.modelProviderFields.baseUrlPlaceholder')}
+                    placeholder={t(
+                        'web.modelProviderFields.baseUrlPlaceholder'
+                    )}
                     className='workbench-input font-mono'
                 />
             </label>
@@ -189,13 +205,17 @@ const ModelProviderFields: FC<Props> = ({
                             disabled={!canTest || testing}
                             className='workbench-button-secondary h-9'
                         >
-                            {testing ? t('web.modelProviderFields.testing') : t('web.modelProviderFields.testConnection')}
+                            {testing
+                                ? t('web.modelProviderFields.testing')
+                                : t('web.modelProviderFields.testConnection')}
                         </button>
                         {!canTest && !testing && (
                             <span className='text-caption text-muted'>
                                 {form.mode === 'edit'
                                     ? t('web.modelProviderFields.editTestHint')
-                                    : t('web.modelProviderFields.createTestHint')}
+                                    : t(
+                                          'web.modelProviderFields.createTestHint'
+                                      )}
                             </span>
                         )}
                     </div>

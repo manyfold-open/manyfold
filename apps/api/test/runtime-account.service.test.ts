@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { NotFoundException } from '@nestjs/common'
+import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import type { AgentRuntimeRow, RuntimeHostRow } from '@manyfold/db'
 import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
 import type { RuntimeAccountProbe } from '@manyfold/shared'
@@ -17,7 +17,9 @@ import {
 
 const NOW_ISO = '2026-09-03T10:00:00.000Z'
 
-const runtimeRow = (overrides: Partial<AgentRuntimeRow> = {}): AgentRuntimeRow =>
+const runtimeRow = (
+    overrides: Partial<AgentRuntimeRow> = {}
+): AgentRuntimeRow =>
     ({
         id: 'art_1',
         userId: 'user-1',
@@ -106,6 +108,8 @@ const harness = (opts: {
     row: AgentRuntimeRow | null
     host?: RuntimeHostRow | null
     online?: boolean
+    // The plan's active-slot cap refuses the admission.
+    refuseSlot?: boolean
 }): Harness => {
     const calls: string[] = []
     const execs: ExecOptions[] = []
@@ -134,7 +138,8 @@ const harness = (opts: {
     }
     const runtimes = {
         findById: async (id: string) => (row && row.id === id ? row : null),
-        findHostById: async (id: string) => (host && host.id === id ? host : null)
+        findHostById: async (id: string) =>
+            host && host.id === id ? host : null
     }
     const daemonHosts = {
         findById: async (id: string) => (host && host.id === id ? host : null),
@@ -153,6 +158,12 @@ const harness = (opts: {
     const runtimeAccess = {
         reserveActiveSlot: async (input: { hostId: string }) => {
             calls.push(`reserveActiveSlot:${input.hostId}`)
+            if (opts.refuseSlot)
+                throw new ForbiddenException({
+                    code: 'CONCURRENT_ACTIVE_LIMIT_REACHED',
+                    message:
+                        'concurrent active sprite limit reached (1 for Free plan)'
+                })
             return { plan: null, activeCount: 0, wholesale: null }
         }
     }
@@ -193,7 +204,8 @@ test('a runtime the user does not own is a 404, not an empty view', async () => 
 test('service frameworks and non-host runtime kinds are unsupported without any probe', async () => {
     const hermes = harness({ row: runtimeRow({ framework: 'hermes' }) })
     assert.equal(
-        (await hermes.service.getView('user-1', 'art_1', { wake: false })).status,
+        (await hermes.service.getView('user-1', 'art_1', { wake: false }))
+            .status,
         'unsupported'
     )
     const k8s = harness({ row: runtimeRow({ kind: 'k8s' }) })
@@ -206,9 +218,14 @@ test('service frameworks and non-host runtime kinds are unsupported without any 
 })
 
 test('daemon: offline and pre-feature daemons are named states, not probe failures', async () => {
-    const offline = harness({ row: runtimeRow(), host: hostRow(), online: false })
+    const offline = harness({
+        row: runtimeRow(),
+        host: hostRow(),
+        online: false
+    })
     assert.equal(
-        (await offline.service.getView('user-1', 'art_1', { wake: false })).status,
+        (await offline.service.getView('user-1', 'art_1', { wake: false }))
+            .status,
         'daemon-offline'
     )
     const old = harness({
@@ -226,7 +243,9 @@ test('daemon: offline and pre-feature daemons are named states, not probe failur
 test('daemon: the probe is judged with the credential evaluator and the shared usage mapper', async () => {
     const h = harness({ row: runtimeRow(), host: hostRow() })
     const view = await h.service.getView('user-1', 'art_1', { wake: false })
-    assert.deepEqual(h.calls, ['rpc:account.inspect:{"framework":"codex"}'])
+    assert.deepEqual(h.calls, [
+        'rpc:account.inspect:{"framework":"codex","usage":true}'
+    ])
     assert.equal(view.status, 'ok')
     assert.equal(view.checkedAt, NOW_ISO)
     assert.equal(view.credentialStatus, 'valid')
@@ -261,7 +280,9 @@ test('daemon: a payload that is not a probe is probe-failed rather than a crash'
 
 const sandboxRow = (): AgentRuntimeRow =>
     runtimeRow({ kind: 'sprites', daemonId: null, hostId: 'host-sb' })
-const sandboxHost = (spriteStatus: 'cold' | 'warm' | 'running'): RuntimeHostRow =>
+const sandboxHost = (
+    spriteStatus: 'cold' | 'warm' | 'running'
+): RuntimeHostRow =>
     hostRow({
         id: 'host-sb',
         kind: 'sandbox',
@@ -275,7 +296,10 @@ test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot f
     const h = harness({ row: sandboxRow(), host: sandboxHost('cold') })
     const asleep = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(asleep.status, 'sandbox-asleep')
-    assert.deepEqual(asleep.host, { spriteStatus: 'cold', terminalEnabled: true })
+    assert.deepEqual(asleep.host, {
+        spriteStatus: 'cold',
+        terminalEnabled: true
+    })
     assert.deepEqual(h.calls, [])
 
     h.setExecOutput(
@@ -310,10 +334,28 @@ test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot f
     assert.match(exec.cmd[2], /MF_ACCOUNT_INSPECT_NODE/)
 })
 
+test('sandbox: a wake refused by the active-slot cap is its own state, and is not cached', async () => {
+    const h = harness({
+        row: sandboxRow(),
+        host: sandboxHost('cold'),
+        refuseSlot: true
+    })
+    const refused = await h.service.getView('user-1', 'art_1', { wake: true })
+    assert.equal(refused.status, 'sandbox-limit')
+    assert.match(refused.error ?? '', /limit reached/)
+    assert.deepEqual(h.calls, ['reserveActiveSlot:host-sb'])
+    // The cap frees itself when another VM idles, so the next open asks
+    // again instead of replaying the refusal.
+    const peek = await h.service.getView('user-1', 'art_1', { wake: false })
+    assert.equal(peek.status, 'sandbox-asleep')
+})
+
 test('sandbox: a running VM is read on a plain page open', async () => {
     const h = harness({ row: sandboxRow(), host: sandboxHost('running') })
     h.setExecOutput(
-        JSON.stringify({ account: { ...probeFor(), credentialFacts: undefined } })
+        JSON.stringify({
+            account: { ...probeFor(), credentialFacts: undefined }
+        })
     )
     const view = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(view.status, 'ok')
@@ -323,7 +365,7 @@ test('sandbox: a running VM is read on a plain page open', async () => {
     assert.equal(h.calls[0], 'reserveActiveSlot:host-sb')
 })
 
-test('cache: a 429 holds the view for the vendor\'s Retry-After, and concurrent opens share one probe', async () => {
+test("cache: a 429 holds the view for the vendor's Retry-After, and concurrent opens share one probe", async () => {
     const h = harness({ row: runtimeRow(), host: hostRow() })
     h.setRpc(async () =>
         probeFor({
@@ -350,10 +392,57 @@ test('cache: a 429 holds the view for the vendor\'s Retry-After, and concurrent 
     assert.equal(h.calls.length, 1)
 })
 
+// WHY: the vendors' usage endpoints rate-limit far below how often a page is
+// opened or refreshed. Seen on a local stack [2026-09-11]: a second read
+// within minutes returned 429 with a multi-minute Retry-After, and the page
+// showed that instead of numbers.
+test('usage is kept for ten minutes, re-read only on request, and a refused re-read keeps the last good numbers', async (t) => {
+    t.mock.timers.enable({ apis: ['Date'], now: Date.parse(NOW_ISO) })
+    const h = harness({ row: runtimeRow(), host: hostRow() })
+    const first = await h.service.getView('user-1', 'art_1', { wake: false })
+    assert.equal(first.usage?.windows.length, 1)
+    assert.match(h.calls[0], /"usage":true/)
+    // Past the view cache but inside the usage window: the host is asked for
+    // its sign-in again, not for usage; the numbers come from the kept answer.
+    t.mock.timers.tick(60_000)
+    const second = await h.service.getView('user-1', 'art_1', { wake: false })
+    assert.match(h.calls[1], /"usage":false/)
+    assert.equal(second.usage?.windows.length, 1)
+    // The menu's refresh asks the vendor again…
+    const third = await h.service.getView('user-1', 'art_1', {
+        wake: false,
+        refreshUsage: true
+    })
+    assert.match(h.calls[2], /"usage":true/)
+    assert.equal(third.usage?.windows.length, 1)
+    // …and a refusal on that read keeps the last good numbers.
+    h.setRpc(async () =>
+        probeFor({
+            usage: {
+                vendor: 'openai',
+                status: 429,
+                body: null,
+                retryAfterSeconds: 3600,
+                error: null,
+                fetchedAt: NOW_ISO
+            }
+        })
+    )
+    const fourth = await h.service.getView('user-1', 'art_1', {
+        wake: false,
+        refreshUsage: true
+    })
+    assert.match(h.calls[3], /"usage":true/)
+    assert.equal(fourth.usage?.error, null)
+    assert.equal(fourth.usage?.windows.length, 1)
+})
+
 test('cache: a wake request is not answered by a cached asleep view', async () => {
     const h = harness({ row: sandboxRow(), host: sandboxHost('warm') })
     h.setExecOutput(
-        JSON.stringify({ account: { ...probeFor(), credentialFacts: undefined } })
+        JSON.stringify({
+            account: { ...probeFor(), credentialFacts: undefined }
+        })
     )
     assert.equal(
         (await h.service.getView('user-1', 'art_1', { wake: false })).status,
@@ -370,14 +459,28 @@ test('mergeSandboxProbe pairs the account line with its framework facts', () => 
         [
             JSON.stringify({
                 frameworks: [
-                    { framework: 'claude-code', credentialFacts: { framework: 'claude-code' } },
-                    { framework: 'codex', credentialFacts: { framework: 'codex', apiKeyPresent: true } }
+                    {
+                        framework: 'claude-code',
+                        credentialFacts: { framework: 'claude-code' }
+                    },
+                    {
+                        framework: 'codex',
+                        credentialFacts: {
+                            framework: 'codex',
+                            apiKeyPresent: true
+                        }
+                    }
                 ]
             }),
-            JSON.stringify({ account: { framework: 'codex', tokenSource: 'none' } })
+            JSON.stringify({
+                account: { framework: 'codex', tokenSource: 'none' }
+            })
         ].join('\n')
     ) as Record<string, unknown>
     assert.equal(merged.framework, 'codex')
-    assert.deepEqual(merged.credentialFacts, { framework: 'codex', apiKeyPresent: true })
+    assert.deepEqual(merged.credentialFacts, {
+        framework: 'codex',
+        apiKeyPresent: true
+    })
     assert.equal(mergeSandboxProbe('nothing here'), null)
 })

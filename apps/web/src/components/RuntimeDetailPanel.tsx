@@ -60,9 +60,12 @@ export const formatDate = (value: string | null): string =>
 
 export const relative = (value: string | null): string => {
     if (!value) return '—'
-    const ms = Date.now() - new Date(value).getTime()
-    if (ms < 0) return '—'
-    const sec = Math.round(ms / 1000)
+    // A stamp a moment ahead of this clock is skew between the runtime, the
+    // API and the browser, not an unknown time: it reads as "0s ago".
+    const sec = Math.max(
+        0,
+        Math.round((Date.now() - new Date(value).getTime()) / 1000)
+    )
     if (sec < 60)
         return translate('web.runtimeDetails.secondsAgo', { count: sec })
     const min = Math.round(sec / 60)

@@ -19,12 +19,10 @@ import { ChannelProviderIcon, channelDocsHref } from '@/lib/channelMeta'
 import { docsHref } from '@/lib/docsLinks'
 import { useI18n } from '@/lib/i18n'
 import {
-    CHANNEL_SETUP_LABEL,
     CHANNEL_STEP_KEYS,
     CHANNEL_SYNC_POINTS,
     CHANNEL_TILE_GROUPS,
-    channelTileLabel,
-    type ChannelTile
+    channelTileLabel
 } from '@/seo/channelsContent'
 import { marketingLinkLanguage } from '@/seo/marketingLinks'
 import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
@@ -34,7 +32,7 @@ import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
    groups, and it cannot do that from a second copy of the list. */
 
 /* The hero figure is a sky: the two runtimes standing on a planet at the
-   bottom edge, the ten channels orbiting above them as bodies.
+   bottom edge, the thirteen channels orbiting above them as bodies.
 
    The frame is the reference's: the centre of every arc sits on the bottom
    edge of a 1200x480 box, and the radii step past half its width. So the two
@@ -87,10 +85,17 @@ const BODIES: SkyBody[] = [
     { provider: 'telegram', ring: 1, deg: 58 },
     { provider: 'matrix', ring: 2, deg: -52 },
     { provider: 'line', ring: 2, deg: -26 },
+    { provider: 'msteams', ring: 2, deg: -9 },
     { provider: 'weixin', ring: 2, deg: 16 },
     { provider: 'discord', ring: 2, deg: 48 },
     { provider: 'github', ring: 3, deg: -44 },
-    { provider: 'linear', ring: 3, deg: 40 }
+    { provider: 'linear', ring: 3, deg: 40 },
+    /* Ring 3 and 4 are cropped by the top of the box, so a body only shows
+       on them past roughly 19 and 40 degrees from the crown — which is why
+       these two sit out on the flanks rather than filling the gap left of
+       centre. */
+    { provider: 'googlechat', ring: 3, deg: 70 },
+    { provider: 'imessage', ring: 4, deg: -70 }
 ]
 
 /* The visible half of a ring: a semicircle from the left end of the bottom
@@ -400,30 +405,40 @@ const Hero: FC = (): ReactNode => {
 /* The whole tile is the link to that provider's guide, rather than a card
    with a link inside it: this grid is a catalogue, and the question a visitor
    has in front of it — "how do I connect that one" — has exactly one answer
-   per tile. The arrow is drawn at rest, not on hover, because a touch screen
-   never hovers and would otherwise have no way to know the tile leads
-   somewhere. */
-const AppTile: FC<{ tile: ChannelTile }> = ({ tile }): ReactNode => {
+   per tile.
+
+   One line, and everything on it earns its place: who it is on the left, where
+   the tile goes on the right. What used to sit between them — a 15px corner
+   arrow doing the linking, under a bordered chip that looked like a button,
+   was not one, and talked about credentials — was two devices arguing over a
+   card with one job. The arrow is now attached to the words "Setup guide",
+   drawn at rest because a touch screen never hovers. */
+const AppTile: FC<{ provider: ChannelProviderName }> = ({
+    provider
+}): ReactNode => {
     const { t, language } = useI18n()
     const { pathname } = useLocation()
     const href = channelDocsHref(
-        tile.provider,
+        provider,
         marketingLinkLanguage(pathname, language)
     )
-    const label = channelTileLabel(tile.provider)
+    const label = channelTileLabel(provider)
+    const guide = t('web.channelsPage.appsGuide')
     return (
         <a
             className='lp-cl-tile'
             href={href ?? undefined}
-            aria-label={`${label} — ${t('web.channelsPage.appsGuide')}`}
+            aria-label={`${label} — ${guide}`}
         >
             <span className='lp-cl-tile-mark'>
-                <ChannelProviderIcon provider={tile.provider} />
+                <ChannelProviderIcon provider={provider} />
             </span>
-            <ArrowUpRight className='lp-cl-tile-arrow' aria-hidden='true' />
             <span className='lp-cl-tile-name'>{label}</span>
-            <span className='lp-cl-setup'>
-                {t(CHANNEL_SETUP_LABEL[tile.setup])}
+            {/* aria-hidden: the link's own label already ends in this
+                phrase, and a screen reader reading it twice says less. */}
+            <span className='lp-cl-tile-go' aria-hidden='true'>
+                {guide}
+                <ArrowUpRight className='lp-cl-tile-arrow' />
             </span>
         </a>
     )
@@ -451,8 +466,8 @@ const Apps: FC = (): ReactNode => {
                             {t(group.labelKey)}
                         </h3>
                         <div className='lp-cl-grid'>
-                            {group.tiles.map((tile) => (
-                                <AppTile key={tile.provider} tile={tile} />
+                            {group.providers.map((provider) => (
+                                <AppTile key={provider} provider={provider} />
                             ))}
                         </div>
                     </div>
@@ -676,7 +691,10 @@ const ChannelsLanding: FC = (): ReactNode => {
                 <div className='lp-z lp-cl-root'>
                     <MarketingNav
                         badge={<GateBadge />}
-                        languagePaths={{ en: '/channels', zh: '/zh/channels' }}
+                        languagePaths={{
+                            en: '/agent-channels',
+                            zh: '/zh/agent-channels'
+                        }}
                     />
                     <main>
                         <Hero />

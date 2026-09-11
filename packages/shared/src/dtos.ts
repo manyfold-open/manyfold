@@ -2335,6 +2335,12 @@ export interface CliUpgradeBody {
     targetVersion?: string
 }
 
+// Install one of the sprite image's coding CLIs on a sandbox (or move it to a
+// version) before any runtime for it exists. No target = the catalog's latest.
+export interface InstallSandboxFrameworkBody {
+    targetVersion?: string
+}
+
 export interface CreateSandboxBody {
     name?: string
     accountId?: string

@@ -693,9 +693,10 @@ const en = {
                 expired: 'Sign-in expired',
                 apiKey: 'API key',
                 unknownStatus: 'Unknown',
-                noIdentity: 'No account details',
                 checkNow: 'Check now',
+                refreshUsage: 'Refresh usage',
                 sandboxAsleep: 'The sandbox is asleep. Checking its account wakes it and counts as running time.',
+                sandboxLimit: 'Every active sandbox slot on your plan is in use. Stop another sandbox or let it fall asleep, then check again.',
                 daemonOffline: 'The machine is offline, so its sign-in cannot be checked.',
                 daemonUpgradeRequired: 'Update the mf CLI on this machine to see its account and usage.',
                 probeFailed: 'Could not check the account on this runtime.',
@@ -715,18 +716,15 @@ const en = {
                 windowGeminiFlash: 'Gemini Flash',
                 windowGeminiFlashLite: 'Gemini Flash-Lite',
                 signIn: 'Sign in',
-                signInBody: 'Sign in inside this terminal on the runtime, then close it to refresh the account.',
-                signInHint: 'Open a shell on the runtime and run the sign-in there. Your subscription stays on that machine.'
+                signInBody: 'Sign in inside this terminal on the runtime, then close it to refresh the account.'
             }
         },
         runtimeAuth: {
             hostSignIn: 'Host sign-in',
-            managedTitle: 'Added accounts',
             inherited: 'Host sign-in (default)',
             accountLabel: 'Account',
             addAccount: 'Add account',
-            addAccountHint: 'Each added account signs in separately on this runtime and leaves the host sign-in untouched. Agents choose which one to run under.',
-            empty: 'No added accounts yet.',
+            addApiKey: 'Add API key',
             signedOut: 'Signed out',
             removing: 'Removing',
             errorStatus: 'Error',
@@ -746,6 +744,7 @@ const en = {
             hostUnavailable: 'This sandbox has no runner yet. Starting one wakes the sandbox and counts as running time.',
             runnerAsleep: 'The sandbox runner is not answering. Waking it counts as running time.',
             startRunner: 'Start runner',
+            checkAgain: 'Check again',
             upgradeRequired: 'Update the mf CLI on this runtime to add more accounts.',
             listFailed: 'Could not list the accounts on this runtime.',
             settingsHint: 'Applies from the next run. Add and sign in accounts on the runtime page.',
@@ -788,7 +787,7 @@ const en = {
         seoPage: {
             channels: {
                 description:
-                    'Connect Claude Code, Codex, Dify or any agent you run to WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub and Linear.',
+                    'Connect Claude Code, Codex, Dify or any agent you run to Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub and Linear.',
                 h1: 'Claude Code and Codex, now in your everyday apps.',
                 ctaTitle: 'Go write to your agent.'
             },
@@ -2094,9 +2093,6 @@ const en = {
             appsGroupMessenger: 'Your own messenger',
             appsGroupTracker: 'Issue trackers',
             appsGuide: 'Setup guide',
-            setupQr: 'Scan a code',
-            setupToken: 'Paste a key',
-            setupApp: 'Install an app',
             stepsEyebrow: 'Setting it up',
             stepsTitle: 'Three steps.',
             stepsTitleAccent: 'About three minutes.',
@@ -2139,7 +2135,7 @@ const en = {
             syncPointSettingsBody:
                 'Skills, permissions and the model itself live on the agent.',
             docTitle:
-                'Claude Code and Codex in Slack, WhatsApp and GitHub · Manyfold'
+                'Claude Code and Codex, now in your everyday apps · Manyfold'
         },
         consent: {
             message:
@@ -2645,7 +2641,51 @@ const en = {
             savingDraftAndSending: 'Saving draft and sending…',
             stoppingResponse: 'Stopping response…',
             streamingEsc: 'Streaming… Esc to cancel',
-            whatNext: 'What should {{name}} work on next?',
+            launchpad: {
+                heading: 'What should it work on first?',
+                workflowTitle: 'Bring it into your workflow',
+                recommended: 'Recommended',
+                actions: {
+                    configure: 'Configure',
+                    view: 'View',
+                    connect: 'Connect',
+                    create: 'Create',
+                    open: 'Set up',
+                    check: 'Check',
+                    github: {
+                        title: 'Connect GitHub',
+                        body: 'Link a GitHub account so it can reach your repositories'
+                    },
+                    skills: {
+                        title: 'Install skills',
+                        body: 'Give this agent specialized capabilities from the shared catalog'
+                    },
+                    mcp: {
+                        title: 'Add MCP tools',
+                        body: 'Point this agent at MCP servers, written in its own config syntax'
+                    },
+                    channel: {
+                        title: 'Connect {{provider}}',
+                        body: 'Use this agent from the chat app you already live in'
+                    },
+                    automation: {
+                        title: 'Run it on a schedule',
+                        body: 'Run a task automatically and send the result to a channel'
+                    },
+                    native: {
+                        title: 'Turn on the framework dashboard',
+                        body: 'Its own web UI, built the first time you enable it'
+                    },
+                    provider: {
+                        title: 'Check the external provider',
+                        body: 'Confirm the Dify or Langflow endpoint this agent runs against'
+                    },
+                    a2a: {
+                        title: 'Configure A2A',
+                        body: 'Review the Agent Card, authorization, and task calls'
+                    }
+                }
+            },
             sessionMessageLimit:
                 'This session has {{count}} messages. Consider starting a new session for better performance.',
             failedToCreateSession: 'Failed to create chat session.',
@@ -2952,8 +2992,8 @@ const en = {
                 github: { title: 'GitHub App', connectedAs: 'Connected as', mentionHint: '. Mention it in an issue or comment to start a turn.', install: 'Install on repositories', installHint: 'The app must be installed on every repository the agent should answer on. Repo write access (clone/push/PR) comes from a GitHub Connection linked to the same agent, not from this app.', createHint: 'Create a dedicated GitHub App for this channel — GitHub sends the credentials back automatically and the channel activates itself. Leave the organization empty to create it on your personal account.', create: 'Create GitHub App' },
                 msteams: { manifest: 'Teams app manifest', downloadManifest: 'Download manifest.json', manifestHint: 'Zip this manifest.json with a 192×192 color.png and a 32×32 outline.png, then upload the zip in Teams under Apps, Manage your apps, Upload an app.' }, slack: { manifest: 'Slack app manifest', copyManifest: 'Copy manifest JSON', manifestHint: 'Create the Slack app from a manifest and paste this JSON. It wires the Request URL, event subscriptions, bot scopes, and all slash commands for this channel. If another installed app already claims a command name (e.g.', manifestHintSuffix: '), Slack warns at install — rename it in the manifest first. Invite the bot to each channel so it can post.' },
                 delivery: { when: 'When', direction: 'Direction', scope: 'Scope', summary: 'Summary' },
-                deliveryDirection: { inbound: 'Inbound', outbound: 'Outbound' },
-                deliveryStatus: { sent: 'Sent', accepted: 'Accepted', dropped: 'Dropped', failed: 'Failed' },
+                deliveryDirection: { inbound: 'Inbound', outbound: 'Outbound', system: 'System' },
+                deliveryStatus: { sent: 'Sent', accepted: 'Accepted', dropped: 'Dropped', failed: 'Failed', pending: 'Pending', queued: 'Queued', processing: 'Processing', dead: 'Abandoned' },
                 tooltips: { registerMsteams: 'Verify the Azure Bot credentials and activate the channel', registerGooglechat: 'Verify the service account and activate the channel', reregisterTelegram: 'Re-run setWebhook on Telegram', refreshLarkIdentity: 'Fetch the bot identity used for @-mention detection', registerWeixin: 'Verify the iLink bot token and activate the channel', registerLinear: 'Mint an app token, capture the Linear identity, and activate the channel', registerGithub: 'Verify the app credentials, capture the app identity, and activate the channel', registerMatrix: 'Verify Matrix whoami and activate the channel', registerLine: 'Set the webhook URL on LINE, capture the bot identity, and activate the channel', registerImessage: 'Verify the BlueBubbles server, register the webhook and activate the channel' },
                 placeholders: { teamSupport: 'e.g. team-support', linearClientId: 'from your Linear application', linearAccessToken: 'paste a token instead of a client pair', organizationOptional: 'organization (optional)', privateKey: '-----BEGIN RSA PRIVATE KEY----- (or base64 of it)', delegationLabel: 'e.g. agent' },
                 setupMode: { lark: 'Lark setup mode', weixin: 'WeChat setup mode' },
@@ -3688,6 +3728,7 @@ const en = {
             claudeModelMapping: 'Claude model mapping',
             selectProviderModel: 'Select provider model',
             defaultModel: 'Default model',
+            defaultModelAndEffort: 'Default model and effort',
             selectModel: 'Select model',
             effort: 'Effort',
             codexModelSettings: 'Codex model settings',
@@ -3703,6 +3744,7 @@ const en = {
                 configuringNetwork: 'Configuring network',
                 bootstrappingFramework: 'Bootstrapping framework',
                 installingFramework: 'Installing framework binaries',
+                startingRunner: 'Starting sandbox runner',
                 startingService: 'Starting framework service',
                 checkingQuota: 'Checking quota',
                 preparingWorkspace: 'Preparing workspace',
@@ -3825,14 +3867,9 @@ const en = {
             externalTag: 'ext',
             agentCountOne: '1 agent',
             agentCountMany: '{{count}} agents',
-            apiKey: 'API key',
             anthropicAuthToken: 'Anthropic auth token',
-            openAiApiKey: 'OpenAI API key',
-            providerKeyHint: 'Use your provider-compatible key.',
-            baseUrlProxyPlaceholder: 'Leave blank to use Netmind proxy default',
             customModel: 'Custom model',
             filterAll: 'All',
-            providerSharedHint: 'Changing it replaces the stored credentials for every agent on this runtime.',
             providerChangeFailed: 'Agent {{name}} was created, but the provider change failed: {{reason}}',
             modelInheritHint: 'Leave blank to use the runtime\'s default model.',
             agentsColumn: 'Agents',
@@ -3842,7 +3879,60 @@ const en = {
             nextPage: 'Next page',
             kind: 'Kind',
             readyTag: 'Ready',
-            modelProviderSection: 'Model provider'
+            statusStartingRunner: 'Starting runner…',
+            statusRunnerOnline: 'Runner online',
+            statusWakeRefused: 'Can’t wake',
+            waitingForSlot: 'Waiting for another sandbox to fall asleep…',
+            modelProviderSection: 'Model provider',
+            advancedConfig: 'Advanced config',
+            frameworkNotInstalled: 'is not installed on this sandbox',
+            installFramework: 'Install',
+            upgradeFrameworkTo: 'Upgrade to v{{version}}',
+            frameworkUpToDate: 'Latest',
+            frameworkInstalling: 'Installing…',
+            frameworkUpgrading: 'Upgrading…',
+            frameworkNotChecked: 'not checked on this sandbox yet',
+            checkFramework: 'Check',
+            frameworkChecking: 'Checking…',
+            frameworkInstalled: 'Installed',
+            frameworkServiceSlotTaken:
+                'This sandbox already runs {{framework}}; it holds one of OpenClaw, Hermes and NarraNexus at a time.',
+            deleteHasAgents: 'Delete its agents first',
+            renameSandbox: 'Rename sandbox',
+            checkSandbox: 'Check sandbox',
+            installFrameworkOnSandbox: 'Install {{framework}}',
+            frameworkMissingOnSandbox:
+                '{{framework}} is not installed on this sandbox yet; install it to sign in with your own plan.',
+            providerFamilyAria: 'Provider family',
+            providerManagedTitle: 'Managed in {{framework}}',
+            providerManagedByFramework:
+                '{{framework}} manages its model provider in its own UI once the agent is created; nothing to pick here.',
+            prepareRuntimeFailed:
+                'Could not prepare this sandbox for {{framework}}',
+            aboutModelProvider: 'About model providers',
+            modelProviderHelpCloud: 'Cloud: a provider whose key Manyfold stores and injects into the runtime. Every agent on that runtime shares it. Add one here or under Settings → Model providers.',
+            modelProviderHelpLocal: 'Local: credentials that live on the runtime itself — the coding CLI\'s own sign-in (your subscription) or an API key stored on the host. Manyfold keeps no copy. Sign in or add an account right from the list.',
+            modelProviderHelpPick: 'The picked card is the credential this agent runs under. The chips only filter the list.',
+            aboutAdvancedConfig: 'About advanced config',
+            advancedConfigHelpMapping: 'With a Cloud provider on Claude Code or Codex, the model mapping decides which of the provider\'s models answers each alias the CLI asks for, plus the default model and reasoning effort. It is folded because the defaults usually fit.',
+            advancedConfigHelpPrimary: 'OpenClaw and Hermes take a single primary model instead.',
+            advancedConfigHelpLocal: 'With a Local credential the CLI\'s own config on the runtime owns these settings, so this section stays empty.',
+            providerSourceAria: 'Credential source',
+            providerSourceCloud: 'Cloud',
+            providerSourceLocal: 'Local',
+            inheritRuntimeCredentialsHint: 'Shared with every agent already on {{runtime}}.',
+            hostApiKeyAfterCreate: 'Set {{env}} on the runtime (or configure the CLI there) and the agent picks it up on its next run. Manyfold stores no key.',
+            runtimeApiKeyTitle: 'Store an API key on this runtime',
+            runtimeApiKeyHint: 'Saved on the runtime host and used only there. Manyfold keeps no copy.',
+            runtimeApiKeyLabelPlaceholder: 'Label (e.g. work key)',
+            runtimeApiKeySave: 'Save on this runtime',
+            providerModelCount: '{{count}} models',
+            providerTestFailedTag: 'Test failed',
+            runnerStarting: 'Starting the sandbox runner…',
+            creatingSandbox: 'Creating the sandbox…',
+            checkingSandbox: 'Checking the sandbox…',
+            installingFramework: 'Installing {{framework}}…',
+            preparingSandbox: 'Preparing the sandbox…'
         },
         externalProviderDialog: {
             title: 'Add {{provider}} provider',

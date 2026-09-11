@@ -7,10 +7,17 @@ import {
     SPRITE_HOME_BASE,
     UserExternalAgentProviderSummary,
     UserModelProvider,
+    UserModelProviderSummary,
     externalSteps,
+    brandFor,
+    frameworkUpgradeMode,
     isConfigurableFramework,
+    lookupBuiltIn,
     normalizeAgentName,
     providerSupportsTarget,
+    runtimeAuthSupported,
+    supportsRuntime,
+    versionedFrameworks,
     validateAgentName
 } from '@manyfold/shared'
 import type { AgentFramework, DaemonHostSummary } from '@manyfold/shared'
@@ -18,6 +25,7 @@ import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
+    BoxIcon,
     CheckIcon,
     HelpIcon,
     ChevronLeftIcon,
@@ -29,19 +37,37 @@ import {
     type LucideIcon
 } from '@/components/icons'
 import { useAppShellContext } from '@/components/AppShell'
+import { BuiltInLogo, ProviderLogo } from '@/components/BuiltInProviderLogo'
 import ConnectDaemonDialog from '@/components/ConnectDaemonDialog'
+import { CreateMenu } from '@/components/CreateMenu'
+import { FilterChip } from '@/components/FilterChip'
+import ModelProviderCreateDialog, {
+    modelProviderCreateOptions,
+    type ModelProviderCreatePick
+} from '@/components/ModelProviderCreateDialog'
 import { DashboardViewToggle } from '@/components/DashboardCard'
 import WorkbenchSelect, {
     type WorkbenchSelectOption
 } from '@/components/WorkbenchSelect'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import {
-    initialPicker,
     initialPickerForFramework,
     pickerIsValid,
     ProviderPicker,
     type ProviderPickerValue
 } from '@/pages/AgentNew/components/ProviderPicker'
+import ProductDialog from '@/components/ProductDialog'
+import { Spinner } from '@/components/Loading'
+import OverflowMenu, { type OverflowMenuEntry } from '@/components/OverflowMenu'
+import RenameDialog from '@/components/RenameDialog'
+import { useProductConfirm } from '@/components/ProductConfirmDialog'
+import { ProviderSourceSection } from '@/pages/AgentNew/components/ProviderSourceSection'
+import { ProviderFamilySection } from '@/pages/AgentNew/components/ProviderFamilySection'
+import { providerLabel } from '@/pages/Settings/ModelProviderFields'
+import {
+    localRowCount,
+    type SandboxPrepare
+} from '@/pages/AgentNew/components/LocalCredentialsPanel'
 import { CreateProgress } from '@/pages/AgentNew/components/CreateProgress'
 import {
     frameworkLabel,
@@ -84,6 +110,7 @@ import {
     type DashboardView
 } from '@/lib/dashboardView'
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
+import { sandboxTargetStatus } from '@/lib/agentCreate/runtimeTargetStatus'
 import { preferredPrimaryModelDefault } from '@/lib/agentModelConfig'
 import {
     computeSpriteTargets,
@@ -93,6 +120,39 @@ import {
     openclawWorkspaceFor,
     preferredSavedProviderFor
 } from '@/lib/agentCreate/providerHelpers'
+import {
+    INITIAL_LOCAL_CREDENTIALS,
+    NEW_RUNTIME_TARGET,
+    builtInEntriesFor,
+    customProtocolsFor,
+    initialPickerModeFor,
+    isCloudCredentialPicker,
+    localSelectionValid,
+    providerFamiliesFor,
+    providerFamilyOf,
+    providerSourceOf,
+    selectableProvidersFor,
+    selectableProvidersForFamilies,
+    type LocalCredentialSelection,
+    type ProviderFamilyFilter,
+    type ProviderSourceFilter,
+    type ProviderTarget
+} from '@/lib/agentCreate/providerSource'
+import {
+    installedFrameworkVersion,
+    serviceSlotOccupant
+} from '@/lib/agentCreate/frameworkInstall'
+import {
+    HostFrameworkIcons,
+    type HostFrameworkAction,
+    type HostFrameworkEntry
+} from '@/pages/AgentNew/components/HostFrameworkIcons'
+import {
+    initialRuntimeAuthSelection,
+    runtimeAuthPickerState
+} from '@/lib/runtimeAuth'
+import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
+import { useRunnerPrewarm } from '@/lib/agentCreate/useRunnerPrewarm'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
@@ -101,24 +161,39 @@ import { CreateFrameworkModelConfig } from '@/pages/AgentNew/components/shared/C
 import { useI18n } from '@/lib/i18n'
 import { BILLING_SURFACE } from '@/edition-capabilities'
 
-const persistentProviderOptions: Array<{
-    value: PersistentModelProvider
-    label: string
-}> = [
-    { value: 'anthropic', label: 'Anthropic' },
-    { value: 'openai', label: 'OpenAI' }
-]
+// preferredSavedProviderFor over the framework's families, in order: the
+// first family with a usable saved provider wins.
+const preferredSavedProviderForFamilies = (
+    options: UserModelProviderSummary[],
+    families: readonly UserModelProvider[],
+    framework: CreateableFramework
+): UserModelProviderSummary | null => {
+    for (const family of families) {
+        const found = preferredSavedProviderFor(options, family, framework)
+        if (found) return found
+    }
+    return null
+}
 
-const cardClass = (active: boolean, disabled = false): string =>
-    [
-        'flex items-center gap-3 rounded-md px-4 py-4 text-ui transition-colors shadow-ring-light',
-        disabled ? 'cursor-not-allowed opacity-55' : 'cursor-pointer',
-        disabled
-            ? 'bg-[#f7f7f4] text-muted'
-            : active
-              ? 'bg-white text-fg shadow-card'
-              : 'bg-[#f7f7f4] text-muted hover:bg-white hover:text-fg'
-    ].join(' ')
+const uniqueBy = <T,>(items: readonly T[], key: (item: T) => string): T[] => {
+    const seen = new Set<string>()
+    return items.filter((item) => {
+        const k = key(item)
+        if (seen.has(k)) return false
+        seen.add(k)
+        return true
+    })
+}
+
+// The brand mark on a saved provider row: the catalog entry's, else the
+// brand's, else a neutral box for a custom endpoint.
+const providerRowLead = (row: UserModelProviderSummary): ReactNode => {
+    const entry = lookupBuiltIn(row.builtInId)
+    if (entry) return <BuiltInLogo entry={entry} />
+    const brand = brandFor(row)
+    if (brand) return <ProviderLogo provider={brand} />
+    return <BoxIcon className='text-muted h-4 w-4' aria-hidden='true' />
+}
 
 const runtimeColumnClass = (_active: boolean, disabled = false): string =>
     [
@@ -134,7 +209,21 @@ type RuntimeKindFilter = 'all' | RuntimeTargetKind
 
 interface RuntimeTargetStatus {
     label: string
-    tone: 'ready' | 'offline'
+    // ready / success = a green dot, warning and idle the VM lifecycle's
+    // amber and grey, progress a spinner, offline the unplugged mark.
+    tone: 'ready' | 'success' | 'warning' | 'idle' | 'progress' | 'offline'
+}
+
+// Literal class names on purpose: Tailwind only emits utilities it can see
+// verbatim in the source (the Tag.tsx precedent).
+const STATUS_DOT: Record<
+    Exclude<RuntimeTargetStatus['tone'], 'progress' | 'offline'>,
+    string
+> = {
+    ready: 'bg-success',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    idle: 'bg-idle'
 }
 
 interface RuntimeTargetPopulation {
@@ -157,6 +246,14 @@ interface RuntimeTarget {
     // the runtime that matched the picker. Empty for a runtime this form would
     // create, and for a host nothing runs on yet.
     population: RuntimeTargetPopulation[]
+    // A sandbox target: the host, and every coding CLI the sprite image can
+    // hold with what the last probe saw of it. Absent on daemons and cloud
+    // computers, which keep the plain population line.
+    hostId?: string
+    frameworks?: HostFrameworkEntry[]
+    // The card's own actions (rename, delete when nothing runs on it), in
+    // its bottom-right menu. Absent on the targets this form would create.
+    menu?: OverflowMenuEntry[]
     selected: boolean
     disabled: boolean
     disabledReason: string | null
@@ -184,9 +281,16 @@ const RuntimeTargetStatusTag: FC<{ status: RuntimeTargetStatus }> = ({
             <PlugIcon className='h-3.5 w-3.5' />
             {status.label}
         </span>
+    ) : status.tone === 'progress' ? (
+        <span className='text-subtle text-caption inline-flex shrink-0 items-center gap-1.5'>
+            <Spinner size={12} />
+            {status.label}
+        </span>
     ) : (
         <span className='text-subtle text-caption inline-flex shrink-0 items-center gap-1.5'>
-            <span className='bg-success h-1.5 w-1.5 rounded-full' />
+            <span
+                className={`${STATUS_DOT[status.tone]} h-1.5 w-1.5 rounded-full`}
+            />
             {status.label}
         </span>
     )
@@ -259,39 +363,6 @@ const CompareButton: FC<{ label: string; onOpen: () => void }> = ({
     </ShortcutTooltip>
 )
 
-const RuntimeKindChip: FC<{
-    icon?: LucideIcon
-    label: string
-    count: number
-    active: boolean
-    onSelect: () => void
-}> = ({ icon: Icon, label, count, active, onSelect }): ReactNode => {
-    const chip = (
-        <button
-            type='button'
-            aria-label={Icon ? label : undefined}
-            aria-pressed={active}
-            onClick={onSelect}
-            className={[
-                'text-caption inline-flex h-7 items-center gap-1.5 rounded-sm px-2.5 transition-colors',
-                active
-                    ? 'bg-surface text-fg shadow-ring-light'
-                    : 'text-muted hover:bg-surface-hover'
-            ].join(' ')}
-        >
-            {Icon ? (
-                <Icon className='h-4 w-4 shrink-0' aria-hidden='true' />
-            ) : (
-                <span>{label}</span>
-            )}
-            <span className='tabular-nums'>{count}</span>
-        </button>
-    )
-    // A visible label is already the accessible name; only the icon-only chips
-    // need the hover affordance that repeats it.
-    return Icon ? <ShortcutTooltip label={label}>{chip}</ShortcutTooltip> : chip
-}
-
 const RuntimePopulation: FC<{
     population: RuntimeTargetPopulation[]
     labelFor: (entry: RuntimeTargetPopulation) => string
@@ -321,45 +392,110 @@ const RuntimeTargetCard: FC<{
     target: RuntimeTarget
     kindLabel: string
     populationLabelFor: (entry: RuntimeTargetPopulation) => string
-}> = ({ target, kindLabel, populationLabelFor }): ReactNode => (
-    <button
-        type='button'
-        disabled={target.disabled}
-        onClick={target.onSelect}
-        aria-pressed={target.selected}
-        className={runtimeTargetClass(target.selected, target.disabled)}
-    >
-        <span className='flex items-center justify-between gap-2'>
-            <span className='flex min-w-0 items-center gap-2'>
-                <span className='tag tag-neutral'>{kindLabel}</span>
-                <span className='text-fg text-ui min-w-0 truncate font-medium'>
-                    {target.name}
+    onFrameworkAction?: (
+        framework: AgentFramework,
+        action: HostFrameworkAction
+    ) => void
+    frameworkBusy?: string | null
+    frameworkError?: { framework: string; message: string } | null
+}> = ({
+    target,
+    kindLabel,
+    populationLabelFor,
+    onFrameworkAction,
+    frameworkBusy = null,
+    frameworkError = null
+}): ReactNode => {
+    const { t } = useI18n()
+    // The whole card picks, through a transparent button under the content;
+    // the sandbox's framework icons and the menu sit above it and take their
+    // own clicks.
+    return (
+        <div
+            className={`${runtimeTargetClass(target.selected, target.disabled)} relative flex flex-col`}
+        >
+            <button
+                type='button'
+                disabled={target.disabled}
+                onClick={target.onSelect}
+                aria-pressed={target.selected}
+                aria-label={target.name}
+                className='focus-visible:shadow-focus absolute inset-0 rounded-md transition-[box-shadow] focus:outline-none disabled:cursor-not-allowed'
+            />
+            <span className='pointer-events-none relative flex items-center justify-between gap-2'>
+                <span className='flex min-w-0 items-center gap-2'>
+                    <span className='tag tag-neutral'>{kindLabel}</span>
+                    <span className='text-fg text-ui min-w-0 truncate font-medium'>
+                        {target.name}
+                    </span>
+                </span>
+                <span className='flex shrink-0 items-center gap-2.5'>
+                    {target.disabled && target.disabledReason ? (
+                        <span className='text-muted text-caption'>
+                            {target.disabledReason}
+                        </span>
+                    ) : (
+                        target.status && (
+                            <RuntimeTargetStatusTag status={target.status} />
+                        )
+                    )}
+                    {target.selected && (
+                        <CheckIcon className='text-link h-4 w-4 shrink-0' />
+                    )}
                 </span>
             </span>
-            <span className='flex shrink-0 items-center gap-2.5'>
-                {target.disabled && target.disabledReason ? (
-                    <span className='text-muted text-caption'>
-                        {target.disabledReason}
-                    </span>
-                ) : (
-                    target.status && (
-                        <RuntimeTargetStatusTag status={target.status} />
-                    )
-                )}
-                {target.selected && (
-                    <CheckIcon className='text-link h-4 w-4 shrink-0' />
-                )}
-            </span>
-        </span>
-        {target.population.length > 0 && (
-            <span className='mt-1.5 block'>
-                <RuntimePopulation
-                    population={target.population}
-                    labelFor={populationLabelFor}
-                />
-            </span>
-        )}
-    </button>
+            {(target.frameworks && onFrameworkAction) ||
+            target.population.length > 0 ||
+            target.menu ? (
+                // The second line: what runs here on the left, the card's own
+                // menu bottom-right; only those two take clicks, the rest of
+                // the line falls through to the pick.
+                <span className='pointer-events-none relative mt-1.5 flex items-end justify-between gap-2 [&>*]:pointer-events-auto'>
+                    {target.frameworks && onFrameworkAction ? (
+                        <span className='mt-0.5 block'>
+                            <HostFrameworkIcons
+                                entries={target.frameworks}
+                                busyFramework={frameworkBusy}
+                                error={frameworkError}
+                                onAction={onFrameworkAction}
+                            />
+                        </span>
+                    ) : (
+                        <span className='pointer-events-none block min-w-0'>
+                            {target.population.length > 0 && (
+                                <RuntimePopulation
+                                    population={target.population}
+                                    labelFor={populationLabelFor}
+                                />
+                            )}
+                        </span>
+                    )}
+                    {target.menu && (
+                        <span className='-mb-1 -mr-1.5 shrink-0'>
+                            <OverflowMenu
+                                compact
+                                ariaLabel={`${target.name} · ${t('common.moreActions')}`}
+                                items={target.menu}
+                            />
+                        </span>
+                    )}
+                </span>
+            ) : null}
+        </div>
+    )
+}
+
+// The coding CLIs every sprite image ships; the only frameworks a sandbox
+// installs or upgrades in place. The other sandbox frameworks (OpenClaw,
+// Hermes, NarraNexus) arrive with their first agent.
+const SANDBOX_CLI_FRAMEWORKS: AgentFramework[] = [
+    'claude-code',
+    'codex',
+    'gemini-cli'
+]
+// Every framework a sandbox can hold, in the order the cards show them.
+const SANDBOX_FRAMEWORKS: AgentFramework[] = versionedFrameworks.filter(
+    (framework) => supportsRuntime(framework, 'sprites')
 )
 
 const targetHeadCell = 'px-3 py-2 font-medium'
@@ -647,7 +783,7 @@ const AgentNew: FC = (): ReactNode => {
     }))
     const navigate = useNavigate()
     const client = useApiClient()
-    const { refreshAgents } = useAppShellContext()
+    const { refreshAgents, agents: allAgents } = useAppShellContext()
     const [params] = useSearchParams()
     const initialRuntimeId = params.get('runtimeId') ?? ''
     const initialDaemonId = params.get('daemonId') ?? ''
@@ -679,7 +815,8 @@ const AgentNew: FC = (): ReactNode => {
         setError,
         resetProgress,
         submitCreateStream,
-        submitAddToRuntime
+        submitAddToRuntime,
+        refetchProviders
     } = create
 
     const [framework, setFramework] = useState<CreateableFramework>(() =>
@@ -701,14 +838,10 @@ const AgentNew: FC = (): ReactNode => {
         useState<RuntimeKindFilter>('all')
     const [runtimePage, setRuntimePage] = useState(1)
     const [existingRuntimeModel, setExistingRuntimeModel] = useState('')
-    const [changeProviderOnReuse, setChangeProviderOnReuse] = useState(false)
     const [connectDaemonOpen, setConnectDaemonOpen] = useState(false)
     const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false)
     const [sandboxDraftName, setSandboxDraftName] = useState('')
     const [sandboxCreating, setSandboxCreating] = useState(false)
-    const [sandboxCreateError, setSandboxCreateError] = useState<string | null>(
-        null
-    )
     // Set when a target must be brought on screen after the list reloads — the
     // page it lands on is only knowable once the reloaded list is rendered.
     const [revealTargetKey, setRevealTargetKey] = useState<string | null>(null)
@@ -716,8 +849,55 @@ const AgentNew: FC = (): ReactNode => {
         useState(false)
     const [frameworkCompareDialogOpen, setFrameworkCompareDialogOpen] =
         useState(false)
+    const [modelProviderHelpOpen, setModelProviderHelpOpen] = useState(false)
+    const [advancedConfigHelpOpen, setAdvancedConfigHelpOpen] = useState(false)
+    // The catalog's latest per coding CLI, for the sandbox cards' icons.
+    const [frameworkLatestByFramework, setFrameworkLatestByFramework] =
+        useState<ReadonlyMap<string, string | null>>(new Map())
+    const [hostFrameworkBusy, setHostFrameworkBusy] = useState<{
+        hostId: string
+        framework: string
+    } | null>(null)
+    const [hostFrameworkError, setHostFrameworkError] = useState<{
+        hostId: string
+        framework: string
+        message: string
+    } | null>(null)
+    // Bringing a bare sandbox's runtime up so an account can be added on it
+    // before any agent exists; the key hands the one click on to the list.
+    const [accountPrepareHostId, setAccountPrepareHostId] = useState<
+        string | null
+    >(null)
+    const [accountPrepareError, setAccountPrepareError] = useState<{
+        hostId: string
+        message: string
+    } | null>(null)
+    // Which step of bringing a sandbox to its accounts is running; the
+    // create button carries it as its label while it does.
+    const [accountPrepareStep, setAccountPrepareStep] = useState<
+        'check' | 'install' | 'prepare' | null
+    >(null)
+    const [autoAddAccountKey, setAutoAddAccountKey] = useState<string | null>(
+        null
+    )
+    // The runtime cards' own menu: rename in place, delete when nothing runs
+    // there. `targetActionKey` is the card whose action is in flight.
+    const { confirm, confirmDialog } = useProductConfirm()
+    const [renameTarget, setRenameTarget] = useState<{
+        kind: 'sandbox' | 'runtime'
+        id: string
+        name: string
+    } | null>(null)
+    const [targetActionKey, setTargetActionKey] = useState<string | null>(null)
     const [pickedRuntimeId, setPickedRuntimeId] = useState(initialRuntimeId)
     const [attachSandboxHostId, setAttachSandboxHostId] = useState('')
+    // The sandbox the user chose themselves (a click, a deep link, one they
+    // just created) as opposed to the list's own default pick: only that
+    // intent brings a runtime up on the sandbox unasked.
+    const [userPickedSandboxId, setUserPickedSandboxId] = useState<
+        string | null
+    >(null)
+    const autoPickingRef = useRef(false)
     const [frameworkVersionSel, setFrameworkVersionSel] = useState(() =>
         /^v?\d+\.\d+\.\d+$/.test(initialVersion) ? initialVersion : ''
     )
@@ -728,8 +908,21 @@ const AgentNew: FC = (): ReactNode => {
     const [cloneEnabled, setCloneEnabled] = useState(false)
     const [cloneFromProfile, setCloneFromProfile] = useState('')
     const [picker, setPicker] = useState<ProviderPickerValue>(() =>
-        initialPickerForFramework(framework)
+        initialPickerForFramework(
+            framework,
+            initialRuntimeId
+                ? { runtimeMode: 'existing', runtimeKind: null }
+                : NEW_RUNTIME_TARGET
+        )
     )
+    const [localCredentials, setLocalCredentials] =
+        useState<LocalCredentialSelection>(INITIAL_LOCAL_CREDENTIALS)
+    const [providerSourceFilter, setProviderSourceFilter] =
+        useState<ProviderSourceFilter>('all')
+    const [providerFamilyFilter, setProviderFamilyFilter] =
+        useState<ProviderFamilyFilter>('all')
+    const [addProvider, setAddProvider] =
+        useState<ModelProviderCreatePick | null>(null)
     const [externalProviderId, setExternalProviderId] = useState('')
     const [externalRemoteId, setExternalRemoteId] = useState('')
 
@@ -738,6 +931,17 @@ const AgentNew: FC = (): ReactNode => {
         usesConfigurableModelProvider(framework)
             ? persistentModelProvider
             : credentialProvider
+    // The families the Cloud list draws from, the current one first so a
+    // built-in that speaks both protocols keeps counting for it.
+    const providerFamilies = useMemo<readonly UserModelProvider[]>(() => {
+        const all = providerFamiliesFor(framework, credentialProvider)
+        return all.includes(modelProviderForRuntime)
+            ? [
+                  modelProviderForRuntime,
+                  ...all.filter((f) => f !== modelProviderForRuntime)
+              ]
+            : all
+    }, [credentialProvider, framework, modelProviderForRuntime])
 
     const modelConfig = useFrameworkModelConfig({
         framework,
@@ -759,6 +963,7 @@ const AgentNew: FC = (): ReactNode => {
     const selectedSavedProvider = modelConfig.selectedSavedProvider
     const inlineProviderModels = modelConfig.inlineProviderModels
     const runFrameworkProviderTest = modelConfig.runTest
+    const requestProviderTest = modelConfig.requestTest
 
     useEffect(() => {
         if (!isExternalFramework(framework)) return
@@ -781,15 +986,13 @@ const AgentNew: FC = (): ReactNode => {
             const selected = providers.find(
                 (option) => option.id === current.providerId
             )
-            if (
-                selected &&
-                providerSupportsTarget(selected, modelProviderForRuntime)
-            )
+            if (selected && providerFamilyOf(selected, providerFamilies))
                 return current
 
-            const preferred = preferredSavedProviderFor(
+            const preferred = preferredSavedProviderForFamilies(
                 providers,
-                modelProviderForRuntime
+                providerFamilies,
+                framework
             )
             if (!preferred) {
                 return current.providerId
@@ -800,7 +1003,29 @@ const AgentNew: FC = (): ReactNode => {
                 ? current
                 : { ...current, providerId: preferred.id }
         })
-    }, [modelProviderForRuntime, providers, runtimeMode])
+    }, [providerFamilies, providers, runtimeMode, framework])
+
+    // The vendor follows the picked provider for the frameworks that take
+    // either: the primary-model defaults and the model list read it.
+    useEffect(() => {
+        if (!usesConfigurableModelProvider(framework)) return
+        if (picker.mode !== 'saved') return
+        const selected = providers.find((o) => o.id === picker.providerId)
+        if (!selected) return
+        const family = providerFamilyOf(selected, providerFamilies)
+        if (
+            (family === 'anthropic' || family === 'openai') &&
+            family !== persistentModelProvider
+        )
+            setPersistentModelProvider(family)
+    }, [
+        framework,
+        persistentModelProvider,
+        picker.mode,
+        picker.providerId,
+        providerFamilies,
+        providers
+    ])
 
     const daemonPreselectedRef = useRef(false)
     useEffect(() => {
@@ -857,31 +1082,105 @@ const AgentNew: FC = (): ReactNode => {
         [spriteTargets]
     )
 
-    const sandboxPreselectedRef = useRef(false)
+    // 'pending' until the linked host is found (claimed) or the sandbox list
+    // says it is gone (given-up). State, not a ref: the auto-select below reads
+    // it in the same commit the claim happens, and a ref would flip before the
+    // claimed target has rendered as selected — which let the first host win
+    // over the link (local stack [2026-09-11], two sandboxes on the account).
+    const [sandboxPreselect, setSandboxPreselect] = useState<
+        'pending' | 'claimed' | 'given-up'
+    >(initialSandboxId ? 'pending' : 'given-up')
     useEffect(() => {
-        if (sandboxPreselectedRef.current) return
+        if (sandboxPreselect !== 'pending') return
         if (!initialSandboxId) return
         const target = spriteAttachTargets.find(
             (t) => t.hostId === initialSandboxId
         )
         if (!target) {
-            if (runtimes.length > 0 || sandboxes.length > 0)
-                sandboxPreselectedRef.current = true
+            // Only the sandbox list can hold the linked host; the runtimes
+            // usually arrive first, and giving up on their arrival let the
+            // first-available pick take the page.
+            if (sandboxes.length > 0) setSandboxPreselect('given-up')
             return
         }
-        sandboxPreselectedRef.current = true
+        setSandboxPreselect('claimed')
         setRuntimeMode('sandbox')
         setAttachSandboxHostId(target.hostId)
+        setUserPickedSandboxId(target.hostId)
         setPickedRuntimeId('')
         // ?sandboxId= can name a host several pages down; selecting it without
         // paging to it would leave the picker showing someone else.
         setRevealTargetKey(`sandbox:${target.hostId}`)
-    }, [initialSandboxId, spriteAttachTargets, runtimes, sandboxes])
+    }, [initialSandboxId, sandboxPreselect, spriteAttachTargets, sandboxes])
 
     const pickedRuntime = useMemo(
         () => reusable.find((r) => r.id === pickedRuntimeId) ?? null,
         [reusable, pickedRuntimeId]
     )
+
+    const providerTarget = useMemo<ProviderTarget>(
+        () =>
+            runtimeMode === 'existing'
+                ? {
+                      runtimeMode: 'existing',
+                      runtimeKind: pickedRuntime?.kind ?? null
+                  }
+                : NEW_RUNTIME_TARGET,
+        [runtimeMode, pickedRuntime]
+    )
+    const providerTargetPicked =
+        runtimeMode === 'existing'
+            ? pickedRuntime !== null
+            : runtimeMode !== 'sandbox' || attachSandboxHostId !== ''
+
+    // The accounts on the picked runtime (a daemon machine or a sandbox with
+    // a coding CLI). Loaded per runtime and never waking one on page open;
+    // the Local selection resets to that runtime's own default when the list
+    // changes hands.
+    const runtimeAuthRuntimeId =
+        runtimeMode === 'existing' &&
+        pickedRuntime &&
+        pickedRuntime.kind !== null &&
+        isConfigurableFramework(framework) &&
+        runtimeAuthSupported(pickedRuntime.framework, pickedRuntime.kind)
+            ? pickedRuntime.id
+            : null
+    const runtimeAuth = useRuntimeAuthList(runtimeAuthRuntimeId)
+    const runtimeAuthList = runtimeAuth.list
+    const runnerPrewarm = useRunnerPrewarm(
+        runtimeAuthRuntimeId,
+        pickedRuntime?.kind ?? null,
+        runtimeAuth
+    )
+    const runnerPrewarming = runnerPrewarm.prewarming
+    useEffect(() => {
+        setLocalCredentials(
+            runtimeAuthList
+                ? { profileId: initialRuntimeAuthSelection(runtimeAuthList) }
+                : INITIAL_LOCAL_CREDENTIALS
+        )
+    }, [runtimeAuthList])
+
+    // One reset for every way the target changes hands (framework, runtime
+    // kind, a daemon connecting, a ?runtimeId= preselect resolving): the
+    // Cloud / Local default follows the target, while a chosen provider or a
+    // typed key survives the move.
+    const providerTargetKey =
+        runtimeMode === 'existing'
+            ? `existing:${pickedRuntime?.id ?? ''}:${pickedRuntime?.kind ?? ''}`
+            : 'new'
+    const providerTargetRef = useRef<string | null>(null)
+    useEffect(() => {
+        const key = `${framework}|${providerTargetKey}`
+        if (providerTargetRef.current === key) return
+        const first = providerTargetRef.current === null
+        providerTargetRef.current = key
+        if (first) return
+        setPicker((current) => ({
+            ...current,
+            mode: initialPickerModeFor(framework, providerTarget)
+        }))
+    }, [framework, providerTargetKey, providerTarget])
 
     const pickedRuntimeAgents = pickedRuntime
         ? (runtimeAgents[pickedRuntime.id] ?? [])
@@ -946,21 +1245,33 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId('')
         setAttachSandboxHostId('')
         setFrameworkVersionSel('')
+        const nextFamilies = usesConfigurableModelProvider(next)
+            ? ['openai' as const, 'anthropic' as const]
+            : [modelProviderForFramework(next)]
+        const preferred = preferredSavedProviderForFamilies(
+            providers,
+            nextFamilies,
+            next
+        )
+        // OpenClaw / Hermes take either vendor: the one the preferred saved
+        // provider speaks, else OpenAI as before.
+        const preferredFamily = preferred
+            ? providerFamilyOf(preferred, nextFamilies)
+            : null
         const nextPersistentProvider: PersistentModelProvider =
             usesConfigurableModelProvider(next)
-                ? 'openai'
+                ? preferredFamily === 'anthropic'
+                    ? 'anthropic'
+                    : 'openai'
                 : modelProviderForFramework(next) === 'google'
                   ? 'anthropic'
                   : (modelProviderForFramework(next) as PersistentModelProvider)
         setPersistentModelProvider(nextPersistentProvider)
+        setProviderFamilyFilter('all')
         const nextTargetProvider: UserModelProvider =
             usesConfigurableModelProvider(next)
                 ? nextPersistentProvider
                 : modelProviderForFramework(next)
-        const preferred = preferredSavedProviderFor(
-            providers,
-            nextTargetProvider
-        )
         const pickerBase = initialPickerForFramework(next)
         setPicker(
             pickerBase.mode === 'saved' && preferred
@@ -987,7 +1298,6 @@ const AgentNew: FC = (): ReactNode => {
         setRuntimeKindFilter('all')
         setRuntimePage(1)
         setExistingRuntimeModel('')
-        setChangeProviderOnReuse(false)
         if (isK8sOnlyFramework(next)) {
             setRuntimeMode('persistent')
         } else if (runtimeMode === 'existing') {
@@ -1016,7 +1326,6 @@ const AgentNew: FC = (): ReactNode => {
         setPickedRuntimeId(runtime.id)
         setAttachSandboxHostId('')
         setExistingRuntimeModel('')
-        setChangeProviderOnReuse(false)
         setCloneEnabled(false)
         setCloneFromProfile('')
         setWorkspacePath('')
@@ -1025,10 +1334,14 @@ const AgentNew: FC = (): ReactNode => {
     }
 
     const selectAttachSandboxTarget = (target: SpriteAttachTarget): void => {
+        // Clicking the card the list picked by default is the user's own
+        // pick of it: the intent counts even when the selection does not move.
+        if (!autoPickingRef.current) setUserPickedSandboxId(target.hostId)
         if (runtimeMode === 'sandbox' && attachSandboxHostId === target.hostId)
             return
         setRuntimeMode('sandbox')
         setAttachSandboxHostId(target.hostId)
+        if (autoPickingRef.current) setUserPickedSandboxId(null)
         setPickedRuntimeId('')
         setCloneEnabled(false)
         setCloneFromProfile('')
@@ -1046,15 +1359,19 @@ const AgentNew: FC = (): ReactNode => {
             .flatMap((digits) => (digits ? [Number(digits)] : []))
         const next = Math.max(sandboxes.length, ...used, 0) + 1
         setSandboxDraftName(`sandbox-${String(next).padStart(3, '0')}`)
-        setSandboxCreateError(null)
         setSandboxDialogOpen(true)
     }
 
+    // The dialog closes on the click; the minute the VM takes shows on the
+    // create button (disabled, "Creating the sandbox…"), where the steps
+    // that follow — check, prepare, runner — show too, so the form cannot be
+    // submitted halfway through.
     const createSandbox = async (): Promise<void> => {
         const validation = validateAgentName(sandboxDraftName)
         if (!validation.valid || sandboxCreating) return
         setSandboxCreating(true)
-        setSandboxCreateError(null)
+        setError(null)
+        setSandboxDialogOpen(false)
         try {
             const created = await client.sandboxes.create({
                 name: validation.value
@@ -1062,12 +1379,12 @@ const AgentNew: FC = (): ReactNode => {
             await Promise.all([refetchRuntimes(), refetchSandboxes()])
             setRuntimeMode('sandbox')
             setAttachSandboxHostId(created.id)
+            setUserPickedSandboxId(created.id)
             setPickedRuntimeId('')
             setRuntimeKindFilter('all')
             setRevealTargetKey(`sandbox:${created.id}`)
-            setSandboxDialogOpen(false)
         } catch (err) {
-            setSandboxCreateError(apiErrorMessage(err))
+            setError(apiErrorMessage(err))
         } finally {
             setSandboxCreating(false)
         }
@@ -1142,8 +1459,41 @@ const AgentNew: FC = (): ReactNode => {
     )
     void inlineProviderModels
 
+    // Adding an agent to a runtime inherits that runtime's provider and key.
+    // For a coding framework the form shows those credentials as the Local
+    // list — its host sign-in row IS the inherited binding — beside the saved
+    // providers, so a Cloud pick is always an explicit provider: the same
+    // PATCH the agent's own credentials dialog issues, and because the stored
+    // credential belongs to the runtime it lands for every agent on it. The
+    // frameworks without that list (openclaw, hermes, the external ones,
+    // narranexus — none of them configurable) simply inherit; the API rejects
+    // a credentials change for the last two anyway.
+    const providerInherited =
+        runtimeMode === 'existing' && !isConfigurableFramework(framework)
+
+    // What the create button says while the picked sandbox is still on its
+    // way to being usable: creating, checked, prepared, its runner starting.
+    // The button is disabled for the duration, so the form cannot be
+    // submitted around a step that is still running.
+    const submitProgressLabel: string | null = sandboxCreating
+        ? t('web.agentNew.creatingSandbox')
+        : accountPrepareStep === 'check'
+          ? t('web.agentNew.checkingSandbox')
+          : accountPrepareStep === 'install'
+            ? t('web.agentNew.installingFramework', {
+                  framework: frameworkLabel(framework)
+              })
+            : accountPrepareStep === 'prepare'
+              ? t('web.agentNew.preparingSandbox')
+              : runnerPrewarming
+                ? runnerPrewarm.waitingForSlot
+                    ? t('web.agentNew.waitingForSlot')
+                    : t('web.agentNew.runnerStarting')
+                : null
+
     const canSubmit = (() => {
         if (busy || streamOpen) return false
+        if (submitProgressLabel !== null) return false
         if (!nameValidation.valid) return false
         if (isExternalFramework(framework)) {
             if (externalProviderId.trim().length === 0) return false
@@ -1164,13 +1514,23 @@ const AgentNew: FC = (): ReactNode => {
                     cloneFromProfile.trim().length > 0
                 )
             }
-            return true
+            return (
+                providerInherited ||
+                (pickerIsValid(picker) &&
+                    localSelectionValid({
+                        target: providerTarget,
+                        local: localCredentials,
+                        list: runtimeAuth.list
+                    }))
+            )
         }
         // A sandbox target is always an existing host now — creating one is a
         // separate step, so an unattached 'sandbox' mode means nothing is
         // picked yet.
         if (runtimeMode === 'sandbox' && !attachSandboxHostId) return false
         if (runtimeMode === 'persistent') return false
+        // NarraNexus manages its provider in its own UI; nothing to pick.
+        if (framework === 'narranexus') return true
         return pickerIsValid(picker)
     })()
 
@@ -1271,6 +1631,504 @@ const AgentNew: FC = (): ReactNode => {
         return out
     }, [runtimes])
 
+    useEffect(() => {
+        let cancelled = false
+        client.frameworkVersions
+            .list()
+            .then((catalog) => {
+                if (cancelled) return
+                setFrameworkLatestByFramework(
+                    new Map(
+                        catalog.map((entry) => [entry.framework, entry.latest])
+                    )
+                )
+            })
+            .catch(() => {})
+        return () => {
+            cancelled = true
+        }
+    }, [client])
+
+    // Every coding CLI the sprite image can hold, on one sandbox: the probe's
+    // version, the catalog's latest and who runs on it. A sandbox never probed
+    // reports nothing installed, which the icons show as "not checked".
+    const hostFrameworkEntries = (hostId: string): HostFrameworkEntry[] => {
+        const sandbox = sandboxes.find((s) => s.id === hostId) ?? null
+        const onHostRuntimes = runtimes.filter((r) => r.hostId === hostId)
+        // The agents on this host: through their runtime, or — for one whose
+        // runtime row is not in this list — the sprite they share with it.
+        const runtimeIds = new Set(onHostRuntimes.map((r) => r.id))
+        const spriteName = sandbox?.spriteName ?? null
+        const onHost = allAgents.filter(
+            (agent) =>
+                (agent.runtimeId !== null && runtimeIds.has(agent.runtimeId)) ||
+                (spriteName !== null && agent.spriteName === spriteName)
+        )
+        // The service framework already on the sandbox's one public port, if
+        // any: the other two cannot be installed beside it.
+        const occupant = serviceSlotOccupant(
+            onHostRuntimes
+                .filter((r) => r.status !== 'failed' && r.status !== 'stopped')
+                .map((r) => r.framework)
+        )
+        return SANDBOX_FRAMEWORKS.map((fw) => {
+            // A coding CLI is known from the sandbox probe; a service framework
+            // only from the runtime that installed it.
+            const coding = SANDBOX_CLI_FRAMEWORKS.includes(fw)
+            const probedVersion = installedFrameworkVersion(sandbox, fw)
+            const runtime = onHostRuntimes.find((r) => r.framework === fw)
+            const present = probedVersion !== null || runtime !== undefined
+            const blockedBy =
+                !coding && !present && occupant !== null && occupant !== fw
+                    ? frameworkLabel(occupant)
+                    : null
+            return {
+                framework: fw,
+                label: frameworkLabel(fw),
+                present,
+                version: probedVersion ?? runtime?.frameworkVersion ?? null,
+                latest: frameworkLatestByFramework.get(fw) ?? null,
+                installable: blockedBy === null,
+                blockedBy,
+                probed:
+                    !coding || (sandbox?.detectedFrameworks.length ?? 0) > 0,
+                agents: onHost
+                    .filter((agent) => agent.framework === fw)
+                    .map((agent) => ({
+                        id: agent.id,
+                        name: agent.name,
+                        status: agent.status
+                    }))
+                    .sort((a, b) => a.name.localeCompare(b.name))
+            }
+        })
+    }
+
+    // Check re-probes the sandbox; install and upgrade run the sandbox-level
+    // install, except that a framework with a runtime on the host upgrades
+    // through that runtime's primary agent, as the runtime page does, and a
+    // service framework installs as an agent-less runtime (its gateway is
+    // the runtime).
+    const handleHostFrameworkAction = async (
+        hostId: string,
+        fw: AgentFramework,
+        action: HostFrameworkAction
+    ): Promise<void> => {
+        if (hostFrameworkBusy) return
+        setHostFrameworkBusy({ hostId, framework: fw })
+        setHostFrameworkError(null)
+        try {
+            if (action === 'check') {
+                await client.sandboxes.detectFrameworks(hostId)
+                await refetchSandboxes()
+                return
+            }
+            const latest = frameworkLatestByFramework.get(fw) ?? null
+            const runtime = runtimes.find(
+                (r) => r.hostId === hostId && r.framework === fw
+            )
+            if (action === 'upgrade' && runtime?.primaryAgentId && latest) {
+                // The heavy frameworks re-clone and rebuild; their upgrade
+                // streams phases, which this card only waits out.
+                if (frameworkUpgradeMode(fw) === 'rebuild')
+                    await client.agents.upgradeFrameworkStream(
+                        runtime.primaryAgentId,
+                        latest,
+                        () => {}
+                    )
+                else
+                    await client.agents.upgradeFramework(
+                        runtime.primaryAgentId,
+                        latest
+                    )
+                await Promise.all([refetchRuntimes(), refetchSandboxes()])
+                return
+            }
+            if (!SANDBOX_CLI_FRAMEWORKS.includes(fw)) {
+                await client.sandboxes.prepareRuntime(hostId, fw)
+                await Promise.all([refetchRuntimes(), refetchSandboxes()])
+                return
+            }
+            await client.sandboxes.installFramework(
+                hostId,
+                fw,
+                latest ?? undefined
+            )
+            await refetchSandboxes()
+        } catch (err) {
+            setHostFrameworkError({
+                hostId,
+                framework: fw,
+                message: apiErrorMessage(err)
+            })
+        } finally {
+            setHostFrameworkBusy(null)
+        }
+    }
+
+    // A bare sandbox the user picked (a click, a deep link, one they just
+    // created) is brought to the point where its accounts read like a
+    // runtime's — host sign-in, added accounts, Add account / Add API key —
+    // without another ask where nothing but time is at stake: a sandbox never
+    // probed is checked, one with the CLI gets the framework's runtime
+    // brought up (the form then re-targets itself at that runtime, whose card
+    // takes the sandbox card's place; the CLI is left at the version found).
+    // A missing CLI is the one step that waits for a click: installing takes
+    // a minute and changes the sandbox, so the group says so and offers it.
+    const frameworkRef = useRef(framework)
+    frameworkRef.current = framework
+    const runSandboxStep = async (
+        hostId: string,
+        step: 'check' | 'install' | 'prepare',
+        opts: { autoAdd: boolean }
+    ): Promise<void> => {
+        if (accountPrepareHostId) return
+        const forFramework = framework
+        setAccountPrepareHostId(hostId)
+        setAccountPrepareStep(step)
+        setAccountPrepareError(null)
+        try {
+            if (step === 'check') {
+                // What comes next (prepare, or the install offer) follows from
+                // the re-read sandbox, through the effect below.
+                await client.sandboxes.detectFrameworks(hostId)
+                await refetchSandboxes()
+                return
+            }
+            if (step === 'install') {
+                await client.sandboxes.installFramework(
+                    hostId,
+                    forFramework,
+                    frameworkLatestByFramework.get(forFramework) ?? undefined
+                )
+                await refetchSandboxes()
+            }
+            setAccountPrepareStep('prepare')
+            const prepared = await client.sandboxes.prepareRuntime(
+                hostId,
+                forFramework
+            )
+            await refetchRuntimes()
+            // The user may have moved on while the sandbox was being
+            // prepared; the runtime is there for when they come back.
+            if (frameworkRef.current !== forFramework) return
+            setRuntimeMode('existing')
+            setPickedRuntimeId(prepared.id)
+            setAttachSandboxHostId('')
+            setRevealTargetKey(`runtime:${prepared.id}`)
+            if (opts.autoAdd) setAutoAddAccountKey(prepared.id)
+        } catch (err) {
+            setAccountPrepareError({ hostId, message: apiErrorMessage(err) })
+        } finally {
+            setAccountPrepareHostId(null)
+            setAccountPrepareStep(null)
+        }
+    }
+    const pickedSandbox =
+        runtimeMode === 'sandbox' &&
+        attachSandboxHostId !== '' &&
+        isConfigurableFramework(framework)
+            ? (sandboxes.find((s) => s.id === attachSandboxHostId) ?? null)
+            : null
+    // What the last probe said about the framework's CLI on it: nothing yet,
+    // absent, or there.
+    const pickedSandboxCli: 'unknown' | 'missing' | 'present' =
+        pickedSandbox === null || pickedSandbox.detectedFrameworks.length === 0
+            ? 'unknown'
+            : installedFrameworkVersion(pickedSandbox, framework) !== null
+              ? 'present'
+              : 'missing'
+    // A sandbox the list picked by default is not touched unasked — merely
+    // opening the page must not probe or wake VMs or add runtime rows; it
+    // offers the next step as a chip, which runs on the click.
+    const pickedSandboxByUser =
+        pickedSandbox !== null && userPickedSandboxId === pickedSandbox.id
+    const autoCheckedRef = useRef(new Set<string>())
+    const autoPreparedRef = useRef(new Set<string>())
+    useEffect(() => {
+        if (!pickedSandbox || !pickedSandboxByUser || accountPrepareHostId)
+            return
+        if (pickedSandboxCli === 'unknown') {
+            // Once per sandbox: a failed probe stays on screen with a retry.
+            if (autoCheckedRef.current.has(pickedSandbox.id)) return
+            autoCheckedRef.current.add(pickedSandbox.id)
+            void runSandboxStep(pickedSandbox.id, 'check', { autoAdd: false })
+            return
+        }
+        if (pickedSandboxCli !== 'present') return
+        if (
+            runtimes.some(
+                (r) =>
+                    r.hostId === pickedSandbox.id &&
+                    r.framework === framework &&
+                    r.status !== 'failed' &&
+                    r.status !== 'stopped'
+            )
+        )
+            return
+        // Once per sandbox and framework, for the same reason.
+        const key = `${pickedSandbox.id}|${framework}`
+        if (autoPreparedRef.current.has(key)) return
+        autoPreparedRef.current.add(key)
+        void runSandboxStep(pickedSandbox.id, 'prepare', { autoAdd: false })
+        // runSandboxStep is recreated every render; the key sets are what
+        // make each step run once.
+    }, [
+        accountPrepareHostId,
+        framework,
+        pickedSandbox,
+        pickedSandboxByUser,
+        pickedSandboxCli,
+        runtimes
+    ])
+    const sandboxAccountPrepare: SandboxPrepare | null = pickedSandbox
+        ? {
+              cli: pickedSandboxCli,
+              auto: pickedSandboxByUser,
+              busy: accountPrepareHostId === pickedSandbox.id,
+              error:
+                  accountPrepareError?.hostId === pickedSandbox.id
+                      ? accountPrepareError.message
+                      : null,
+              // The chip (or the retry): the next step for the CLI as last
+              // seen, run for the click that asked for an account.
+              onAction: (): void => {
+                  autoCheckedRef.current.delete(pickedSandbox.id)
+                  autoPreparedRef.current.delete(
+                      `${pickedSandbox.id}|${framework}`
+                  )
+                  void runSandboxStep(
+                      pickedSandbox.id,
+                      pickedSandboxCli === 'unknown'
+                          ? 'check'
+                          : pickedSandboxCli === 'missing'
+                            ? 'install'
+                            : 'prepare',
+                      { autoAdd: pickedSandboxCli !== 'unknown' }
+                  )
+              }
+          }
+        : null
+
+    const submitRename = async (name: string): Promise<void> => {
+        if (!renameTarget) return
+        if (renameTarget.kind === 'sandbox')
+            await client.sandboxes.rename(renameTarget.id, name)
+        else await client.agentRuntimes.rename(renameTarget.id, name)
+        await Promise.all([refetchRuntimes(), refetchSandboxes()])
+    }
+
+    // After a delete the picked target may be gone; clearing the pick lets
+    // the list's own default choose again.
+    const forgetDeletedTarget = (input: {
+        runtimeId?: string
+        hostId?: string
+    }): void => {
+        if (
+            (input.runtimeId && pickedRuntimeId === input.runtimeId) ||
+            (input.hostId && attachSandboxHostId === input.hostId)
+        ) {
+            setPickedRuntimeId('')
+            setAttachSandboxHostId('')
+            setRuntimeMode('sandbox')
+        }
+    }
+
+    // A cloud computer's runtime with no agents. A sandbox's runtimes are not
+    // deleted one by one from here: the sandbox is the machine the card
+    // stands for, and a bare sandbox picked again would only be prepared
+    // anew — its menu deletes the sandbox instead.
+    const deleteRuntimeTarget = async (
+        runtime: AgentRuntimeSummary,
+        key: string
+    ): Promise<void> => {
+        if (
+            !(await confirm({
+                title: t('web.runtimeDetails.deleteTitle'),
+                description: t('web.runtimeDetails.deleteConfirm', {
+                    name: runtime.name
+                }),
+                confirmLabel: t('web.runtimeDetails.deleteAction'),
+                tone: 'danger'
+            }))
+        )
+            return
+        setTargetActionKey(key)
+        setError(null)
+        try {
+            await client.agentRuntimes.delete(runtime.id)
+            forgetDeletedTarget({ runtimeId: runtime.id })
+            await Promise.all([refetchRuntimes(), refetchSandboxes()])
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            setTargetActionKey(null)
+        }
+    }
+
+    // A sandbox with no agents: its agent-less runtimes go first (the API
+    // refuses a sandbox that still has runtimes, and deleting the last one
+    // already takes the VM), then the host itself if it is still there.
+    const deleteSandboxTarget = async (
+        hostId: string,
+        name: string,
+        key: string
+    ): Promise<void> => {
+        if (
+            !(await confirm({
+                title: t('web.agentRuntimesList.deleteSandbox'),
+                description: t(
+                    'web.agentRuntimesList.deleteSandboxDescription',
+                    { name }
+                ),
+                confirmLabel: t('web.agentRuntimesList.delete'),
+                tone: 'danger'
+            }))
+        )
+            return
+        setTargetActionKey(key)
+        setError(null)
+        try {
+            const onHost = runtimes.filter(
+                (r) =>
+                    r.hostId === hostId &&
+                    r.status !== 'failed' &&
+                    r.status !== 'stopped'
+            )
+            for (const r of onHost) await client.agentRuntimes.delete(r.id)
+            const remaining = await client.sandboxes.list()
+            if (remaining.some((s) => s.id === hostId))
+                await client.sandboxes.delete(hostId)
+            forgetDeletedTarget({ hostId })
+            await Promise.all([refetchRuntimes(), refetchSandboxes()])
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            setTargetActionKey(null)
+        }
+    }
+
+    const agentsOnHost = (hostId: string): number =>
+        (populationByHost.get(hostId) ?? []).reduce(
+            (sum, entry) => sum + entry.agents,
+            0
+        )
+    const sandboxNameFor = (hostId: string, fallback: string | null): string =>
+        sandboxes.find((s) => s.id === hostId)?.name ?? fallback ?? hostId
+    const renameRuntimeItem = (
+        runtime: AgentRuntimeSummary
+    ): OverflowMenuEntry => ({
+        label: t('web.runtimeDetails.renameRuntime'),
+        onSelect: () =>
+            setRenameTarget({
+                kind: 'runtime',
+                id: runtime.id,
+                name: runtime.name
+            })
+    })
+    const renameSandboxItem = (
+        hostId: string,
+        name: string
+    ): OverflowMenuEntry => ({
+        label: t('web.agentNew.renameSandbox'),
+        onSelect: () => setRenameTarget({ kind: 'sandbox', id: hostId, name })
+    })
+    const deleteSandboxItem = (
+        hostId: string,
+        name: string,
+        key: string
+    ): OverflowMenuEntry => {
+        const busy = targetActionKey === key
+        const agents = agentsOnHost(hostId)
+        return {
+            label: busy
+                ? t('web.agentRuntimesList.deleting')
+                : t('web.agentRuntimesList.deleteSandbox'),
+            danger: true,
+            disabled: busy || agents > 0,
+            disabledReason:
+                agents > 0 ? t('web.agentNew.deleteHasAgents') : undefined,
+            onSelect: () => void deleteSandboxTarget(hostId, name, key)
+        }
+    }
+
+    // What a card's menu offers. A sandbox card — bare, or the runtime on
+    // it — renames the runtime and the sandbox and deletes the sandbox once
+    // nothing runs there. A cloud computer renames and deletes its runtime
+    // when no agent is left; a daemon's runtimes are the daemon's own and
+    // only rename.
+    const runtimeTargetMenu = (
+        runtime: AgentRuntimeSummary,
+        key: string
+    ): OverflowMenuEntry[] => {
+        const items: OverflowMenuEntry[] = [renameRuntimeItem(runtime)]
+        if (runtime.kind === 'sprites' && runtime.hostId) {
+            const name = sandboxNameFor(runtime.hostId, runtime.spriteName)
+            items.push(
+                renameSandboxItem(runtime.hostId, name),
+                deleteSandboxItem(runtime.hostId, name, key)
+            )
+        } else if (runtime.kind === 'k8s') {
+            const busy = targetActionKey === key
+            items.push({
+                label: busy
+                    ? t('web.runtimeDetails.deleting')
+                    : t('web.runtimeDetails.deleteTitle'),
+                danger: true,
+                disabled: busy || runtime.agentsCount > 0,
+                disabledReason:
+                    runtime.agentsCount > 0
+                        ? t('web.agentNew.deleteHasAgents')
+                        : undefined,
+                onSelect: () => void deleteRuntimeTarget(runtime, key)
+            })
+        }
+        return items
+    }
+    const sandboxTargetMenu = (
+        target: SpriteAttachTarget,
+        key: string
+    ): OverflowMenuEntry[] => {
+        const name = target.name ?? target.spriteName ?? target.hostId
+        return [
+            renameSandboxItem(target.hostId, name),
+            deleteSandboxItem(target.hostId, name, key)
+        ]
+    }
+
+    // A sandbox card's status line: the runner for the picked one, the VM
+    // lifecycle for the rest (see sandboxTargetStatus).
+    const sandboxCardStatus = (
+        hostId: string,
+        picked: boolean
+    ): RuntimeTargetStatus => {
+        if (picked && runnerPrewarm.refusal)
+            return {
+                label: t('web.agentNew.statusWakeRefused'),
+                tone: 'offline'
+            }
+        const status = sandboxTargetStatus({
+            spriteStatus:
+                sandboxes.find((s) => s.id === hostId)?.spriteStatus ?? null,
+            picked,
+            prewarming: runnerPrewarming,
+            availability: picked
+                ? (runtimeAuth.list?.availability ?? null)
+                : null
+        })
+        if (status.kind === 'starting-runner')
+            return {
+                label: t('web.agentNew.statusStartingRunner'),
+                tone: 'progress'
+            }
+        if (status.kind === 'runner-online')
+            return {
+                label: t('web.agentNew.statusRunnerOnline'),
+                tone: 'success'
+            }
+        return { label: status.label, tone: status.tone }
+    }
+
     const populationLabel = (entry: RuntimeTargetPopulation): string =>
         `${frameworkLabel(entry.framework)} · ${
             entry.agents === 1
@@ -1320,15 +2178,28 @@ const AgentNew: FC = (): ReactNode => {
                           label: t('web.agentNew.offline'),
                           tone: 'offline' as const
                       }
-                    : {
-                          label: t('web.agentNew.readyTag'),
-                          tone: 'ready' as const
-                      },
+                    : r.kind === 'sprites' && r.hostId
+                      ? sandboxCardStatus(
+                            r.hostId,
+                            runtimeMode === 'existing' &&
+                                pickedRuntimeId === r.id
+                        )
+                      : {
+                            label: t('web.agentNew.readyTag'),
+                            tone: 'ready' as const
+                        },
             population:
                 populationByHost.get(r.hostId ?? r.id) ??
                 (r.agentsCount > 0
                     ? [{ framework: r.framework, agents: r.agentsCount }]
                     : []),
+            ...(r.kind === 'sprites' && r.hostId
+                ? {
+                      hostId: r.hostId,
+                      frameworks: hostFrameworkEntries(r.hostId)
+                  }
+                : {}),
+            menu: runtimeTargetMenu(r, `runtime:${r.id}`),
             selected: runtimeMode === 'existing' && pickedRuntimeId === r.id,
             disabled: false,
             disabledReason: null,
@@ -1342,11 +2213,11 @@ const AgentNew: FC = (): ReactNode => {
             kind: 'sprites' as const,
             group: 'existing' as const,
             name: target.name ?? target.spriteName ?? target.hostId,
-            status: {
-                label: t('web.agentNew.readyTag'),
-                tone: 'ready' as const
-            },
+            status: sandboxCardStatus(target.hostId, false),
             population: populationByHost.get(target.hostId) ?? [],
+            hostId: target.hostId,
+            frameworks: hostFrameworkEntries(target.hostId),
+            menu: sandboxTargetMenu(target, `sandbox:${target.hostId}`),
             selected:
                 runtimeMode === 'sandbox' &&
                 attachSandboxHostId === target.hostId,
@@ -1408,11 +2279,30 @@ const AgentNew: FC = (): ReactNode => {
     // any deep link has had its say, so it never overrides one.
     useEffect(() => {
         if (initialDaemonId && !daemonPreselectedRef.current) return
-        if (initialSandboxId && !sandboxPreselectedRef.current) return
+        if (initialSandboxId && sandboxPreselect === 'pending') return
+        // A deep-linked runtime arrives with the runtimes list, after the
+        // sandbox hosts; until its target is in the list nothing is selected,
+        // and picking "the first host" here would overwrite the link.
+        // Seen on a local stack [2026-09-11]: a second, empty sandbox got
+        // picked over the runtime the page was opened for.
+        if (
+            initialRuntimeId &&
+            !runtimeTargets.some(
+                (target) => target.key === `runtime:${initialRuntimeId}`
+            )
+        )
+            return
         if (runtimeTargets.some((target) => target.selected)) return
         const first = runtimeTargets.find((target) => !target.disabled)
-        first?.onSelect()
-    }, [initialDaemonId, initialSandboxId, runtimeTargets])
+        // The list's own pick, not the user's: a sandbox chosen here shows
+        // its accounts on request rather than being prepared unasked.
+        autoPickingRef.current = true
+        try {
+            first?.onSelect()
+        } finally {
+            autoPickingRef.current = false
+        }
+    }, [initialDaemonId, initialSandboxId, sandboxPreselect, runtimeTargets])
 
     // A target selected for the user (the sandbox they just created) has to be
     // on the visible page, or "selected" is a claim they cannot see. Runs only
@@ -1689,22 +2579,32 @@ const AgentNew: FC = (): ReactNode => {
         setError(null)
         if (runtimeMode === 'existing') {
             if (!pickedRuntime) return
+            const local =
+                isConfigurableFramework(framework) &&
+                providerSourceOf(picker.mode) === 'local'
             const created = await submitAddToRuntime({
                 runtimeId: pickedRuntime.id,
                 body: buildAddRuntimeAgentBody({
                     name: normalizedName,
                     workspace: effectiveExistingWorkspace,
-                    // The provider override carries its own model, so the two
-                    // never both set one.
-                    model: changeProviderOnReuse ? '' : existingRuntimeModel,
+                    // Only the inherited credentials take a model here: a
+                    // provider override carries its own, and under Local the
+                    // CLI's own config owns it.
+                    model: providerInherited ? existingRuntimeModel : '',
                     cloneFrom:
                         pickedRuntime.framework === 'hermes' && cloneEnabled
                             ? cloneFromProfile || undefined
+                            : undefined,
+                    runtimeLocal: local,
+                    runtimeAuthProfileId:
+                        local &&
+                        runtimeAuthPickerState(runtimeAuth.list) === 'ready'
+                            ? localCredentials.profileId
                             : undefined
                 })
             })
             if (!created) return
-            if (changeProviderOnReuse && canChangeProviderOnReuse) {
+            if (isCloudCredentialPicker(picker) && !providerInherited) {
                 try {
                     await client.agents.credentials.update(
                         created.id,
@@ -1715,6 +2615,13 @@ const AgentNew: FC = (): ReactNode => {
                             primaryModelName
                         })
                     )
+                    // The mapping picked above lands the same way the
+                    // credentials did: on the agent, once it exists.
+                    if (frameworkModelConfigRequired && frameworkModelConfig)
+                        await client.agents.updateModelConfig(created.id, {
+                            modelConfigSource: 'platform',
+                            modelConfig: frameworkModelConfig
+                        })
                 } catch (err) {
                     // The agent exists either way; saying so beats a bare
                     // failure that hides a created agent.
@@ -1791,195 +2698,243 @@ const AgentNew: FC = (): ReactNode => {
         resetProgress()
     }
 
-    // Adding an agent to a runtime inherits that runtime's provider and key —
-    // the attach service reads them off the runtime's primary agent and the
-    // request cannot override them. The model is per agent, so it is the one
-    // thing worth offering here.
-    // Adding an agent to a runtime inherits that runtime's provider and key.
-    // Changing them is a real operation, not a create-time field: it is the
-    // same PATCH the agent's own credentials dialog issues, and because the
-    // stored credential belongs to the runtime, it lands for every agent on
-    // it. The API rejects it for narranexus and the external frameworks, so
-    // they never get the affordance.
-    const canChangeProviderOnReuse =
-        !isExternalFramework(framework) && framework !== 'narranexus'
+    const cloudRows = selectableProvidersForFamilies(
+        providers,
+        providerFamilies,
+        framework
+    )
+    const cloudRowCount = cloudRows.length
 
-    const renderExistingRuntimeModelSettings = (): ReactNode => (
-        <div className='space-y-4'>
-            <div className='bg-soft shadow-ring-light rounded-md px-3 py-2.5'>
-                <div className='flex items-start justify-between gap-3'>
-                    <div className='min-w-0'>
-                        <div className='text-caption text-subtle font-medium'>
-                            {t('web.agentNew.usingCredentialsFrom')}
-                        </div>
-                        <div className='text-caption text-fg mt-0.5 truncate'>
-                            {pickedRuntime?.name ??
-                                t('web.agentNew.runtimeSelect')}
-                        </div>
-                    </div>
-                    {canChangeProviderOnReuse && (
-                        <button
-                            type='button'
-                            onClick={() =>
-                                setChangeProviderOnReuse((open) => !open)
-                            }
-                            className='text-caption text-link hover:text-fg shrink-0 font-medium'
-                        >
-                            {changeProviderOnReuse
-                                ? t('common.cancel')
-                                : t('web.agentNew.change')}
-                        </button>
-                    )}
-                </div>
-                {changeProviderOnReuse && (
-                    <p className='workbench-hint mt-2'>
-                        {t('web.agentNew.providerSharedHint')}
-                    </p>
-                )}
-            </div>
-            {changeProviderOnReuse ? (
-                renderCreateRuntimeSettings()
-            ) : (
-                <label className='block'>
-                    <span className='workbench-field-label'>
-                        {t('web.agentNew.model')}
-                    </span>
-                    <input
-                        value={existingRuntimeModel}
-                        onChange={(e) =>
-                            setExistingRuntimeModel(e.target.value)
-                        }
-                        placeholder={t('web.agentNew.primaryModelPlaceholder')}
-                        maxLength={255}
-                        className='workbench-input font-mono'
-                    />
-                    <p className='workbench-hint mt-2'>
-                        {t('web.agentNew.modelInheritHint')}
-                    </p>
-                </label>
-            )}
-        </div>
+    // A Local row is the selection: the picker flips to the runtime-local
+    // mode and the row's account becomes the binding the attach carries.
+    const selectLocalCredential = (profileId: string): void => {
+        setLocalCredentials({ profileId })
+        setPicker((current) =>
+            current.mode === 'runtime'
+                ? current
+                : { ...current, mode: 'runtime' }
+        )
+        setFrameworkModelConfig(null)
+    }
+
+    // Re-test a saved provider from its row: select it and let the model
+    // config hook run the test once the selection has landed.
+    const refreshProvider = (id: string): void => {
+        setPicker((current) => ({ ...current, mode: 'saved', providerId: id }))
+        setFrameworkModelConfig(null)
+        requestProviderTest(id)
+    }
+
+    // The provider added from the dialog is the one to pick: refetch so the
+    // list has it, select it as a saved (Cloud) provider, and test it right
+    // away so its models are loaded without a manual step.
+    const handleProviderCreated = async (id: string): Promise<void> => {
+        await refetchProviders()
+        setAddProvider(null)
+        setPicker((current) => ({ ...current, mode: 'saved', providerId: id }))
+        setFrameworkModelConfig(null)
+        requestProviderTest(id)
+    }
+
+    const renderInheritedModel = (): ReactNode => (
+        <label className='block'>
+            <span className='workbench-field-label'>
+                {t('web.agentNew.model')}
+            </span>
+            <input
+                value={existingRuntimeModel}
+                onChange={(e) => setExistingRuntimeModel(e.target.value)}
+                placeholder={t('web.agentNew.primaryModelPlaceholder')}
+                maxLength={255}
+                className='workbench-input font-mono'
+            />
+            <p className='workbench-hint mt-2'>
+                {t('web.agentNew.modelInheritHint')}
+            </p>
+        </label>
     )
 
-    const renderCreateRuntimeSettings = (): ReactNode => (
-        <div className='space-y-4'>
-            {usesConfigurableModelProvider(framework) && (
-                <div>
-                    <span className='workbench-field-label'>
-                        {t('web.agentNew.apiProvider')}
-                    </span>
-                    <div className='grid gap-2 md:grid-cols-2'>
-                        {persistentProviderOptions.map((opt) => (
-                            <button
-                                key={opt.value}
-                                type='button'
-                                onClick={() => {
-                                    setPersistentModelProvider(opt.value)
-                                    setPicker(initialPicker())
-                                    setPrimaryModelName('')
-                                    setPrimaryModelCustom(false)
-                                    setFrameworkModelConfig(null)
-                                }}
-                                className={cardClass(
-                                    persistentModelProvider === opt.value
-                                )}
-                            >
-                                <span>{opt.label}</span>
-                            </button>
-                        ))}
-                    </div>
-                </div>
+    // The Cloud pieces of the unified provider grid (coding frameworks): the
+    // saved-provider cards and the add-provider chip.
+    const providerCards = (
+        <ProviderPicker
+            provider={modelProviderForRuntime}
+            families={providerFamilies}
+            visible={(row) =>
+                providerFamilyFilter === 'all' ||
+                providerSupportsTarget(row, providerFamilyFilter)
+            }
+            framework={framework}
+            apiKeyLabel={apiKeyLabelForProvider(credentialProvider)}
+            baseUrlLabel={t('web.agentNew.baseUrlOptional')}
+            allowInlineKey={false}
+            layout='rows'
+            leadFor={providerRowLead}
+            onRefresh={refreshProvider}
+            refreshingId={frameworkProviderTesting ? picker.providerId : null}
+            options={providers}
+            value={picker}
+            onChange={(next) => {
+                setPicker(next)
+                setFrameworkModelConfig(null)
+            }}
+        />
+    )
+    const providerAddChip = (
+        <CreateMenu
+            variant='chip'
+            align='left'
+            triggerLabel={t('web.agentNew.addModelProvider')}
+            sheetTitle={t('web.modelProviders.newProvider')}
+            options={modelProviderCreateOptions(
+                t,
+                uniqueBy(
+                    providerFamilies.flatMap((family) =>
+                        builtInEntriesFor(framework, family)
+                    ),
+                    (entry) => entry.id
+                ),
+                [
+                    ...new Set(
+                        providerFamilies.flatMap((family) =>
+                            customProtocolsFor(framework, family)
+                        )
+                    )
+                ],
+                setAddProvider
             )}
-            <ProviderPicker
-                provider={modelProviderForRuntime}
-                framework={framework}
-                allowRuntimeMode={isConfigurableFramework(framework)}
-                label={
-                    usesConfigurableModelProvider(framework)
-                        ? t('web.agentNew.apiKey')
-                        : t('web.agentNew.apiProvider')
-                }
-                apiKeyLabel={
-                    usesConfigurableModelProvider(framework)
-                        ? persistentModelProvider === 'anthropic'
-                            ? t('web.agentNew.anthropicAuthToken')
-                            : t('web.agentNew.openAiApiKey')
-                        : apiKeyLabelForProvider(credentialProvider)
-                }
-                apiKeyHint={t('web.agentNew.providerKeyHint')}
-                baseUrlLabel={t('web.agentNew.baseUrlOptional')}
-                baseUrlPlaceholder={t('web.agentNew.baseUrlProxyPlaceholder')}
-                options={providers}
-                value={picker}
-                onChange={(next) => {
-                    setPicker(next)
-                    setFrameworkModelConfig(null)
-                }}
+        />
+    )
+    // The provider section of a framework without a Local side, in the
+    // Cloud / Local section's shape: OpenClaw and Hermes get the saved
+    // providers of both vendors under Anthropic / OpenAI chips; NarraNexus,
+    // which takes no provider from Manyfold, gets the one card saying so.
+    const renderCreateRuntimeSettings = (): ReactNode => {
+        if (providerInherited)
+            return (
+                <p className='workbench-hint'>
+                    {t('web.agentNew.inheritRuntimeCredentialsHint', {
+                        runtime:
+                            pickedRuntime?.name ??
+                            t('web.agentNew.runtimeSelect')
+                    })}
+                </p>
+            )
+        if (framework === 'narranexus')
+            return (
+                <ProviderFamilySection
+                    chips={[]}
+                    filter='all'
+                    onFilterChange={() => {}}
+                    cards={
+                        <div className='shadow-ring-light bg-soft min-w-0 rounded-md px-3 py-2'>
+                            <span className='text-ui text-fg block font-medium'>
+                                {t('web.agentNew.providerManagedTitle', {
+                                    framework: frameworkLabel(framework)
+                                })}
+                            </span>
+                            <span className='text-caption text-muted mt-0.5 block'>
+                                {t('web.agentNew.providerManagedByFramework', {
+                                    framework: frameworkLabel(framework)
+                                })}
+                            </span>
+                        </div>
+                    }
+                />
+            )
+        const familyChips = providerFamiliesFor(framework, credentialProvider)
+        return (
+            <ProviderFamilySection
+                chips={[
+                    {
+                        value: 'all',
+                        label: t('web.agentNew.filterAll'),
+                        count: cloudRowCount
+                    },
+                    ...familyChips.map((family) => ({
+                        value: family,
+                        label: providerLabel[family],
+                        count: selectableProvidersFor(
+                            providers,
+                            family,
+                            framework
+                        ).length
+                    }))
+                ]}
+                filter={providerFamilyFilter}
+                onFilterChange={setProviderFamilyFilter}
+                cards={providerCards}
+                actions={providerAddChip}
             />
+        )
+    }
 
-            {frameworkModelConfigRequired && (
+    // Everything about the model itself, under one label after the provider:
+    // the framework's mapping and default (a platform provider on Claude Code
+    // or Codex), the primary model of a persistent framework, or the model
+    // override for an agent that simply inherits its runtime's credentials.
+    // Local has nothing here — the CLI's own config on the runtime owns it —
+    // so the section disappears rather than explaining itself.
+    const renderAdvancedConfig = (): ReactNode => {
+        if (frameworkModelConfigRequired)
+            return (
                 <CreateFrameworkModelConfig
                     view={frameworkModelConfigView}
                     draft={frameworkModelConfig}
                     validationMessage={frameworkModelValidation.message}
                     onChange={setFrameworkModelConfig}
-                    onTestProvider={() => void runFrameworkProviderTest()}
-                    providerTestLabel={providerTestLabel}
-                    providerTesting={frameworkProviderTesting}
-                    providerTestDisabled={providerTestDisabled}
-                    providerTestError={frameworkProviderTestError}
                 />
-            )}
-
-            {usesConfigurableModelProvider(framework) && (
-                <label className='block'>
-                    <span className='workbench-field-label'>
-                        {t('web.agentNew.primaryModel')}
-                    </span>
-                    <div className='min-w-0 space-y-2'>
-                        {primaryModelOptions.length > 0 && (
-                            <WorkbenchSelect
-                                mono
-                                ariaLabel={t('web.agentNew.primaryModel')}
-                                placeholder={t('web.agentNew.selectModel')}
-                                value={primaryModelSelectValue}
-                                onChange={selectPrimaryModel}
-                                options={[
-                                    {
-                                        value: '',
-                                        label: t('web.agentNew.selectModel')
-                                    },
-                                    ...primaryModelOptions.map((model) => ({
-                                        value: model,
-                                        label: model
-                                    })),
-                                    {
-                                        value: '__custom',
-                                        label: t('web.agentNew.customModel')
-                                    }
-                                ]}
-                            />
-                        )}
-                        {showPrimaryModelCustomInput && (
-                            <input
-                                required
-                                value={primaryModelName}
-                                onChange={(e) => {
-                                    setPrimaryModelCustom(true)
-                                    setPrimaryModelName(e.target.value)
-                                }}
-                                placeholder={t(
-                                    'web.agentNew.primaryModelPlaceholder'
-                                )}
-                                maxLength={255}
-                                className='workbench-input font-mono'
-                            />
-                        )}
-                    </div>
-                </label>
-            )}
-        </div>
-    )
+            )
+        if (!usesConfigurableModelProvider(framework)) return null
+        if (providerInherited) return renderInheritedModel()
+        return (
+            <label className='block'>
+                <span className='workbench-field-label'>
+                    {t('web.agentNew.primaryModel')}
+                </span>
+                <div className='min-w-0 space-y-2'>
+                    {primaryModelOptions.length > 0 && (
+                        <WorkbenchSelect
+                            mono
+                            ariaLabel={t('web.agentNew.primaryModel')}
+                            placeholder={t('web.agentNew.selectModel')}
+                            value={primaryModelSelectValue}
+                            onChange={selectPrimaryModel}
+                            options={[
+                                {
+                                    value: '',
+                                    label: t('web.agentNew.selectModel')
+                                },
+                                ...primaryModelOptions.map((model) => ({
+                                    value: model,
+                                    label: model
+                                })),
+                                {
+                                    value: '__custom',
+                                    label: t('web.agentNew.customModel')
+                                }
+                            ]}
+                        />
+                    )}
+                    {showPrimaryModelCustomInput && (
+                        <input
+                            required
+                            value={primaryModelName}
+                            onChange={(e) => {
+                                setPrimaryModelCustom(true)
+                                setPrimaryModelName(e.target.value)
+                            }}
+                            placeholder={t(
+                                'web.agentNew.primaryModelPlaceholder'
+                            )}
+                            maxLength={255}
+                            className='workbench-input font-mono'
+                        />
+                    )}
+                </div>
+            </label>
+        )
+    }
 
     return (
         <>
@@ -2134,7 +3089,7 @@ const AgentNew: FC = (): ReactNode => {
                                         >
                                             {runtimeKindFilterOptions.map(
                                                 (kind) => (
-                                                    <RuntimeKindChip
+                                                    <FilterChip
                                                         key={kind}
                                                         icon={
                                                             kind === 'all'
@@ -2190,6 +3145,31 @@ const AgentNew: FC = (): ReactNode => {
                                                         )}
                                                         populationLabelFor={
                                                             populationLabel
+                                                        }
+                                                        onFrameworkAction={(
+                                                            fw,
+                                                            action
+                                                        ) => {
+                                                            if (target.hostId)
+                                                                void handleHostFrameworkAction(
+                                                                    target.hostId,
+                                                                    fw,
+                                                                    action
+                                                                )
+                                                        }}
+                                                        frameworkBusy={
+                                                            hostFrameworkBusy &&
+                                                            hostFrameworkBusy.hostId ===
+                                                                target.hostId
+                                                                ? hostFrameworkBusy.framework
+                                                                : null
+                                                        }
+                                                        frameworkError={
+                                                            hostFrameworkError &&
+                                                            hostFrameworkError.hostId ===
+                                                                target.hostId
+                                                                ? hostFrameworkError
+                                                                : null
                                                         }
                                                     />
                                                 )
@@ -2400,14 +3380,89 @@ const AgentNew: FC = (): ReactNode => {
 
                             {!isExternalFramework(framework) && (
                                 <div>
-                                    <span className='workbench-field-label mb-2 block'>
-                                        {t('web.agentNew.modelProviderSection')}
-                                    </span>
-                                    {runtimeMode === 'existing'
-                                        ? renderExistingRuntimeModelSettings()
-                                        : renderCreateRuntimeSettings()}
+                                    <div className='mb-2 flex items-center gap-1'>
+                                        <span className='workbench-field-label mb-0'>
+                                            {t(
+                                                'web.agentNew.modelProviderSection'
+                                            )}
+                                        </span>
+                                        <CompareButton
+                                            label={t(
+                                                'web.agentNew.aboutModelProvider'
+                                            )}
+                                            onOpen={() =>
+                                                setModelProviderHelpOpen(true)
+                                            }
+                                        />
+                                    </div>
+                                    {providerTargetPicked ? (
+                                        <ProviderSourceSection
+                                            framework={framework}
+                                            target={providerTarget}
+                                            pickerMode={picker.mode}
+                                            filter={providerSourceFilter}
+                                            onFilterChange={
+                                                setProviderSourceFilter
+                                            }
+                                            cloud={renderCreateRuntimeSettings()}
+                                            cloudCards={providerCards}
+                                            cloudActions={providerAddChip}
+                                            cloudCount={cloudRowCount}
+                                            localCount={localRowCount(
+                                                providerTarget,
+                                                runtimeAuth.list,
+                                                sandboxAccountPrepare === null
+                                            )}
+                                            localProfileId={
+                                                localCredentials.profileId
+                                            }
+                                            onLocalSelect={
+                                                selectLocalCredential
+                                            }
+                                            runtime={
+                                                runtimeMode === 'existing'
+                                                    ? pickedRuntime
+                                                    : null
+                                            }
+                                            auth={runtimeAuth}
+                                            prewarming={runnerPrewarming}
+                                            wakeRefusal={runnerPrewarm.refusal}
+                                            onRetryWake={runnerPrewarm.retry}
+                                            prepare={sandboxAccountPrepare}
+                                            autoAddKey={autoAddAccountKey}
+                                        />
+                                    ) : (
+                                        <p className='workbench-hint'>
+                                            {t('web.agentNew.providerPending')}
+                                        </p>
+                                    )}
                                 </div>
                             )}
+
+                            {!isExternalFramework(framework) &&
+                                providerTargetPicked &&
+                                renderAdvancedConfig() && (
+                                    <div>
+                                        <div className='mb-2 flex items-center gap-1'>
+                                            <span className='workbench-field-label mb-0'>
+                                                {t(
+                                                    'web.agentNew.advancedConfig'
+                                                )}
+                                            </span>
+                                            <CompareButton
+                                                label={t(
+                                                    'web.agentNew.aboutAdvancedConfig'
+                                                )}
+                                                onOpen={() =>
+                                                    setAdvancedConfigHelpOpen(
+                                                        true
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                        {renderAdvancedConfig()}
+                                    </div>
+                                )}
 
                             {isExternalFramework(framework) && (
                                 <ExternalAgentSection
@@ -2482,11 +3537,19 @@ const AgentNew: FC = (): ReactNode => {
                             <button
                                 type='submit'
                                 disabled={!canSubmit}
+                                aria-busy={submitProgressLabel !== null}
                                 className='workbench-button-primary h-11 w-full'
                             >
-                                {runtimeMode === 'existing'
-                                    ? t('web.agentNew.addAgentToRuntime')
-                                    : t('web.agentNew.createAgent')}
+                                {submitProgressLabel !== null ? (
+                                    <span className='inline-flex items-center gap-2'>
+                                        <Spinner size={16} />
+                                        {submitProgressLabel}
+                                    </span>
+                                ) : runtimeMode === 'existing' ? (
+                                    t('web.agentNew.addAgentToRuntime')
+                                ) : (
+                                    t('web.agentNew.createAgent')
+                                )}
                             </button>
                         </form>
                     )}
@@ -2593,6 +3656,26 @@ const AgentNew: FC = (): ReactNode => {
                     </div>
                 </div>
             )}
+            {renameTarget && (
+                <RenameDialog
+                    title={
+                        renameTarget.kind === 'sandbox'
+                            ? t('web.agentNew.renameSandbox')
+                            : t('web.runtimeDetails.renameRuntime')
+                    }
+                    initialName={renameTarget.name}
+                    submit={submitRename}
+                    onClose={() => setRenameTarget(null)}
+                />
+            )}
+            {confirmDialog}
+            {addProvider && (
+                <ModelProviderCreateDialog
+                    pick={addProvider}
+                    onClose={() => setAddProvider(null)}
+                    onCreated={handleProviderCreated}
+                />
+            )}
             {connectDaemonOpen && (
                 <ConnectDaemonDialog
                     framework={framework}
@@ -2670,13 +3753,6 @@ const AgentNew: FC = (): ReactNode => {
                                     </p>
                                 )}
                             </label>
-                            {sandboxCreateError && (
-                                <div className='workbench-alert-error'>
-                                    <pre className='text-caption whitespace-pre-wrap font-mono'>
-                                        {sandboxCreateError}
-                                    </pre>
-                                </div>
-                            )}
                         </div>
                         <footer className='border-divider/80 bg-surface-subtle/60 flex items-center justify-end gap-2 border-t px-5 py-3'>
                             <button
@@ -2703,6 +3779,30 @@ const AgentNew: FC = (): ReactNode => {
                         </footer>
                     </div>
                 </div>
+            )}
+            {modelProviderHelpOpen && (
+                <ProductDialog
+                    title={t('web.agentNew.aboutModelProvider')}
+                    onClose={() => setModelProviderHelpOpen(false)}
+                >
+                    <div className='text-ui text-muted space-y-3'>
+                        <p>{t('web.agentNew.modelProviderHelpCloud')}</p>
+                        <p>{t('web.agentNew.modelProviderHelpLocal')}</p>
+                        <p>{t('web.agentNew.modelProviderHelpPick')}</p>
+                    </div>
+                </ProductDialog>
+            )}
+            {advancedConfigHelpOpen && (
+                <ProductDialog
+                    title={t('web.agentNew.aboutAdvancedConfig')}
+                    onClose={() => setAdvancedConfigHelpOpen(false)}
+                >
+                    <div className='text-ui text-muted space-y-3'>
+                        <p>{t('web.agentNew.advancedConfigHelpMapping')}</p>
+                        <p>{t('web.agentNew.advancedConfigHelpPrimary')}</p>
+                        <p>{t('web.agentNew.advancedConfigHelpLocal')}</p>
+                    </div>
+                </ProductDialog>
             )}
             {runtimeCompareDialogOpen && (
                 <div

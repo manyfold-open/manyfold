@@ -7,7 +7,7 @@ import {
     progressStepsForCreate,
     workspaceValidationMessage
 } from '../src/lib/agentCreateDraft'
-import type { ProviderPickerValue } from '../src/pages/AgentNew/components/ProviderPicker'
+import { type ProviderPickerValue } from '../src/pages/AgentNew/components/ProviderPicker'
 
 const inlinePicker = (
     patch: Partial<ProviderPickerValue> = {}
@@ -282,4 +282,49 @@ test('runtime picker mode on a non-configurable framework keeps the credential p
     })
     assert.equal(body.modelConfigSource, undefined)
     assert.equal(body.openclawCredentials?.apiKey, 'sk-test-123456')
+})
+
+// The Cloud / Local split on the create form: Local always means the
+// runtime owns the credential, Cloud always means Manyfold does, on both
+// the fresh-runtime create and the join-an-existing-runtime attach.
+test('cloud and local map onto the create and attach bodies the same way', () => {
+    const cloud = buildCreateAgentBody({
+        framework: 'claude-code',
+        name: 'cloud-new',
+        picker: inlinePicker({
+            mode: 'saved',
+            apiKey: '',
+            providerId: 'ump_1'
+        }),
+        runtimeMode: 'sandbox'
+    })
+    assert.equal(cloud.modelConfigSource, undefined)
+    assert.deepEqual(cloud.claudeCodeCredentials, { providerId: 'ump_1' })
+
+    const local = buildCreateAgentBody({
+        framework: 'claude-code',
+        name: 'local-new',
+        picker: inlinePicker({ mode: 'runtime', apiKey: '' }),
+        runtimeMode: 'sandbox'
+    })
+    assert.equal(local.modelConfigSource, 'runtime-local')
+    assert.equal(local.claudeCodeCredentials, undefined)
+
+    const attachCloud = buildAddRuntimeAgentBody({
+        name: 'cloud-existing',
+        runtimeLocal: false
+    })
+    assert.equal(attachCloud.modelConfigSource, undefined)
+    assert.equal(attachCloud.runtimeAuthProfileId, undefined)
+
+    const attachLocal = buildAddRuntimeAgentBody({
+        name: 'local-existing',
+        runtimeLocal: true,
+        runtimeAuthProfileId: 'rap_abcdefghijklmnopqrstuvwxyz'
+    })
+    assert.equal(attachLocal.modelConfigSource, 'runtime-local')
+    assert.equal(
+        attachLocal.runtimeAuthProfileId,
+        'rap_abcdefghijklmnopqrstuvwxyz'
+    )
 })

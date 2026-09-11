@@ -3,9 +3,13 @@ import {
     AgentModelConfig,
     AgentModelConfigSource,
     FrameworkInstallSource,
+    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
+    SPRITE_HOME_BASE,
+    VersionedFramework,
     codingAgentWorkspacePath,
     createObjectId,
     frameworkMcpSupport,
+    isVersionedFramework,
     mcpConfigFromExtras
 } from '@manyfold/shared'
 import {
@@ -46,6 +50,7 @@ import {
     BootstrapError,
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
+import { installFrameworkVersion } from '@/modules/agents/bootstrap/framework-version-install'
 import type {
     SpriteServiceBootstrap,
     SpriteServiceBootstrapResult
@@ -101,6 +106,30 @@ export interface SpritesProvisionInput {
     // Repository a git-installed framework clones from, resolved with
     // `frameworkVersion` so the two cannot name different repos.
     frameworkRepo?: string | null
+}
+
+// A runtime on a sandbox the user already owns, with no agent yet: the
+// framework installed (or, for a service framework, installed and started) and
+// the row published ready, so accounts can be added and the first agent joins
+// through the attach path like any later one.
+export interface SpritesPrepareInput {
+    userId: string
+    framework: AgentFramework
+    hostId: string
+    // Service frameworks write these into their gateway config; a prepare
+    // passes none, and the first agent's provider pick lands them via the
+    // credentials update + restart.
+    credentials?: unknown
+    frameworkVersion?: string | null
+    frameworkVersionSource?: FrameworkInstallSource
+    frameworkRepo?: string | null
+}
+
+export interface SpritesPrepareOutput {
+    runtime: AgentRuntimeRow
+    spritesClient: SpritesClient
+    endpointUrl?: string | null
+    generatedCredentials?: Record<string, string>
 }
 
 export interface SpritesProvisionOutput {
@@ -804,6 +833,121 @@ export class SpritesProvisioner {
         }
     }
 
+    async prepareRuntime(
+        input: SpritesPrepareInput
+    ): Promise<SpritesPrepareOutput> {
+        const { userId, framework, hostId } = input
+        const account = await this.resolveAttachAccount(userId, hostId)
+        const spritesClient = createClient({
+            token: this.accounts.decryptToken(account),
+            accountSlug: account.slug,
+            logger: spritesLoggerFor(this.log)
+        })
+        const serviceBootstrap = this.serviceBootstraps.get(framework)
+        const codingFramework =
+            !serviceBootstrap && isVersionedFramework(framework)
+                ? framework
+                : null
+        if (!serviceBootstrap && !codingFramework)
+            throw new ConflictException(
+                `sprites runtime does not support framework ${framework}`
+            )
+        // The row's mount path is a seed only: a coding agent brings its own
+        // workspace when it attaches, and a service framework's home is what
+        // its bootstrap uses.
+        const mountPath = serviceBootstrapHome(framework)
+        const { runtimeId, reserved } = await this.reserveHealthyRuntime({
+            userId,
+            framework,
+            accountId: account.id,
+            attachHostId: hostId,
+            mountPath,
+            client: spritesClient
+        })
+        const spriteName = reserved.spriteName
+        if (!spriteName || !reserved.hostId)
+            throw new Error(
+                `reserveSpriteRuntime assigned no sprite for ${runtimeId}`
+            )
+        try {
+            await this.runtimes.applyStatusPatch(runtimeId, {
+                spriteId: reserved.spriteId
+            })
+            await this.runtimes.setPhase(runtimeId, 'bootstrapping')
+            const ctx: BootstrapContext = {
+                // No agent yet; the bootstraps only read this for per-agent
+                // paths, none of which a prepare touches.
+                agentId: '',
+                runtimeId,
+                userId,
+                spriteName,
+                mountPath,
+                client: spritesClient,
+                logger: spritesLoggerFor(this.log),
+                execTimeoutMs: 60_000,
+                frameworkVersion: input.frameworkVersion ?? null,
+                frameworkVersionSource: input.frameworkVersionSource ?? 'none',
+                frameworkRepo: input.frameworkRepo ?? null
+            }
+            let homeDir: string | undefined
+            let endpointUrl: string | null | undefined
+            let generatedCredentials: Record<string, string> | undefined
+            let installedVersion: string | null = null
+            if (codingFramework) {
+                installedVersion = await this.installCodingFramework(
+                    ctx,
+                    codingFramework
+                )
+                homeDir = SPRITE_HOME_BASE
+            } else if (serviceBootstrap) {
+                const result = await this.runServiceBootstrap(
+                    serviceBootstrap,
+                    ctx,
+                    input.credentials ?? {}
+                )
+                homeDir = result.homeDir
+                endpointUrl = result.endpointUrl
+                generatedCredentials = result.generatedCredentials
+                installedVersion = result.installedVersion
+            }
+            await this.installHostSelfHelpers({
+                client: spritesClient,
+                spriteName,
+                hostId: reserved.hostId,
+                logger: spritesLoggerFor(this.log)
+            })
+            const ingressHost = extractIngressHost(endpointUrl ?? null)
+            await this.runtimes.applyProvisioningPatch(runtimeId, {
+                ...(homeDir ? { homeDir } : {}),
+                ...(ingressHost ? { ingressHost } : {}),
+                ...(installedVersion
+                    ? {
+                          frameworkVersion: installedVersion,
+                          frameworkVersionCheckedAt: new Date()
+                      }
+                    : {})
+            })
+            await this.finalizeReady(runtimeId, new Date())
+            const runtime = await this.runtimes.findById(runtimeId)
+            if (!runtime) throw new Error('runtime row disappeared')
+            return { runtime, spritesClient, endpointUrl, generatedCredentials }
+        } catch (err) {
+            // The sandbox is the user's and keeps living; only the row this
+            // prepare added goes, so the host reads as bare again.
+            await this.runtimes.delete(runtimeId)
+            throw err
+        }
+    }
+
+    // Seam for tests: the coding CLI install runs the same staged npm shell
+    // as the agent-create bootstrap.
+    protected installCodingFramework(
+        ctx: BootstrapContext,
+        framework: VersionedFramework
+    ): Promise<string | null> {
+        return installFrameworkVersion(ctx, framework)
+    }
+
     async finalizeReady(runtimeId: string, now: Date): Promise<void> {
         await this.runtimes.applyStatusPatch(runtimeId, {
             status: 'ready',
@@ -1095,3 +1239,22 @@ const spritesLoggerFor = (log: Logger): SpritesLogger => ({
     error: (m: string, meta?: Record<string, unknown>) =>
         log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
 })
+
+// Where a framework's runtime lives on the sprite: the service frameworks'
+// own homes (what their bootstraps write to), the coding CLIs' workspace root.
+const serviceBootstrapHome = (framework: AgentFramework): string => {
+    if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
+    if (framework === 'openclaw')
+        return `${SPRITE_HOME_BASE}/.openclaw/workspace`
+    if (framework === 'narranexus') return NARRANEXUS_SPRITE_BASE_WORKING_PATH
+    return `${SPRITE_HOME_BASE}/.manyfold/workspaces`
+}
+
+const extractIngressHost = (endpointUrl: string | null): string | null => {
+    if (!endpointUrl) return null
+    try {
+        return new URL(endpointUrl).host || null
+    } catch {
+        return null
+    }
+}

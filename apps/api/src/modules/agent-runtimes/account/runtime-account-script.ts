@@ -27,7 +27,11 @@ export const RUNTIME_ACCOUNT_ENDPOINTS: RuntimeAccountScriptEndpoints = {
 // script for real; nothing else type checks it.
 export const runtimeAccountScript = (
     framework: ConfigurableFramework,
-    endpoints: RuntimeAccountScriptEndpoints = RUNTIME_ACCOUNT_ENDPOINTS
+    endpoints: RuntimeAccountScriptEndpoints = RUNTIME_ACCOUNT_ENDPOINTS,
+    // fetchUsage false = read the sign-in only; the API holds a fresh usage
+    // answer and the vendor's usage endpoint rate-limits harder than pages
+    // refresh.
+    options: { fetchUsage?: boolean } = {}
 ): string => {
     const nodeScript = `
 const fs = require('fs')
@@ -36,6 +40,7 @@ const path = require('path')
 const cp = require('child_process')
 const framework = ${JSON.stringify(framework)}
 const endpoints = ${JSON.stringify(endpoints)}
+const fetchUsage = ${JSON.stringify(options.fetchUsage !== false)}
 const now = Date.now()
 const home = os.homedir()
 const readText = (p) => { try { return fs.readFileSync(p, 'utf8') } catch { return null } }
@@ -118,6 +123,7 @@ const inspectClaude = async () => {
   const accessToken = trimmed(oauth && oauth.accessToken)
   if (!accessToken) return { tokenSource: process.platform === 'darwin' && profile ? 'keychain-unread' : 'none', identity, usage: null }
   if (typeof oauth.expiresAt === 'number' && oauth.expiresAt <= now) return { tokenSource: 'file', identity, usage: skipped('anthropic') }
+  if (!fetchUsage) return { tokenSource: 'file', identity, usage: null }
   const usage = await vendorFetch('anthropic', endpoints.anthropicUsage, {
     headers: Object.assign(bearer(accessToken), {
       'anthropic-beta': 'oauth-2025-04-20',
@@ -149,6 +155,7 @@ const inspectCodex = async () => {
     originator: 'Codex Desktop'
   })
   if (accountId) headers['ChatGPT-Account-Id'] = accountId
+  if (!fetchUsage) return { tokenSource: 'file', identity, usage: null }
   const usage = await vendorFetch('openai', endpoints.codexUsage, { headers })
   return { tokenSource: 'file', identity, usage }
 }
@@ -168,6 +175,7 @@ const inspectGemini = async () => {
   const accessToken = trimmed(creds && creds.access_token)
   if (!accessToken) return { tokenSource: process.platform === 'darwin' && identity ? 'keychain-unread' : 'none', identity, usage: null }
   if (typeof creds.expiry_date === 'number' && creds.expiry_date <= now) return { tokenSource: 'file', identity, usage: skipped('google') }
+  if (!fetchUsage) return { tokenSource: 'file', identity, usage: null }
   const headers = Object.assign(bearer(accessToken), { 'Content-Type': 'application/json' })
   const load = await vendorFetch('google', endpoints.geminiLoadCodeAssist, {
     method: 'POST', headers,

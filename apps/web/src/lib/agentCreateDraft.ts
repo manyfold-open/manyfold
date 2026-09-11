@@ -1,4 +1,8 @@
-import { isConfigurableFramework, normalizeAgentName, stepsFor } from '@manyfold/shared'
+import {
+    isConfigurableFramework,
+    normalizeAgentName,
+    stepsFor
+} from '@manyfold/shared'
 import type {
     AddRuntimeAgentBody,
     AgentCreateStep,
@@ -12,10 +16,16 @@ import type {
     UserModelProvider
 } from '@manyfold/shared'
 import type { ProviderPickerValue } from '@/pages/AgentNew/components/ProviderPicker'
+import type { CloudPickerMode } from '@/lib/agentCreate/providerSource'
 import { normalizeProviderBaseUrl } from '@/lib/providerEndpoints'
 
 export type CreateableFramework = AgentFramework
 export type AgentCreateRuntimeMode = 'sandbox' | 'persistent'
+// The only picker states that carry a credential Manyfold stores; the
+// runtime-local and inherited modes have nothing to PATCH.
+export type CloudCredentialPicker = ProviderPickerValue & {
+    mode: CloudPickerMode
+}
 export type AgentCredentialModelProvider = Extract<
     UserModelProvider,
     'anthropic' | 'openai' | 'google'
@@ -67,7 +77,8 @@ export const buildCreateAgentBody = (
     // sign-in): no credential block, no saveCredentialAs, no platform
     // modelConfig — the API's DTO guard enforces the same XOR.
     const runtimeLocal =
-        draft.picker.mode === 'runtime' && isConfigurableFramework(draft.framework)
+        draft.picker.mode === 'runtime' &&
+        isConfigurableFramework(draft.framework)
 
     if (runtimeLocal) {
         base.modelConfigSource = 'runtime-local'
@@ -136,7 +147,7 @@ export const buildCreateAgentBody = (
 // callers must not offer this for them.
 export const buildAgentCredentialsBody = (draft: {
     framework: CreateableFramework
-    picker: ProviderPickerValue
+    picker: CloudCredentialPicker
     persistentModelProvider?: PersistentModelProvider
     primaryModelName?: string
 }): UpdateAgentCredentialsBody => {

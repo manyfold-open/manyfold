@@ -215,6 +215,7 @@ export type {
     SandboxSummary,
     CliVersionCatalog,
     CliUpgradeBody,
+    InstallSandboxFrameworkBody,
     CreateSandboxBody,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody,
@@ -871,6 +872,7 @@ export {
     DAEMON_FEATURE_AUTH_PROFILES,
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
+    DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'
@@ -1101,6 +1103,8 @@ export type {
     RuntimeAuthListView,
     CreateRuntimeAuthProfileBody,
     RuntimeAuthOperationBody,
+    RuntimeAuthPrewarmView,
+    RuntimeAuthReleaseView,
     SetRuntimeDefaultAuthBody,
     RuntimeAuthOperationView,
     DaemonAuthProfileRef,

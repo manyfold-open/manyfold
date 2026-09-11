@@ -17,6 +17,7 @@ import {
     type RuntimeAuthRevokeResult
 } from '@manyfold/shared'
 import { codexHomeDir } from '../inspect-fs'
+import { apiKeyPath } from './paths'
 
 // Per-framework projection of the "auth independent, config projected, state
 // shared" contract, exactly as measured on 2026-09-09 (see the runtime auth
@@ -36,6 +37,9 @@ export interface LogoutOutcome {
 
 export interface RuntimeAuthAdapter {
     readonly framework: ConfigurableFramework
+    // The vendor variable the CLI reads an API key from; an api-key profile
+    // injects its stored key under this name at execution time.
+    readonly apiKeyEnv: string
     buildView(viewDir: string): Promise<void>
     env(viewDir: string, authMethod: RuntimeAuthMethod): Record<string, string>
     // The vendor sign-in as the login shell's argv (pty.open `command`).
@@ -107,6 +111,7 @@ const removeIfPresent = async (path: string): Promise<boolean> => {
 
 const claudeAdapter: RuntimeAuthAdapter = {
     framework: 'claude-code',
+    apiKeyEnv: 'ANTHROPIC_API_KEY',
     async buildView(viewDir) {
         const native = join(homedir(), '.claude')
         await mkdir(viewDir, { recursive: true, mode: 0o700 })
@@ -169,7 +174,7 @@ const claudeAdapter: RuntimeAuthAdapter = {
         return ['sh', '-c', 'cat | claude auth login --claudeai']
     },
     credentialPaths(viewDir) {
-        return [join(viewDir, '.credentials.json')]
+        return [join(viewDir, '.credentials.json'), apiKeyPath(viewDir)]
     },
     async logout(viewDir, env) {
         const result = await runCli(['claude', 'auth', 'logout'], env)
@@ -190,6 +195,7 @@ const claudeAdapter: RuntimeAuthAdapter = {
 
 const codexAdapter: RuntimeAuthAdapter = {
     framework: 'codex',
+    apiKeyEnv: 'OPENAI_API_KEY',
     async buildView(viewDir) {
         const native = codexHomeDir()
         await mkdir(viewDir, { recursive: true, mode: 0o700 })
@@ -234,7 +240,7 @@ const codexAdapter: RuntimeAuthAdapter = {
         return ['codex', 'login', '--device-auth']
     },
     credentialPaths(viewDir) {
-        return [join(viewDir, 'auth.json')]
+        return [join(viewDir, 'auth.json'), apiKeyPath(viewDir)]
     },
     async logout(viewDir, env) {
         const result = await runCli(['codex', 'logout'], env)
@@ -253,6 +259,7 @@ const codexAdapter: RuntimeAuthAdapter = {
 
 const geminiAdapter: RuntimeAuthAdapter = {
     framework: 'gemini-cli',
+    apiKeyEnv: 'GEMINI_API_KEY',
     async buildView(viewDir) {
         const native = join(homedir(), '.gemini')
         const geminiDir = join(viewDir, '.gemini')
@@ -288,7 +295,8 @@ const geminiAdapter: RuntimeAuthAdapter = {
     credentialPaths(viewDir) {
         return [
             join(viewDir, '.gemini', 'oauth_creds.json'),
-            join(viewDir, '.gemini', 'gemini-credentials.json')
+            join(viewDir, '.gemini', 'gemini-credentials.json'),
+            apiKeyPath(viewDir)
         ]
     },
     async logout(viewDir) {

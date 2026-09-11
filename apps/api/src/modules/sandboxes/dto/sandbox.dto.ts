@@ -1,6 +1,7 @@
 import type {
     CliUpgradeBody,
     CreateSandboxBody,
+    InstallSandboxFrameworkBody,
     RenameBody,
     SetSandboxTerminalBody,
     SetSandboxTerminalModelCredentialsBody
@@ -44,6 +45,13 @@ export class RenameSandboxDto implements RenameBody {
 }
 
 export class CliUpgradeDto implements CliUpgradeBody {
+    @IsOptional()
+    @IsString()
+    @Length(1, 64)
+    targetVersion?: string
+}
+
+export class InstallSandboxFrameworkDto implements InstallSandboxFrameworkBody {
     @IsOptional()
     @IsString()
     @Length(1, 64)

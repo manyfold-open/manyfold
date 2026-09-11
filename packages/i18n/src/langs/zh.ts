@@ -683,9 +683,10 @@ const zh: Translations = {
                 expired: '登录已过期',
                 apiKey: 'API 密钥',
                 unknownStatus: '未知',
-                noIdentity: '暂无账号信息',
                 checkNow: '立即检查',
+                refreshUsage: '刷新用量',
                 sandboxAsleep: '沙箱正在休眠。检查账号会将其唤醒，并计入运行时间。',
+                sandboxLimit: '你的套餐可同时运行的沙箱已用满。先停止另一台沙箱或等它休眠，再重新检查。',
                 daemonOffline: '这台机器处于离线状态，无法检查其登录状态。',
                 daemonUpgradeRequired: '请在这台机器上更新 mf CLI，以查看其账号和用量。',
                 probeFailed: '无法检查此运行时上的账号。',
@@ -705,18 +706,15 @@ const zh: Translations = {
                 windowGeminiFlash: 'Gemini Flash',
                 windowGeminiFlashLite: 'Gemini Flash-Lite',
                 signIn: '登录',
-                signInBody: '在此终端中于运行时上完成登录，然后关闭终端以刷新账号。',
-                signInHint: '在运行时上打开终端并在那里登录。你的订阅只保留在那台机器上。'
+                signInBody: '在此终端中于运行时上完成登录，然后关闭终端以刷新账号。'
             }
         },
         runtimeAuth: {
             hostSignIn: '主机登录',
-            managedTitle: '已添加的账号',
             inherited: '主机登录（默认）',
             accountLabel: '账号',
             addAccount: '添加账号',
-            addAccountHint: '每个添加的账号都在此运行时上单独登录，不会影响主机登录。Agent 可选择使用其中哪一个运行。',
-            empty: '尚未添加账号。',
+            addApiKey: '添加 API key',
             signedOut: '已登出',
             removing: '正在移除',
             errorStatus: '错误',
@@ -736,6 +734,7 @@ const zh: Translations = {
             hostUnavailable: '此沙箱还没有 runner。启动 runner 会唤醒沙箱，并计入运行时间。',
             runnerAsleep: '沙箱的 runner 没有响应。唤醒它会计入运行时间。',
             startRunner: '启动 runner',
+            checkAgain: '再检查一次',
             upgradeRequired: '请更新此运行时上的 mf CLI 以添加更多账号。',
             listFailed: '无法列出此运行时上的账号。',
             settingsHint: '自下次运行起生效。请在运行时页面添加并登录账号。',
@@ -774,7 +773,7 @@ const zh: Translations = {
         seoPage: {
             channels: {
                 description:
-                    '把 Claude Code、Codex、Dify 或任何你在跑的智能体，接到 WhatsApp、Slack、Lark、Telegram、Discord、微信、LINE、Matrix、GitHub 和 Linear。',
+                    '把 Claude Code、Codex、Dify 或任何你在跑的智能体，接到 Slack、Microsoft Teams、WhatsApp、Lark、Telegram、Discord、微信、Google Chat、LINE、iMessage、Matrix、GitHub 和 Linear。',
                 h1: 'Claude Code 和 Codex，就在你每天用的软件里。',
                 ctaTitle: '去给你的智能体发条消息。'
             },
@@ -2040,9 +2039,6 @@ const zh: Translations = {
             appsGroupMessenger: '你自己的聊天软件',
             appsGroupTracker: '问题追踪',
             appsGuide: '接入指南',
-            setupQr: '扫一个码',
-            setupToken: '粘贴密钥',
-            setupApp: '装一个应用',
             stepsEyebrow: '怎么接进去',
             stepsTitle: '三步。',
             stepsTitleAccent: '大约三分钟。',
@@ -2078,7 +2074,7 @@ const zh: Translations = {
             syncPointSettings: '改一次就够',
             syncPointSettingsBody: '技能、权限，还有模型本身，都归这个智能体。',
             docTitle:
-                '在 Slack、WhatsApp、GitHub 里用 Claude Code 和 Codex · Manyfold'
+                'Claude Code 和 Codex，就在你每天用的软件里 · Manyfold'
         },
         consent: {
             message:
@@ -2563,7 +2559,51 @@ const zh: Translations = {
             savingDraftAndSending: '保存草稿并发送中…',
             stoppingResponse: '停止回复中…',
             streamingEsc: '生成中… 按 Esc 取消',
-            whatNext: '{{name}} 接下来要做什么？',
+            launchpad: {
+                heading: '你想先让它完成什么？',
+                workflowTitle: '让它进入你的工作流',
+                recommended: '推荐',
+                actions: {
+                    configure: '配置',
+                    view: '查看',
+                    connect: '连接',
+                    create: '创建',
+                    open: '去设置',
+                    check: '检查',
+                    github: {
+                        title: '连接 GitHub',
+                        body: '关联 GitHub 账号，让它能访问你的仓库'
+                    },
+                    skills: {
+                        title: '安装技能',
+                        body: '从共享目录里给这个 Agent 添加专项能力'
+                    },
+                    mcp: {
+                        title: '添加 MCP 工具',
+                        body: '为这个 Agent 配置 MCP 服务器，用它自己的配置语法'
+                    },
+                    channel: {
+                        title: '连接{{provider}}',
+                        body: '在你本来就在用的聊天软件里直接使用这个 Agent'
+                    },
+                    automation: {
+                        title: '定时自动运行',
+                        body: '让任务自动执行，并把结果发到渠道'
+                    },
+                    native: {
+                        title: '开启框架自带的面板',
+                        body: '框架自己的 Web 界面，首次开启时才会构建'
+                    },
+                    provider: {
+                        title: '检查外部服务方',
+                        body: '确认这个 Agent 实际调用的 Dify 或 Langflow 端点'
+                    },
+                    a2a: {
+                        title: '配置 A2A',
+                        body: '检查 Agent Card、授权方式与任务调用'
+                    }
+                }
+            },
             sessionMessageLimit:
                 '此会话有 {{count}} 条消息。建议开始新会话以获得更好的性能。',
             failedToCreateSession: '创建聊天会话失败。',
@@ -2818,7 +2858,7 @@ const zh: Translations = {
                 },
                 threadLabels: { msteams: '每个 Teams 频道话题使用独立会话。', googlechat: '每个 Google Chat 会话串都有独立的会话。', lark: '每个消息线程使用独立会话。', telegram: '每个 Telegram 话题或回复线程使用独立会话。', slack: '每个 Slack 线程使用独立会话。', discord: '每个 Discord 线程使用独立会话；回复保留在线程中。', matrix: '每个 Matrix 线程使用独立会话。没有现有 Matrix 线程时，自动线程可以从入站事件开始。' }, connection: { sync: '同步（长轮询）', gateway: '网关（WebSocket）', ilink: 'iLink（长轮询）', websocket: 'WebSocket（长连接）' },
                 connectionHelp: { matrix: 'API 使用机器人访问令牌轮询 Matrix /sync，无需公开 URL 或回调配置。不支持加密房间；加密事件会被丢弃。', discord: 'API 持有 Discord Gateway 连接，无需公开 URL 或回调配置。请确保在 Developer Portal 的 Bot → Privileged Gateway Intents 中启用 MESSAGE_CONTENT。', weixin: 'API 使用机器人令牌长轮询 Tencent iLink 网关，无需公开 URL。个人微信仅支持私聊，不会投递群聊。会话过期（errcode -14）时，请重新扫码并更新令牌。' }, webhookHelp: { msteams: '把这个 URL 填到 Azure 门户中该 Azure Bot 资源的「设置 → 配置 → 消息传送终结点」。', googlechat: '将此 URL 粘贴到 Google Cloud 控制台的 Chat API、配置、连接设置、HTTP 端点 URL 中。', telegram: '凭据保存后会自动注册 Telegram Webhook，无需粘贴。', slack: '将此 URL 粘贴到 Slack 应用的 Event Subscriptions → Request URL。', lark: '将此 URL 粘贴到 {{platform}} Open Platform → Event Subscriptions → Request URL。', github: '创建 GitHub App 的流程会自动设置此 Webhook URL；手动创建的应用请将它设置为应用 Webhook URL，并启用 issues 和 issue_comment 事件。', line: '凭据保存后会自动设置 LINE Webhook URL，无需粘贴。请在 LINE Developers 控制台的 Messaging API 中打开「Use webhook」，并关闭自动回复消息，否则机器人会重复回复。', imessage: 'Manyfold 会自己在你的 BlueBubbles 服务器上注册这个 Webhook，并在 URL 后追加一个该频道专属的密钥 —— 这里显示的只是基础地址。任何能在 BlueBubbles 的 Webhook 列表中读到完整 URL 的人，都可以向这个智能体发消息。', other: '将此 URL 粘贴到服务商的事件订阅配置中。' },
-                github: { title: 'GitHub App', connectedAs: '已连接为', mentionHint: '。在 issue 或评论中提及它即可开始一轮对话。', install: '安装到仓库', installHint: '智能体需要回复的每个仓库都必须安装此应用。仓库写入权限（clone/push/PR）来自绑定到同一智能体的 GitHub Connection，而不是此应用。', createHint: '为此频道创建专用 GitHub App — GitHub 会自动返回凭据并激活频道。组织留空则在个人账号下创建。', create: '创建 GitHub App' }, msteams: { manifest: 'Teams 应用清单', downloadManifest: '下载 manifest.json', manifestHint: '把 manifest.json 与 192×192 的 color.png、32×32 的 outline.png 一起打包成 zip，在 Teams 的「应用 → 管理你的应用 → 上传应用」中上传。' }, slack: { manifest: 'Slack 应用清单', copyManifest: '复制 manifest JSON', manifestHint: '从 manifest 创建 Slack 应用并粘贴此 JSON。它会配置 Request URL、事件订阅、机器人权限和此频道的所有斜杠命令（例如', manifestHintSuffix: '）。安装时 Slack 可能提示命令冲突，请先在 manifest 中重命名。邀请机器人加入每个频道后才能发消息。' }, delivery: { when: '时间', direction: '方向', scope: '范围', summary: '摘要' }, deliveryDirection: { inbound: '入站', outbound: '出站' }, deliveryStatus: { sent: '已发送', accepted: '已接受', dropped: '已丢弃', failed: '失败' }, tooltips: { registerMsteams: '验证 Azure Bot 凭据并激活该渠道', registerGooglechat: '验证服务账号并激活该渠道', reregisterTelegram: '在 Telegram 上重新运行 setWebhook', refreshLarkIdentity: '获取用于 @ 提及检测的机器人身份', registerWeixin: '验证 iLink 机器人令牌并激活频道', registerLinear: '生成应用令牌、获取 Linear 身份并激活频道', registerGithub: '验证应用凭据、获取应用身份并激活频道', registerMatrix: '验证 Matrix whoami 并激活频道', registerLine: '在 LINE 上设置 Webhook URL、获取机器人身份并激活频道', registerImessage: '验证 BlueBubbles 服务器、注册 Webhook 并激活频道' }, placeholders: { teamSupport: '例如 team-support', linearClientId: '来自你的 Linear 应用', linearAccessToken: '粘贴令牌以替代客户端凭据', organizationOptional: '组织（可选）', privateKey: '-----BEGIN RSA PRIVATE KEY-----（或其 base64 编码）', delegationLabel: '例如 agent' }, setupMode: { lark: 'Lark 配置模式', weixin: '微信配置模式' },
+                github: { title: 'GitHub App', connectedAs: '已连接为', mentionHint: '。在 issue 或评论中提及它即可开始一轮对话。', install: '安装到仓库', installHint: '智能体需要回复的每个仓库都必须安装此应用。仓库写入权限（clone/push/PR）来自绑定到同一智能体的 GitHub Connection，而不是此应用。', createHint: '为此频道创建专用 GitHub App — GitHub 会自动返回凭据并激活频道。组织留空则在个人账号下创建。', create: '创建 GitHub App' }, msteams: { manifest: 'Teams 应用清单', downloadManifest: '下载 manifest.json', manifestHint: '把 manifest.json 与 192×192 的 color.png、32×32 的 outline.png 一起打包成 zip，在 Teams 的「应用 → 管理你的应用 → 上传应用」中上传。' }, slack: { manifest: 'Slack 应用清单', copyManifest: '复制 manifest JSON', manifestHint: '从 manifest 创建 Slack 应用并粘贴此 JSON。它会配置 Request URL、事件订阅、机器人权限和此频道的所有斜杠命令（例如', manifestHintSuffix: '）。安装时 Slack 可能提示命令冲突，请先在 manifest 中重命名。邀请机器人加入每个频道后才能发消息。' }, delivery: { when: '时间', direction: '方向', scope: '范围', summary: '摘要' }, deliveryDirection: { inbound: '入站', outbound: '出站', system: '系统' }, deliveryStatus: { sent: '已发送', accepted: '已接受', dropped: '已丢弃', failed: '失败', pending: '待处理', queued: '排队中', processing: '处理中', dead: '已放弃' }, tooltips: { registerMsteams: '验证 Azure Bot 凭据并激活该渠道', registerGooglechat: '验证服务账号并激活该渠道', reregisterTelegram: '在 Telegram 上重新运行 setWebhook', refreshLarkIdentity: '获取用于 @ 提及检测的机器人身份', registerWeixin: '验证 iLink 机器人令牌并激活频道', registerLinear: '生成应用令牌、获取 Linear 身份并激活频道', registerGithub: '验证应用凭据、获取应用身份并激活频道', registerMatrix: '验证 Matrix whoami 并激活频道', registerLine: '在 LINE 上设置 Webhook URL、获取机器人身份并激活频道', registerImessage: '验证 BlueBubbles 服务器、注册 Webhook 并激活频道' }, placeholders: { teamSupport: '例如 team-support', linearClientId: '来自你的 Linear 应用', linearAccessToken: '粘贴令牌以替代客户端凭据', organizationOptional: '组织（可选）', privateKey: '-----BEGIN RSA PRIVATE KEY-----（或其 base64 编码）', delegationLabel: '例如 agent' }, setupMode: { lark: 'Lark 配置模式', weixin: '微信配置模式' },
                 help: { msteamsCreate: '先创建 Azure Bot，然后把应用 ID、客户端密钥和租户 ID 填在这里。保存后点「注册」，在 Azure 门户设置消息传送终结点，再从本页下载 Teams 应用清单并上传到 Teams。', msteamsEdit: '允许用户和操作员必须填 Entra（Azure AD）对象 ID —— 用户名和邮箱可以被重新分配，因此永远不做匹配。留空表示允许租户内任何人。频道和群聊里发送的文件无法读取，因为那需要 Microsoft Graph 管理员授权；私聊附件可以正常读取。轮换凭据时三项必须一起填。', googlechatCreate: '创建 Google Cloud 项目，启用 Chat API，并在此粘贴服务账号 JSON 密钥。保存后运行注册，并将入站 URL 复制到 Chat API 配置页面。', googlechatEdit: '将允许的空间或用户留空则允许任何人。操作员可以运行 /model 等全局命令。Google Chat 对每个空间每秒只允许一次写入，因此默认回复模式为“最终”，并且不支持发送文件。', telegramCreate: '通过 @BotFather 创建机器人并粘贴令牌。我们会代你注册 Webhook。', telegramEdit: '允许的用户或群聊留空则任何人都可以使用。操作员可以运行 /model 等智能体级命令；没有操作员时，Telegram 中会禁用这些命令。', slackCreate: '保存后，将频道入站 URL 粘贴到 Slack 应用的 Event Subscriptions。允许用户留空则工作区中的任何人都能使用机器人。操作员可以运行 /model 等智能体级命令；没有操作员时，Slack 中会禁用 /model。', slackEdit: '允许的用户留空则工作区中的任何人都能使用机器人。操作员可以运行 /model 等智能体级命令；没有操作员时，Slack 中会禁用 /model。', linearCreate: '在 Linear 工作区创建应用，启用 Agent session 事件的 Webhook，保存后将频道入站 URL 粘贴到其中。客户端凭据可让 Manyfold 生成应用令牌；如果你自行生成了令牌，也可以直接提供。允许用户留空则工作区中的任何人都能提及智能体。', githubCreate: '先创建频道，然后在频道页面使用“创建 GitHub App”——GitHub 会自动返回应用凭据。提及 issue 中的应用即可开始。仓库留空则回复应用已安装的所有仓库。', discordCreate: 'Discord 使用 Gateway WebSocket，无需公开 URL。请在 Developer Portal 的 Bot → Privileged Gateway Intents 中启用 MESSAGE_CONTENT，否则机器人看不到消息正文。', matrixCreate: 'Matrix 使用 /sync 长轮询，无需 Webhook URL。不支持加密房间；加密事件会被丢弃。', weixinCreate: '个人微信通过 Tencent iLink 机器人网关接入，仅支持私聊，无需 Webhook URL。操作员 ID 留空可禁用智能体级命令。', larkManual: '允许用户留空则任何人都能联系机器人。操作员可以运行 /model 等智能体级命令；没有操作员时，Feishu/Lark 中会禁用 /model。', weixinEdit: '个人微信仅支持私聊。操作员 ID 留空可禁用智能体级命令（例如 /model）。', whatsappEdit: 'WhatsApp 通过 WhatsApp Web 关联，无需 webhook URL。允许的发送者或群聊留空表示不限制。Operator 可以执行 /model 等 Agent 级命令；没有 operator 时这些命令在 WhatsApp 上不可用。发送者可填手机号或原始 jid。', linearEdit: '智能体工作时，Activity 会在 Linear 会话中显示思考、工具调用和计划；Final only 只发布结果。轮换凭据会一次性替换全部凭据，因此任何更改都要重新输入签名密钥。', githubEdit: '允许的登录名为空时会回退到关联限制（默认允许仓库所有者、组织成员和协作者；加入 NONE 可放开）。为 issue 添加委派标签即可无需提及就开始对话。操作员登录名留空可禁用智能体级命令（例如 /model）。', lineCreate: '在 LINE Developers 控制台创建 Messaging API 频道，签发长期 channel access token，然后把两者粘贴到这里。我们会代你设置 Webhook URL，但仍需你在控制台打开「Use webhook」。回复为纯文本且没有实时预览，每条回复都会计入 LINE 套餐的消息额度。', imessageCreate: '在一台已登录 iMessage 的 Mac 上安装 BlueBubbles Server，设置服务器密码，并用 Cloudflare Tunnel、ngrok 或 Tailscale Funnel 暴露到公网。Webhook 由我们自动注册。iMessage 没有可 @ 提及的机器人身份，因此群聊消息必须以唤醒词开头才会触达智能体。回复为纯文本，且没有流式预览。', imessageEdit: '允许的号码或会话 GUID 留空则任何能给这台 Mac 发消息的人都可以使用。号码可以是电话或邮箱，匹配时忽略格式差异。操作员可以运行 /model 等智能体级命令；没有操作员时，iMessage 中会禁用这些命令。这台 Mac 必须保持唤醒且可访问 —— 如果不再回复，请运行「测试」。轮换密码会重新注册 Webhook。', lineEdit: '允许的用户或群组 ID 留空则任何人都可以使用。操作员可以运行 /model 等智能体级命令；没有操作员时，LINE 中会禁用这些命令。轮换凭据会一次性替换两者，因此需要同时重新输入 channel secret 和 access token。' },
                 errors: { msteamsCredentials: 'Microsoft Teams 需要同时填写应用 ID、客户端密钥和租户 ID。', googlechatCredentials: 'Google Chat 需要服务账号 JSON 密钥。', googlechatAudience: '请输入你的 Google Cloud 项目编号。', larkWebhookCredentials: 'Lark/Feishu Webhook 频道需要 Verification Token 或 Encrypt Key。', linearCredentials: 'Linear 需要访问令牌，或同时提供 Client ID 和 Client secret', matrixHomeserver: '必须填写 Matrix homeserver URL。', matrixAccessToken: '必须填写 Matrix 访问令牌。', slackCredentials: 'Slack 凭据轮换需要同时提供 Bot token 和 Signing secret。', linearRotation: 'Linear 凭据轮换需要 Webhook 签名密钥，以及访问令牌或 Client ID 和 Client secret。', githubRotation: 'GitHub 凭据轮换需要同时提供 App ID、私钥和 Webhook 密钥。', weixinBotToken: '必须填写 WeChat iLink 机器人令牌。', lineCredentials: 'LINE 需要同时提供 channel secret 和 channel access token。', lineRotation: 'LINE 凭据轮换需要同时提供 channel secret 和 channel access token。', imessageCredentials: 'iMessage 需要同时提供 BlueBubbles 服务器地址和服务器密码。', imessageServerUrl: 'iMessage 需要填写 BlueBubbles 服务器地址（URL）。', imessageWakeWords: 'iMessage 需要至少一个唤醒词 —— 它没有可 @ 提及的机器人身份，群聊消息以唤醒词作为触发条件。', unsupportedProvider: '不支持的频道服务商：{{provider}}。' }
             }
@@ -3509,6 +3549,7 @@ const zh: Translations = {
             claudeModelMapping: 'Claude 模型映射',
             selectProviderModel: '选择提供商模型',
             defaultModel: '默认模型',
+            defaultModelAndEffort: '默认模型与推理强度',
             selectModel: '选择模型',
             effort: '工作强度',
             codexModelSettings: 'Codex 模型设置',
@@ -3524,6 +3565,7 @@ const zh: Translations = {
                 configuringNetwork: '正在配置网络',
                 bootstrappingFramework: '正在引导框架',
                 installingFramework: '正在安装框架二进制文件',
+                startingRunner: '启动 sandbox runner',
                 startingService: '正在启动框架服务',
                 checkingQuota: '正在检查配额',
                 preparingWorkspace: '正在准备工作区',
@@ -3636,14 +3678,9 @@ const zh: Translations = {
             externalTag: '外部',
             agentCountOne: '1 个 Agent',
             agentCountMany: '{{count}} 个 Agent',
-            apiKey: 'API key',
             anthropicAuthToken: 'Anthropic auth token',
-            openAiApiKey: 'OpenAI API key',
-            providerKeyHint: '使用与你的 provider 兼容的 key。',
-            baseUrlProxyPlaceholder: '留空则使用 Netmind 代理默认值',
             customModel: '自定义模型',
             filterAll: '全部',
-            providerSharedHint: '更改会替换该 runtime 上所有 agent 共用的凭据。',
             providerChangeFailed: 'Agent {{name}} 已创建，但更改 provider 失败：{{reason}}',
             modelInheritHint: '留空则使用该 runtime 的默认模型。',
             agentsColumn: 'Agent 数',
@@ -3653,7 +3690,59 @@ const zh: Translations = {
             nextPage: '下一页',
             kind: '类型',
             readyTag: '就绪',
-            modelProviderSection: '模型 Provider'
+            statusStartingRunner: '正在启动 runner…',
+            statusRunnerOnline: 'Runner 在线',
+            statusWakeRefused: '无法唤醒',
+            waitingForSlot: '等待另一台沙箱进入休眠…',
+            modelProviderSection: '模型 Provider',
+            advancedConfig: '高级配置',
+            frameworkNotInstalled: '尚未安装在这台沙箱上',
+            installFramework: '安装',
+            upgradeFrameworkTo: '升级到 v{{version}}',
+            frameworkUpToDate: '最新',
+            frameworkInstalling: '安装中…',
+            frameworkUpgrading: '升级中…',
+            frameworkNotChecked: '尚未在这台沙箱上检测',
+            checkFramework: '检测',
+            frameworkChecking: '检测中…',
+            frameworkInstalled: '已安装',
+            frameworkServiceSlotTaken:
+                '这台沙箱已在运行 {{framework}}；OpenClaw、Hermes、NarraNexus 同一时间只能装一个。',
+            deleteHasAgents: '先删除其上的 agent',
+            renameSandbox: '重命名沙箱',
+            checkSandbox: '检查沙箱',
+            installFrameworkOnSandbox: '安装 {{framework}}',
+            frameworkMissingOnSandbox: '这台沙箱尚未安装 {{framework}}，安装后即可用自己的订阅登录。',
+            providerFamilyAria: '模型提供方类型',
+            providerManagedTitle: '在 {{framework}} 中管理',
+            providerManagedByFramework:
+                '{{framework}} 在 agent 创建后于自身界面里管理模型提供方，这里无需选择。',
+            prepareRuntimeFailed:
+                '无法为 {{framework}} 准备这台沙箱',
+            aboutModelProvider: '关于 model provider',
+            modelProviderHelpCloud: 'Cloud：由 Manyfold 保存 key 并注入到 runtime 的 provider，同一 runtime 上的所有 agent 共用。可以在这里添加，也可以在 设置 → Model providers 里添加。',
+            modelProviderHelpLocal: 'Local：保存在 runtime 本机上的凭证——coding CLI 自己的登录（你的订阅）或存在主机上的 API key。Manyfold 不保存副本。可以直接在列表里登录或添加账号。',
+            modelProviderHelpPick: '选中的卡片就是这个 agent 运行所用的凭证；上方的筛选按钮只过滤列表。',
+            aboutAdvancedConfig: '关于高级配置',
+            advancedConfigHelpMapping: '在 Claude Code 或 Codex 上使用 Cloud provider 时，model mapping 决定 CLI 请求的每个模型别名由 provider 的哪个模型来回答，以及默认模型和推理强度。默认折叠，因为默认值通常够用。',
+            advancedConfigHelpPrimary: 'OpenClaw 和 Hermes 只需要选择一个主模型。',
+            advancedConfigHelpLocal: '使用 Local 凭证时，这些设置由 runtime 上 CLI 自己的配置决定，所以这一区为空。',
+            providerSourceAria: '凭证来源',
+            providerSourceCloud: '云端',
+            providerSourceLocal: '本地',
+            inheritRuntimeCredentialsHint: '与 {{runtime}} 上已有的所有 Agent 共享。',
+            hostApiKeyAfterCreate: '在运行时上设置 {{env}}（或在那里配置 CLI），Agent 会在下次运行时使用它。Manyfold 不保存任何密钥。',
+            runtimeApiKeyTitle: '在此运行时上保存 API 密钥',
+            runtimeApiKeyHint: '保存在运行时主机上且只在那里使用。Manyfold 不保留副本。',
+            runtimeApiKeyLabelPlaceholder: '标签（例如 工作密钥）',
+            runtimeApiKeySave: '保存到此运行时',
+            providerModelCount: '{{count}} 个模型',
+            providerTestFailedTag: '测试失败',
+            runnerStarting: '正在启动沙箱 runner…',
+            creatingSandbox: '正在创建沙箱…',
+            checkingSandbox: '正在检查沙箱…',
+            installingFramework: '正在安装 {{framework}}…',
+            preparingSandbox: '正在准备沙箱…'
         },
         externalProviderDialog: {
             title: '添加 {{provider}} provider',

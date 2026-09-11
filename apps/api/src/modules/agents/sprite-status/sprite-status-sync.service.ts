@@ -11,7 +11,7 @@ import {
     Optional
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, count, eq, inArray, isNotNull, lte, sql } from 'drizzle-orm'
+import { and, count, eq, inArray, isNotNull, lte, or, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -77,6 +77,30 @@ const SYNC_LEASE_TTL_MS = 45_000
 // (runtime_hosts.emptied_at). Empty-duration based — terminal activity does NOT
 // reset it; only attaching an agent (which clears emptied_at) does.
 const REAP_EMPTY_AGE_MS = 7 * 24 * 60 * 60_000
+// How long a revoked row is left alone before the reaper retries its delete:
+// long enough for the delete that revoked it to finish or fail on its own.
+const REVOKED_RETRY_AGE_MS = 5 * 60_000
+
+// What the reaper may remove: a sandbox agent-less past the idle window, or
+// one already revoked by a delete whose sprites.dev call failed — that row is
+// the delete's retry record and nothing else retries it (the status sync
+// only follows active hosts), so left alone it would keep its last
+// sprite_status forever. The age gate keeps the reaper off a delete still
+// in flight.
+const reapable = (cutoff: Date, revokedCutoff: Date) =>
+    or(
+        and(
+            eq(runtimeHosts.kind, 'sandbox'),
+            inArray(runtimeHosts.status, ['active', 'revoked']),
+            isNotNull(runtimeHosts.emptiedAt),
+            lte(runtimeHosts.emptiedAt, cutoff)
+        ),
+        and(
+            eq(runtimeHosts.kind, 'sandbox'),
+            eq(runtimeHosts.status, 'revoked'),
+            lte(runtimeHosts.updatedAt, revokedCutoff)
+        )
+    )
 const REAPER_BATCH = 50
 // Backstop for exec sessions nobody is attached to any more. sprites.dev keeps
 // a session's process alive after the client socket goes away, so an exec that
@@ -332,6 +356,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
         if (now < this.nextReaperAt) return
         this.nextReaperAt = now + REAPER_INTERVAL_MS
         const cutoff = new Date(now - REAP_EMPTY_AGE_MS)
+        const revokedCutoff = new Date(now - REVOKED_RETRY_AGE_MS)
         let candidates: Array<{
             id: string
             userId: string
@@ -350,14 +375,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                     spriteName: runtimeHosts.spriteName
                 })
                 .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        inArray(runtimeHosts.status, ['active', 'revoked']),
-                        isNotNull(runtimeHosts.emptiedAt),
-                        lte(runtimeHosts.emptiedAt, cutoff)
-                    )
-                )
+                .where(reapable(cutoff, revokedCutoff))
                 .limit(REAPER_BATCH)
         } catch (err) {
             this.log.warn(`reaper scan failed: ${describeError(err)}`)
@@ -380,13 +398,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                         .where(
                             and(
                                 eq(runtimeHosts.id, c.id),
-                                eq(runtimeHosts.kind, 'sandbox'),
-                                inArray(runtimeHosts.status, [
-                                    'active',
-                                    'revoked'
-                                ]),
-                                isNotNull(runtimeHosts.emptiedAt),
-                                lte(runtimeHosts.emptiedAt, cutoff)
+                                reapable(cutoff, revokedCutoff)
                             )
                         )
                         .returning({ id: runtimeHosts.id })
@@ -585,6 +597,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                 .where(
                     and(
                         eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.status, 'active'),
                         eq(runtimeHosts.spriteStatus, 'running')
                     )
                 )

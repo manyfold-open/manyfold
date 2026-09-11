@@ -70,8 +70,7 @@ const buildHarness = (opts: {
             }
         }
         if (cmd.includes('daemon register')) {
-            if (exitCode === 0)
-                hostId = opts.hostIdAfterRegister ?? 'dh_runner'
+            if (exitCode === 0) hostId = opts.hostIdAfterRegister ?? 'dh_runner'
             return {
                 exitCode,
                 stdout: exitCode === 0 ? '✓ daemon registered' : '',
@@ -122,11 +121,7 @@ const buildHarness = (opts: {
         }
     }
     const tokens = {
-        mint: async (a: {
-            userId: string
-            name: string
-            purpose?: string
-        }) => {
+        mint: async (a: { userId: string; name: string; purpose?: string }) => {
             minted++
             mintedPurposes.push(a.purpose)
             return {
@@ -334,6 +329,47 @@ test('a cold sprite is inspected, installed, registered, started, then awaited',
                   : 'other'
     )
     assert.deepEqual(order, ['inspect', 'install', 'register', 'start'])
+})
+
+// The create path has the VM awake already and does not want to wait the
+// ~60-75s a fresh daemon takes to dial in: prepareRunner installs, registers
+// and starts, then holds the sprite awake for that connect and returns.
+test('prepareRunner installs, registers and starts without waiting for the runner to connect', async () => {
+    const h = buildHarness({
+        installed: false,
+        registered: false,
+        onlineAfterStart: false
+    })
+
+    const outcome = await h.service.prepareRunner(args(h.exec as never))
+
+    assert.equal(outcome, 'started')
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    const order = h.calls.map((c) =>
+        c.cmd.includes('install.sh')
+            ? 'install'
+            : c.cmd.includes('test -x')
+              ? 'inspect'
+              : c.cmd.includes('daemon register')
+                ? 'register'
+                : c.cmd.includes('daemon start')
+                  ? 'start'
+                  : c.cmd.includes('/v1/tasks')
+                    ? 'hold'
+                    : 'other'
+    )
+    assert.deepEqual(order, ['inspect', 'install', 'register', 'start', 'hold'])
+    assert.match(h.calls[4].cmd, /"expire":"5m"/)
+})
+
+test('prepareRunner leaves an already-connected runner alone', async () => {
+    const h = buildHarness({ hostIdUpfront: 'dh_runner', onlineUpfront: true })
+
+    const outcome = await h.service.prepareRunner(args(h.exec as never))
+
+    assert.equal(outcome, 'live')
+    assert.equal(h.calls.length, 1, 'one inspect, no start, no hold')
+    assert.ok(h.calls[0].cmd.includes('test -x'))
 })
 
 test('the runner token goes over STDIN and never appears in argv', async () => {
@@ -1096,7 +1132,11 @@ test('releasing waits for the in-flight create so the DELETE cannot overtake it'
         released = true
     })
     await Promise.resolve()
-    assert.equal(released, false, 'release must not complete ahead of the create')
+    assert.equal(
+        released,
+        false,
+        'release must not complete ahead of the create'
+    )
     assert.equal(calls.length, 0)
 
     finishCreate()

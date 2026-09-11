@@ -1,6 +1,8 @@
 import {
+    BadRequestException,
     ConflictException,
     ForbiddenException,
+    HttpException,
     Inject,
     Injectable,
     Logger,
@@ -9,6 +11,7 @@ import {
 } from '@nestjs/common'
 import { and, eq, ne } from 'drizzle-orm'
 import {
+    DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_AUTH_CONTEXT,
     runtimeAuthRoot,
     runtimeAuthProfileEnv,
@@ -32,6 +35,8 @@ import {
     type RuntimeAuthCredentialStatus,
     type RuntimeAuthListView,
     type RuntimeAuthOperationView,
+    type RuntimeAuthPrewarmView,
+    type RuntimeAuthReleaseView,
     type RuntimeAuthProfileView
 } from '@manyfold/shared'
 import {
@@ -58,10 +63,16 @@ import type { AuthPrincipal } from '@/common/guards/auth.guard'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
+    AUTH_AWAKE_TTL,
     RunnerManagerService,
     type SpriteExecFn
 } from '@/modules/chat/runner/runner-manager.service'
-import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import { pickRunnerHostRow } from '@/modules/chat/runner/runner-host-rows'
+import {
+    CONCURRENT_ACTIVE_LIMIT_CODE,
+    isConcurrentActiveLimitError,
+    RuntimeAccessService
+} from '@/modules/runtime-access/runtime-access.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
 import { RuntimeAccountService } from '../account/runtime-account.service'
@@ -113,6 +124,17 @@ interface ResolvedHost {
 
 const clip = (value: string | null | undefined): string | null =>
     value ? value.slice(0, MAX_IDENTITY_CHARS) : null
+
+// Same window the chat composer prewarm uses: one wake per runtime per
+// interval, so re-selecting a runtime in the form does not re-spend a wake.
+const PREWARM_DEBOUNCE_MS = 45_000
+// A prewarm's hold is short: the form that asked for it renews it while the
+// runtime stays picked and releases it when the pick moves, so a sandbox the
+// user only glanced at does not sit in the plan's active slot for minutes.
+// Seen on the local stack [2026-09-11]: the Free plan's one slot was held by a
+// runtime the create form had picked by default, and no other sandbox could
+// wake until the 5m hold ran out.
+const PREWARM_AWAKE_TTL = '2m'
 
 const conflict = (
     code: string,
@@ -212,7 +234,12 @@ export class RuntimeAuthProfilesService {
                     return runner
                         ? { host: runner, availability: 'sandbox-asleep' }
                         : { host: null, availability: 'host-unavailable' }
-                runner = await this.wakeRunner(runtime, sandbox)
+                try {
+                    runner = await this.wakeRunner(runtime, sandbox)
+                } catch (err) {
+                    if (!isConcurrentActiveLimitError(err)) throw err
+                    return { host: null, availability: 'sandbox-limit' }
+                }
                 if (!runner)
                     return { host: null, availability: 'host-unavailable' }
             }
@@ -227,7 +254,7 @@ export class RuntimeAuthProfilesService {
         runtime: AgentRuntimeRow
     ): Promise<RuntimeHostRow | null> {
         if (!runtime.spriteName) return null
-        const [runner] = await this.db
+        const rows = await this.db
             .select()
             .from(runtimeHosts)
             .where(
@@ -238,8 +265,11 @@ export class RuntimeAuthProfilesService {
                     eq(runtimeHosts.name, runnerHostName(runtime.spriteName))
                 )
             )
-            .limit(1)
-        return runner ?? null
+            .limit(8)
+        // Same rule as the runner manager's lookup (runner-host-rows.ts): a
+        // double registration must not leave this list waiting on the twin
+        // the wake never used.
+        return pickRunnerHostRow(rows)
     }
 
     // The user's explicit wake: admit the sandbox to an active slot first
@@ -251,23 +281,29 @@ export class RuntimeAuthProfilesService {
     // as unavailable rather than guessing.
     private async wakeRunner(
         runtime: AgentRuntimeRow,
-        sandbox: RuntimeHostRow
+        sandbox: RuntimeHostRow,
+        holdTtl: string = AUTH_AWAKE_TTL
     ): Promise<RuntimeHostRow | null> {
         const spriteName = runtime.spriteName
         if (!spriteName || !sandbox.accountId) return null
-        await this.runtimeAccess.reserveActiveSlot({
-            userId: runtime.userId,
-            hostId: sandbox.id
-        })
-        const account = await this.accounts.getById(sandbox.accountId)
-        if (!account) return null
-        const client = this.spritesClientFor(account)
-        const exec: SpriteExecFn = (a) =>
-            this.exec(client, spriteName, {
-                cmd: a.cmd,
-                stdin: a.stdin ?? '',
-                timeoutMs: a.timeoutMs
+        try {
+            await this.runtimeAccess.reserveActiveSlot({
+                userId: runtime.userId,
+                hostId: sandbox.id
             })
+        } catch (err) {
+            // The slot is taken. If what holds it is another sandbox kept
+            // awake only by an account wake's hold (a runtime page left
+            // open, an earlier pick), that hold has done its job — the
+            // user's intent is this sandbox now — so let it go; the other
+            // VM suspends on its own and the next cycle is admitted. A VM
+            // busy with a turn or a terminal keeps itself awake regardless.
+            if (isConcurrentActiveLimitError(err))
+                await this.releaseOtherAuthHolds(runtime.userId, sandbox.id)
+            throw err
+        }
+        const exec = await this.spriteExecFor(sandbox, spriteName)
+        if (!exec) return null
         const woken = await this.runnerManager.wakeRunner({
             userId: runtime.userId,
             spriteName,
@@ -277,8 +313,179 @@ export class RuntimeAuthProfilesService {
             `runtime auth runner wake runtime=${runtime.id} sprite=${spriteName} outcome=${woken.outcome}`
         )
         if (!woken.handle) return null
+        // A woken runner would be frozen again ~35s after the last exec, and
+        // an account operation has no turn lease to hold the VM. Hold it for a
+        // few minutes so the sign-in / key / pick that this wake is for does
+        // not pay a second wake; the TTL is the leak bound, nothing renews it.
+        void this.runnerManager.holdSpriteAwake({
+            exec,
+            turnId: awakeHoldTurnId(runtime.id),
+            ttl: holdTtl
+        })
         const runner = await this.daemonHosts.findById(woken.handle.daemonId)
         return runner && runner.userId === runtime.userId ? runner : null
+    }
+
+    private async spriteExecFor(
+        sandbox: RuntimeHostRow,
+        spriteName: string
+    ): Promise<SpriteExecFn | null> {
+        if (!sandbox.accountId) return null
+        const account = await this.accounts.getById(sandbox.accountId)
+        if (!account) return null
+        const client = this.spritesClientFor(account)
+        return (a) =>
+            this.exec(client, spriteName, {
+                cmd: a.cmd,
+                stdin: a.stdin ?? '',
+                timeoutMs: a.timeoutMs
+            })
+    }
+
+    private async releaseOtherAuthHolds(
+        userId: string,
+        exceptHostId: string
+    ): Promise<void> {
+        const sandboxes = await this.runtimes.listSandboxesForUser(userId)
+        for (const { host } of sandboxes) {
+            if (
+                host.id === exceptHostId ||
+                host.spriteStatus !== 'running' ||
+                !host.spriteName
+            )
+                continue
+            const exec = await this.spriteExecFor(host, host.spriteName)
+            if (!exec) continue
+            const onHost = await this.runtimes.listRuntimesByHost(host.id)
+            for (const other of onHost) {
+                try {
+                    await this.runnerManager.releaseSpriteAwake({
+                        exec,
+                        turnId: awakeHoldTurnId(other.id)
+                    })
+                } catch (err) {
+                    this.log.debug(
+                        `auth hold release skipped runtime=${other.id}: ${(err as Error).message.slice(0, 120)}`
+                    )
+                }
+            }
+            this.log.log(
+                `auth holds released on sandbox=${host.id} so sandbox=${exceptHostId} can take the active slot`
+            )
+        }
+    }
+
+    // The form's pick moved on (or the page closed): drop the awake hold the
+    // prewarm placed, so the sandbox suspends on its own and gives the plan's
+    // active slot back. A sandbox that is not running holds nothing, and an
+    // exec would only wake it — so it is left alone.
+    async release(
+        principal: AuthPrincipal,
+        runtimeId: string
+    ): Promise<RuntimeAuthReleaseView> {
+        this.assertHuman(principal)
+        const runtime = await this.requireRuntime(principal.userId, runtimeId)
+        this.prewarmedAt.delete(runtime.id)
+        if (
+            runtime.kind !== 'sprites' ||
+            !runtime.hostId ||
+            !runtime.spriteName
+        )
+            return { released: false }
+        const sandbox = await this.runtimes.findHostById(runtime.hostId)
+        if (
+            !sandbox ||
+            sandbox.userId !== runtime.userId ||
+            sandbox.spriteStatus !== 'running'
+        )
+            return { released: false }
+        const exec = await this.spriteExecFor(sandbox, runtime.spriteName)
+        if (!exec) return { released: false }
+        await this.runnerManager.releaseSpriteAwake({
+            exec,
+            turnId: awakeHoldTurnId(runtime.id)
+        })
+        return { released: true }
+    }
+
+    // Intent prewarm from the agent-create form: the user picked a sandbox
+    // runtime, so start its runner now and let the list answer when they get
+    // to the accounts. Same admission and metering as a click (wakeRunner
+    // runs reserveActiveSlot), fire-and-forget, debounced per runtime;
+    // quota and transient wake failures are expected and only logged.
+    private readonly prewarmedAt = new Map<string, number>()
+
+    async prewarm(
+        principal: AuthPrincipal,
+        runtimeId: string
+    ): Promise<RuntimeAuthPrewarmView> {
+        this.assertHuman(principal)
+        const runtime = await this.requireRuntime(principal.userId, runtimeId)
+        if (
+            runtime.kind !== 'sprites' ||
+            !runtime.hostId ||
+            !runtimeAuthSupported(runtime.framework, runtime.kind)
+        )
+            return { accepted: false }
+        const now = Date.now()
+        const last = this.prewarmedAt.get(runtime.id)
+        if (last !== undefined && now - last < PREWARM_DEBOUNCE_MS)
+            return { accepted: false }
+        this.prewarmedAt.set(runtime.id, now)
+        if (this.prewarmedAt.size > 5000)
+            for (const [key, at] of this.prewarmedAt)
+                if (now - at >= PREWARM_DEBOUNCE_MS)
+                    this.prewarmedAt.delete(key)
+        const sandbox = await this.runtimes.findHostById(runtime.hostId)
+        if (!sandbox || sandbox.userId !== runtime.userId)
+            return { accepted: false }
+        // The admission runs on the request so a refusal is the answer, not
+        // a debug line: a form waiting for the runner has to stop waiting
+        // when the plan's active hours are used up (nothing will wake this
+        // sandbox until they reset) instead of spinning through cycle after
+        // cycle. Seen on the local stack [2026-09-11]: every sandbox card
+        // read "Starting the sandbox runner…" for as long as the page was
+        // open. The concurrent cap is different — another sandbox falling
+        // asleep clears it — so that one first lets go of the holds on the
+        // user's other sandboxes, and is reported for the caller to retry.
+        try {
+            await this.runtimeAccess.reserveActiveSlot({
+                userId: runtime.userId,
+                hostId: sandbox.id
+            })
+        } catch (err) {
+            if (isConcurrentActiveLimitError(err))
+                await this.releaseOtherAuthHolds(runtime.userId, sandbox.id)
+            const refused = wakeRefusalOf(err)
+            if (!refused) throw err
+            this.prewarmedAt.delete(runtime.id)
+            this.log.log(
+                `runtime auth runner prewarm refused runtime=${runtime.id} code=${refused.code}`
+            )
+            return { accepted: false, refused }
+        }
+        void this.runPrewarm(runtime, sandbox)
+        return { accepted: true }
+    }
+
+    private async runPrewarm(
+        runtime: AgentRuntimeRow,
+        sandbox: RuntimeHostRow
+    ): Promise<void> {
+        try {
+            const runner = await this.wakeRunner(
+                runtime,
+                sandbox,
+                PREWARM_AWAKE_TTL
+            )
+            this.log.log(
+                `runtime auth runner prewarm runtime=${runtime.id} ${runner ? 'ok' : 'unavailable'}`
+            )
+        } catch (err) {
+            this.log.debug(
+                `runtime auth runner prewarm skipped runtime=${runtime.id}: ${(err as Error).message.slice(0, 160)}`
+            )
+        }
     }
 
     private async requireHost(
@@ -297,6 +504,12 @@ export class RuntimeAuthProfilesService {
                 RUNTIME_AUTH_ERROR.daemonUpgradeRequired,
                 'update the mf CLI on this host to manage auth profiles'
             )
+        if (resolved.availability === 'sandbox-limit')
+            throw new ForbiddenException({
+                code: CONCURRENT_ACTIVE_LIMIT_CODE,
+                message:
+                    'every active sandbox slot on the plan is in use; stop another sandbox first'
+            })
         throw new ServiceUnavailableException({
             code: RUNTIME_AUTH_ERROR.hostUnavailable,
             message:
@@ -562,6 +775,11 @@ export class RuntimeAuthProfilesService {
             (resolved.host?.clientFeatures ?? []).includes(
                 DAEMON_FEATURE_AUTH_CONTEXT
             )
+        const apiKeyCapable =
+            resolved.availability === 'ok' &&
+            (resolved.host?.clientFeatures ?? []).includes(
+                DAEMON_FEATURE_AUTH_API_KEY
+            )
         return {
             runtimeId: runtime.id,
             framework: runtime.framework,
@@ -569,7 +787,8 @@ export class RuntimeAuthProfilesService {
             availability: resolved.availability,
             capabilities: {
                 manage: resolved.availability === 'ok',
-                execute: executeCapable
+                execute: executeCapable,
+                apiKey: apiKeyCapable
             },
             defaultProfileId: runtime.defaultAuthProfileId,
             ambient,
@@ -658,22 +877,32 @@ export class RuntimeAuthProfilesService {
         body: {
             label?: string
             authMethod: 'subscription' | 'api-key'
+            apiKey?: string
             wake?: boolean
         }
     ): Promise<RuntimeAuthProfileView> {
         this.assertHuman(principal)
         const runtime = await this.requireRuntime(principal.userId, runtimeId)
-        if (body.authMethod !== 'subscription')
-            // Host-local API-key profiles need the masked key prompt on the
-            // host; until that ships, platform API keys remain the existing
-            // model-provider flow.
-            throw conflict(
-                RUNTIME_AUTH_ERROR.contextUnsupported,
-                'only subscription profiles can be created yet'
-            )
+        // The key is forwarded to the host in the create call and is neither
+        // persisted nor logged here; a host that cannot store it would create
+        // an empty profile, so it is refused rather than degraded.
+        const apiKey = body.authMethod === 'api-key' ? body.apiKey?.trim() : ''
+        if (body.authMethod === 'api-key' && !apiKey)
+            throw new BadRequestException({
+                code: 'auth_api_key_required',
+                message: 'an api-key profile needs the key at creation'
+            })
         const host = await this.requireHost(runtime, {
             wake: body.wake === true
         })
+        if (
+            body.authMethod === 'api-key' &&
+            !host.clientFeatures.includes(DAEMON_FEATURE_AUTH_API_KEY)
+        )
+            throw conflict(
+                RUNTIME_AUTH_ERROR.daemonUpgradeRequired,
+                'update the mf CLI on this runtime to store API keys'
+            )
         const framework = runtime.framework as ConfigurableFramework
         const existingCount = (
             await this.db
@@ -700,13 +929,19 @@ export class RuntimeAuthProfilesService {
                 vendor: VENDOR_FOR[framework]
             })
             .returning()
+        let created: DaemonAuthCreateResponse
         try {
-            await this.rpc<DaemonAuthCreateResponse>(host, 'auth.create', {
-                framework,
-                runtimeId: runtime.id,
-                profileId: id,
-                authMethod: body.authMethod
-            })
+            created = await this.rpc<DaemonAuthCreateResponse>(
+                host,
+                'auth.create',
+                {
+                    framework,
+                    runtimeId: runtime.id,
+                    profileId: id,
+                    authMethod: body.authMethod,
+                    ...(apiKey ? { apiKey } : {})
+                }
+            )
         } catch (err) {
             await this.db
                 .update(runtimeAuthProfiles)
@@ -718,7 +953,20 @@ export class RuntimeAuthProfilesService {
                 .where(eq(runtimeAuthProfiles.id, id))
             throw err
         }
-        return this.toView(row, 0, runtime.defaultAuthProfileId)
+        if (!apiKey) return this.toView(row, 0, runtime.defaultAuthProfileId)
+        // A stored key is a completed sign-in: the row is ready as soon as
+        // the host has it, without waiting for a probe to say so.
+        const [ready] = await this.db
+            .update(runtimeAuthProfiles)
+            .set({
+                lifecycle: 'ready',
+                credentialStatus: 'valid',
+                credentialGeneration: created.generation,
+                updatedAt: new Date()
+            })
+            .where(eq(runtimeAuthProfiles.id, id))
+            .returning()
+        return this.toView(ready ?? row, 0, runtime.defaultAuthProfileId)
     }
 
     private async mintOperation(input: {
@@ -785,6 +1033,11 @@ export class RuntimeAuthProfilesService {
         const row = await this.requireProfile(runtime, profileId)
         if (row.lifecycle === 'deleting')
             throw conflict(RUNTIME_AUTH_ERROR.stateConflict, 'profile is being removed')
+        if (row.authMethod === 'api-key')
+            throw conflict(
+                RUNTIME_AUTH_ERROR.stateConflict,
+                'an api-key profile has no interactive sign-in; add a new key instead'
+            )
         await this.requireHost(runtime, { wake: body.wake === true })
         const operation = await this.mintOperation({
             runtime,
@@ -1106,4 +1359,31 @@ export class RuntimeAuthProfilesService {
     ): Promise<ExecResult> {
         return execSprite(client, spriteName, opts)
     }
+}
+
+// One name for the hold an account wake places on a sandbox, so the release
+// removes exactly what the wake created.
+const awakeHoldTurnId = (runtimeId: string): string => `auth-${runtimeId}`
+
+// The code and message of an admission the API refused (a quota, a cap, a
+// missing sandbox), for the prewarm answer. Anything else is not a refusal
+// and stays an error.
+const wakeRefusalOf = (
+    err: unknown
+): { code: string; message: string } | null => {
+    if (!(err instanceof HttpException)) return null
+    const body = err.getResponse()
+    const code =
+        typeof body === 'object' &&
+        body !== null &&
+        typeof (body as { code?: unknown }).code === 'string'
+            ? (body as { code: string }).code
+            : 'WAKE_REFUSED'
+    const message =
+        typeof body === 'object' &&
+        body !== null &&
+        typeof (body as { message?: unknown }).message === 'string'
+            ? (body as { message: string }).message
+            : err.message
+    return { code, message }
 }

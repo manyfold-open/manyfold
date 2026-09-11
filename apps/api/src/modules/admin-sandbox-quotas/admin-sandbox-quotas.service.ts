@@ -119,7 +119,7 @@ export class AdminSandboxQuotasService {
         // NOT as a scalar subquery — the window logic lives once, in
         // usage-period, and raw SQL would silently survive schema renames.
         const provisionedSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active')::int`
-        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.sprite_status = 'running')::int`
+        const concurrentActiveSql = sql<number>`(select count(*) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active' and h.sprite_status = 'running')::int`
         const storageBytesSql = sql<number>`(select coalesce(sum(h.storage_bytes), 0) from runtime_hosts h where h.user_id = ${users.id} and h.kind = 'sandbox' and h.status = 'active')::bigint`
         const rows = await this.db
             .select({

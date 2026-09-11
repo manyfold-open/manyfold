@@ -73,6 +73,16 @@ import {
 
 type Tx = Parameters<Parameters<Database['transaction']>[0]>[0]
 
+// The admission refusal every wake path can hit. Exported so the surfaces
+// that wake on the user's behalf (account probe, runtime-auth list) can name
+// the state instead of reporting a failed probe.
+export const CONCURRENT_ACTIVE_LIMIT_CODE = 'CONCURRENT_ACTIVE_LIMIT_REACHED'
+
+export const isConcurrentActiveLimitError = (err: unknown): boolean =>
+    err instanceof ForbiddenException &&
+    (err.getResponse() as { code?: unknown }).code ===
+        CONCURRENT_ACTIVE_LIMIT_CODE
+
 // Advisory-lock namespaces on hashtextextended(userId, N):
 //   0 — reserveRuntime    (per-user runtime agent-slot quota: daemon/k8s agents)
 //   2 — reserveActiveSlot + enableKeepAlive (per-user concurrent active
@@ -582,6 +592,7 @@ export class RuntimeAccessService {
                 and(
                     eq(runtimeHosts.userId, userId),
                     eq(runtimeHosts.kind, 'sandbox'),
+                    eq(runtimeHosts.status, 'active'),
                     eq(runtimeHosts.spriteStatus, 'running')
                 )
             )
@@ -1250,6 +1261,11 @@ export class RuntimeAccessService {
                 activeHoursBonus: row.activeHoursBonus
             })
 
+            // Only live hosts hold a slot. A revoked row whose sprites.dev
+            // delete failed keeps its last sprite_status as that delete's retry
+            // record (the status sync no longer touches it) and must not count
+            // against the user for a VM they asked to remove. Same rule at
+            // every other running-sandbox count below and in summary().
             const [usage] = await tx
                 .select({ value: count() })
                 .from(runtimeHosts)
@@ -1257,6 +1273,7 @@ export class RuntimeAccessService {
                     and(
                         eq(runtimeHosts.userId, input.userId),
                         eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.status, 'active'),
                         eq(runtimeHosts.spriteStatus, 'running'),
                         ne(runtimeHosts.id, input.hostId)
                     )
@@ -1266,7 +1283,7 @@ export class RuntimeAccessService {
             if (activeCount >= plan.maxConcurrentActive)
                 throw new ForbiddenException({
                     message: `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
-                    code: 'CONCURRENT_ACTIVE_LIMIT_REACHED',
+                    code: CONCURRENT_ACTIVE_LIMIT_CODE,
                     current: activeCount,
                     limit: plan.maxConcurrentActive,
                     planName: plan.name
@@ -1278,6 +1295,7 @@ export class RuntimeAccessService {
                 .where(
                     and(
                         eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.status, 'active'),
                         eq(runtimeHosts.spriteStatus, 'running'),
                         // Exclude the target host: it ends up running either way,
                         // so the cap applies to the OTHER running VMs. Starting a
@@ -1401,6 +1419,7 @@ export class RuntimeAccessService {
                     select id as host_id from runtime_hosts
                     where user_id = ${input.userId}
                       and kind = 'sandbox'
+                      and status = 'active'
                       and sprite_status = 'running'
                       and id != ${input.hostId}
                     union
@@ -1417,7 +1436,7 @@ export class RuntimeAccessService {
             if (current >= plan.maxConcurrentActive)
                 throw new ForbiddenException({
                     message: `concurrent active sprite limit reached (${plan.maxConcurrentActive} for ${plan.name} plan)`,
-                    code: 'CONCURRENT_ACTIVE_LIMIT_REACHED',
+                    code: CONCURRENT_ACTIVE_LIMIT_CODE,
                     current,
                     limit: plan.maxConcurrentActive,
                     planName: plan.name
@@ -1429,6 +1448,7 @@ export class RuntimeAccessService {
                 .where(
                     and(
                         eq(runtimeHosts.kind, 'sandbox'),
+                        eq(runtimeHosts.status, 'active'),
                         eq(runtimeHosts.spriteStatus, 'running'),
                         // Exclude the target host: it ends up running either way,
                         // so the cap applies to the OTHER running VMs. Starting a
@@ -1497,6 +1517,7 @@ export class RuntimeAccessService {
             .where(
                 and(
                     eq(runtimeHosts.kind, 'sandbox'),
+                    eq(runtimeHosts.status, 'active'),
                     eq(runtimeHosts.spriteStatus, 'running')
                 )
             )

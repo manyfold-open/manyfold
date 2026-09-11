@@ -94,17 +94,28 @@ export const viewConfigDirs = (
     viewDir: string
 ): FrameworkConfigDirs => {
     const native = nativeDirsFor()
+    const apiKeyFile = apiKeyPath(viewDir)
     if (framework === 'claude-code')
         return {
             ...native,
             claudeDir: viewDir,
             claudeJson: join(viewDir, '.claude.json'),
-            envAuth: false
+            envAuth: false,
+            apiKeyFile
         }
     if (framework === 'codex')
-        return { ...native, codexHome: viewDir, envAuth: false }
-    return { ...native, geminiDir: join(viewDir, '.gemini'), envAuth: false }
+        return { ...native, codexHome: viewDir, envAuth: false, apiKeyFile }
+    return {
+        ...native,
+        geminiDir: join(viewDir, '.gemini'),
+        envAuth: false,
+        apiKeyFile
+    }
 }
+
+// An api-key profile's stored key: one file in the view, mode 0600, read
+// back only to become the vendor env var of that profile's executions.
+export const apiKeyPath = (viewDir: string): string => join(viewDir, 'api-key')
 
 export const nativeDirsFor = (): FrameworkConfigDirs => ({
     claudeDir: join(homedir(), '.claude'),

@@ -26,13 +26,27 @@ Connect Lark or Feishu when you want an agent available from private chats, grou
 
 ## Quick create by QR code (recommended)
 
-Quick create asks the Open Platform to create and configure the bot, while keeping the resulting App Secret on the Manyfold server.
+Quick create asks the Open Platform to create and configure the bot, while keeping the resulting App Secret on the Manyfold server. Setup runs in two places: Manyfold generates the QR code, and the Lark or Feishu app on your phone is where you approve it and the app is actually created.
+
+### Manyfold set up
 
 1. Open **Settings -> Channels**, create a channel, and choose **Feishu** or **Lark**.
 2. Select the target agent, app region, label, and bot name.
 3. Keep **Quick create** selected and generate the QR code.
 4. Scan it with an account allowed to approve app creation, review the requested permissions, and approve. The account you scan with decides where the app is created: a Feishu account creates it on `open.feishu.cn`, a Lark account on `open.larksuite.com`.
 5. Wait for Manyfold to create an active long-connection/WebSocket channel, then run **Test** and message the bot.
+
+![The Manyfold New Lark channel form on Quick create, showing the agent, label and bot name fields and the generated QR code](../../../assets/docs/channels/lark-01-manyfold-new-channel-qr.webp)
+
+### Lark (Feishu) set up
+
+1. Scan the QR code with Lark or Feishu on your phone and follow the guide to create the app. Pick an avatar, confirm the name, and choose **Create**.
+
+   ![The Lark Developer screen on a phone, creating a Lark app for the agent with an avatar and name](../../../assets/docs/channels/lark-02-create-app-in-lark.webp)
+
+   The bot shows up in Lark as soon as it is created, and answers straight away.
+
+   ![A Lark chat with the newly created agent replying to a message](../../../assets/docs/channels/lark-03-chat-with-the-bot.webp)
 
 The scanner's app-scoped `open_id` is added as an operator for agent-wide commands such as `/model`. The app does not need a separate version publish after this registration flow. Closing the dialog while it is waiting for a scan cancels that registration; a denied or expired code can be regenerated.
 

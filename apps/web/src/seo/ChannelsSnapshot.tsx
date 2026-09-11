@@ -9,12 +9,12 @@ import {
 import { SeoClosingCta } from '@/seo/SeoClosingCta'
 import type { SeoPageEntry } from '@/seo/pages'
 
-// The no-JS view of /channels and /zh/channels: the same four screens the
-// interactive page argues, in the same order, from the same keys and the same
-// content tables. It used to be the home page's snapshot — every manifest
-// page rendered LandingSnapshot — which meant two URLs served one body under
-// two different headlines, and neither `/channels` document said anything
-// about channels. Only rendered at build time; the renderer calls
+// The no-JS view of /agent-channels and /zh/agent-channels: the same four
+// screens the interactive page argues, in the same order, from the same keys
+// and the same content tables. It used to be the home page's snapshot — every
+// manifest page rendered LandingSnapshot — which meant two URLs served one
+// body under two different headlines, and neither channels document said
+// anything about channels. Only rendered at build time; the renderer calls
 // setLanguage() first, so the module-level t() resolves the right dictionary.
 export const ChannelsSnapshot: FC<{ entry: SeoPageEntry }> = ({
     entry
@@ -61,10 +61,8 @@ export const ChannelsSnapshot: FC<{ entry: SeoPageEntry }> = ({
                         {CHANNEL_TILE_GROUPS.map((group) => (
                             <li key={group.labelKey}>
                                 {t(group.labelKey)} —{' '}
-                                {group.tiles
-                                    .map((tile) =>
-                                        channelTileLabel(tile.provider)
-                                    )
+                                {group.providers
+                                    .map(channelTileLabel)
                                     .join(' · ')}
                             </li>
                         ))}

@@ -9,8 +9,12 @@ import {
     runnerHostName
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray } from 'drizzle-orm'
 import { runtimeHosts, type Database } from '@manyfold/db'
+import {
+    pickRunnerHostRow,
+    staleRunnerTwins
+} from '@/modules/chat/runner/runner-host-rows'
 import { SpritesError } from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { DRIZZLE } from '@/db/tokens'
@@ -95,6 +99,12 @@ const STATUS_PROBE_TIMEOUT_MS = 30_000
 // back on a fresh lease within a few seconds; a process that is not back by
 // then is wedged or gone, and `daemon stop; daemon start` is what helps.
 const WAKE_RECONNECT_WAIT_MS = 15_000
+// How long a runner woken for an account operation (not a turn) is held awake.
+// Long enough for the sign-in / key / pick sequence the user just started, and
+// for a freshly started daemon to dial in (~60-75s), short enough that a wake
+// nobody follows up on stops billing within minutes. Renewed by every
+// subsequent wake, never by a timer: the TTL is the whole leak bound.
+export const AUTH_AWAKE_TTL = '5m'
 
 export interface SpriteExecFn {
     (args: {
@@ -260,6 +270,15 @@ export interface RunnerWakeResult {
     handle: RunnerHandle | null
     outcome: RunnerWakeOutcome
 }
+
+// What prepareRunner left behind: a runner that already answers, one that
+// was started and is dialling in, or the reason it could not get that far.
+export type RunnerPrepareOutcome =
+    | 'live'
+    | 'started'
+    | 'exec-failed'
+    | 'install-failed'
+    | 'register-failed'
 
 // A bring-up either produced a handle or did not, and a bring-up that died on
 // the exec endpoint carries WHY: the single-flight below hands this same value
@@ -750,7 +769,7 @@ export class RunnerManagerService {
         // 45s window outlives a suspension by design).
         rpcLastSeenAt: Date | null
     } | null> {
-        const [row] = await this.db
+        const rows = await this.db
             .select()
             .from(runtimeHosts)
             .where(
@@ -766,8 +785,13 @@ export class RunnerManagerService {
                     eq(runtimeHosts.name, args.hostName)
                 )
             )
-            .limit(1)
+            .limit(8)
+        // See runner-host-rows.ts: one rule for which of several same-named
+        // rows is the runner, and the leftovers of a double registration are
+        // dropped here, where registrations are made.
+        const row = pickRunnerHostRow(rows)
         if (!row) return null
+        if (rows.length > 1) void this.reapRunnerTwins(rows)
         // Readiness comes from the host row, NOT registry.isOnline(): that only
         // knows about sockets on THIS api instance, and staging/prod run two.
         // With two machines the local check is a coin flip — measured: the same
@@ -791,6 +815,117 @@ export class RunnerManagerService {
         }
     }
 
+    private async reapRunnerTwins(
+        rows: ReadonlyArray<{
+            id: string
+            createdAt: Date
+            rpcConnectedAt: Date | null
+            rpcLastSeenAt: Date | null
+        }>
+    ): Promise<void> {
+        const twins = staleRunnerTwins(rows)
+        if (twins.length === 0) return
+        try {
+            await this.db.delete(runtimeHosts).where(
+                inArray(
+                    runtimeHosts.id,
+                    twins.map((t) => t.id)
+                )
+            )
+            this.logger.log(
+                `runner twin rows dropped ids=${twins.map((t) => t.id).join(',')}`
+            )
+        } catch (err) {
+            this.logger.warn(
+                `runner twin cleanup failed class=${errorClass(err)}`
+            )
+        }
+    }
+
+    // The install-and-register half of a bring-up, shared with prepareRunner.
+    // A runner that is merely PRESENT is not good enough. The platform owns
+    // this binary and nothing else ever updates it, so a sprite keeps its
+    // first CLI indefinitely — including bugs we have since fixed in it. The
+    // floor is the version whose exec-buffer sweep stops the buffer growing
+    // without bound; below it, a cold runner re-enumerates and re-parses every
+    // turn it ever ran before it dials back.
+    // Seen on staging 2026-07-26: bring-up blew its 120s budget on a sprite
+    // that was already installed AND registered, and this is the most
+    // plausible reason.
+    private async installAndRegister(
+        args: EnsureRunnerArgs,
+        state: RunnerSpriteState
+    ): Promise<'ok' | 'install-failed' | 'register-failed'> {
+        const tooOld = isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
+        if (!state.installed || tooOld) {
+            if (tooOld && state.installed)
+                this.logger.log(
+                    `runner CLI ${state.version ?? 'unknown'} < ${DAEMON_MIN_CLI_VERSION}, upgrading sprite=${args.spriteName}`
+                )
+            const ok = await this.installCli(args)
+            if (!ok) return 'install-failed'
+        }
+        if (!state.registered) {
+            let registered = await this.register(args)
+            // A CLI that predates `--token -` takes the dash LITERALLY and
+            // rejects it as a malformed token. That is exactly what a sprite
+            // from an older image has: `~/.local/bin/mf` is there (so the
+            // install step is skipped) but it is the legacy binary, or the
+            // nca->mf bridge symlink the shell-env writes. Measured on a
+            // staging codex sprite: `daemon register token must start with
+            // ldt_` on every attempt, forever, because nothing reinstalls.
+            if (
+                !registered.ok &&
+                isStaleCliRegisterFailure(registered.detail)
+            ) {
+                this.logger.warn(
+                    `runner CLI too old to read the token from stdin, reinstalling sprite=${args.spriteName}`
+                )
+                if (!(await this.installCli(args))) return 'install-failed'
+                registered = await this.register(args)
+            }
+            if (!registered.ok) return 'register-failed'
+        }
+        return 'ok'
+    }
+
+    // Bring a sprite's runner to "registered and starting" WITHOUT waiting for
+    // it to dial in. For callers that already have the VM awake — the agent
+    // create, right after the framework install — so the runner row exists by
+    // the time the user next looks at the runtime, and the next list finds a
+    // sleeping runner (a 15s reconnect) instead of "no runner yet" (a full
+    // bring-up). The awake hold covers the daemon's ~60-75s first connect,
+    // which would otherwise race the sprite's ~35s idle suspend; its TTL is
+    // the only thing that ends it.
+    async prepareRunner(
+        args: EnsureRunnerArgs & { awakeTtl?: string }
+    ): Promise<RunnerPrepareOutcome> {
+        try {
+            const inspected = await this.inspectSprite(args)
+            const state = inspected.state
+            if (!state) return 'exec-failed'
+            const prepared = await this.installAndRegister(args, state)
+            if (prepared !== 'ok') return prepared
+            const existing = await this.findRunnerHost({
+                userId: args.userId,
+                hostName: runnerHostName(args.spriteName)
+            })
+            if (existing?.online) return 'live'
+            await this.start(args)
+            void this.holdSpriteAwake({
+                exec: args.exec,
+                turnId: `prepare-${args.spriteName}`,
+                ttl: args.awakeTtl ?? AUTH_AWAKE_TTL
+            })
+            return 'started'
+        } catch (err) {
+            this.logger.warn(
+                `runner prepare failed agentId=${args.agentId} sprite=${args.spriteName} class=${errorClass(err)}`
+            )
+            return 'exec-failed'
+        }
+    }
+
     private async bringUp(args: EnsureRunnerArgs): Promise<RunnerBringUp> {
         try {
             const inspected = await this.inspectSprite(args)
@@ -803,46 +938,8 @@ export class RunnerManagerService {
                 return inspected.execFailure
                     ? { handle: null, execFailure: inspected.execFailure }
                     : { handle: null }
-            // A runner that is merely PRESENT is not good enough. The platform
-            // owns this binary and nothing else ever updates it, so a sprite
-            // keeps its first CLI indefinitely — including bugs we have since
-            // fixed in it. The floor is the version whose exec-buffer sweep
-            // stops the buffer growing without bound; below it, a cold runner
-            // re-enumerates and re-parses every turn it ever ran before it
-            // dials back.
-            // Seen on staging 2026-07-26: bring-up blew its 120s budget on a
-            // sprite that was already installed AND registered, and this is
-            // the most plausible reason.
-            const tooOld = isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
-            if (!state.installed || tooOld) {
-                if (tooOld && state.installed)
-                    this.logger.log(
-                        `runner CLI ${state.version ?? 'unknown'} < ${DAEMON_MIN_CLI_VERSION}, upgrading sprite=${args.spriteName}`
-                    )
-                const ok = await this.installCli(args)
-                if (!ok) return { handle: null }
-            }
-            if (!state.registered) {
-                let registered = await this.register(args)
-                // A CLI that predates `--token -` takes the dash LITERALLY and
-                // rejects it as a malformed token. That is exactly what a sprite
-                // from an older image has: `~/.local/bin/mf` is there (so the
-                // install step is skipped) but it is the legacy binary, or the
-                // nca->mf bridge symlink the shell-env writes. Measured on a
-                // staging codex sprite: `daemon register token must start with
-                // ldt_` on every attempt, forever, because nothing reinstalls.
-                if (
-                    !registered.ok &&
-                    isStaleCliRegisterFailure(registered.detail)
-                ) {
-                    this.logger.warn(
-                        `runner CLI too old to read the token from stdin, reinstalling sprite=${args.spriteName}`
-                    )
-                    if (!(await this.installCli(args))) return { handle: null }
-                    registered = await this.register(args)
-                }
-                if (!registered.ok) return { handle: null }
-            }
+            const prepared = await this.installAndRegister(args, state)
+            if (prepared !== 'ok') return { handle: null }
             await this.start(args)
             let online = await this.waitOnline(args)
             if (!online) {
@@ -999,8 +1096,11 @@ export class RunnerManagerService {
             `${res.stdout} ${res.stderr}`
         ).slice(0, 400)
         if (!ok) {
+            // The CLI's own words are the only clue to WHY (an API the sprite
+            // cannot reach, a rejected token, an old binary); the token itself
+            // went over stdin and is never in this output.
             this.logger.warn(
-                `runner register failed sprite=${args.spriteName} exit=${res.exitCode}`
+                `runner register failed sprite=${args.spriteName} exit=${res.exitCode} detail=${detail.replace(/\s+/g, ' ').trim().slice(0, 200) || '(no output)'}`
             )
             await this.discardUnboundToken(minted.tokenId, args)
         }

@@ -5533,33 +5533,37 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 
 /* ---------------- App grid ---------------- */
 
-/* Four across, because the eight chat apps then fill two flush rows: a
-   five-wide grid left three empty cells mid-list and read as a gap in the
-   catalogue rather than as the end of a group. */
+/* Three across. It was four while the catalogue was ten apps in groups of
+   four, four and two; at thirteen — six, five and two — four columns left the
+   messengers ending on a single tile stranded in a row of its own, which
+   reads as a missing app rather than as the end of a group. Three divides the
+   first group flush and leaves the other two on honest half-rows. */
 .landing-root .lp-cl-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
 }
 
 /* Each tile links to its provider's guide, so it gets a hover — §5.2 is
    explicit that only clickable cards may move. One step up on both the edge
-   and the lift, not the full card treatment: ten of these sit in one grid,
-   and shadow-md at rest would make the section heavy. */
+   and the lift, not the full card treatment: thirteen of these sit in one
+   grid, and shadow-md at rest would make the section heavy.
+
+   One row: mark, name, and the way in. A three-storey card whose tallest
+   element was its own white space was spending a directory's worth of height
+   on two words. */
 .landing-root .lp-cl-tile {
-    position: relative;
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 10px;
-    padding: 16px;
+    padding: 13px 16px;
     background: var(--lp-paper);
     border: 1px solid var(--lp-line);
     border-radius: var(--lp-r-md);
     text-decoration: none;
     transition:
-        border-color 180ms ease,
-        box-shadow 180ms ease;
+        border-color 200ms ease,
+        box-shadow 200ms ease;
 }
 
 .landing-root .lp-cl-tile:hover {
@@ -5567,27 +5571,48 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     box-shadow: var(--lp-shadow-md);
 }
 
+/* §6.1 gives a clickable card an active state as well as a hover one, and
+   this grid never had it. */
+.landing-root .lp-cl-tile:active {
+    transform: translateY(0.5px);
+}
+
 .landing-root .lp-cl-tile:focus-visible {
     outline: none;
     box-shadow: var(--lp-shadow-focus);
 }
 
-/* Drawn at rest rather than revealed on hover: a touch screen never hovers,
-   and would have no other cue that the tile goes somewhere. */
-.landing-root .lp-cl-tile-arrow {
-    position: absolute;
-    top: 15px;
-    right: 15px;
-    width: 15px;
-    height: 15px;
-    /* --lp-subtle, the meta/caption rung: --lp-faint is the disabled-readout
-       step and all but vanishes on the dark card. */
-    color: var(--lp-subtle);
-    transition: color 180ms ease;
+/* The way to the guide, named, at the end of the row. A 15px arrow in the
+   corner was the only thing saying the tile led anywhere, and it lost that
+   argument to a bordered chip that looked like a button, was not one, and
+   talked about credentials. Drawn at rest — a touch screen never hovers. */
+.landing-root .lp-cl-tile-go {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    color: var(--lp-info);
+    transition: color 150ms ease;
 }
 
-.landing-root .lp-cl-tile:hover .lp-cl-tile-arrow {
-    color: var(--lp-info);
+.landing-root .lp-cl-tile-arrow {
+    width: 14px;
+    height: 14px;
+    flex: none;
+}
+
+/* The label goes to `-strong`, and nothing else moves. It used to grow an
+   underline on card hover, which is the wrong idiom twice over: §6.1 gives a
+   clickable card exactly two hover changes, a deeper edge and a step of
+   shadow, and an underline appearing under one phrase says that phrase is a
+   link inside the card — it is not, the card is. §5.5's underline rule is
+   about inline links in running text, where colour is the only other signal;
+   here the whole card lifts, and the arrow is a non-colour cue at rest. */
+.landing-root .lp-cl-tile:hover .lp-cl-tile-go {
+    color: var(--lp-info-strong);
 }
 
 /* No chip behind the mark: a bordered square around a logo that already has
@@ -5606,7 +5631,10 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     height: 100%;
 }
 
+/* min-width:0 so a long name is what shrinks when the row runs out of space,
+   rather than the "Setup guide" the row exists for. */
 .landing-root .lp-cl-tile-name {
+    min-width: 0;
     font-size: 15px;
     font-weight: 500;
     color: var(--lp-ink);
@@ -5620,25 +5648,6 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
 .landing-root .lp-cl-entry-mark svg[fill='currentColor'],
 .landing-root .lp-cl-ws-src svg[fill='currentColor'] {
     color: var(--lp-ink);
-}
-
-/* One chip for all three setup kinds. They used to climb an ink ladder with
-   the accent reserved for the QR flows, which ranked the apps by the
-   credential their API happens to want and told a visitor that scanning is
-   the better route — a recommendation this page never actually makes. The
-   chip states a fact about one app; it is not a score. */
-.landing-root .lp-cl-setup {
-    margin-top: auto;
-    display: inline-flex;
-    align-items: center;
-    padding: 3px 9px;
-    border-radius: var(--lp-r-xs);
-    font-size: 11.5px;
-    font-weight: 500;
-    white-space: nowrap;
-    color: var(--lp-ink-soft);
-    background: var(--lp-bg-soft);
-    border: 1px solid var(--lp-line);
 }
 
 /* Three peer groups, so three headings that look alike. The trackers used to
@@ -6145,13 +6154,19 @@ html[data-theme='dark'] .landing-root .lp-cl-converge::after {
     }
 }
 
-@media (max-width: 880px) {
+@media (max-width: 1024px) {
     .landing-root .lp-cl-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
 @media (max-width: 560px) {
+    /* One column: at two, a name as long as Microsoft Teams and the guide it
+       shares the row with leave nothing but a hyphenation decision. */
+    .landing-root .lp-cl-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     /* The rail stays — it is what says "product" — but narrows, because at
        this width every pixel it takes comes out of the session titles. */
     .landing-root .lp-cl-ws-rail {

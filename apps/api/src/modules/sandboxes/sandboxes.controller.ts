@@ -1,4 +1,5 @@
 import type {
+    AgentRuntimeSummary,
     SandboxServiceSummary,
     SandboxStopResponse,
     SandboxSummary,
@@ -22,6 +23,7 @@ import { SandboxesService } from './sandboxes.service'
 import {
     CliUpgradeDto,
     CreateSandboxDto,
+    InstallSandboxFrameworkDto,
     RenameSandboxDto,
     SetSandboxTerminalDto,
     SetSandboxTerminalModelCredentialsDto
@@ -125,6 +127,42 @@ export class SandboxesController {
         @Body() body?: CliUpgradeDto
     ): Promise<SandboxSummary> {
         return this.sandboxes.upgradeCli(user.userId, id, body?.targetVersion)
+    }
+
+    // Install (or move to a version of) a coding CLI on a sandbox that has no
+    // runtime for it yet — the create form's Install / Upgrade before the agent
+    // exists. Runs in the sandbox and may take a minute.
+    @Post(':id/frameworks/:framework/install')
+    @HttpCode(200)
+    @RequireApiTokenScope('sandboxes:edit')
+    async installFramework(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Param('framework') framework: string,
+        @Body() body?: InstallSandboxFrameworkDto
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.installFramework(
+            user.userId,
+            id,
+            framework,
+            body?.targetVersion
+        )
+    }
+
+    // Bring a framework up on this sandbox with no agent for it yet: a coding
+    // CLI gets its runtime row (so accounts can be added before any agent
+    // exists); a service framework is installed and started. The first agent
+    // then joins the runtime the way any later one would. Idempotent: an
+    // existing live runtime for the framework is returned as is.
+    @Post(':id/frameworks/:framework/runtime')
+    @HttpCode(200)
+    @RequireApiTokenScope('sandboxes:edit')
+    async prepareRuntime(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string,
+        @Param('framework') framework: string
+    ): Promise<AgentRuntimeSummary> {
+        return this.sandboxes.prepareRuntime(user.userId, id, framework)
     }
 
     @Get(':id/services')
