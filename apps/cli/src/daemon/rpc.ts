@@ -391,6 +391,11 @@ const readablePath = async (path: string): Promise<boolean> => {
     }
 }
 
+// A profile view never reads the daemon's env (envAuth is false there); its
+// stored api key file is the equivalent evidence for the fact builders.
+const viewKeyPresent = async (dirs: FrameworkConfigDirs): Promise<boolean> =>
+    dirs.apiKeyFile ? readablePath(dirs.apiKeyFile) : false
+
 const tomlString = (text: string, key: string): string | null => {
     const pattern = new RegExp(`^\\s*${key}\\s*=\\s*["']([^"']+)["']`, 'm')
     return pattern.exec(text)?.[1]?.trim() || null
@@ -514,11 +519,12 @@ const claudeCredentialFacts = async (
     return {
         framework: 'claude-code',
         envToken:
-            dirs.envAuth &&
-            Boolean(
-                process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
-                process.env.ANTHROPIC_API_KEY?.trim()
-            ),
+            (dirs.envAuth &&
+                Boolean(
+                    process.env.ANTHROPIC_AUTH_TOKEN?.trim() ||
+                    process.env.ANTHROPIC_API_KEY?.trim()
+                )) ||
+            (await viewKeyPresent(dirs)),
         credentialsFileParsed: credentials !== null,
         oauthExpiresAt:
             typeof oauth?.expiresAt === 'number' ? oauth.expiresAt : null,
@@ -619,9 +625,12 @@ const inspectCodexModels =
             config.text &&
             /^\s*requires_openai_auth\s*=\s*true\s*$/m.test(config.text)
         const authSummary = auth.ok ? codexAuthSummary(auth.text) : null
-        const envCredentialReady = Boolean(
-            dirs.envAuth && process.env.OPENAI_API_KEY && !requiresOpenAiAuth
-        )
+        const envCredentialReady =
+            Boolean(
+                dirs.envAuth &&
+                    process.env.OPENAI_API_KEY &&
+                    !requiresOpenAiAuth
+            ) || (await viewKeyPresent(dirs))
         const credentialReady = Boolean(authSummary || envCredentialReady)
         const scan = scanCodexConfig(config.text)
         const current =
@@ -742,7 +751,9 @@ const inspectGeminiModels =
               process.env.GOOGLE_API_KEY?.trim() ||
               process.env.GOOGLE_GEMINI_API_KEY?.trim() ||
               ''
-            : ''
+            : (await viewKeyPresent(dirs))
+              ? 'profile'
+              : ''
         const envModel = process.env.GEMINI_MODEL?.trim() || null
         const envBaseUrl =
             process.env.GOOGLE_GEMINI_BASE_URL?.trim() ||
@@ -1250,7 +1261,9 @@ const handlers: Partial<
             await inspectModelCapability({ framework })
         ).frameworks.find((item) => item.framework === framework)
         const account = await inspectRuntimeAccount(framework, {
-            cliVersion: capability?.cliVersion?.match(/\d+\.\d+\.\d+/)?.[0] ?? null
+            cliVersion: capability?.cliVersion?.match(/\d+\.\d+\.\d+/)?.[0] ?? null,
+            // The API skips the vendor usage call while it holds a fresh answer.
+            usage: payload.usage !== false
         })
         return {
             ok: true,
@@ -1275,10 +1288,13 @@ const handlers: Partial<
     'auth.create': async (payload) => {
         try {
             const manager = await runtimeAuthManagerFor(payload.runtimeId)
+            const apiKey =
+                typeof payload.apiKey === 'string' ? payload.apiKey.trim() : ''
             const result = await manager.create(
                 configurableFrameworkOf(payload),
                 assertProfileId(payload.profileId),
-                payload.authMethod === 'api-key' ? 'api-key' : 'subscription'
+                payload.authMethod === 'api-key' ? 'api-key' : 'subscription',
+                apiKey || undefined
             )
             return { ok: true, payload: { ...result } }
         } catch (err) {

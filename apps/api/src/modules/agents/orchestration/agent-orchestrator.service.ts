@@ -11,19 +11,12 @@ import {
     UserFrameworkRuntimeOverridesSettings,
     agentRuntime,
     auditAction,
-    blockedVersionMessage,
-    blockedVersionRangesFor,
+    isConfigurableFramework,
     codingAgentWorkspacePath,
     configurableFrameworkRuntimeDefaults,
     createObjectId,
-    findBlockedVersionRange,
-    frameworkPrereleaseAllowed,
     isExternal,
-    isPrereleaseVersion,
-    isVersionedFramework,
     normalizeAgentName,
-    resolveFrameworkRepo,
-    selectFrameworkInstallVersion,
     supportsRuntime
 } from '@manyfold/shared'
 import type { AgentSummary } from '@manyfold/shared'
@@ -54,8 +47,14 @@ import {
 } from '@manyfold/db'
 import {
     createClient as createSpritesClient,
+    execSprite,
     SpritesError
 } from '@manyfold/sprites'
+import type { SpritesClient } from '@manyfold/sprites'
+import {
+    RunnerManagerService,
+    type SpriteExecFn
+} from '@/modules/chat/runner/runner-manager.service'
 import {
     EXPERIMENT_ASSIGNMENT_PORT,
     type ExperimentAssignmentPort
@@ -70,6 +69,7 @@ import { SKILL_FRAMEWORKS } from '@/modules/skills/skill-utils'
 import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
+import { resolveFrameworkInstallVersion } from '@/modules/framework-versions/resolve-install-version'
 import { UsersService } from '@/modules/users/users.service'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
@@ -345,53 +345,19 @@ export class AgentOrchestratorService {
     // Version a new sprite agent installs: what the caller asked for, else the
     // admin pin, else the newest release upstream. The last tier is what keeps a
     // fresh agent off the sprite image's baked-in (and usually months-old) CLI.
-    // A framework with no versioned CLI, or an unreachable catalog, resolves to
-    // `none` and keeps that framework's built-in default.
     private async resolveFrameworkVersion(
         framework: AgentFramework,
         requested?: string | null
     ): Promise<{ selection: FrameworkVersionSelection; repo: string | null }> {
-        const settings =
-            await this.adminSettings.getCachedFrameworkDefaultVersions()
-        // Resolved from the SAME settings read as the version below. A separate
-        // read could see a source switch land in between and hand the bootstrap
-        // a tag that only exists on the repository it is no longer cloning.
-        const repo = resolveFrameworkRepo(framework, settings)
-        const adminDefault = settings.defaults[framework]
-        const blocked = blockedVersionRangesFor(framework, settings)
-        const allowPrerelease = frameworkPrereleaseAllowed(framework, settings)
-        // A blocked pin is skipped rather than installed, so the catalog tier
-        // has to be reachable to take over — fetch it whenever no usable pin
-        // survives, not just when none was configured. A prerelease pin with the
-        // opt-in off is skipped the same way and for the same reason.
-        const pinUsable =
-            !!adminDefault &&
-            !findBlockedVersionRange(adminDefault, blocked) &&
-            (allowPrerelease || !isPrereleaseVersion(adminDefault))
-        const catalogLatest =
-            !requested && !pinUsable && isVersionedFramework(framework)
-                ? await this.frameworkVersions.latestForFresh(framework)
-                : null
-        const selection = selectFrameworkInstallVersion({
-            requested,
-            adminDefault,
-            catalogLatest,
-            blocked,
-            allowPrerelease
-        })
-        if (selection.source !== 'none' && selection.blockedBy)
-            throw new BadRequestException(
-                blockedVersionMessage(
-                    framework,
-                    selection.version,
-                    selection.blockedBy
-                )
-            )
-        if (selection.source !== 'none' && selection.prereleaseNotAllowed)
-            throw new BadRequestException(
-                `${framework} version ${selection.version} is a pre-release; enable pre-release versions for ${framework} first`
-            )
-        return { selection, repo }
+        return resolveFrameworkInstallVersion(
+            {
+                settings:
+                    await this.adminSettings.getCachedFrameworkDefaultVersions(),
+                latestForFresh: (fw) => this.frameworkVersions.latestForFresh(fw)
+            },
+            framework,
+            requested
+        )
     }
 
     // Rotate the agent's runtime identity and re-inject it live. Order-B,
@@ -675,10 +641,7 @@ export class AgentOrchestratorService {
                     code: 'CLOUD_COMPUTER_DISABLED',
                     kind: 'k8s'
                 })
-            const resolved = await this.credentialsResolver.resolve(
-                userId,
-                dto
-            )
+            const resolved = await this.credentialsResolver.resolve(userId, dto)
             emitter.step('creating_deployment')
             const provisioned = await this.k8sProvisioner.provision({
                 userId,
@@ -1340,6 +1303,23 @@ export class AgentOrchestratorService {
 
         const workspacePath = workspace.path
 
+        // The sprite's runner is registered and started here, while the VM is
+        // still awake from the framework install, rather than on the first
+        // turn: a runtime whose account list is read before any turn would
+        // otherwise report "no runner yet" and need a full bring-up on the
+        // user's click. Coding frameworks only — they are the ones with a
+        // runtime-local surface; the service frameworks bring theirs up on
+        // the turn path as before.
+        if (isConfigurableFramework(dto.framework) && runtime.spriteName) {
+            emitter.step('starting_runner')
+            await this.prepareSpriteRunner({
+                userId,
+                agentId,
+                spriteName: runtime.spriteName,
+                client: provisioned.spritesClient
+            })
+        }
+
         const spriteIngressHost = extractHost(provisioned.endpointUrl ?? null)
         if (spriteIngressHost)
             await this.runtimes.applyProvisioningPatch(runtime.id, {
@@ -1566,6 +1546,52 @@ export class AgentOrchestratorService {
                 message: reason,
                 errorClass
             })
+        }
+    }
+
+    // Non-fatal by design: the runner is an optimisation the turn path degrades
+    // without, so a daemon that fails to install or start must not fail the
+    // create. Resolved through the module ref: RunnerModule imports this
+    // module's neighbours, so a constructor injection would be a cycle.
+    private async prepareSpriteRunner(input: {
+        userId: string
+        agentId: string
+        spriteName: string
+        client: SpritesClient
+    }): Promise<void> {
+        let runner: RunnerManagerService | null = null
+        try {
+            runner = this.moduleRef.get(RunnerManagerService, { strict: false })
+        } catch {
+            runner = null
+        }
+        // A container without the runner module (or a test double standing in
+        // for the module ref) is simply a create without a runner.
+        if (typeof runner?.prepareRunner !== 'function') return
+        try {
+            const exec: SpriteExecFn = (a) =>
+                execSprite(input.client, input.spriteName, {
+                    cmd: a.cmd,
+                    stdin: a.stdin ?? '',
+                    timeoutMs: a.timeoutMs
+                })
+            const outcome = await runner.prepareRunner({
+                userId: input.userId,
+                agentId: input.agentId,
+                spriteName: input.spriteName,
+                exec
+            })
+            this.log.log(
+                `sprite runner prepared agent=${input.agentId} sprite=${input.spriteName} outcome=${outcome}`
+            )
+            this.telemetry.event('agent.create.runner_prepare', {
+                agentId: input.agentId,
+                outcome
+            })
+        } catch (err) {
+            this.log.warn(
+                `sprite runner prepare failed agent=${input.agentId} sprite=${input.spriteName}: ${(err as Error).message}`
+            )
         }
     }
 

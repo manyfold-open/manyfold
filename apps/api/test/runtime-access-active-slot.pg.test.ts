@@ -178,6 +178,38 @@ test(
     }
 )
 
+// WHY: a sandbox delete marks its host 'revoked' before calling sprites.dev;
+// when that call fails the row stays as the retry record with its last
+// sprite_status frozen — 'running' if the VM was up. Seen on a local dev
+// stack [2026-09-10]: one such row pinned a Free-plan user at 1/1 active and
+// refused every wake of the sandbox they had just created.
+test(
+    'a revoked host left behind by a failed sprites.dev delete holds no active slot',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            await h.db.insert(runtimeHosts).values({
+                id: `${h.hostId}_ghost`,
+                userId: h.userId,
+                kind: 'sandbox',
+                name: `pgtest-ghost-${h.hostId}`,
+                status: 'revoked',
+                spriteStatus: 'running',
+                activeAccrualSince: null
+            })
+            // maxConcurrentActive is 1: counting the ghost would refuse this.
+            const result = await h.service.reserveActiveSlot({
+                userId: h.userId,
+                hostId: h.hostId
+            })
+            assert.equal(result.activeCount, 0)
+        } finally {
+            await h.close()
+        }
+    }
+)
+
 // WHY: documents the shared root cause behind all three coerced sites
 // (runtime-access reserveActiveSlot, sprite-status-sync running transition,
 // users billingForUsers). A raw JS Date bound into a Drizzle sql`` fragment

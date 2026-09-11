@@ -93,6 +93,9 @@ export interface FrameworkConfigDirs {
     codexHome: string
     geminiDir: string
     envAuth: boolean
+    // An api-key profile keeps its key in this file and injects it as the
+    // vendor env var at execution; its presence is the view's key evidence.
+    apiKeyFile?: string
 }
 
 export const nativeConfigDirs = (): FrameworkConfigDirs => ({

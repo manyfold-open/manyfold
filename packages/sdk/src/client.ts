@@ -139,10 +139,11 @@ import type {
     RuntimeAuthListView,
     RuntimeAuthProfileView,
     RuntimeAuthOperationView,
+    RuntimeAuthPrewarmView,
+    RuntimeAuthReleaseView,
     CreateRuntimeAuthProfileBody,
     RuntimeAuthOperationBody,
     SetRuntimeDefaultAuthBody,
-
     Plan,
     PlanId,
     SandboxUsageBreakdown,
@@ -589,7 +590,7 @@ export interface AgentRuntimesClient {
     // wake: exec on a sleeping sandbox (starts the VM); a plain read never does.
     getAccount: (
         runtimeId: string,
-        opts?: { wake?: boolean }
+        opts?: { wake?: boolean; refreshUsage?: boolean }
     ) => Promise<RuntimeAccountView>
 }
 
@@ -629,6 +630,12 @@ export interface RuntimeAuthClient {
         body: SetRuntimeDefaultAuthBody
     ) => Promise<RuntimeAuthListView>
     operation: (operationId: string) => Promise<RuntimeAuthOperationView>
+    // Intent prewarm: ask the API to wake the sandbox runner now so the list
+    // answers by the time the user needs it. Debounced server-side.
+    prewarm: (runtimeId: string) => Promise<RuntimeAuthPrewarmView>
+    // The pick moved on (or the page closed): let the sandbox the prewarm
+    // held awake fall asleep on its own again.
+    release: (runtimeId: string) => Promise<RuntimeAuthReleaseView>
 }
 
 export interface SandboxesClient {
@@ -645,6 +652,17 @@ export interface SandboxesClient {
     detectFrameworks: (id: string) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
+    installFramework: (
+        id: string,
+        framework: string,
+        targetVersion?: string
+    ) => Promise<SandboxSummary>
+    // Bring a framework up on a sandbox with no agent for it yet: the row the
+    // create form's account list needs (and the first agent later joins).
+    prepareRuntime: (
+        id: string,
+        framework: string
+    ) => Promise<AgentRuntimeSummary>
     listServices: (id: string) => Promise<SandboxServiceSummary[]>
     deleteService: (id: string, name: string) => Promise<void>
     listTasks: (id: string) => Promise<SandboxTaskSummary[]>
@@ -1763,10 +1781,13 @@ const buildAgentsClient = (
                 body: JSON.stringify(body)
             }),
         updateRuntimeAuth: (agentId, body) =>
-            request<AgentModelConfigView>(apiPaths.AGENT_RUNTIME_AUTH(agentId), {
-                method: 'PATCH',
-                body: JSON.stringify(body)
-            }),
+            request<AgentModelConfigView>(
+                apiPaths.AGENT_RUNTIME_AUTH(agentId),
+                {
+                    method: 'PATCH',
+                    body: JSON.stringify(body)
+                }
+            ),
         refreshModelConfigModels: (agentId, body) =>
             request<RefreshAgentModelConfigModelsResponse>(
                 paths.modelConfigRefreshModels(agentId),
@@ -2223,10 +2244,15 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 method: 'PATCH',
                 body: JSON.stringify({ enabled })
             }),
-        getAccount: (runtimeId, opts) =>
-            request<RuntimeAccountView>(
-                `${paths.account(runtimeId)}${opts?.wake ? '?wake=1' : ''}`
+        getAccount: (runtimeId, opts) => {
+            const query = [
+                opts?.wake ? 'wake=1' : null,
+                opts?.refreshUsage ? 'refreshUsage=1' : null
+            ].filter((part): part is string => part !== null)
+            return request<RuntimeAccountView>(
+                `${paths.account(runtimeId)}${query.length ? `?${query.join('&')}` : ''}`
             )
+        }
     })
 
     const buildBackupsClient = (paths: {
@@ -2284,7 +2310,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
             ),
         inspect: (runtimeId, profileId) =>
             request<RuntimeAuthProfileView>(
-                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_INSPECT(runtimeId, profileId),
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_INSPECT(
+                    runtimeId,
+                    profileId
+                ),
                 { method: 'POST', body: JSON.stringify({}) }
             ),
         login: (runtimeId, profileId, body = {}) =>
@@ -2294,7 +2323,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
             ),
         logout: (runtimeId, profileId, body = {}) =>
             request<RuntimeAuthOperationView>(
-                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_LOGOUT(runtimeId, profileId),
+                apiPaths.AGENT_RUNTIME_AUTH_PROFILE_LOGOUT(
+                    runtimeId,
+                    profileId
+                ),
                 { method: 'POST', body: JSON.stringify(body) }
             ),
         remove: (runtimeId, profileId, body = {}) =>
@@ -2310,6 +2342,16 @@ export const createClient = (options: ClientOptions): NcaClient => {
         operation: (operationId) =>
             request<RuntimeAuthOperationView>(
                 apiPaths.RUNTIME_AUTH_OPERATION_BY_ID(operationId)
+            ),
+        prewarm: (runtimeId) =>
+            request<RuntimeAuthPrewarmView>(
+                apiPaths.AGENT_RUNTIME_AUTH_PREWARM(runtimeId),
+                { method: 'POST', body: JSON.stringify({}) }
+            ),
+        release: (runtimeId) =>
+            request<RuntimeAuthReleaseView>(
+                apiPaths.AGENT_RUNTIME_AUTH_RELEASE(runtimeId),
+                { method: 'POST', body: JSON.stringify({}) }
             )
     }
     const backups = buildBackupsClient({
@@ -2492,6 +2534,19 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<SandboxSummary>(apiPaths.SANDBOX_REFRESH_STATUS(id), {
                     method: 'POST'
                 }),
+            installFramework: (id, framework, targetVersion) =>
+                request<SandboxSummary>(
+                    apiPaths.SANDBOX_FRAMEWORK_INSTALL(id, framework),
+                    {
+                        method: 'POST',
+                        body: JSON.stringify({ targetVersion })
+                    }
+                ),
+            prepareRuntime: (id, framework) =>
+                request<AgentRuntimeSummary>(
+                    apiPaths.SANDBOX_FRAMEWORK_RUNTIME(id, framework),
+                    { method: 'POST' }
+                ),
             upgradeCli: (id, targetVersion) =>
                 request<SandboxSummary>(apiPaths.SANDBOX_CLI_UPGRADE(id), {
                     method: 'POST',

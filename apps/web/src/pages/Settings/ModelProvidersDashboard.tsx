@@ -27,7 +27,7 @@ import {
     type SpendWindow
 } from '@/lib/modelProviderSpend'
 import { fmt, fmtCost, fmtTokens } from '@/lib/usageFormat'
-import { BuiltInLogo } from '@/pages/Settings/ModelProviders'
+import { BuiltInLogo } from '@/components/BuiltInProviderLogo'
 
 const WINDOWS: SpendWindow[] = ['7d', '30d', 'all']
 

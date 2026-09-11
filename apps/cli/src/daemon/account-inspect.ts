@@ -35,6 +35,10 @@ export interface AccountInspectDeps {
     cliVersion: string | null
     // Native dirs for the ambient probe; a profile's view dirs otherwise.
     dirs: FrameworkConfigDirs
+    // Whether to call the vendor's usage endpoint at all. The API turns it
+    // off while it holds a fresh answer: the endpoint rate-limits far below
+    // how often the runtime page is opened.
+    usage: boolean
 }
 
 export type RuntimeAccountReport = Omit<RuntimeAccountProbe, 'credentialFacts'>
@@ -55,7 +59,8 @@ const defaultDeps = (): AccountInspectDeps => ({
     now: Date.now,
     platform: process.platform,
     cliVersion: null,
-    dirs: nativeConfigDirs()
+    dirs: nativeConfigDirs(),
+    usage: true
 })
 
 const trimmed = (value: unknown): string | null =>
@@ -194,6 +199,7 @@ const inspectClaude = async (
     const expiresAt = oauth?.expiresAt
     if (typeof expiresAt === 'number' && expiresAt <= deps.now())
         return { tokenSource: 'file', identity, usage: skippedFetch('anthropic', deps) }
+    if (!deps.usage) return { tokenSource: 'file', identity, usage: null }
     const usage = await vendorFetch(deps, 'anthropic', ANTHROPIC_USAGE_URL, {
         headers: {
             ...bearer(accessToken),
@@ -233,6 +239,7 @@ const inspectCodex = async (
     const expiresAt = jwtExpiryMs(accessToken)
     if (expiresAt !== null && expiresAt <= deps.now())
         return { tokenSource: 'file', identity, usage: skippedFetch('openai', deps) }
+    if (!deps.usage) return { tokenSource: 'file', identity, usage: null }
     const usage = await vendorFetch(deps, 'openai', CODEX_USAGE_URL, {
         headers: {
             ...bearer(accessToken),
@@ -282,6 +289,7 @@ const inspectGemini = async (
     const expiry = creds?.expiry_date
     if (typeof expiry === 'number' && expiry <= deps.now())
         return { tokenSource: 'file', identity, usage: skippedFetch('google', deps) }
+    if (!deps.usage) return { tokenSource: 'file', identity, usage: null }
     const headers = {
         ...bearer(accessToken),
         'Content-Type': 'application/json'

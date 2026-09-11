@@ -7,6 +7,7 @@ import {
 } from '@manyfold/shared'
 import type {
     ConfigurableFramework,
+    RuntimeAccountUsage,
     RuntimeAccountView,
     RuntimeAccountViewStatus
 } from '@manyfold/shared'
@@ -19,7 +20,10 @@ import {
 import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
+import {
+    isConcurrentActiveLimitError,
+    RuntimeAccessService
+} from '@/modules/runtime-access/runtime-access.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import {
     credentialContextFor,
@@ -33,6 +37,12 @@ import { runtimeAccountScript } from './runtime-account-script'
 // a 429 pins the window to the vendor's Retry-After. Per instance on purpose:
 // the worst case across instances is one extra probe.
 const CACHE_TTL_MS = 30_000
+// How long a good usage answer is reused before the vendor is asked again.
+// The usage endpoints rate-limit far below how often a page is opened or
+// refreshed (Anthropic answered a second read within minutes with a 429 and
+// a multi-minute Retry-After on a local stack [2026-09-11]); the sign-in
+// itself is still re-read on every probe.
+const USAGE_TTL_MS = 10 * 60_000
 const DAEMON_RPC_TIMEOUT_MS = 20_000
 const SANDBOX_EXEC_TIMEOUT_MS = 30_000
 const MAX_ERROR_CHARS = 300
@@ -50,6 +60,9 @@ const EMPTY_INSPECT_CATALOG = {
 
 type HostView = RuntimeAccountView['host']
 
+const identityKeyOf = (view: RuntimeAccountView): string | null =>
+    view.identity?.accountId ?? view.identity?.email ?? null
+
 @Injectable()
 export class RuntimeAccountService {
     private readonly log = new Logger(RuntimeAccountService.name)
@@ -58,6 +71,16 @@ export class RuntimeAccountService {
         { until: number; view: RuntimeAccountView }
     >()
     private readonly inflight = new Map<string, Promise<RuntimeAccountView>>()
+    // The last good usage per runtime: `until` is how long a probe may skip
+    // the vendor call for it, `identityKey` whose usage it is.
+    private readonly usageCache = new Map<
+        string,
+        {
+            usage: RuntimeAccountUsage
+            identityKey: string | null
+            until: number
+        }
+    >()
 
     constructor(
         private readonly runtimes: AgentRuntimesService,
@@ -70,7 +93,9 @@ export class RuntimeAccountService {
     async getView(
         userId: string,
         runtimeId: string,
-        opts: { wake: boolean }
+        // refreshUsage: the user's explicit ask to read usage from the vendor
+        // again; bypasses both caches.
+        opts: { wake: boolean; refreshUsage?: boolean }
     ): Promise<RuntimeAccountView> {
         const row = await this.runtimes.findById(runtimeId)
         if (!row || row.userId !== userId)
@@ -84,20 +109,24 @@ export class RuntimeAccountService {
         if (
             cached &&
             cached.until > now &&
+            !opts.refreshUsage &&
             !(opts.wake && cached.view.status === 'sandbox-asleep')
         )
             return cached.view
-        const key = `${row.id}:${opts.wake ? 'wake' : 'peek'}`
+        const key = `${row.id}:${opts.wake ? 'wake' : 'peek'}${opts.refreshUsage ? ':usage' : ''}`
         const pending = this.inflight.get(key)
         if (pending) return pending
-        const promise = this.probe(row, opts.wake)
+        const promise = this.probe(row, opts.wake, opts.refreshUsage === true)
             .then((view) => {
                 const retryAfter = view.usage?.error?.retryAfterSeconds
                 const ttl =
                     view.usage?.error?.kind === 'rate-limited' && retryAfter
                         ? retryAfter * 1000
                         : CACHE_TTL_MS
-                this.cache.set(row.id, { until: Date.now() + ttl, view })
+                // The cap frees itself the moment another VM idles; a cached
+                // refusal would keep saying no after it did.
+                if (view.status !== 'sandbox-limit')
+                    this.cache.set(row.id, { until: Date.now() + ttl, view })
                 return view
             })
             .finally(() => this.inflight.delete(key))
@@ -107,13 +136,23 @@ export class RuntimeAccountService {
 
     private async probe(
         row: AgentRuntimeRow,
-        wake: boolean
+        wake: boolean,
+        refreshUsage: boolean
     ): Promise<RuntimeAccountView> {
         const framework = row.framework as ConfigurableFramework
         try {
-            return row.kind === 'daemon'
-                ? await this.probeDaemon(row, framework)
-                : await this.probeSandbox(row, framework, wake)
+            const fetchUsage = refreshUsage || !this.usageFresh(row.id)
+            const view = await this.probeHost(row, framework, wake, fetchUsage)
+            // The kept usage belongs to whoever was signed in when it was
+            // read; a different identity now means asking again now, not
+            // showing one account's numbers under another's name.
+            if (!fetchUsage && this.usageIdentityChanged(row.id, view))
+                return this.settleUsage(
+                    row.id,
+                    await this.probeHost(row, framework, wake, true),
+                    true
+                )
+            return this.settleUsage(row.id, view, fetchUsage)
         } catch (err) {
             // Tokens never reach this process, so the message is safe to show;
             // it is still capped because a failed exec can echo a whole stdout.
@@ -127,9 +166,67 @@ export class RuntimeAccountService {
         }
     }
 
+    private probeHost(
+        row: AgentRuntimeRow,
+        framework: ConfigurableFramework,
+        wake: boolean,
+        fetchUsage: boolean
+    ): Promise<RuntimeAccountView> {
+        return row.kind === 'daemon'
+            ? this.probeDaemon(row, framework, fetchUsage)
+            : this.probeSandbox(row, framework, wake, fetchUsage)
+    }
+
+    private usageFresh(runtimeId: string): boolean {
+        const entry = this.usageCache.get(runtimeId)
+        return entry !== undefined && entry.until > Date.now()
+    }
+
+    private usageIdentityChanged(
+        runtimeId: string,
+        view: RuntimeAccountView
+    ): boolean {
+        const entry = this.usageCache.get(runtimeId)
+        return (
+            entry !== undefined &&
+            view.status === 'ok' &&
+            entry.identityKey !== identityKeyOf(view)
+        )
+    }
+
+    // A probe that asked the vendor refreshes the kept usage when the answer
+    // is good and otherwise keeps the last good numbers (their fetchedAt says
+    // how old they are) rather than replacing them with an error; a probe
+    // that skipped the vendor takes the kept usage as its own.
+    private settleUsage(
+        runtimeId: string,
+        view: RuntimeAccountView,
+        fetched: boolean
+    ): RuntimeAccountView {
+        if (view.status !== 'ok') return view
+        const entry = this.usageCache.get(runtimeId)
+        if (!fetched) return entry ? { ...view, usage: entry.usage } : view
+        if (view.usage && !view.usage.error) {
+            this.usageCache.set(runtimeId, {
+                usage: view.usage,
+                identityKey: identityKeyOf(view),
+                until: Date.now() + USAGE_TTL_MS
+            })
+            return view
+        }
+        if (
+            view.usage?.error &&
+            entry &&
+            entry.identityKey === identityKeyOf(view)
+        )
+            return { ...view, usage: entry.usage }
+        return view
+    }
+
     private async probeDaemon(
         row: AgentRuntimeRow,
-        framework: ConfigurableFramework
+        framework: ConfigurableFramework,
+        fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
         if (!row.daemonId)
             return this.view(row, 'probe-failed', {
@@ -147,7 +244,7 @@ export class RuntimeAccountService {
         const payload = await this.daemonRegistry.rpc({
             daemonId: host.id,
             method: 'account.inspect',
-            payload: { framework },
+            payload: { framework, usage: fetchUsage },
             timeoutMs: DAEMON_RPC_TIMEOUT_MS
         })
         return this.viewFromProbe(row, payload, null)
@@ -156,7 +253,8 @@ export class RuntimeAccountService {
     private async probeSandbox(
         row: AgentRuntimeRow,
         framework: ConfigurableFramework,
-        wake: boolean
+        wake: boolean,
+        fetchUsage: boolean
     ): Promise<RuntimeAccountView> {
         if (!row.hostId)
             return this.view(row, 'probe-failed', {
@@ -181,10 +279,20 @@ export class RuntimeAccountService {
         // the user's explicit click.
         if (host.spriteStatus !== 'running' && !wake)
             return this.view(row, 'sandbox-asleep', { host: hostView })
-        await this.runtimeAccess.reserveActiveSlot({
-            userId: row.userId,
-            hostId: host.id
-        })
+        try {
+            await this.runtimeAccess.reserveActiveSlot({
+                userId: row.userId,
+                hostId: host.id
+            })
+        } catch (err) {
+            // Another sandbox holds the plan's active slot: a named state, so
+            // the page can say what to do rather than show a failed probe.
+            if (!isConcurrentActiveLimitError(err)) throw err
+            return this.view(row, 'sandbox-limit', {
+                host: hostView,
+                error: (err as Error).message
+            })
+        }
         const account = await this.accounts.getById(host.accountId)
         if (!account)
             return this.view(row, 'probe-failed', {
@@ -194,7 +302,7 @@ export class RuntimeAccountService {
         const script = [
             'export PATH="$HOME/.local/bin:$PATH"',
             runtimeInspectScript(framework, EMPTY_INSPECT_CATALOG),
-            runtimeAccountScript(framework)
+            runtimeAccountScript(framework, undefined, { fetchUsage })
         ].join('\n')
         const result = await this.exec(
             this.spritesClientFor(account),

@@ -1,6 +1,8 @@
 import type {
     RuntimeAuthListView,
     RuntimeAuthOperationView,
+    RuntimeAuthPrewarmView,
+    RuntimeAuthReleaseView,
     RuntimeAuthProfileView
 } from '@manyfold/shared'
 import {
@@ -45,6 +47,35 @@ export class RuntimeAuthProfilesController {
         return this.profiles.list(user.userId, id, {
             wake: wake === '1' || wake === 'true'
         })
+    }
+
+    // Intent prewarm: the user picked this sandbox runtime in a form that
+    // will need its accounts, so wake the runner now. Fire-and-forget and
+    // debounced server-side; 202 either way, the list says when it answers.
+    // A wake the user did not ask for is still off the table: this is the
+    // selection click, not a page open.
+    @Post('agent-runtimes/:id/auth-profiles/prewarm')
+    @HttpCode(202)
+    @RequireApiTokenScope('agent-runtimes:edit')
+    @SubjectAgentFromResource('agentRuntime', 'id')
+    prewarm(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<RuntimeAuthPrewarmView> {
+        return this.profiles.prewarm(user, id)
+    }
+
+    // The pick moved on: let the sandbox the prewarm held awake go back to
+    // sleep, and with it the plan's active slot.
+    @Post('agent-runtimes/:id/auth-profiles/release')
+    @HttpCode(202)
+    @RequireApiTokenScope('agent-runtimes:edit')
+    @SubjectAgentFromResource('agentRuntime', 'id')
+    release(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<RuntimeAuthReleaseView> {
+        return this.profiles.release(user, id)
     }
 
     @Post('agent-runtimes/:id/auth-profiles')

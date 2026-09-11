@@ -1,12 +1,16 @@
 import {
     auditAction,
     cliChannelOfVersion,
+    createObjectId,
     isCliUpdateAvailable,
     isPlatformTaskName,
     isServiceFrameworkName,
-    parseProbedSemver
+    parseProbedSemver,
+    isVersionedFramework,
+    supportsRuntime
 } from '@manyfold/shared'
 import type {
+    AgentRuntimeSummary,
     CreateSandboxBody,
     DetectedFramework,
     MfCliChannel,
@@ -25,9 +29,11 @@ import {
     Injectable,
     Logger,
     NotFoundException,
-    ServiceUnavailableException
+    ServiceUnavailableException,
+    Optional
 } from '@nestjs/common'
 import {
+    agentCredentials,
     auditLogs,
     type Database,
     type RuntimeHostRow,
@@ -56,7 +62,12 @@ import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-s
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
-import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
+import {
+    buildNpmLatestInstallShell,
+    buildNpmUpgradeShell,
+    frameworkVersionDescriptor
+} from '@/modules/framework-versions/framework-version-registry'
+import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
 import {
     DaemonCliVersionService,
     type LatestCliVersion
@@ -64,6 +75,7 @@ import {
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
 import { buildCliInstallScript } from '@/modules/agent-self/sprite-shell-env.service'
 import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
+import { CryptoService } from '@/modules/secrets/crypto.service'
 
 // The coding-agent CLIs every sprite image ships pre-installed. Probed as a unit
 // so a bare sandbox can advertise what it can host before any runtime exists.
@@ -74,6 +86,22 @@ const SPRITE_CODING_FRAMEWORKS: DetectedFramework['framework'][] = [
 ]
 const DETECT_TIMEOUT_MS = 30_000
 const CLI_UPGRADE_TIMEOUT_MS = 180_000
+const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
+
+// One probe for everything a sandbox can host: each coding CLI's version and
+// the mf CLI's. Shared by detect-frameworks and the post-install re-probe so
+// the two can never disagree about what "installed" looks like.
+const frameworkProbeShell = (): string =>
+    [
+        'export PATH="$HOME/.local/bin:$PATH"',
+        ...SPRITE_CODING_FRAMEWORKS.map((f) => {
+            const bin = frameworkVersionDescriptor(f).binName
+            return `echo "${f}=$(${bin} --version 2>/dev/null | head -1)"`
+        }),
+        // The platform-managed mf CLI baked into the sprite image (used for
+        // agent auth / a2a). Surfaced as the sandbox's "mf CLI version".
+        'echo "mf=$(mf --version 2>/dev/null | head -1)"'
+    ].join('; ')
 
 @Injectable()
 export class SandboxesService {
@@ -90,7 +118,15 @@ export class SandboxesService {
         private readonly agents: AgentsService,
         private readonly keepAliveLease: SpriteKeepAliveLeaseService,
         @Inject(DRIZZLE) private readonly db: Database,
-        private readonly runnerManager: RunnerManagerService
+        private readonly runnerManager: RunnerManagerService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absence means "install npm's latest" for a framework.
+        @Optional()
+        private readonly frameworkVersions?: FrameworkVersionsService,
+        // Same convention: only prepareRuntime for a service framework needs
+        // it, to store the gateway tokens the bootstrap generated.
+        @Optional()
+        private readonly crypto?: CryptoService
     ) {}
 
     async list(
@@ -378,6 +414,198 @@ export class SandboxesService {
             `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
         )
         return this.get(owner, hostId)
+    }
+
+    // Install (or move to a version of) one of the sprite image's coding CLIs
+    // on a sandbox that has no runtime for it yet, so the create form can show
+    // and fix the framework before the agent exists. Same staged npm shell as
+    // the agent-level upgrade: the candidate is validated in its own prefix
+    // and swapped in atomically, so a failed install never breaks the CLI on
+    // PATH. No target = the catalog's latest; with no catalog at all, npm's
+    // own latest minus the known-broken releases.
+    async installFramework(
+        userId: string,
+        hostId: string,
+        framework: string,
+        targetVersion?: string,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        if (
+            !isVersionedFramework(framework) ||
+            !SPRITE_CODING_FRAMEWORKS.includes(
+                framework as DetectedFramework['framework']
+            )
+        )
+            throw new BadRequestException(
+                `${framework} cannot be installed on a sandbox`
+            )
+        const r = isAdmin
+            ? await this.runtimes.getSandboxById(hostId)
+            : await this.runtimes.getSandboxForUser(userId, hostId)
+        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const { host } = r
+        const owner = host.userId
+        if (!host.spriteId || !host.spriteName || !host.accountId)
+            throw new BadRequestException('sandbox is not provisioned')
+        const account = await this.accounts.getById(host.accountId)
+        if (!account)
+            throw new BadRequestException('sandbox account unavailable')
+        const descriptor = frameworkVersionDescriptor(framework)
+        const catalog = this.frameworkVersions
+            ? await this.frameworkVersions.getForFramework(framework)
+            : null
+        const target =
+            targetVersion?.trim().replace(/^v/, '') || catalog?.latest || null
+        if (target && catalog && !catalog.versions.includes(target))
+            throw new BadRequestException(
+                `version "${target}" is not in the ${framework} catalog`
+            )
+        const shell = target
+            ? buildNpmUpgradeShell(descriptor, target)
+            : buildNpmLatestInstallShell(descriptor)
+        const spriteName = host.spriteName
+        const client = this.spritesClientFor(account)
+        const result = await this.exec(client, spriteName, {
+            cmd: ['bash', '-lc', shell],
+            stdin: '',
+            timeoutMs: FRAMEWORK_INSTALL_TIMEOUT_MS
+        }).catch((err: Error) => {
+            throw new ServiceUnavailableException(
+                `${framework} install failed: ${err.message}`
+            )
+        })
+        if (result.exitCode !== 0)
+            throw new ServiceUnavailableException(
+                `${framework} install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
+            )
+        // Re-probe over the same seam and persist, as detect-frameworks does.
+        // The version has to be there now: a pre-installed binary still
+        // shadowing the fresh one is exactly what the staged shell guards
+        // against, so a mismatch is a failure, not a note.
+        const probed = await this.exec(client, spriteName, {
+            cmd: ['bash', '-lc', frameworkProbeShell()],
+            stdin: '',
+            timeoutMs: DETECT_TIMEOUT_MS
+        })
+        const probe = parseSpriteFrameworkProbe(
+            `${probed.stdout}\n${probed.stderr}`
+        )
+        const installed =
+            probe.frameworks.find((f) => f.framework === framework)?.version ??
+            null
+        if (!installed || (target && installed !== target))
+            throw new ServiceUnavailableException(
+                `${framework} install did not complete on ${spriteName}: sprite reports ${installed ?? 'nothing'}`
+            )
+        await this.runtimes.setHostDetectedFrameworks(
+            owner,
+            hostId,
+            probe.frameworks
+        )
+        await this.runtimes.applyDetectedVersionsToHostRuntimes(
+            hostId,
+            probe.frameworks
+        )
+        if (probe.cliVersion)
+            await this.runtimes.setSandboxCliVersion(
+                owner,
+                hostId,
+                probe.cliVersion
+            )
+        this.log.log(
+            `sandbox framework installed host=${hostId} framework=${framework} version=${installed}`
+        )
+        return this.get(owner, hostId)
+    }
+
+    // Bring a framework up on a sandbox that has no agent for it yet, as an
+    // agent-less runtime: a coding CLI is installed (or left as found) and gets
+    // its runtime row, which is what the create form's account list needs to
+    // add a subscription before any agent exists; a service framework is
+    // installed and started, its provider filled in by the first agent's pick.
+    // The first agent joins through the attach path like any later one.
+    // Idempotent: a live runtime for the framework on this host is returned.
+    async prepareRuntime(
+        userId: string,
+        hostId: string,
+        framework: string,
+        isAdmin = false
+    ): Promise<AgentRuntimeSummary> {
+        if (
+            !isVersionedFramework(framework) ||
+            !supportsRuntime(framework, 'sprites')
+        )
+            throw new BadRequestException(
+                `${framework} cannot run on a sandbox`
+            )
+        const r = isAdmin
+            ? await this.runtimes.getSandboxById(hostId)
+            : await this.runtimes.getSandboxForUser(userId, hostId)
+        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const { host } = r
+        if (!host.spriteId || !host.spriteName || !host.accountId)
+            throw new BadRequestException('sandbox is not provisioned')
+        const existing = (await this.runtimes.listRuntimesByHost(hostId)).find(
+            (row) =>
+                row.framework === framework &&
+                row.status !== 'failed' &&
+                row.status !== 'stopped'
+        )
+        if (existing) return this.runtimes.toSummary(existing)
+        const coding = SPRITE_CODING_FRAMEWORKS.includes(
+            framework as DetectedFramework['framework']
+        )
+        if (!coding && !this.crypto)
+            throw new ServiceUnavailableException(
+                `${framework} cannot be prepared here: credential storage is not wired`
+            )
+        // A CLI the sandbox already reports is registered as found; moving it
+        // to another version is the icon menu's explicit Upgrade, never a side
+        // effect of picking the sandbox in the create form. Only an absent
+        // CLI (or a service framework) gets the version agent create would.
+        const detected = (host.detectedFrameworks ?? []).some(
+            (f) => f.framework === framework
+        )
+        const version =
+            coding && detected
+                ? null
+                : this.frameworkVersions
+                  ? await this.frameworkVersions.resolveInstallVersion(
+                        framework
+                    )
+                  : null
+        const prepared = await this.spritesProvisioner.prepareRuntime({
+            userId: host.userId,
+            framework,
+            hostId,
+            frameworkVersion: version?.selection.version ?? null,
+            frameworkVersionSource: version?.selection.source ?? 'none',
+            frameworkRepo: version?.repo ?? null
+        })
+        if (prepared.generatedCredentials && this.crypto) {
+            // The gateway tokens the bootstrap minted are the only way to reach
+            // the service; without the row the first agent could not attach.
+            const enc = this.crypto.encrypt(
+                JSON.stringify(prepared.generatedCredentials)
+            )
+            await this.db.insert(agentCredentials).values({
+                id: createObjectId('agentCredential'),
+                runtimeId: prepared.runtime.id,
+                framework,
+                payloadCiphertext: enc.ciphertext,
+                keyVersion: enc.keyVersion
+            })
+        }
+        // The runner is NOT started here. The create form asks for it the
+        // moment this returns (its prewarm), and a second starter racing that
+        // one registered two runner hosts for one sprite — the wake then
+        // waited on the row the process was not using. Seen on the local
+        // stack [2026-09-11]: two `sprite-runner:` rows created in the same
+        // second, every later wake timing out at 120s.
+        this.log.log(
+            `sandbox runtime prepared host=${hostId} framework=${framework} runtime=${prepared.runtime.id}`
+        )
+        return this.runtimes.toSummary(prepared.runtime)
     }
 
     // The sprites.dev managed services registered on this sandbox's sprite. A
@@ -863,16 +1091,7 @@ export class SandboxesService {
     } | null> {
         const account = await this.accounts.getById(accountId)
         if (!account) return null
-        const shell = [
-            'export PATH="$HOME/.local/bin:$PATH"',
-            ...SPRITE_CODING_FRAMEWORKS.map((f) => {
-                const bin = frameworkVersionDescriptor(f).binName
-                return `echo "${f}=$(${bin} --version 2>/dev/null | head -1)"`
-            }),
-            // The platform-managed mf CLI baked into the sprite image (used for
-            // agent auth / a2a). Surfaced as the sandbox's "mf CLI version".
-            'echo "mf=$(mf --version 2>/dev/null | head -1)"'
-        ].join('; ')
+        const shell = frameworkProbeShell()
         try {
             const client = createSpritesClient({
                 token: this.accounts.decryptToken(account),

@@ -196,6 +196,10 @@ export const apiPaths = {
         `/agent-runtimes/${id}/auth-profiles/${profileId}/logout`,
     AGENT_RUNTIME_DEFAULT_AUTH: (id: string) =>
         `/agent-runtimes/${id}/default-auth`,
+    AGENT_RUNTIME_AUTH_PREWARM: (id: string) =>
+        `/agent-runtimes/${id}/auth-profiles/prewarm`,
+    AGENT_RUNTIME_AUTH_RELEASE: (id: string) =>
+        `/agent-runtimes/${id}/auth-profiles/release`,
     RUNTIME_AUTH_OPERATION_BY_ID: (operationId: string) =>
         `/runtime-auth-operations/${operationId}`,
     AGENT_RUNTIME_AUTH: (agentId: string) => `/agents/${agentId}/runtime-auth`,
@@ -208,6 +212,10 @@ export const apiPaths = {
         `/sandboxes/${id}/detect-frameworks`,
     SANDBOX_REFRESH_STATUS: (id: string) => `/sandboxes/${id}/refresh-status`,
     SANDBOX_CLI_UPGRADE: (id: string) => `/sandboxes/${id}/cli/upgrade`,
+    SANDBOX_FRAMEWORK_INSTALL: (id: string, framework: string) =>
+        `/sandboxes/${id}/frameworks/${framework}/install`,
+    SANDBOX_FRAMEWORK_RUNTIME: (id: string, framework: string) =>
+        `/sandboxes/${id}/frameworks/${framework}/runtime`,
     SANDBOX_RENAME: (id: string) => `/sandboxes/${id}/name`,
     SANDBOX_SERVICES: (id: string) => `/sandboxes/${id}/services`,
     SANDBOX_SERVICE_BY_NAME: (id: string, name: string) =>
@@ -239,8 +247,7 @@ export const apiPaths = {
         '/admin/settings/sprites-wholesale-cap',
     ADMIN_SETTINGS_SPRITES_VENDOR_CAPACITY:
         '/admin/settings/sprites-vendor-capacity',
-    ADMIN_SETTINGS_AUTOMATION_RETENTION:
-        '/admin/settings/automation-retention',
+    ADMIN_SETTINGS_AUTOMATION_RETENTION: '/admin/settings/automation-retention',
     ADMIN_SETTINGS_CHAT_EXEC_TIMEOUTS: '/admin/settings/chat-exec-timeouts',
     ADMIN_SETTINGS_A2A_TURN_TIMEOUTS: '/admin/settings/a2a-turn-timeouts',
     ADMIN_SETTINGS_CLI_MINIMUM_VERSION: '/admin/settings/cli-minimum-version',
@@ -453,5 +460,5 @@ export const apiPaths = {
     FRAMEWORK_VERSIONS_BY: (framework: string) =>
         `/framework-versions/${framework}`,
     ADMIN_FRAMEWORK_VERSIONS_REFRESH: '/admin/framework-versions/refresh',
-    EXPERIMENTS_ME: '/experiments/me',
+    EXPERIMENTS_ME: '/experiments/me'
 } as const

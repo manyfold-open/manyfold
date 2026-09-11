@@ -4,6 +4,7 @@ import type {
 } from '@manyfold/shared'
 import type { TagTone } from '@/components/Tag'
 import type { TFn } from '@/lib/i18n'
+import { planLabel } from '@/lib/runtimeAccount'
 
 // The select value for "no profile": the agent keeps running on whatever the
 // host itself is signed in as (the ambient row on the runtime page).
@@ -20,9 +21,12 @@ export const profileDisplayName = (
 
 // One tag per row. Lifecycle wins over the credential probe: a profile the
 // user signed out of stays "Signed out" even while the last probe result is
-// stale, and a profile being removed never advertises a live sign-in.
+// stale, and a profile being removed never advertises a live sign-in. A
+// stored key that checks out is named as a key, like the host row's own
+// key-based sign-in, rather than as a subscription sign-in.
 export const profileStatusTag = (
-    profile: Pick<RuntimeAuthProfileSummary, 'lifecycle' | 'credentialStatus'>,
+    profile: Pick<RuntimeAuthProfileSummary, 'lifecycle' | 'credentialStatus'> &
+        Partial<Pick<RuntimeAuthProfileView, 'authMethod'>>,
     t: TFn
 ): { tone: TagTone; label: string } => {
     if (profile.lifecycle === 'signed-out')
@@ -31,6 +35,11 @@ export const profileStatusTag = (
         return { tone: 'idle', label: t('web.runtimeAuth.removing') }
     if (profile.lifecycle === 'error')
         return { tone: 'error', label: t('web.runtimeAuth.errorStatus') }
+    if (
+        profile.authMethod === 'api-key' &&
+        profile.credentialStatus === 'valid'
+    )
+        return { tone: 'info', label: t('web.runtimeDetails.account.apiKey') }
     switch (profile.credentialStatus) {
         case 'valid':
             return {
@@ -63,6 +72,30 @@ export const profileBindable = (
     profile: Pick<RuntimeAuthProfileSummary, 'lifecycle'>
 ): boolean =>
     profile.lifecycle !== 'deleting' && profile.lifecycle !== 'deleted'
+
+// The second line of an account row, the same on the runtime page and in
+// the create form: whether it is the default for new agents, the label when
+// the headline is the signed-in identity, the plan, the organization and how
+// many agents run under it.
+export const profileSubline = (
+    profile: Pick<
+        RuntimeAuthProfileView,
+        'label' | 'identity' | 'agentCount' | 'isDefault'
+    >,
+    t: TFn
+): string | null => {
+    const headline = profileDisplayName(profile)
+    const parts = [
+        profile.isDefault ? t('web.runtimeAuth.defaultForNewAgents') : null,
+        headline !== profile.label ? profile.label : null,
+        planLabel(profile.identity?.plan ?? null),
+        profile.identity?.organization ?? null,
+        profile.agentCount > 0
+            ? t('web.runtimeAuth.usedBy', { count: profile.agentCount })
+            : null
+    ].filter((part): part is string => Boolean(part))
+    return parts.length > 0 ? parts.join(' · ') : null
+}
 
 export const profileNeedsSignIn = (
     profile: Pick<RuntimeAuthProfileSummary, 'lifecycle' | 'credentialStatus'>

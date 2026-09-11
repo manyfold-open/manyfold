@@ -12,7 +12,9 @@ import {
 // its own credential context, selectable per agent. The API persists only
 // safe metadata (identity fields, lifecycle, a generation counter); the host
 // holds the credentials and is the authority for their state. Nothing in
-// this contract carries a token, an API key or a host path.
+// this contract carries a token or a host path; the one secret that crosses
+// it is an API key handed over once at profile creation, which the host
+// stores and the API forwards without persisting or logging.
 
 export const RUNTIME_AUTH_METHODS = ['subscription', 'api-key'] as const
 export type RuntimeAuthMethod = (typeof RUNTIME_AUTH_METHODS)[number]
@@ -117,6 +119,9 @@ export type RuntimeAuthAvailability =
     | 'daemon-offline'
     | 'daemon-upgrade-required'
     | 'sandbox-asleep'
+    // A wake refused by the plan's concurrent-active cap (another sandbox
+    // holds the slot); the runner was not started.
+    | 'sandbox-limit'
     | 'host-unavailable'
     | 'unsupported'
 
@@ -126,9 +131,9 @@ export interface RuntimeAuthListView {
     kind: AgentRuntime
     availability: RuntimeAuthAvailability
     // `manage` = the host answers the auth.* RPCs; `execute` = it can run a
-    // turn under a selected profile. Listing accounts never implies the
-    // second.
-    capabilities: { manage: boolean; execute: boolean }
+    // turn under a selected profile; `apiKey` = it can store an API key as a
+    // profile. Listing accounts never implies the other two.
+    capabilities: { manage: boolean; execute: boolean; apiKey: boolean }
     defaultProfileId: string | null
     // The host's native sign-in, read-only: not a managed profile.
     ambient: RuntimeAccountView | null
@@ -143,8 +148,29 @@ export interface RuntimeAuthListView {
 export interface CreateRuntimeAuthProfileBody {
     label?: string
     authMethod: RuntimeAuthMethod
+    // Required for an api-key profile: stored on the host, never by the API.
+    apiKey?: string
     requestId?: string
     wake?: boolean
+}
+
+// The answer to an intent prewarm: whether a runner wake was dispatched for
+// this call (false when debounced, unsupported, or not a sandbox). The wake
+// itself is fire-and-forget; the list reports when the runner answers.
+export interface RuntimeAuthPrewarmView {
+    accepted: boolean
+    // Set when the sandbox could not be admitted to an active slot — the
+    // plan's active hours are used up, its concurrent cap is full, or the
+    // wake failed outright — with the API's error code and message, so a
+    // surface waiting on the runner can stop waiting and say why.
+    refused?: { code: string; message: string }
+}
+
+// The answer to letting a prewarmed sandbox go: whether the awake hold the
+// wake placed was removed (false when the sandbox was not running anyway, so
+// nothing was holding it and no exec was spent).
+export interface RuntimeAuthReleaseView {
+    released: boolean
 }
 
 export interface RuntimeAuthOperationBody {
@@ -288,6 +314,7 @@ export interface DaemonAuthListResponse {
 
 export interface DaemonAuthCreatePayload extends DaemonAuthProfileRef {
     authMethod: RuntimeAuthMethod
+    apiKey?: string
 }
 
 export interface DaemonAuthCreateResponse {

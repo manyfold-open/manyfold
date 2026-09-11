@@ -198,14 +198,18 @@ export class AgentRuntimesController {
     async getAccount(
         @CurrentUser() user: AuthPrincipal,
         @Param('id') id: string,
-        @Query('wake') wake?: string
+        @Query('wake') wake?: string,
+        // `refreshUsage=1`: the user's explicit ask to read usage from the
+        // vendor again instead of the kept answer.
+        @Query('refreshUsage') refreshUsage?: string
     ): Promise<RuntimeAccountView> {
         if (!this.account)
             throw new InternalServerErrorException(
                 'runtime account service unavailable'
             )
         return this.account.getView(user.userId, id, {
-            wake: wake === '1' || wake === 'true'
+            wake: wake === '1' || wake === 'true',
+            refreshUsage: refreshUsage === '1' || refreshUsage === 'true'
         })
     }
 

@@ -105,7 +105,10 @@ test('per-framework sign-in commands cover exactly the coding CLIs', () => {
         'cat | claude auth login --claudeai'
     )
     assert.equal(runtimeSignInCommandFor('codex'), 'codex login --device-auth')
-    assert.equal(runtimeSignInCommandFor('gemini-cli'), 'NO_BROWSER=true gemini')
+    assert.equal(
+        runtimeSignInCommandFor('gemini-cli'),
+        'NO_BROWSER=true gemini'
+    )
     assert.equal(runtimeSignInCommandFor('hermes'), null)
 })
 
@@ -122,4 +125,23 @@ test('initialPickerForFramework applies the slot only to coding frameworks', () 
     assert.equal(initialPickerForFramework('gemini-cli').mode, 'runtime')
     assert.equal(initialPickerForFramework('hermes').mode, 'saved')
     assert.equal(initialPickerForFramework('openclaw').mode, 'saved')
+})
+
+// Joining an existing runtime: a self-owned computer starts Local whatever
+// the edition slot says for platform runtimes; Cloud starts on a saved
+// provider (the runtime's own credentials are the Local list's host row,
+// not a Cloud option).
+test('initialPickerForFramework starts existing-runtime targets on Local or a saved provider', () => {
+    const daemon = { runtimeMode: 'existing', runtimeKind: 'daemon' } as const
+    const sprites = { runtimeMode: 'existing', runtimeKind: 'sprites' } as const
+    assert.equal(
+        initialPickerForFramework('claude-code', daemon).mode,
+        'runtime'
+    )
+    assert.equal(
+        initialPickerForFramework('claude-code', sprites).mode,
+        PROVIDER_PICKER_DEFAULT_MODE === 'runtime' ? 'runtime' : 'saved'
+    )
+    assert.equal(initialPickerForFramework('hermes', sprites).mode, 'saved')
+    assert.equal(initialPickerForFramework('openclaw', daemon).mode, 'saved')
 })

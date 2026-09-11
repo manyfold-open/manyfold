@@ -91,6 +91,10 @@ export type RuntimeAccountViewStatus =
     | 'ok'
     | 'probe-failed'
     | 'sandbox-asleep'
+    // The wake was refused by the plan's concurrent-active cap: another
+    // sandbox holds the slot. Named so the page can say so and offer to
+    // check again once it is free, instead of reporting a failed probe.
+    | 'sandbox-limit'
     | 'daemon-offline'
     | 'daemon-upgrade-required'
     | 'unsupported'
@@ -219,7 +223,9 @@ export const parseRuntimeAccountProbe = (
     return {
         framework: value.framework,
         checkedAt: isoOrNull(value.checkedAt) ?? new Date().toISOString(),
-        credentialFacts: parseRuntimeLocalCredentialFacts(value.credentialFacts),
+        credentialFacts: parseRuntimeLocalCredentialFacts(
+            value.credentialFacts
+        ),
         tokenSource:
             tokenSource === 'file' || tokenSource === 'keychain-unread'
                 ? tokenSource

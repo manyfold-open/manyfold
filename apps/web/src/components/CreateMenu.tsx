@@ -26,11 +26,24 @@ export const CreateMenu: FC<{
     options: readonly CreateMenuOption[]
     // header: a round icon button in a rail header. footer: the rail's
     // full-width primary button. inline: a secondary button in page content.
-    variant: 'header' | 'footer' | 'inline'
+    // 'chip' is the create form's dashed add chip, so the menu can sit in a
+    // row of them.
+    variant: 'header' | 'footer' | 'inline' | 'chip'
     triggerLabel: string
     sheetTitle: string
     disabled?: boolean
-}> = ({ options, variant, triggerLabel, sheetTitle, disabled }): ReactNode => {
+    // Which edge of the trigger the desktop panel hangs from. Right suits a
+    // trigger at the end of a toolbar; a trigger in flowing content wants
+    // the panel under its own left edge, not the container's far side.
+    align?: 'left' | 'right'
+}> = ({
+    options,
+    variant,
+    triggerLabel,
+    sheetTitle,
+    disabled,
+    align = 'right'
+}): ReactNode => {
     const { t } = useI18n()
     const [open, setOpen] = useState(false)
     const rootRef = useRef<HTMLDivElement | null>(null)
@@ -125,6 +138,14 @@ export const CreateMenu: FC<{
                     <PlusIcon className='h-3.5 w-3.5' />
                     {triggerLabel}
                 </button>
+            ) : variant === 'chip' ? (
+                <button
+                    {...triggerProps}
+                    className='text-caption text-muted hover:text-fg hover:bg-surface-hover border-divider inline-flex items-center gap-1.5 rounded-md border border-dashed px-3 py-2 transition-colors disabled:cursor-not-allowed disabled:opacity-55'
+                >
+                    <PlusIcon className='h-3.5 w-3.5 shrink-0' />
+                    {triggerLabel}
+                </button>
             ) : (
                 <button
                     {...triggerProps}
@@ -140,7 +161,9 @@ export const CreateMenu: FC<{
                             'popover-panel bg-surface-elevated shadow-elevated absolute z-30 hidden rounded-md p-1 lg:block',
                             variant === 'footer'
                                 ? 'bottom-full left-0 mb-1 w-full'
-                                : 'right-0 top-full mt-1 w-64'
+                                : align === 'left'
+                                  ? 'left-0 top-full mt-1 w-64'
+                                  : 'right-0 top-full mt-1 w-64'
                         ].join(' ')}
                     >
                         {options.map((option) => item(option, false))}

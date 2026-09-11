@@ -881,3 +881,129 @@ test('model.inspect under a profile reads the view, not the native home', async 
         )
     })
 })
+
+// An api-key profile has no vendor sign-in: the key handed over at creation
+// is the credential. It must reach the child as the vendor variable even
+// though every ambient copy of that variable is stripped, and it must be
+// the one thing a sign-out removes.
+test('an api-key profile stores its key in the view and injects it as the vendor variable', async () => {
+    await withSandbox(async (sb) => {
+        process.env.OPENAI_API_KEY = 'ambient-daemon-key'
+        const profileId = createObjectId('runtimeAuthProfile')
+        const created = await rpcHandler(
+            'auth.create',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                authMethod: 'api-key',
+                apiKey: 'sk-profile-key-1234567890'
+            },
+            ctx('c')
+        )
+        assert.equal(created.ok, true, created.error)
+        assert.equal(
+            (created.payload as { generation: number }).generation,
+            1,
+            'a stored key counts as the first sign-in'
+        )
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        const keyFile = join(view, 'api-key')
+        assert.equal((await stat(keyFile)).mode & 0o777, 0o600)
+        assert.equal(
+            (await readFile(keyFile, 'utf8')).trim(),
+            'sk-profile-key-1234567890'
+        )
+
+        const listed = await rpcHandler(
+            'auth.list',
+            { framework: 'codex', runtimeId: sb.runtimeId, probe: true },
+            ctx('l')
+        )
+        assert.equal(listed.ok, true, listed.error)
+        const [report] = (
+            listed.payload as {
+                profiles: Array<{
+                    authMethod: string
+                    probe: { credentialFacts: { envApiKey: boolean } } | null
+                }>
+            }
+        ).profiles
+        assert.equal(report.authMethod, 'api-key')
+        assert.equal(
+            report.probe?.credentialFacts.envApiKey,
+            true,
+            'the view probe reports the stored key as its credential'
+        )
+
+        const out = join(sb.base, 'env.txt')
+        const result = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['sh', '-c', 'env > "$OUT"'],
+                env: { OUT: out, OPENAI_API_KEY: 'from-agent-extras' },
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('exec-key')
+        )
+        assert.equal(result.ok, true, result.error)
+        const text = await readFile(out, 'utf8')
+        assert.match(text, /^OPENAI_API_KEY=sk-profile-key-1234567890$/m)
+        assert.match(text, new RegExp(`^CODEX_HOME=${view}$`, 'm'))
+
+        const manager = new RuntimeAuthManager(
+            { daemonId: sb.daemonId, runtimeId: sb.runtimeId },
+            {
+                credentialFacts: async () => null,
+                cliVersion: async () => '0.153.4',
+                fetch: async () => {
+                    throw new Error('no vendor call expected')
+                },
+                now: Date.now,
+                platform: 'linux',
+                env: process.env
+            }
+        )
+        await assert.rejects(
+            manager.prepareLogin(
+                'codex',
+                profileId,
+                createObjectId('runtimeAuthOperation')
+            ),
+            /auth_api_key_no_login/
+        )
+
+        const logout = await rpcHandler(
+            'auth.logout',
+            {
+                framework: 'codex',
+                runtimeId: sb.runtimeId,
+                profileId,
+                operationId: createObjectId('runtimeAuthOperation'),
+                mode: 'sign-out'
+            },
+            ctx('lo')
+        )
+        assert.equal(logout.ok, true, logout.error)
+        await assert.rejects(stat(keyFile), 'the key file is gone after sign-out')
+        const refused = await rpcHandler(
+            'exec.start',
+            {
+                cmd: ['true'],
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('exec-after-logout')
+        )
+        assert.equal(refused.ok, false)
+        assert.match(refused.error ?? '', /auth_reauth_required/)
+        delete process.env.OPENAI_API_KEY
+    })
+})

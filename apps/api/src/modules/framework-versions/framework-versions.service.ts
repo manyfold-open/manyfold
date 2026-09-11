@@ -1,4 +1,5 @@
 import {
+    AgentFramework,
     FrameworkBlockedVersionRange,
     FrameworkDefaultVersionsSettings,
     FrameworkVersionCatalogEntry,
@@ -22,6 +23,10 @@ import {
     allFrameworkVersionDescriptors,
     frameworkVersionDescriptor
 } from '@/modules/framework-versions/framework-version-registry'
+import {
+    resolveFrameworkInstallVersion,
+    type ResolvedInstallVersion
+} from '@/modules/framework-versions/resolve-install-version'
 
 export const FRAMEWORK_VERSIONS_CATALOG_SETTING_KEY =
     'framework_versions_catalog'
@@ -260,6 +265,23 @@ export class FrameworkVersionsService implements OnModuleInit {
             )
             return entry.latest
         }
+    }
+
+    // The build a fresh install of `framework` gets (request > admin pin >
+    // catalog latest, blocked windows applied); see resolveFrameworkInstallVersion.
+    async resolveInstallVersion(
+        framework: AgentFramework,
+        requested?: string | null
+    ): Promise<ResolvedInstallVersion> {
+        return resolveFrameworkInstallVersion(
+            {
+                settings:
+                    await this.adminSettings.getCachedFrameworkDefaultVersions(),
+                latestForFresh: (fw) => this.latestForFresh(fw)
+            },
+            framework,
+            requested
+        )
     }
 
     // Refresh a single framework's entry. `refresh()` fans out to every

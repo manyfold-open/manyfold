@@ -18,6 +18,7 @@ import {
     type RuntimeHostRow
 } from '@manyfold/db'
 import {
+    DAEMON_FEATURE_AUTH_API_KEY,
     DAEMON_FEATURE_AUTH_PROFILES,
     RUNTIME_AUTH_ERROR,
     type DaemonAuthListResponse,
@@ -302,14 +303,59 @@ test(
                 /not found/
             )
 
-            // api-key profiles are not creatable yet — refused, not silently pending.
+            // api-key profiles need the key up front and a host that stores it;
+            // the key is forwarded once and never lands in the row.
             await assert.rejects(
                 h.service.create(h.principal, h.runtimeId, {
                     authMethod: 'api-key'
                 }),
-                (err: { response?: { code?: string } }) =>
-                    err.response?.code === RUNTIME_AUTH_ERROR.contextUnsupported
+                (err: { status?: number }) => err.status === 400
             )
+            await assert.rejects(
+                h.service.create(h.principal, h.runtimeId, {
+                    authMethod: 'api-key',
+                    apiKey: 'runtime-local-key-fixture'
+                }),
+                (err: { response?: { code?: string } }) =>
+                    err.response?.code ===
+                    RUNTIME_AUTH_ERROR.daemonUpgradeRequired
+            )
+            await h.setFeatures([
+                DAEMON_FEATURE_AUTH_PROFILES,
+                DAEMON_FEATURE_AUTH_API_KEY
+            ])
+            const keyed = await h.service.create(h.principal, h.runtimeId, {
+                authMethod: 'api-key',
+                apiKey: 'runtime-local-key-fixture',
+                label: 'Work key'
+            })
+            assert.equal(keyed.authMethod, 'api-key')
+            assert.equal(keyed.lifecycle, 'ready')
+            assert.equal(keyed.credentialStatus, 'valid')
+            const keyedCreate = h.rpcs.find(
+                (r) =>
+                    r.method === 'auth.create' &&
+                    r.payload.profileId === keyed.id
+            )
+            assert.equal(
+                keyedCreate?.payload.apiKey,
+                'runtime-local-key-fixture'
+            )
+            const [keyedRow] = await h.db
+                .select()
+                .from(runtimeAuthProfiles)
+                .where(eq(runtimeAuthProfiles.id, keyed.id))
+            assert.equal(
+                JSON.stringify(keyedRow).includes('runtime-local-key'),
+                false,
+                'the API never persists the key'
+            )
+            await assert.rejects(
+                h.service.startLogin(h.principal, h.runtimeId, keyed.id, {}),
+                (err: { response?: { code?: string } }) =>
+                    err.response?.code === RUNTIME_AUTH_ERROR.stateConflict
+            )
+            await h.setFeatures([DAEMON_FEATURE_AUTH_PROFILES])
         } finally {
             await h.close()
         }

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { lstat } from 'node:fs/promises'
+import { lstat, readFile, rm, writeFile } from 'node:fs/promises'
 import {
     AMBIENT_VENDOR_AUTH_ENV,
     parseRuntimeLocalCredentialFacts,
@@ -14,9 +14,10 @@ import {
 } from '@manyfold/shared'
 import { inspectRuntimeAccount } from '../account-inspect'
 import type { FrameworkConfigDirs } from '../inspect-fs'
-import { runtimeAuthAdapter } from './adapters'
+import { runtimeAuthAdapter, type LogoutOutcome } from './adapters'
 import { acquireProfileLock, type ProfileLock } from './lock'
 import {
+    apiKeyPath,
     nativeDirsFor,
     profilePaths,
     viewConfigDirs,
@@ -81,6 +82,15 @@ export const stripAmbientAuthEnv = (
 
 const semver = (version: string | null): string | null =>
     version?.match(/\d+\.\d+\.\d+/)?.[0] ?? null
+
+const readApiKey = async (viewDir: string): Promise<string | null> => {
+    try {
+        const key = (await readFile(apiKeyPath(viewDir), 'utf8')).trim()
+        return key || null
+    } catch {
+        return null
+    }
+}
 
 export class RuntimeAuthManager {
     constructor(
@@ -173,31 +183,48 @@ export class RuntimeAuthManager {
         return this.report(framework, profileId, true)
     }
 
+    // An api-key profile is complete at creation: the key lands in the view
+    // and counts as its sign-in, so the generation moves like a login did.
     async create(
         framework: ConfigurableFramework,
         profileId: string,
-        authMethod: RuntimeAuthMethod
+        authMethod: RuntimeAuthMethod,
+        apiKey?: string
     ): Promise<DaemonAuthCreateResponse> {
         const existing = await readMetadata(this.scope, profileId)
         const paths = profilePaths(this.scope, profileId)
         await runtimeAuthAdapter(framework).buildView(paths.viewDir)
-        if (existing)
-            return {
-                profileId,
-                generation: existing.generation,
-                created: false
-            }
+        if (apiKey)
+            await writeFile(apiKeyPath(paths.viewDir), `${apiKey}\n`, {
+                mode: 0o600
+            })
+        const now = new Date(this.deps.now()).toISOString()
+        if (existing) {
+            if (!apiKey)
+                return {
+                    profileId,
+                    generation: existing.generation,
+                    created: false
+                }
+            const generation = existing.generation + 1
+            await writeMetadata(this.scope, {
+                ...existing,
+                generation,
+                lastLoginAt: now
+            })
+            return { profileId, generation, created: false }
+        }
         const metadata: ProfileMetadata = {
             profileId,
             framework,
             authMethod,
-            generation: 0,
-            createdAt: new Date(this.deps.now()).toISOString(),
-            lastLoginAt: null,
+            generation: apiKey ? 1 : 0,
+            createdAt: now,
+            lastLoginAt: apiKey ? now : null,
             lastLogoutAt: null
         }
         await writeMetadata(this.scope, metadata)
-        return { profileId, generation: 0, created: true }
+        return { profileId, generation: metadata.generation, created: true }
     }
 
     private async requireMetadata(
@@ -211,15 +238,23 @@ export class RuntimeAuthManager {
         return metadata
     }
 
-    private contextEnv(
+    // The profile's stored key is laid over the stripped environment last, so
+    // it is the one vendor variable an api-key profile's process can see.
+    private async contextEnv(
         framework: ConfigurableFramework,
         viewDir: string,
         authMethod: RuntimeAuthMethod
-    ): Record<string, string> {
-        return {
+    ): Promise<Record<string, string>> {
+        const adapter = runtimeAuthAdapter(framework)
+        const env = {
             ...stripAmbientAuthEnv(this.deps.env),
-            ...runtimeAuthAdapter(framework).env(viewDir, authMethod)
+            ...adapter.env(viewDir, authMethod)
         }
+        if (authMethod === 'api-key') {
+            const key = await readApiKey(viewDir)
+            if (key) env[adapter.apiKeyEnv] = key
+        }
+        return env
     }
 
     private async credentialPresent(
@@ -245,6 +280,9 @@ export class RuntimeAuthManager {
         operationId: string
     ): Promise<PreparedLogin> {
         const metadata = await this.requireMetadata(framework, profileId)
+        // A stored key has no interactive sign-in; a new key is a new create.
+        if (metadata.authMethod === 'api-key')
+            throw new Error('auth_api_key_no_login')
         const paths = profilePaths(this.scope, profileId)
         const adapter = runtimeAuthAdapter(framework)
         await adapter.buildView(paths.viewDir)
@@ -265,7 +303,11 @@ export class RuntimeAuthManager {
         }
         return {
             command: adapter.loginArgv(),
-            env: this.contextEnv(framework, paths.viewDir, metadata.authMethod),
+            env: await this.contextEnv(
+                framework,
+                paths.viewDir,
+                metadata.authMethod
+            ),
             cwd: homedir(),
             finish: async (exitCode) => {
                 try {
@@ -322,10 +364,26 @@ export class RuntimeAuthManager {
             kind: mode === 'remove' ? 'remove' : 'logout'
         })
         try {
-            const outcome = await adapter.logout(
-                paths.viewDir,
-                this.contextEnv(framework, paths.viewDir, metadata.authMethod)
-            )
+            // A stored key is dropped here rather than through the vendor
+            // CLI: there is no session to revoke, only the file to remove.
+            const outcome: LogoutOutcome =
+                metadata.authMethod === 'api-key'
+                    ? await (async () => {
+                          await rm(apiKeyPath(paths.viewDir), { force: true })
+                          return {
+                              signedOut: true,
+                              revoke: 'local-only' as const,
+                              error: null
+                          }
+                      })()
+                    : await adapter.logout(
+                          paths.viewDir,
+                          await this.contextEnv(
+                              framework,
+                              paths.viewDir,
+                              metadata.authMethod
+                          )
+                      )
             const generation = metadata.generation + 1
             if (mode === 'remove') {
                 await lock.release()
@@ -388,7 +446,11 @@ export class RuntimeAuthManager {
         }
         const lock = await acquireProfileLock(paths.lockDir, label, opts)
         return {
-            env: this.contextEnv(framework, paths.viewDir, metadata.authMethod),
+            env: await this.contextEnv(
+                framework,
+                paths.viewDir,
+                metadata.authMethod
+            ),
             dirs: viewConfigDirs(framework, paths.viewDir),
             release: () => lock.release()
         }

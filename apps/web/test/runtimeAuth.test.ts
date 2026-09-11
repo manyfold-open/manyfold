@@ -12,6 +12,7 @@ import {
     profileDisplayName,
     profileNeedsSignIn,
     profileStatusTag,
+    profileSubline,
     runtimeAuthOptions,
     runtimeAuthPickerState
 } from '../src/lib/runtimeAuth'
@@ -56,7 +57,7 @@ const list = (
     framework: 'codex',
     kind: 'daemon',
     availability: 'ok',
-    capabilities: { manage: true, execute: true },
+    capabilities: { manage: true, execute: true, apiKey: true },
     defaultProfileId: null,
     ambient: null,
     profiles: [],
@@ -121,6 +122,43 @@ test('lifecycle outranks the credential probe in the status tag', () => {
     assert.equal(
         profileStatusTag(profile({ credentialStatus: 'unknown' }), t).tone,
         'idle'
+    )
+    // A stored key reads as a key, like the host row's own key-based sign-in;
+    // a key the host lost is still "Not signed in".
+    assert.deepEqual(profileStatusTag(profile({ authMethod: 'api-key' }), t), {
+        tone: 'info',
+        label: 'API key'
+    })
+    assert.equal(
+        profileStatusTag(
+            profile({ authMethod: 'api-key', credentialStatus: 'missing' }),
+            t
+        ).tone,
+        'error'
+    )
+})
+
+test('the profile subline leads with the default, then label, plan, organization and agent count', () => {
+    const identity = {
+        email: 'dev@example.com',
+        name: 'Dev',
+        organization: 'Acme',
+        plan: 'pro',
+        accountId: null
+    }
+    assert.equal(
+        profileSubline(profile({ identity, agentCount: 2 }), t as never),
+        'Work · Pro · Acme · Used by {{count}} agents'
+    )
+    assert.equal(
+        profileSubline(profile({ identity, isDefault: true }), t as never),
+        'Default for new agents · Work · Pro · Acme'
+    )
+    // The label is the headline when there is no identity; it is not repeated.
+    assert.equal(profileSubline(profile(), t as never), null)
+    assert.equal(
+        profileSubline(profile({ identity: { ...identity, plan: null } }), t as never),
+        'Work · Acme'
     )
 })
 
@@ -211,7 +249,7 @@ test('the picker hides without a reachable host or bindable profile and warns on
         runtimeAuthPickerState(
             list({
                 profiles: [profile()],
-                capabilities: { manage: true, execute: false }
+                capabilities: { manage: true, execute: false, apiKey: true }
             })
         ),
         'execute-unsupported'
