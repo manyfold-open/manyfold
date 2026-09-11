@@ -879,7 +879,11 @@ const DeliveriesTable: FC<{ deliveries: ChannelDeliverySummary[] }> = ({
                             <td className='text-mini text-muted py-1 pr-2'>
                                 {formatTime(d.createdAt) ?? ''}
                             </td>
-                            <td className='py-1 pr-2'>
+                            {/* Seen on manyfold.ai [2026-09-11]: a direction
+                                with no catalog entry renders the dotted key
+                                itself, which overflowed this fixed column and
+                                overlapped the next one. */}
+                            <td className='break-words py-1 pr-2'>
                                 {t(
                                     `web.channels.settings.deliveryDirection.${d.direction}`
                                 )}
