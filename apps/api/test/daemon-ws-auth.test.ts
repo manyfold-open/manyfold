@@ -14,6 +14,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     await fastify.register(websocket)
     const verified: string[] = []
     const registered: string[] = []
+    let cliVersion: string | null = '0.34.0'
     const gateway = new DaemonGateway(
         {
             select: () => ({ from: () => ({ where: async () => [] }) })
@@ -34,6 +35,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         {
             findById: async () => ({
                 id: 'dh_test',
+                cliVersion,
                 userId: 'u_test',
                 status: 'online'
             }),
@@ -43,7 +45,8 @@ test('daemon websocket requires bearer headers and never verifies query credenti
             register: async (host: { daemonId: string }) => {
                 registered.push(host.daemonId)
             },
-            unregister: async () => {}
+            unregister: async () => {},
+            recordHelloForSocket: () => null
         } as never,
         {} as never
     )
@@ -56,7 +59,8 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     })
     const connect = (
         query: string,
-        authorization?: string
+        authorization?: string,
+        processVersion = '0.34.0'
     ): Promise<string | number> =>
         new Promise((resolve, reject) => {
             const client = new WebSocket(
@@ -69,6 +73,16 @@ test('daemon websocket requires bearer headers and never verifies query credenti
                 }
             )
             clients.push(client)
+            client.once('open', () =>
+                client.send(
+                    JSON.stringify({
+                        type: 'hello',
+                        daemonUuid: 'fixture',
+                        cliVersion: processVersion,
+                        inflightStreams: []
+                    })
+                )
+            )
             client.once('error', reject)
             client.once('message', (data) => {
                 resolve(JSON.parse(String(data)).type)
@@ -80,7 +94,10 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     assert.equal(await connect('', 'Bearer fixture-header'), 'welcome')
     assert.equal(await connect('?token=fixture-query'), 4400)
     assert.equal(await connect('?to%6ben=fixture-query'), 4400)
-    assert.equal(await connect('?token=fixture-query&token=fixture-header'), 4400)
+    assert.equal(
+        await connect('?token=fixture-query&token=fixture-header'),
+        4400
+    )
     assert.equal(
         await connect('?token=fixture-query', 'Bearer fixture-header'),
         'welcome'
@@ -91,9 +108,21 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     assert.equal(await connect(''), 4400)
     assert.equal(await connect('?token=a&token=b'), 4400)
     assert.equal(registered.length, 2)
-    assert.deepEqual(verified, [
-        'fixture-header',
-        'fixture-header',
-        'invalid'
-    ])
+    assert.deepEqual(verified, ['fixture-header', 'fixture-header', 'invalid'])
+    for (const version of ['0.33.9', null, 'unknown']) {
+        cliVersion = version
+        assert.equal(await connect('', 'Bearer fixture-header'), 4406)
+    }
+    assert.equal(
+        registered.length,
+        2,
+        'unsupported hosts never register an RPC connection'
+    )
+    cliVersion = '0.34.0'
+    assert.equal(await connect('', 'Bearer fixture-header', '0.33.9'), 4406)
+    assert.equal(
+        registered.length,
+        2,
+        'a downgraded process cannot reuse a newer stored host version'
+    )
 })

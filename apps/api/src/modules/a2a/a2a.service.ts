@@ -170,9 +170,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
 
     // Precedence: admin setting 'a2a_turn_timeouts' (row saved) > shared
     // defaults. A settings/DB hiccup falls through to defaults so turns and
-    // the sweep never fail on a settings read. (The legacy single-cap
-    // A2A_TURN_TIMEOUT_MS env var is migrated into the setting at startup by
-    // A2aTimeoutEnvMigrationService and no longer read here.)
+    // the sweep never fail on a settings read.
     private async resolveTurnTimeouts(): Promise<{
         blockingMs: number
         asyncMs: number

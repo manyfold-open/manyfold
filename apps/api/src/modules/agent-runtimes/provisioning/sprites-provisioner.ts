@@ -219,9 +219,6 @@ export class SpritesProvisioner {
         logger: SpritesLogger
     }): Promise<void> {
         const apiBaseUrl = this.config?.get<string>('PUBLIC_API_BASE_URL')
-        const identityReady = apiBaseUrl
-            ? await this.migrateLegacySpriteIdentities(args.hostId)
-            : false
         try {
             const deployEnv = resolveMfDeployEnv(
                 this.config?.get<string>('MF_DEPLOY_ENV')
@@ -233,12 +230,10 @@ export class SpritesProvisioner {
                 await this.shellEnv.write({
                     client: args.client,
                     spriteName: args.spriteName,
-                    agentId: '',
                     apiBaseUrl: apiBaseUrl
                         ? publicApiUrlWithApiPrefix(apiBaseUrl)
                         : undefined,
                     deployEnv,
-                    purgeLegacyIdentity: identityReady,
                     logger: args.logger
                 })
             }
@@ -255,7 +250,6 @@ export class SpritesProvisioner {
                     client: args.client,
                     spriteName: args.spriteName,
                     channel: cliInstallChannelForDeployEnv(deployEnv),
-                    purgeLegacyIdentity: identityReady,
                     logger: args.logger
                 })
             }
@@ -294,19 +288,17 @@ export class SpritesProvisioner {
 
 
     /**
-     * Mint the agent's runtime identity token and inject it into the sprite's
-     * managed shell-env block. Split out of provisioning because the mint writes
+     * Mint and persist the agent's runtime identity for per-exec injection.
+     * Split out of provisioning because the mint writes
      * an agent_runtime_tokens row whose agent_id FK references agents.id — so it
      * MUST run AFTER the agents row is inserted, not during bootstrap.
      *
      * Fail-loud (§3.5 gate): when there is a reachable API URL the identity is
-     * mandatory — a missing token service, a mint failure, or a shell-env-write
+     * mandatory — a missing token service or a mint failure
      * failure all throw so the caller rolls the half-provisioned runtime back
      * via teardownRuntime (never a tokenless agent in a gated env). Without an
      * API URL the token is inert (the agent falls back to `mf login`), so we
      * skip with a single WARN — preserving local/non-gated provisions.
-     * Re-issues the whole NCA_* block, so it's idempotent over the no-token
-     * block written during provisioning.
      */
     async installRuntimeIdentity(args: {
         userId: string
@@ -334,57 +326,6 @@ export class SpritesProvisioner {
             agentId: args.agentId,
             runtimeKind: 'sprites'
         })
-    }
-
-    // Older sprite identities have a valid hash but no encrypted plaintext and
-    // therefore still depend on the shared shell profile. Before any upgrade
-    // script is allowed to remove that fallback, make every agent on the host
-    // injectable from its encrypted copy. This is deliberately host-scoped:
-    // one sprite can carry several co-resident framework agents.
-    async migrateLegacySpriteIdentities(hostId: string): Promise<boolean> {
-        if (!this.runtimeToken) return false
-        const rows = await this.db
-            .select({ agentId: agents.id, userId: agents.userId })
-            .from(agents)
-            .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
-            .where(
-                and(
-                    eq(agentRuntimes.hostId, hostId),
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agents.runtime, 'sprites')
-                )
-            )
-        for (const row of rows)
-            await this.runtimeToken.ensureRuntimeIdentity({
-                userId: row.userId,
-                agentId: row.agentId,
-                runtimeKind: 'sprites'
-            })
-        return true
-    }
-
-    async migrateLegacySpriteIdentitiesForSprite(
-        spriteName: string
-    ): Promise<boolean> {
-        if (!this.runtimeToken) return false
-        const rows = await this.db
-            .select({ agentId: agents.id, userId: agents.userId })
-            .from(agents)
-            .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
-            .where(
-                and(
-                    eq(agentRuntimes.spriteName, spriteName),
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agents.runtime, 'sprites')
-                )
-            )
-        for (const row of rows)
-            await this.runtimeToken.ensureRuntimeIdentity({
-                userId: row.userId,
-                agentId: row.agentId,
-                runtimeKind: 'sprites'
-            })
-        return true
     }
 
     // Attach uses the sandbox's own account (the VM already lives there), not a
@@ -694,8 +635,6 @@ export class SpritesProvisioner {
                 await this.runtimes.applyStatusPatch(runtimeId, {
                     spriteId: reserved.spriteId
                 })
-                if (reserved.hostId)
-                    await this.migrateLegacySpriteIdentities(reserved.hostId)
             }
 
             await this.runtimes.setPhase(runtimeId, 'bootstrapping')

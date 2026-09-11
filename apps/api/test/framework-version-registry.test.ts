@@ -7,7 +7,6 @@ import {
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { execFileSync } from 'node:child_process'
-import { buildManagedShellReconcileScript } from '../src/modules/agent-self/sprite-shell-env.service'
 import {
     buildNpmLatestInstallShell,
     buildNpmUpgradeShell,
@@ -224,7 +223,7 @@ test('the node toolchain can never be named as a framework binary', () => {
 // cleanup rides the same shell as the PATH block (#650: existing sprites heal
 // on next touch, without a re-provision).
 test('the install carries the full shared-shell reconcile, not just PATH', () => {
-    assert.ok(claudeShell.includes(buildManagedShellReconcileScript()))
+    assert.ok(claudeShell.includes(buildManagedPathScript()))
     assert.ok(
         claudeShell.indexOf('mf_purge_shell_residue') <
             claudeShell.indexOf('mf_write_path_block')

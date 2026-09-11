@@ -11,11 +11,9 @@ import {
     BadRequestException,
     Injectable,
     Logger,
-    Optional,
     UnauthorizedException
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import * as Lark from '@larksuiteoapi/node-sdk'
 import {
     UnsupportedEventError,
@@ -105,10 +103,7 @@ export class LarkChannelProvider implements ChannelProvider {
     // not act as the history-backfill boundary; ids are per channel.
     private readonly nonConversationalIds = new Map<string, Set<string>>()
 
-    constructor(
-        config: ConfigService,
-        @Optional() private readonly telemetry?: TelemetryService
-    ) {
+    constructor(config: ConfigService) {
         this.defaultAppRegion =
             parseLarkAppRegion(config.get<string>('LARK_APP_REGION')) ??
             appRegionFromOpenBaseUrl(
@@ -237,9 +232,6 @@ export class LarkChannelProvider implements ChannelProvider {
             encryptKey: config.encryptKey ?? undefined
         }).register({
             'im.message.receive_v1': async (raw: unknown) => {
-                this.dispatchWsEvent(ctx, config, onInbound, raw)
-            },
-            message: async (raw: unknown) => {
                 this.dispatchWsEvent(ctx, config, onInbound, raw)
             },
             ...(onAction
@@ -379,10 +371,7 @@ export class LarkChannelProvider implements ChannelProvider {
         raw: unknown
     ): void {
         try {
-            const event = this.normalizeWsEvent(raw, config, {
-                source: 'ws',
-                channelId: ctx.channel.id
-            })
+            const event = this.normalizeWsEvent(raw, config)
             if (!event) return
             void onInbound(event).catch((err) => {
                 this.logger.warn(
@@ -447,27 +436,13 @@ export class LarkChannelProvider implements ChannelProvider {
 
     private normalizeWsEvent(
         raw: unknown,
-        config: LarkChannelConfig,
-        origin: { source: 'ws' | 'webhook'; channelId: string }
+        config: LarkChannelConfig
     ): NormalizedInboundEvent | null {
         const body = raw as LarkWsEventBody | undefined
         if (!body) return null
         const eventType = larkEventType(body)
         if (eventType && !isLarkMessageEventType(eventType))
             throw new UnsupportedEventError(eventType)
-        if (eventType === 'message') {
-            // Pre-2.0 Lark event schema (flat `type: 'message'` body). A
-            // tenant on an old app config lands here silently, so this event
-            // is the usage signal gating the legacy branch's removal
-            // (legacy-inventory §4.3). Schema tokens only, no content.
-            this.telemetry?.event('channel.lark.legacy_event', {
-                source: origin.source,
-                channelId: origin.channelId,
-                messageType: body.msg_type ?? 'unknown'
-            })
-            return normalizeLegacyEvent(body)
-        }
-
         const event = modernEvent(body)
         const message = event.message ?? null
         const sender = event.sender ?? null
@@ -538,10 +513,7 @@ export class LarkChannelProvider implements ChannelProvider {
         const eventType = larkEventType(body) ?? 'unknown'
         if (!isLarkMessageEventType(eventType))
             throw new UnsupportedEventError(eventType)
-        const event = this.normalizeWsEvent(body, config, {
-            source: 'webhook',
-            channelId: ctx.channel.id
-        })
+        const event = this.normalizeWsEvent(body, config)
         if (!event)
             throw new BadRequestException('event missing message fields')
         return event
@@ -1809,7 +1781,7 @@ interface LarkEventBody {
     data?: { event?: LarkEvent }
 }
 
-interface LarkWsEventBody extends LarkEventBody, LegacyLarkMessageEvent {
+interface LarkWsEventBody extends LarkEventBody {
     event_id?: string
     event_type?: string
     message?: LarkMessage
@@ -1819,27 +1791,6 @@ interface LarkWsEventBody extends LarkEventBody, LegacyLarkMessageEvent {
 interface LarkEvent {
     message?: LarkMessage
     sender?: { sender_id?: LarkSenderId }
-}
-
-interface LegacyLarkMessageEvent {
-    app_id?: string
-    open_id?: string
-    user_id?: string
-    union_id?: string
-    open_chat_id?: string
-    chat_id?: string
-    open_message_id?: string
-    message_id?: string
-    root_id?: string | null
-    parent_id?: string | null
-    thread_id?: string | null
-    chat_type?: string
-    msg_type?: string
-    message_type?: string
-    text?: string
-    text_without_at_bot?: string
-    content?: string
-    is_mention?: boolean | string
 }
 
 interface LarkMessage {
@@ -1866,7 +1817,7 @@ interface LarkSenderId {
 }
 
 const isLarkMessageEventType = (eventType: string): boolean =>
-    eventType === 'im.message.receive_v1' || eventType === 'message'
+    eventType === 'im.message.receive_v1'
 
 const larkEventType = (body: LarkWsEventBody): string | null =>
     body.header?.event_type ??
@@ -1886,83 +1837,11 @@ const modernEvent = (
     }
 }
 
-const normalizeLegacyEvent = (
-    body: LarkWsEventBody
-): NormalizedInboundEvent | null => {
-    const source = legacyEventSource(body)
-    if (!source) return null
-    const chatId =
-        stringValue(source.open_chat_id) ?? stringValue(source.chat_id)
-    if (!chatId) return null
-    const senderId =
-        stringValue(source.open_id) ??
-        stringValue(source.user_id) ??
-        stringValue(source.union_id) ??
-        stringValue(body.sender?.sender_id?.open_id) ??
-        stringValue(body.sender?.sender_id?.user_id) ??
-        stringValue(body.sender?.sender_id?.union_id)
-    if (!senderId) return null
-    const messageType =
-        stringValue(source.message_type) ??
-        stringValue(source.msg_type) ??
-        'text'
-    const text =
-        stringValue(source.text_without_at_bot) ??
-        stringValue(source.text) ??
-        extractLegacyText(stringValue(source.content) ?? undefined, messageType)
-    if (!text || text.trim().length === 0)
-        throw new UnsupportedEventError(
-            messageType !== 'text' && messageType !== 'post'
-                ? `message_type:${messageType}`
-                : 'empty_text'
-        )
-    const chatType = source.chat_type === 'group' ? 'group' : 'private'
-    const explicitMention = booleanValue(source.is_mention)
-    const messageId =
-        stringValue(source.open_message_id) ??
-        stringValue(source.message_id) ??
-        null
-    return {
-        providerEventId:
-            body.event_id ?? source.open_message_id ?? source.message_id ?? '',
-        chatId,
-        chatType,
-        senderId,
-        senderName: null,
-        text,
-        threadId:
-            source.root_id ?? source.thread_id ?? source.parent_id ?? null,
-        isMention: explicitMention ?? (chatType === 'group' ? true : false),
-        messageId,
-        replyToMessageId: stringValue(source.parent_id) ?? null,
-        replyTargetId: chatType === 'group' ? messageId : null,
-        raw: body
-    }
-}
-
-const legacyEventSource = (
-    body: LarkWsEventBody
-): LegacyLarkMessageEvent | null => {
-    if (body.type === 'message') return body
-    if (isRecord(body.event) && body.event.type === 'message')
-        return body.event as LegacyLarkMessageEvent
-    return body.open_chat_id || body.open_message_id ? body : null
-}
-
 const isRecord = (value: unknown): value is Record<string, unknown> =>
     value !== null && typeof value === 'object'
 
 const stringValue = (value: unknown): string | null =>
     typeof value === 'string' && value.length > 0 ? value : null
-
-const booleanValue = (value: unknown): boolean | null => {
-    if (typeof value === 'boolean') return value
-    if (typeof value === 'string') {
-        if (value.toLowerCase() === 'true') return true
-        if (value.toLowerCase() === 'false') return false
-    }
-    return null
-}
 
 const parseMessageContent = (
     content: string | undefined
@@ -1979,15 +1858,6 @@ const parseMessageContent = (
 const extractTextContent = (content: string | undefined): string => {
     const text = parseMessageContent(content).text
     return typeof text === 'string' ? text : ''
-}
-
-const extractLegacyText = (
-    content: string | undefined,
-    msgType: string
-): string => {
-    if (msgType === 'text') return extractTextContent(content)
-    if (msgType === 'post') return extractPostContent(content, null).text
-    return ''
 }
 
 const larkInboundContent = (

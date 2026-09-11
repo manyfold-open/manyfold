@@ -122,7 +122,9 @@ const run = (
             url,
             token: 'gw_secret',
             body: { model: 'openclaw', stream: true },
-            timeoutMs: 10_000,
+            headersTimeoutMs: 10_000,
+            idleTimeoutMs: 10_000,
+            maxDurationMs: 10_000,
             ...extra
         } as never,
         ctx: h.ctx as never,
@@ -342,7 +344,7 @@ test('each budget reports itself distinctly in the final', async () => {
 // clock starts first it is the one that fires — i.e. the payload degenerates
 // to exactly the single absolute cap it used to mean, rather than losing its
 // bound.
-test('a payload with only the legacy timeoutMs degenerates to the old single cap', async () => {
+test('maximum duration bounds an actively streaming turn independently of idle time', async () => {
     let stop = (): void => {}
     const { server, url } = await listen((res) => {
         stop = trickle(res, 50, 'forever')
@@ -350,12 +352,15 @@ test('a payload with only the legacy timeoutMs degenerates to the old single cap
     try {
         const h = makeCtx('oc-legacy-1')
         const startedAt = Date.now()
-        const ack = await run('oc-legacy-1', url, h, { timeoutMs: 300 })
+        const ack = await run('oc-legacy-1', url, h, {
+            idleTimeoutMs: 10_000,
+            maxDurationMs: 300
+        })
         assert.equal(ack.ok, false)
         assert.match(ack.error ?? '', /300ms maximum duration/)
         assert.ok(
             Date.now() - startedAt < 3_000,
-            'an actively streaming turn under a legacy payload is still bounded'
+            'an actively streaming turn is still bounded'
         )
     } finally {
         stop()

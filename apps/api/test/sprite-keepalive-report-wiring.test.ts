@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { validateSync } from 'class-validator'
 import type { ExecOptions, ExecResult, SpriteWriteFileArgs } from '@manyfold/sprites'
 import { SpriteKeepAliveLeaseService } from '../src/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { CreateRuntimeReportDto } from '../src/modules/runtime-reports/dto/create-runtime-report.dto'
 
 // Keep-alive report wiring (#108) through writeStartScript — the single choke
 // point behind every service start path. These tests pin: the DB-first fence
@@ -373,7 +375,7 @@ test('unset PUBLIC_API_BASE_URL degrades to the plain start.sh even when a token
     )
 })
 
-test('ensureLease rewrites the fence to its freshly minted generation', async () => {
+test('ensureLease preserves the running service report fence and assets', async () => {
     const { lease, store, timeline } = makeHarness({
         credentialsToken: 'tok-stored',
         runtime: {
@@ -399,32 +401,61 @@ test('ensureLease rewrites the fence to its freshly minted generation', async ()
         'gen0',
         'ensureLease mints a fresh generation'
     )
-    // WHY: the wake path rotates the generation seconds after the service
-    // boots (ensureServiceRunning then ensureLease) — if the fence stayed at
-    // the boot-time value, every wake would 409 its own ready report.
+    // Lease generations and service boot generations have separate lifetimes.
+    // A lease update must leave both sides of the report contract unchanged.
     assert.equal(
         caps.serviceReport.generation,
-        caps.keepAlive.generation,
-        'the DB fence must follow the freshly minted generation'
+        'gen0',
+        'a lease change does not replace the current service boot'
     )
     const env = writesTo(timeline, '/report.env.tmp')
-    assert.equal(env.length, 1)
-    assert.ok(
-        env[0].body.includes(
-            `RUNTIME_REPORT_GENERATION='${caps.keepAlive.generation}'`
-        ),
-        'report.env carries the same minted generation the fence records — the re-sourcing reporter picks it up at ready time'
+    assert.equal(env.length, 0)
+    assert.equal(writesTo(timeline, '/start.sh.tmp').length, 0)
+    assert.equal(
+        timeline.some((event) => event.kind === 'runtime-update' && event.fenceChangedTo !== undefined),
+        false
     )
-    const fenceIdx = timeline.findIndex(
-        (event) =>
-            event.kind === 'runtime-update' &&
-            event.fenceChangedTo === caps.keepAlive.generation
-    )
-    const firstWriteIdx = timeline.findIndex((event) => event.kind === 'write')
-    assert.ok(
-        fenceIdx !== -1 && fenceIdx < firstWriteIdx,
-        'the DB-first invariant holds on the lease path too'
-    )
+})
+
+test('each service wake gets a new report fence without changing the lease generation', async () => {
+    for (const keepAliveEnabled of [false, true]) {
+        const { lease, store, timeline } = makeHarness({
+            credentialsToken: 'tok-stored',
+            runtime: {
+                keepAliveEnabled,
+                capabilitiesJson: {
+                    keepAlive: keepAlive(),
+                    serviceReport: { generation: 'previous-boot' }
+                }
+            }
+        })
+        const generations: string[] = []
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const result = await lease.ensureServiceRunning(store as never)
+            assert.equal(result.started, true)
+            const caps = store.capabilitiesJson as {
+                keepAlive: { generation: string }
+                serviceReport: { generation: string }
+            }
+            assert.equal(caps.keepAlive.generation, 'gen0')
+            assert.notEqual(caps.serviceReport.generation, 'gen0')
+            assert.notEqual(caps.serviceReport.generation, 'previous-boot')
+            const report = Object.assign(new CreateRuntimeReportDto(), {
+                runtimeId: store.id,
+                generation: caps.serviceReport.generation,
+                event: 'ready'
+            })
+            assert.deepEqual(validateSync(report), [])
+            const env = writesTo(timeline, '/report.env.tmp').at(-1)
+            assert.ok(
+                env?.body.includes(
+                    `RUNTIME_REPORT_GENERATION='${caps.serviceReport.generation}'`
+                )
+            )
+            generations.push(caps.serviceReport.generation)
+        }
+        assert.notEqual(generations[0], generations[1])
+    }
 })
 
 test('ensureServiceRunning sets serviceStatus starting only when it actually starts the service', async () => {

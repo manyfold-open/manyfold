@@ -1,6 +1,4 @@
 import {
-    DAEMON_FEATURE_DAEMON_UPDATE,
-    DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     isCliUpdateAvailable
 } from '@manyfold/shared'
 import test from 'node:test'
@@ -18,7 +16,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'laptop.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.0.1',
+        cliVersion: '0.34.0',
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.manyfold/workspaces',
         detectedFrameworks: [],
@@ -92,7 +90,7 @@ test('isCliUpdateAvailable: stable compares by semver, dev by exact build', () =
 
 test('toSummary surfaces latest version, updateAvailable and canRemoteUpgrade', async () => {
     const service = makeService({ latest: '1.2.0' })
-    const summary = await service.toSummary(host({ cliVersion: '0.0.1' }), [], 0)
+    const summary = await service.toSummary(host({ cliVersion: '0.34.0' }), [], 0)
     assert.equal(summary.latestCliVersion, '1.2.0')
     assert.equal(summary.updateAvailable, true)
     assert.equal(summary.canRemoteUpgrade, true)
@@ -101,7 +99,7 @@ test('toSummary surfaces latest version, updateAvailable and canRemoteUpgrade', 
 test('canRemoteUpgrade is false when the daemon does not advertise daemon.update', async () => {
     const service = makeService({ latest: '1.2.0' })
     const summary = await service.toSummary(
-        host({ cliVersion: '0.0.1', clientFeatures: [] }),
+        host({ cliVersion: '0.34.0', clientFeatures: [] }),
         [],
         0
     )
@@ -149,16 +147,12 @@ test('upgrade dispatches daemon.update and returns versions for an eligible daem
     assert.equal(calls[0].method, 'daemon.update')
     assert.deepEqual(calls[0].payload, { targetVersion: '1.2.0' })
     assert.equal(res.ok, true)
-    assert.equal(res.fromVersion, '0.0.1')
+    assert.equal(res.fromVersion, '0.34.0')
     assert.equal(res.toVersion, '1.2.0')
     assert.equal(res.restarting, true)
 })
 
-// A cross-channel upgrade names the channel on the wire. Daemons built before
-// the dev rename only accept `staging`/`stable` and would silently drop `dev`,
-// then fetch the pinned version from their own CDN and 404 — so the wire value
-// stays `staging` while the API speaks `dev` internally.
-test('upgrade sends the pre-rename staging wire value for a dev target', async () => {
+test('upgrade sends the canonical dev channel without an old capability check', async () => {
     const calls: Array<{ method: string; payload: unknown }> = []
     const service = makeService({
         rpc: async (args) => {
@@ -169,19 +163,14 @@ test('upgrade sends the pre-rename staging wire value for a dev target', async (
     })
 
     await service.upgrade({
-        host: host({
-            clientFeatures: [
-                DAEMON_FEATURE_DAEMON_UPDATE,
-                DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL
-            ]
-        }),
+        host: host(),
         actorId: 'u1',
         targetVersion: DEV_TARGET
     })
 
     assert.deepEqual(calls[0].payload, {
         targetVersion: DEV_TARGET,
-        channel: 'staging'
+        channel: 'dev'
     })
 })
 

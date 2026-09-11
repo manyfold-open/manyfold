@@ -95,8 +95,7 @@ export interface DaemonFrameworkModelCapability {
     cliVersion: string | null
     ready?: boolean
     credentialReady?: boolean | null
-    // Optional: daemons older than the credential-facts contract omit it, and
-    // the API treats its absence as "cannot judge" rather than "not ready".
+    // A failed probe can omit facts; that response is not credential-ready.
     credentialFacts?: RuntimeLocalCredentialFacts | null
     configReadable: boolean
     current: string | null
@@ -276,6 +275,10 @@ export type DaemonWsFrame =
 // host API that renders the badge.
 export const DAEMON_ONLINE_THRESHOLD_MS = 45_000
 
+// Protocol baseline: stdin, split budgets, authoritative hello, secure file
+// writes, credential facts and the dev update-channel spelling are required.
+export const DAEMON_MIN_CLI_VERSION = '0.34.0'
+
 // How often the daemon actually re-runs the `<bin> --version` probes behind
 // `detectedFrameworks`. The 15s heartbeat replays the cached result on the
 // other 19 rounds, so this — not the heartbeat interval — is the true age
@@ -339,12 +342,6 @@ export interface DaemonHermesTurnPayload {
     // Deny-on-timeout deadline for an unanswered ask, ms. The daemon answers
     // with the request's own reject option when it expires.
     permissionTimeoutMs?: number
-    // Legacy single budget over session/prompt: one absolute deadline that the
-    // streamed session/update notifications never reset, so a turn still
-    // producing output was truncated (#556). Kept as the fallback for runners
-    // that predate the split below, so an old daemon keeps exactly its old
-    // behaviour instead of inheriting the much larger maxDurationMs.
-    timeoutMs?: number
     handshakeTimeoutMs?: number
     // Split budgets for session/prompt only — the handshake keeps its own
     // short fixed budget. idle RESETS on every frame the child emits (stdout
@@ -366,12 +363,6 @@ export interface DaemonOpenclawTurnPayload {
     url: string
     token?: string | null
     body: Record<string, unknown>
-    // Legacy single budget: one absolute deadline over headers AND the whole
-    // SSE read, which truncated turns that were still streaming (#513). Kept
-    // as the fallback for runners that predate the split below, so an old
-    // daemon keeps exactly its old behaviour instead of inheriting the much
-    // larger maxDurationMs.
-    timeoutMs?: number
     // Split budgets. Each is independent: headers is a connect deadline,
     // idle RESETS on every body chunk (so an active stream never expires),
     // and maxDuration is the only wall-clock cap.
@@ -444,10 +435,7 @@ export interface DaemonTurnFinalPayload {
 export const DAEMON_FEATURE_EXEC_RESUME = 'exec.resume'
 export const DAEMON_FEATURE_EXEC_STDIN = 'exec.stdin'
 export const DAEMON_FEATURE_DAEMON_UPDATE = 'daemon.update'
-// The daemon.update handler honours a `channel` override in the RPC payload,
-// letting the platform install a build from the other channel's CDN (used for
-// cross-channel upgrades in local/staging). Daemons without this still ignore
-// the field and self-update from their own baked channel.
+// The protocol baseline honours stable/dev channel overrides for updates.
 export const DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL = 'daemon.update.channel'
 // The fs.write handler decodes `encoding: 'base64'` payloads into raw bytes
 // instead of coercing the content to a UTF-8 string. Required for binary file
@@ -479,32 +467,23 @@ export const DAEMON_FEATURE_TURN_OPENCLAW = 'turn.openclaw'
 export const DAEMON_FEATURE_TURN_OPENCLAW_ACP = 'turn.openclaw.acp'
 // The hello's inflightStreams field is authoritative when PRESENT (an empty
 // list really means "no streams") and unknown when ABSENT (enumeration
-// failed). Older daemons omit the field for both, so the server can only key
-// convergence decisions off its absence when the client declares this.
+// failed). This distinction is required by the protocol baseline.
 export const DAEMON_FEATURE_HELLO_INFLIGHT = 'hello.inflight-authoritative'
 // The fs containment allows the exact file ~/.claude.json (Claude Code's
 // user-level config, a SIBLING of the ~/.claude root) for Manyfold-managed
-// MCP config. The server must not attempt user-scope MCP reads/writes on a
-// daemon without this — the older CLI refuses the path (#781).
+// MCP config. Exact-path containment remains mandatory (#781).
 export const DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG = 'fs.claude-user-config'
 // The fs.write handler honours a `mode` field (octal string) by chmodding
-// after the write. Config files carrying secrets (Composio MCP server keys)
-// are only materialized onto daemons that declare this, so a plaintext key
-// never lands world-readable (#781).
+// after the write. MCP materialization always requests 0600 so plaintext
+// configuration keys never land world-readable (#781).
 export const DAEMON_FEATURE_FS_WRITE_MODE = 'fs.write.mode'
 // The turn runners parse the split budgets (idleTimeoutMs / headersTimeoutMs /
-// maxDurationMs) on DaemonTurnStartPayload instead of only the legacy 240s
-// `timeoutMs` deadline (#513 / #556). This flag is a retroactive advertisement
-// of behavior the runners already ship — the API keeps sending `timeoutMs`
-// alongside the split budgets until the fleet reports no daemon without it,
-// which is the removal gate for that legacy field.
+// maxDurationMs) on DaemonTurnStartPayload. The single timeoutMs field is
+// retired; this advertisement remains useful for fleet inspection.
 export const DAEMON_FEATURE_TURN_BUDGETS = 'turn.budgets'
 // The model.inspect response carries credentialFacts (see
-// DaemonFrameworkModelCapability). A retroactive advertisement of behavior the
-// daemon already ships: the API keeps deciding from the field's presence on
-// the RPC itself (absence fails open as "cannot judge"), so nothing reads this
-// flag at decision time — it exists so fleet coverage is queryable from
-// `runtime_hosts.client_features`, which the heartbeat persists.
+// DaemonFrameworkModelCapability). Missing facts do not establish credential
+// readiness; heartbeat advertisement is observable fleet metadata.
 export const DAEMON_FEATURE_CREDENTIAL_FACTS = 'model.credential-facts'
 // The hermes turn runner honours DaemonHermesTurnPayload.modelOverride
 // (session/set_model before the prompt, failing the turn on error) and

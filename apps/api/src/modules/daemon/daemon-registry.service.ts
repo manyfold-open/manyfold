@@ -155,10 +155,7 @@ export class DaemonRegistryService
         private readonly config: ConfigService
     ) {
         this.instanceId =
-            configString(this.config, [
-                'MF_API_INSTANCE_ID',
-                'NCA_API_INSTANCE_ID'
-            ]) ||
+            configString(this.config, ['MF_API_INSTANCE_ID']) ||
             process.env.FLY_MACHINE_ID ||
             process.env.HOSTNAME ||
             randomUUID()

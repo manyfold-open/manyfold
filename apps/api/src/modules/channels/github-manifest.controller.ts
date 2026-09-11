@@ -51,11 +51,7 @@ export class GithubManifestCallbackController {
 
     private webUrl(): string {
         return (
-            configString(this.config, [
-                'MF_WEB_URL',
-                'NCA_WEB_URL',
-                'WEB_BASE_URL'
-            ]) ?? DEFAULT_WEB_BASE_URL
+            configString(this.config, ['MF_WEB_URL']) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 }

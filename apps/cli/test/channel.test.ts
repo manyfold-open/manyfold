@@ -111,9 +111,9 @@ test('resolveUpdateStatus treats a cross-channel move as an update', () => {
     )
 })
 
-test('normalizeUpdateChannelFlag maps dev and the staging alias to dev', () => {
+test('normalizeUpdateChannelFlag accepts only the canonical channels', () => {
     assert.equal(normalizeUpdateChannelFlag('dev'), 'dev')
-    assert.equal(normalizeUpdateChannelFlag('staging'), 'dev')
+    assert.throws(() => normalizeUpdateChannelFlag('staging'), /unknown channel/)
     assert.equal(normalizeUpdateChannelFlag('stable'), 'stable')
     assert.equal(normalizeUpdateChannelFlag('  DEV '), 'dev')
     assert.equal(normalizeUpdateChannelFlag('Stable'), 'stable')
@@ -126,14 +126,13 @@ test('normalizeUpdateChannelFlag rejects unknown channels', () => {
     )
 })
 
-// An API deployed before the rename still sends 'staging' in daemon.update.
-test('normalizeWireChannel accepts both spellings and drops junk', () => {
-    assert.equal(normalizeWireChannel('staging'), 'dev')
+test('normalizeWireChannel rejects retired and invalid values without changing channel', () => {
+    assert.throws(() => normalizeWireChannel('staging'), /unknown channel/)
     assert.equal(normalizeWireChannel('dev'), 'dev')
     assert.equal(normalizeWireChannel('stable'), 'stable')
-    assert.equal(normalizeWireChannel('beta'), undefined)
+    assert.throws(() => normalizeWireChannel('beta'), /unknown channel/)
     assert.equal(normalizeWireChannel(undefined), undefined)
-    assert.equal(normalizeWireChannel(7), undefined)
+    assert.throws(() => normalizeWireChannel(7), /update channel must be/)
 })
 
 test('resolveEffectiveUpdateChannel: explicit flag wins', () => {

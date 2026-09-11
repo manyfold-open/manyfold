@@ -123,7 +123,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'laptop.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.0.1',
+        cliVersion: '0.34.0',
         homeDir: '/Users/me',
         workspaceBaseDir: '/Users/me/.nca/workspaces',
         detectedFrameworks: [],
@@ -153,6 +153,32 @@ const hostService = (
         { get: () => undefined } as never
     )
 
+test('retired daemon versions cannot register or update heartbeat metadata', async () => {
+    for (const cliVersion of ['0.33.9', '', 'unknown']) {
+        const db = new HostDb()
+        db.rows = [host()]
+        const service = hostService(db as unknown as Database)
+        await assert.rejects(
+            () => service.upsertOnRegister({
+                tokenId: 'ldt-1',
+                request: { cliVersion } as never,
+                lastIp: null
+            }),
+            /daemon CLI 0\.34\.0 or newer is required/
+        )
+        await assert.rejects(
+            () => service.heartbeat({
+                daemonId: 'dh-1',
+                detectedFrameworks: [],
+                startupMethod: 'manual',
+                cliVersion
+            }),
+            /daemon CLI 0\.34\.0 or newer is required/
+        )
+        assert.equal(db.updates.length, 0)
+    }
+})
+
 test('revoked daemon heartbeat is rejected and does not reactivate host', async () => {
     const db = new HostDb()
     db.rows = [host({ status: 'revoked' })]
@@ -163,7 +189,7 @@ test('revoked daemon heartbeat is rejected and does not reactivate host', async 
             service.heartbeat({
                 daemonId: 'dh-1',
                 detectedFrameworks: [],
-                cliVersion: '0.0.1',
+                cliVersion: '0.34.0',
                 startupMethod: 'manual'
             }),
         ForbiddenException
@@ -192,7 +218,7 @@ test('revoked daemon re-register reactivates the host', async () => {
             hostname: 'laptop.local',
             os: 'darwin',
             arch: 'arm64',
-            cliVersion: '0.0.1',
+            cliVersion: '0.34.0',
             homeDir: '/Users/me',
             workspaceBaseDir: '/Users/me/.nca/workspaces',
             detectedFrameworks: []
@@ -212,7 +238,7 @@ test('heartbeat persists terminalPty and resets it when absent', async () => {
     await service.heartbeat({
         daemonId: 'dh-1',
         detectedFrameworks: [],
-        cliVersion: '0.0.2',
+        cliVersion: '0.34.1',
         startupMethod: 'manual',
         terminalPty: true
     })
@@ -221,7 +247,7 @@ test('heartbeat persists terminalPty and resets it when absent', async () => {
     await service.heartbeat({
         daemonId: 'dh-1',
         detectedFrameworks: [],
-        cliVersion: '0.0.1',
+        cliVersion: '0.34.0',
         startupMethod: 'manual'
     })
     assert.equal(db.updates[1].terminalPty, null)
@@ -246,7 +272,7 @@ test('register persists terminalPty from the request', async () => {
             hostname: 'laptop.local',
             os: 'darwin',
             arch: 'arm64',
-            cliVersion: '0.0.2',
+            cliVersion: '0.34.1',
             homeDir: '/Users/me',
             workspaceBaseDir: '/Users/me/.nca/workspaces',
             detectedFrameworks: [],
@@ -267,7 +293,7 @@ test('only a managed token skips the always-online reservation', async () => {
             hostname: 'sprite',
             os: 'linux',
             arch: 'x86_64',
-            cliVersion: '0.22.3',
+            cliVersion: '0.34.0',
             homeDir: '/home/sprite',
             workspaceBaseDir: '/home/sprite/.manyfold/workspaces',
             detectedFrameworks: []

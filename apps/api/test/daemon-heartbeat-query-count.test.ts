@@ -102,7 +102,7 @@ const host = (overrides: Partial<RuntimeHostRow> = {}): RuntimeHostRow =>
         hostname: 'mac.local',
         os: 'darwin',
         arch: 'arm64',
-        cliVersion: '0.0.1',
+        cliVersion: '0.34.0',
         homeDir: HOST_HOME,
         workspaceBaseDir: HOST_WORKSPACES,
         detectedFrameworks: [],
@@ -335,7 +335,7 @@ class HostDb {
 const heartbeatArgs = {
     daemonId: 'dh-1',
     detectedFrameworks: detected(3),
-    cliVersion: '0.0.1',
+    cliVersion: '0.34.0',
     startupMethod: 'launchd-user' as const,
     clientFeatures: ['exec.resume']
 }
@@ -383,9 +383,9 @@ test('changed host metadata is written alongside the presence column', async () 
     )
     const service = hostService(db as unknown as Database)
 
-    await service.heartbeat({ ...heartbeatArgs, cliVersion: '0.0.2' })
+    await service.heartbeat({ ...heartbeatArgs, cliVersion: '0.34.1' })
 
-    assert.equal(db.patches[0].cliVersion, '0.0.2')
+    assert.equal(db.patches[0].cliVersion, '0.34.1')
     assert.ok(db.patches[0].updatedAt instanceof Date)
     assert.ok(db.patches[0].lastSeenAt instanceof Date)
 })
@@ -415,7 +415,7 @@ test('the heartbeat route resolves its host with a single read', async () => {
         { tokenId: 'ldt-1', daemonId: 'dh-1' } as never,
         {
             detectedFrameworks: detected(3),
-            cliVersion: '0.0.1',
+            cliVersion: '0.34.0',
             startupMethod: 'launchd'
         } as never
     )

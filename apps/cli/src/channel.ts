@@ -14,7 +14,7 @@ export type CliChannel = 'stable' | 'dev'
 // channel-pref.ts, which survives a cross-channel swap.
 export const CLI_CHANNEL: CliChannel =
     typeof __MF_CLI_CHANNEL__ !== 'undefined' &&
-    (__MF_CLI_CHANNEL__ === 'dev' || __MF_CLI_CHANNEL__ === 'staging')
+    __MF_CLI_CHANNEL__ === 'dev'
         ? 'dev'
         : 'stable'
 
@@ -47,26 +47,21 @@ export const versionManifestUrl = (version: string): string =>
 
 export const CLI_INSTALL_URL = 'https://manyfold.ai/cli/install.sh'
 
-// `staging` is the pre-rename alias for the dev channel.
 export const normalizeUpdateChannelFlag = (value: string): CliChannel => {
     const normalized = value.trim().toLowerCase()
-    if (normalized === 'dev' || normalized === 'staging') return 'dev'
+    if (normalized === 'dev') return 'dev'
     if (normalized === 'stable') return 'stable'
     throw new Error(`unknown channel '${value}' (expected dev or stable)`)
 }
 
-// The API's daemon.update payload carries a channel string. An API deployed
-// before the rename still sends 'staging', so a rolling deploy must not brick
-// the RPC.
+// The API's daemon.update payload uses the same stable/dev channel contract.
 export const normalizeWireChannel = (
     value: unknown
 ): CliChannel | undefined => {
-    if (typeof value !== 'string') return undefined
-    try {
-        return normalizeUpdateChannelFlag(value)
-    } catch {
-        return undefined
-    }
+    if (value === undefined) return undefined
+    if (typeof value !== 'string')
+        throw new Error('update channel must be dev or stable')
+    return normalizeUpdateChannelFlag(value)
 }
 
 // A pinned `--to <version>` uniquely determines its manifest, so its inferred

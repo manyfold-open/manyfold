@@ -171,16 +171,11 @@ const GEMINI_CLI_AUTH_BOOTSTRAP = [
 // Sprite/k8s exec inlines argv into the WS URL, which 414s on long prompts
 // (same limit the claude/codex adapters avoid via stdin), so the prompt
 // travels over the stdin frame channel and is re-attached to --prompt here.
-// Daemon runtime keeps argv: CLIs <= 0.11 drop the stdin field of the
-// exec.start RPC, so stdin content would never reach the binary.
-// See claude-code.adapter for the observed symptom and the commit (94559e0).
-const geminiBootstrap = (promptViaArgv: boolean): string =>
-    [
-        GEMINI_CLI_AUTH_BOOTSTRAP,
-        ...(promptViaArgv
-            ? ['exec gemini "$@"']
-            : ['MF_PROMPT="$(cat)"', 'exec gemini --prompt "$MF_PROMPT" "$@"'])
-    ].join('\n')
+const GEMINI_BOOTSTRAP = [
+    GEMINI_CLI_AUTH_BOOTSTRAP,
+    'MF_PROMPT="$(cat)"',
+    'exec gemini --prompt "$MF_PROMPT" "$@"'
+].join('\n')
 
 @Injectable()
 export class GeminiCliAdapter implements ApiChatAdapter {
@@ -264,7 +259,6 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         // leave --model / GEMINI_MODEL unset so routing stays in charge.
         const cliModel = isGeminiAutoModel(model) ? null : model
 
-        const promptViaArgv = runtime === 'daemon'
         const cmd = [
             'gemini',
             '--output-format',
@@ -272,7 +266,6 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             '--approval-mode',
             'yolo'
         ]
-        if (promptViaArgv) cmd.push('--prompt', prompt)
         if (cliModel) cmd.push('--model', cliModel)
         if (ctx.frameworkSessionRef)
             cmd.push('--resume', ctx.frameworkSessionRef)
@@ -296,12 +289,12 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             cmd: [
                 'bash',
                 '-lc',
-                geminiBootstrap(promptViaArgv),
+                GEMINI_BOOTSTRAP,
                 'gemini',
                 ...cmd.slice(1)
             ],
             env,
-            stdin: promptViaArgv ? '' : prompt,
+            stdin: prompt,
             dir: agent.workspacePath ?? undefined,
             timeoutMs: execTimeouts.timeoutMs,
             keepAliveMs: execTimeouts.keepAliveMs,

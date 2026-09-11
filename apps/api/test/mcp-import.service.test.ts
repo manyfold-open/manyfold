@@ -117,7 +117,7 @@ test('mcp import 503s and leaves the DB untouched when the sprite read fails', a
 // user scope declared skipped (with the unblock path) and never read; the
 // readable scopes import normally and the skipped scope's stored value
 // survives the merged write.
-test('mcp import on an old-CLI daemon skips the claude user scope loudly', async () => {
+test('mcp import preserves a missing user config while importing the project scope', async () => {
     const db = fakeDb()
     const svc = new TestImport(db)
     const daemonAgent = {
@@ -141,7 +141,7 @@ test('mcp import on an old-CLI daemon skips the claude user scope loudly', async
         res.scopes.map((s) => `${s.scopeId}:${s.status}`),
         ['user:skipped', 'project:imported']
     )
-    assert.match(res.scopes[0].message ?? '', /newer mf CLI/)
+    assert.match(res.scopes[0].message ?? '', /config file not found/)
     const patch = readJsonbMergePatch(db.updates[0].extras)
     const mcp = patch?.mcp as Record<string, string>
     assert.equal(mcp.user, '{"old":{}}')

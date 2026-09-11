@@ -62,13 +62,12 @@ import {
 // session/update notifications never reset it — so it capped total duration
 // instead of detecting a hang, and any turn longer than 4 minutes was
 // truncated. It survives only as the inactivity default (same number, new
-// meaning: strictly more permissive) and as the legacy budget sent to runners
-// that predate the split.
-const HERMES_LEGACY_TURN_TIMEOUT_MS = 240_000
+// meaning: strictly more permissive).
+const DEFAULT_HERMES_IDLE_TIMEOUT_MS = 240_000
 const HERMES_TURN_IDLE_TIMEOUT_MS = Math.max(
     1_000,
     Number(
-        process.env.HERMES_TURN_IDLE_TIMEOUT_MS ?? HERMES_LEGACY_TURN_TIMEOUT_MS
+        process.env.HERMES_TURN_IDLE_TIMEOUT_MS ?? DEFAULT_HERMES_IDLE_TIMEOUT_MS
     )
 )
 
@@ -513,11 +512,6 @@ export class HermesAdapter implements ApiChatAdapter {
                 ...(args.env ?? {}),
                 ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
             },
-            // Deliberately still the legacy value: a runner that predates the
-            // split reads ONLY this and must keep its old 240s absolute cap
-            // rather than silently inherit the multi-hour maxDurationMs. A
-            // runner that understands the split ignores it.
-            timeoutMs: HERMES_LEGACY_TURN_TIMEOUT_MS,
             idleTimeoutMs: budgets.idleTimeoutMs,
             maxDurationMs: budgets.maxDurationMs
         }

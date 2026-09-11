@@ -121,7 +121,7 @@ test('a new-CLI daemon gets every scope written with mode 600', async () => {
     assert.equal(delivery.project.status, 'delivered')
 })
 
-test('an old-CLI daemon skips the claude user scope without attempting it', async () => {
+test('MCP projection always writes secure scopes without historical feature flags', async () => {
     const db = fakeDb({ clientFeatures: [] })
     const registry = fakeRegistry({ files: {} })
     const svc = build(db, registry)
@@ -130,27 +130,20 @@ test('an old-CLI daemon skips the claude user scope without attempting it', asyn
 
     assert.deepEqual(
         results.map((r) => `${r.scopeId}:${r.status}`),
-        ['user:skipped', 'project:delivered']
+        ['user:delivered', 'project:delivered']
     )
-    assert.match(
-        results[0].message ?? '',
-        /newer mf CLI/,
-        'the skip must say how to unblock'
-    )
-    // Never attempted: no fs RPC ever names ~/.claude.json.
     assert.equal(
         registry.calls.some((c) => c.payload.path === CLAUDE_USER),
-        false
+        true
     )
-    // No mode field without fs.write.mode.
     const write = registry.calls.find((c) => c.method === 'fs.write')
-    assert.equal(write?.payload.mode, undefined)
+    assert.equal(write?.payload.mode, '600')
     const patch = readJsonbMergePatch(db.updates[0].extras)
     const delivery = patch?.mcpDelivery as Record<
         string,
         { status: string; message?: string }
     >
-    assert.equal(delivery.user.status, 'skipped')
+    assert.equal(delivery.user.status, 'delivered')
 })
 
 test('an offline daemon persists failed outcomes instead of a log line', async () => {

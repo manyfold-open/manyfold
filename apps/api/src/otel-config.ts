@@ -19,7 +19,7 @@ const nonEmpty = (value: string | undefined, fallback: string): string => {
 }
 
 export const resolveServiceVersion = (env: Env = process.env): string =>
-    nonEmpty(env.MF_VERSION, nonEmpty(env.NCA_VERSION, apiPackage.version))
+    nonEmpty(env.MF_VERSION, apiPackage.version)
 
 export const resolveDeploymentEnvironment = (env: Env = process.env): string =>
     nonEmpty(env.MF_DEPLOY_ENV, env.FLY_APP_NAME?.trim() || 'local')

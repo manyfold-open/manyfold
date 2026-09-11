@@ -136,8 +136,7 @@ export interface MaterializeForSpriteInput {
 
 // Resolved context for the host-store + per-agent-activation path. `run` /
 // `hasStoreSkill` abstract the runtime exec (sprite REST vs daemon RPC) so the
-// store + activation core is shared. `legacyPrefix` is '' on sprite and 'nca-'
-// on daemon, matching how each runtime's legacy home clone was named.
+// store + activation core is shared.
 interface SkillStoreContext {
     agentId: string
     userId: string
@@ -148,7 +147,6 @@ interface SkillStoreContext {
     // never re-derived from homeDir here.
     storeDir: string
     workspacePath: string
-    legacyPrefix: string
     timeoutMs?: number
     run(
         script: string,
@@ -587,7 +585,6 @@ export class SkillMaterializerService {
                 homeDir,
                 storeDir: skillStoreDir(homeDir),
                 workspacePath,
-                legacyPrefix: '',
                 timeoutMs: input.timeoutMs,
                 run: (script, timeoutMs) =>
                     this.execSprite(
@@ -659,7 +656,6 @@ export class SkillMaterializerService {
                     (await this.declaredSkillsDir(input.daemonId)) ??
                     skillStoreDir(homeDir),
                 workspacePath,
-                legacyPrefix: 'nca-',
                 timeoutMs: input.timeoutMs,
                 run: (script, timeoutMs) =>
                     this.runDaemonBash(input.daemonId, script, timeoutMs),
@@ -769,12 +765,6 @@ export class SkillMaterializerService {
             if (failed.has(skill.userSkillId)) continue
             const key = storeKeyFor(skill)
             try {
-                // Pre-store-model agents cloned skills into the shared home
-                // framework dir. For claude-code that personal copy SHADOWS the
-                // new project symlink (personal overrides project), so the
-                // workspace activation would be inert until it's gone — remove
-                // it as we activate (self-healing; no-op for codex/gemini).
-                await this.removeLegacyClone(ctx, skill.installDir)
                 if (current.get(skill.installDir) !== key)
                     await this.activateSkill(
                         ctx,
@@ -852,19 +842,6 @@ export class SkillMaterializerService {
                 ctx.timeoutMs ?? 30_000
             )
             .catch(() => undefined)
-    }
-
-    private async removeLegacyClone(
-        ctx: SkillStoreContext,
-        installDir: string
-    ): Promise<void> {
-        const legacy = `${ctx.homeDir}/.${skillStateDirName(ctx.framework)}/skills/${ctx.legacyPrefix}${installDir}`
-        await this.runChecked(
-            ctx,
-            `d=${shellEscape(legacy)}; if [ -d "$d" ] && [ ! -L "$d" ]; then rm -rf -- "$d"; fi`,
-            ctx.timeoutMs ?? 30_000,
-            `remove legacy clone ${installDir}`
-        )
     }
 
     private async installToStore(

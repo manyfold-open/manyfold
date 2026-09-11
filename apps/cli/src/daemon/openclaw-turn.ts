@@ -22,8 +22,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 240_000
 // #513: a single absolute timer over the whole turn killed streams that were
 // still producing events and reported them as stalls. Headers, silence and
 // total duration are three different failures with three different budgets;
-// only the idle one restarts on activity. `timeoutMs` remains the fallback so
-// an API that predates the split keeps the old single-budget behaviour.
+// only the idle one restarts on activity.
 type OpenclawTurnTimeoutKind = 'headers' | 'stream_idle' | 'max_duration'
 
 export const runOpenclawTurn = (args: {
@@ -42,10 +41,9 @@ export const runOpenclawTurn = (args: {
     execStreams.set(ctx.refId, stream)
     args.registerChild()
 
-    const legacyTimeoutMs = payload.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
-    const headersTimeoutMs = payload.headersTimeoutMs ?? legacyTimeoutMs
-    const idleTimeoutMs = payload.idleTimeoutMs ?? legacyTimeoutMs
-    const maxDurationMs = payload.maxDurationMs ?? legacyTimeoutMs
+    const headersTimeoutMs = payload.headersTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
+    const idleTimeoutMs = payload.idleTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
+    const maxDurationMs = payload.maxDurationMs ?? DEFAULT_TURN_TIMEOUT_MS
     const abort = new AbortController()
     let cancelled = false
     let timeoutKind: OpenclawTurnTimeoutKind | null = null

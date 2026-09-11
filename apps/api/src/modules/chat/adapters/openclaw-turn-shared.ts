@@ -9,14 +9,7 @@ import type { EmittedErrorEvent } from '@/modules/chat/chat-adapter'
 // (openclaw.adapter.ts) and the OpenAI-compatible gateway transport
 // (gateway-http-chat.adapter.ts) — so neither has to import the other.
 
-// Legacy single budget. It is NO LONGER a deadline over a live stream — it is
-// the exec budget of the `openclaw agent --json` daemon-spawn path and the
-// default for the two split streaming budgets below, so an operator who
-// already tuned it keeps the same tolerance.
-export const OPENCLAW_FETCH_TIMEOUT_MS = Math.max(
-    1_000,
-    Number(process.env.OPENCLAW_FETCH_TIMEOUT_MS ?? 240_000)
-)
+const DEFAULT_PHASE_TIMEOUT_MS = 240_000
 // #513: one AbortSignal.timeout used to cover headers AND the entire SSE read
 // loop, so a tool-heavy turn that was still emitting events every few seconds
 // was killed at the absolute 240s mark and mislabelled `openclaw_stream_stall`
@@ -24,12 +17,12 @@ export const OPENCLAW_FETCH_TIMEOUT_MS = Math.max(
 // budgets, and the idle one restarts on every body chunk.
 const OPENCLAW_HEADERS_TIMEOUT_MS = Math.max(
     1_000,
-    Number(process.env.OPENCLAW_HEADERS_TIMEOUT_MS ?? OPENCLAW_FETCH_TIMEOUT_MS)
+    Number(process.env.OPENCLAW_HEADERS_TIMEOUT_MS ?? DEFAULT_PHASE_TIMEOUT_MS)
 )
 const OPENCLAW_STREAM_IDLE_TIMEOUT_MS = Math.max(
     1_000,
     Number(
-        process.env.OPENCLAW_STREAM_IDLE_TIMEOUT_MS ?? OPENCLAW_FETCH_TIMEOUT_MS
+        process.env.OPENCLAW_STREAM_IDLE_TIMEOUT_MS ?? DEFAULT_PHASE_TIMEOUT_MS
     )
 )
 
