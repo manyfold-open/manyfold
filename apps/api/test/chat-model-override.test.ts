@@ -1596,7 +1596,7 @@ test('Gemini adapter prefers model override over saved credential model', async 
     )
 })
 
-test('Gemini daemon adapter does not require stored credentials', async () => {
+test('Gemini daemon adapter uses stdin transport with runtime-local credentials', async () => {
     const handle = makeDriverFactory(null, 'daemon')
     const adapter = new GeminiCliAdapter(
         handle.drivers as never,
@@ -1622,6 +1622,9 @@ test('Gemini daemon adapter does not require stored credentials', async () => {
     assert.notEqual(approvalIndex, -1)
     assert.equal(handle.request?.cmd[approvalIndex + 1], 'yolo')
     assert.equal(handle.request?.env, undefined)
+    assert.equal(handle.request?.cmd.includes('hello'), false)
+    assert.equal(handle.request?.stdin, 'hello')
+    assert.match(handle.request?.cmd[2] ?? '', /MF_PROMPT="\$\(cat\)"/)
 })
 
 test('Gemini sprites runtime-local turn does not inject platform credentials', async () => {
@@ -1789,7 +1792,7 @@ test('Claude adapter sends daemon prompts through stdin without exposing them in
     assert.equal(handle.request?.stdin, 'hello')
 })
 
-test('Codex adapter on daemon runtime puts the prompt on argv, not stdin', async () => {
+test('Codex adapter sends daemon prompts through stdin', async () => {
     const handle = makeDriverFactory({ openaiApiKey: 'token' }, 'daemon')
     const adapter = new CodexAdapter(
         handle.drivers as never,
@@ -1807,9 +1810,9 @@ test('Codex adapter on daemon runtime puts the prompt on argv, not stdin', async
         )
     )
 
-    assert.equal(handle.request?.cmd.at(-1), 'hello')
-    assert.ok(!handle.request?.cmd.includes('-'))
-    assert.equal(handle.request?.stdin, '')
+    assert.equal(handle.request?.cmd.at(-1), '-')
+    assert.equal(handle.request?.cmd.includes('hello'), false)
+    assert.equal(handle.request?.stdin, 'hello')
 })
 
 test('Codex adapter persists the session ref before a mid-stream failure', async () => {

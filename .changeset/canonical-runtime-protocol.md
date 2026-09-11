@@ -6,8 +6,8 @@
 ---
 
 Close retired runtime and configuration compatibility windows. Daemon registration,
-heartbeats and WebSocket connections require CLI 0.34.0 or newer. Claude daemon
-prompts use stdin; turn RPCs use split budgets; update channels use stable/dev.
+heartbeats and WebSocket connections require CLI 0.34.0 or newer. Coding daemon
+prompts use stdin transport; turn RPCs use split budgets; update channels use stable/dev.
 Missing credential facts no longer establish readiness, and daemon MCP writes
 always use restrictive file permissions.
 

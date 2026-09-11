@@ -160,12 +160,7 @@ export class CodexAdapter implements ApiChatAdapter {
                 : undefined
         if (ctx.model) cmd.push('--model', ctx.model)
         if (resumeSessionRef) cmd.push(resumeSessionRef)
-        // See claude-code adapter: daemon CLIs <= 0.11 drop the stdin field
-        // of the exec.start RPC, so we pass the prompt as a positional argv
-        // for daemon runtime. For sprite/k8s we keep `-` + stdin (avoids
-        // 414 when the prompt embeds a long resume transcript).
-        const promptViaArgv = runtime === 'daemon'
-        cmd.push(promptViaArgv ? prompt : '-')
+        cmd.push('-')
 
         const execTimeouts = this.adminSettings
             ? await this.adminSettings.getCachedChatExecTimeoutMs()
@@ -178,7 +173,7 @@ export class CodexAdapter implements ApiChatAdapter {
         const handle = driver.stream({
             cmd,
             env,
-            stdin: promptViaArgv ? '' : prompt,
+            stdin: prompt,
             dir: agent.workspacePath ?? undefined,
             // Sprite codex: relocate HOME to the workspace so its USER skill
             // scope `$HOME/.agents/skills` is per-agent (CODEX_HOME keeps config/
