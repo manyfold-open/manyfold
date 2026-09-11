@@ -162,16 +162,25 @@ const WhatsappIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     </svg>
 )
 
+/* Drawn here rather than vendored: no licensed Google Chat asset ships with
+   this repo. It is an approximation of the real mark — an open speech bubble
+   whose outline runs through Google's four colours — and not the official
+   logo. The single green bubble it replaces was worse than approximate: on
+   the channels grid it sat two rows from iMessage and read as the same app. */
 const GoogleChatIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
-    <svg viewBox='0 0 24 24' className={className} aria-hidden='true'>
-        <path
-            fill='#00AC47'
-            d='M12 2c5.523 0 10 4.03 10 9s-4.477 9-10 9c-1.2 0-2.35-.19-3.415-.54L4 21.5l1.2-3.61C3.22 16.24 2 13.75 2 11c0-4.97 4.477-9 10-9z'
-        />
-        <path
-            fill='#FFFFFF'
-            d='M7.4 8.6h9.2v1.7H7.4zM7.4 12h6.4v1.7H7.4z'
-        />
+    <svg
+        viewBox='0 0 24 24'
+        className={className}
+        aria-hidden='true'
+        fill='none'
+        strokeWidth={2}
+        strokeLinecap='round'
+        strokeLinejoin='round'
+    >
+        <path stroke='#34A853' d='M12 3h6a4 4 0 0 1 4 4v3' />
+        <path stroke='#4285F4' d='M22 10v3a4 4 0 0 1-4 4h-5' />
+        <path stroke='#FBBC04' d='M13 17H9l-5 4 2-4a4 4 0 0 1-4-4v-2' />
+        <path stroke='#EA4335' d='M2 11V7a4 4 0 0 1 4-4h6' />
     </svg>
 )
 
@@ -197,11 +206,15 @@ const MsTeamsIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     </svg>
 )
 
+/* The app tile, not a bare bubble: Messages is a white balloon on a green
+   rounded square, and the square is the half a reader recognises. Without it
+   this was a green blob a hair away from WhatsApp's. */
 const IMessageIcon: FC<{ className?: string }> = ({ className }): ReactNode => (
     <svg viewBox='0 0 24 24' className={className} aria-hidden='true'>
+        <rect x='1' y='1' width='22' height='22' rx='6' fill='#34C759' />
         <path
-            fill='#34C759'
-            d='M12 2C6.2 2 1.5 5.9 1.5 10.7c0 2.7 1.5 5.1 3.9 6.7-.2 1.4-.9 2.7-1.9 3.7 1.6-.2 3.2-.8 4.5-1.8 1.3.4 2.6.6 4 .6 5.8 0 10.5-3.9 10.5-8.7S17.8 2 12 2z'
+            fill='#FFFFFF'
+            d='M12 5.4c-3.9 0-7 2.5-7 5.6 0 1.8 1 3.4 2.6 4.4-.2.9-.7 1.8-1.4 2.5 1.2-.2 2.3-.6 3.2-1.3.8.2 1.7.4 2.6.4 3.9 0 7-2.5 7-5.6s-3.1-6-7-6z'
         />
     </svg>
 )

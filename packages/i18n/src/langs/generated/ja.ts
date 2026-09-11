@@ -1185,9 +1185,6 @@ const ja: Record<string, string> = {
     'web.channelsPage.appsGroupMessenger': '自分のメッセンジャー',
     'web.channelsPage.appsGroupTracker': '課題管理ツール',
     'web.channelsPage.appsGuide': '設定ガイド',
-    'web.channelsPage.setupQr': 'コードを読み取る',
-    'web.channelsPage.setupToken': 'キーを貼る',
-    'web.channelsPage.setupApp': 'アプリを入れる',
     'web.channelsPage.stepsEyebrow': 'つなぎ方',
     'web.channelsPage.stepsTitle': '三つの手順。',
     'web.channelsPage.stepsTitleAccent': 'およそ三分。',
@@ -1226,7 +1223,7 @@ const ja: Record<string, string> = {
     'web.channelsPage.syncPointSettings': '変更は一度だけ',
     'web.channelsPage.syncPointSettingsBody': 'スキル、権限、モデル自体もエージェントに属します。',
     'web.channelsPage.docTitle':
-        'Slack・WhatsApp・GitHub で使う Claude Code と Codex · Manyfold',
+        'Claude Code と Codex が、いつも使っているアプリの中に · Manyfold',
     'web.consent.message': 'Manyfold がどのように使用されているかを理解するために Google Analytics を使用します。同意した場合にのみ実行され、いつでも選択を変更できます。',
     'web.consent.accept': '分析を受け入れる',
     'web.consent.decline': '拒否',
@@ -2651,7 +2648,7 @@ const ja: Record<string, string> = {
     'web.seoPage.home.docsCreateAgent': 'エージェントを作成',
     'web.seoPage.home.docsChannels': 'チャンネル',
     'web.seoPage.channels.description':
-        'Claude Code、Codex、Dify など、あなたが動かしているエージェントを WhatsApp、Slack、Lark、Telegram、Discord、WeChat、LINE、Matrix、GitHub、Linear につなげます。',
+        'Claude Code、Codex、Dify など、あなたが動かしているエージェントを Slack、Microsoft Teams、WhatsApp、Lark、Telegram、Discord、WeChat、Google Chat、LINE、iMessage、Matrix、GitHub、Linear につなげます。',
     'web.seoPage.channels.h1': 'Claude Code と Codex が、いつも使っているアプリの中に。',
     'web.seoPage.channels.ctaTitle': 'エージェントに話しかけてみてください。',
     'web.challenge.case1.coverAlt': '記事を分析するエージェントがいる Article Lens のピクセルオフィス',

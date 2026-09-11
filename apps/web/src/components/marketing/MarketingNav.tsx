@@ -531,7 +531,7 @@ export interface MarketingNavProps {
        landing page passes a bare hash so the click just scrolls; everywhere
        else the default navigates home first and lands on the section — to
        the home page in the language this URL pins, not a hard-coded '/'. A
-       constant here sent a visitor reading /zh/channels to the English
+       constant here sent a visitor reading /zh/agent-channels to the English
        landing page. */
     pricingTo?: string
 }

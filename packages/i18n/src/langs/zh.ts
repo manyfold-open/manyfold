@@ -774,7 +774,7 @@ const zh: Translations = {
         seoPage: {
             channels: {
                 description:
-                    '把 Claude Code、Codex、Dify 或任何你在跑的智能体，接到 WhatsApp、Slack、Lark、Telegram、Discord、微信、LINE、Matrix、GitHub 和 Linear。',
+                    '把 Claude Code、Codex、Dify 或任何你在跑的智能体，接到 Slack、Microsoft Teams、WhatsApp、Lark、Telegram、Discord、微信、Google Chat、LINE、iMessage、Matrix、GitHub 和 Linear。',
                 h1: 'Claude Code 和 Codex，就在你每天用的软件里。',
                 ctaTitle: '去给你的智能体发条消息。'
             },
@@ -2040,9 +2040,6 @@ const zh: Translations = {
             appsGroupMessenger: '你自己的聊天软件',
             appsGroupTracker: '问题追踪',
             appsGuide: '接入指南',
-            setupQr: '扫一个码',
-            setupToken: '粘贴密钥',
-            setupApp: '装一个应用',
             stepsEyebrow: '怎么接进去',
             stepsTitle: '三步。',
             stepsTitleAccent: '大约三分钟。',
@@ -2078,7 +2075,7 @@ const zh: Translations = {
             syncPointSettings: '改一次就够',
             syncPointSettingsBody: '技能、权限，还有模型本身，都归这个智能体。',
             docTitle:
-                '在 Slack、WhatsApp、GitHub 里用 Claude Code 和 Codex · Manyfold'
+                'Claude Code 和 Codex，就在你每天用的软件里 · Manyfold'
         },
         consent: {
             message:

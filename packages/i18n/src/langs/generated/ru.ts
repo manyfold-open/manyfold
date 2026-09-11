@@ -1187,9 +1187,6 @@ const ru: Record<string, string> = {
     'web.channelsPage.appsGroupMessenger': 'Ваш личный мессенджер',
     'web.channelsPage.appsGroupTracker': 'Трекеры задач',
     'web.channelsPage.appsGuide': 'Руководство по подключению',
-    'web.channelsPage.setupQr': 'Сканировать код',
-    'web.channelsPage.setupToken': 'Вставить ключ',
-    'web.channelsPage.setupApp': 'Установить приложение',
     'web.channelsPage.stepsEyebrow': 'Как подключить',
     'web.channelsPage.stepsTitle': 'Три шага.',
     'web.channelsPage.stepsTitleAccent': 'Около трёх минут.',
@@ -1235,7 +1232,7 @@ const ru: Record<string, string> = {
     'web.channelsPage.syncPointSettingsBody':
         'Навыки, права и сама модель принадлежат агенту.',
     'web.channelsPage.docTitle':
-        'Claude Code и Codex в Slack, WhatsApp и GitHub · Manyfold',
+        'Claude Code и Codex теперь в ваших повседневных приложениях · Manyfold',
     'web.consent.message': 'Мы используем аналитику Google, чтобы понять, как используется Manyfold. Она запускается только в том случае, если вы согласны, и вы можете изменить свой выбор в любое время.',
     'web.consent.accept': 'Принять аналитику',
     'web.consent.decline': 'Отклонить',
@@ -2661,7 +2658,7 @@ const ru: Record<string, string> = {
     'web.seoPage.home.docsCreateAgent': 'Создать агента',
     'web.seoPage.home.docsChannels': 'Каналы',
     'web.seoPage.channels.description':
-        'Подключите Claude Code, Codex, Dify или любого агента, которого вы запускаете, к WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub и Linear.',
+        'Подключите Claude Code, Codex, Dify или любого агента, которого вы запускаете, к Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub и Linear.',
     'web.seoPage.channels.h1':
         'Claude Code и Codex теперь в ваших повседневных приложениях.',
     'web.seoPage.channels.ctaTitle': 'Напишите своему агенту.',

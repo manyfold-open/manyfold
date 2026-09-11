@@ -788,7 +788,7 @@ const en = {
         seoPage: {
             channels: {
                 description:
-                    'Connect Claude Code, Codex, Dify or any agent you run to WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub and Linear.',
+                    'Connect Claude Code, Codex, Dify or any agent you run to Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub and Linear.',
                 h1: 'Claude Code and Codex, now in your everyday apps.',
                 ctaTitle: 'Go write to your agent.'
             },
@@ -2094,9 +2094,6 @@ const en = {
             appsGroupMessenger: 'Your own messenger',
             appsGroupTracker: 'Issue trackers',
             appsGuide: 'Setup guide',
-            setupQr: 'Scan a code',
-            setupToken: 'Paste a key',
-            setupApp: 'Install an app',
             stepsEyebrow: 'Setting it up',
             stepsTitle: 'Three steps.',
             stepsTitleAccent: 'About three minutes.',
@@ -2139,7 +2136,7 @@ const en = {
             syncPointSettingsBody:
                 'Skills, permissions and the model itself live on the agent.',
             docTitle:
-                'Claude Code and Codex in Slack, WhatsApp and GitHub · Manyfold'
+                'Claude Code and Codex, now in your everyday apps · Manyfold'
         },
         consent: {
             message:

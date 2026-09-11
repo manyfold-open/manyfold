@@ -1184,9 +1184,6 @@ const ko: Record<string, string> = {
     "web.channelsPage.appsGroupMessenger": "내가 쓰는 메신저",
     "web.channelsPage.appsGroupTracker": "이슈 트래커",
     "web.channelsPage.appsGuide": "설정 가이드",
-    "web.channelsPage.setupQr": "코드 찍기",
-    "web.channelsPage.setupToken": "키 붙여넣기",
-    "web.channelsPage.setupApp": "앱 설치하기",
     "web.channelsPage.stepsEyebrow": "연결하는 법",
     "web.channelsPage.stepsTitle": "세 단계.",
     "web.channelsPage.stepsTitleAccent": "삼 분쯤.",
@@ -1225,7 +1222,7 @@ const ko: Record<string, string> = {
     "web.channelsPage.syncPointSettings": "한 번만 바꾸면 됩니다",
     "web.channelsPage.syncPointSettingsBody": "스킬과 권한, 모델까지 에이전트에 붙습니다.",
     "web.channelsPage.docTitle":
-        "Slack, WhatsApp, GitHub에서 쓰는 Claude Code와 Codex · Manyfold",
+        "Claude Code와 Codex, 이제 매일 쓰는 앱 안에 · Manyfold",
     "web.consent.message": "우리는 Google 분석을 사용하여 Manyfold가 어떻게 사용되는지 이해합니다. 동의하는 경우에만 실행되며 언제든지 선택을 변경할 수 있습니다.",
     "web.consent.accept": "분석 수락",
     "web.consent.decline": "거부",
@@ -2651,7 +2648,7 @@ const ko: Record<string, string> = {
     "web.seoPage.home.docsCreateAgent": "에이전트 생성",
     "web.seoPage.home.docsChannels": "채널",
     "web.seoPage.channels.description":
-        "Claude Code, Codex, Dify 등 당신이 돌리는 에이전트를 WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub, Linear에 연결하세요.",
+        "Claude Code, Codex, Dify 등 당신이 돌리는 에이전트를 Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub, Linear에 연결하세요.",
     "web.seoPage.channels.h1": "Claude Code와 Codex, 이제 매일 쓰는 앱 안에.",
     "web.seoPage.channels.ctaTitle": "에이전트에게 말을 걸어 보세요.",
     "web.challenge.case1.coverAlt": "Article Lens 픽셀 오피스에서 에이전트가 기사를 분석하는 장면",

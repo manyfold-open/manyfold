@@ -146,11 +146,19 @@ const home: SeoPageDefinition = {
    two spans) and the CTA heading written for the crawler, the way the home
    page's are: the live page ends on its app grid and has only the hero's
    pair of buttons, so the snapshot's closing call has no on-page twin to
-   quote. Named for the route, not for
-   chat: two of the ten destinations are issue trackers. */
+   quote.
+
+   The route is `/agent-channels`, not `/channels`. A URL travels without the
+   site around it — a search result, a pasted link — and a bare `/channels` on
+   this domain reads as somebody's chat rooms rather than as the apps an agent
+   is reachable from. The qualifier answers whose. It stays `channels` rather
+   than becoming `integrations`, which would promise skills, MCP and A2A as
+   well, or `chat`, which would disown the two issue trackers. The nav label
+   is still the bare word: a label is always read inside the site that owns
+   it, so it does not need the qualifier the URL does. */
 const channels: SeoPageDefinition = {
     key: 'channels',
-    paths: { en: '/channels', zh: '/zh/channels' },
+    paths: { en: '/agent-channels', zh: '/zh/agent-channels' },
     footerLabel: {
         en: 'web.landing.navChannels',
         zh: 'web.landing.navChannels'

@@ -1186,9 +1186,6 @@ const hi: Record<string, string> = {
     'web.channelsPage.appsGroupMessenger': 'आपका अपना मैसेंजर',
     'web.channelsPage.appsGroupTracker': 'इशू ट्रैकर',
     'web.channelsPage.appsGuide': 'सेटअप मार्गदर्शिका',
-    'web.channelsPage.setupQr': 'कोड स्कैन कीजिए',
-    'web.channelsPage.setupToken': 'कुंजी चिपकाइए',
-    'web.channelsPage.setupApp': 'एक ऐप लगाइए',
     'web.channelsPage.stepsEyebrow': 'जोड़ने का तरीका',
     'web.channelsPage.stepsTitle': 'तीन चरण।',
     'web.channelsPage.stepsTitleAccent': 'लगभग तीन मिनट।',
@@ -1232,7 +1229,7 @@ const hi: Record<string, string> = {
     'web.channelsPage.syncPointSettingsBody':
         'कौशल, अनुमतियाँ और मॉडल — सब एजेंट के हैं।',
     'web.channelsPage.docTitle':
-        'Slack, WhatsApp और GitHub में Claude Code और Codex · Manyfold',
+        'Claude Code और Codex, अब आपके रोज़मर्रा के ऐप में · Manyfold',
     'web.consent.message': 'Manyfold का उपयोग कैसे किया जाता है यह समझने के लिए हम Google एनालिटिक्स का उपयोग करते हैं। यह केवल तभी चलता है जब आप स्वीकार करते हैं, और आप किसी भी समय अपनी पसंद बदल सकते हैं।',
     'web.consent.accept': 'विश्लेषण स्वीकार करें',
     'web.consent.decline': 'अस्वीकार करें',
@@ -2658,7 +2655,7 @@ const hi: Record<string, string> = {
     'web.seoPage.home.docsCreateAgent': 'एजेंट बनाएँ',
     'web.seoPage.home.docsChannels': 'चैनल',
     'web.seoPage.channels.description':
-        'Claude Code, Codex, Dify या कोई भी एजेंट जो आप चलाते हैं, उसे WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub और Linear से जोड़िए।',
+        'Claude Code, Codex, Dify या कोई भी एजेंट जो आप चलाते हैं, उसे Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub और Linear से जोड़िए।',
     'web.seoPage.channels.h1':
         'Claude Code और Codex, अब आपके रोज़मर्रा के ऐप में।',
     'web.seoPage.channels.ctaTitle': 'अपने एजेंट को संदेश भेजिए।',
