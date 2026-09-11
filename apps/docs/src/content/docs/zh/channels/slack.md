@@ -23,63 +23,92 @@ order: 11
 - 有权限在 workspace 中创建和安装 Slack app。
 - 有权限把 app 邀请到目标 channel。
 
-## 使用 Manyfold manifest 配置
+## 配置 Slack app
 
-渠道拥有专属 inbound URL 后，Manyfold 才能生成 manifest。它适合重建/迁移 app，或让 Slack 一次校验完整配置。
+Manyfold 可以生成一份 manifest，一次性配好整个 Slack app：Request URL、event subscription、bot scope 以及全部 slash command。但这份 manifest 要等渠道有了 inbound URL 才存在，而渠道又必须先有 bot token 才能创建——所以 app 分两轮建立。先建一个最小的 app，只为了从 Slack 取得凭证；之后再把完整 manifest 贴回同一个 app。
 
-全新配置可使用以下 bootstrap 流程：
+1. 在 [Slack API Apps](https://api.slack.com/apps) 中选择 **Create an App**。
 
-1. 创建并安装一个最小 bootstrap Slack app，取得 `xoxb-` token 和 signing secret。
-2. 使用这些凭证在 Manyfold 创建 Slack 渠道并获得 inbound URL。
-3. 打开渠道详情页，选择 **Copy manifest JSON**。
-4. 在 [Slack API Apps](https://api.slack.com/apps) 中选择 **Create New App -> From an app manifest**。
-5. 选择 workspace，粘贴 JSON，检查后创建 app。
-6. 在 **OAuth & Permissions** 中安装或重新安装 app。
-7. 在 Manyfold 渠道中用最终 app 的 Bot User OAuth Token 和 signing secret 替换 bootstrap 凭证。
-8. 不再需要时删除 bootstrap app，然后运行渠道注册和测试。
+   ![Slack API 的 Your Apps 页面，显示 Create an App 按钮](../../../../assets/docs/channels/slack-01-create-an-app.webp)
 
-Manifest 会配置 Request URL、所有 event subscription、11 个 slash command 和文件所需 scope。Slash command 名称在 workspace 内是全局的；如果其他 app 已占用 `/new` 等名称，请在安装前修改 manifest 中的 command。
+2. 选择 **From a manifest**，选定 workspace 后继续。此时不需要粘贴任何内容，第一轮只需要一个空 app。
 
-## 手动配置 Slack app
+   ![Create new app 对话框，已选中 From a manifest](../../../../assets/docs/channels/slack-02-from-a-manifest.webp)
 
-从零创建 app、添加 bot user，并添加以下 bot token scope：
+   Slack 创建出的 app 没有任何 scope，因此还不能安装。
 
-| Scope | 用途 |
-| ----- | ---- |
-| `app_mentions:read` | 接收 channel 中的 @mention。 |
-| `channels:history` | 接收公共 channel 消息事件。 |
-| `groups:history` | 接收私有 channel 消息事件。 |
-| `im:history` | 接收私聊消息事件。 |
-| `mpim:history` | 接收多人私聊消息事件。 |
-| `chat:write` | 发送回复和实时进度消息。 |
-| `commands` | 使用原生 slash command。 |
-| `files:read` | 下载用户附加的文件。 |
-| `files:write` | 上传 Agent 生成的 workspace 文件。 |
+   ![Slack 确认 app 已创建，并提示尚未配置 scope](../../../../assets/docs/channels/slack-03-app-created-add-scopes.webp)
 
-在 **Event Subscriptions** 中，把 Manyfold 渠道 inbound URL 设为 Request URL，并订阅：
+3. 打开 **OAuth & Permissions** 添加 bot token scope。最少需要 `app_mentions:read`、`chat:write`，以及你要支持的每种会话类型对应的 history scope；其余用于开启命令和文件能力。
 
-| Bot event | 用途 |
-| --------- | ---- |
-| `app_mention` | 接收 channel 中明确的 @mention。 |
-| `message.channels` | 公共 channel 消息，包括 file share。 |
-| `message.groups` | 私有 channel 消息。 |
-| `message.im` | 私聊和 Assistant 对话。 |
-| `message.mpim` | 多人私聊。 |
+   | Scope | 用途 |
+   | ----- | ---- |
+   | `app_mentions:read` | 接收 channel 中的 @mention。 |
+   | `channels:history` | 接收公共 channel 消息事件。 |
+   | `groups:history` | 接收私有 channel 消息事件。 |
+   | `im:history` | 接收私聊消息事件。 |
+   | `mpim:history` | 接收多人私聊消息事件。 |
+   | `chat:write` | 发送回复和实时进度消息。 |
+   | `commands` | 使用原生 slash command。 |
+   | `files:read` | 下载用户附加的文件。 |
+   | `files:write` | 上传 Agent 生成的 workspace 文件。 |
 
-在 **Slash Commands** 下创建 `/help` 中列出的每个 command，并把它们都指向同一个 Manyfold inbound URL。修改 scope、event 或 command 后必须重新安装 app。
+   ![OAuth & Permissions 中已添加好 scope 的 Bot Token Scopes 列表](../../../../assets/docs/channels/slack-04-bot-token-scopes.webp)
+
+4. 保持 **Proof Key for Code Exchange (PKCE)** 关闭。Manyfold 使用 Slack 在安装时签发的 bot token 进行认证；开启 PKCE 后，安装流程不会给出 Manyfold 可用的 token。
+
+5. 仍在 **OAuth & Permissions** 页面，把 app 安装到 workspace。
+
+   ![安装前的 OAuth Tokens 区块，显示安装按钮](../../../../assets/docs/channels/slack-05-install-to-workspace.webp)
+
+   复制随后出现的 **Bot User OAuth Token**。它以 `xoxb-` 开头，本身就是凭证：任何拿到它的人都能以该 bot 身份发言，所以不要出现在共享文档或截图里。
+
+   ![app 安装完成后显示的 Bot User OAuth Token](../../../../assets/docs/channels/slack-06-bot-user-oauth-token-demo.webp)
+
+6. 打开 **Basic Information**，在 **App Credentials** 中找到 **Signing Secret**，点 **Show** 复制。Slack 用这个 secret 对发出的每个请求签名，Manyfold 会拒绝任何无法验证的请求。
+
+   ![Basic Information 的 App Credentials 区块，Signing Secret 字段被高亮](../../../../assets/docs/channels/slack-07-signing-secret-demo.webp)
 
 ## 连接到 Manyfold
 
-1. 打开 **Settings -> Channels**。
-2. 创建渠道并选择 **Slack**。
-3. 选择 Agent 并输入标签。
-4. 粘贴 `xoxb-` Bot User OAuth Token 和 signing secret。
-5. 创建渠道。
-6. 如果没有使用生成的 manifest，把 inbound URL 配到 Slack Event Subscriptions 和所有 slash command。
-7. 安装/重新安装 app，并邀请到每个目标 channel。
-8. 运行 **Register**，然后运行 **Test**。
+1. 打开 **Settings -> Channels**，创建渠道并选择 **Slack**。
 
-注册通过 `auth.test` 保存 bot user ID 和 workspace ID。来自其他 workspace 的消息会被拒绝；把 app 移动或重新安装到其他 workspace 后，请再次注册。
+   | 字段 | 填什么 | 从哪里拿 |
+   | ---- | ------ | -------- |
+   | Agent | 负责回复的 Agent | 从 Agent 页进入时已自动填好 |
+   | Label | 能标识这个渠道的名称 | 自己取 |
+   | Bot token | `xoxb-` 开头那串 | Slack 的 **OAuth & Permissions** |
+   | Signing secret | signing secret | Slack 的 **Basic Information -> App Credentials** |
+   | Allowed user IDs | 选填。留空表示 workspace 内任何人都能用 | — |
+   | Operator user IDs | 选填。可运行 `/model` 等 Agent 级命令的人；留空则禁用这些命令 | — |
+
+   ![Manyfold 新建 Slack 渠道的表单，含 Agent、标签、bot token 和 signing secret 字段](../../../../assets/docs/channels/slack-08-manyfold-new-channel.webp)
+
+2. 创建渠道，然后运行 **Register**。注册会调用 `auth.test` 并保存 bot user ID 和 workspace ID。
+
+3. 在渠道页面选择 **Copy manifest JSON**。同一页面也会显示该渠道的 inbound webhook URL，manifest 里已经指向它。
+
+   ![Manyfold 的 Slack 渠道页面，显示 inbound webhook URL 和 Slack app manifest](../../../../assets/docs/channels/slack-09-channel-manifest-demo.webp)
+
+4. 回到 Slack app，在左侧菜单打开 **App Manifest**。全选现有 JSON 并删除，粘贴刚复制的 manifest，然后保存。Slack 会在保存时校验：如果某个 slash command 名称（例如 `/new`）已被其他已安装的 app 占用，先在 manifest 里改名再保存。
+
+   ![Slack 的 App Manifest 页面，显示 app 当前的 JSON manifest](../../../../assets/docs/channels/slack-10-paste-app-manifest.webp)
+
+   manifest 会为 bot 订阅以下事件：
+
+   | Bot event | 用途 |
+   | --------- | ---- |
+   | `app_mention` | 接收 channel 中明确的 @mention。 |
+   | `message.channels` | 公共 channel 消息，包括 file share。 |
+   | `message.groups` | 私有 channel 消息。 |
+   | `message.im` | 私聊和 Assistant 对话。 |
+   | `message.mpim` | 多人私聊。 |
+
+5. 回到 **OAuth & Permissions** 重新安装 app。修改 scope 和 slash command 后必须重装才会生效。token 不会变化，因此 Manyfold 这边不需要改动。
+
+6. 在渠道上运行 **Test**。
+
+来自非注册 workspace 的消息会被拒绝；把 app 移动或重新安装到其他 workspace 后，请再次注册。
 
 ## 消息和文件
 
@@ -124,7 +153,10 @@ Manifest 会配置 Request URL、所有 event subscription、11 个 slash comman
 运行 **Test**，通过 `auth.test` 验证 token 并确认渠道 active。然后：
 
 1. 私聊 app。
-2. 把 app 邀请到 channel 后 @mention。
+2. 把 app 邀请到 channel 后 @mention。打开该 channel，选择 **Add people**，再按名称选中这个 app。
+
+   ![通过 Add people 对话框把 Slack app 添加到 channel](../../../../assets/docs/channels/slack-11-invite-app-to-channel-demo.webp)
+
 3. 从 Slack command 菜单运行 `/help`。
 4. 如需文件能力，上传一个小文件测试。
 
