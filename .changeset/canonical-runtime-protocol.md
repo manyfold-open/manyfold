@@ -19,3 +19,5 @@ self-hosted installations through API 4.0.0 and migrate configuration first.
 Normal runtime provisioning, upgrades, skill activation and keep-alive operations
 no longer perform the completed identity, shared-shell, home-clone or fused-task
 migrations. Existing persisted workspace and lease state paths remain valid.
+Every service wake gets an independent report generation; changing a keep-alive
+lease preserves the current service's report fence and files.

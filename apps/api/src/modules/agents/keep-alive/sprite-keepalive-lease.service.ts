@@ -199,7 +199,10 @@ export class SpriteKeepAliveLeaseService {
 
         const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
         // Each service boot needs a fresh report fence and matching assets.
-        await this.writeStartScript(ctx.client, ctx.spriteName, runtime.id, base)
+        await this.writeStartScript(ctx.client, ctx.spriteName, runtime.id, {
+            ...base,
+            generation: randomUUID()
+        })
         await this.runCleanup(ctx.client, ctx.spriteName, base, {
             killAppProcesses: true,
             killStartScriptProcesses: true

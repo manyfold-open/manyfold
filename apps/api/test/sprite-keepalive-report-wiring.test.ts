@@ -415,6 +415,41 @@ test('ensureLease preserves the running service report fence and assets', async 
     )
 })
 
+test('each service wake gets a new report fence without changing the lease generation', async () => {
+    for (const keepAliveEnabled of [false, true]) {
+        const { lease, store, timeline } = makeHarness({
+            credentialsToken: 'tok-stored',
+            runtime: {
+                keepAliveEnabled,
+                capabilitiesJson: {
+                    keepAlive: keepAlive(),
+                    serviceReport: { generation: 'previous-boot' }
+                }
+            }
+        })
+        const generations: string[] = []
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const result = await lease.ensureServiceRunning(store as never)
+            assert.equal(result.started, true)
+            const caps = store.capabilitiesJson as {
+                keepAlive: { generation: string }
+                serviceReport: { generation: string }
+            }
+            assert.equal(caps.keepAlive.generation, 'gen0')
+            assert.notEqual(caps.serviceReport.generation, 'gen0')
+            assert.notEqual(caps.serviceReport.generation, 'previous-boot')
+            const env = writesTo(timeline, '/report.env.tmp').at(-1)
+            assert.ok(
+                env?.body.includes(
+                    `RUNTIME_REPORT_GENERATION='${caps.serviceReport.generation}'`
+                )
+            )
+            generations.push(caps.serviceReport.generation)
+        }
+        assert.notEqual(generations[0], generations[1])
+    }
+})
+
 test('ensureServiceRunning sets serviceStatus starting only when it actually starts the service', async () => {
     const { lease, store, servicePatches } = makeHarness({
         credentialsToken: 'tok-stored',
