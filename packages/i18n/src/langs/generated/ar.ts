@@ -1598,9 +1598,6 @@ const ar: Record<string, string> = {
     'web.channelsPage.appsGroupMessenger': 'تطبيق المراسلة الخاص بك',
     'web.channelsPage.appsGroupTracker': 'أنظمة تتبّع المهام',
     'web.channelsPage.appsGuide': 'دليل الإعداد',
-    'web.channelsPage.setupQr': 'امسح رمزًا',
-    'web.channelsPage.setupToken': 'الصق مفتاحًا',
-    'web.channelsPage.setupApp': 'ثبّت تطبيقًا',
     'web.channelsPage.stepsEyebrow': 'طريقة الربط',
     'web.channelsPage.stepsTitle': 'ثلاث خطوات.',
     'web.channelsPage.stepsTitleAccent': 'نحو ثلاث دقائق.',
@@ -1643,7 +1640,7 @@ const ar: Record<string, string> = {
     'web.channelsPage.syncPointSettingsBody':
         'المهارات والصلاحيات والنموذج نفسه تخص الوكيل.',
     'web.channelsPage.docTitle':
-        'Claude Code وCodex في Slack وWhatsApp وGitHub · Manyfold',
+        'Claude Code وCodex، الآن داخل تطبيقاتك اليومية · Manyfold',
     'web.pageTitle.agent': 'الوكيل',
     'web.pageTitle.chat': 'المحادثة',
     'web.pageTitle.cliLogin': 'تسجيل الدخول للطرفية',
@@ -2656,7 +2653,7 @@ const ar: Record<string, string> = {
     'web.seoPage.home.docsCreateAgent': 'إنشاء وكيل',
     'web.seoPage.home.docsChannels': 'القنوات',
     'web.seoPage.channels.description':
-        'اربط Claude Code أو Codex أو Dify أو أي وكيل تشغّله بـ WhatsApp وSlack وLark وTelegram وDiscord وWeChat وLINE وMatrix وGitHub وLinear.',
+        'اربط Claude Code أو Codex أو Dify أو أي وكيل تشغّله بـ Slack وMicrosoft Teams وWhatsApp وLark وTelegram وDiscord وWeChat وGoogle Chat وLINE وiMessage وMatrix وGitHub وLinear.',
     'web.seoPage.channels.h1':
         'Claude Code وCodex، الآن داخل تطبيقاتك اليومية.',
     'web.seoPage.channels.ctaTitle': 'راسل وكيلك الآن.',

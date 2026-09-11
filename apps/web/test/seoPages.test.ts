@@ -44,9 +44,9 @@ const SHELL = [
 test('the manifest defines the indexable pages as en/zh pairs', () => {
     assert.deepEqual(entries.map((entry) => entry.path).sort(), [
         '/',
-        '/channels',
+        '/agent-channels',
         '/zh/',
-        '/zh/channels'
+        '/zh/agent-channels'
     ])
     assert.equal(entries.length, SEO_PAGES.length * 2)
 })
@@ -351,7 +351,7 @@ test('every app route in App.tsx is served by an SPA route prefix', () => {
            ships as a real file that try_files serves; it must NOT become an
            SPA prefix, because @spa rewrites ahead of try_files and stamps
            noindex, which would bury the page it is meant to reach. */
-        .filter((segment) => segment !== '/cloud')
+        .filter((segment) => segment !== '/hosted-agents')
     for (const segment of new Set(topLevel))
         assert.ok(
             SPA_ROUTE_PREFIXES.includes(segment) ||

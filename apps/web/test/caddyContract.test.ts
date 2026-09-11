@@ -174,6 +174,27 @@ test(
         assert.equal(zh.status, 200)
         assert.ok((await zh.text()).includes('fixture-zh-marketing'))
 
+        /* The renamed marketing paths. Both were shipped and indexed under
+           their old names, so these redirects are load-bearing forever —
+           this is the gate that notices if one goes missing. */
+        for (const [from, to] of [
+            ['/cloud', '/hosted-agents'],
+            ['/zh/cloud', '/zh/hosted-agents'],
+            ['/channels', '/agent-channels'],
+            ['/zh/channels', '/zh/agent-channels']
+        ]) {
+            const renamed = await fetch(
+                `${server.origin}${from}?utm_source=seo`,
+                { redirect: 'manual' }
+            )
+            assert.equal(renamed.status, 301, `${from} must redirect`)
+            assert.equal(
+                renamed.headers.get('location'),
+                `${to}?utm_source=seo`,
+                `${from} must keep its query string`
+            )
+        }
+
         const unknown = await fetch(`${server.origin}/definitely/unknown`)
         assert.equal(unknown.status, 404)
         assert.ok((await unknown.text()).includes('fixture-404'))

@@ -129,8 +129,8 @@ const editionSnapshot =
 
 /* A page in the manifest with no snapshot is a build error, not a page that
    quietly serves somebody else's body. That is exactly what happened when
-   the renderer defaulted every entry to LandingSnapshot: `/channels` shipped
-   the home page's sections under the channels headline, and every gate was
+   the renderer defaulted every entry to LandingSnapshot: the channels page
+   shipped the home page's sections under the channels headline, and every gate was
    green because nothing claimed otherwise. */
 export const snapshotFor = (
     key: string,

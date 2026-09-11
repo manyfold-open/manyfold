@@ -73,6 +73,24 @@
         # short links may carry attribution parameters.
         redir /zh /zh/{?query} 308
 
+        # Renamed marketing paths. Permanent, and permanently kept: an
+        # external link never updates itself, and both old paths were shipped
+        # and indexed.
+        #
+        # `/cloud` was read as an edition — the paid tier of an open-source
+        # product — because that is what a bare "Cloud" means to this
+        # audience, and the footer links Self-hosting a few centimetres away,
+        # which confirmed the wrong reading. The page argues something else:
+        # a cloud machine of its own for your agent. `/channels` named
+        # nothing a stranger could resolve; the qualifier says whose.
+        #
+        # Query strings survive for the same reason the /zh redirect keeps
+        # them: ad and attribution parameters arrive on these two paths.
+        redir /cloud /hosted-agents{?query} 301
+        redir /zh/cloud /zh/hosted-agents{?query} 301
+        redir /channels /agent-channels{?query} 301
+        redir /zh/channels /zh/agent-channels{?query} 301
+
         # Marketing pages are real files (dist/<path>/index.html) rendered at
         # build time. Anything that resolves to no file is a genuine 404 —
         # unknown top-level URLs must stop soft-404ing as the app shell.

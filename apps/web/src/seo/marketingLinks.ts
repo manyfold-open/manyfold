@@ -26,7 +26,7 @@ export const marketingLinksFor = (
     const prefix = language === 'zh' ? '/zh' : ''
     return {
         home: language === 'zh' ? '/zh/' : '/',
-        channels: `${prefix}/channels`,
+        channels: `${prefix}/agent-channels`,
         docs: docsHref(`${prefix}/docs/getting-started/`),
         changelog: docsHref(`${prefix}/changelog/`),
         status: docsHref(`${prefix}/status/`),

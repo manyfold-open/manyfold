@@ -1186,9 +1186,6 @@ const es: Record<string, string> = {
     'web.channelsPage.appsGroupMessenger': 'Tu propia app de mensajería',
     'web.channelsPage.appsGroupTracker': 'Gestores de incidencias',
     'web.channelsPage.appsGuide': 'Guía de configuración',
-    'web.channelsPage.setupQr': 'Escanear un código',
-    'web.channelsPage.setupToken': 'Pegar una clave',
-    'web.channelsPage.setupApp': 'Instalar una app',
     'web.channelsPage.stepsEyebrow': 'La configuración',
     'web.channelsPage.stepsTitle': 'Tres pasos.',
     'web.channelsPage.stepsTitleAccent': 'Unos tres minutos.',
@@ -1234,7 +1231,7 @@ const es: Record<string, string> = {
     'web.channelsPage.syncPointSettingsBody':
         'Las habilidades, los permisos y el modelo pertenecen al agente.',
     'web.channelsPage.docTitle':
-        'Claude Code y Codex en Slack, WhatsApp y GitHub · Manyfold',
+        'Claude Code y Codex, ahora en tus apps de cada día · Manyfold',
     'web.consent.message': 'Usamos Google Analytics para comprender cómo se usa Manyfold. Sólo se ejecuta si aceptas y puedes cambiar tu elección en cualquier momento.',
     'web.consent.accept': 'Aceptar análisis',
     'web.consent.decline': 'Rechazar',
@@ -2660,7 +2657,7 @@ const es: Record<string, string> = {
     'web.seoPage.home.docsCreateAgent': 'Crear un agente',
     'web.seoPage.home.docsChannels': 'Canales',
     'web.seoPage.channels.description':
-        'Conecta Claude Code, Codex, Dify o cualquier agente que ejecutes con WhatsApp, Slack, Lark, Telegram, Discord, WeChat, LINE, Matrix, GitHub y Linear.',
+        'Conecta Claude Code, Codex, Dify o cualquier agente que ejecutes con Slack, Microsoft Teams, WhatsApp, Lark, Telegram, Discord, WeChat, Google Chat, LINE, iMessage, Matrix, GitHub y Linear.',
     'web.seoPage.channels.h1':
         'Claude Code y Codex, ahora en tus apps de cada día.',
     'web.seoPage.channels.ctaTitle': 'Ve a escribirle a tu agente.',
