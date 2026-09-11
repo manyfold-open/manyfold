@@ -227,6 +227,8 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         'checking_quota',
         'creating_sprite',
         'bootstrapping',
+        // The runner is registered and started right after the install.
+        'starting_runner',
         'inserting_agent',
         'storing_credentials',
         'finalizing'
@@ -399,6 +401,8 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         'checking_quota',
         'creating_sprite',
         'bootstrapping',
+        // The runner is registered and started right after the install.
+        'starting_runner',
         'inserting_agent',
         'storing_credentials',
         'finalizing'

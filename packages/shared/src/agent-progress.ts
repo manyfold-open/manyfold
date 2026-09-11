@@ -21,6 +21,7 @@ export const agentCreateStep = {
     WAITING_FOR_READY: 'waiting_for_ready',
     RESTORING_BACKUP: 'restoring_backup',
     STORING_CREDENTIALS: 'storing_credentials',
+    STARTING_RUNNER: 'starting_runner',
     FINALIZING: 'finalizing'
 } as const
 
@@ -57,6 +58,10 @@ export const spritesSteps: AgentCreateStep[] = [
     'applying_network_policy',
     'bootstrapping',
     'installing_framework',
+    // The sprite's runner (its in-VM `mf daemon`) is registered and started
+    // while the VM is still awake from the install, so the runtime's account
+    // list answers right after the create instead of "no runner yet".
+    'starting_runner',
     'inserting_agent',
     'storing_credentials',
     'restoring_backup',

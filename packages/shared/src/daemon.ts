@@ -527,6 +527,10 @@ export const DAEMON_FEATURE_AUTH_CONTEXT = 'auth-context.v1'
 // The daemon sends its WebSocket credential in Authorization, never the URL.
 // Fleet coverage is the retirement gate for the API's query-token reader.
 export const DAEMON_FEATURE_WS_AUTH_HEADER = 'ws.auth-header'
+// auth.create accepts an `apiKey` for an api-key profile and injects it into
+// that profile's executions. Older daemons would create the profile and drop
+// the key, so the API refuses api-key creation without this.
+export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
@@ -548,5 +552,6 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_FEATURE_AUTH_PROFILES,
     DAEMON_FEATURE_AUTH_CONTEXT,
-    DAEMON_FEATURE_WS_AUTH_HEADER
+    DAEMON_FEATURE_WS_AUTH_HEADER,
+    DAEMON_FEATURE_AUTH_API_KEY
 ]

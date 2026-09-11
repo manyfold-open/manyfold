@@ -3,12 +3,25 @@ import test from 'node:test'
 import type { RuntimeAccountView } from '@manyfold/shared'
 import en from '../../../packages/i18n/src/langs/en'
 import {
+    credentialTag,
     formatResetsIn,
+    hostAccountHeadline,
+    hostAccountSubline,
     planLabel,
     signInNeeded,
     usageTone,
     usageWindowLabelKey
 } from '../src/lib/runtimeAccount'
+
+const t = (key: string): string => {
+    const value = key.split('.').reduce<unknown>((node, part) => {
+        if (node && typeof node === 'object')
+            return (node as Record<string, unknown>)[part]
+        return undefined
+    }, en)
+    assert.equal(typeof value, 'string', `missing en key ${key}`)
+    return value as string
+}
 
 const view = (patch: Partial<RuntimeAccountView> = {}): RuntimeAccountView => ({
     runtimeId: 'art_1',
@@ -108,7 +121,79 @@ test('sign-in is offered for missing, expired or rejected sign-ins only', () => 
     assert.equal(signInNeeded(view()), false)
     // Not-yet-probed states never show the button.
     assert.equal(
-        signInNeeded(view({ status: 'sandbox-asleep', credentialStatus: 'missing' })),
+        signInNeeded(
+            view({ status: 'sandbox-asleep', credentialStatus: 'missing' })
+        ),
         false
     )
+})
+
+// The runtime page and the create form's Local list read the same probe
+// through these; a key-based sign-in is a key, not a subscription.
+test('credentialTag names the host sign-in by what the probe found', () => {
+    assert.deepEqual(credentialTag(view(), t), {
+        tone: 'success',
+        label: 'Signed in'
+    })
+    assert.deepEqual(credentialTag(view({ credentialReason: 'api-key' }), t), {
+        tone: 'info',
+        label: 'API key'
+    })
+    assert.deepEqual(
+        credentialTag(view({ credentialReason: 'env-token' }), t),
+        { tone: 'info', label: 'API key' }
+    )
+    assert.equal(
+        credentialTag(view({ credentialStatus: 'expired' }), t).tone,
+        'warning'
+    )
+    assert.deepEqual(
+        credentialTag(
+            view({
+                credentialStatus: 'missing',
+                credentialReason: 'no-credentials'
+            }),
+            t
+        ),
+        { tone: 'error', label: 'Not signed in' }
+    )
+    assert.equal(
+        credentialTag(view({ credentialStatus: 'unknown' }), t).tone,
+        'idle'
+    )
+})
+
+test('the host row is headed by its identity, or is simply the host sign-in', () => {
+    const identity = {
+        email: 'dev@example.com',
+        name: 'Dev',
+        organization: 'Acme',
+        plan: 'claude_max_5x',
+        accountId: null
+    }
+    assert.equal(hostAccountHeadline(view({ identity }), t), 'dev@example.com')
+    assert.equal(
+        hostAccountHeadline(
+            view({ identity: { ...identity, email: null } }),
+            t
+        ),
+        'Dev'
+    )
+    assert.equal(
+        hostAccountHeadline(view({ identity: null }), t),
+        'Host sign-in'
+    )
+    // Once the identity takes the title, the subline says what the row is.
+    assert.equal(
+        hostAccountSubline(view({ identity }), t),
+        'Host sign-in · Max 5x · Acme'
+    )
+    // The name behind the email earns no line; without an email it is the
+    // headline anyway.
+    assert.equal(
+        hostAccountSubline(view({ identity: { ...identity, email: null } }), t),
+        'Host sign-in · Max 5x · Acme'
+    )
+    // Not signed in: the title already reads "Host sign-in", so no subline.
+    assert.equal(hostAccountSubline(view({ identity: null }), t), null)
 })

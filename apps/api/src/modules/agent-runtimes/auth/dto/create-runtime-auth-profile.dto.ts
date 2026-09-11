@@ -5,7 +5,8 @@ import {
     IsIn,
     IsOptional,
     IsString,
-    MaxLength
+    MaxLength,
+    MinLength
 } from 'class-validator'
 
 export class CreateRuntimeAuthProfileDto implements CreateRuntimeAuthProfileBody {
@@ -16,6 +17,13 @@ export class CreateRuntimeAuthProfileDto implements CreateRuntimeAuthProfileBody
 
     @IsIn(RUNTIME_AUTH_METHODS)
     authMethod!: RuntimeAuthMethod
+
+    // Forwarded to the host once; never stored or logged by the API.
+    @IsOptional()
+    @IsString()
+    @MinLength(10)
+    @MaxLength(4096)
+    apiKey?: string
 
     @IsOptional()
     @IsString()

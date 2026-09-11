@@ -4,7 +4,6 @@ import {
     InferenceProtocol,
     ModelPriceEntryView,
     ProtocolModelMap,
-    UserModelProvider,
     UserModelProviderSummary,
     UserModelProviderUsageReport,
     lookupBuiltIn
@@ -12,13 +11,14 @@ import {
 import type { FC, FormEvent, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import anthropicIcon from '@lobehub/icons-static-svg/icons/anthropic.svg'
-import geminiIcon from '@lobehub/icons-static-svg/icons/gemini-color.svg'
-import openaiIcon from '@lobehub/icons-static-svg/icons/openai.svg'
-import openrouterIcon from '@lobehub/icons-static-svg/icons/openrouter.svg'
 import EmptyState from '@/components/EmptyState'
 import { CascadeShell } from '@/components/CascadeShell'
+import { BuiltInLogo } from '@/components/BuiltInProviderLogo'
 import { CreateMenu, type CreateMenuOption } from '@/components/CreateMenu'
+import {
+    BuiltInProviderForm,
+    CustomProviderForm
+} from '@/components/ModelProviderForms'
 import {
     GroupByControl,
     type GroupByOption,
@@ -43,8 +43,6 @@ import {
 import { Ghost, Spinner } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
-import { NetmindSignInDialog } from '@/components/NetmindSignInDialog'
-import { NetmindMark } from '@/lib/brandMarks'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import ModelProvidersDashboard from '@/pages/Settings/ModelProvidersDashboard'
 import { spendWindowFrom, type SpendWindow } from '@/lib/modelProviderSpend'
@@ -54,11 +52,9 @@ import {
     NetmindRowExtras,
     SidebarManagedRow,
     useManagedProviderAccount,
-    useNetmindConnect,
     type ManagedProviderState
 } from '@/pages/Settings/managedProviderSlots'
 import ModelProviderFields, {
-    emptyModelProviderForm,
     inferenceProtocolLabel,
     type ModelProviderFormState
 } from '@/pages/Settings/ModelProviderFields'
@@ -706,47 +702,11 @@ const BuiltInSetupView: FC<{
     onCreated: (id: string) => void
 }> = ({ entry, onCreated }): ReactNode => {
     const { t } = useI18n()
-    const client = useApiClient()
-    const [apiKey, setApiKey] = useState('')
-    const [name, setName] = useState('')
-    const [busy, setBusy] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-    const netmindConnect = useNetmindConnect()
-    const [connectOpen, setConnectOpen] = useState(false)
-    const showConnect = entry.id === 'netmind' && netmindConnect
-
-    useEffect(() => {
-        setApiKey('')
-        setName('')
-        setError(null)
-        setConnectOpen(false)
-    }, [entry.id])
-
-    const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-        e.preventDefault()
-        setBusy(true)
-        setError(null)
-        try {
-            const created = await client.modelProviders.createBuiltIn({
-                builtInId: entry.id,
-                providerName: name.trim() || undefined,
-                apiKey
-            })
-            onCreated(created.id)
-        } catch (err) {
-            setError(apiErrorMessage(err))
-        } finally {
-            setBusy(false)
-        }
-    }
-
     return (
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='space-y-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg'>
-                        {entry.label}
-                    </h2>
+                    <h2 className='text-h3 text-fg'>{entry.label}</h2>
                     <span className='tag tag-neutral'>
                         {t('web.credentials.builtIn')}
                     </span>
@@ -764,113 +724,7 @@ const BuiltInSetupView: FC<{
                     ))}
                 </div>
             </header>
-            {showConnect && (
-                <div className='space-y-3'>
-                    <button
-                        type='button'
-                        onClick={() => setConnectOpen(true)}
-                        className='workbench-button-primary h-9'
-                    >
-                        {t('web.modelProviders.connectNetmind')}
-                    </button>
-                    <p className='text-caption text-muted'>
-                        {t('web.modelProviders.netmindHint')}
-                    </p>
-                    <div
-                        className='flex items-center gap-3'
-                        role='separator'
-                        aria-label={t('web.modelProviders.pasteApiKey')}
-                    >
-                        <span className='bg-divider h-px flex-1' />
-                        <span className='text-caption text-muted'>
-                            {t('web.modelProviders.pasteApiKey')}
-                        </span>
-                        <span className='bg-divider h-px flex-1' />
-                    </div>
-                </div>
-            )}
-            <form onSubmit={submit} className='space-y-4'>
-                <label className='block'>
-                    <span className='workbench-field-label'>
-                        {t('web.modelProviders.name')}
-                    </span>
-                    <input
-                        type='text'
-                        pattern='^[A-Za-z0-9][A-Za-z0-9_\- .]*$'
-                        maxLength={64}
-                        value={name}
-                        onChange={(e) => setName(e.target.value)}
-                        placeholder={entry.label}
-                        className='workbench-input'
-                    />
-                    <p className='workbench-hint'>
-                        {t('web.modelProviders.optionalNameHint', {
-                            provider: entry.label
-                        })}
-                    </p>
-                </label>
-                <label className='block'>
-                    <span className='workbench-field-label'>
-                        {t('web.modelProviders.apiKey')}
-                    </span>
-                    <input
-                        type='password'
-                        autoComplete='off'
-                        required
-                        minLength={10}
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        placeholder={t('web.modelProviders.pasteKey')}
-                        className='workbench-input font-mono'
-                    />
-                </label>
-                {error && (
-                    <div className='workbench-alert-error'>
-                        <pre className='text-caption whitespace-pre-wrap font-mono'>
-                            {error}
-                        </pre>
-                    </div>
-                )}
-                <div className='flex justify-end'>
-                    <button
-                        type='submit'
-                        disabled={busy}
-                        aria-busy={busy}
-                        className='workbench-button-primary h-9'
-                    >
-                        {busy ? (
-                            <>
-                                <Spinner size={16} className='mr-2' />
-                                {t('common.saving')}
-                            </>
-                        ) : (
-                            t('web.modelProviders.saveProvider')
-                        )}
-                    </button>
-                </div>
-            </form>
-            {connectOpen && (
-                <NetmindSignInDialog
-                    title={t('web.account.connectNetmindTitle')}
-                    submitLabel={t('web.account.connect')}
-                    description={t(
-                        'web.modelProviders.connectNetmindDescription'
-                    )}
-                    onToken={async (loginToken) => {
-                        try {
-                            const created =
-                                await client.modelProviders.connectNetmind({
-                                    loginToken
-                                })
-                            setConnectOpen(false)
-                            onCreated(created.id)
-                        } catch (err) {
-                            throw new Error(apiErrorMessage(err))
-                        }
-                    }}
-                    onClose={() => setConnectOpen(false)}
-                />
-            )}
+            <BuiltInProviderForm entry={entry} onCreated={onCreated} />
         </section>
     )
 }
@@ -879,31 +733,6 @@ const CustomNewView: FC<{
     onCreated: (id: string) => void
 }> = ({ onCreated }): ReactNode => {
     const { t } = useI18n()
-    const client = useApiClient()
-    const [form, setForm] = useState(emptyModelProviderForm)
-    const [busy, setBusy] = useState(false)
-    const [error, setError] = useState<string | null>(null)
-
-    const submit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-        e.preventDefault()
-        setBusy(true)
-        setError(null)
-        try {
-            const created = await client.modelProviders.create({
-                inferenceProtocol: form.inferenceProtocol,
-                providerName: form.providerName,
-                apiKey: form.apiKey,
-                baseUrl: form.baseUrl,
-                modelsListUrl: form.modelsListUrl || undefined
-            })
-            onCreated(created.id)
-        } catch (err) {
-            setError(apiErrorMessage(err))
-        } finally {
-            setBusy(false)
-        }
-    }
-
     return (
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header>
@@ -914,46 +743,7 @@ const CustomNewView: FC<{
                     {t('web.modelProviders.createCustomDescription')}
                 </p>
             </header>
-            <form onSubmit={submit} className='space-y-4'>
-                <ModelProviderFields
-                    form={form}
-                    onChange={setForm}
-                    onTest={(snapshot) =>
-                        client.modelProviders.testInline({
-                            inferenceProtocol: snapshot.inferenceProtocol,
-                            apiKey: snapshot.apiKey,
-                            baseUrl: snapshot.baseUrl,
-                            modelsListUrl: snapshot.modelsListUrl
-                                ? snapshot.modelsListUrl
-                                : undefined
-                        })
-                    }
-                />
-                {error && (
-                    <div className='workbench-alert-error'>
-                        <pre className='text-caption whitespace-pre-wrap font-mono'>
-                            {error}
-                        </pre>
-                    </div>
-                )}
-                <div className='flex justify-end'>
-                    <button
-                        type='submit'
-                        disabled={busy}
-                        aria-busy={busy}
-                        className='workbench-button-primary h-9'
-                    >
-                        {busy ? (
-                            <>
-                                <Spinner size={16} className='mr-2' />
-                                {t('common.saving')}
-                            </>
-                        ) : (
-                            t('web.modelProviders.saveProvider')
-                        )}
-                    </button>
-                </div>
-            </form>
+            <CustomProviderForm onCreated={onCreated} />
         </section>
     )
 }
@@ -1071,9 +861,7 @@ const BuiltInEditCard: FC<{
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='space-y-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg'>
-                        {row.providerName}
-                    </h2>
+                    <h2 className='text-h3 text-fg'>{row.providerName}</h2>
                     <span className='tag tag-neutral'>
                         {entry?.label ?? t('web.credentials.builtIn')}
                     </span>
@@ -1271,9 +1059,7 @@ const CustomEditCard: FC<{
         <section className='workbench-panel space-y-4 p-5 md:p-6'>
             <header className='flex flex-wrap items-center justify-between gap-2'>
                 <div className='flex flex-wrap items-center gap-2'>
-                    <h2 className='text-h3 text-fg'>
-                        {row.providerName}
-                    </h2>
+                    <h2 className='text-h3 text-fg'>{row.providerName}</h2>
                     <span className='tag tag-neutral'>
                         {t('web.credentials.custom')}
                     </span>
@@ -1586,9 +1372,7 @@ const ModelListSection: FC<{
         ? allGroups
         : allGroups.filter((group) => group.protocol === activeTab)
     const shownPairs = countModelPairs(visibleGroups)
-    const totalPairs = countModelPairs(
-        buildModelGroups(row.lastTestModels, '')
-    )
+    const totalPairs = countModelPairs(buildModelGroups(row.lastTestModels, ''))
     const enabledPairs = enabledPairCount(visibleGroups, enabled)
     const searching = query.trim() !== ''
 
@@ -2016,45 +1800,6 @@ export const ProtocolModelGrid: FC<{
                 )
             })}
         </div>
-    )
-}
-
-const providerIconSrc: Record<UserModelProvider, string> = {
-    anthropic: anthropicIcon,
-    openai: openaiIcon,
-    openrouter: openrouterIcon,
-    google: geminiIcon,
-    antigravity: geminiIcon,
-    antigravity_claude: anthropicIcon
-}
-
-const builtInIcons: Record<string, FC<{ className?: string }>> = {
-    netmind: NetmindMark
-}
-
-const ProviderLogo: FC<{ provider: UserModelProvider }> = ({
-    provider
-}): ReactNode => (
-    <img
-        src={providerIconSrc[provider]}
-        alt=''
-        aria-hidden='true'
-        className={['h-4 w-4', provider === 'google' ? '' : 'dark:invert'].join(
-            ' '
-        )}
-    />
-)
-
-export const BuiltInLogo: FC<{ entry: BuiltInProviderEntry }> = ({
-    entry
-}): ReactNode => {
-    const Icon = builtInIcons[entry.id]
-    if (Icon) return <Icon className='text-fg' />
-    if (entry.brand) return <ProviderLogo provider={entry.brand} />
-    return (
-        <span className='text-caption text-muted font-mono'>
-            {entry.label.charAt(0).toUpperCase()}
-        </span>
     )
 }
 

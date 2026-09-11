@@ -48,6 +48,7 @@ export interface UseAgentCreateResult extends AgentCreateLoadState {
         React.SetStateAction<UserModelProviderSummary[]>
     >
     setRuntimes: React.Dispatch<React.SetStateAction<AgentRuntimeSummary[]>>
+    refetchProviders: () => Promise<void>
     refetchRuntimes: () => Promise<void>
     refetchSandboxes: () => Promise<void>
     loadExternalProviders: (kind: 'dify' | 'langflow' | 'a2a') => Promise<void>
@@ -97,20 +98,19 @@ export const useAgentCreate = (): UseAgentCreateResult => {
     const controllerRef = useRef<AbortController | null>(null)
     const externalLoadKeyRef = useRef<string | null>(null)
 
-    useEffect(() => {
-        let cancelled = false
-        client.modelProviders
-            .list()
-            .then((rows) => {
-                if (!cancelled) setProviders(rows)
-            })
-            .catch(() => {
-                if (!cancelled) setProviders([])
-            })
-        return () => {
-            cancelled = true
+    // Also the refresh after a provider is added from inside the form: the
+    // new row has to be in this list before it can be the picked one.
+    const refetchProviders = useCallback(async (): Promise<void> => {
+        try {
+            setProviders(await client.modelProviders.list())
+        } catch {
+            setProviders([])
         }
     }, [client])
+
+    useEffect(() => {
+        void refetchProviders()
+    }, [refetchProviders])
 
     // Runtimes and daemon hosts are refetched together: a freshly-connected
     // machine that lacks the target framework has no runtime row yet, so the
@@ -340,6 +340,7 @@ export const useAgentCreate = (): UseAgentCreateResult => {
         runtimeAgentsError,
         setProviders,
         setRuntimes,
+        refetchProviders,
         refetchRuntimes,
         refetchSandboxes,
         loadExternalProviders,

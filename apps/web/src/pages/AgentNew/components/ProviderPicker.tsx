@@ -2,24 +2,32 @@ import {
     AgentFramework,
     UserModelProvider,
     UserModelProviderSummary,
-    brandFor,
-    frameworkSupportsProtocol,
-    isConfigurableFramework,
-    isManagedProtocolAllowedForFramework,
-    providerProtocolForTarget,
-    providerSupportsTarget
+    brandFor
 } from '@manyfold/shared'
 import { useEffect, useMemo } from 'react'
 import type { FC, ReactNode } from 'react'
-import { PROVIDER_PICKER_DEFAULT_MODE } from '@/lib/agentCreate/providerDefaultMode'
-import { providerLabel } from '@/pages/Settings/ModelProviderFields'
+import { CheckIcon, RefreshIcon, type LucideIcon } from '@/components/icons'
+import { Spinner } from '@/components/Loading'
+import {
+    NEW_RUNTIME_TARGET,
+    initialPickerModeFor,
+    protocolModelCounts,
+    selectableProvidersForFamilies,
+    type ProviderPickerMode,
+    type ProviderTarget
+} from '@/lib/agentCreate/providerSource'
+import {
+    inferenceProtocolLabel,
+    providerLabel
+} from '@/pages/Settings/ModelProviderFields'
 import { useI18n } from '@/lib/i18n'
 
 export interface ProviderPickerValue {
     // 'runtime' = use the coding CLI's own sign-in inside the
     // sandbox/computer (a subscription plan); the create body then carries
-    // modelConfigSource 'runtime-local' and no credentials.
-    mode: 'saved' | 'inline' | 'runtime'
+    // modelConfigSource 'runtime-local' and no credentials; see
+    // providerSource.ts for the Cloud / Local split.
+    mode: ProviderPickerMode
     providerId: string
     apiKey: string
     baseUrl: string
@@ -36,19 +44,14 @@ export const initialPicker = (): ProviderPickerValue => ({
     saveLabel: ''
 })
 
-// Create-form starting mode. The editions slot is typed `string` (the two
-// editions hold different literals), so narrow it here: anything that is not
-// the runtime sign-in falls back to the saved-provider list. Frameworks
-// without a runtime-local surface always start on 'saved'.
+// Create-form starting mode: the edition slot decides Cloud vs Local for
+// coding frameworks, and a daemon target always starts Local.
 export const initialPickerForFramework = (
-    framework: AgentFramework
+    framework: AgentFramework,
+    target: ProviderTarget = NEW_RUNTIME_TARGET
 ): ProviderPickerValue => ({
     ...initialPicker(),
-    mode:
-        isConfigurableFramework(framework) &&
-        PROVIDER_PICKER_DEFAULT_MODE === 'runtime'
-            ? 'runtime'
-            : 'saved'
+    mode: initialPickerModeFor(framework, target)
 })
 
 export const pickerIsValid = (v: ProviderPickerValue): boolean => {
@@ -60,8 +63,125 @@ export const pickerIsValid = (v: ProviderPickerValue): boolean => {
     return true
 }
 
+// §8.12 pick-one list: the row itself is the control, selection is the
+// trailing check plus the soft fill, classification stays a quiet tag. The
+// card is the wrapper; the pick target is the button filling its left side,
+// and the right column stacks the check over an optional action button, so
+// the action is never nested in the pick target and the card stays as tall
+// as its text.
+export interface PickerRowAction {
+    icon: LucideIcon
+    label: string
+    onClick: () => void
+    busy?: boolean
+    disabled?: boolean
+}
+
+export const PickerRow: FC<{
+    selected: boolean
+    onClick: () => void
+    title: ReactNode
+    subtitle?: ReactNode
+    description?: ReactNode
+    lead?: ReactNode
+    tags?: string[]
+    disabled?: boolean
+    action?: PickerRowAction
+}> = ({
+    selected,
+    onClick,
+    title,
+    subtitle,
+    description,
+    lead,
+    tags = [],
+    disabled = false,
+    action
+}): ReactNode => {
+    const Icon = action?.icon
+    return (
+        <div
+            className={[
+                'shadow-ring-light flex min-h-10 min-w-0 rounded-md transition-[color,background-color,box-shadow]',
+                // The same picked state as the runtime and account cards
+                // above and beside it: the info tint plus the link ring.
+                selected
+                    ? 'bg-info-bg text-fg ring-link/40 ring-2'
+                    : 'text-muted hover:text-fg bg-surface hover:bg-surface-hover',
+                disabled ? 'opacity-55' : ''
+            ].join(' ')}
+        >
+            <button
+                type='button'
+                onClick={onClick}
+                disabled={disabled}
+                aria-pressed={selected}
+                className='focus-visible:shadow-focus flex min-w-0 flex-1 items-start gap-2.5 rounded-md py-2 pl-3 pr-1 text-left transition-[box-shadow] focus:outline-none disabled:cursor-not-allowed'
+            >
+                {lead && (
+                    <span className='shadow-ring-light bg-surface flex h-7 w-7 shrink-0 items-center justify-center rounded-sm'>
+                        {lead}
+                    </span>
+                )}
+                <span className='min-w-0 flex-1'>
+                    <span className='text-ui flex flex-wrap items-center gap-x-2 gap-y-1 font-medium'>
+                        <span className='truncate'>{title}</span>
+                        {tags.map((tag) => (
+                            <span key={tag} className='tag tag-neutral'>
+                                {tag}
+                            </span>
+                        ))}
+                    </span>
+                    {subtitle && (
+                        <span className='text-caption text-subtle block truncate'>
+                            {subtitle}
+                        </span>
+                    )}
+                    {description && (
+                        <span className='text-caption text-muted mt-0.5 block'>
+                            {description}
+                        </span>
+                    )}
+                </span>
+            </button>
+            <span className='flex w-8 shrink-0 flex-col items-center justify-between py-2 pr-1.5'>
+                <CheckIcon
+                    aria-hidden
+                    className={[
+                        'text-link mt-0.5 h-4 w-4',
+                        selected ? '' : 'invisible'
+                    ].join(' ')}
+                />
+                {action && Icon && (
+                    <button
+                        type='button'
+                        aria-label={action.label}
+                        title={action.label}
+                        aria-busy={action.busy}
+                        disabled={action.disabled || action.busy}
+                        onClick={action.onClick}
+                        className='shadow-ring-light focus-visible:shadow-focus text-muted hover:text-fg bg-surface hover:bg-surface-hover flex h-6 w-6 items-center justify-center rounded-sm transition-[color,background-color,box-shadow] focus:outline-none disabled:cursor-not-allowed disabled:opacity-55'
+                    >
+                        {action.busy ? (
+                            <Spinner size={12} />
+                        ) : (
+                            <Icon className='h-3.5 w-3.5' aria-hidden='true' />
+                        )}
+                    </button>
+                )}
+            </span>
+        </div>
+    )
+}
+
 interface Props {
     provider: UserModelProvider
+    // The families the saved list draws from (default: `provider` alone).
+    // OpenClaw / Hermes list both vendors' providers and filter by chip.
+    families?: readonly UserModelProvider[]
+    // Rows the caller's chip row currently hides; the pick itself and the
+    // auto-select stay over the whole list, as filtering never selects.
+    visible?: (row: UserModelProviderSummary) => boolean
     framework?: AgentFramework
     label?: string
     apiKeyLabel: string
@@ -75,6 +195,24 @@ interface Props {
     // credentials-edit dialog must not (its job is the platform key; the
     // source switch lives in the composer/settings).
     allowRuntimeMode?: boolean
+    // The agent-scoped pasted key (mode 'inline'). The v1 create form adds
+    // providers through the settings dialog instead and switches this off.
+    allowInlineKey?: boolean
+    // Two rows per line on wide screens (the create form); the dialogs keep
+    // one.
+    columns?: 1 | 2
+    // 'rows' renders only the provider rows, for a caller that lays them out
+    // in its own grid beside other pick rows (the create form's provider
+    // section); 'section' is the self-contained label + grid.
+    layout?: 'section' | 'rows'
+    // A refresh beside each saved row: re-run that provider's test so its
+    // model list (and the row's counts) are current. `refreshingId` is the
+    // row whose test is running.
+    onRefresh?: (providerId: string) => void
+    refreshingId?: string | null
+    // The brand mark for a saved row. Injected rather than imported: the
+    // marks are SVG assets, and this module is loaded by node:test.
+    leadFor?: (row: UserModelProviderSummary) => ReactNode
     options: UserModelProviderSummary[]
     value: ProviderPickerValue
     onChange: (next: ProviderPickerValue) => void
@@ -83,6 +221,8 @@ interface Props {
 
 export const ProviderPicker: FC<Props> = ({
     provider,
+    families,
+    visible,
     framework,
     label,
     apiKeyLabel,
@@ -92,6 +232,12 @@ export const ProviderPicker: FC<Props> = ({
     defaultBaseUrl,
     showBaseUrl = true,
     allowRuntimeMode = false,
+    allowInlineKey = true,
+    columns = 1,
+    layout = 'section',
+    onRefresh,
+    refreshingId = null,
+    leadFor,
     options,
     value,
     onChange,
@@ -100,48 +246,17 @@ export const ProviderPicker: FC<Props> = ({
     const { t } = useI18n()
     const filtered = useMemo(
         () =>
-            options
-                .filter((o) => providerSupportsTarget(o, provider))
-                // Managed channels an admin switched off stay usable for agents
-                // already bound to them, but must not be picked for new ones.
-                .filter((o) => !o.channelDisabled)
-                .filter((o) => {
-                    // Hide providers whose wire protocol the agent framework
-                    // can't actually talk — e.g. codex only speaks the OpenAI
-                    // /v1/responses API, so chat-completions-only providers
-                    // (OpenRouter etc.) must not appear. Mirrors the
-                    // assertProtocol() narrowing in the API resolver so we
-                    // fail at picker time, not after agent create.
-                    if (!framework) return true
-                    const protocol = providerProtocolForTarget(o, provider)
-                    if (!protocol) return true
-                    return frameworkSupportsProtocol(framework, protocol)
-                })
-                .filter((o) => {
-                    // Hide managed Anthropic for openclaw / hermes — those
-                    // frameworks send tool-rich requests that hit Claude.ai's
-                    // "third-party app extra usage" rate limit on the shared
-                    // managed account. BYO Anthropic stays available.
-                    if (!framework || !o.inferenceProtocol) return true
-                    return isManagedProtocolAllowedForFramework(
-                        framework,
-                        o.source,
-                        o.inferenceProtocol
-                    )
-                })
-                .sort((a, b) => {
-                    const sourceDelta =
-                        (a.source === 'managed' ? 0 : 1) -
-                        (b.source === 'managed' ? 0 : 1)
-                    if (sourceDelta !== 0) return sourceDelta
-                    return a.providerName.localeCompare(b.providerName)
-                }),
-        [options, provider, framework]
+            selectableProvidersForFamilies(
+                options,
+                families ?? [provider],
+                framework
+            ),
+        [options, families, provider, framework]
     )
 
     useEffect(() => {
         const selectedExists = filtered.some((o) => o.id === value.providerId)
-        if (filtered.length === 0 && value.mode === 'saved') {
+        if (allowInlineKey && filtered.length === 0 && value.mode === 'saved') {
             onChange({ ...value, mode: 'inline' })
             return
         }
@@ -153,71 +268,88 @@ export const ProviderPicker: FC<Props> = ({
         ) {
             onChange({ ...value, providerId: filtered[0].id })
         }
-    }, [autoSelectFirst, filtered, onChange, value])
+    }, [allowInlineKey, autoSelectFirst, filtered, onChange, value])
 
+    const rows = (visible ? filtered.filter(visible) : filtered).map((o) => {
+        const brand = brandFor(o)
+        const counts = protocolModelCounts(o)
+        const status =
+            o.lastTestStatus === 'error'
+                ? t('web.agentNew.providerTestFailedTag')
+                : !o.lastTestedAt
+                  ? t('web.shell.modelNeedsTest')
+                  : null
+        return (
+            <PickerRow
+                key={o.id}
+                selected={value.mode === 'saved' && value.providerId === o.id}
+                onClick={() =>
+                    onChange({
+                        ...value,
+                        mode: 'saved',
+                        providerId: o.id
+                    })
+                }
+                lead={leadFor?.(o)}
+                title={o.providerName}
+                subtitle={o.apiKeyMasked}
+                description={
+                    counts.length > 0
+                        ? counts
+                              .map(
+                                  (c) =>
+                                      `${
+                                          (
+                                              inferenceProtocolLabel as Record<
+                                                  string,
+                                                  string
+                                              >
+                                          )[c.protocol] ?? c.protocol
+                                      } · ${t('web.agentNew.providerModelCount', { count: c.count })}`
+                              )
+                              .join(' · ')
+                        : undefined
+                }
+                tags={[
+                    brand
+                        ? providerLabel[brand]
+                        : t('web.agentNew.customProvider'),
+                    ...(o.source === 'managed'
+                        ? [t('web.agentNew.managed')]
+                        : []),
+                    ...(status ? [status] : [])
+                ]}
+                action={
+                    onRefresh
+                        ? {
+                              icon: RefreshIcon,
+                              label: t('web.agentNew.testProvider'),
+                              onClick: () => onRefresh(o.id),
+                              busy: refreshingId === o.id
+                          }
+                        : undefined
+                }
+            />
+        )
+    })
+    if (layout === 'rows') return <>{rows}</>
     return (
         <div className='space-y-3'>
             <div>
                 <span className='workbench-field-label'>
                     {label ?? t('web.agentNew.provider')}
                 </span>
-                <div className='grid gap-2'>
-                    {filtered.map((o) => {
-                        const selected =
-                            value.mode === 'saved' && value.providerId === o.id
-                        return (
-                            <button
-                                key={o.id}
-                                type='button'
-                                onClick={() =>
-                                    onChange({
-                                        ...value,
-                                        mode: 'saved',
-                                        providerId: o.id
-                                    })
-                                }
-                                className={[
-                                    'shadow-ring-light flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3.5 py-3 text-left transition-colors',
-                                    selected
-                                        ? 'text-fg shadow-card bg-info-bg'
-                                        : 'text-muted hover:text-fg bg-surface hover:bg-surface-hover'
-                                ].join(' ')}
-                            >
-                                <span className='min-w-0'>
-                                    <span className='text-ui flex items-center gap-2 truncate font-medium'>
-                                        <span className='truncate'>
-                                            {o.providerName}
-                                        </span>
-                                        <span className='tag tag-neutral'>
-                                            {(() => {
-                                                const brand = brandFor(o)
-                                                return brand
-                                                    ? providerLabel[brand]
-                                                    : t('web.agentNew.customProvider')
-                                            })()}
-                                        </span>
-                                        {o.source === 'managed' && (
-                                            <span className='tag tag-neutral'>
-                                                {t('web.agentNew.managed')}
-                                            </span>
-                                        )}
-                                    </span>
-                                    <span className='text-caption text-subtle block truncate'>
-                                        {o.apiKeyMasked}
-                                    </span>
-                                </span>
-                                <span
-                                    className={[
-                                        'shadow-ring-light h-3 w-3 shrink-0 rounded-full',
-                                        selected ? 'bg-link' : 'bg-white'
-                                    ].join(' ')}
-                                />
-                            </button>
-                        )
-                    })}
+                <div
+                    className={
+                        columns === 2
+                            ? 'grid gap-2 md:grid-cols-2'
+                            : 'grid gap-2'
+                    }
+                >
+                    {rows}
                     {allowRuntimeMode && (
-                        <button
-                            type='button'
+                        <PickerRow
+                            selected={value.mode === 'runtime'}
                             onClick={() =>
                                 onChange({
                                     ...value,
@@ -225,64 +357,26 @@ export const ProviderPicker: FC<Props> = ({
                                     providerId: ''
                                 })
                             }
-                            className={[
-                                'shadow-ring-light flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3.5 py-3 text-left transition-colors',
-                                value.mode === 'runtime'
-                                    ? 'text-fg shadow-card bg-info-bg'
-                                    : 'text-muted hover:text-fg bg-surface hover:bg-surface-hover'
-                            ].join(' ')}
-                        >
-                            <span>
-                                <span className='text-ui block font-medium'>
-                                    {t('web.agentNew.useOwnSubscription')}
-                                </span>
-                                <span className='text-caption text-subtle block'>
-                                    {t('web.agentNew.subscriptionSignInHint')}
-                                </span>
-                            </span>
-                            <span
-                                className={[
-                                    'shadow-ring-light h-3 w-3 shrink-0 rounded-full',
-                                    value.mode === 'runtime'
-                                        ? 'bg-link'
-                                        : 'bg-white'
-                                ].join(' ')}
-                            />
-                        </button>
-                    )}
-                    <button
-                        type='button'
-                        onClick={() =>
-                            onChange({
-                                ...value,
-                                mode: 'inline',
-                                providerId: ''
-                            })
-                        }
-                        className={[
-                            'shadow-ring-light flex min-h-12 w-full items-center justify-between gap-3 rounded-md px-3.5 py-3 text-left transition-colors',
-                            value.mode === 'inline'
-                                ? 'text-fg shadow-card bg-info-bg'
-                                : 'text-muted hover:text-fg bg-surface hover:bg-surface-hover'
-                        ].join(' ')}
-                    >
-                        <span>
-                            <span className='text-ui block font-medium'>
-                                {t('web.agentNew.useNewApiKey')}
-                            </span>
-                            <span className='text-caption text-subtle block'>
-                                {t('web.agentNew.provideCredentials')}
-                            </span>
-                        </span>
-                        <span
-                            className={[
-                                'shadow-ring-light h-3 w-3 shrink-0 rounded-full',
-                                value.mode === 'inline' ? 'bg-link' : 'bg-white'
-                            ].join(' ')}
+                            title={t('web.agentNew.useOwnSubscription')}
+                            subtitle={t('web.agentNew.subscriptionSignInHint')}
                         />
-                    </button>
+                    )}
+                    {allowInlineKey && (
+                        <PickerRow
+                            selected={value.mode === 'inline'}
+                            onClick={() =>
+                                onChange({
+                                    ...value,
+                                    mode: 'inline',
+                                    providerId: ''
+                                })
+                            }
+                            title={t('web.agentNew.useNewApiKey')}
+                            subtitle={t('web.agentNew.provideCredentials')}
+                        />
+                    )}
                 </div>
-                {filtered.length === 0 && (
+                {filtered.length === 0 && allowInlineKey && (
                     <p className='workbench-hint'>
                         {t('web.agentNew.noSavedKeys')}{' '}
                         <a
@@ -296,8 +390,8 @@ export const ProviderPicker: FC<Props> = ({
                 )}
             </div>
 
-            {value.mode === 'runtime' && (
-                <div className='shadow-ring-light space-y-1 rounded-md bg-[#f8f8f5] p-4'>
+            {allowRuntimeMode && value.mode === 'runtime' && (
+                <div className='shadow-ring-light bg-soft space-y-1 rounded-md p-4'>
                     <p className='text-ui text-fg'>
                         {t('web.agentNew.subscriptionSignInExplainer')}
                     </p>
@@ -307,8 +401,8 @@ export const ProviderPicker: FC<Props> = ({
                 </div>
             )}
 
-            {value.mode === 'inline' && (
-                <div className='shadow-ring-light space-y-4 rounded-md bg-[#f8f8f5] p-4'>
+            {allowInlineKey && value.mode === 'inline' && (
+                <div className='shadow-ring-light bg-soft space-y-4 rounded-md p-4'>
                     <label className='block'>
                         <span className='workbench-field-label'>
                             {apiKeyLabel}
@@ -348,7 +442,9 @@ export const ProviderPicker: FC<Props> = ({
                             />
                             {defaultBaseUrl && (
                                 <p className='workbench-hint'>
-                                    {t('web.agentNew.leaveBlankOfficialEndpoint')}{' '}
+                                    {t(
+                                        'web.agentNew.leaveBlankOfficialEndpoint'
+                                    )}{' '}
                                     <a
                                         className='text-link hover:text-fg font-mono'
                                         href={defaultBaseUrl}
@@ -390,7 +486,9 @@ export const ProviderPicker: FC<Props> = ({
                                         saveLabel: e.target.value
                                     })
                                 }
-                                placeholder={t('web.agentNew.keyLabelPlaceholder')}
+                                placeholder={t(
+                                    'web.agentNew.keyLabelPlaceholder'
+                                )}
                                 className='workbench-input'
                             />
                         )}

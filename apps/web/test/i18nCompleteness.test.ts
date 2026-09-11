@@ -628,6 +628,17 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     // labels these describe come from `t()`.
     'lib/agentMenu.ts': ['danger', 'nav', 'quick'],
     'lib/agentSettingsSections.ts': ['overview'],
+    // Picker-mode and detection tags plus the env var names the CLIs read;
+    // the rows and hints they select come from `t()`.
+    'lib/agentCreate/providerSource.ts': [
+        'cloud',
+        'local',
+        'runtime',
+        'saved',
+        'ANTHROPIC_API_KEY',
+        'OPENAI_API_KEY',
+        'GEMINI_API_KEY'
+    ],
     'pages/AgentSettings/AgentSettings.tsx': ['/workspace'],
     'components/AppShell.tsx': [
         'Claude Code',

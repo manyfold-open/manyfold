@@ -57,6 +57,9 @@ export interface UseFrameworkModelConfigResult {
     testing: boolean
     testError: string | null
     runTest: () => Promise<void>
+    // Test a saved provider once the picker has selected it: the caller sets
+    // the picker and asks; the test runs on the render that sees both.
+    requestTest: (providerId: string) => void
     providerTestLabel: string
     providerTestDisabled: boolean
     inlineProviderModels: string[]
@@ -79,6 +82,7 @@ export const useFrameworkModelConfig = ({
     const [testing, setTesting] = useState(false)
     const [testErrorState, setTestErrorState] =
         useState<ProviderTestError | null>(null)
+    const [pendingTestId, setPendingTestId] = useState<string | null>(null)
     const testError = testErrorState
         ? 'key' in testErrorState
             ? t(`web.agentNew.${testErrorState.key}`)
@@ -86,9 +90,10 @@ export const useFrameworkModelConfig = ({
         : null
 
     // Runtime mode has no platform provider to test or map models against:
-    // model selection happens post-create from the runtime's own list.
+    // model selection happens post-create from the runtime's own list. A
+    // platform provider maps models the same way whether the agent gets a
+    // new runtime or joins one (the join applies the mapping right after).
     const required =
-        runtimeMode !== 'existing' &&
         picker.mode !== 'runtime' &&
         (framework === 'claude-code' || framework === 'codex')
 
@@ -208,6 +213,17 @@ export const useFrameworkModelConfig = ({
         void runTest()
     }, [required, testing, picker.mode, selectedSavedProvider, view])
 
+    useEffect(() => {
+        if (!pendingTestId || testing) return
+        if (
+            picker.mode !== 'saved' ||
+            selectedSavedProvider?.id !== pendingTestId
+        )
+            return
+        setPendingTestId(null)
+        void runTest()
+    })
+
     const providerTestLabel =
         picker.mode === 'inline'
             ? t('web.agentNew.testAndLoadModels')
@@ -217,8 +233,12 @@ export const useFrameworkModelConfig = ({
             ? !selectedSavedProvider
             : picker.apiKey.trim().length < 10
 
+    // A saved provider can be tested from any framework's form: the test
+    // refreshes the provider's own model list, which the openclaw / hermes
+    // primary-model select reads too. Only the inline-key test is scoped to
+    // the frameworks that map models at create time.
     const runTest = async (): Promise<void> => {
-        if (!required) return
+        if (!required && picker.mode !== 'saved') return
         setTesting(true)
         setTestErrorState(null)
         setDraft(null)
@@ -302,6 +322,7 @@ export const useFrameworkModelConfig = ({
         testing,
         testError,
         runTest,
+        requestTest: setPendingTestId,
         providerTestLabel,
         providerTestDisabled,
         inlineProviderModels,

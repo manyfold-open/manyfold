@@ -74,6 +74,7 @@ export const CreateProgress: FC<CreateProgressProps> = ({
         applying_network_policy: t('web.agentNew.progress.configuringNetwork'),
         bootstrapping: t('web.agentNew.progress.bootstrappingFramework'),
         installing_framework: t('web.agentNew.progress.installingFramework'),
+        starting_runner: t('web.agentNew.progress.startingRunner'),
         starting_service: t('web.agentNew.progress.startingService'),
         checking_quota: t('web.agentNew.progress.checkingQuota'),
         preparing_namespace: t('web.agentNew.progress.preparingWorkspace'),
