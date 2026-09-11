@@ -55,9 +55,7 @@ Manyfold can generate a manifest that configures the whole Slack app in one past
 
    ![The Bot Token Scopes list in OAuth & Permissions with the scopes added](../../../assets/docs/channels/slack-04-bot-token-scopes.webp)
 
-4. Leave **Proof Key for Code Exchange (PKCE)** switched off. Manyfold authenticates with the bot token Slack issues at install; with PKCE enabled the install does not hand it a token it can use.
-
-5. Still under **OAuth & Permissions**, install the app to the workspace.
+4. Still under **OAuth & Permissions**, install the app to the workspace.
 
    ![The OAuth Tokens section before installation, with the install button](../../../assets/docs/channels/slack-05-install-to-workspace.webp)
 
@@ -65,7 +63,7 @@ Manyfold can generate a manifest that configures the whole Slack app in one past
 
    ![The Bot User OAuth Token shown after the app is installed](../../../assets/docs/channels/slack-06-bot-user-oauth-token-demo.webp)
 
-6. Open **Basic Information**, find **Signing Secret** under **App Credentials**, and press **Show** to copy it. Slack signs every request it sends with this secret, and Manyfold rejects anything it cannot verify.
+5. Open **Basic Information**, find **Signing Secret** under **App Credentials**, and press **Show** to copy it. Slack signs every request it sends with this secret, and Manyfold rejects anything it cannot verify.
 
    ![The App Credentials section on Basic Information with the Signing Secret field highlighted](../../../assets/docs/channels/slack-07-signing-secret-demo.webp)
 

@@ -55,9 +55,7 @@ Manyfold 可以生成一份 manifest，一次性配好整个 Slack app：Request
 
    ![OAuth & Permissions 中已添加好 scope 的 Bot Token Scopes 列表](../../../../assets/docs/channels/slack-04-bot-token-scopes.webp)
 
-4. 保持 **Proof Key for Code Exchange (PKCE)** 关闭。Manyfold 使用 Slack 在安装时签发的 bot token 进行认证；开启 PKCE 后，安装流程不会给出 Manyfold 可用的 token。
-
-5. 仍在 **OAuth & Permissions** 页面，把 app 安装到 workspace。
+4. 仍在 **OAuth & Permissions** 页面，把 app 安装到 workspace。
 
    ![安装前的 OAuth Tokens 区块，显示安装按钮](../../../../assets/docs/channels/slack-05-install-to-workspace.webp)
 
@@ -65,7 +63,7 @@ Manyfold 可以生成一份 manifest，一次性配好整个 Slack app：Request
 
    ![app 安装完成后显示的 Bot User OAuth Token](../../../../assets/docs/channels/slack-06-bot-user-oauth-token-demo.webp)
 
-6. 打开 **Basic Information**，在 **App Credentials** 中找到 **Signing Secret**，点 **Show** 复制。Slack 用这个 secret 对发出的每个请求签名，Manyfold 会拒绝任何无法验证的请求。
+5. 打开 **Basic Information**，在 **App Credentials** 中找到 **Signing Secret**，点 **Show** 复制。Slack 用这个 secret 对发出的每个请求签名，Manyfold 会拒绝任何无法验证的请求。
 
    ![Basic Information 的 App Credentials 区块，Signing Secret 字段被高亮](../../../../assets/docs/channels/slack-07-signing-secret-demo.webp)
 
