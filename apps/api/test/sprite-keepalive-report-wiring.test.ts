@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { validateSync } from 'class-validator'
 import type { ExecOptions, ExecResult, SpriteWriteFileArgs } from '@manyfold/sprites'
 import { SpriteKeepAliveLeaseService } from '../src/modules/agents/keep-alive/sprite-keepalive-lease.service'
+import { CreateRuntimeReportDto } from '../src/modules/runtime-reports/dto/create-runtime-report.dto'
 
 // Keep-alive report wiring (#108) through writeStartScript — the single choke
 // point behind every service start path. These tests pin: the DB-first fence
@@ -438,6 +440,12 @@ test('each service wake gets a new report fence without changing the lease gener
             assert.equal(caps.keepAlive.generation, 'gen0')
             assert.notEqual(caps.serviceReport.generation, 'gen0')
             assert.notEqual(caps.serviceReport.generation, 'previous-boot')
+            const report = Object.assign(new CreateRuntimeReportDto(), {
+                runtimeId: store.id,
+                generation: caps.serviceReport.generation,
+                event: 'ready'
+            })
+            assert.deepEqual(validateSync(report), [])
             const env = writesTo(timeline, '/report.env.tmp').at(-1)
             assert.ok(
                 env?.body.includes(

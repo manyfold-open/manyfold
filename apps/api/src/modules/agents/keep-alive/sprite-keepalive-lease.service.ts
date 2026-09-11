@@ -63,6 +63,9 @@ const REPORT_PROBE_BUDGET_SEC = 120
 const ensureBackoffMs = (failures: number): number =>
     Math.min(60_000 * 2 ** Math.min(failures, 5), ENSURE_MAX_BACKOFF_MS)
 
+const createGeneration = (): string =>
+    randomUUID().replace(/-/g, '').slice(0, 12)
+
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -201,7 +204,7 @@ export class SpriteKeepAliveLeaseService {
         // Each service boot needs a fresh report fence and matching assets.
         await this.writeStartScript(ctx.client, ctx.spriteName, runtime.id, {
             ...base,
-            generation: randomUUID()
+            generation: createGeneration()
         })
         await this.runCleanup(ctx.client, ctx.spriteName, base, {
             killAppProcesses: true,
@@ -1011,7 +1014,7 @@ export class SpriteKeepAliveLeaseService {
         exec: string[]
         desiredState: DesiredState
     }): SpriteKeepAliveMetadata {
-        const generation = randomUUID().replace(/-/g, '').slice(0, 12)
+        const generation = createGeneration()
         const taskPrefix = `${PLATFORM_TASK_PREFIX}${input.framework}-${runtimeUnique(input.runtimeId)}-`
         return {
             serviceName: input.serviceName,
