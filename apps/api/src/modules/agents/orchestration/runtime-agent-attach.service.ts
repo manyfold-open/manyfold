@@ -39,6 +39,7 @@ const SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS: ReadonlySet<AgentFramework> =
         'claude-code',
         'codex',
         'gemini-cli',
+        'pi',
         'openclaw',
         'hermes',
         'narranexus'
@@ -82,7 +83,8 @@ export class RuntimeAgentAttachService {
         const isCodingFramework =
             runtime.framework === 'claude-code' ||
             runtime.framework === 'codex' ||
-            runtime.framework === 'gemini-cli'
+            runtime.framework === 'gemini-cli' ||
+            runtime.framework === 'pi'
         const isCodingAgentRuntime =
             runtime.kind === 'sprites' ||
             (runtime.kind === 'k8s' && isCodingFramework) ||

@@ -3,14 +3,14 @@ title: Manyfold 与 Agent framework
 description: 它们并不是同一层的产品。先分清「模型」、「执行工作的 Agent framework」、「管理与协作平台」和「执行位置」，就能知道它们如何搭配。
 order: 6
 ---
-**快速答案**：**Claude Code、Codex、Gemini CLI、OpenClaw、Hermes** 是实际执行工作的 Agent framework；**Manyfold** 是创建、托管、管理、连接并让这些 Agent 与团队协作的平台。Manyfold 不取代它们，而是把它们放进有 workspace、session、terminal、skills、channel 与 runtime 的统一工作环境。
+**快速答案**：**Claude Code、Codex、Gemini CLI、Pi、OpenClaw、Hermes** 是实际执行工作的 Agent framework；**Manyfold** 是创建、托管、管理、连接并让这些 Agent 与团队协作的平台。Manyfold 不取代它们，而是把它们放进有 workspace、session、terminal、skills、channel 与 runtime 的统一工作环境。
 
 ## 先分清四个层次
 
 | 层次 | 产品 | 提供什么 |
 | ---- | ---- | -------- |
 | **1. 模型与模型供应商** | Anthropic、OpenAI、Google Gemini、OpenRouter | 提供 AI 推理能力与凭据。Manyfold 可连接这些 provider；有些工作区也可能提供 managed model access。 |
-| **2. Agent framework** | Claude Code、Codex、Gemini CLI、OpenClaw、Hermes | 接收任务、调用工具、读写文件和执行工作。不同 framework 的强项与操作方式不同。 |
+| **2. Agent framework** | Claude Code、Codex、Gemini CLI、Pi、OpenClaw、Hermes | 接收任务、调用工具、读写文件和执行工作。不同 framework 的强项与操作方式不同。 |
 | **3. Agent 平台与控制层** | Manyfold | 创建与托管 Agent，保存 workspace、chat session、files、terminal、model settings、skills、channels、automation、usage 与 runtime 状态。 |
 | **4. 运行位置** | Stateful sandbox、Self-owned computer、Cloud computer | 决定 Agent 在 Manyfold 云端隔离环境、你的电脑，或长期运行的云端电脑中执行。 |
 
@@ -28,6 +28,7 @@ Manyfold 是一个 Agent workspace 与控制平台，不只是聊天界面。你
 | **Claude Code** | Coding agent framework | Repository work、实现任务、terminal workflow、长时间 coding session | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Codex** | Coding agent framework | Codebase 改动、code review、workspace-aware 开发工作 | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Gemini CLI** | Coding 与 terminal agent framework | 使用 Google Gemini 的 coding 与一般 terminal automation | 可作为 Manyfold 中一个 Agent 的 framework |
+| **Pi** | 开源 coding agent framework | 用你自带 key 的 Anthropic、OpenAI 或 Google Gemini 模型做 coding 与 terminal 工作 | 可作为 Manyfold 中一个 Agent 的 framework |
 | **Hermes Agent** | Framework-style agent | Connector-heavy workflow 与 background work | 可在 Manyfold 中建立、管理和连接 |
 | **OpenClaw** | Framework-style agent | 需要 service、gateway 或 scheduled job 的 tool-rich agent application | 可在 Manyfold 中建立、管理和连接 |
 
@@ -49,6 +50,7 @@ Manyfold 是一个 Agent workspace 与控制平台，不只是聊天界面。你
 | ---------- | ---- |
 | 只让 AI 协助修改或 review 一个 repository | **Claude Code** 或 **Codex** |
 | 既有开发流程已经依赖 Gemini | **Gemini CLI** |
+| 一个可以在 Anthropic、OpenAI、Google 模型之间切换的开源 coding CLI | **Pi** |
 | Connector、服务、后台工作或计划任务 | **Hermes Agent** 或 **OpenClaw** |
 | 让多个 Agent 被团队统一管理、连接频道、记录用量或使用不同 runtime | 用 **Manyfold** 管理选定的 framework |
 

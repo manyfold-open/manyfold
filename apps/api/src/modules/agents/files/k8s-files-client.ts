@@ -49,6 +49,11 @@ const HOME_ROOT_MAPPINGS: Record<
         framework: 'gemini-cli',
         displayPath: `${K8S_HOME_BASE}/.gemini`,
         dufsPath: '/state/gemini'
+    },
+    'pi-home': {
+        framework: 'pi',
+        displayPath: `${K8S_HOME_BASE}/.pi`,
+        dufsPath: '/state/pi'
     }
 }
 
@@ -66,7 +71,8 @@ const normalizeDufsPath = (path: string): string => {
 const isCodingK8sAgent = (agent: Agent): boolean =>
     agent.framework === 'claude-code' ||
     agent.framework === 'codex' ||
-    agent.framework === 'gemini-cli'
+    agent.framework === 'gemini-cli' ||
+    agent.framework === 'pi'
 
 const servedPvcRootForAgent = (agent: Agent): string => {
     if (!isCodingK8sAgent(agent)) return normalizeAbsPath(agent.mountPath)

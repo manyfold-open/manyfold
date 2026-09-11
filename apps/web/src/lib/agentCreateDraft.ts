@@ -9,6 +9,7 @@ import type {
     CreateAgentBody,
     UpdateAgentCredentialsBody,
     GeminiCliCredentialsInput,
+    PiCredentialsInput,
     UserModelProvider
 } from '@manyfold/shared'
 import type { ProviderPickerValue } from '@/pages/AgentNew/components/ProviderPicker'
@@ -20,7 +21,10 @@ export type AgentCredentialModelProvider = Extract<
     UserModelProvider,
     'anthropic' | 'openai' | 'google'
 >
-export type PersistentModelProvider = 'anthropic' | 'openai'
+// The vendor a multi-provider framework's credential belongs to. openclaw and
+// hermes accept the first two; pi also takes google (see
+// frameworkOptions.persistentModelProvidersFor).
+export type PersistentModelProvider = 'anthropic' | 'openai' | 'google'
 
 export interface CreateAgentDraft {
     framework: CreateableFramework
@@ -77,8 +81,14 @@ export const buildCreateAgentBody = (
         base.codexCredentials = buildCodexPayload(draft.picker)
     } else if (draft.framework === 'gemini-cli') {
         base.geminiCliCredentials = buildGeminiPayload(draft.picker)
+    } else if (draft.framework === 'pi') {
+        base.piCredentials = buildPiPayload(
+            draft.picker,
+            draft.persistentModelProvider,
+            draft.primaryModelName
+        )
     } else if (draft.framework === 'openclaw') {
-        const provider = draft.persistentModelProvider ?? 'anthropic'
+        const provider = serviceModelProvider(draft.persistentModelProvider)
         base.openclawCredentials =
             draft.picker.mode === 'saved'
                 ? {
@@ -96,7 +106,7 @@ export const buildCreateAgentBody = (
         // Manyfold-side credentials field — the resolver accepts empty value
         // and the bootstrap mints the gateway token internally.
     } else {
-        const provider = draft.persistentModelProvider ?? 'anthropic'
+        const provider = serviceModelProvider(draft.persistentModelProvider)
         base.hermesCredentials =
             draft.picker.mode === 'saved'
                 ? {
@@ -148,6 +158,12 @@ export const buildAgentCredentialsBody = (draft: {
         body.codexCredentials = buildCodexPayload(draft.picker)
     else if (draft.framework === 'gemini-cli')
         body.geminiCliCredentials = buildGeminiPayload(draft.picker)
+    else if (draft.framework === 'pi')
+        body.piCredentials = buildPiPayload(
+            draft.picker,
+            draft.persistentModelProvider,
+            draft.primaryModelName
+        )
     else if (draft.framework === 'openclaw')
         body.openclawCredentials =
             draft.picker.mode === 'saved'
@@ -156,8 +172,9 @@ export const buildAgentCredentialsBody = (draft: {
                       primaryModelName: trimOptional(draft.primaryModelName)
                   }
                 : {
-                      modelProvider:
-                          draft.persistentModelProvider ?? 'anthropic',
+                      modelProvider: serviceModelProvider(
+                          draft.persistentModelProvider
+                      ),
                       apiKey: draft.picker.apiKey,
                       primaryModelName: trimOptional(draft.primaryModelName),
                       ...(explicitBaseUrl ? { baseUrl: explicitBaseUrl } : {})
@@ -170,8 +187,9 @@ export const buildAgentCredentialsBody = (draft: {
                       primaryModelName: trimOptional(draft.primaryModelName)
                   }
                 : {
-                      primaryModelProvider:
-                          draft.persistentModelProvider ?? 'anthropic',
+                      primaryModelProvider: serviceModelProvider(
+                          draft.persistentModelProvider
+                      ),
                       primaryModelApiKey: draft.picker.apiKey,
                       primaryModelName: trimOptional(draft.primaryModelName),
                       ...(explicitBaseUrl
@@ -282,5 +300,31 @@ const buildGeminiPayload = (
         ...(baseUrl ? { googleGeminiBaseUrl: baseUrl } : {})
     }
 }
+
+// A saved provider carries its vendor in its protocol; a pasted key does not,
+// so the picker's vendor choice rides along (the API rejects a key without
+// one). The model is optional and may already be `<provider>/<id>`.
+const buildPiPayload = (
+    p: ProviderPickerValue,
+    provider: PersistentModelProvider | undefined,
+    model: string | undefined
+): PiCredentialsInput => {
+    const trimmedModel = trimOptional(model)
+    const modelField = trimmedModel ? { model: trimmedModel } : {}
+    if (p.mode === 'saved') return { providerId: p.providerId, ...modelField }
+    const baseUrl = normalizeProviderBaseUrl(p.baseUrl)
+    return {
+        apiKey: p.apiKey,
+        provider: provider ?? 'anthropic',
+        ...(baseUrl ? { baseUrl } : {}),
+        ...modelField
+    }
+}
+
+// openclaw/hermes never offer google; a stray value falls back to anthropic
+// rather than widening their DTO types.
+const serviceModelProvider = (
+    provider: PersistentModelProvider | undefined
+): 'anthropic' | 'openai' => (provider === 'openai' ? 'openai' : 'anthropic')
 
 const trimOptional = (value: string | undefined): string => (value ?? '').trim()

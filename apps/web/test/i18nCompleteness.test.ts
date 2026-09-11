@@ -705,7 +705,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'Hermes Agent',
         'Langflow',
         'NarraNexus',
-        'OpenClaw'
+        'OpenClaw',
+        'Pi'
     ],
     'lib/agentSidebarView.ts': ['month', 'older', 'today', 'week', 'yesterday'],
     'lib/analyticsConsent.ts': ['unset'],
@@ -754,9 +755,14 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'failed',
         'pending'
     ],
-    'pages/AgentNew/v1/AgentNewV1.tsx': ['Anthropic', 'OpenAI'],
+    'pages/AgentNew/v1/AgentNewV1.tsx': [
+        'Anthropic',
+        'Google Gemini',
+        'OpenAI'
+    ],
     'pages/AgentNew/v2/AgentNewBInline.tsx': [
         'Anthropic',
+        'Google Gemini',
         'OpenAI',
         'existing',
         'persistent',

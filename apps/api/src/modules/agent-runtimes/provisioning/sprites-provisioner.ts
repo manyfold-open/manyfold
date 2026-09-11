@@ -39,6 +39,7 @@ import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accou
 import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
+import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
 import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
 import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
 import { NarraNexusSpriteBootstrap } from '@/modules/agents/bootstrap/narranexus-sprite'
@@ -130,6 +131,7 @@ export class SpritesProvisioner {
         private readonly claudeBootstrap: ClaudeCodeBootstrap,
         private readonly codexBootstrap: CodexBootstrap,
         private readonly geminiBootstrap: GeminiCliBootstrap,
+        private readonly piBootstrap: PiBootstrap,
         hermesSpriteBootstrap: HermesSpriteBootstrap,
         openclawSpriteBootstrap: OpenClawSpriteBootstrap,
         narraNexusSpriteBootstrap: NarraNexusSpriteBootstrap,
@@ -734,7 +736,9 @@ export class SpritesProvisioner {
                       ? this.codexBootstrap
                       : framework === 'gemini-cli'
                         ? this.geminiBootstrap
-                        : null
+                        : framework === 'pi'
+                          ? this.piBootstrap
+                          : null
             if (codingBootstrap) {
                 // Coding CLIs are npm-installed to the resolved version inside the
                 // bootstrap; claude-code is a big package, so surface it as its own

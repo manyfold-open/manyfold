@@ -18,6 +18,7 @@ import { RuntimeAgentAttachService } from '@/modules/agents/orchestration/runtim
 import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
 import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
 import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
+import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
 import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
 import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
 import { NarraNexusK8sBootstrap } from '@/modules/agents/bootstrap/narranexus-k8s'
@@ -30,6 +31,7 @@ import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accou
 import { ClaudeCodeAgentAdapter } from '@/modules/agents/adapters/claude-code-agent.adapter'
 import { CodexAgentAdapter } from '@/modules/agents/adapters/codex-agent.adapter'
 import { GeminiCliAgentAdapter } from '@/modules/agents/adapters/gemini-cli-agent.adapter'
+import { PiAgentAdapter } from '@/modules/agents/adapters/pi-agent.adapter'
 import { OpenclawAgentAdapter } from '@/modules/agents/adapters/openclaw-agent.adapter'
 import { HermesAgentAdapter } from '@/modules/agents/adapters/hermes-agent.adapter'
 import { NarraNexusModule } from '@/modules/narranexus/narranexus.module'
@@ -111,6 +113,7 @@ import {
         ClaudeCodeK8sBootstrap,
         CodexK8sBootstrap,
         GeminiCliK8sBootstrap,
+        PiK8sBootstrap,
         OpenClawBootstrap,
         HermesBootstrap,
         NarraNexusK8sBootstrap,
@@ -130,6 +133,7 @@ import {
         ClaudeCodeAgentAdapter,
         CodexAgentAdapter,
         GeminiCliAgentAdapter,
+        PiAgentAdapter,
         OpenclawAgentAdapter,
         HermesAgentAdapter,
         DifyAgentAdapter,

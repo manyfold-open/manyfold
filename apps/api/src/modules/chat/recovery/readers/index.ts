@@ -5,6 +5,7 @@ import { CodexSessionReader } from './codex-reader'
 import { GeminiCliSessionReader } from './gemini-reader'
 import { HermesSessionReader } from './hermes-reader'
 import { OpenclawSessionReader } from './openclaw-reader'
+import { PiSessionReader } from './pi-reader'
 import type { SessionReader } from './types'
 
 export type {
@@ -27,6 +28,7 @@ export class SessionReaderRegistry {
         'claude-code': new ClaudeCodeSessionReader(),
         codex: new CodexSessionReader(),
         'gemini-cli': new GeminiCliSessionReader(),
+        pi: new PiSessionReader(),
         openclaw: new OpenclawSessionReader(),
         hermes: new HermesSessionReader()
     }

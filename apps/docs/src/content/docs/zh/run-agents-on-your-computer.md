@@ -104,7 +104,7 @@ mf daemon start --foreground
 
 *「本地配置」会使用所选本地 framework 的可用凭据。*
 
-如果「本地配置」显示 **未检查**，请重新检查状态，并确认对应的 Claude Code、Codex 或 Gemini CLI 已在该电脑正确安装和登录。若要使用团队或个人 API key，请在 Manyfold 的[模型提供商设置](/zh/docs/model-providers/)中添加、测试并保存 Provider。
+如果「本地配置」显示 **未检查**，请重新检查状态，并确认对应的 Claude Code、Codex、Gemini CLI 或 Pi 已在该电脑正确安装和登录。若要使用团队或个人 API key，请在 Manyfold 的[模型提供商设置](/zh/docs/model-providers/)中添加、测试并保存 Provider。
 
 ## 第 5 步：完成创建并验证 daemon 状态
 

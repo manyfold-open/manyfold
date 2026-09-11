@@ -5,7 +5,7 @@ order: 1
 ---
 Manyfold lets you create hosted AI agents, give them a workspace, and talk to them from the web app, CLI, or team chat tools.
 
-You can start with a coding agent such as Claude Code, Codex, or Gemini CLI, then add framework agents for longer-running workflows when you need them.
+You can start with a coding agent such as Claude Code, Codex, Gemini CLI, or Pi, then add framework agents for longer-running workflows when you need them.
 
 ## What you can do
 

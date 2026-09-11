@@ -21,7 +21,7 @@ default; a human login can add `--account` for explicit account-wide access.
 ## Create a sprites.dev coding agent
 
 `mf agent create` currently provisions a new agent on sprites.dev. It supports
-Claude Code, Codex, and Gemini CLI:
+Claude Code, Codex, Gemini CLI, and Pi:
 
 ```sh
 mf agent create review-bot \
@@ -31,7 +31,8 @@ mf agent create review-bot \
 
 Provider keys can come from the framework's environment variable. Avoid
 putting a literal key in shell history. Run `mf agent create --help` for each
-framework's base URL and model options.
+framework's base URL and model options. Pi takes `--pi-api-key` together with
+`--pi-provider anthropic|openai|google`, the vendor the key belongs to.
 
 This command does not create daemon, Kubernetes, cloud-computer, external,
 Hermes, OpenClaw, or NarraNexus agents. Use the web **New agent** flow for the

@@ -35,7 +35,7 @@ mf usage top-agents --limit 10
 
 - `--bucket` (timeseries only) is `hour` or `day`; default `day`.
 - `--framework` accepts `openclaw`, `hermes`, `narranexus`,
-  `claude-code`, `codex`, `gemini-cli`.
+  `claude-code`, `codex`, `gemini-cli`, `pi`.
 - `events --limit` is 1-200 (default 50); follow the returned
   `nextCursor` until it is `null`.
 - `top-agents` ranks across all the user's agents (`--from`, `--to`,

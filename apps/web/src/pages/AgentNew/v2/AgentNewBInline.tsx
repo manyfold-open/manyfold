@@ -48,6 +48,8 @@ import {
     isExternalFramework,
     isK8sOnlyFramework,
     REUSE_FRAMEWORKS,
+    defaultPersistentModelProvider,
+    persistentModelProvidersFor,
     reuseRuntimeKindsFor,
     remoteIdHintFor,
     remoteIdLabelFor,
@@ -339,7 +341,8 @@ const persistentProviderOptions: Array<{
     label: string
 }> = [
     { value: 'anthropic', label: 'Anthropic' },
-    { value: 'openai', label: 'OpenAI' }
+    { value: 'openai', label: 'OpenAI' },
+    { value: 'google', label: 'Google Gemini' }
 ]
 
 const defaultRuntimeMode = (
@@ -566,12 +569,7 @@ const AgentNewBInline: FC = (): ReactNode => {
         if (!isCreateableFramework(next)) return
         setFramework(next)
         setFrameworkSelected(true)
-        const nextPersistentProvider: PersistentModelProvider =
-            usesConfigurableModelProvider(next)
-                ? 'openai'
-                : modelProviderForFramework(next) === 'google'
-                  ? 'anthropic'
-                  : (modelProviderForFramework(next) as PersistentModelProvider)
+        const nextPersistentProvider = defaultPersistentModelProvider(next)
         setPersistentModelProvider(nextPersistentProvider)
         const nextTargetProvider: UserModelProvider =
             usesConfigurableModelProvider(next)
@@ -1379,8 +1377,15 @@ const AgentNewBInline: FC = (): ReactNode => {
                                                     )}
                                                 </span>
                                                 <div className='grid grid-cols-2 gap-2'>
-                                                    {persistentProviderOptions.map(
-                                                        (opt) => (
+                                                    {persistentProviderOptions
+                                                        .filter((opt) =>
+                                                            persistentModelProvidersFor(
+                                                                framework
+                                                            ).includes(
+                                                                opt.value
+                                                            )
+                                                        )
+                                                        .map((opt) => (
                                                             <button
                                                                 key={opt.value}
                                                                 type='button'
@@ -1405,8 +1410,7 @@ const AgentNewBInline: FC = (): ReactNode => {
                                                             >
                                                                 {opt.label}
                                                             </button>
-                                                        )
-                                                    )}
+                                                        ))}
                                                 </div>
                                             </div>
                                         )}

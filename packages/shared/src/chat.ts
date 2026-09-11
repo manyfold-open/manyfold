@@ -256,6 +256,13 @@ export const chatCapabilitiesByFramework: Record<
         attachments: true,
         multiTurn: true
     },
+    pi: {
+        streaming: true,
+        toolCalls: true,
+        thinking: true,
+        attachments: true,
+        multiTurn: true
+    },
     openclaw: {
         streaming: true,
         toolCalls: true,

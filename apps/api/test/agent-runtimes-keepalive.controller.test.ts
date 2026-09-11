@@ -114,6 +114,7 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
         runtimeAccess as never,
         { get: () => undefined } as never,
         {} as never,

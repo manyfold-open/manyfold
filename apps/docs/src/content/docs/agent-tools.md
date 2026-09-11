@@ -3,14 +3,14 @@ title: Manyfold and agent frameworks
 description: These products are not in the same category. Once you separate models, agent frameworks, an agent platform, and runtimes, it becomes clear how they work together.
 order: 6
 ---
-**Quick answer:** **Claude Code, Codex, Gemini CLI, OpenClaw, and Hermes** are agent frameworks that execute work. **Manyfold** is the platform that creates, hosts, manages, connects, and makes those agents collaborative. It does not replace them; it places them in a shared environment with workspaces, sessions, terminals, skills, channels, and runtimes.
+**Quick answer:** **Claude Code, Codex, Gemini CLI, Pi, OpenClaw, and Hermes** are agent frameworks that execute work. **Manyfold** is the platform that creates, hosts, manages, connects, and makes those agents collaborative. It does not replace them; it places them in a shared environment with workspaces, sessions, terminals, skills, channels, and runtimes.
 
 ## First, separate the four layers
 
 | Layer | Products | What it provides |
 | ----- | -------- | ---------------- |
 | **1. Models and model providers** | Anthropic, OpenAI, Google Gemini, OpenRouter | They provide AI reasoning capability and credentials. Manyfold can connect these providers, and some workspaces can have managed model access. |
-| **2. Agent frameworks** | Claude Code, Codex, Gemini CLI, OpenClaw, Hermes | They receive tasks, use tools, read and write files, and perform the work. Each framework has different strengths and operating patterns. |
+| **2. Agent frameworks** | Claude Code, Codex, Gemini CLI, Pi, OpenClaw, Hermes | They receive tasks, use tools, read and write files, and perform the work. Each framework has different strengths and operating patterns. |
 | **3. Agent platform and control layer** | Manyfold | It creates and hosts agents, and keeps their workspaces, chat sessions, files, terminals, model settings, skills, channels, automations, usage, and runtime status together. |
 | **4. Where an agent runs** | Stateful sandbox, self-owned computer, cloud computer | The runtime decides whether the agent executes in an isolated Manyfold cloud environment, on your own computer, or on a long-running cloud computer. |
 
@@ -28,6 +28,7 @@ In other words, Manyfold solves the problem of bringing agents into real work an
 | **Claude Code** | Coding agent framework | Repository work, implementation tasks, terminal workflows, and long-running coding sessions | Can be selected as an agent framework in Manyfold |
 | **Codex** | Coding agent framework | Codebase changes, code review, and workspace-aware development work | Can be selected as an agent framework in Manyfold |
 | **Gemini CLI** | Coding and terminal agent framework | Coding and general terminal automation using Google Gemini | Can be selected as an agent framework in Manyfold |
+| **Pi** | Open-source coding agent framework | Coding and terminal work on whichever of Anthropic, OpenAI, or Google Gemini you bring a key for | Can be selected as an agent framework in Manyfold |
 | **Hermes Agent** | Framework-style agent | Connector-heavy workflows and background work | Can be created, managed, and connected in Manyfold |
 | **OpenClaw** | Framework-style agent | Tool-rich agent applications that need services, gateways, or scheduled jobs | Can be created, managed, and connected in Manyfold |
 
@@ -49,6 +50,7 @@ When you use a coding agent by itself, you usually interact with one agent in a 
 | ----------- | ---------- |
 | AI help to change or review one repository | **Claude Code** or **Codex** |
 | An established development workflow that depends on Gemini | **Gemini CLI** |
+| One open-source coding CLI that can switch between Anthropic, OpenAI, and Google models | **Pi** |
 | Connectors, services, background work, or scheduled jobs | **Hermes Agent** or **OpenClaw** |
 | Several agents under one team, connected channels, tracked usage, or different runtimes | **Manyfold** to manage the selected framework |
 

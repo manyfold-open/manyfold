@@ -33,11 +33,13 @@ mf agent credentials reveal <agent-id>
 mf agent credentials update <agent-id> --body '<json-or-@file>'
 ```
 
-- `create` frameworks: `claude-code` (default) | `codex` | `gemini-cli`.
+- `create` frameworks: `claude-code` (default) | `codex` | `gemini-cli` | `pi`.
   Each requires its provider key via flag or env:
   `--anthropic-auth-token` / `ANTHROPIC_AUTH_TOKEN`,
   `--openai-api-key` / `OPENAI_API_KEY`,
-  `--google-api-key` / `GEMINI_API_KEY`.
+  `--google-api-key` / `GEMINI_API_KEY`,
+  `--pi-api-key` / `PI_API_KEY` together with `--pi-provider`
+  (`anthropic` | `openai` | `google`).
 - `update` needs at least one of `--name`, `--model`, `--clear-model`.
 - `delete` (alias `rm`) is irreversible and refuses without `--yes`/`-y`.
 

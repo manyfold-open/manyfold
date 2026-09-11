@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
     WORKSPACE_ABSOLUTE_PATH_ERROR,
     buildAddRuntimeAgentBody,
+    buildAgentCredentialsBody,
     buildCreateAgentBody,
     progressStepsForCreate,
     workspaceValidationMessage
@@ -192,6 +193,99 @@ test('maps Hermes inline provider fields and trims explicit base URL', () => {
         primaryModelName: 'gpt-5.4',
         primaryModelBaseUrl: 'https://proxy.example.test/v1'
     })
+})
+
+test('pi builds piCredentials and never falls into the hermes arm', () => {
+    const saved = buildCreateAgentBody({
+        framework: 'pi',
+        name: 'pi-agent',
+        picker: { ...inlinePicker(), mode: 'saved', providerId: 'ump_1' },
+        runtimeMode: 'sandbox',
+        persistentModelProvider: 'openai',
+        primaryModelName: ' openai/gpt-5.5 '
+    })
+    assert.equal(saved.runtime, 'sprites')
+    assert.deepEqual(saved.piCredentials, {
+        providerId: 'ump_1',
+        model: 'openai/gpt-5.5'
+    })
+    assert.equal('hermesCredentials' in saved, false)
+    assert.equal('modelConfigSource' in saved, false)
+
+    const inline = buildCreateAgentBody({
+        framework: 'pi',
+        name: 'pi-agent',
+        picker: inlinePicker({
+            baseUrl: ' https://gateway.example.test/v1 ',
+            save: true,
+            saveLabel: 'Gemini key'
+        }),
+        runtimeMode: 'persistent',
+        persistentModelProvider: 'google'
+    })
+    assert.equal(inline.runtime, 'k8s')
+    assert.deepEqual(inline.piCredentials, {
+        apiKey: 'sk-test-123456',
+        provider: 'google',
+        baseUrl: 'https://gateway.example.test/v1'
+    })
+    assert.deepEqual(inline.saveCredentialAs, { providerName: 'Gemini key' })
+    assert.equal('hermesCredentials' in inline, false)
+
+    // A pasted key with no vendor picked defaults to anthropic rather than
+    // reaching the API without one (the DTO rejects that pair).
+    const bare = buildCreateAgentBody({
+        framework: 'pi',
+        name: 'pi-agent',
+        picker: inlinePicker(),
+        runtimeMode: 'sandbox'
+    })
+    assert.deepEqual(bare.piCredentials, {
+        apiKey: 'sk-test-123456',
+        provider: 'anthropic'
+    })
+})
+
+test('pi credentials update body mirrors the create shape', () => {
+    assert.deepEqual(
+        buildAgentCredentialsBody({
+            framework: 'pi',
+            picker: { ...inlinePicker(), mode: 'saved', providerId: 'ump_2' },
+            primaryModelName: ''
+        }),
+        { piCredentials: { providerId: 'ump_2' } }
+    )
+    const inline = buildAgentCredentialsBody({
+        framework: 'pi',
+        picker: inlinePicker(),
+        persistentModelProvider: 'openai',
+        primaryModelName: 'gpt-5.5'
+    })
+    assert.deepEqual(inline, {
+        piCredentials: {
+            apiKey: 'sk-test-123456',
+            provider: 'openai',
+            model: 'gpt-5.5'
+        }
+    })
+    assert.equal('hermesCredentials' in inline, false)
+})
+
+test('a google vendor pick cannot leak into the openclaw/hermes payloads', () => {
+    const openclaw = buildCreateAgentBody({
+        framework: 'openclaw',
+        name: 'oc',
+        picker: inlinePicker(),
+        runtimeMode: 'persistent',
+        persistentModelProvider: 'google'
+    })
+    assert.equal(openclaw.openclawCredentials?.modelProvider, 'anthropic')
+    const hermes = buildAgentCredentialsBody({
+        framework: 'hermes',
+        picker: inlinePicker(),
+        persistentModelProvider: 'google'
+    })
+    assert.equal(hermes.hermesCredentials?.primaryModelProvider, 'anthropic')
 })
 
 test('selects progress steps from runtime target and framework family', () => {

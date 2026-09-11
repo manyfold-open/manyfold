@@ -39,7 +39,8 @@ const SWEEP_TOUCH_LIMIT = 25
 const CODING_FRAMEWORKS: AgentRuntimeRow['framework'][] = [
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    'pi'
 ]
 
 @Injectable()

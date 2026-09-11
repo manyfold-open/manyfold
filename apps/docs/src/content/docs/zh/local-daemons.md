@@ -38,7 +38,7 @@ Token 只显示一次。**立即复制整条命令**。如果丢了，先撤销�
 把命令粘贴到要注册的机器的终端里。CLI 会：
 
 1. 在 `~/.manyfold/profiles/<profile>/daemon/daemon.id` 生成稳定的 daemon UUID。
-2. 检测已安装的 coding 框架（Claude Code、Codex、Gemini CLI）。
+2. 检测已安装的 coding 框架（Claude Code、Codex、Gemini CLI 和 Pi —— PATH 上的 `pi`，需要 Node 22.19 或更新版本）。
 3. 向 API 注册这台机器。
 4. 把 daemon 配置写到 `~/.manyfold/profiles/<profile>/daemon/config.json`。
 

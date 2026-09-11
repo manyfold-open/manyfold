@@ -327,6 +327,7 @@ export type {
     DifyBindingInput,
     LangflowBindingInput,
     GeminiCliCredentialsInput,
+    PiCredentialsInput,
     SaveCredentialAs,
     AgentCredentialsExtras,
     AgentCredentialsSavedProviderRef,
@@ -552,6 +553,21 @@ export {
     frameworkResumeArgv,
     frameworkResumeCommandLine
 } from './framework-resume'
+export {
+    PI_PROVIDERS,
+    PI_API_KEY_ENV,
+    PI_OFFICIAL_BASE_URL,
+    PI_PROTOCOL_BY_PROVIDER,
+    PI_DEFAULT_MODEL,
+    PI_MODEL_PRESETS,
+    isPiProvider,
+    isPiProtocol,
+    isOfficialPiBaseUrl,
+    piProviderForProtocol,
+    piQualifiedModel,
+    piBareModelId
+} from './pi'
+export type { PiProvider, PiQualifiedModel } from './pi'
 export {
     mcpConfigFromExtras,
     mcpDeliveryFromExtras,

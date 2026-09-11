@@ -31,7 +31,8 @@ const FRAMEWORKS: AgentFramework[] = [
     'narranexus',
     'claude-code',
     'codex',
-    'gemini-cli'
+    'gemini-cli',
+    'pi'
 ]
 
 export const parseFramework = (value?: string): AgentFramework | undefined => {

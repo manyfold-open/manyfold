@@ -1,6 +1,6 @@
 ---
 title: "mf daemon"
-description: "Local daemon for Manyfold agents (claude-code / codex / gemini-cli)"
+description: "Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi)"
 order: 16
 ---
 **Usage:** `mf daemon [command]`

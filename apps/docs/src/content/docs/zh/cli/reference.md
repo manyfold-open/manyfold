@@ -28,7 +28,7 @@ order: 12
 | [`mf skills`](/zh/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/zh/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/zh/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
-| [`mf daemon`](/zh/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli) |
+| [`mf daemon`](/zh/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi) |
 | [`mf profile`](/zh/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |
 | [`mf update`](/zh/docs/cli/reference/update/) | Update the mf CLI to the latest version |
 | [`mf version`](/zh/docs/cli/reference/version/) | Show the installed version, update channel and build metadata |

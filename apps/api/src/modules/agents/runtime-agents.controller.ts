@@ -130,6 +130,7 @@ const SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS: ReadonlySet<AgentFramework> =
         'claude-code',
         'codex',
         'gemini-cli',
+        'pi',
         'openclaw',
         'hermes'
     ])

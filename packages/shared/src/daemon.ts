@@ -18,7 +18,7 @@ export type DaemonCodingFramework = Extract<
 
 export type DaemonDetectableFramework = Extract<
     AgentFramework,
-    'claude-code' | 'codex' | 'gemini-cli' | 'openclaw' | 'hermes'
+    'claude-code' | 'codex' | 'gemini-cli' | 'pi' | 'openclaw' | 'hermes'
 >
 
 // Every framework a self-owned daemon can detect + run (capability fact:
@@ -29,6 +29,7 @@ export const DAEMON_DETECTABLE_FRAMEWORKS: DaemonDetectableFramework[] = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'openclaw',
     'hermes'
 ]

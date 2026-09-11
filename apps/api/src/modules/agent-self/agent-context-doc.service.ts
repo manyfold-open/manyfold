@@ -25,7 +25,8 @@ const CONTEXT_FILE = 'AGENTS.manyfold.md'
 const INSTRUCTION_FILE: Partial<Record<AgentFramework, string>> = {
     'claude-code': 'CLAUDE.md',
     codex: 'AGENTS.md',
-    'gemini-cli': 'GEMINI.md'
+    'gemini-cli': 'GEMINI.md',
+    pi: 'AGENTS.md'
 }
 
 // The context doc only applies to coding frameworks on a workspace-root cwd.
@@ -74,10 +75,11 @@ export const buildPlatformContextDoc = (input: {
     ].join('\n')
 }
 
-// Claude Code + Gemini CLI natively @import; Codex has no import syntax, so it
-// gets a directive to read the file (the agent opens it on instruction).
+// Claude Code + Gemini CLI natively @import; Codex and pi have no import
+// syntax, so they get a directive to read the file (the agent opens it on
+// instruction).
 const referenceBody = (framework: AgentFramework): string =>
-    framework === 'codex'
+    framework === 'codex' || framework === 'pi'
         ? `Read \`${CONTEXT_FILE}\` (in this directory) for your Manyfold platform context — the connections linked to this agent and how to use them — before starting.`
         : `@${CONTEXT_FILE}`
 

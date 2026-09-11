@@ -20,7 +20,7 @@ mf agent storage-usage agt_xxx
 ## 创建 sprites.dev coding Agent
 
 `mf agent create` 当前只会在 sprites.dev 上创建新 Agent，支持 Claude Code、
-Codex 和 Gemini CLI：
+Codex、Gemini CLI 和 Pi：
 
 ```sh
 mf agent create review-bot \
@@ -30,7 +30,8 @@ mf agent create review-bot \
 
 Provider key 可以来自 framework 对应的环境变量。避免把 literal key 放进 shell
 history。每个 framework 的 base URL 和 model option 请查看
-`mf agent create --help`。
+`mf agent create --help`。Pi 需要同时传 `--pi-api-key` 和
+`--pi-provider anthropic|openai|google`，说明这把 key 属于哪个厂商。
 
 这个命令不会创建 daemon、Kubernetes、cloud-computer、external、Hermes、
 OpenClaw 或 NarraNexus Agent。完整 framework/runtime matrix 请使用网页

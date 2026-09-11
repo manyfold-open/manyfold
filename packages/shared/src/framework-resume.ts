@@ -7,6 +7,11 @@ import type { AgentFramework } from './constants'
 
      claude --resume <id>   resumes a conversation by session id
      codex resume <id>      "Resume a previous interactive session"
+     pi --session-id <id>   "Use exact project session ID, creating it if
+                            missing" — the id Manyfold minted for the chat
+                            session; `--session <id>` is deliberately NOT used
+                            because a bare id that matches a session in another
+                            project triggers a y/N prompt with no TTY check
 
    gemini-cli is absent on purpose: its --resume takes a session INDEX or the
    literal "latest", not the UUID stored in framework_session_ref, so there is
@@ -21,7 +26,8 @@ const RESUME_ARGV_BY_FRAMEWORK: Partial<
     Record<AgentFramework, (sessionRef: string) => string[]>
 > = {
     'claude-code': (ref) => ['claude', '--resume', ref],
-    codex: (ref) => ['codex', 'resume', ref]
+    codex: (ref) => ['codex', 'resume', ref],
+    pi: (ref) => ['pi', '--session-id', ref]
 }
 
 export const frameworkResumeArgv = (

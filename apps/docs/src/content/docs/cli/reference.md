@@ -28,7 +28,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf skills`](/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
-| [`mf daemon`](/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli) |
+| [`mf daemon`](/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi) |
 | [`mf profile`](/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |
 | [`mf update`](/docs/cli/reference/update/) | Update the mf CLI to the latest version |
 | [`mf version`](/docs/cli/reference/version/) | Show the installed version, update channel and build metadata |

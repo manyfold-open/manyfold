@@ -76,7 +76,7 @@ Create a new agent on sprites.dev
 
 | Options | Purpose |
 | --- | --- |
-| `--framework <framework>` | claude-code \| codex \| gemini-cli Default: `claude-code`. |
+| `--framework <framework>` | claude-code \| codex \| gemini-cli \| pi Default: `claude-code`. |
 | `--anthropic-auth-token <token>` | Anthropic auth token (claude-code only; or env ANTHROPIC_AUTH_TOKEN) |
 | `--anthropic-base-url <url>` | Anthropic base URL override (claude-code only) |
 | `--openai-api-key <key>` | OpenAI API key (codex only; or env OPENAI_API_KEY) |
@@ -84,6 +84,10 @@ Create a new agent on sprites.dev
 | `--google-api-key <key>` | Gemini API key (gemini-cli only; or env GEMINI_API_KEY / GOOGLE_API_KEY) |
 | `--google-gemini-base-url <url>` | Gemini base URL override (gemini-cli only; or env GOOGLE_GEMINI_BASE_URL) |
 | `--gemini-model <model>` | Gemini model override (gemini-cli only) |
+| `--pi-api-key <key>` | Vendor API key for pi (pi only; pair with --pi-provider) |
+| `--pi-provider <provider>` | Which vendor the pi key belongs to: anthropic \| openai \| google (pi only) |
+| `--pi-base-url <url>` | Vendor base URL override for pi (pi only; sandbox runtimes only) |
+| `--pi-model <model>` | pi default model, e.g. anthropic/claude-sonnet-4-6 (pi only) |
 | `--account-id <id>` | Admin only: pin to a specific sprites.dev account id |
 | `--json` | output the result as JSON |
 | `-h, --help` | display help for command |

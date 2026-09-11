@@ -12,6 +12,7 @@ Model providers give agents access to the models they need. You can save provide
 | Anthropic | Claude Code |
 | OpenAI | Codex |
 | Google Gemini | Gemini CLI |
+| Anthropic, OpenAI, Google Gemini | Pi |
 | OpenRouter | Model routing and compatible model access |
 
 Your workspace may also have managed model access. If it does, the creation flow can offer provider options without requiring you to paste a personal API key.

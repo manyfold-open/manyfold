@@ -9,6 +9,7 @@ const BINARY_FOR_FRAMEWORK: Record<DetectedFramework['framework'], string> = {
     'claude-code': 'claude',
     codex: 'codex',
     'gemini-cli': 'gemini',
+    pi: 'pi',
     openclaw: 'openclaw',
     hermes: 'hermes'
 }

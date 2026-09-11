@@ -2046,7 +2046,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // and gemini-cli resume via frameworkSessionRef and never read it,
             // so skip the full-session load on their hot path.
             const needsHistory =
-                framework === 'codex'
+                framework === 'codex' || framework === 'pi'
                     ? !session.frameworkSessionRef
                     : framework !== 'claude-code' && framework !== 'gemini-cli'
             const historyRows = needsHistory
@@ -6795,6 +6795,9 @@ const MESSAGE_MODEL_OVERRIDE_FRAMEWORKS: ReadonlySet<AgentFramework> = new Set([
     'claude-code',
     'codex',
     'gemini-cli',
+    // Passed as `--model <provider>/<id>` on the exec; pi persists it in the
+    // session file, so the next turn's default follows the pick.
+    'pi',
     // Applied via ACP session/set_model — the session persists its model in
     // hermes's state.db, so this is the only lever that moves a live session.
     'hermes',
