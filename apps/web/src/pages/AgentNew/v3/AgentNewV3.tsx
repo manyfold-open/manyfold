@@ -86,8 +86,10 @@ import {
 import { fmtCost } from '@/lib/usageFormat'
 import { inferenceProtocolLabel } from '@/pages/Settings/ModelProviderFields'
 import {
+    defaultPersistentModelProvider,
     frameworkOptions,
     isExternalFramework,
+    persistentModelProvidersFor,
     reuseRuntimeKindsFor,
     REUSE_FRAMEWORKS,
     remoteIdHintFor,
@@ -211,7 +213,8 @@ const providerOptionLabel = (
 
 const modelFamilyName: Record<PersistentModelProvider, string> = {
     anthropic: inferenceProtocolLabel.anthropic_messages,
-    openai: inferenceProtocolLabel.openai_responses
+    openai: inferenceProtocolLabel.openai_responses,
+    google: inferenceProtocolLabel.google_generate_content
 }
 
 const persistentProviderOptions: Array<{
@@ -219,7 +222,8 @@ const persistentProviderOptions: Array<{
     label: string
 }> = [
     { value: 'anthropic', label: modelFamilyName.anthropic },
-    { value: 'openai', label: modelFamilyName.openai }
+    { value: 'openai', label: modelFamilyName.openai },
+    { value: 'google', label: modelFamilyName.google }
 ]
 
 const defaultWorkspaceFor = (
@@ -340,11 +344,7 @@ const AgentNewV3: FC = (): ReactNode => {
             )
                 ? (initialFramework as CreateableFramework)
                 : 'claude-code'
-            if (usesConfigurableModelProvider(initial)) return 'openai'
-            const target = modelProviderForFramework(initial)
-            return target === 'google'
-                ? 'anthropic'
-                : (target as PersistentModelProvider)
+            return defaultPersistentModelProvider(initial)
         })
     const [primaryModelName, setPrimaryModelName] = useState('')
     const [externalProviderId, setExternalProviderId] = useState('')
@@ -371,6 +371,10 @@ const AgentNewV3: FC = (): ReactNode => {
     const streamOpen = progress !== null && !progress.done
     const isExternal = isExternalFramework(framework)
     const isConfigurable = usesConfigurableModelProvider(framework)
+    const familyChoices = persistentModelProvidersFor(framework)
+    const familyOptions = persistentProviderOptions.filter((opt) =>
+        familyChoices.includes(opt.value)
+    )
     const advanced = mode === 'advanced' && !isExternal
     const showQuickDefaults = !advanced && !isExternal
 
@@ -688,12 +692,7 @@ const AgentNewV3: FC = (): ReactNode => {
 
     const selectFramework = (next: CreateableFramework): void => {
         setFramework(next)
-        const nextPersistent: PersistentModelProvider =
-            usesConfigurableModelProvider(next)
-                ? 'openai'
-                : modelProviderForFramework(next) === 'google'
-                  ? 'anthropic'
-                  : (modelProviderForFramework(next) as PersistentModelProvider)
+        const nextPersistent = defaultPersistentModelProvider(next)
         setPersistentModelProvider(nextPersistent)
         const nextTarget: UserModelProvider = usesConfigurableModelProvider(
             next
@@ -1770,8 +1769,15 @@ const AgentNewV3: FC = (): ReactNode => {
                     <span className='workbench-field-label mb-1.5 block'>
                         {t('web.agentNewV3.modelFamilyLabel')}
                     </span>
-                    <div className='grid grid-cols-2 gap-2'>
-                        {persistentProviderOptions.map((opt) => (
+                    <div
+                        className={[
+                            'grid gap-2',
+                            familyOptions.length === 3
+                                ? 'grid-cols-3'
+                                : 'grid-cols-2'
+                        ].join(' ')}
+                    >
+                        {familyOptions.map((opt) => (
                             <button
                                 key={opt.value}
                                 type='button'

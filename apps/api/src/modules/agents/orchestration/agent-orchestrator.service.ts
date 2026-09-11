@@ -129,6 +129,7 @@ const PLATFORM_RUNTIME_DEFAULTS: Partial<Record<AgentFramework, AgentRuntime>> =
         'claude-code': agentRuntime.SPRITES,
         codex: agentRuntime.SPRITES,
         'gemini-cli': agentRuntime.SPRITES,
+        pi: agentRuntime.SPRITES,
         narranexus: agentRuntime.SPRITES
     }
 
@@ -1690,6 +1691,7 @@ const extractSpritesCredentials = (
     if (resolved.framework === 'claude-code') return resolved.value
     if (resolved.framework === 'codex') return resolved.value
     if (resolved.framework === 'gemini-cli') return resolved.value
+    if (resolved.framework === 'pi') return resolved.value
     if (resolved.framework === 'hermes') return resolved.value
     if (resolved.framework === 'openclaw') return resolved.value
     if (resolved.framework === 'narranexus') return resolved.value

@@ -128,6 +128,7 @@ const buildHarness = () => {
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
         { run: async () => ({ homeDir: undefined }) } as never,
+        { run: async () => ({ homeDir: undefined }) } as never,
         {
             framework: 'hermes',
             run: async (ctx: BootstrapContext, credentials: unknown) => {

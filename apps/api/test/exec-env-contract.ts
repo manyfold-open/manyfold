@@ -213,6 +213,47 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     },
 
     {
+        framework: 'pi',
+        runtime: 'sprites',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: 'The vendor key rides every exec as the env var pi reads it from (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY); nothing is written to ~/.pi except the optional models.json base-URL override, which carries no secret.'
+    },
+
+    {
+        framework: 'pi',
+        runtime: 'k8s',
+        transport: 'runner-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: 'Unlike its coding siblings the key is not left to the pod Secret: the adapter re-sends it on every exec, so a credential rotated after provisioning takes effect on the next turn instead of on the next pod restart.'
+    },
+    {
+        framework: 'pi',
+        runtime: 'daemon',
+        transport: 'daemon-exec',
+        identity: 'per-exec',
+        connections: 'per-exec',
+        extras: 'per-exec',
+        providerCreds: 'per-exec',
+        auth: 'host-resolved',
+        path: 'daemon-ambient',
+        resume: 'attach-no-env',
+        note: "pi has no runtime-local mode, so the gate is the credential row itself: a daemon agent without one runs on pi's own login on that machine (nothing is injected), one with a row gets the key per exec. Never a custom base URL here — the resolver refuses it."
+    },
+
+    {
         framework: 'gemini-cli',
         runtime: 'sprites',
         transport: 'runner-exec',

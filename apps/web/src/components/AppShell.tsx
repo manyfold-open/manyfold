@@ -545,23 +545,6 @@ const flattenAgentGroups = (
     return items
 }
 
-const frameworkLabel = (framework: SdkAgent['framework']): string => {
-    switch (framework) {
-        case 'claude-code':
-            return 'Claude Code'
-        case 'codex':
-            return 'Codex'
-        case 'gemini-cli':
-            return 'Gemini CLI'
-        case 'openclaw':
-            return 'OpenClaw'
-        case 'hermes':
-            return 'Hermes'
-        default:
-            return 'NarraNexus'
-    }
-}
-
 // Whether this agent currently has a reachable dashboard. Mirrors the
 // server-side preconditions in `getControlUiUrl`: framework-specific gating
 // (controlUiEnabled for openclaw, dashboardEnabled for hermes, always on for
@@ -1431,7 +1414,7 @@ const CollapsedAgentSessionsMenu: FC<CollapsedAgentSessionsMenuProps> = ({
         action()
     }
 
-    const agentTitle = `${agent.name} · ${frameworkLabel(agent.framework)} · ${
+    const agentTitle = `${agent.name} · ${frameworkDisplayLabel(agent.framework)} · ${
         agent.status
     }${showReadOnlyBadge ? ` · ${t('web.shell.readOnly')}` : ''}`
     const sessionPanel =
@@ -3709,7 +3692,7 @@ const AppShell: FC = (): ReactNode => {
                                             agent.spriteStatus === 'running'
                                         const isReleasing =
                                             releasingAgentIds.has(agent.id)
-                                        const agentTitle = `${agent.name} · ${frameworkLabel(
+                                        const agentTitle = `${agent.name} · ${frameworkDisplayLabel(
                                             agent.framework
                                         )} · ${agent.status}${showReadOnlyBadge ? ` · ${readOnlyLabel}` : ''}`
 
@@ -3859,7 +3842,7 @@ const AppShell: FC = (): ReactNode => {
                                                                         />
                                                                     </div>
                                                                     <span className='sr-only'>
-                                                                        {frameworkLabel(
+                                                                        {frameworkDisplayLabel(
                                                                             agent.framework
                                                                         )}{' '}
                                                                         {

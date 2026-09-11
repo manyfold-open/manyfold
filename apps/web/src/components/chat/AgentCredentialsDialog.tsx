@@ -14,6 +14,7 @@ import {
     frameworkSupportsProtocol,
     isClaudeCodeModelAlias,
     isManagedProtocolAllowedForFramework,
+    isPiProvider,
     lookupBuiltIn,
     providerProtocolForTarget,
     providerSupportsTarget
@@ -82,6 +83,7 @@ const FRAMEWORK_LABEL: Record<AgentFramework, string> = {
     'claude-code': 'Claude Code',
     codex: 'Codex',
     'gemini-cli': 'Gemini CLI',
+    pi: 'Pi',
     openclaw: 'OpenClaw',
     hermes: 'Hermes Agent',
     narranexus: 'NarraNexus',
@@ -95,6 +97,7 @@ const DEFAULT_PROVIDER_BY_FRAMEWORK: Record<AgentFramework, UserModelProvider> =
         'claude-code': 'anthropic',
         codex: 'openai',
         'gemini-cli': 'google',
+        pi: 'anthropic',
         openclaw: 'anthropic',
         hermes: 'openrouter',
         narranexus: 'anthropic',
@@ -123,7 +126,13 @@ const successMessageFor = (
 ): string => {
     if (localManaged) return t('web.credentials.successUpdated')
     if (framework === 'codex') return t('web.credentials.successUpdatedCodex')
-    if (framework === 'claude-code' || framework === 'gemini-cli')
+    // pi reads the key from the env each turn injects, so like claude the
+    // next message picks it up with no restart.
+    if (
+        framework === 'claude-code' ||
+        framework === 'gemini-cli' ||
+        framework === 'pi'
+    )
         return t('web.credentials.successUpdatedClaude')
     return t('web.credentials.successUpdatedDefault')
 }
@@ -132,6 +141,7 @@ const FRAMEWORK_SUPPORTS_MODEL: Record<AgentFramework, boolean> = {
     'claude-code': false,
     codex: false,
     'gemini-cli': true,
+    pi: true,
     openclaw: true,
     hermes: true,
     narranexus: false,
@@ -149,6 +159,7 @@ const applyModel = (
     if (!m) return body
     if (framework === 'gemini-cli' && body.geminiCliCredentials)
         body.geminiCliCredentials.model = m
+    if (framework === 'pi' && body.piCredentials) body.piCredentials.model = m
     if (framework === 'openclaw' && body.openclawCredentials)
         body.openclawCredentials.primaryModelName = m
     if (framework === 'hermes' && body.hermesCredentials)
@@ -159,7 +170,10 @@ const applyModel = (
 const buildBody = (
     framework: AgentFramework,
     picker: ProviderPickerValue,
-    model: string
+    model: string,
+    // The vendor the agent's current credential belongs to; a re-pasted pi
+    // key must name its vendor and the dialog has no picker for it.
+    provider: UserModelProvider
 ): UpdateAgentCredentialsBody => {
     const baseUrl = picker.baseUrl.trim()
     const baseUrlOpt = baseUrl.length > 0 ? baseUrl : undefined
@@ -192,6 +206,12 @@ const buildBody = (
                 {
                     geminiCliCredentials: { providerId: picker.providerId }
                 },
+                model
+            )
+        if (framework === 'pi')
+            return applyModel(
+                framework,
+                { piCredentials: { providerId: picker.providerId } },
                 model
             )
         if (framework === 'openclaw')
@@ -241,6 +261,19 @@ const buildBody = (
                 geminiCliCredentials: {
                     googleApiKey: picker.apiKey,
                     googleGeminiBaseUrl: baseUrlOpt
+                },
+                saveCredentialAs
+            },
+            model
+        )
+    if (framework === 'pi')
+        return applyModel(
+            framework,
+            {
+                piCredentials: {
+                    apiKey: picker.apiKey,
+                    provider: isPiProvider(provider) ? provider : 'anthropic',
+                    baseUrl: baseUrlOpt
                 },
                 saveCredentialAs
             },
@@ -620,7 +653,7 @@ const AgentCredentialsDialog: FC<Props> = ({
                 if (effectiveCredentialsChanged || legacyModelChanged) {
                     updated = await client.agents.credentials.update(
                         agentId,
-                        buildBody(framework, picker, model)
+                        buildBody(framework, picker, model, providerHint)
                     )
                 }
 
@@ -734,6 +767,7 @@ const AgentCredentialsDialog: FC<Props> = ({
             modelConfigValidation.message,
             onUpdated,
             picker,
+            providerHint,
             selectedProviderModels,
             t,
             view

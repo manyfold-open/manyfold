@@ -35,6 +35,12 @@ export const NEW_CHAT_LAUNCHPAD_CONFIG: Record<
         actionIds: ['github', 'mcp', 'channel'],
         recommended: 'github'
     },
+    // pi reads MCP only through extensions, which a chat turn disables, so
+    // skills take that slot.
+    pi: {
+        actionIds: ['github', 'skills', 'channel'],
+        recommended: 'github'
+    },
     hermes: {
         actionIds: ['skills', 'channel', 'automation'],
         recommended: 'skills'

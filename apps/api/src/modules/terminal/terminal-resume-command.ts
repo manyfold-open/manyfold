@@ -15,14 +15,17 @@ import type { AgentFramework } from '@manyfold/shared'
    command deliberately omits them — it runs wherever it is pasted, where no
    such trust boundary is established.
 
-   `needsModelCredentials` is the asymmetry between the two supported ones.
+   pi has no approval prompts at all, so it carries no flag; like claude its
+   key rides each exec and never touches the sandbox disk.
+
+   `needsModelCredentials` is the asymmetry between the claude/codex pair.
    Codex logs in on the sprite at bootstrap (`codex login --with-api-key`,
    bootstrap/codex.ts) and its auth lives in the real ~/.codex, which a plain
    login shell reads — so its TUI is already authenticated. Claude's platform
    credentials are injected per exec and never touch the sandbox disk, so its
    TUI has nothing to authenticate with unless the sandbox opted in. */
 interface FrameworkResumePolicy {
-    fullAccessFlag: string
+    fullAccessFlag?: string
     needsModelCredentials: boolean
 }
 
@@ -36,7 +39,8 @@ const RESUME_POLICY_BY_FRAMEWORK: Partial<
     codex: {
         fullAccessFlag: '--dangerously-bypass-approvals-and-sandbox',
         needsModelCredentials: false
-    }
+    },
+    pi: { needsModelCredentials: true }
 }
 
 export const frameworkSupportsTerminalResume = (
@@ -56,5 +60,5 @@ export const terminalResumeCommand = (
     if (!policy) return null
     const argv = frameworkResumeArgv(framework, sessionRef)
     if (!argv) return null
-    return [...argv, policy.fullAccessFlag]
+    return policy.fullAccessFlag ? [...argv, policy.fullAccessFlag] : argv
 }

@@ -8,6 +8,7 @@ export const versionedFrameworks = [
     'claude-code',
     'codex',
     'gemini-cli',
+    'pi',
     'openclaw',
     'hermes',
     'narranexus'
@@ -35,6 +36,7 @@ export const frameworkUpgradeMode = (
         case 'claude-code':
         case 'codex':
         case 'gemini-cli':
+        case 'pi':
         case 'openclaw':
             return 'npm'
         case 'narranexus':

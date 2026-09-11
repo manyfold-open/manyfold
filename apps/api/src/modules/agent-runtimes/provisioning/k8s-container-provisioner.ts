@@ -38,6 +38,7 @@ import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
 import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
 import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
 import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
+import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
 import { NarraNexusK8sBootstrap } from '@/modules/agents/bootstrap/narranexus-k8s'
 import type {
     K8sBootstrapContext,
@@ -159,6 +160,7 @@ export class K8sContainerProvisioner {
         private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
         private readonly codexK8s: CodexK8sBootstrap,
         private readonly geminiCliK8s: GeminiCliK8sBootstrap,
+        private readonly piK8s: PiK8sBootstrap,
         private readonly narraNexusK8s: NarraNexusK8sBootstrap,
         private readonly podRunner: PodRunnerProvisioner,
         private readonly createCleanup: K8sCreateCleanupService
@@ -646,6 +648,8 @@ export class K8sContainerProvisioner {
                 return this.codexK8s
             case 'gemini-cli':
                 return this.geminiCliK8s
+            case 'pi':
+                return this.piK8s
             case 'narranexus':
                 return this.narraNexusK8s
         }
@@ -663,7 +667,9 @@ export class K8sContainerProvisioner {
                       ? 'K8S_IMAGE_CODEX'
                       : framework === 'gemini-cli'
                         ? 'K8S_IMAGE_GEMINI_CLI'
-                        : 'K8S_IMAGE_NARRANEXUS'
+                        : framework === 'pi'
+                          ? 'K8S_IMAGE_PI'
+                          : 'K8S_IMAGE_NARRANEXUS'
         const image = this.config.get<string>(key)
         if (!image) throw new InternalServerErrorException(`${key} not set`)
         return image

@@ -104,7 +104,7 @@ In **Where it runs**, choose the connected self-owned computer with the **Ready*
 
 *Local config uses available credentials for the selected local framework.*
 
-If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, or Gemini CLI is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
+If Local config says **Not checked**, refresh its status and make sure the relevant Claude Code, Codex, Gemini CLI, or Pi is installed and signed in on this computer. To use a team or personal API key, add, test, and save a provider in [Model providers](/docs/model-providers/).
 
 ## Step 5: Create the agent and verify daemon health
 

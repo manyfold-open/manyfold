@@ -1,11 +1,11 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
-import type { CreateAgentBody } from '@manyfold/shared'
+import { isPiProvider, type CreateAgentBody } from '@manyfold/shared'
 import { buildClient } from '@/client'
 import { emit } from '@/output'
 
 interface CreateOptions {
-    framework: 'claude-code' | 'codex' | 'gemini-cli'
+    framework: 'claude-code' | 'codex' | 'gemini-cli' | 'pi'
     anthropicAuthToken?: string
     anthropicBaseUrl?: string
     openaiApiKey?: string
@@ -13,6 +13,10 @@ interface CreateOptions {
     googleApiKey?: string
     googleGeminiBaseUrl?: string
     geminiModel?: string
+    piApiKey?: string
+    piProvider?: string
+    piBaseUrl?: string
+    piModel?: string
     accountId?: string
     json?: boolean
 }
@@ -22,7 +26,7 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         .description('Create a new agent on sprites.dev')
         .option(
             '--framework <framework>',
-            'claude-code | codex | gemini-cli',
+            'claude-code | codex | gemini-cli | pi',
             'claude-code'
         )
         .option(
@@ -52,6 +56,22 @@ export const registerAgentCreate = (cmd: Command, program: Command): void => {
         .option(
             '--gemini-model <model>',
             'Gemini model override (gemini-cli only)'
+        )
+        .option(
+            '--pi-api-key <key>',
+            'Vendor API key for pi (pi only; pair with --pi-provider)'
+        )
+        .option(
+            '--pi-provider <provider>',
+            'Which vendor the pi key belongs to: anthropic | openai | google (pi only)'
+        )
+        .option(
+            '--pi-base-url <url>',
+            'Vendor base URL override for pi (pi only; sandbox runtimes only)'
+        )
+        .option(
+            '--pi-model <model>',
+            'pi default model, e.g. anthropic/claude-sonnet-4-6 (pi only)'
         )
         .option(
             '--account-id <id>',
@@ -126,6 +146,26 @@ const buildBody = (name: string, opts: CreateOptions): CreateAgentBody => {
                     opts.googleGeminiBaseUrl ??
                     process.env.GOOGLE_GEMINI_BASE_URL,
                 model: opts.geminiModel ?? process.env.GEMINI_MODEL
+            }
+        }
+    }
+    if (framework === 'pi') {
+        const provider = opts.piProvider
+        if (!isPiProvider(provider))
+            throw new Error(
+                'pi requires --pi-provider anthropic | openai | google'
+            )
+        const key = opts.piApiKey ?? process.env.PI_API_KEY
+        if (!key) throw new Error('pi requires --pi-api-key or PI_API_KEY')
+        return {
+            name,
+            framework: 'pi',
+            accountId: opts.accountId,
+            piCredentials: {
+                apiKey: key,
+                provider,
+                baseUrl: opts.piBaseUrl,
+                model: opts.piModel ?? null
             }
         }
     }

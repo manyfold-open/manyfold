@@ -123,6 +123,7 @@ export const WORKS_WITH_ROWS: ReadonlyArray<{
             { name: 'Claude Code', framework: 'claude-code' },
             { name: 'Codex', framework: 'codex' },
             { name: 'Gemini CLI', framework: 'gemini-cli' },
+            { name: 'Pi', framework: 'pi' },
             { name: 'Openclaw', framework: 'openclaw' },
             { name: 'Hermes', framework: 'hermes' },
             { name: 'NarraNexus', framework: 'narranexus' },

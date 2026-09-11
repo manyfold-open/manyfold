@@ -1,6 +1,8 @@
 import {
     AgentModelConfig,
     AgentModelConfigSource,
+    PI_PROVIDERS,
+    PiProvider,
     SEMVER_TAG_RE,
     agentModelConfigSources,
     inputValidation,
@@ -152,6 +154,47 @@ class GeminiCliCredentialsDto {
         'exactly one of googleApiKey or providerId is required'
     )
     readonly __googleCredGuard?: unknown
+}
+
+class PiCredentialsDto {
+    @IsOptional()
+    @IsString()
+    @Length(10, 1024)
+    apiKey?: string
+
+    @IsOptional()
+    @IsIn(PI_PROVIDERS)
+    provider?: PiProvider
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 512)
+    baseUrl?: string
+
+    @IsOptional()
+    @ValidateIf((_, value) => value !== null)
+    @IsString()
+    @Length(1, 255)
+    model?: string | null
+
+    @IsOptional()
+    @IsString()
+    @Length(1, 64)
+    providerId?: string
+
+    @ExactlyOneOf(
+        ['apiKey', 'providerId'],
+        'exactly one of apiKey or providerId is required'
+    )
+    readonly __piCredGuard?: unknown
+
+    // A raw key says nothing about which vendor it belongs to, and pi's
+    // default provider depends on the host's ambient credentials.
+    @PairTogether(
+        ['apiKey', 'provider'],
+        'piCredentials.provider is required with apiKey'
+    )
+    readonly __piProviderGuard?: unknown
 }
 
 class OpenclawCredentialsDto {
@@ -377,6 +420,7 @@ export type AgentFrameworkInput =
     | 'claude-code'
     | 'codex'
     | 'gemini-cli'
+    | 'pi'
     | 'openclaw'
     | 'hermes'
     | 'narranexus'
@@ -476,6 +520,7 @@ export class CreateAgentDto {
         'claude-code',
         'codex',
         'gemini-cli',
+        'pi',
         'openclaw',
         'hermes',
         'narranexus',
@@ -561,6 +606,11 @@ export class CreateAgentDto {
     @ValidateIf((o: CreateAgentDto) => o.framework === 'gemini-cli')
     @Type(() => GeminiCliCredentialsDto)
     geminiCliCredentials?: GeminiCliCredentialsDto
+
+    @ValidateNested()
+    @ValidateIf((o: CreateAgentDto) => o.framework === 'pi')
+    @Type(() => PiCredentialsDto)
+    piCredentials?: PiCredentialsDto
 
     @ValidateNested()
     @ValidateIf((o: CreateAgentDto) => o.framework === 'openclaw')

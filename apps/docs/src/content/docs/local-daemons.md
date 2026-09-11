@@ -39,7 +39,7 @@ The token is shown only once. Copy the full command immediately. If you lose it,
 Paste the command into a terminal on the machine you are registering. The CLI:
 
 1. Generates a stable daemon UUID at `~/.manyfold/profiles/<profile>/daemon/daemon.id`.
-2. Detects installed coding frameworks (Claude Code, Codex, Gemini CLI).
+2. Detects installed coding frameworks (Claude Code, Codex, Gemini CLI, and Pi — `pi` on PATH, which needs Node 22.19 or newer).
 3. Registers the machine with the API.
 4. Saves daemon config to `~/.manyfold/profiles/<profile>/daemon/config.json`.
 

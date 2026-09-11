@@ -15,6 +15,7 @@ export const agentCredentials = pgTable('agent_credentials', {
             'claude-code',
             'codex',
             'gemini-cli',
+            'pi',
             'dify',
             'langflow',
             'a2a'

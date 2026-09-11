@@ -20,6 +20,7 @@ order: 3
 | Claude Code | 仓库工作、实现任务、终端工作流和长时间 coding session。 |
 | Codex | 代码库修改、代码审查和需要工作区上下文的开发任务。 |
 | Gemini CLI | 基于 Google Gemini 的编码和通用终端自动化。 |
+| Pi | 开源编程 CLI，可使用 Anthropic、OpenAI 或 Google Gemini 模型。支持 sandbox、Kubernetes 和自己的电脑，凭证可以是已保存的模型提供方或厂商 API key。 |
 | Hermes Agent | 连接器密集型工作流和后台任务。 |
 | OpenClaw | 需要服务、gateway 或定时任务的工具型 Agent 应用。 |
 | NarraNexus | 叙事驱动的 Agent 工作区，模型提供方和聊天由 NarraNexus 原生 UI 管理。 |

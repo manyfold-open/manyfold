@@ -20,6 +20,7 @@ Use the framework that matches the job:
 | Claude Code | Repository work, implementation tasks, terminal workflows, and long-running coding sessions. |
 | Codex | Codebase changes, reviews, and workspace-aware development tasks. |
 | Gemini CLI | Coding and general terminal automation with Google Gemini. |
+| Pi | Open-source coding CLI on Anthropic, OpenAI, or Google Gemini models. Runs on a sandbox, Kubernetes, or your own computer with a saved provider or a vendor API key. |
 | Hermes Agent | Connector-heavy workflows and background work. |
 | OpenClaw | Tool-rich agent applications that need services, gateways, or scheduled jobs. |
 | NarraNexus | Narrative-driven agent workspaces with native provider and chat management. |

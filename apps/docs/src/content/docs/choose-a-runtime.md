@@ -44,7 +44,7 @@ A self-owned computer is a Mac, Linux, or Windows machine you control. The Manyf
 ### Typical reasons to choose a self-owned computer
 
 - The agent must work on a project already under development on your computer.
-- The task depends on locally installed or signed-in Codex, Claude Code, Gemini CLI, a database, SDK, or another tool.
+- The task depends on locally installed or signed-in Codex, Claude Code, Gemini CLI, Pi, a database, SDK, or another tool.
 - The task needs your GPU, a company VPN, internal services, or local network resources.
 - You want the agent to work in a specific local folder while keeping the work visible and manageable in Manyfold.
 

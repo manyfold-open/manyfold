@@ -1,11 +1,15 @@
 import {
     OFFICIAL_PROVIDER_BASE_URL,
+    PI_PROTOCOL_BY_PROVIDER,
+    PI_PROVIDERS,
     builtInBaseUrlForProtocol,
     builtInSupportsProtocol,
     defaultProtocolForProvider,
     isConfigurableFramework,
     isManagedProtocolAllowedForFramework,
+    isOfficialPiBaseUrl,
     lookupBuiltIn,
+    piProviderForProtocol,
     protocolToHermesBrand,
     protocolToOpenclawBrand
 } from '@manyfold/shared'
@@ -19,6 +23,7 @@ import type {
     HermesModelProvider,
     InferenceProtocol,
     OpenclawModelProvider,
+    PiCredentialsInput,
     UpdateAgentCredentialsBody,
     UpdateOpenclawCredentialsInput,
     UserModelProvider
@@ -43,8 +48,29 @@ import type {
     ResolvedCodexCredentials,
     ResolvedGeminiCliCredentials,
     ResolvedHermesCredentials,
-    ResolvedOpenclawCredentials
+    ResolvedOpenclawCredentials,
+    ResolvedPiCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
+
+const PI_PROTOCOLS: InferenceProtocol[] = PI_PROVIDERS.map(
+    (provider) => PI_PROTOCOL_BY_PROVIDER[provider]
+)
+
+// pi has no base-URL flag and Manyfold never writes into ~/.pi on a machine
+// it does not own, so a gateway endpoint can only be honoured where the
+// bootstrap owns the config dir (sprites / k8s). Refused loudly instead of
+// silently falling back to the vendor endpoint — that would bill a different
+// account than the one the user picked.
+export const assertPiCredentialsAllowedOnRuntime = (
+    runtime: string | null | undefined,
+    value: Pick<ResolvedPiCredentials, 'provider' | 'baseUrl'>
+): void => {
+    if (runtime !== 'daemon') return
+    if (isOfficialPiBaseUrl(value.provider, value.baseUrl)) return
+    throw new BadRequestException(
+        `pi on a daemon runtime cannot use a custom base URL (${value.baseUrl}): pi has no base-URL flag and Manyfold does not write into ~/.pi on your machine — pick the official ${value.provider} endpoint or run this agent on a sandbox`
+    )
+}
 
 const assertProtocol = (
     expected: InferenceProtocol | InferenceProtocol[],
@@ -104,6 +130,7 @@ const requestedProviderId = (
     body.claudeCodeCredentials?.providerId ??
     body.codexCredentials?.providerId ??
     body.geminiCliCredentials?.providerId ??
+    body.piCredentials?.providerId ??
     body.openclawCredentials?.providerId ??
     body.hermesCredentials?.primaryProviderId ??
     null
@@ -163,6 +190,15 @@ export class CredentialsResolverService {
             return {
                 framework: 'gemini-cli',
                 providerId: dto.geminiCliCredentials?.providerId ?? null,
+                value
+            }
+        }
+        if (dto.framework === 'pi') {
+            const value = await this.resolvePi(ownerUserId, dto.piCredentials)
+            assertPiCredentialsAllowedOnRuntime(dto.runtime, value)
+            return {
+                framework: 'pi',
+                providerId: dto.piCredentials?.providerId ?? null,
                 value
             }
         }
@@ -337,6 +373,79 @@ export class CredentialsResolverService {
             googleGeminiBaseUrl: c.googleGeminiBaseUrl,
             model: c.model,
             inferenceProtocol: 'google_generate_content'
+        }
+    }
+
+    // One resolver serves create and update: a pi credential is replaced whole
+    // (the provider follows the key), only `model` is patchable on its own.
+    private async resolvePi(
+        ownerUserId: string,
+        c: PiCredentialsInput | undefined,
+        existing?: ResolvedPiCredentials
+    ): Promise<ResolvedPiCredentials> {
+        if (!c && !existing)
+            throw new BadRequestException('piCredentials required')
+        const input = c ?? {}
+        const model = hasOwn(input, 'model')
+            ? normalizeNullableModel(input.model)
+            : (existing?.model ?? null)
+        if (input.providerId) {
+            const resolved = await this.fetchProvider(
+                ownerUserId,
+                input.providerId
+            )
+            if (resolved.builtInId) {
+                const { protocol, baseUrl } = this.resolveBuiltInForProtocol(
+                    resolved.builtInId,
+                    PI_PROTOCOLS
+                )
+                return {
+                    apiKey: resolved.apiKey,
+                    provider: piProviderForProtocol(protocol)!,
+                    baseUrl: input.baseUrl ?? baseUrl,
+                    model,
+                    inferenceProtocol: protocol
+                }
+            }
+            if (!resolved.inferenceProtocol)
+                throw new BadRequestException(
+                    `provider ${input.providerId} missing inference_protocol`
+                )
+            assertProtocol(PI_PROTOCOLS, resolved.inferenceProtocol)
+            return {
+                apiKey: resolved.apiKey,
+                provider: piProviderForProtocol(resolved.inferenceProtocol)!,
+                baseUrl: input.baseUrl ?? resolved.baseUrl ?? undefined,
+                model,
+                inferenceProtocol: resolved.inferenceProtocol
+            }
+        }
+        if (input.apiKey) {
+            const provider = input.provider ?? existing?.provider
+            if (!provider)
+                throw new BadRequestException(
+                    'piCredentials.provider is required with apiKey'
+                )
+            return {
+                apiKey: input.apiKey,
+                provider,
+                baseUrl: input.baseUrl,
+                model,
+                inferenceProtocol: PI_PROTOCOL_BY_PROVIDER[provider]
+            }
+        }
+        if (!existing)
+            throw new BadRequestException('apiKey or providerId required')
+        if (input.provider && input.provider !== existing.provider)
+            throw new BadRequestException(
+                'piCredentials.provider can only change together with apiKey or providerId'
+            )
+        return {
+            ...existing,
+            baseUrl: hasOwn(input, 'baseUrl')
+                ? input.baseUrl
+                : existing.baseUrl,
+            model
         }
     }
 
@@ -636,6 +745,18 @@ export class CredentialsResolverService {
                     ownerUserId,
                     body.geminiCliCredentials ?? {},
                     existing.value as ResolvedGeminiCliCredentials
+                )
+            }
+        if (framework === 'pi')
+            return {
+                framework: 'pi',
+                providerId:
+                    body.piCredentials?.providerId ??
+                    (body.piCredentials?.apiKey ? null : existing.providerId),
+                value: await this.resolvePi(
+                    ownerUserId,
+                    body.piCredentials,
+                    existing.value as ResolvedPiCredentials
                 )
             }
         if (framework === 'openclaw')
@@ -981,6 +1102,11 @@ export class CredentialsResolverService {
             provider = 'google'
             apiKey = input.resolved.value.googleApiKey
             baseUrl = input.resolved.value.googleGeminiBaseUrl ?? null
+        } else if (input.resolved.framework === 'pi') {
+            if (input.dto.piCredentials?.providerId) return null
+            provider = input.resolved.value.provider
+            apiKey = input.resolved.value.apiKey
+            baseUrl = input.resolved.value.baseUrl ?? null
         } else if (input.resolved.framework === 'openclaw') {
             if (input.dto.openclawCredentials?.providerId) return null
             provider = input.resolved.value.modelProvider ?? null

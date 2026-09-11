@@ -52,6 +52,13 @@ import {
     openclawToPayload,
     type OpenclawFieldsValue
 } from './components/OpenclawFields.helpers'
+import { PiFields } from './components/PiFields'
+import {
+    piInitial,
+    piIsValid,
+    piToPayload,
+    type PiFieldsValue
+} from './components/PiFields.helpers'
 import { HermesFields } from './components/HermesFields'
 import {
     hermesInitial,
@@ -65,6 +72,7 @@ type Framework = Extract<
     | 'claude-code'
     | 'codex'
     | 'gemini-cli'
+    | 'pi'
     | 'openclaw'
     | 'hermes'
     | 'dify'
@@ -82,25 +90,26 @@ interface ProgressState {
 const isExternalFramework = (framework: Framework): boolean =>
     isExternal(framework)
 
+// The coding CLIs share one exec-style path: sandbox first, k8s bootstrap
+// via the CLI steps, and attach to an existing sandbox.
+const isCodingFramework = (framework: Framework): boolean =>
+    framework === 'claude-code' ||
+    framework === 'codex' ||
+    framework === 'gemini-cli' ||
+    framework === 'pi'
+
 const resolveSteps = (
     framework: Framework,
     runtime: AgentRuntime
 ): AgentCreateStep[] => {
     if (runtime === 'external') return externalSteps
     if (runtime === 'sprites') return spritesSteps
-    if (
-        framework === 'claude-code' ||
-        framework === 'codex' ||
-        framework === 'gemini-cli'
-    )
-        return k8sCliSteps
+    if (isCodingFramework(framework)) return k8sCliSteps
     return k8sSteps
 }
 
 const supportsRuntimeChoice = (framework: Framework): boolean =>
-    framework === 'claude-code' ||
-    framework === 'codex' ||
-    framework === 'gemini-cli'
+    isCodingFramework(framework)
 
 const defaultRuntimeFor = (framework: Framework): AgentRuntime => {
     if (isExternalFramework(framework)) return 'external'
@@ -127,6 +136,7 @@ const frameworkOptions: Array<{ value: Framework; labelKey: string }> = [
     { value: 'claude-code', labelKey: 'admin.agents.new.frameworkClaudeCode' },
     { value: 'codex', labelKey: 'admin.agents.new.frameworkCodex' },
     { value: 'gemini-cli', labelKey: 'admin.agents.new.frameworkGeminiCli' },
+    { value: 'pi', labelKey: 'admin.agents.new.frameworkPi' },
     { value: 'openclaw', labelKey: 'admin.agents.new.frameworkOpenclaw' },
     { value: 'hermes', labelKey: 'admin.agents.new.frameworkHermes' },
     { value: 'dify', labelKey: 'admin.agents.new.frameworkDify' },
@@ -159,6 +169,7 @@ const AgentNew: FC = (): ReactNode => {
     const [codex, setCodex] = useState<CodexFieldsValue>(codexInitial)
     const [geminiCli, setGeminiCli] =
         useState<GeminiCliFieldsValue>(geminiCliInitial)
+    const [pi, setPi] = useState<PiFieldsValue>(piInitial)
     const [openclaw, setOpenclaw] =
         useState<OpenclawFieldsValue>(openclawInitial)
     const [hermes, setHermes] = useState<HermesFieldsValue>(hermesInitial)
@@ -202,10 +213,7 @@ const AgentNew: FC = (): ReactNode => {
     }, [client, isAdmin, runtime, accounts])
 
     useEffect(() => {
-        const execKind =
-            framework === 'claude-code' ||
-            framework === 'codex' ||
-            framework === 'gemini-cli'
+        const execKind = isCodingFramework(framework)
         if (runtime !== 'sprites' || !execKind) return
         if (sandboxes !== null) return
         client.sandboxes
@@ -251,10 +259,7 @@ const AgentNew: FC = (): ReactNode => {
     const accountValid = !accountRequired || accountId !== ''
 
     const sandboxAttachShown =
-        runtime === 'sprites' &&
-        (framework === 'claude-code' ||
-            framework === 'codex' ||
-            framework === 'gemini-cli')
+        runtime === 'sprites' && isCodingFramework(framework)
 
     const externalIsValid =
         externalProviderId.trim().length > 0 &&
@@ -266,11 +271,13 @@ const AgentNew: FC = (): ReactNode => {
               ? codexIsValid(codex)
               : framework === 'gemini-cli'
                 ? geminiCliIsValid(geminiCli)
-                : framework === 'openclaw'
-                  ? openclawIsValid(openclaw)
-                  : framework === 'hermes'
-                    ? hermesIsValid(hermes)
-                    : externalIsValid
+                : framework === 'pi'
+                  ? piIsValid(pi)
+                  : framework === 'openclaw'
+                    ? openclawIsValid(openclaw)
+                    : framework === 'hermes'
+                      ? hermesIsValid(hermes)
+                      : externalIsValid
     const nameValidation = validateAgentName(name)
     const normalizedName = nameValidation.valid
         ? nameValidation.value
@@ -332,6 +339,18 @@ const AgentNew: FC = (): ReactNode => {
                 ...ownerField,
                 ...sandboxField,
                 geminiCliCredentials: geminiCliToPayload(geminiCli)
+            }
+        }
+        if (framework === 'pi') {
+            return {
+                name: normalizedName,
+                framework,
+                ...runtimeField,
+                ...clusterField,
+                ...accountField,
+                ...ownerField,
+                ...sandboxField,
+                piCredentials: piToPayload(pi)
             }
         }
         if (framework === 'openclaw') {
@@ -778,6 +797,9 @@ const AgentNew: FC = (): ReactNode => {
                                     value={geminiCli}
                                     onChange={setGeminiCli}
                                 />
+                            )}
+                            {framework === 'pi' && (
+                                <PiFields value={pi} onChange={setPi} />
                             )}
                             {framework === 'openclaw' && (
                                 <OpenclawFields

@@ -9,7 +9,7 @@ order: 30
 
 ## 我应该先选择哪个 Agent？
 
-仓库工作建议从 Claude Code 或 Codex 开始。如果你的工作流已经依赖 Gemini，可以选择 Gemini CLI。当你需要连接器、服务、定时任务或产品工作流时，可以使用 Hermes Agent 或 OpenClaw 这类框架型 Agent。
+仓库工作建议从 Claude Code 或 Codex 开始。如果你的工作流已经依赖 Gemini，可以选择 Gemini CLI；如果你想用一个开源 coding CLI 搭配 Anthropic、OpenAI 或 Google 的 key，可以选择 Pi。当你需要连接器、服务、定时任务或产品工作流时，可以使用 Hermes Agent 或 OpenClaw 这类框架型 Agent。
 
 ## 和 Agent 聊天时可以上传文件吗？
 

@@ -9,7 +9,7 @@ No. Manyfold hosts real agent runtimes with [workspace files, terminal access, r
 
 ## Which agent should I choose first?
 
-For repository work, start with Claude Code or Codex. Choose Gemini CLI if your workflow already depends on Gemini. Use Hermes Agent or OpenClaw when you need a framework-style agent for connectors, services, scheduled jobs, or product workflows.
+For repository work, start with Claude Code or Codex. Choose Gemini CLI if your workflow already depends on Gemini, or Pi if you want one open-source coding CLI that runs on an Anthropic, OpenAI, or Google key. Use Hermes Agent or OpenClaw when you need a framework-style agent for connectors, services, scheduled jobs, or product workflows.
 
 ## Can I attach files when I chat with an agent?
 

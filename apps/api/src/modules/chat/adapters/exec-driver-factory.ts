@@ -327,7 +327,7 @@ export class ExecDriverFactory {
     }
 
     private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
-        if (!agent.modelProviderId || !['codex', 'gemini-cli'].includes(agent.framework))
+        if (!agent.modelProviderId || !['codex', 'gemini-cli', 'pi'].includes(agent.framework))
             return { ...UNKNOWN_PRICE_SCOPE }
         const [provider] = await this.db.select().from(userModelProviders)
             .where(eq(userModelProviders.id, agent.modelProviderId)).limit(1)

@@ -44,7 +44,7 @@ Self-owned computer 是你控制的 Mac、Linux 或 Windows 电脑。Manyfold �
 ### 选择 Self-owned computer 的典型情况
 
 - Agent 必须修改你电脑正在开发的本地项目。
-- 任务依赖本机已安装或已登录的 Codex、Claude Code、Gemini CLI、数据库、SDK 或其他工具。
+- 任务依赖本机已安装或已登录的 Codex、Claude Code、Gemini CLI、Pi、数据库、SDK 或其他工具。
 - 任务需要使用自己的 GPU，或访问公司 VPN、内网服务与本机网络资源。
 - 你希望 Agent 在特定本机资料夹执行，同时仍由 Manyfold 团队管理与协作。
 
