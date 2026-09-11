@@ -14,6 +14,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     await fastify.register(websocket)
     const verified: string[] = []
     const registered: string[] = []
+    let cliVersion: string | null = '0.34.0'
     const gateway = new DaemonGateway(
         {
             select: () => ({ from: () => ({ where: async () => [] }) })
@@ -34,6 +35,7 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         {
             findById: async () => ({
                 id: 'dh_test',
+                cliVersion,
                 userId: 'u_test',
                 status: 'online'
             }),
@@ -96,4 +98,9 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         'fixture-header',
         'invalid'
     ])
+    for (const version of ['0.33.9', null, 'unknown']) {
+        cliVersion = version
+        assert.equal(await connect('', 'Bearer fixture-header'), 4406)
+    }
+    assert.equal(registered.length, 2, 'unsupported hosts never register an RPC connection')
 })

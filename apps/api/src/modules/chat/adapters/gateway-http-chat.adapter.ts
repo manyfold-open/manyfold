@@ -33,7 +33,6 @@ import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexu
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { messageToPromptText } from './message-content'
 import {
-    OPENCLAW_FETCH_TIMEOUT_MS,
     openclawCancelledEvent as cancelledEvent,
     resolveOpenclawStreamBudgets,
     type OpenclawStreamBudgets
@@ -792,11 +791,6 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
                 })),
                 ...this.channelBodyFields(ctx, userMessage)
             },
-            // Deliberately still the legacy value: a runner that predates the
-            // split reads ONLY this and must keep its old 240s absolute cap
-            // rather than silently inherit the multi-hour maxDurationMs. A
-            // runner that understands the split ignores it.
-            timeoutMs: OPENCLAW_FETCH_TIMEOUT_MS,
             headersTimeoutMs: budgets.headersTimeoutMs,
             idleTimeoutMs: budgets.idleTimeoutMs,
             maxDurationMs: budgets.maxDurationMs

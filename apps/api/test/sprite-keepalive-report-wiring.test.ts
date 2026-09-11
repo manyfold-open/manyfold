@@ -373,7 +373,7 @@ test('unset PUBLIC_API_BASE_URL degrades to the plain start.sh even when a token
     )
 })
 
-test('ensureLease rewrites the fence to its freshly minted generation', async () => {
+test('ensureLease preserves the running service report fence and assets', async () => {
     const { lease, store, timeline } = makeHarness({
         credentialsToken: 'tok-stored',
         runtime: {
@@ -399,31 +399,19 @@ test('ensureLease rewrites the fence to its freshly minted generation', async ()
         'gen0',
         'ensureLease mints a fresh generation'
     )
-    // WHY: the wake path rotates the generation seconds after the service
-    // boots (ensureServiceRunning then ensureLease) — if the fence stayed at
-    // the boot-time value, every wake would 409 its own ready report.
+    // Lease generations and service boot generations have separate lifetimes.
+    // A lease update must leave both sides of the report contract unchanged.
     assert.equal(
         caps.serviceReport.generation,
-        caps.keepAlive.generation,
-        'the DB fence must follow the freshly minted generation'
+        'gen0',
+        'a lease change does not replace the current service boot'
     )
     const env = writesTo(timeline, '/report.env.tmp')
-    assert.equal(env.length, 1)
-    assert.ok(
-        env[0].body.includes(
-            `RUNTIME_REPORT_GENERATION='${caps.keepAlive.generation}'`
-        ),
-        'report.env carries the same minted generation the fence records — the re-sourcing reporter picks it up at ready time'
-    )
-    const fenceIdx = timeline.findIndex(
-        (event) =>
-            event.kind === 'runtime-update' &&
-            event.fenceChangedTo === caps.keepAlive.generation
-    )
-    const firstWriteIdx = timeline.findIndex((event) => event.kind === 'write')
-    assert.ok(
-        fenceIdx !== -1 && fenceIdx < firstWriteIdx,
-        'the DB-first invariant holds on the lease path too'
+    assert.equal(env.length, 0)
+    assert.equal(writesTo(timeline, '/start.sh.tmp').length, 0)
+    assert.equal(
+        timeline.some((event) => event.kind === 'runtime-update' && event.fenceChangedTo !== undefined),
+        false
     )
 })
 

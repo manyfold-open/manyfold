@@ -20,7 +20,6 @@ export { redact, redactHeaders } from './redaction'
 export {
     buildKeepAliveCleanupScript,
     buildKeepAliveLeaseScript,
-    buildKeepAliveScript,
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
     buildServiceStartScript,
@@ -29,7 +28,6 @@ export {
 export type {
     KeepAliveCleanupOptions,
     KeepAliveLeaseScriptOptions,
-    KeepAliveTaskOptions,
     RuntimeReportEnvFileOptions,
     RuntimeReportScriptOptions,
     ServiceStartScriptOptions

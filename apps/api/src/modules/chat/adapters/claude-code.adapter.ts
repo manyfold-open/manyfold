@@ -190,17 +190,6 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                   )
                 : false)
         if (includePartial) cmd.push('--include-partial-messages')
-        // Daemon-runtime: legacy CLIs (<= 0.11) drop the stdin field of the
-        // exec.start RPC and spawn claude with stdin closed, so the prompt
-        // never reaches the binary and `claude --print` exits 1 with empty
-        // stderr. Sprite/k8s exec transports inline argv into the WS URL,
-        // which 414s on long resume transcripts (94559e0); daemon RPC has no
-        // such limit, so we pass the prompt as a positional argv for daemon
-        // and keep the stdin path for sprite/k8s. Newer CLIs that read
-        // payload.stdin still work because we keep stdin empty here.
-        const promptViaArgv = runtime === 'daemon'
-        if (promptViaArgv) cmd.push(prompt)
-
         const modelEnv = claudeModelMapEnv(modelConfig)
         const credentialEnv = claudeCreds
             ? {
@@ -242,7 +231,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         const handle = driver.stream({
             cmd,
             env,
-            stdin: promptViaArgv ? '' : prompt,
+            stdin: prompt,
             dir: agent.workspacePath ?? undefined,
             timeoutMs: execTimeouts.timeoutMs,
             keepAliveMs: execTimeouts.keepAliveMs,

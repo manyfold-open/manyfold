@@ -15,7 +15,6 @@ export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), '')
     const apiTarget =
         env.MF_DEV_API_TARGET ||
-        env.NCA_DEV_API_TARGET ||
         'http://localhost:2222'
 
     // .dockerignore excludes .git, so the plugin cannot infer a release on the
@@ -88,7 +87,7 @@ export default defineConfig(({ mode }) => {
         },
         server: {
             // MF_DEV_HOST (just dev-host) binds 0.0.0.0; allow Tailscale magic-DNS names
-            host: Boolean(process.env.MF_DEV_HOST || process.env.NCA_DEV_HOST),
+            host: Boolean(process.env.MF_DEV_HOST),
             allowedHosts: ['.ts.net'],
             // Fonts are @import-ed from @fontsource, which a hoisted install
             // puts in the repo root — but vite's workspace probe stops at

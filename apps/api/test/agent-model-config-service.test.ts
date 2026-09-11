@@ -1,4 +1,8 @@
-import type { CodexIntelligence, ProtocolModelMap } from '@manyfold/shared'
+import {
+    parseRuntimeLocalCredentialFacts,
+    type CodexIntelligence,
+    type ProtocolModelMap
+} from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { agentCredentials, agents } from '@manyfold/db'
@@ -6,6 +10,12 @@ import { AgentModelConfigService } from '../src/modules/agents/model-config/agen
 import { readJsonbMergePatch } from './jsonb-merge'
 
 const date = new Date('2026-05-07T10:00:00.000Z')
+const readyCodexFacts = parseRuntimeLocalCredentialFacts({
+    framework: 'codex',
+    authFilePresent: true,
+    authFileParsed: true,
+    apiKeyPresent: true
+})
 
 const baseAgent = {
     id: 'agent-1',
@@ -1143,6 +1153,7 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
                     cliVersion: 'codex 0.118.0',
                     ready: true,
                     credentialReady: true,
+                    credentialFacts: readyCodexFacts,
                     configReadable: true,
                     current: 'gpt-5.5 · fast · xhigh',
                     models: ['gpt-5.5'],
@@ -1164,8 +1175,6 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
     )
 
     assert.equal(result.ok, true)
-    // A daemon that predates the credential-facts contract stays fully usable:
-    // the evaluation is `unknown`, which never downgrades `ready`.
     assert.deepEqual(db.agent.extras?.runtimeLocalModelConfig, {
         available: true,
         ready: true,
@@ -1173,9 +1182,9 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
         framework: 'codex',
         cliVersion: 'codex 0.118.0',
         credentialReady: true,
-        credentialStatus: 'unknown',
-        credentialReason: 'not-reported',
-        credentialFacts: null,
+        credentialStatus: 'valid',
+        credentialReason: 'api-key',
+        credentialFacts: readyCodexFacts,
         configReadable: true,
         current: 'gpt-5.5 · fast · xhigh',
         models: ['gpt-5.5'],
@@ -1207,6 +1216,7 @@ test('AgentModelConfigService refreshes sprites runtime-local capability through
                 cliVersion: 'codex 0.118.0',
                 ready: true,
                 credentialReady: true,
+                credentialFacts: readyCodexFacts,
                 configReadable: true,
                 current: 'gpt-5.5 · fast · xhigh',
                 models: ['gpt-5.5'],
@@ -1684,6 +1694,9 @@ const readyRuntimeLocal = (
     framework,
     cliVersion: framework === 'codex' ? 'codex 0.118.0' : 'claude 2.0.0',
     credentialReady: true,
+    credentialFacts: framework === 'codex'
+        ? readyCodexFacts
+        : parseRuntimeLocalCredentialFacts({ framework: 'claude-code', envToken: true }),
     configReadable: true,
     current: framework === 'codex' ? 'gpt-5.5 · fast · xhigh' : 'Sonnet',
     models: framework === 'codex' ? ['gpt-5.5'] : ['claude-sonnet-4-6'],

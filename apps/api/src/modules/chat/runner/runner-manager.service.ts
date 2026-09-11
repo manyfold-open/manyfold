@@ -2,12 +2,13 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     RUNNER_PROFILE,
+    DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
     podRunnerHostName,
     profilePaths,
     runnerHostName
 } from '@manyfold/shared'
-import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import { runtimeHosts, type Database } from '@manyfold/db'
 import { SpritesError } from '@manyfold/sprites'
@@ -20,7 +21,6 @@ import {
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
-import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
 
 // Bring an agent's sprite-side runner up so a turn can be dispatched through
 // the daemon protocol instead of a bare sprite exec.
@@ -66,9 +66,6 @@ const POLL_INTERVAL_MS = 500
 // The awake lease bounds the leak when the owning instance dies mid-turn: the
 // sprite keeps executing (that is the whole point) but suspends on its own soon
 // after. Renewed at a third of the TTL so a single failed renew is not fatal.
-// The first stable CLI with header authentication. This floor also upgrades
-// older sprite filesystems when they resume after query auth is retired.
-const RUNNER_MIN_CLI = '0.34.0'
 const AWAKE_TTL = '30m'
 const AWAKE_RENEW_MS = 10 * 60_000
 // A stale runner connection can sit inside the presence grace window looking
@@ -298,8 +295,7 @@ export class RunnerManagerService {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly hosts: DaemonHostService,
         private readonly tokens: DaemonTokenService,
-        private readonly registry: DaemonRegistryService,
-        @Optional() private readonly spritesProvisioner?: SpritesProvisioner
+        private readonly registry: DaemonRegistryService
     ) {}
 
     // Overridable in tests instead of injected: a function has no DI token, and
@@ -378,7 +374,7 @@ export class RunnerManagerService {
         // floor the prompt would be sent on a stdin the daemon never reads and
         // the framework would sit waiting for it. The image pins the version,
         // and the pin is operator-overridable, so this is where it is checked.
-        if (isCliVersionTooOld(existing.cliVersion, RUNNER_MIN_CLI))
+        if (isCliVersionTooOld(existing.cliVersion, DAEMON_MIN_CLI_VERSION))
             return {
                 handle: null,
                 fallbackReason: 'runner_cli_too_old',
@@ -546,7 +542,7 @@ export class RunnerManagerService {
                 !existing ||
                 !state.installed ||
                 !state.registered ||
-                isCliVersionTooOld(state.version, RUNNER_MIN_CLI)
+                isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
             ) {
                 // Nothing to thaw: the sprite has never had a runner (a new
                 // agent before its first turn — the "no runner yet" state) or
@@ -817,11 +813,11 @@ export class RunnerManagerService {
             // Seen on staging 2026-07-26: bring-up blew its 120s budget on a
             // sprite that was already installed AND registered, and this is
             // the most plausible reason.
-            const tooOld = isCliVersionTooOld(state.version, RUNNER_MIN_CLI)
+            const tooOld = isCliVersionTooOld(state.version, DAEMON_MIN_CLI_VERSION)
             if (!state.installed || tooOld) {
                 if (tooOld && state.installed)
                     this.logger.log(
-                        `runner CLI ${state.version ?? 'unknown'} < ${RUNNER_MIN_CLI}, upgrading sprite=${args.spriteName}`
+                        `runner CLI ${state.version ?? 'unknown'} < ${DAEMON_MIN_CLI_VERSION}, upgrading sprite=${args.spriteName}`
                     )
                 const ok = await this.installCli(args)
                 if (!ok) return { handle: null }
@@ -948,20 +944,11 @@ export class RunnerManagerService {
         const channel = cliInstallChannelForDeployEnv(
             resolveMfDeployEnv(process.env.MF_DEPLOY_ENV)
         )
-        let purgeLegacyIdentity = false
-        if (this.spritesProvisioner) {
-            purgeLegacyIdentity =
-                await this.spritesProvisioner.migrateLegacySpriteIdentitiesForSprite(
-                    args.spriteName
-                )
-        }
         const res = await args.exec({
             cmd: [
                 'bash',
                 '-lc',
-                buildCliInstallScript(channel, undefined, {
-                    purgeLegacyIdentity
-                })
+                buildCliInstallScript(channel)
             ],
             timeoutMs: 180_000
         })

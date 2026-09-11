@@ -440,17 +440,13 @@ export class NativeAuthController {
 
     private webUrl(): string {
         return trimTrailingSlash(
-            configString(this.config, [
-                'MF_WEB_URL',
-                'NCA_WEB_URL',
-                'WEB_BASE_URL'
-            ]) ?? DEFAULT_WEB_BASE_URL
+            configString(this.config, ['MF_WEB_URL']) ?? DEFAULT_WEB_BASE_URL
         )
     }
 
     private adminUrl(): string | null {
         return (
-            configString(this.config, ['MF_ADMIN_URL', 'NCA_ADMIN_URL']) ?? null
+            configString(this.config, ['MF_ADMIN_URL']) ?? null
         )
     }
 

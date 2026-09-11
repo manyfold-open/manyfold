@@ -1762,7 +1762,7 @@ test('Claude adapter sends the prompt via stdin instead of argv', async () => {
     )
 })
 
-test('Claude adapter on daemon runtime puts the prompt on argv, not stdin', async () => {
+test('Claude adapter sends daemon prompts through stdin without exposing them in argv', async () => {
     const handle = makeDriverFactory(
         {
             anthropicAuthToken: 'token',
@@ -1785,8 +1785,8 @@ test('Claude adapter on daemon runtime puts the prompt on argv, not stdin', asyn
         )
     )
 
-    assert.equal(handle.request?.cmd.at(-1), 'hello')
-    assert.equal(handle.request?.stdin, '')
+    assert.equal(handle.request?.cmd.includes('hello'), false)
+    assert.equal(handle.request?.stdin, 'hello')
 })
 
 test('Codex adapter on daemon runtime puts the prompt on argv, not stdin', async () => {

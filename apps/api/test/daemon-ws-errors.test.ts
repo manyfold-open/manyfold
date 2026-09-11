@@ -32,6 +32,7 @@ const harness = async (t: TestContext, failure: 'pong' | 'close' | 'early') => {
         {
             findById: async () => ({
                 id: 'daemon',
+                cliVersion: '0.34.0',
                 userId: 'owner',
                 status: 'active'
             }),

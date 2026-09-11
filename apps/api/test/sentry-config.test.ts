@@ -43,7 +43,7 @@ test('environment follows MF_DEPLOY_ENV, then FLY_APP_NAME', () => {
     )
 })
 
-test('release is api@<version>, overridable by MF_VERSION/NCA_VERSION', () => {
+test('release uses the package version or canonical MF_VERSION override', () => {
     assert.equal(
         resolveSentryConfig({ SENTRY_DSN: 'https://k@o0.test/1' }).release,
         `api@${apiPackage.version}`
@@ -60,7 +60,7 @@ test('release is api@<version>, overridable by MF_VERSION/NCA_VERSION', () => {
             SENTRY_DSN: 'https://k@o0.test/1',
             NCA_VERSION: '4.5.6'
         }).release,
-        'api@4.5.6'
+        `api@${apiPackage.version}`
     )
 })
 

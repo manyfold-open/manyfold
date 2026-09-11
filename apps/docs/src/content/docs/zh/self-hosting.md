@@ -70,6 +70,15 @@ docker compose -f docker-compose.selfhost.yml exec postgres \
 
 ## 升级与降级
 
+升级到 API 4.0.0 之后的版本前,先把每台 daemon 更新到 CLI 0.34.0 或更新版本。
+更旧的部署须先运行 API 4.0.0,完成套餐、runtime identity、shell 和 skill 的迁移。
+新版本不会在启动或日常 runtime 操作中执行这些一次性迁移。
+
+把 `WEB_BASE_URL`、`NCA_WEB_URL` 改为 `MF_WEB_URL`,其余旧 `NCA_*` API 配置改用
+对应的 `MF_*` 名称。移除 `A2A_TURN_TIMEOUT_MS` 前先在 Admin 保存 A2A timeout;
+`OPENCLAW_FETCH_TIMEOUT_MS` 改用独立的 `OPENCLAW_HEADERS_TIMEOUT_MS` 和
+`OPENCLAW_STREAM_IDLE_TIMEOUT_MS`。旧 API 配置仍非空时,启动会明确报错并仅列出 key 名。
+
 升级 = 代码树前进并重建;新 API 启动前迁移自动应用:
 
 ```sh
@@ -96,12 +105,9 @@ compose / Kubernetes 清单 —— 会落在云端的 `free` 档并一直留在�
 External API limit reached (3 for Free plan)
 ```
 
-升级后第一次启动时,API 会自动修一次:在没有 billing 模块、且
-`MF_DEFAULT_PLAN_ID` 不是 `free` 的部署上,所有还停在 `free` 的账号会被移到该
-套餐。它只跑一次,并记录在 `app_settings` 里,因此之后人为指定的套餐不会被覆盖。
-
-一次性修复覆盖不到的情况 —— 修复之后新建的账号,或者需要给不同用户不同档位的
-部署 —— 用 admin 控制台用户详情页的 **Plan** 卡片。直接查看当前归属:
+旧的一次性套餐修复通过 API 4.0.0 完成。后续版本保留已有套餐归属,不会在启动时
+自动修改。调整现有账号请使用 admin 控制台用户详情页的 **Plan** 卡片。
+直接查看当前归属:
 
 ```sh
 docker compose -f docker-compose.selfhost.yml exec postgres \

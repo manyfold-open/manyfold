@@ -1,11 +1,11 @@
 import {
     BUILTIN_BLOCKED_FRAMEWORK_VERSIONS,
+    buildManagedPathScript,
     VersionedFramework,
     defaultFrameworkRepo,
     isSemverVersionTag,
     safeNpmVersionSpec
 } from '@manyfold/shared'
-import { buildManagedShellReconcileScript } from '@/modules/agent-self/sprite-shell-env.service'
 
 // Single source of truth for per-framework version metadata. Today the
 // install/pin logic lives scattered across the bootstrap files
@@ -315,7 +315,7 @@ const buildNpmInstallShell = (
         // tool's own child shell (#611). Reconciling here — rather than only at
         // provision — is what carries the fix to sprites that already exist:
         // this shell IS the upgrade every affected sprite has to run anyway.
-        buildManagedShellReconcileScript()
+        buildManagedPathScript()
     ].join('\n')
 }
 

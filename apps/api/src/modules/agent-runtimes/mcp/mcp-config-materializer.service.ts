@@ -1,8 +1,6 @@
 import {
     AgentFramework,
     AgentMcpDeliveryScopeResult,
-    DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
-    DAEMON_FEATURE_FS_WRITE_MODE,
     frameworkMcpSupport,
     mcpConfigFromExtras
 } from '@manyfold/shared'
@@ -30,7 +28,6 @@ import {
     daemonReadTextFile,
     daemonWriteTextFile
 } from '@/modules/daemon/daemon-fs'
-import { daemonAdvertisesFeature } from '@/modules/chat/chat-adapter'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import {
@@ -51,13 +48,6 @@ export interface ScopeFileIo {
     write(absPath: string, text: string): Promise<void>
 }
 
-// Per-scope preflight: a scope the target cannot take (old mf CLI without the
-// ~/.claude.json containment) is declared skipped and never attempted, so a
-// degrade is a stated outcome instead of a refused write.
-export type ScopeGate = (
-    target: McpScopeTarget
-) => { allowed: true } | { allowed: false; message: string }
-
 export interface MaterializeMcpArgs {
     io: ScopeFileIo
     targetLabel: string
@@ -70,10 +60,6 @@ export interface MaterializeMcpArgs {
     // injected as a managed `composio` server into the framework's home-dir scope.
     userId: string
     composioConnectionId?: string | null
-    scopeGate?: ScopeGate
-    // When false, the managed Composio injection (a plaintext key) is withheld
-    // because the target cannot tighten file modes.
-    secretsAllowed?: boolean
 }
 
 export const spriteScopeIo = (
@@ -100,8 +86,7 @@ export const spriteScopeIo = (
 
 export const daemonScopeIo = (
     registry: DaemonRegistryService,
-    daemonId: string,
-    opts: { modeSupported: boolean }
+    daemonId: string
 ): ScopeFileIo => ({
     read: (absPath) => daemonReadTextFile(registry, daemonId, absPath),
     write: (absPath, text) =>
@@ -110,7 +95,7 @@ export const daemonScopeIo = (
             daemonId,
             absPath,
             text,
-            opts.modeSupported ? '600' : undefined
+            '600'
         )
 })
 
@@ -153,26 +138,11 @@ export class McpConfigMaterializer {
                 `composio key resolve failed on ${args.targetLabel}: ${(err as Error).message}`
             )
         }
-        if (composioKey && args.secretsAllowed === false) {
-            this.log.warn(
-                `composio injection withheld on ${args.targetLabel}: target cannot tighten file modes`
-            )
-            composioKey = null
-        }
         const injectScope = composioKey
             ? composioInjectScope(args.framework)
             : null
         const results: AgentMcpDeliveryScopeResult[] = []
         for (const target of targets) {
-            const gate = args.scopeGate?.(target) ?? { allowed: true as const }
-            if (!gate.allowed) {
-                results.push({
-                    scopeId: target.scopeId,
-                    status: 'skipped',
-                    message: gate.message
-                })
-                continue
-            }
             const text = (args.mcp[target.scopeId] ?? '').trim()
             const injection =
                 composioKey && target.scopeId === injectScope
@@ -280,31 +250,15 @@ export class McpConfigMaterializer {
         const homeDir = await this.runtimeHomeDir(agent.runtimeId)
         if (!homeDir)
             throw new Error(`runtime home dir unknown for ${agent.id}`)
-        const [claudeUserSupported, modeSupported] = await Promise.all([
-            daemonAdvertisesFeature(
-                this.db,
-                daemonId,
-                DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG
-            ),
-            daemonAdvertisesFeature(
-                this.db,
-                daemonId,
-                DAEMON_FEATURE_FS_WRITE_MODE
-            )
-        ])
         const results = await this.materialize({
-            io: daemonScopeIo(this.daemonRegistry, daemonId, {
-                modeSupported
-            }),
+            io: daemonScopeIo(this.daemonRegistry, daemonId),
             targetLabel: daemonId,
             framework: agent.framework,
             homeDir,
             workspacePath: agent.workspacePath ?? agent.mountPath,
             mcp: mcpConfigFromExtras(agent.extras),
             userId: agent.userId,
-            composioConnectionId: composioConnectionIdOf(agent),
-            scopeGate: claudeUserScopeGate(agent.framework, claudeUserSupported),
-            secretsAllowed: modeSupported
+            composioConnectionId: composioConnectionIdOf(agent)
         })
         await this.persistDelivery(agent.id, results)
         return results
@@ -361,22 +315,6 @@ export class McpConfigMaterializer {
 const composioConnectionIdOf = (agent: Agent): string | null | undefined =>
     (agent.extras as { composioConnectionId?: string | null })
         .composioConnectionId
-
-// ~/.claude.json (claude-code user scope) sits OUTSIDE the daemon's framework
-// roots; only a CLI advertising fs.claude-user-config admits the exact file.
-const claudeUserScopeGate = (
-    framework: AgentFramework,
-    claudeUserSupported: boolean
-): ScopeGate => (target) =>
-    framework === 'claude-code' &&
-    target.scopeId === 'user' &&
-    !claudeUserSupported
-        ? {
-              allowed: false,
-              message:
-                  'the user scope needs a newer mf CLI on this computer — run `mf update` or update from the runtime page'
-          }
-        : { allowed: true }
 
 // Build the managed composio injection in the shape the target scope's format
 // expects: a server object for JSON frameworks, the raw key for Codex (merged

@@ -79,9 +79,8 @@ mf update --channel stable  # switch back to the production channel
 mf update --check           # preview against the remembered channel
 ```
 
-`dev` and `stable` are the channel names (`--channel staging` still works as
-the pre-rename alias for `dev`; the `MF_CHANNEL` env var is read by
-`install.sh` only, not by the installed binary). The preference is stored in
+`dev` and `stable` are the channel names. The `MF_CHANNEL` env var is read by
+`install.sh` only, not by the installed binary. The preference is stored in
 `~/.manyfold/update-channel.json` at the machine level — the update channel is
 a property of the binary, not of any profile — so it survives the
 cross-channel binary swap; delete it to fall back to the binary's built-in

@@ -170,7 +170,8 @@ const payloadFor = (
         framework: 'hermes',
         prompt: 'say hello',
         cmd: [process.execPath, agentPath, mode],
-        timeoutMs: 15_000,
+        idleTimeoutMs: 15_000,
+        maxDurationMs: 15_000,
         handshakeTimeoutMs: 10_000,
         ...extra
     }) as never
@@ -378,17 +379,17 @@ test('each budget names itself in the final', async () => {
     )
 })
 
-// WHY: an API that predates the split sends only timeoutMs. It then backs both
-// budgets, and because the max clock starts first the payload degenerates to
-// exactly the single absolute cap it used to mean — bounded, not unbounded.
-test('a payload with only the legacy timeoutMs degenerates to the old single cap', async () => {
+test('maximum duration bounds an actively streaming turn independently of idle time', async () => {
     const startedAt = Date.now()
-    const ack = await runTurn('turn-legacy-1', 'endless', { timeoutMs: 700 })
+    const ack = await runTurn('turn-max-1', 'endless', {
+        idleTimeoutMs: 10_000,
+        maxDurationMs: 700
+    })
     assert.equal(ack.ok, false)
     assert.match(ack.error ?? '', /700ms maximum duration/)
     assert.ok(
         Date.now() - startedAt < 5_000,
-        'an actively streaming turn under a legacy payload is still bounded'
+        'an actively streaming turn is still bounded'
     )
 })
 

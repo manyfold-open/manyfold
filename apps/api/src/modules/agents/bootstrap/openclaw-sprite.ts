@@ -27,7 +27,6 @@ import { generateRuntimeReportToken } from '@/modules/agents/keep-alive/runtime-
 
 const OPENCLAW_HOME = `${SPRITE_HOME_BASE}/.openclaw`
 const OPENCLAW_SERVICE_NAME = 'openclaw'
-const OPENCLAW_KEEPALIVE_TASK = 'openclaw-keepalive'
 const OPENCLAW_INSTALL_TIMEOUT_MS = 300_000
 const PLAYWRIGHT_INSTALL_TIMEOUT_MS = 600_000
 
@@ -99,7 +98,6 @@ export class OpenClawSpriteBootstrap implements SpriteServiceBootstrap {
             spriteName: ctx.spriteName,
             homeDir: OPENCLAW_HOME,
             exec: ['openclaw', 'gateway'],
-            legacyTaskNames: [OPENCLAW_KEEPALIVE_TASK],
             reportToken: runtimeReportToken,
             logger: ctx.logger
         })

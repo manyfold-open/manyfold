@@ -113,9 +113,9 @@ MF_DAEMON_AUTO_UPDATE=1 mf daemon start
 
 `mf daemon status` 会显示该机器上自动更新是否开启。
 
-让 CLI 与部署的版本不要差太远。管理员可以设置最低 CLI 版本，而且新的 API 能力通常
-需要认得它们的 CLI，所以升级整套栈和在 daemon 机器上跑 `mf update` 应该放在同一次
-维护里做。
+Daemon 注册、heartbeat 和 WebSocket 要求 CLI 0.34.0 或更新版本。升级 API 前,
+先在 daemon 机器上运行 `mf update`。管理员可以推荐更高的最低版本,但不能降低
+协议下限。更新通道只使用 `stable` 和 `dev`。
 
 ## 确认当前跑的是什么
 

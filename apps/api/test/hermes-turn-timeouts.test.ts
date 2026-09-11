@@ -231,7 +231,7 @@ test('stderr output alone counts as activity', async () => {
 // WHY: the runner-carried transport had the same single-timer shape, so the
 // daemon has to be told the split. A runner that predates it reads only
 // timeoutMs, which must keep its old value rather than inherit the ceiling.
-test('turn.start carries the split budgets and keeps the legacy timeoutMs', async () => {
+test('turn.start carries only split budgets', async () => {
     const calls: Array<{
         payload: Record<string, unknown>
         timeoutMs?: number
@@ -300,11 +300,7 @@ test('turn.start carries the split budgets and keeps the legacy timeoutMs', asyn
     for await (const _ of send) void _
     assert.equal(calls.length, 1)
     const payload = calls[0].payload
-    assert.equal(
-        payload.timeoutMs,
-        240_000,
-        'a runner that predates the split reads only timeoutMs and must keep its old absolute cap'
-    )
+    assert.equal(Object.hasOwn(payload, 'timeoutMs'), false)
     assert.equal(payload.idleTimeoutMs, 240_000)
     assert.equal(
         payload.maxDurationMs,

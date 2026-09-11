@@ -1,6 +1,4 @@
 import {
-    AgentMcpScopeRefreshResult,
-    DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     RefreshAgentMcpResponse,
     frameworkMcpSupport,
     mcpConfigFromExtras
@@ -27,7 +25,6 @@ import { AgentsService } from '@/modules/agents/agents.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { daemonReadTextFile } from '@/modules/daemon/daemon-fs'
-import { daemonAdvertisesFeature } from '@/modules/chat/chat-adapter'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import { composioInjectScope } from '@/modules/agent-runtimes/mcp/composio-mcp'
 import {
@@ -87,25 +84,10 @@ export class McpImportService {
                 'agent runtime home dir is unknown (not bootstrapped yet)'
             )
         const read = await this.readerFor(agent)
-        const allTargets = resolveMcpScopeTargets(agent.framework, {
+        const targets = resolveMcpScopeTargets(agent.framework, {
             homeDir,
             workspacePath: agent.workspacePath ?? agent.mountPath
         })
-        // A scope the target's CLI cannot read (claude user scope before the
-        // ~/.claude.json containment) is excluded so its stored value survives
-        // the fold, and reported as skipped rather than silently absent.
-        const gatedScopes: AgentMcpScopeRefreshResult[] = []
-        const targets: typeof allTargets = []
-        for (const target of allTargets) {
-            const gateMessage = await this.scopeReadGate(agent, target.scopeId)
-            if (gateMessage)
-                gatedScopes.push({
-                    scopeId: target.scopeId,
-                    status: 'skipped',
-                    message: gateMessage
-                })
-            else targets.push(target)
-        }
         const currentByScope: Record<string, string | null> = {}
         for (const target of targets) {
             try {
@@ -132,7 +114,7 @@ export class McpImportService {
                 .where(eq(agents.id, agent.id))
         return {
             agent: await this.agents.get(agentId, callerUserId, isAdmin),
-            scopes: [...gatedScopes, ...result.scopes]
+            scopes: result.scopes
         }
     }
 
@@ -166,22 +148,6 @@ export class McpImportService {
             readFileText(client, spriteName, absPath, spritesLoggerFrom(this.log))
     }
 
-    private async scopeReadGate(
-        agent: Agent,
-        scopeId: string
-    ): Promise<string | null> {
-        if (agent.runtime !== 'daemon') return null
-        if (agent.framework !== 'claude-code' || scopeId !== 'user')
-            return null
-        const supported = await daemonAdvertisesFeature(
-            this.db,
-            agent.daemonId ?? '',
-            DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG
-        )
-        return supported
-            ? null
-            : 'the user scope needs a newer mf CLI on this computer — run `mf update` or update from the runtime page'
-    }
 }
 
 // The managed composio server is injected at materialize time, never stored in

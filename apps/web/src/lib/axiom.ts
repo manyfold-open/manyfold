@@ -18,7 +18,6 @@ export const logger = new Logger({
         app: 'web',
         env:
             (import.meta.env.VITE_MF_ENV as string | undefined) ||
-            (import.meta.env.VITE_NCA_ENV as string | undefined) ||
             (import.meta.env.DEV ? 'local' : 'production')
     },
     transports: transports as [

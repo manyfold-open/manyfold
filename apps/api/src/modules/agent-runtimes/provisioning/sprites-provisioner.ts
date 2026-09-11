@@ -219,9 +219,6 @@ export class SpritesProvisioner {
         logger: SpritesLogger
     }): Promise<void> {
         const apiBaseUrl = this.config?.get<string>('PUBLIC_API_BASE_URL')
-        const identityReady = apiBaseUrl
-            ? await this.migrateLegacySpriteIdentities(args.hostId)
-            : false
         try {
             const deployEnv = resolveMfDeployEnv(
                 this.config?.get<string>('MF_DEPLOY_ENV')
@@ -233,12 +230,10 @@ export class SpritesProvisioner {
                 await this.shellEnv.write({
                     client: args.client,
                     spriteName: args.spriteName,
-                    agentId: '',
                     apiBaseUrl: apiBaseUrl
                         ? publicApiUrlWithApiPrefix(apiBaseUrl)
                         : undefined,
                     deployEnv,
-                    purgeLegacyIdentity: identityReady,
                     logger: args.logger
                 })
             }
@@ -255,7 +250,6 @@ export class SpritesProvisioner {
                     client: args.client,
                     spriteName: args.spriteName,
                     channel: cliInstallChannelForDeployEnv(deployEnv),
-                    purgeLegacyIdentity: identityReady,
                     logger: args.logger
                 })
             }
@@ -334,57 +328,6 @@ export class SpritesProvisioner {
             agentId: args.agentId,
             runtimeKind: 'sprites'
         })
-    }
-
-    // Older sprite identities have a valid hash but no encrypted plaintext and
-    // therefore still depend on the shared shell profile. Before any upgrade
-    // script is allowed to remove that fallback, make every agent on the host
-    // injectable from its encrypted copy. This is deliberately host-scoped:
-    // one sprite can carry several co-resident framework agents.
-    async migrateLegacySpriteIdentities(hostId: string): Promise<boolean> {
-        if (!this.runtimeToken) return false
-        const rows = await this.db
-            .select({ agentId: agents.id, userId: agents.userId })
-            .from(agents)
-            .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
-            .where(
-                and(
-                    eq(agentRuntimes.hostId, hostId),
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agents.runtime, 'sprites')
-                )
-            )
-        for (const row of rows)
-            await this.runtimeToken.ensureRuntimeIdentity({
-                userId: row.userId,
-                agentId: row.agentId,
-                runtimeKind: 'sprites'
-            })
-        return true
-    }
-
-    async migrateLegacySpriteIdentitiesForSprite(
-        spriteName: string
-    ): Promise<boolean> {
-        if (!this.runtimeToken) return false
-        const rows = await this.db
-            .select({ agentId: agents.id, userId: agents.userId })
-            .from(agents)
-            .innerJoin(agentRuntimes, eq(agents.runtimeId, agentRuntimes.id))
-            .where(
-                and(
-                    eq(agentRuntimes.spriteName, spriteName),
-                    eq(agentRuntimes.kind, 'sprites'),
-                    eq(agents.runtime, 'sprites')
-                )
-            )
-        for (const row of rows)
-            await this.runtimeToken.ensureRuntimeIdentity({
-                userId: row.userId,
-                agentId: row.agentId,
-                runtimeKind: 'sprites'
-            })
-        return true
     }
 
     // Attach uses the sandbox's own account (the VM already lives there), not a
@@ -694,8 +637,6 @@ export class SpritesProvisioner {
                 await this.runtimes.applyStatusPatch(runtimeId, {
                     spriteId: reserved.spriteId
                 })
-                if (reserved.hostId)
-                    await this.migrateLegacySpriteIdentities(reserved.hostId)
             }
 
             await this.runtimes.setPhase(runtimeId, 'bootstrapping')

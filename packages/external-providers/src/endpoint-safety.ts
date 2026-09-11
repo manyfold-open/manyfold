@@ -1,11 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
-const PRIVATE_ENDPOINTS_ENVS = [
-    'MF_ALLOW_PRIVATE_EXTERNAL_PROVIDER_ENDPOINTS',
-    'NCA_ALLOW_PRIVATE_EXTERNAL_PROVIDER_ENDPOINTS'
-] as const
-
 // Core SSRF guard: validate that `raw` is an http(s) URL whose host is not
 // private/loopback/link-local/reserved/metadata. Returns the parsed URL.
 // `allowEnvBypass` honours the local-dev env escape hatch; callers that fetch
@@ -28,7 +23,7 @@ export const assertPublicHttpUrl = async (
 
     if (
         options.allowEnvBypass &&
-        PRIVATE_ENDPOINTS_ENVS.some((key) => process.env[key] === '1')
+        process.env.MF_ALLOW_PRIVATE_EXTERNAL_PROVIDER_ENDPOINTS === '1'
     )
         return url
 

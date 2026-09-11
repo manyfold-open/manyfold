@@ -564,8 +564,7 @@ export class AuthService {
                 // Deployment-owned default: the self-host stack points this
                 // at the seeded unlimited plan. A typo'd plan id fails the FK
                 // loudly instead of silently landing users on 'free'. Only
-                // applies at INSERT — accounts that predate the setting are
-                // moved by SelfHostPlanBackfillService, not from here.
+                // applies at INSERT; existing accounts keep their plan.
                 planId:
                     this.config.get<string>('MF_DEFAULT_PLAN_ID')?.trim() ||
                     DEFAULT_PLAN_ID

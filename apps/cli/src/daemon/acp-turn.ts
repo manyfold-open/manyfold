@@ -458,13 +458,9 @@ export const runAcpTurn = (args: {
 
     const handshakeTimeoutMs =
         payload.handshakeTimeoutMs ?? DEFAULT_HANDSHAKE_TIMEOUT_MS
-    // An API that predates the split sends only timeoutMs; it then backs both
-    // budgets, and because the max clock starts first the payload degenerates
-    // to exactly the single absolute cap it used to mean.
-    const legacyTurnTimeoutMs = payload.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS
     const promptTimeouts: AcpTimeouts = {
-        idleTimeoutMs: payload.idleTimeoutMs ?? legacyTurnTimeoutMs,
-        maxDurationMs: payload.maxDurationMs ?? legacyTurnTimeoutMs
+        idleTimeoutMs: payload.idleTimeoutMs ?? DEFAULT_TURN_TIMEOUT_MS,
+        maxDurationMs: payload.maxDurationMs ?? DEFAULT_TURN_TIMEOUT_MS
     }
 
     const sessionIdFrom = (

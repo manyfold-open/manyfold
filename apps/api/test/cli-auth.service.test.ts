@@ -347,10 +347,10 @@ test('CliAuthService builds authUrl from configured web URL', async () => {
     )
 })
 
-test('CliAuthService builds local authUrl from WEB_BASE_URL fallback', async () => {
+test('CliAuthService builds local authUrl from canonical configuration', async () => {
     const cliAuth = newCliAuth(new FakeDb(), {
         get: (key) =>
-            key === 'WEB_BASE_URL' ? 'http://localhost:3002' : undefined
+            key === 'MF_WEB_URL' ? 'http://localhost:3002' : undefined
     })
 
     const started = await cliAuth.start({})
@@ -376,7 +376,7 @@ test('CliAuthService prefers MF_WEB_URL over WEB_BASE_URL', async () => {
     )
 })
 
-test('CliAuthService accepts legacy NCA_WEB_URL fallback', async () => {
+test('CliAuthService does not read retired NCA_WEB_URL configuration', async () => {
     const cliAuth = newCliAuth(new FakeDb(), {
         get: (key) =>
             key === 'NCA_WEB_URL' ? 'https://legacy.example.test' : undefined
@@ -386,7 +386,7 @@ test('CliAuthService accepts legacy NCA_WEB_URL fallback', async () => {
 
     assert.match(
         started.authUrl,
-        /^https:\/\/legacy\.example\.test\/cli-login\?/
+        /^https:\/\/manyfold\.ai\/cli-login\?/
     )
 })
 

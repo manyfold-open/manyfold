@@ -40,7 +40,6 @@ const HERMES_BIN = `${HERMES_APP_DIR}/venv/bin/hermes`
 // Bare `hermes` boots the interactive TUI and exits on missing stdin.
 const HERMES_GATEWAY_CMD = [HERMES_BIN, 'gateway'] as const
 const HERMES_SERVICE_NAME = 'hermes'
-const HERMES_KEEPALIVE_TASK = 'hermes-keepalive'
 const HERMES_INSTALL_TIMEOUT_MS = 900_000
 const HERMES_WEB_DIST_DIR = `${HERMES_APP_DIR}/hermes_cli/web_dist`
 const HERMES_PROXY_SCRIPT = `${HERMES_HOME}/mf-front-proxy.mjs`
@@ -171,7 +170,6 @@ export class HermesSpriteBootstrap implements SpriteServiceBootstrap {
             spriteName: ctx.spriteName,
             homeDir: HERMES_HOME,
             exec: [...HERMES_GATEWAY_CMD],
-            legacyTaskNames: [HERMES_KEEPALIVE_TASK],
             reportToken: runtimeReportToken,
             logger: ctx.logger
         })

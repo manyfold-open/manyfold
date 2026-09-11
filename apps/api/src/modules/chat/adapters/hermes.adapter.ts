@@ -513,11 +513,6 @@ export class HermesAdapter implements ApiChatAdapter {
                 ...(args.env ?? {}),
                 ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
             },
-            // Deliberately still the legacy value: a runner that predates the
-            // split reads ONLY this and must keep its old 240s absolute cap
-            // rather than silently inherit the multi-hour maxDurationMs. A
-            // runner that understands the split ignores it.
-            timeoutMs: HERMES_LEGACY_TURN_TIMEOUT_MS,
             idleTimeoutMs: budgets.idleTimeoutMs,
             maxDurationMs: budgets.maxDurationMs
         }

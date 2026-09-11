@@ -1,27 +1,4 @@
-// Helpers for the sprite-local /v1/tasks activity API.
-//
-// `/v1/tasks` is UNDOCUMENTED (Fly community 2026-04, confirmed by probe
-// 2026-06-02). Only reachable from inside a sprite, via `/.sprite/api.sock`,
-// so this module only generates the bash script that a sprite service runs;
-// there's no remote client wrapper.
-//
-// Wire shape:
-//   POST /v1/tasks       body: {name, expire}    201; 409 if name exists
-//   PUT  /v1/tasks/<n>   body: {expire}          200 rolling renewal
-//   DEL  /v1/tasks/<n>                           204
-//
-// Schema docs: cloud-agents/skills/nca-sprites-dev-usage/references/api/tasks.md
 
-export interface KeepAliveTaskOptions {
-    /** Identifier for the task — surfaces in `GET /v1/tasks`. */
-    taskName: string
-    /** Go-style duration string: '30s', '5m', '1h', '24h'. */
-    ttl: string
-    /** Refresh cadence in seconds. Defaults to ttl / 4, minimum 30s. */
-    refreshIntervalSeconds?: number
-    /** Argv to exec after the keep-alive loop is launched. */
-    exec: string[]
-}
 
 export interface ServiceStartScriptOptions {
     /** Argv to exec as the framework service process. */
@@ -59,7 +36,6 @@ export interface KeepAliveLeaseScriptOptions {
 export interface KeepAliveCleanupOptions {
     taskName?: string
     taskPrefix: string
-    legacyTaskNames?: string[]
     stateDir: string
     startScriptPath?: string
     killStartScriptProcesses?: boolean
@@ -108,75 +84,7 @@ const assertAbsolutePath = (label: string, value: string): void => {
     }
 }
 
-export const buildKeepAliveScript = (opts: KeepAliveTaskOptions): string => {
-    if (!opts.taskName || /[\s'"`$\\]/.test(opts.taskName)) {
-        throw new Error(
-            `keep-alive taskName must be a simple identifier, got '${opts.taskName}'`
-        )
-    }
-    if (!opts.exec || opts.exec.length === 0) {
-        throw new Error('keep-alive requires `exec` argv to wrap')
-    }
-    const ttlSeconds = parseTtlSeconds(opts.ttl)
-    const refreshSec = Math.max(
-        30,
-        opts.refreshIntervalSeconds ?? Math.floor(ttlSeconds / 4)
-    )
-    if (refreshSec >= ttlSeconds) {
-        throw new Error(
-            `refresh interval (${refreshSec}s) must be < ttl (${ttlSeconds}s)`
-        )
-    }
-    const createBody = JSON.stringify({
-        name: opts.taskName,
-        expire: opts.ttl
-    })
-    const renewBody = JSON.stringify({ expire: opts.ttl })
-    const execLine = opts.exec.map(shellSingleQuote).join(' ')
-    return [
-        '#!/usr/bin/env bash',
-        'set -euo pipefail',
-        `TASK_NAME=${shellSingleQuote(opts.taskName)}`,
-        'RENEW_PID=""',
-        'APP_PID=""',
-        '',
-        '# Release the task AND kill the renewal loop on any exit, so stopping the',
-        '# service lets the sprite suspend. The wrapped process runs as a child with',
-        '# `wait` (NOT `exec`): `exec` would replace this shell, drop the trap, and',
-        '# orphan the renewal loop — leaving the task renewing forever (sprite never',
-        '# suspends, concurrency slot never frees).',
-        'cleanup() {',
-        '    [ -n "$RENEW_PID" ] && kill "$RENEW_PID" 2>/dev/null || true',
-        '    [ -n "$APP_PID" ] && kill "$APP_PID" 2>/dev/null || true',
-        '    sprite-env curl -s -X DELETE "/v1/tasks/$TASK_NAME" >/dev/null 2>&1 || true',
-        '}',
-        'trap cleanup EXIT',
-        "trap 'exit 0' TERM",
-        "trap 'exit 130' INT",
-        '',
-        '# Register activity — falls back to renew if a stale task already exists',
-        `sprite-env curl -s -X POST /v1/tasks -d ${shellSingleQuote(createBody)} >/dev/null 2>&1 \\`,
-        `    || sprite-env curl -s -X PUT "/v1/tasks/$TASK_NAME" -d ${shellSingleQuote(renewBody)} >/dev/null 2>&1`,
-        '',
-        '# Rolling renewal loop',
-        '(',
-        '    while true; do',
-        `        sleep ${refreshSec}`,
-        `        sprite-env curl -s -X PUT "/v1/tasks/$TASK_NAME" -d ${shellSingleQuote(renewBody)} >/dev/null 2>&1 \\`,
-        `            || sprite-env curl -s -X POST /v1/tasks -d ${shellSingleQuote(createBody)} >/dev/null 2>&1`,
-        '    done',
-        ') &',
-        'RENEW_PID=$!',
-        '',
-        `${execLine} &`,
-        'APP_PID=$!',
-        'wait "$APP_PID"',
-        ''
-    ].join('\n')
-}
-
-// Plain `exec` is correct here, unlike the fused buildKeepAliveScript above:
-// there is no renewal loop for a trap to kill, and `exec` means stopService's
+// There is no renewal loop for a trap to kill, and `exec` means stopService's
 // TERM hits the framework process directly. No /v1/tasks calls, no pid files —
 // the wake path is structurally incapable of registering a billing task.
 export const buildServiceStartScript = (
@@ -374,9 +282,6 @@ export const buildKeepAliveCleanupScript = (
 ): string => {
     if (opts.taskName) assertTaskIdentifier('taskName', opts.taskName)
     assertTaskIdentifier('taskPrefix', opts.taskPrefix)
-    for (const taskName of opts.legacyTaskNames ?? []) {
-        assertTaskIdentifier('legacyTaskName', taskName)
-    }
     assertAbsolutePath('stateDir', opts.stateDir)
     if (opts.startScriptPath) {
         assertAbsolutePath('startScriptPath', opts.startScriptPath)
@@ -386,7 +291,6 @@ export const buildKeepAliveCleanupScript = (
         'set -euo pipefail',
         `export TASK_NAME=${shellSingleQuote(opts.taskName ?? '')}`,
         `export TASK_PREFIX=${shellSingleQuote(opts.taskPrefix)}`,
-        `export LEGACY_TASKS_JSON=${shellSingleQuote(JSON.stringify(opts.legacyTaskNames ?? []))}`,
         `export STATE_DIR=${shellSingleQuote(opts.stateDir)}`,
         `export START_SCRIPT_PATH=${shellSingleQuote(opts.startScriptPath ?? '')}`,
         `export KILL_START_SCRIPT_PROCESSES=${opts.killStartScriptProcesses ? '1' : '0'}`,
@@ -396,7 +300,6 @@ export const buildKeepAliveCleanupScript = (
         '',
         'task_name = os.environ.get("TASK_NAME", "")',
         'task_prefix = os.environ["TASK_PREFIX"]',
-        'legacy_tasks = json.loads(os.environ["LEGACY_TASKS_JSON"])',
         'state_dir = os.environ["STATE_DIR"]',
         'start_script_path = os.environ.get("START_SCRIPT_PATH", "")',
         'kill_start_script_processes = os.environ.get("KILL_START_SCRIPT_PROCESSES") == "1"',
@@ -479,7 +382,7 @@ export const buildKeepAliveCleanupScript = (
         '    if any(target in cmdline for target in scan_targets):',
         '        kill_pid(pid)',
         '',
-        'wanted = set(legacy_tasks)',
+        'wanted = set()',
         'if task_name:',
         '    wanted.add(task_name)',
         'for name in list_tasks():',

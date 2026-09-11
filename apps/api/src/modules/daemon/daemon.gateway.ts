@@ -1,6 +1,7 @@
 import {
     DAEMON_FEATURE_EXEC_RESUME,
-    DAEMON_FEATURE_HELLO_INFLIGHT,
+    DAEMON_MIN_CLI_VERSION,
+    isCliVersionTooOld,
     DaemonInflightStream,
     DaemonWsFrame
 } from '@manyfold/shared'
@@ -99,6 +100,10 @@ export class DaemonGateway implements OnModuleInit {
         }
         if (host.status === 'revoked') {
             socket.close(4403, 'daemon revoked')
+            return
+        }
+        if (isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)) {
+            socket.close(4406, `daemon CLI ${DAEMON_MIN_CLI_VERSION} or newer required; run mf update`)
             return
         }
 
@@ -243,23 +248,15 @@ export class DaemonGateway implements OnModuleInit {
                     this.log.log(
                         `daemon.ws.hello daemonId=${daemonId} inflightStreams=${frame.inflightStreams.length} clientFeatures=${(frame.clientFeatures ?? []).join(',')}`
                     )
-                // A client that always sends the field (even empty) omits it
-                // only when enumeration FAILED — treating that as "no streams"
-                // would converge every open turn on this daemon as
-                // unresumable. Legacy clients omit it for empty too, so for
-                // them absence keeps its old meaning.
-                if (
-                    frame.inflightStreams === undefined &&
-                    (frame.clientFeatures ?? []).includes(
-                        DAEMON_FEATURE_HELLO_INFLIGHT
-                    )
-                ) {
+                // Missing inventory means enumeration failed, never an empty
+                // stream set. Preserve resumable turns until the next hello.
+                if (frame.inflightStreams === undefined) {
                     this.log.warn(
                         `daemon.ws.hello daemonId=${daemonId} omitted inflightStreams (enumeration failed); skipping stream reconcile`
                     )
                     return
                 }
-                handleInflightStreams(frame.inflightStreams ?? [])
+                handleInflightStreams(frame.inflightStreams)
                 return
             case 'ping': {
                 const pong: DaemonWsFrame = { type: 'pong' }
