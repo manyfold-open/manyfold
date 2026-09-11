@@ -36,7 +36,6 @@ const NARRANEXUS_DATA_DIR = NARRANEXUS_SPRITE_BASE_WORKING_PATH.replace(
     ''
 )
 const NARRANEXUS_SERVICE_NAME = 'narranexus'
-const NARRANEXUS_KEEPALIVE_TASK = 'narranexus-keepalive'
 
 // 5–7 min wall-clock in the probe (apt ffmpeg ~100s + uv sync ~90s +
 // vite build ~120s). Cap at 15 min for slow networks / mirror hiccups.
@@ -245,7 +244,6 @@ export class NarraNexusSpriteBootstrap implements SpriteServiceBootstrap {
             spriteName: ctx.spriteName,
             homeDir: NARRANEXUS_HOME,
             exec: ['bash', `${NARRANEXUS_APP_DIR}/run.sh`],
-            legacyTaskNames: [NARRANEXUS_KEEPALIVE_TASK],
             reportToken: runtimeReportToken,
             logger: ctx.logger
         })

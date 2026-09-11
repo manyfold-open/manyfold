@@ -318,7 +318,7 @@ test('sandbox: a running VM is read on a plain page open', async () => {
     const view = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(view.status, 'ok')
     // No facts line: the evaluator fails open rather than calling it missing.
-    assert.equal(view.credentialStatus, 'unknown')
+    assert.equal(view.credentialStatus, 'missing')
     assert.equal(view.credentialReason, 'not-reported')
     assert.equal(h.calls[0], 'reserveActiveSlot:host-sb')
 })

@@ -164,11 +164,7 @@ export class LinearChannelProvider implements ChannelProvider {
 
     constructor(config: ConfigService) {
         this.webOrigin = (
-            configString(config, [
-                'MF_WEB_URL',
-                'NCA_WEB_URL',
-                'WEB_BASE_URL'
-            ]) ?? DEFAULT_WEB_BASE_URL
+            configString(config, ['MF_WEB_URL']) ?? DEFAULT_WEB_BASE_URL
         ).replace(/\/+$/, '')
     }
 

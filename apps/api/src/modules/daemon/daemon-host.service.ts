@@ -1,7 +1,7 @@
 import {
     DAEMON_FEATURE_DAEMON_UPDATE,
-    DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_MIN_CLI_VERSION,
     DAEMON_ONLINE_THRESHOLD_MS,
     DaemonHostSummary,
     DaemonStartupMethod,
@@ -80,15 +80,20 @@ export class DaemonHostService {
         private readonly config: ConfigService
     ) {}
 
-    // Cross-channel daemon upgrades (e.g. installing a dev build on a
-    // stable daemon) are only offered in local/staging and only to daemons new
-    // enough to honour the channel override in the daemon.update RPC.
+    private assertSupportedVersion(version: string): void {
+        if (isCliVersionTooOld(version, DAEMON_MIN_CLI_VERSION))
+            throw new BadRequestException({
+                code: 'DAEMON_UPGRADE_REQUIRED',
+                message: `daemon CLI ${DAEMON_MIN_CLI_VERSION} or newer is required; run mf update`
+            })
+    }
+
+    // Cross-channel upgrades are limited to local/staging deployments.
     private crossChannelAllowed(host: RuntimeHostRow): boolean {
         return (
             cliDevAllowedForDeployEnv(
                 resolveMfDeployEnv(this.config.get<string>('MF_DEPLOY_ENV'))
-            ) &&
-            host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL)
+            ) && !isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)
         )
     }
 
@@ -98,6 +103,7 @@ export class DaemonHostService {
         lastIp: string | null
     }): Promise<RuntimeHostRow> {
         const { tokenId, request, lastIp } = args
+        this.assertSupportedVersion(request.cliVersion)
         return this.db.transaction(async (tx) => {
             const [token] = await tx
                 .select()
@@ -219,6 +225,7 @@ export class DaemonHostService {
         terminalPty?: boolean
         clientFeatures?: string[]
     }): Promise<RuntimeHostRow | null> {
+        this.assertSupportedVersion(args.cliVersion)
         const host = await this.findById(args.daemonId)
         if (!host) throw new NotFoundException('daemon host not found')
         if (host.status === 'revoked')
@@ -380,6 +387,7 @@ export class DaemonHostService {
 
     isOnline(host: RuntimeHostRow): boolean {
         if (host.status !== 'active') return false
+        if (isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION)) return false
         if (!host.rpcLastSeenAt) return false
         return Date.now() - host.rpcLastSeenAt.getTime() < ONLINE_THRESHOLD_MS
     }
@@ -398,10 +406,6 @@ export class DaemonHostService {
         if (uniqueIds.length === 0) return result
         const { minVersion } =
             await this.adminSettings.getCachedCliMinimumVersion()
-        if (!minVersion) {
-            for (const id of uniqueIds) result.set(id, false)
-            return result
-        }
         const rows = await this.db
             .select({ id: runtimeHosts.id, cliVersion: runtimeHosts.cliVersion })
             .from(runtimeHosts)
@@ -410,7 +414,10 @@ export class DaemonHostService {
         for (const row of rows) cliVersionById.set(row.id, row.cliVersion)
         for (const id of uniqueIds) {
             const cliVersion = cliVersionById.get(id) ?? null
-            result.set(id, isCliVersionTooOld(cliVersion, minVersion))
+            result.set(id,
+                isCliVersionTooOld(cliVersion, DAEMON_MIN_CLI_VERSION) ||
+                isCliVersionTooOld(cliVersion, minVersion)
+            )
         }
         return result
     }
@@ -438,7 +445,9 @@ export class DaemonHostService {
             os: host.os,
             arch: host.arch,
             cliVersion: host.cliVersion,
-            needsUpgrade: isCliVersionTooOld(host.cliVersion, minVersion),
+            needsUpgrade:
+                isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION) ||
+                isCliVersionTooOld(host.cliVersion, minVersion),
             latestCliVersion,
             updateAvailable: isCliUpdateAvailable(
                 channel,
@@ -470,8 +479,12 @@ export class DaemonHostService {
         host: RuntimeHostRow,
         requested: string | undefined
     ): Promise<{ version: string | null; channel?: MfCliChannel }> {
-        if (!requested)
-            return { version: (await this.cliVersion.getCachedLatest()).version }
+        if (!requested) {
+            const { version } = await this.cliVersion.getCachedLatest()
+            if (version) this.assertSupportedVersion(version)
+            return { version }
+        }
+        this.assertSupportedVersion(requested)
         if (!(await this.cliCatalog.isInstallableVersion(requested)))
             throw new BadRequestException(
                 `unknown mf CLI version ${requested}`
@@ -479,12 +492,10 @@ export class DaemonHostService {
         const requestedChannel = cliChannelOfVersion(requested)
         const daemonChannel = cliChannelOfVersion(host.cliVersion)
         if (requestedChannel === daemonChannel) return { version: requested }
-        // Different channel than the daemon was installed from: only allowed in
-        // local/staging on a capable daemon, and we must tell it which CDN to
-        // pull from via the channel override.
+        // The channel override must accompany a cross-channel target.
         if (!this.crossChannelAllowed(host))
             throw new BadRequestException(
-                `${requested} is on the ${requestedChannel} channel but this daemon is on ${daemonChannel}; cross-channel upgrades are only available in local/staging on a daemon new enough to support them`
+                `${requested} is on the ${requestedChannel} channel but this daemon is on ${daemonChannel}; cross-channel upgrades are only available in local/staging`
             )
         return { version: requested, channel: requestedChannel }
     }
@@ -516,12 +527,7 @@ export class DaemonHostService {
             await this.resolveDaemonTarget(host, args.targetVersion)
         const payload: Record<string, unknown> = {}
         if (targetVersion) payload.targetVersion = targetVersion
-        // The wire value stays `staging` for the dev channel: daemons built
-        // before the rename only accept `staging`/`stable` and would silently
-        // drop `dev`, then fetch the pinned version from their own CDN and 404.
-        // New daemons normalize both. Flip this once no pre-rename daemon can
-        // reach a cross-channel upgrade.
-        if (channel) payload.channel = channel === 'dev' ? 'staging' : channel
+        if (channel) payload.channel = channel
         let ack: Record<string, unknown> | undefined
         try {
             ack = await this.registry.rpc({

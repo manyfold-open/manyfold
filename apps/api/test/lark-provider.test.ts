@@ -251,19 +251,8 @@ test('lark websocket dispatches SDK-flattened receive_v1 events', async () => {
     await handle.stop()
 })
 
-test('lark websocket dispatches legacy message events', async () => {
-    const telemetryEvents: Array<{
-        name: string
-        attrs: Record<string, unknown>
-    }> = []
-    const provider = new LarkChannelProvider(
-        { get: () => 'https://open.feishu.cn' } as never,
-        {
-            event: (name: string, attrs: Record<string, unknown>) => {
-                telemetryEvents.push({ name, attrs })
-            }
-        } as never
-    )
+test('lark websocket does not subscribe to retired message events', async () => {
+    const provider = makeProvider()
     const received: NormalizedInboundEvent[] = []
     let dispatcher: {
         invoke: (
@@ -319,22 +308,7 @@ test('lark websocket dispatches legacy message events', async () => {
         { needCheck: false }
     )
 
-    assert.equal(received.length, 1)
-    assert.equal(received[0]?.providerEventId, 'om_legacy')
-    assert.equal(received[0]?.chatId, 'oc_legacy')
-    assert.equal(received[0]?.senderId, 'ou_sender')
-    assert.equal(received[0]?.text, 'hello')
-    assert.equal(received[0]?.isMention, true)
-    assert.deepEqual(
-        telemetryEvents,
-        [
-            {
-                name: 'channel.lark.legacy_event',
-                attrs: { source: 'ws', channelId: 'chn-1', messageType: 'text' }
-            }
-        ],
-        'a legacy-schema hit must be observable (legacy-inventory §4.3)'
-    )
+    assert.equal(received.length, 0)
     await handle.stop()
 })
 
@@ -1384,34 +1358,34 @@ test('lark parseInbound leaves replyTargetId null in private chats', () => {
     assert.equal(event.replyTargetId, null)
 })
 
-test('lark legacy events fill messageId, replyToMessageId and group replyTargetId', () => {
+test('lark webhook rejects retired message events', () => {
     const provider = makeProvider()
     const channel = makeChannel({
         configJson: { appId: 'cli_x', subscriptionMode: 'websocket' }
     })
     const config = provider.validateConfig(channel.configJson)
-    const event = provider.parseInbound(
-        {
-            headers: {},
-            body: {
-                event_id: 'evt_leg',
-                event: {
-                    type: 'message',
-                    open_chat_id: 'oc_group',
-                    open_id: 'ou_sender',
-                    chat_type: 'group',
-                    msg_type: 'text',
-                    text: 'hi',
-                    open_message_id: 'om_leg',
-                    parent_id: 'om_parent'
+    assert.throws(
+        () => provider.parseInbound(
+            {
+                headers: {},
+                body: {
+                    event_id: 'evt_leg',
+                    event: {
+                        type: 'message',
+                        open_chat_id: 'oc_group',
+                        open_id: 'ou_sender',
+                        chat_type: 'group',
+                        msg_type: 'text',
+                        text: 'hi',
+                        open_message_id: 'om_leg',
+                        parent_id: 'om_parent'
+                    }
                 }
-            }
-        },
-        { channel, config, credentials: null }
+            },
+            { channel, config, credentials: null }
+        ),
+        UnsupportedEventError
     )
-    assert.equal(event.messageId, 'om_leg')
-    assert.equal(event.replyToMessageId, 'om_parent')
-    assert.equal(event.replyTargetId, 'om_leg')
 })
 
 const captureFetchJson = (

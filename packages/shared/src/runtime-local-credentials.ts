@@ -207,20 +207,19 @@ const evaluateGemini = (
     return evaluation('missing', 'no-credentials')
 }
 
-// Facts absent means an older daemon that predates this contract: fail open so
-// a rolling CLI fleet never loses access to a runtime it can actually use.
-// Callers may pass a raw wire payload, so every branch tolerates missing keys.
+// Missing facts cannot establish usable credentials. Parsed but unreadable
+// credentials retain their separate unknown status (for example Keychain).
 export const runtimeLocalCredentialStatus = (
     facts: RuntimeLocalCredentialFacts | null | undefined,
     now: number,
     context: RuntimeLocalCredentialContext = {}
 ): RuntimeLocalCredentialEvaluation => {
-    if (!facts) return evaluation('unknown', 'not-reported')
+    if (!facts) return evaluation('missing', 'not-reported')
     if (facts.framework === 'claude-code')
         return evaluateClaude(facts, now, context)
     if (facts.framework === 'codex') return evaluateCodex(facts, now)
     if (facts.framework === 'gemini-cli') return evaluateGemini(facts, now)
-    return evaluation('unknown', 'not-reported')
+    return evaluation('missing', 'not-reported')
 }
 
 export const isRuntimeLocalCredentialUsable = (

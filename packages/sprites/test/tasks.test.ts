@@ -3,131 +3,10 @@ import test from 'node:test'
 import {
     buildKeepAliveCleanupScript,
     buildKeepAliveLeaseScript,
-    buildKeepAliveScript,
     buildRuntimeReportEnvFile,
     buildRuntimeReportScript,
     buildServiceStartScript
 } from '../src/tasks'
-
-test('buildKeepAliveScript embeds taskName, exec, and a renewal loop', () => {
-    const script = buildKeepAliveScript({
-        taskName: 'hermes-keepalive',
-        ttl: '1h',
-        exec: ['bash', '-lc', 'exec /home/sprite/.hermes/run.sh']
-    })
-    assert.match(script, /^#!\/usr\/bin\/env bash/)
-    assert.match(script, /TASK_NAME='hermes-keepalive'/)
-    assert.match(script, /POST \/v1\/tasks/)
-    assert.match(script, /PUT "\/v1\/tasks\/\$TASK_NAME"/)
-    assert.match(script, /DELETE "\/v1\/tasks\/\$TASK_NAME"/)
-    assert.match(script, /trap cleanup EXIT/)
-    assert.match(script, /sleep 900\b/) // default refresh = 1h / 4 = 900s
-    // wrapped process runs as a child + wait (not `exec`), so the cleanup trap
-    // survives to release the keep-alive task when the service is stopped
-    assert.match(
-        script,
-        /'bash' '-lc' 'exec \/home\/sprite\/\.hermes\/run\.sh' &/
-    )
-    assert.match(script, /wait "\$APP_PID"/)
-    assert.match(script, /trap 'exit 0' TERM/)
-    assert.doesNotMatch(script, /trap 'exit 143' TERM/)
-    assert.doesNotMatch(script, /^exec /m)
-})
-
-test('buildKeepAliveScript honors custom refreshIntervalSeconds', () => {
-    const script = buildKeepAliveScript({
-        taskName: 'oc',
-        ttl: '5m',
-        refreshIntervalSeconds: 60,
-        exec: ['true']
-    })
-    assert.match(script, /sleep 60\b/)
-})
-
-test('buildKeepAliveScript clamps refresh to minimum 30s', () => {
-    const script = buildKeepAliveScript({
-        taskName: 't',
-        ttl: '5m',
-        refreshIntervalSeconds: 5,
-        exec: ['true']
-    })
-    assert.match(script, /sleep 30\b/)
-})
-
-test('buildKeepAliveScript rejects unsafe taskName chars', () => {
-    assert.throws(() =>
-        buildKeepAliveScript({
-            taskName: 'has space',
-            ttl: '1h',
-            exec: ['true']
-        })
-    )
-    assert.throws(() =>
-        buildKeepAliveScript({
-            taskName: 'with$dollar',
-            ttl: '1h',
-            exec: ['true']
-        })
-    )
-})
-
-test('buildKeepAliveScript rejects malformed ttl', () => {
-    assert.throws(() =>
-        buildKeepAliveScript({
-            taskName: 't',
-            ttl: 'forever',
-            exec: ['true']
-        })
-    )
-    assert.throws(() =>
-        buildKeepAliveScript({
-            taskName: 't',
-            ttl: '1y',
-            exec: ['true']
-        })
-    )
-})
-
-test('buildKeepAliveScript rejects refresh >= ttl', () => {
-    assert.throws(() =>
-        buildKeepAliveScript({
-            taskName: 't',
-            ttl: '30s',
-            refreshIntervalSeconds: 60,
-            exec: ['true']
-        })
-    )
-})
-
-test('buildKeepAliveScript rejects empty exec', () => {
-    assert.throws(() =>
-        buildKeepAliveScript({ taskName: 't', ttl: '1h', exec: [] })
-    )
-})
-
-test('buildKeepAliveScript shell-quotes exec args containing single quotes', () => {
-    const script = buildKeepAliveScript({
-        taskName: 't',
-        ttl: '1h',
-        exec: ['bash', '-c', "echo 'hi'"]
-    })
-    // single quotes inside single-quoted bash strings: '\'' pattern
-    assert.match(script, /'echo '\\''hi'\\'''/)
-})
-
-test('buildKeepAliveScript json bodies do not interpolate taskName via shell', () => {
-    const script = buildKeepAliveScript({
-        taskName: 'fixedname',
-        ttl: '1h',
-        exec: ['true']
-    })
-    // create body should be a literal single-quoted JSON, not constructed from
-    // the runtime $TASK_NAME variable
-    assert.match(
-        script,
-        /POST \/v1\/tasks -d '\{"name":"fixedname","expire":"1h"\}'/
-    )
-})
 
 // WHY: the wake path must be structurally incapable of registering a billing
 // task — default-off is enforced at the script layer, not by caller discipline.
@@ -358,7 +237,6 @@ test('buildKeepAliveCleanupScript killAppProcesses:false omits app.pid but still
     const leaseOnly = buildKeepAliveCleanupScript({
         taskName: 'nca-hermes-abc-gen',
         taskPrefix: 'nca-hermes-abc-',
-        legacyTaskNames: ['hermes-keepalive'],
         stateDir: '/home/sprite/.hermes/.nca/keepalive',
         killAppProcesses: false,
         killStartScriptProcesses: false
@@ -369,7 +247,7 @@ test('buildKeepAliveCleanupScript killAppProcesses:false omits app.pid but still
         leaseOnly,
         /pid_files = \["renew\.pid"\] \+ \(\["app\.pid"\] if kill_app_processes else \[\]\)/
     )
-    assert.match(leaseOnly, /LEGACY_TASKS_JSON='\["hermes-keepalive"\]'/)
+    assert.doesNotMatch(leaseOnly, /LEGACY_TASKS_JSON/)
     assert.match(leaseOnly, /name\.startswith\(task_prefix\)/)
 
     const full = buildKeepAliveCleanupScript({
@@ -410,7 +288,6 @@ test('buildKeepAliveCleanupScript deletes current prefix and legacy tasks', () =
     const script = buildKeepAliveCleanupScript({
         taskName: 'nca-narranexus-abc-gen',
         taskPrefix: 'nca-narranexus-abc-',
-        legacyTaskNames: ['narranexus-keepalive'],
         stateDir: '/home/sprite/.narranexus/.nca/keepalive',
         startScriptPath: '/home/sprite/.narranexus/start.sh',
         killStartScriptProcesses: true
@@ -418,7 +295,7 @@ test('buildKeepAliveCleanupScript deletes current prefix and legacy tasks', () =
 
     assert.match(script, /TASK_NAME='nca-narranexus-abc-gen'/)
     assert.match(script, /TASK_PREFIX='nca-narranexus-abc-'/)
-    assert.match(script, /LEGACY_TASKS_JSON='\["narranexus-keepalive"\]'/)
+    assert.doesNotMatch(script, /LEGACY_TASKS_JSON/)
     assert.match(
         script,
         /START_SCRIPT_PATH='\/home\/sprite\/\.narranexus\/start\.sh'/

@@ -63,6 +63,9 @@ const REPORT_PROBE_BUDGET_SEC = 120
 const ensureBackoffMs = (failures: number): number =>
     Math.min(60_000 * 2 ** Math.min(failures, 5), ENSURE_MAX_BACKOFF_MS)
 
+const createGeneration = (): string =>
+    randomUUID().replace(/-/g, '').slice(0, 12)
+
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -82,7 +85,6 @@ export interface SpriteKeepAliveMetadata {
     stateDir: string
     startScriptPath: string
     exec: string[]
-    legacyTaskNames: string[]
     desiredStateAt?: string
     lastVerifiedAt?: string
     lastError?: string
@@ -108,7 +110,6 @@ interface InstallInput {
     spriteName: string
     homeDir: string
     exec: string[]
-    legacyTaskNames: string[]
     // The credentials row does not exist yet at install time — the bootstrap
     // mints the report token and the orchestrator persists it afterwards.
     reportToken: string
@@ -138,7 +139,6 @@ export class SpriteKeepAliveLeaseService {
             serviceName: input.serviceName,
             homeDir: input.homeDir,
             exec: input.exec,
-            legacyTaskNames: input.legacyTaskNames,
             desiredState: 'stopped'
         })
         await this.writeStartScript(
@@ -201,9 +201,11 @@ export class SpriteKeepAliveLeaseService {
         if (notRunning.length === 0) return { started: false }
 
         const base = this.metadataFor(runtime) ?? this.fallbackMetadata(runtime)
-        // Rewrite start.sh before starting — a fused legacy script can never
-        // run again via the wake path.
-        await this.writeStartScript(ctx.client, ctx.spriteName, runtime.id, base)
+        // Each service boot needs a fresh report fence and matching assets.
+        await this.writeStartScript(ctx.client, ctx.spriteName, runtime.id, {
+            ...base,
+            generation: createGeneration()
+        })
         await this.runCleanup(ctx.client, ctx.spriteName, base, {
             killAppProcesses: true,
             killStartScriptProcesses: true
@@ -242,7 +244,6 @@ export class SpriteKeepAliveLeaseService {
      */
     async ensureLease(runtime: AgentRuntimeRow): Promise<void> {
         if (!this.isLeaseEligible(runtime)) return
-        const isService = this.isServiceFramework(runtime.framework)
         const ctx = await this.clientFor(runtime)
         if (!ctx) return
 
@@ -255,7 +256,6 @@ export class SpriteKeepAliveLeaseService {
                 : undefined,
             homeDir: this.homeDirFor(runtime, base),
             exec: base.exec,
-            legacyTaskNames: base.legacyTaskNames,
             desiredState: 'running'
         })
         // Cleanup runs against the STORED metadata: the old renewer's
@@ -265,17 +265,6 @@ export class SpriteKeepAliveLeaseService {
             killAppProcesses: false,
             killStartScriptProcesses: false
         })
-        // Closes the resurrection hole where a platform service-restart of an
-        // enabled un-converged legacy sprite re-runs the fused on-disk script.
-        // Exec-kind sprites have no managed start.sh, so there is nothing to
-        // converge — the lease loop below is the whole keep-alive.
-        if (isService)
-            await this.writeStartScript(
-                ctx.client,
-                ctx.spriteName,
-                runtime.id,
-                next
-            )
         const leaseScript = buildKeepAliveLeaseScript({
             taskName: next.taskName,
             taskPrefix: next.taskPrefix,
@@ -337,8 +326,8 @@ export class SpriteKeepAliveLeaseService {
     }
 
     /**
-     * Lease-only release: kills the renewer pid, deletes tasks, rewrites
-     * start.sh (legacy convergence) and patches desiredState 'stopped'.
+     * Lease-only release: kills the renewer pid, deletes tasks and patches
+     * desiredState 'stopped'.
      * NEVER calls stopService — this is the no-restart toggle-off and the
      * reconcile loop's only action.
      */
@@ -364,15 +353,6 @@ export class SpriteKeepAliveLeaseService {
             killAppProcesses: false,
             killStartScriptProcesses: false
         })
-        // Legacy start.sh convergence is a service-kind concern; exec-kind
-        // sprites have no managed start.sh to rewrite.
-        if (this.isServiceFramework(runtime.framework))
-            await this.writeStartScript(
-                ctx.client,
-                ctx.spriteName,
-                runtime.id,
-                base
-            )
         const remaining = await this.matchingTasks(
             ctx.client,
             ctx.spriteName,
@@ -935,7 +915,6 @@ export class SpriteKeepAliveLeaseService {
         const script = buildKeepAliveCleanupScript({
             taskName: metadata.taskName,
             taskPrefix: metadata.taskPrefix,
-            legacyTaskNames: metadata.legacyTaskNames,
             stateDir: metadata.stateDir,
             startScriptPath: metadata.startScriptPath,
             killAppProcesses: opts.killAppProcesses,
@@ -1009,7 +988,6 @@ export class SpriteKeepAliveLeaseService {
             const body = JSON.parse(raw) as {
                 tasks?: Array<{ name?: unknown }>
             }
-            const legacy = new Set(metadata.legacyTaskNames)
             return {
                 tasks: (body.tasks ?? [])
                     .map((task) => task.name)
@@ -1017,8 +995,7 @@ export class SpriteKeepAliveLeaseService {
                     .filter(
                         (name) =>
                             name === metadata.taskName ||
-                            name.startsWith(metadata.taskPrefix) ||
-                            legacy.has(name)
+                            name.startsWith(metadata.taskPrefix)
                     )
             }
         } catch (err) {
@@ -1035,10 +1012,9 @@ export class SpriteKeepAliveLeaseService {
         serviceName?: ServiceFramework
         homeDir: string
         exec: string[]
-        legacyTaskNames: string[]
         desiredState: DesiredState
     }): SpriteKeepAliveMetadata {
-        const generation = randomUUID().replace(/-/g, '').slice(0, 12)
+        const generation = createGeneration()
         const taskPrefix = `${PLATFORM_TASK_PREFIX}${input.framework}-${runtimeUnique(input.runtimeId)}-`
         return {
             serviceName: input.serviceName,
@@ -1048,14 +1024,10 @@ export class SpriteKeepAliveLeaseService {
             ttlSec: KEEPALIVE_TTL_SEC,
             refreshSec: KEEPALIVE_REFRESH_SEC,
             desiredState: input.desiredState,
-            // .nca here (not .manyfold) is an on-sprite compatibility
-            // contract: the legacy fused fleet wrote renew.pid under
-            // .nca/keepalive and the shared-pid-file kill path depends on it.
-            // Renaming needs its own convergence story.
+            // Persisted state location shared by the lease and cleanup paths.
             stateDir: `${input.homeDir}/.nca/keepalive`,
             startScriptPath: `${input.homeDir}/start.sh`,
-            exec: input.exec,
-            legacyTaskNames: input.legacyTaskNames
+            exec: input.exec
         }
     }
 
@@ -1064,7 +1036,7 @@ export class SpriteKeepAliveLeaseService {
     ): SpriteKeepAliveMetadata {
         const framework = runtime.framework
         const homeDir = this.homeDirFor(runtime, null)
-        // exec/legacyTaskNames/serviceName are service-supervision concepts;
+        // exec/serviceName are service-supervision concepts;
         // an exec-kind sprite runs a lease-only keep-alive with none of them.
         if (!this.isServiceFramework(framework)) {
             return this.nextMetadata({
@@ -1072,7 +1044,6 @@ export class SpriteKeepAliveLeaseService {
                 framework,
                 homeDir,
                 exec: [],
-                legacyTaskNames: [],
                 desiredState: 'stopped'
             })
         }
@@ -1082,7 +1053,6 @@ export class SpriteKeepAliveLeaseService {
             serviceName: framework,
             homeDir,
             exec: fallbackExec(framework, homeDir),
-            legacyTaskNames: legacyTaskNamesFor(framework),
             desiredState: 'stopped'
         })
     }
@@ -1116,9 +1086,6 @@ export class SpriteKeepAliveLeaseService {
             stateDir: meta.stateDir,
             startScriptPath: meta.startScriptPath,
             exec: meta.exec,
-            legacyTaskNames: Array.isArray(meta.legacyTaskNames)
-                ? meta.legacyTaskNames
-                : legacyTaskNamesFor(meta.serviceName),
             desiredStateAt: meta.desiredStateAt,
             lastVerifiedAt: meta.lastVerifiedAt,
             lastError: meta.lastError
@@ -1254,10 +1221,6 @@ const runtimeUnique = (runtimeId: string): string =>
     runtimeId.includes('_')
         ? runtimeId.split('_').slice(1).join('_')
         : runtimeId
-
-const legacyTaskNamesFor = (
-    framework: ServiceFramework | undefined
-): string[] => (framework ? [`${framework}-keepalive`] : [])
 
 const defaultHomeDir = (framework: AgentFramework): string => {
     switch (framework) {

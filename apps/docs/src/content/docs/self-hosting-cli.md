@@ -128,10 +128,10 @@ MF_DAEMON_AUTO_UPDATE=1 mf daemon start
 
 `mf daemon status` shows whether auto-update is on for that machine.
 
-Keep the CLI reasonably close to the deployment. An administrator can set a
-minimum CLI version, and new API features generally need a CLI that knows about
-them, so upgrading the stack and running `mf update` on your daemon machines
-belong to the same maintenance pass.
+Daemon registration, heartbeat and WebSocket connections require CLI 0.34.0
+or newer. Run `mf update` on daemon machines before upgrading the API.
+An administrator can recommend a higher minimum, but cannot lower this
+protocol baseline. Update channel names are `stable` and `dev`.
 
 ## Checking what you are running
 

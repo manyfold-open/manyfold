@@ -16,7 +16,7 @@ import type { FsEntry, FsEntryType } from '@manyfold/sprites'
 import { envString } from '@/common/config-alias'
 
 const log = new Logger('k8sFiles')
-const DEBUG = envString(['MF_FILES_DEBUG', 'NCA_FILES_DEBUG']) === '1'
+const DEBUG = envString(['MF_FILES_DEBUG']) === '1'
 const K8S_CODING_PVC_ROOT = `${K8S_HOME_BASE}/.manyfold`
 
 export interface K8sDufsPathMapping {

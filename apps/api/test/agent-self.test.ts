@@ -7,259 +7,115 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
     buildCliInstallScript,
-    buildLegacyShellResiduePurgeScript,
     buildShellEnvBlock,
     buildShellEnvScript,
     cliInstallChannelForDeployEnv
 } from '../src/modules/agent-self/sprite-shell-env.service'
 
-test('buildShellEnvScript embeds host env vars and uses block markers', () => {
+test('host env installs before PATH without re-running retired migrations', () => {
     const script = buildShellEnvScript({
-        agentId: 'agt_abc',
-        apiBaseUrl: 'https://api.manyfold.ai/api'
+        apiBaseUrl: 'https://api.example/api'
     })
     assert.match(script, /export MF_API_URL=/)
     assert.match(script, /export MF_DEPLOY_ENV=/)
-    assert.match(script, /mf-env-start/)
-    assert.match(script, /mf-env-end/)
     assert.match(script, /\$HOME\/\.bashrc/)
     assert.match(script, /\$HOME\/\.profile/)
     assert.match(script, /\/etc\/profile\.d\/mf\.sh/)
-    assert.match(script, /# nca-env-start/)
-    assert.match(script, /remove_legacy_undefined_env_block/)
-    assert.match(script, /\$0 == "undefined"/)
-})
-
-// PATH moved out of the env block into its own last-sorting managed block: this
-// one is installed as /etc/profile.d/mf.sh, which the image's node fragment
-// sorts after and clobbers (#611). Provisioning still owns both.
-test('buildShellEnvScript installs the managed PATH block after the env block', () => {
-    const script = buildShellEnvScript({
-        agentId: 'agt_abc',
-        apiBaseUrl: 'https://api.manyfold.ai/api'
-    })
     assert.ok(script.includes(buildManagedPathScript()))
     assert.ok(script.indexOf('mf-env-start') < script.indexOf('mf-path-start'))
     assert.doesNotMatch(
-        buildShellEnvBlock({ agentId: 'agt_abc' }),
-        /export PATH=/
+        script,
+        /nca-env|remove_legacy|purge_identity|command -v nca/
     )
+    assert.doesNotMatch(buildShellEnvBlock({}), /export PATH=/)
 })
 
-test('buildShellEnvScript shell-escapes embedded single quotes', () => {
-    const script = buildShellEnvScript({
-        agentId: 'agt_x',
-        apiBaseUrl: "https://api.test/'odd"
-    })
-    // Single quotes inside an emitted value must be POSIX-escaped to '\''
-    assert.match(script, /https:\/\/api\.test\/'\\''odd/)
-})
-
-test('buildShellEnvScript exports MF_DEPLOY_ENV and defaults to local', () => {
-    const withDeployEnv = buildShellEnvScript({
-        agentId: 'agt_abc',
-        apiBaseUrl: 'https://api.example.com/api',
-        deployEnv: 'staging'
-    })
-    assert.match(withDeployEnv, /export MF_DEPLOY_ENV='staging'/)
-    const withoutDeployEnv = buildShellEnvScript({
-        agentId: 'agt_abc',
-        apiBaseUrl: 'https://api.manyfold.ai/api'
-    })
-    assert.match(withoutDeployEnv, /export MF_DEPLOY_ENV='local'/)
-    assert.doesNotMatch(
-        buildShellEnvBlock({
-            agentId: 'agt_abc',
-            apiBaseUrl: 'https://api.example.com/api',
-            deployEnv: 'staging'
-        }),
-        /\bundefined\b/
-    )
-    assert.doesNotMatch(
-        buildShellEnvBlock({
-            agentId: 'agt_abc',
-            apiBaseUrl: 'https://api.manyfold.ai/api'
-        }),
-        /\bundefined\b/
-    )
-})
-
-test('buildShellEnvBlock stays sourceable when API URL is omitted', () => {
-    const block = buildShellEnvBlock({
-        agentId: "agt_o'malley"
-    })
-    assert.doesNotMatch(block, /\bundefined\b/)
-    assert.doesNotMatch(block, /MF_API_URL/)
-
-    // Source the block from a temp file rather than `. /dev/stdin`: piping the
-    // block to bash's stdin breaks on Linux CI runners ("/dev/stdin: No such
-    // device or address") while still wanting to prove the block sources clean.
+test('host env is sourceable with omitted or shell-sensitive configuration', () => {
     const dir = mkdtempSync(join(tmpdir(), 'mf-env-'))
     const envFile = join(dir, 'env.sh')
-    writeFileSync(envFile, block)
     try {
-        const out = execFileSync(
-            'bash',
-            [
-                '--noprofile',
-                '--norc',
-                '-c',
+        for (const input of [
+            {},
+            { apiBaseUrl: "https://api.example/'literal", deployEnv: 'staging' }
+        ]) {
+            writeFileSync(envFile, buildShellEnvBlock(input))
+            const output = execFileSync(
+                'bash',
                 [
-                    'set -eu',
-                    'HOME=/tmp/manyfold-test-home',
-                    `. "${envFile}"`,
-                    'printf "%s\\n" "$MF_DEPLOY_ENV"'
-                ].join('; ')
-            ],
-            { encoding: 'utf8' }
-        )
-        assert.deepEqual(out.trimEnd().split('\n'), ['local'])
+                    '--noprofile',
+                    '--norc',
+                    '-c',
+                    '. "$1"; printf "%s\\n%s\\n" "${MF_API_URL-}" "$MF_DEPLOY_ENV"',
+                    'test',
+                    envFile
+                ],
+                { encoding: 'utf8', env: { PATH: process.env.PATH } }
+            )
+            assert.deepEqual(output.trimEnd().split('\n'), [
+                input.apiBaseUrl ?? '',
+                input.deployEnv ?? 'local'
+            ])
+        }
     } finally {
         rmSync(dir, { recursive: true, force: true })
     }
 })
 
-test('buildShellEnvBlock never bakes the per-agent token or agent id into the shared profile', () => {
-    const block = buildShellEnvBlock({
-        agentId: 'agt_A',
-        apiBaseUrl: 'https://api.manyfold.ai/api',
-        apiToken: 'nca_rt_secret'
-    })
-    // Identity (MF_API_TOKEN + MF_AGENT_ID) is injected per-exec; the shared
-    // sandbox VM profile carries only host-level env so co-resident agents never
-    // clash on a single identity.
-    assert.doesNotMatch(block, /MF_API_TOKEN/)
-    assert.doesNotMatch(block, /MF_AGENT_ID/)
-    assert.match(block, /export MF_API_URL='https:\/\/api.manyfold.ai\/api'/)
+test('runtime identity cannot enter a shared profile even through extra raw properties', () => {
+    const input = {
+        apiBaseUrl: 'https://api.example/api',
+        agentId: 'agt_secret',
+        apiToken: 'mft_secret'
+    }
+    for (const script of [
+        buildShellEnvBlock(input),
+        buildShellEnvScript(input)
+    ]) {
+        assert.doesNotMatch(
+            script,
+            /MF_API_TOKEN|MF_AGENT_ID|agt_secret|mft_secret/
+        )
+        assert.match(script, /export MF_API_URL='https:\/\/api.example\/api'/)
+    }
 })
 
-test('buildShellEnvBlock omits MF_API_TOKEN when API URL is absent (gate)', () => {
-    const block = buildShellEnvBlock({
-        agentId: 'agt_A',
-        apiToken: 'nca_rt_secret'
-    })
-    assert.doesNotMatch(block, /MF_API_TOKEN/)
-    assert.doesNotMatch(block, /MF_API_URL/)
+test('CLI installers select their channel and preserve an explicit version', () => {
+    for (const channel of ['stable', 'dev'] as const) {
+        const script = buildCliInstallScript(channel, '0.34.0')
+        assert.match(script, /https:\/\/manyfold\.ai\/cli\/install\.sh/)
+        assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
+        assert.match(script, /VERSION="0\.34\.0"/)
+        assert.ok(script.includes(buildManagedPathScript()))
+        assert.doesNotMatch(script, /purge_identity|nca-env/)
+        if (channel === 'dev') {
+            assert.match(
+                script,
+                /\| VERSION="0\.34\.0" MF_CHANNEL=dev MF_INSTALL_DIR=/
+            )
+            assert.match(script, /MF_DEV_CLI_OK/)
+        } else {
+            assert.doesNotMatch(script, /MF_CHANNEL/)
+            assert.match(script, /MF_STABLE_CLI_OK/)
+        }
+    }
 })
 
-test('buildShellEnvBlock omits MF_API_TOKEN when no token is provided', () => {
-    const block = buildShellEnvBlock({
-        agentId: 'agt_A',
-        apiBaseUrl: 'https://api.manyfold.ai/api'
-    })
-    assert.doesNotMatch(block, /MF_API_TOKEN/)
-    assert.match(block, /MF_API_URL/)
-})
-
-test('buildCliInstallScript installs the dev channel over ~/.local/bin/mf', () => {
-    const script = buildCliInstallScript('dev')
-    assert.match(script, /https:\/\/manyfold\.ai\/cli\/install\.sh/)
-    assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
-    assert.match(script, /"\$HOME\/\.local\/bin\/mf" --version/)
-    assert.match(script, /MF_DEV_CLI_OK/)
-})
-
-test('buildCliInstallScript installs the default channel over ~/.local/bin/mf', () => {
-    const script = buildCliInstallScript('stable')
-    assert.match(script, /https:\/\/manyfold\.ai\/cli\/install\.sh/)
-    assert.match(script, /MF_INSTALL_DIR="\$HOME\/\.local\/bin"/)
-    assert.match(script, /"\$HOME\/\.local\/bin\/mf" --version/)
-    assert.match(script, /MF_STABLE_CLI_OK/)
-})
-
-// One installer URL now; the channel rides an env var that install.sh reads to
-// pick which manifest to resolve. A stable install must not carry it at all.
-test('buildCliInstallScript selects the channel by env, not by URL', () => {
-    assert.doesNotMatch(buildCliInstallScript('stable'), /MF_CHANNEL/)
-    assert.match(buildCliInstallScript('dev'), /MF_CHANNEL=dev /)
-    // The env assignment has to sit after the pipe so sh receives it.
-    assert.match(
-        buildCliInstallScript('dev'),
-        /\| MF_CHANNEL=dev MF_INSTALL_DIR=/
-    )
-    assert.match(
-        buildCliInstallScript('dev', '1.2.3'),
-        /\| VERSION="1\.2\.3" MF_CHANNEL=dev MF_INSTALL_DIR=/
-    )
-})
-
-test('cliInstallChannelForDeployEnv maps only the staging deploy env to dev', () => {
+test('only the staging deployment selects the dev install channel', () => {
     assert.equal(cliInstallChannelForDeployEnv('staging'), 'dev')
     assert.equal(cliInstallChannelForDeployEnv('local'), 'stable')
     assert.equal(cliInstallChannelForDeployEnv('production'), 'stable')
 })
 
-// #650: the residue is in world-readable, always-sourced files that no marker
-// can reach, so the cleanup has to name the files it sweeps — including the
-// pre-rename /etc/profile.d/nca.sh, where the drill found a co-resident
-// agent's live token at mode 0644.
-test('the reconcile sweeps every shared shell file a managed write reached', () => {
-    const script = buildLegacyShellResiduePurgeScript()
-    for (const target of [
-        '"$HOME/.bashrc"',
-        '"$HOME/.profile"',
-        '"$HOME/.zshrc"',
-        '"$HOME/.bash_profile"',
-        '"$HOME/.bash_login"',
-        '"$HOME/.zprofile"',
-        '/etc/profile.d/mf.sh',
-        '/etc/profile.d/nca.sh'
-    ])
-        assert.ok(script.includes(target), `${target} is not swept`)
-})
-
-// nca.sh is root-owned and mode 0644; a rewrite that renamed a fresh temp file
-// over it would hand it the umask's mode and could stop an agent shell from
-// reading the managed env at all.
-test('the purge rewrites through the original file, preserving mode', () => {
-    const script = buildLegacyShellResiduePurgeScript()
-    assert.match(script, /cat "\$mf_purge_tmp" > "\$mf_purge_file"/)
-    assert.doesNotMatch(script, /mv .*"\$mf_purge_file"/)
-})
-
-// Identity residue is only safe to remove after the API has migrated every
-// agent on the host to encrypted storage. Generic install scripts therefore
-// carry PATH cleanup only; the two explicit callers opt into identity cleanup
-// after that preflight.
-test('identity residue purge is opt-in', () => {
-    const provision = buildShellEnvScript({
-        agentId: 'agt_abc',
-        apiBaseUrl: 'https://api.manyfold.ai/api'
-    })
-    assert.doesNotMatch(provision, /purge_identity=1/)
-    assert.match(
+test('generated host configuration and install scripts parse in sh and bash', () => {
+    for (const script of [
         buildShellEnvScript({
-            agentId: 'agt_abc',
-            apiBaseUrl: 'https://api.manyfold.ai/api',
-            purgeLegacyIdentity: true
-        }),
-        /purge_identity=1/
-    )
-    for (const channel of ['stable', 'dev'] as const)
-        assert.doesNotMatch(buildCliInstallScript(channel), /purge_identity=1/)
-    for (const channel of ['stable', 'dev'] as const)
-        assert.match(
-            buildCliInstallScript(channel, undefined, {
-                purgeLegacyIdentity: true
-            }),
-            /purge_identity=1/
-        )
-})
-
-test('every generated shell-env script is valid POSIX sh and bash', () => {
-    const scripts = [
-        buildShellEnvScript({
-            agentId: "agt_o'malley",
-            apiBaseUrl: 'https://api.manyfold.ai/api',
-            apiToken: 'mft_secret',
+            apiBaseUrl: "https://api.example/'literal",
             deployEnv: 'staging'
         }),
-        buildShellEnvScript({ agentId: 'agt_abc' }),
+        buildShellEnvScript({}),
         buildCliInstallScript('stable'),
-        buildCliInstallScript('dev', '1.2.3'),
-        buildLegacyShellResiduePurgeScript()
-    ]
-    for (const script of scripts)
+        buildCliInstallScript('dev', '0.34.0')
+    ])
         for (const interpreter of ['bash', 'sh'])
             execFileSync(interpreter, ['-n'], { input: script })
 })

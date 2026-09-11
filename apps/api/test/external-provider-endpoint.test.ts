@@ -66,15 +66,15 @@ test('external provider endpoint normalization can opt into local dev endpoints'
     }
 })
 
-test('external provider endpoint normalization accepts legacy local dev env', async () => {
+test('retired configuration cannot bypass the private endpoint guard', async () => {
     const previousNew = process.env[ENV]
     const previous = process.env[LEGACY_ENV]
     delete process.env[ENV]
     process.env[LEGACY_ENV] = '1'
     try {
-        assert.equal(
-            await normalizeExternalProviderEndpoint('http://localhost:7860/'),
-            'http://localhost:7860'
+        await assert.rejects(
+            () => normalizeExternalProviderEndpoint('http://localhost:7860/'),
+            /host localhost is not allowed/
         )
     } finally {
         if (previousNew === undefined) delete process.env[ENV]

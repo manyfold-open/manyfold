@@ -235,7 +235,7 @@ test('per-agent activation: gemini symlinks into .agents/skills', async () => {
     assert.ok(link)
 })
 
-test('migration: removes the legacy ~/.claude/skills clone that would shadow the symlink', async () => {
+test('activation no longer mutates the shared Claude home skill directory', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
     await materializer.materializeForSprite(input())
@@ -248,10 +248,10 @@ test('migration: removes the legacy ~/.claude/skills clone that would shadow the
                 script.includes('rm -rf') &&
                 script.includes('! -L')
         )
-    assert.ok(rmLegacy)
+    assert.equal(rmLegacy, undefined)
 })
 
-test('migration: legacy clone cleanup targets the .agents dir for codex/gemini', async () => {
+test('activation no longer mutates the shared .agents home skill directory', async () => {
     const materializer = new TestMaterializer([desiredSkill])
 
     await materializer.materializeForSprite(input('codex'))
@@ -264,7 +264,7 @@ test('migration: legacy clone cleanup targets the .agents dir for codex/gemini',
                 script.includes('rm -rf') &&
                 script.includes('! -L')
         )
-    assert.ok(rmLegacy)
+    assert.equal(rmLegacy, undefined)
 })
 
 test('daemon: claude routes to host store + workspace symlink over the daemon RPC', async () => {
@@ -292,9 +292,9 @@ test('daemon: claude routes to host store + workspace symlink over the daemon RP
                 )
         )
     )
-    // legacy cleanup targets the daemon's nca- prefixed home clone
+    // Activation is scoped to this workspace, never the personal home clone.
     assert.ok(
-        materializer.daemonScripts.some(
+        !materializer.daemonScripts.some(
             (s) =>
                 s.includes('/Users/daemon/.claude/skills/nca-pdf-toolkit') &&
                 s.includes('rm -rf')
@@ -362,9 +362,9 @@ test('daemon: codex copies the store skill into the workspace .agents/skills (no
                 s.includes('ln -s') && s.includes('/.agents/skills/pdf-toolkit')
         )
     )
-    // legacy cleanup targets the daemon's nca- prefixed home clone
+    // Activation is scoped to this workspace, never the personal home clone.
     assert.ok(
-        materializer.daemonScripts.some(
+        !materializer.daemonScripts.some(
             (s) =>
                 s.includes('/Users/daemon/.agents/skills/nca-pdf-toolkit') &&
                 s.includes('rm -rf')

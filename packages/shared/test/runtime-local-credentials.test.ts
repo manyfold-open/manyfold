@@ -349,13 +349,13 @@ describe('runtimeLocalCredentialStatus — gemini-cli', () => {
     })
 })
 
-describe('runtimeLocalCredentialStatus — fleet compatibility', () => {
-    it('fails open when a daemon reports no facts', () => {
+describe('runtimeLocalCredentialStatus - required credential evidence', () => {
+    it('refuses readiness when a daemon reports no facts', () => {
         for (const value of [null, undefined]) {
             const result = runtimeLocalCredentialStatus(value, NOW)
-            assert.equal(result.status, 'unknown')
+            assert.equal(result.status, 'missing')
             assert.equal(result.reason, 'not-reported')
-            assert.ok(isRuntimeLocalCredentialUsable(result.status))
+            assert.equal(isRuntimeLocalCredentialUsable(result.status), false)
         }
     })
 
@@ -402,7 +402,7 @@ describe('runtimeLocalCredentialStatus — fleet compatibility', () => {
         } as unknown as CodexCredentialFacts
         assert.equal(
             runtimeLocalCredentialStatus(unknownFramework, NOW).status,
-            'unknown'
+            'missing'
         )
     })
 })

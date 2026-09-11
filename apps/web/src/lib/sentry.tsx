@@ -14,7 +14,6 @@ const dsn = (import.meta.env.VITE_SENTRY_DSN as string | undefined)?.trim()
 
 const environment =
     (import.meta.env.VITE_MF_ENV as string | undefined) ||
-    (import.meta.env.VITE_NCA_ENV as string | undefined) ||
     (import.meta.env.DEV ? 'local' : 'production')
 
 if (dsn) {

@@ -78,6 +78,18 @@ then bring up the rest with the same `MF_API_CRYPTO_KEY`.
 
 ## Upgrades and downgrades
 
+Before upgrading beyond API 4.0.0, update every daemon to CLI 0.34.0 or newer.
+Older installations must first run API 4.0.0 and complete their plan, runtime
+identity, shell and skill migrations. The new release does not run those
+one-time migrations during startup or normal runtime operations.
+
+Rename `WEB_BASE_URL` and `NCA_WEB_URL` to `MF_WEB_URL`, and other retired
+`NCA_*` API configuration aliases to their `MF_*` equivalents. Save A2A turn
+timeouts in Admin settings before removing `A2A_TURN_TIMEOUT_MS`. Replace
+`OPENCLAW_FETCH_TIMEOUT_MS` with the separate `OPENCLAW_HEADERS_TIMEOUT_MS`
+and `OPENCLAW_STREAM_IDLE_TIMEOUT_MS` settings. Retired API keys that remain
+set cause an explicit startup error listing key names only.
+
 Upgrade = move the tree forward and rebuild; migrations apply automatically
 before the new API starts:
 
@@ -108,16 +120,10 @@ there. The symptom is a quota error naming a plan you never chose:
 External API limit reached (3 for Free plan)
 ```
 
-The API repairs this once, on the first start after upgrading: on a
-deployment with no billing module and `MF_DEFAULT_PLAN_ID` set to something
-other than `free`, every account still on `free` moves to that plan. It runs
-exactly once and is recorded in `app_settings`, so a later deliberate
-assignment is never overwritten.
-
-For anything the one-shot repair doesn't cover — an account created after it
-ran, or a deployment that wants different tiers per user — the admin console's
-user detail page has a **Plan** card. To check the current assignment
-directly:
+API 4.0.0 is the upgrade bridge for the former one-time plan repair. Later
+releases preserve existing plan assignments and do not change them at startup.
+Use the admin console's user detail **Plan** card to change an existing
+account. To check the current assignment directly:
 
 ```sh
 docker compose -f docker-compose.selfhost.yml exec postgres \

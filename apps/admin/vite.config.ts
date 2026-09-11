@@ -77,7 +77,7 @@ export default defineConfig({
     },
     server: {
         // MF_DEV_HOST (just dev-host) binds 0.0.0.0; allow Tailscale magic-DNS names
-        host: Boolean(process.env.MF_DEV_HOST || process.env.NCA_DEV_HOST),
+        host: Boolean(process.env.MF_DEV_HOST),
         allowedHosts: ['.ts.net'],
         port: 3001,
         proxy: {

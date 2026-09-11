@@ -629,9 +629,7 @@ export class AdminSettingsService {
     }
 
     // Null when the admin never saved the setting — callers (A2aService) then
-    // fall back to the shared code defaults. (The legacy A2A_TURN_TIMEOUT_MS
-    // env var no longer has a read path; A2aTimeoutEnvMigrationService moves
-    // a still-set value into this row at startup.)
+    // fall back to the shared code defaults.
     async getCachedA2aTurnTimeoutsOverride(): Promise<A2aTurnTimeoutsSettings | null> {
         if (
             this.a2aTurnTimeoutsCache &&

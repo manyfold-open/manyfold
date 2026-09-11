@@ -414,12 +414,9 @@ test('ensureLease never restarts the framework and replaces any existing renewer
         [],
         'ensureLease must not call stopService/startService/getService'
     )
-    // Lease-only cleanup FIRST (kills any legacy fused renewer via the
-    // shared renew.pid so exactly one renewer survives), then the start.sh
-    // rewrite, the detached spawn, and the /v1/tasks verification.
+    // Replace the lease without touching the running service or its reporter.
     assert.deepEqual(execKinds(lease.execCalls), [
         'cleanup',
-        'mv',
         'spawn',
         'tasks'
     ])
@@ -438,7 +435,7 @@ test('ensureLease never restarts the framework and replaces any existing renewer
     assert.ok(meta.lastVerifiedAt, 'verified spawn stamps lastVerifiedAt')
 })
 
-test('releaseLease is lease-only: no stopService, renewer-only kill, start.sh rewritten', async () => {
+test('releaseLease only stops renewal and never rewrites the service', async () => {
     const { lease, patches, events } = makeLease()
     const runtime = baseRuntime({
         capabilitiesJson: {
@@ -452,13 +449,10 @@ test('releaseLease is lease-only: no stopService, renewer-only kill, start.sh re
     // no-restart toggle-off and the reconcile loop's only action.
     assert.deepEqual(res, { verified: true })
     assert.deepEqual(lease.serviceCalls, [])
-    assert.deepEqual(execKinds(lease.execCalls), ['cleanup', 'mv', 'tasks'])
+    assert.deepEqual(execKinds(lease.execCalls), ['cleanup', 'tasks'])
     const cleanup = lease.execCalls[0]
     assert.ok(cleanup.stdin.includes('export KILL_APP_PROCESSES=0'))
-    assert.ok(
-        lease.writes.includes('/home/sprite/.hermes/start.sh.tmp'),
-        'release rewrites start.sh so a fused legacy script can never run again'
-    )
+    assert.deepEqual(lease.writes, [])
     const meta = lastKeepAlive(patches)
     assert.equal(meta.desiredState, 'stopped')
     assert.ok(meta.lastVerifiedAt)
@@ -574,16 +568,13 @@ test('ensureLease releases the lease it spawned when a disable raced it', async 
     await lease.ensureLease(runtime as never)
 
     assert.deepEqual(lease.serviceCalls, [])
-    // ensure (cleanup, mv, spawn, tasks) then the raced-disable release
-    // (cleanup, mv, tasks): the just-spawned renewer is killed
+    // Ensure then the raced-disable release: the just-spawned renewer is killed
     // deterministically instead of leaning on a later Pass A tick.
     assert.deepEqual(execKinds(lease.execCalls), [
         'cleanup',
-        'mv',
         'spawn',
         'tasks',
         'cleanup',
-        'mv',
         'tasks'
     ])
     assert.equal(lastKeepAlive(patches).desiredState, 'stopped')
@@ -656,7 +647,6 @@ test('install stamps desiredState stopped + lastVerifiedAt so a fresh runtime is
         spriteName: 'sprite-x',
         homeDir: '/home/sprite/.hermes',
         exec: ['hermes', 'gateway'],
-        legacyTaskNames: ['hermes-keepalive'],
         reportToken: 'report-token'
     })
 
