@@ -2565,7 +2565,6 @@ const zh: Translations = {
             streamingEsc: '生成中… 按 Esc 取消',
             launchpad: {
                 heading: '你想先让它完成什么？',
-                tryTask: '试试一个真实任务',
                 workflowTitle: '让它进入你的工作流',
                 recommended: '推荐',
                 actions: {
@@ -2573,95 +2572,39 @@ const zh: Translations = {
                     view: '查看',
                     connect: '连接',
                     create: '创建',
-                    open: '打开',
+                    open: '去设置',
                     check: '检查',
                     github: {
                         title: '连接 GitHub',
-                        body: '让这个 Agent 能访问你的代码仓库'
+                        body: '关联 GitHub 账号，让它能访问你的仓库'
                     },
                     skills: {
-                        title: '安装推荐技能',
-                        body: '为这个 Agent 添加专项能力'
+                        title: '安装技能',
+                        body: '从共享目录里给这个 Agent 添加专项能力'
                     },
                     mcp: {
                         title: '添加 MCP 工具',
-                        body: '接入这个 Agent 可以调用的外部工具'
+                        body: '为这个 Agent 配置 MCP 服务器，用它自己的配置语法'
                     },
                     channel: {
-                        title: '连接飞书 / Lark',
-                        body: '在聊天里直接使用这个 Agent · 约一分钟'
+                        title: '连接{{provider}}',
+                        body: '在你本来就在用的聊天软件里直接使用这个 Agent'
                     },
                     automation: {
                         title: '定时自动运行',
                         body: '让任务自动执行，并把结果发到渠道'
                     },
                     native: {
-                        title: '打开原生工作台',
-                        body: '管理这个框架自有的能力与配置'
+                        title: '开启框架自带的面板',
+                        body: '框架自己的 Web 界面，首次开启时才会构建'
                     },
                     provider: {
-                        title: '检查外部连接',
-                        body: '确认服务方、凭证和远端应用都可用'
+                        title: '检查外部服务方',
+                        body: '确认这个 Agent 实际调用的 Dify 或 Langflow 端点'
                     },
                     a2a: {
                         title: '配置 A2A',
                         body: '检查 Agent Card、授权方式与任务调用'
-                    }
-                },
-                prompts: {
-                    claudeCode: {
-                        architecture:
-                            '读一遍这个工作区，概括这个项目，并给我三个下一步建议。',
-                        checks: '跑一遍测试，解释第一个失败的原因，先不要改代码。',
-                        improvement:
-                            '找一个收益高、风险低的改进，并写出执行计划。'
-                    },
-                    codex: {
-                        developmentPath:
-                            '读一遍这个工作区，告诉我这个项目正在往哪个方向走。',
-                        reviewChanges:
-                            '审一遍还没提交的改动，告诉我哪里可能出问题。',
-                        smallImprovement:
-                            '挑一个小而边界清晰的改进，并写出执行计划。'
-                    },
-                    gemini: {
-                        architecture:
-                            '带我过一遍这个项目的结构，以及复杂度集中在哪里。',
-                        screenshot:
-                            '我会附一张截图 —— 告诉我是哪段代码渲染出来的。',
-                        tests: '找出没有测试覆盖的代码路径，并按风险排序。'
-                    },
-                    hermes: {
-                        plan: '把这个目标拆成一份计划，写清负责人、顺序和待定问题。',
-                        research: '调研这个题目，把结论和信息来源一起给我。',
-                        brief: '起草一份我今天就能发出去的简报，再列出你做了哪些假设。'
-                    },
-                    openclaw: {
-                        briefing: '问我你需要了解的工作情况，一次问一个问题。',
-                        tasks: '这是我这周的安排 —— 整理成一份带优先级的任务清单。',
-                        automation: '给我三件值得定时自动跑起来的事。'
-                    },
-                    narranexus: {
-                        plan: '把这个目标按角色拆开，告诉我谁先做什么。',
-                        review: '让团队交叉评审这份计划，把分歧点摆出来。',
-                        context: '概括一下这个项目里团队需要长期记住的东西。'
-                    },
-                    dify: {
-                        capabilities:
-                            '告诉我这个应用接受什么输入、会返回什么。',
-                        test: '端到端跑一次最小请求，把原始输出给我看。',
-                        missingInput: '告诉我调用前还缺哪些必填输入。'
-                    },
-                    langflow: {
-                        contract: '用平实的话说明这个 Flow 的输入输出约定。',
-                        test: '用一个清晰的输入跑一次 Flow，把返回结果给我看。',
-                        missingInput:
-                            '告诉我这个 Flow 会拒绝什么，以及它怎么报错。'
-                    },
-                    a2a: {
-                        card: '读一遍 Agent Card，告诉我实际声明了哪些能力。',
-                        task: '发一个最小任务，把完整响应给我看。',
-                        delegate: '说明怎么从另一个 Agent 把工作委派给它。'
                     }
                 }
             },

@@ -3,8 +3,10 @@ import assert from 'node:assert/strict'
 import { tForLanguage } from '@manyfold/i18n'
 import type { AgentFramework } from '@manyfold/shared'
 import {
+    channelPoolFor,
     NEW_CHAT_LAUNCHPAD_CONFIG,
-    newChatLaunchpadConfigFor
+    newChatLaunchpadConfigFor,
+    pickChannelProvider
 } from '../src/lib/newChatLaunchpad'
 
 const FRAMEWORKS = [
@@ -25,16 +27,6 @@ const configFor = (framework: AgentFramework) => {
     return config
 }
 
-test('every framework has three unique starter prompts', () => {
-    const promptSets = FRAMEWORKS.map((framework) => {
-        const prompts = configFor(framework).promptKeys
-        assert.equal(prompts.length, 3)
-        return prompts.join('|')
-    })
-
-    assert.equal(new Set(promptSets).size, FRAMEWORKS.length)
-})
-
 test('the recommended action always leads the row order', () => {
     for (const framework of FRAMEWORKS) {
         const config = configFor(framework)
@@ -43,6 +35,27 @@ test('the recommended action always leads the row order', () => {
             config.actionIds[0],
             `${framework} badges a row the order does not lead with`
         )
+    }
+})
+
+test('the channel draw stays inside the pool its market uses', () => {
+    assert.deepEqual(channelPoolFor('zh'), ['weixin', 'feishu'])
+    for (const language of ['en', 'ja', 'ar'])
+        assert.deepEqual(channelPoolFor(language), [
+            'slack',
+            'telegram',
+            'whatsapp'
+        ])
+
+    // Random, so assert the contract rather than a value: every draw is in the
+    // pool, and over enough draws the row is not secretly pinned to one of them.
+    for (const language of ['zh', 'en']) {
+        const pool = channelPoolFor(language)
+        const drawn = new Set(
+            Array.from({ length: 400 }, () => pickChannelProvider(language))
+        )
+        for (const provider of drawn) assert.ok(pool.includes(provider))
+        assert.equal(drawn.size, pool.length)
     }
 })
 
@@ -82,14 +95,12 @@ test('framework actions respect supported capability boundaries', () => {
 test('every launchpad string the UI renders resolves in English and Chinese', () => {
     const keys = new Set<string>([
         'web.chat.launchpad.heading',
-        'web.chat.launchpad.tryTask',
         'web.chat.launchpad.workflowTitle',
         'web.chat.launchpad.recommended'
     ])
     // The component interpolates the action id into these two keys, so the
     // catalog key scan in i18nCompleteness cannot see them.
     for (const config of Object.values(NEW_CHAT_LAUNCHPAD_CONFIG)) {
-        for (const prompt of config.promptKeys) keys.add(prompt)
         for (const id of config.actionIds) {
             keys.add(`web.chat.launchpad.actions.${id}.title`)
             keys.add(`web.chat.launchpad.actions.${id}.body`)

@@ -131,15 +131,6 @@ interface Props {
     // Fired when the user shows intent to send (composer focus); AgentChat
     // uses it to prewarm the sprite so VM resume overlaps typing time.
     onComposeIntent?: () => void
-    suggestion?: ComposerSuggestion | null
-    // Fires on the empty/non-empty flip only, so the parent can retire UI
-    // that would overwrite a draft (the new-chat starter prompts).
-    onHasTextChange?: (hasText: boolean) => void
-}
-
-export interface ComposerSuggestion {
-    id: number
-    text: string
 }
 
 export interface ComposerAgentOption {
@@ -222,9 +213,7 @@ const Composer: FC<Props> = ({
     draftKey = null,
     onRemoveContextRef,
     dropTargetRef,
-    onComposeIntent,
-    suggestion = null,
-    onHasTextChange
+    onComposeIntent
 }): ReactNode => {
     const { t } = useI18n()
     const { confirm, confirmDialog } = useProductConfirm()
@@ -289,18 +278,6 @@ const Composer: FC<Props> = ({
         const node = textareaRef.current
         if (node) resizeComposerInput(node)
     }, [text])
-
-    const hasText = text.trim().length > 0
-    useEffect(() => {
-        onHasTextChange?.(hasText)
-    }, [hasText, onHasTextChange])
-
-    useEffect(() => {
-        if (!suggestion) return
-        setText(suggestion.text)
-        textareaRef.current?.focus()
-        onComposeIntent?.()
-    }, [onComposeIntent, suggestion])
 
     useEffect(() => {
         const onWindowResize = (): void => {

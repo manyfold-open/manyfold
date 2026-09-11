@@ -2647,7 +2647,6 @@ const en = {
             streamingEsc: 'Streaming… Esc to cancel',
             launchpad: {
                 heading: 'What should it work on first?',
-                tryTask: 'Try a real task',
                 workflowTitle: 'Bring it into your workflow',
                 recommended: 'Recommended',
                 actions: {
@@ -2655,102 +2654,39 @@ const en = {
                     view: 'View',
                     connect: 'Connect',
                     create: 'Create',
-                    open: 'Open',
+                    open: 'Set up',
                     check: 'Check',
                     github: {
                         title: 'Connect GitHub',
-                        body: 'Give this agent access to your repositories'
+                        body: 'Link a GitHub account so it can reach your repositories'
                     },
                     skills: {
-                        title: 'Install recommended skills',
-                        body: 'Add specialized capabilities to this agent'
+                        title: 'Install skills',
+                        body: 'Give this agent specialized capabilities from the shared catalog'
                     },
                     mcp: {
                         title: 'Add MCP tools',
-                        body: 'Connect external tools this agent can call'
+                        body: 'Point this agent at MCP servers, written in its own config syntax'
                     },
                     channel: {
-                        title: 'Connect Lark',
-                        body: 'Use this agent from chat · about a minute'
+                        title: 'Connect {{provider}}',
+                        body: 'Use this agent from the chat app you already live in'
                     },
                     automation: {
                         title: 'Run it on a schedule',
                         body: 'Run a task automatically and send the result to a channel'
                     },
                     native: {
-                        title: 'Open the native workbench',
-                        body: 'Manage the capabilities and configuration this framework owns'
+                        title: 'Turn on the framework dashboard',
+                        body: 'Its own web UI, built the first time you enable it'
                     },
                     provider: {
-                        title: 'Check the external connection',
-                        body: 'Confirm the provider, its credentials, and the remote app'
+                        title: 'Check the external provider',
+                        body: 'Confirm the Dify or Langflow endpoint this agent runs against'
                     },
                     a2a: {
                         title: 'Configure A2A',
                         body: 'Review the Agent Card, authorization, and task calls'
-                    }
-                },
-                prompts: {
-                    claudeCode: {
-                        architecture:
-                            'Read this workspace, summarize the project, and suggest three next steps.',
-                        checks: 'Run the tests and explain the first failure without changing any code.',
-                        improvement:
-                            'Find one high-impact, low-risk improvement and write the plan for it.'
-                    },
-                    codex: {
-                        developmentPath:
-                            'Read this workspace and tell me where the project is heading.',
-                        reviewChanges:
-                            'Review the uncommitted changes and tell me what could break.',
-                        smallImprovement:
-                            'Pick one small, well-scoped improvement and write the plan for it.'
-                    },
-                    gemini: {
-                        architecture:
-                            'Walk me through this project structure and where the complexity sits.',
-                        screenshot:
-                            'I will attach a screenshot — tell me which code renders it.',
-                        tests: 'Find the code paths with no test coverage and rank them by risk.'
-                    },
-                    hermes: {
-                        plan: 'Turn this goal into a plan with owners, order, and open questions.',
-                        research:
-                            'Research this topic and give me the findings with sources.',
-                        brief: 'Draft a brief I can send today, then list what you assumed.'
-                    },
-                    openclaw: {
-                        briefing:
-                            'Ask me what you need to know about my work, one question at a time.',
-                        tasks: 'Here is my week — turn it into a task list with priorities.',
-                        automation:
-                            'Suggest three things worth running on a schedule for me.'
-                    },
-                    narranexus: {
-                        plan: 'Split this goal across roles and tell me who does what first.',
-                        review: 'Have the team cross-review this plan and surface the disagreements.',
-                        context:
-                            'Summarize what the team should remember about this project.'
-                    },
-                    dify: {
-                        capabilities:
-                            'Tell me what this app accepts as input and what it returns.',
-                        test: 'Run one minimal request end to end and show me the raw output.',
-                        missingInput:
-                            'Tell me which required inputs are missing before I can call this.'
-                    },
-                    langflow: {
-                        contract:
-                            'Describe this Flow input and output contract in plain terms.',
-                        test: 'Run the Flow once with a clear input and show me what came back.',
-                        missingInput:
-                            'Tell me what this Flow rejects and how it reports an error.'
-                    },
-                    a2a: {
-                        card: 'Read the Agent Card and tell me which skills are actually declared.',
-                        task: 'Send one minimal task and show me the full response.',
-                        delegate:
-                            'Explain how to delegate work to this agent from another agent.'
                     }
                 }
             },

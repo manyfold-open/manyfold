@@ -2,4 +2,4 @@
 '@manyfold/web': patch
 ---
 
-Add framework-specific onboarding prompts and one-click setup actions to the new chat view.
+Point the new chat view at the setup each framework actually needs — connect a channel, install skills, add MCP tools, check an external provider — with the recommended step leading the list.

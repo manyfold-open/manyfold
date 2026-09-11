@@ -95,7 +95,6 @@ import { matchesKeyboardShortcut } from '@/lib/keyboardShortcuts'
 import Composer, {
     type ComposerAgentOption,
     type ComposerContextRef,
-    type ComposerSuggestion,
     type ComposerSendAttachment,
     type ComposerSendHelpers
 } from '@/components/chat/Composer'
@@ -296,9 +295,6 @@ const AgentChat: FC = (): ReactNode => {
     const olderMessagesAbortRef = useRef<AbortController | null>(null)
     const activeSessionId = searchParams.get('sessionId')
     const [shareSessionOpen, setShareSessionOpen] = useState(false)
-    const [composerSuggestion, setComposerSuggestion] =
-        useState<ComposerSuggestion | null>(null)
-    const [composerHasText, setComposerHasText] = useState(false)
     const activeSession = activeSessionId
         ? (sessions.find((session) => session.id === activeSessionId) ?? null)
         : null
@@ -2217,8 +2213,6 @@ const AgentChat: FC = (): ReactNode => {
             contextRefs={composerContextRefs}
             draftKey={draftKey}
             onRemoveContextRef={handleRemoveComposerContextRef}
-            suggestion={composerSuggestion}
-            onHasTextChange={setComposerHasText}
         />
     )
 
@@ -2442,16 +2436,7 @@ const AgentChat: FC = (): ReactNode => {
                                     )}
                                 </div>
                                 {showEmptyState && (
-                                    <NewChatLaunchpad
-                                        agent={currentAgent}
-                                        showPrompts={!composerHasText}
-                                        onSelectPrompt={(text) =>
-                                            setComposerSuggestion((current) => ({
-                                                id: (current?.id ?? 0) + 1,
-                                                text
-                                            }))
-                                        }
-                                    />
+                                    <NewChatLaunchpad agent={currentAgent} />
                                 )}
                             </div>
                         </div>
