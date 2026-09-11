@@ -51,8 +51,8 @@ const RUNNER_PROBE_PATH = profilePaths(
     RUNNER_PROFILE
 ).daemonConfigPath
 
-// The runner token authenticates EVERY websocket connect (it rides in the ws
-// URL), not just the one-off register — a short TTL therefore bricks the runner
+// The runner token authenticates EVERY websocket connect through its bearer
+// header, not just the one-off register — a short TTL therefore bricks the runner
 // a day later, which is exactly what happened on staging: `ws closed code=4401
 // reason=unauthorized`, and inspectSprite kept reporting registered=1 so it
 // never re-registered. Match the user-daemon default instead.
@@ -66,12 +66,9 @@ const POLL_INTERVAL_MS = 500
 // The awake lease bounds the leak when the owning instance dies mid-turn: the
 // sprite keeps executing (that is the whole point) but suspends on its own soon
 // after. Renewed at a third of the TTL so a single failed renew is not fatal.
-// Below this the daemon lacks the #519 CLI half: its exec-buffer hello drops
-// completed streams after 5 minutes and cannot assert hello.inflight-authoritative,
-// so the first API restart after a slow delivery converges an already-successful
-// turn as unresumable (#518). 0.21.0 capabilities (turn.start, dial-first
-// framework detection) are implied.
-const RUNNER_MIN_CLI = '0.22.3'
+// The first stable CLI with header authentication. This floor also upgrades
+// older sprite filesystems when they resume after query auth is retired.
+const RUNNER_MIN_CLI = '0.34.0'
 const AWAKE_TTL = '30m'
 const AWAKE_RENEW_MS = 10 * 60_000
 // A stale runner connection can sit inside the presence grace window looking
@@ -999,7 +996,7 @@ export class RunnerManagerService {
                     'bash',
                     '-lc',
                     `MF_PROFILE=${RUNNER_PROFILE} "$HOME/.local/bin/mf" --api-url ${this.apiUrl()} ` +
-                        `daemon register --token - --name ${shellQuote(runnerHostName(args.spriteName))} -y`
+                        `daemon register --token - --name ${shellQuote(runnerHostName(args.spriteName))}`
                 ],
                 stdin: minted.plaintext,
                 timeoutMs: 180_000
@@ -1008,10 +1005,9 @@ export class RunnerManagerService {
                 await this.discardUnboundToken(minted.tokenId, args)
                 throw err
             })
-        // `-y` also tries to install an autostart unit, which fails on a sprite
-        // (no systemd) and is expected — registration itself is what matters.
-        const ok =
-            res.exitCode === 0 || res.stdout.includes('daemon registered')
+        // Seen on staging [2026-09-10]: -y stopped the manual runner before
+        // failing to install an init unit. The platform starts it explicitly.
+        const ok = res.exitCode === 0
         const detail = redactCredentialText(
             `${res.stdout} ${res.stderr}`
         ).slice(0, 400)

@@ -200,7 +200,7 @@ const buildResolver = (opts: {
               status: 'active',
               managed: true,
               cliVersion:
-                  opts.cliVersion === undefined ? '0.30.0' : opts.cliVersion,
+                  opts.cliVersion === undefined ? '0.34.0' : opts.cliVersion,
               workspaceBaseDir:
                   opts.workspaceBaseDir === undefined
                       ? '/home/node/.manyfold/workspaces'
@@ -285,7 +285,7 @@ test('a pod runner below the CLI floor is not used', async () => {
     // pod-exec until the image moves.
     const { service } = buildResolver({
         hostName: podRunnerHostName('art_pod'),
-        cliVersion: '0.21.0'
+        cliVersion: '0.33.1'
     })
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',

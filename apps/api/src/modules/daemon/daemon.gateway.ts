@@ -17,10 +17,6 @@ import { DaemonHostService } from './daemon-host.service'
 import { DaemonRegistryService } from './daemon-registry.service'
 import { DaemonExecResumeService } from './daemon-exec-resume.service'
 
-interface DaemonWsQuery {
-    token?: string
-}
-
 const PING_INTERVAL_MS = 25_000
 const PONG_TIMEOUT_MS = 35_000
 
@@ -76,14 +72,8 @@ export class DaemonGateway implements OnModuleInit {
         earlyMessages: unknown[],
         earlyMessageListener: (raw: unknown) => void
     ): Promise<void> {
-        const query = (req.query ?? {}) as DaemonWsQuery
         const authorization = req.headers?.authorization
-        const token =
-            authorization !== undefined
-                ? /^Bearer\s+(\S+)$/i.exec(authorization)?.[1]
-                : typeof query.token === 'string'
-                  ? query.token.trim()
-                  : undefined
+        const token = /^Bearer\s+(\S+)$/i.exec(authorization ?? '')?.[1]
         if (!token) {
             socket.close(4400, 'missing token')
             return
@@ -111,9 +101,6 @@ export class DaemonGateway implements OnModuleInit {
             socket.close(4403, 'daemon revoked')
             return
         }
-
-        if (authorization === undefined)
-            this.log.warn(`daemon.ws.legacy_query_auth daemonId=${host.id}`)
 
         const runtimes = await this.db
             .select()
