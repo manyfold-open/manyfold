@@ -25,7 +25,7 @@ import { ConnectA2aService } from '../src/modules/connect-a2a/connect-a2a.servic
 // isActiveExternalA2aGrant for exactly its own target.
 // Env-gated like the other *.pg.test.ts:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     node --import tsx --test --test-force-exit test/connect-a2a.pg.test.ts
+//     node --import tsx --test test/connect-a2a.pg.test.ts
 // against a migrated DB (`just db-migrate`).
 const RUN = process.env.RUN_PG_E2E === '1'
 

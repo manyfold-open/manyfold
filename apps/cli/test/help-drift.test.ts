@@ -96,10 +96,7 @@ test('topic registry maps stay aligned with the topic list', () => {
 
 const SUBCOMMAND_DOC_SKIPS: Record<string, string[]> = {
     channels: ['create'],
-    agent: ['model-config'],
-    // Hidden deprecated aliases kept for already-provisioned agents; the doc
-    // points to send/status/tasks instead.
-    a2a: ['call', 'stream', 'peers']
+    agent: ['model-config']
 }
 
 test('topic docs mention every subcommand of their mapped commands', () => {

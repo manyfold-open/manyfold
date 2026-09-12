@@ -83,6 +83,20 @@ mf --agent-id agt_xxx a2a callers list
 Exposure and caller grants are separate controls. Creating a caller does not
 enable public exposure.
 
+## Upgrade older scripts
+
+The deprecated `call`, `stream`, and `peers` commands are no longer available.
+Update saved scripts and Agent instructions before upgrading the CLI:
+
+| Previous command | Supported command |
+| --- | --- |
+| `mf a2a call <target> <prompt>` | `mf a2a send <target> <prompt>` |
+| `mf a2a stream <url> <prompt>` | `mf a2a send <url> <prompt> --stream` |
+| `mf a2a peers` | `mf a2a status` |
+
+`status --json` returns an object with `peers` and `inflight` arrays. Scripts
+that previously read the `peers --json` array must read the `peers` field.
+
 ## See also
 
 - [Call agents over A2A](/docs/api-a2a/)

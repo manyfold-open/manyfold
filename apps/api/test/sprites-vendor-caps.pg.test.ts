@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { appSettings, createDb, type Database } from '@manyfold/db'
 import {
@@ -24,10 +24,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     await db
         .delete(appSettings)
         .where(eq(appSettings.key, SPRITES_VENDOR_CAPS_SETTING_KEY))
@@ -53,8 +54,8 @@ const observation = (slug: string, patch: Record<string, unknown> = {}) => ({
     ...patch
 })
 
-test('recording a second account preserves the first', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('recording a second account preserves the first', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const a = `spa_${randomBytes(4).toString('hex')}`
         const b = `spa_${randomBytes(4).toString('hex')}`
@@ -80,8 +81,8 @@ test('recording a second account preserves the first', { skip: !RUN }, async () 
     }
 })
 
-test('re-recording one account updates it in place', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('re-recording one account updates it in place', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const a = `spa_${randomBytes(4).toString('hex')}`
         await h.svc.recordSpritesVendorCapacity(a, observation('acct-a', { warm: 1 }))
@@ -97,8 +98,8 @@ test('re-recording one account updates it in place', { skip: !RUN }, async () =>
     }
 })
 
-test('an unchanged fresh observation is skipped', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('an unchanged fresh observation is skipped', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const a = `spa_${randomBytes(4).toString('hex')}`
         assert.equal(await h.svc.recordSpritesVendorCapacity(a, observation('acct-a')), true)
@@ -110,8 +111,8 @@ test('an unchanged fresh observation is skipped', { skip: !RUN }, async () => {
 
 // The policy row and the vendor row are separate keys on purpose; a PUT to the
 // admin cap must not disturb the observation the sync loop owns.
-test('updating the policy cap leaves the vendor observation intact', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('updating the policy cap leaves the vendor observation intact', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const a = `spa_${randomBytes(4).toString('hex')}`
         await h.svc.recordSpritesVendorCapacity(a, observation('acct-a', { runningLimit: 10 }))

@@ -16,6 +16,7 @@
         "format": "prettier --write . && eslint . --fix",
         "format:check": "prettier --check .",
         "migrations:check": "node --test scripts/check-migration-ownership.test.mjs && node scripts/check-migration-ownership.mjs",
+        "force-exit:check": "node --test scripts/check-force-exit.test.mjs && node scripts/check-force-exit.mjs",
         "sealed-env:check": "node --test scripts/test-sealed-env.test.mjs",
         "changeset-presence:check": "node --test scripts/check-changeset-presence.test.mjs && node scripts/check-changeset-presence.mjs",
         "cli-content:check": "pnpm --filter @manyfold/docs check:cli-content",

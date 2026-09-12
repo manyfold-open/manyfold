@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { inArray, like } from 'drizzle-orm'
 import {
     BadRequestException,
@@ -36,10 +36,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(6).toString('hex')
     const categories = new CatalogCategoriesService(db)
     const catalog = new McpCatalogService(db, categories)
@@ -76,8 +77,8 @@ const entryBody = (
 
 test('mcp catalog admin create validates transport, slug and category', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         await assert.rejects(
             h.catalog.adminCreate(entryBody(h, 'nourl', { url: undefined })),
@@ -128,8 +129,8 @@ test('mcp catalog admin create validates transport, slug and category', {
 
 test('mcp catalog public list filters, sorts and paginates', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const category = await h.categories.create({
             domain: 'mcp',
@@ -226,8 +227,8 @@ test('mcp catalog public list filters, sorts and paginates', {
 
 test('mcp catalog category delete clears references and CRUD round-trips', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const category = await h.categories.create({
             domain: 'mcp',
@@ -264,8 +265,8 @@ test('mcp catalog category delete clears references and CRUD round-trips', {
 
 test('mcp catalog admin update revalidates the merged transport shape', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const entry = await h.catalog.adminCreate(entryBody(h, 'merge'))
         await assert.rejects(

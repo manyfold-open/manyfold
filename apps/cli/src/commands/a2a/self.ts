@@ -180,7 +180,7 @@ export interface ResolvedPeerCall {
 }
 
 // List peers, match the requested one, and mint a per-call bearer — the full
-// resolution `mf a2a call` needs. Returns an `error` string for any failure so
+// resolution `mf a2a send` needs. Returns an `error` string for any failure so
 // the command can print it and exit without try/catch threading.
 export const resolvePeerForCall = async (
     global: GlobalAuthOpts,
@@ -190,7 +190,7 @@ export const resolvePeerForCall = async (
         const match = findSelfPeer(await fetchSelfPeers(global), ref)
         if (!match)
             return {
-                error: `no granted peer matching "${ref}" — run \`mf a2a peers\` to list`
+                error: `no granted peer matching "${ref}" — run \`mf a2a status\` to list`
             }
         const minted = await mintSelfPeerToken(global, match.agentId)
         return {

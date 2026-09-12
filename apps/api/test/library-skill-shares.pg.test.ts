@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
 import { NotFoundException } from '@nestjs/common'
 import {
@@ -35,10 +35,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(6).toString('hex')
     const ownerId = `user_pgshare_a_${suffix}`
     const recipientId = `user_pgshare_b_${suffix}`
@@ -88,8 +89,8 @@ const createSkill = async (h: Harness, name: string): Promise<string> => {
 
 test('createShare is idempotent and revoke+create rotates the id', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const skillId = await createSkill(h, `pgshare-${h.suffix}`)
         const first = await h.shares.createShare(h.ownerId, skillId)
@@ -123,8 +124,8 @@ test('createShare is idempotent and revoke+create rotates the id', {
 
 test('share ownership and resolve are strict: foreign owner 404s, revoked/unknown resolve null', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const skillId = await createSkill(h, `pgshare-${h.suffix}`)
         await assert.rejects(
@@ -151,8 +152,8 @@ test('share ownership and resolve are strict: foreign owner 404s, revoked/unknow
     }
 })
 
-test('public preview exposes only the shared surface', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('public preview exposes only the shared surface', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const name = `pgshare-${h.suffix}`
         const skillId = await createSkill(h, name)
@@ -182,8 +183,8 @@ test('public preview exposes only the shared surface', { skip: !RUN }, async () 
     }
 })
 
-test('sharedBy falls back to null, never the email', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('sharedBy falls back to null, never the email', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         await h.db
             .update(users)
@@ -200,8 +201,8 @@ test('sharedBy falls back to null, never the email', { skip: !RUN }, async () =>
 
 test('import by share clones into the recipient library and counts imports', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const name = `pgshare-${h.suffix}`
         const skillId = await createSkill(h, name)
@@ -243,8 +244,8 @@ test('import by share clones into the recipient library and counts imports', {
 
 test('self-import conflicts like any same-name import and rename resolves it', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const name = `pgshare-${h.suffix}`
         const skillId = await createSkill(h, name)
@@ -270,8 +271,8 @@ test('self-import conflicts like any same-name import and rename resolves it', {
 
 test('deleting the skill cascades the share away; revoked share import 404s', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const skillId = await createSkill(h, `pgshare-${h.suffix}`)
         const share = await h.shares.createShare(h.ownerId, skillId)

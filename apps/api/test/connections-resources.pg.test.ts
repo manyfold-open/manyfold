@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { BadGatewayException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -51,10 +51,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
     await db
@@ -90,8 +91,8 @@ const insertGithubConnection = async (h: Harness): Promise<string> => {
     return id
 }
 
-test('githubRepos lists via the stored installation id and keeps the stored selection', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('githubRepos lists via the stored installation id and keeps the stored selection', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const seen: string[] = []
         const svc = makeService(h.db, {
@@ -130,8 +131,8 @@ test('githubRepos lists via the stored installation id and keeps the stored sele
     }
 })
 
-test('githubRepos surfaces an upstream failure as 502', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('githubRepos surfaces an upstream failure as 502', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db, {
             github: {
@@ -150,8 +151,8 @@ test('githubRepos surfaces an upstream failure as 502', { skip: !RUN }, async ()
     }
 })
 
-test('cloudflareResources decrypts the token and passes sections through', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('cloudflareResources decrypts the token and passes sections through', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const seen: { token: string; accountId: string }[] = []
         const resources: CloudflareResources = {
@@ -199,8 +200,8 @@ test('cloudflareResources decrypts the token and passes sections through', { ski
     }
 })
 
-test('composioTools uses the decrypted key and maps upstream failure to 502', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('composioTools uses the decrypted key and maps upstream failure to 502', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const seen: string[] = []
         let fail = false
