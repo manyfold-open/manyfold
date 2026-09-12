@@ -31,7 +31,7 @@ import type { DaemonRegistryService } from '../src/modules/daemon/daemon-registr
 //
 // Real Postgres because findOpenTurns is real SQL.
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     pnpm --filter @manyfold/api test -- --test-force-exit
+//     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
 
 class FastRecheckService extends DaemonExecResumeService {

@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq, like } from 'drizzle-orm'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import {
@@ -80,10 +80,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(6).toString('hex')
     const repoOwner = `pgtest-${suffix}`
     const userId = `user_pgtest_${suffix}`
@@ -145,8 +146,8 @@ const insertSkill = async (
 
 test('skills discover keeps the legacy bare-array contract minus hidden rows', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         await insertSkill(h, 'bravo')
         await insertSkill(h, 'alpha')
@@ -167,8 +168,8 @@ test('skills discover keeps the legacy bare-array contract minus hidden rows', {
 
 test('skills discoverPage filters, sorts, escapes and paginates', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const category = await h.categories.create({
             domain: 'skill',
@@ -261,8 +262,8 @@ test('skills discoverPage filters, sorts, escapes and paginates', {
 
 test('skills detail 404s for hidden and out-of-repo-set rows', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const visibleId = await insertSkill(h, 'visible')
         const hiddenId = await insertSkill(h, 'hidden', { hidden: true })
@@ -299,8 +300,8 @@ test('skills detail 404s for hidden and out-of-repo-set rows', {
 
 test('skills admin curation patches only curation fields and survives re-discovery', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const id = await insertSkill(h, 'curate')
         const skillCategory = await h.categories.create({
@@ -390,8 +391,8 @@ test('skills admin curation patches only curation fields and survives re-discove
 
 test('upsert does not crash on real PG and respects scan TTL when revision unchanged (#431)', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const id = h.skillId('ttl-probe')
         const scanRow = (rev: string): ScannedSkillSummary => ({
@@ -488,4 +489,3 @@ test('upsert does not crash on real PG and respects scan TTL when revision uncha
         await h.close()
     }
 })
-

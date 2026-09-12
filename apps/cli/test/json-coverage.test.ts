@@ -167,6 +167,49 @@ const json = (body: unknown, status = 200): Response =>
         headers: { 'content-type': 'application/json' }
     })
 
+test('a2a status --json returns peers alongside in-flight tasks', async () => {
+    const peers = [{ agentId: 'agt_peer', name: 'Research' }]
+    const tasks = [{ id: 'task_1', state: 'working' }]
+    const urls: string[] = []
+    const result = await runCli(['a2a', 'status', '--json'], (async (input) => {
+        const url = String(input)
+        urls.push(url)
+        if (url.includes('/a2a/peers?')) return json(peers)
+        if (url.includes('/a2a/tasks?'))
+            return json({ tasks, nextCursor: null })
+        throw new Error(`unexpected request ${url}`)
+    }) as typeof fetch)
+    assert.equal(result.exitCode, 0)
+    assert.deepEqual(JSON.parse(result.out.join('\n')), {
+        peers,
+        inflight: tasks
+    })
+    assert.equal(urls.length, 2)
+    assert.ok(
+        urls.every(
+            (url) => new URL(url).searchParams.get('agentId') === 'agt_env'
+        )
+    )
+    assert.equal(result.err.length, 0)
+})
+
+test('a2a send points an unknown peer to the canonical status command', async () => {
+    const urls: string[] = []
+    const result = await runCli(
+        ['a2a', 'send', 'missing', 'hello', '--json'],
+        (async (input) => {
+            urls.push(String(input))
+            return json([])
+        }) as typeof fetch
+    )
+    assert.notEqual(result.exitCode, 0)
+    assert.equal(result.out.length, 0)
+    assert.match(result.err.join('\n'), /mf a2a status/)
+    assert.doesNotMatch(result.err.join('\n'), /mf a2a peers/)
+    assert.equal(urls.length, 1)
+    assert.ok(urls[0].includes('/agent-self/a2a/peers?'))
+})
+
 test('agent list --json prints a JSON array', async () => {
     const { out } = await runCli(['agent', 'list', '--json'], (async () =>
         json([

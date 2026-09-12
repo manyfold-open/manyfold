@@ -132,6 +132,7 @@ jobs:
                   else
                       pnpm exec turbo run check --affected --concurrency=5
                   fi
+            - run: pnpm force-exit:check
             - run: pnpm lint
             # Docs-site CLI reference + changelog must track the CLI version;
             # spans apps/cli and apps/docs, so no single affected package
@@ -223,12 +224,10 @@ jobs:
                   PG_TEST_SCRATCH: '1'
                   PG_TEST_ADMIN_URL: postgres://postgres:postgres@localhost:5432/postgres
               # --test-concurrency=1: the suite shares one database and is not
-              # parallel-safe as a whole. --test-force-exit: a few files leak a
-              # postgres-js handle and would otherwise hang the runner into the
-              # job timeout (config/force-exit-baseline.txt tracks them in the
-              # canonical repo).
+              # parallel-safe as a whole. Every file must release its resources
+              # and exit naturally.
               run: |
-                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test --test-concurrency=1 --test-force-exit test/*.pg.test.ts
+                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test --test-concurrency=1 test/*.pg.test.ts
 
     smoke-boot:
         needs: prepare

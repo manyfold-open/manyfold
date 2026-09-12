@@ -1,5 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { Command } from 'commander'
+import { registerA2a } from '../src/commands/a2a'
 import {
     artifactText,
     buildA2aMessage,
@@ -25,6 +27,20 @@ const selfPeers: A2aSelfPeer[] = [
         rpcUrl: 'https://h/api/a2a/agents/agt_target/rpc'
     }
 ]
+
+for (const verb of ['call', 'stream', 'peers']) {
+    test(`retired a2a ${verb} is rejected instead of dispatching a request`, async () => {
+        const program = new Command().exitOverride().configureOutput({
+            writeErr: () => {},
+            writeOut: () => {}
+        })
+        registerA2a(program)
+        await assert.rejects(
+            program.parseAsync(['a2a', verb], { from: 'user' }),
+            { code: 'commander.unknownCommand' }
+        )
+    })
+}
 
 test('findSelfPeer matches by agent id or name, case-insensitively', () => {
     assert.equal(findSelfPeer(selfPeers, 'agt_target')?.agentId, 'agt_target')

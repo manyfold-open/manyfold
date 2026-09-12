@@ -7,7 +7,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
 import {
     BadRequestException,
@@ -50,10 +50,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(6).toString('hex')
     const ownerId = `user_pgcshare_a_${suffix}`
     const otherId = `user_pgcshare_b_${suffix}`
@@ -163,8 +164,8 @@ const publicTexts = async (
 
 test('createShare is idempotent, empty sessions 400, revoke+create rotates the id', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const emptySessionId = await createSession(h)
         await assert.rejects(
@@ -201,8 +202,8 @@ test('createShare is idempotent, empty sessions 400, revoke+create rotates the i
 
 test('ownership is strict and resolve is uniformly null for revoked/unknown/malformed', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await seedSession(h)
         await assert.rejects(
@@ -239,8 +240,8 @@ test('ownership is strict and resolve is uniformly null for revoked/unknown/malf
 
 test('cutoff freezes the transcript: later and inflight messages stay private', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await seedSession(h, ['one', 'two'])
         const share = await h.shares.createShare(h.ownerId, h.agentId, sessionId)
@@ -280,8 +281,8 @@ test('cutoff freezes the transcript: later and inflight messages stay private', 
     }
 })
 
-test('channel-bound sessions cannot be shared', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('channel-bound sessions cannot be shared', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await seedSession(h)
         const channelId = `chn_pgcshare_${h.suffix}`
@@ -308,8 +309,8 @@ test('channel-bound sessions cannot be shared', { skip: !RUN }, async () => {
     }
 })
 
-test('public preview exposes only the shared surface', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('public preview exposes only the shared surface', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await seedSession(h)
         const share = await h.shares.createShare(h.ownerId, h.agentId, sessionId)
@@ -350,8 +351,8 @@ test('public preview exposes only the shared surface', { skip: !RUN }, async () 
 
 test('public messages scrub grant links, workspace paths and upload ids', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const grantUrl =
             'https://app.manyfold.ai/grant-permission?token=SECRETTOKEN123'
@@ -414,8 +415,8 @@ test('public messages scrub grant links, workspace paths and upload ids', {
 
 test('public pagination walks the full frozen transcript in order', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const texts = ['m1', 'm2', 'm3', 'm4', 'm5']
         const sessionId = await seedSession(h, texts)
@@ -451,8 +452,8 @@ test('public pagination walks the full frozen transcript in order', {
 
 test('history rewrites and session deletion kill active shares', {
     skip: !RUN
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const rewriteSessionId = await createSession(h)
         const target = await addMessage(h, rewriteSessionId, 'user', [

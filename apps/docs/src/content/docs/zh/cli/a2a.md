@@ -79,6 +79,18 @@ mf --agent-id agt_xxx a2a callers list
 
 Exposure 和 caller grant 是两个独立控制。创建 caller 不会自动打开 public exposure。
 
+## 升级旧脚本
+
+已废弃的 `call`、`stream` 和 `peers` 命令不再提供。升级 CLI 前，先更新保存的脚本和 Agent 指引：
+
+| 原命令 | 现行命令 |
+| --- | --- |
+| `mf a2a call <target> <prompt>` | `mf a2a send <target> <prompt>` |
+| `mf a2a stream <url> <prompt>` | `mf a2a send <url> <prompt> --stream` |
+| `mf a2a peers` | `mf a2a status` |
+
+`status --json` 返回包含 `peers` 和 `inflight` 数组的对象。原来直接读取 `peers --json` 数组的脚本，需要改读 `peers` 字段。
+
 ## 另请参阅
 
 - [通过 A2A 调用 Agent](/zh/docs/api-a2a/)

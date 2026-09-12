@@ -28,7 +28,7 @@ import { buildChatMessageSourceRow } from '../src/modules/chat/raw-message-sourc
 //      coalesced in the broadcaster, so a durable source row does NOT imply its
 //      events were written.
 // Env-gated like the other *.pg.test.ts:
-//   RUN_PG_E2E=1 npx tsx --test test/turn-resume-cursor.pg.test.ts --test-force-exit
+//   RUN_PG_E2E=1 npx tsx --test test/turn-resume-cursor.pg.test.ts
 const RUN = process.env.RUN_PG_E2E === '1'
 
 interface Harness {

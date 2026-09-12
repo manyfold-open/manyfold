@@ -51,7 +51,7 @@ import {
 const PROTOCOL_VERSION = '0.3.0'
 const DEFAULT_SKILL_ID = 'general-chat'
 // Hard ceilings on a single delegated A2A turn, split by send mode: blocking
-// sends hold the caller's request (and its in-turn `mf a2a call`) open, so
+// sends hold the caller's request (and its in-turn `mf a2a send`) open, so
 // they stay short; async (blocking:false) tasks are polled via tasks/get and
 // get a much longer cap for real agent work. On expiry we cancel the target
 // turn and fail the task with 'turn_timeout'. Resolution precedence lives in

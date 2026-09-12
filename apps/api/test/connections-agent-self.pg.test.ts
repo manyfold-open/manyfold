@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq } from 'drizzle-orm'
 import { ConfigService } from '@nestjs/config'
 import { createDb, userConnections, users, type Database } from '@manyfold/db'
@@ -36,10 +36,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
     const githubId = `ucn_gh_${suffix}`
@@ -82,8 +83,8 @@ const buildHarness = async (): Promise<Harness> => {
     }
 }
 
-test('resolveAgentConnections maps linked refs to account + usage hints', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('resolveAgentConnections maps linked refs to account + usage hints', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db)
         const infos = await svc.resolveAgentConnections({
@@ -105,8 +106,8 @@ test('resolveAgentConnections maps linked refs to account + usage hints', { skip
     }
 })
 
-test('resolveAgentConnections skips missing/unlinked refs', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('resolveAgentConnections skips missing/unlinked refs', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db)
         assert.deepEqual(

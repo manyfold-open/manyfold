@@ -47,7 +47,6 @@ test('pairings force one worker per file and terminate completed children', () =
         'tsx',
         '--test',
         '--test-concurrency=2',
-        '--test-force-exit',
         '--test-reporter=tap',
         ...files
     ])

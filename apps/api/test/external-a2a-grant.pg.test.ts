@@ -24,7 +24,7 @@ import { ApiTokenService } from '../src/modules/auth/api-token.service'
 // token_kind nor caller_agent_id IS NULL, so a regression there would still pass).
 // Env-gated like the other *.pg.test.ts:
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     node --import tsx --test --test-force-exit test/external-a2a-grant.pg.test.ts
+//     node --import tsx --test test/external-a2a-grant.pg.test.ts
 // against a migrated DB (`just db-migrate`).
 const RUN = process.env.RUN_PG_E2E === '1'
 

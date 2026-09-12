@@ -90,7 +90,6 @@ export const testRunnerArgs = (files: string[]): string[] => [
     'tsx',
     '--test',
     `--test-concurrency=${files.length}`,
-    '--test-force-exit',
     '--test-reporter=tap',
     ...files
 ]

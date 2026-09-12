@@ -98,7 +98,7 @@ export interface A2aOutboundGrantSummary {
     targetAgentId: string
     targetAgentName: string | null
     // The grant alone is not enough: the caller only sees this peer via
-    // `mf a2a peers` once the target also exposes A2A. Surfaced so the owner
+    // `mf a2a status` once the target also exposes A2A. Surfaced so the owner
     // can tell a granted-but-unreachable target from a working one.
     targetExposed: boolean
     scopes: string[]
