@@ -70,6 +70,12 @@ docker compose -f docker-compose.selfhost.yml exec postgres \
 
 ## 升级与降级
 
+先升级 API，再升级 CLI、Web 或 Admin 客户端。已验证的服务端基线是 edition
+v0.11.0（API 5.1.0）。当前客户端要求 canonical API 契约：`mf whoami` 只使用
+`/api/auth/whoami`，不再回退到账户端点；结构化失败使用
+`{ ok: false, error: { code, message, details? } }`。旧 flat error 字段不再作为错误
+metadata 解析，缺少 whoami 端点仍以 404 失败。
+
 升级到 API 4.0.0 之后的版本前,先把每台 daemon 更新到 CLI 0.34.0 或更新版本。
 更旧的部署须先运行 API 4.0.0,完成套餐、runtime identity、shell 和 skill 的迁移。
 新版本不会在启动或日常 runtime 操作中执行这些一次性迁移。

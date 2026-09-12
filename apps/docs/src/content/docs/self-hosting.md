@@ -78,6 +78,13 @@ then bring up the rest with the same `MF_API_CRYPTO_KEY`.
 
 ## Upgrades and downgrades
 
+Upgrade the API before the CLI, Web, or Admin clients. The validated server
+baseline is edition v0.11.0 (API 5.1.0). Current clients require the canonical
+API contract: `mf whoami` uses `/api/auth/whoami` without falling back to the
+account endpoint, and structured failures use
+`{ ok: false, error: { code, message, details? } }`. Older flat error fields are
+not interpreted as error metadata. A missing whoami endpoint remains a 404.
+
 Before upgrading beyond API 4.0.0, update every daemon to CLI 0.34.0 or newer.
 Older installations must first run API 4.0.0 and complete their plan, runtime
 identity, shell and skill migrations. The new release does not run those
