@@ -51,14 +51,15 @@ const parseEnvelope = (body: string): ParsedEnvelope | null => {
     try {
         const json = JSON.parse(body) as {
             error?: ParsedEnvelope
-            code?: unknown
-            message?: unknown
-            details?: unknown
         }
-        if (json && typeof json === 'object') {
-            if (json.error && typeof json.error === 'object') return json.error
-            if ('code' in json || 'message' in json) return json
-        }
+        if (
+            json &&
+            typeof json === 'object' &&
+            json.error &&
+            typeof json.error === 'object' &&
+            !Array.isArray(json.error)
+        )
+            return json.error
     } catch {
         return null
     }

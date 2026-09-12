@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Command } from 'commander'
+import { apiError, type AuthWhoamiResponse } from '@manyfold/shared'
 import { buildProgram } from '../src/program'
 
 // Leaf commands intentionally WITHOUT `--json`: raw byte streams, unbounded
@@ -410,13 +411,83 @@ test('a2a caller revoke refuses to run without explicit confirmation', async () 
 
 test('whoami --json emits a JSON error and exits non-zero on failure', async () => {
     const { err, exitCode } = await runCli(['whoami', '--json'], (async () =>
-        json({ message: 'unauthorized' }, 401)) as typeof fetch)
+        json(apiError('unauthorized', 'unauthorized'), 401)) as typeof fetch)
     const parsed = JSON.parse(err.join('\n'))
     assert.equal(parsed.error.code, 'unauthorized')
     assert.equal(parsed.error.status, 401)
     assert.equal(parsed.error.message, 'unauthorized')
     assert.match(parsed.error.hint, /mf login/)
     assert.equal(exitCode, 3)
+})
+
+test('whoami does not turn a missing endpoint into auth.me success', async () => {
+    const requests: string[] = []
+    const result = await runCli(['whoami', '--json'], (async (input) => {
+        const url = String(input)
+        requests.push(url)
+        if (url.endsWith('/auth/whoami'))
+            return json(apiError('not_found', 'Whoami route unavailable'), 404)
+        return json({ id: 'user-1', email: 'demo@example.com', role: 'user' })
+    }) as typeof fetch)
+    assert.deepEqual(requests, ['https://api.test/api/auth/whoami'])
+    assert.equal(result.exitCode, 4)
+    assert.equal(result.out.length, 0)
+    const failure = JSON.parse(result.err.join('\n'))
+    assert.equal(failure.error.code, 'not_found')
+    assert.equal(failure.error.message, 'Whoami route unavailable')
+})
+
+test('whoami reports HTTP status without interpreting or exposing a flat error', async () => {
+    const result = await runCli(['whoami', '--json'], (async () =>
+        json(
+            {
+                code: 'old_auth_error',
+                message: 'LEGACY_MESSAGE_SECRET',
+                details: { token: 'LEGACY_DETAIL_SECRET' }
+            },
+            403
+        )) as typeof fetch)
+    const failure = JSON.parse(result.err.join('\n'))
+    assert.equal(result.exitCode, 3)
+    assert.equal(failure.error.code, 'forbidden')
+    assert.equal(
+        failure.error.message,
+        'Manyfold API request failed with status 403'
+    )
+    assert.doesNotMatch(result.err.join('\n'), /LEGACY_|old_auth_error/)
+})
+
+test('whoami preserves current human and external A2A principals', async () => {
+    const identities = [
+        {
+            kind: 'human-session',
+            userId: 'user-1',
+            email: 'demo@example.com',
+            role: 'user'
+        },
+        {
+            kind: 'human-api-token',
+            userId: 'user-1',
+            email: 'demo@example.com',
+            role: 'user'
+        },
+        {
+            kind: 'legacy-runtime',
+            userId: 'user-1',
+            email: 'demo@example.com',
+            role: 'user',
+            agentId: 'agt_a',
+            tokenId: 'pat_a',
+            createdVia: null
+        }
+    ] satisfies AuthWhoamiResponse[]
+    for (const identity of identities) {
+        const result = await runCli(['whoami', '--json'], (async () =>
+            json(identity)) as typeof fetch)
+        assert.equal(result.exitCode, 0)
+        assert.deepEqual(JSON.parse(result.out.join('\n')), identity)
+        assert.equal(result.err.length, 0)
+    }
 })
 
 test('login --token --json prints a result without echoing the token', async () => {
