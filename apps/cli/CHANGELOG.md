@@ -1,5 +1,13 @@
 # @manyfold/cli
 
+## 2.0.0
+
+### Major Changes
+
+- [#362](https://github.com/manyfold-open/manyfold/pull/362) [`a72fd5e`](https://github.com/manyfold-open/manyfold/commit/a72fd5e55423bfba77276928f047960c70ced0f2) Thanks [@yingca1](https://github.com/yingca1)! - Use `mf a2a send` to invoke a peer or URL and `mf a2a status` to list callable peers and in-flight tasks. The deprecated `call`, `stream`, and `peers` aliases have been removed. Replace `stream <url> <prompt>` with `send <url> <prompt> --stream`; replace scripts reading the `peers --json` array with `status --json` and read its `peers` field. Update saved scripts and Agent instructions before upgrading the CLI.
+
+    The Web A2A exposure dialog now points to the supported status command in every language.
+
 ## 1.1.0
 
 ### Minor Changes
