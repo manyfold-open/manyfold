@@ -22,7 +22,7 @@ import { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.ser
 // structurally cannot fail on either. Both invariants below are about which
 // rows and which columns the statement actually touches.
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     pnpm --filter @manyfold/api test -- --test-force-exit
+//     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
 
 const ME = 'instance-me'

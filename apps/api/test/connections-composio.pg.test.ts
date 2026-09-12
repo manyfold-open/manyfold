@@ -3,7 +3,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { and, eq } from 'drizzle-orm'
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -58,10 +58,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
     await db
@@ -76,8 +77,8 @@ const buildHarness = async (): Promise<Harness> => {
     }
 }
 
-test('createComposio refuses an invalid key and stores nothing', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('createComposio refuses an invalid key and stores nothing', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db, false)
         await assert.rejects(
@@ -94,8 +95,8 @@ test('createComposio refuses an invalid key and stores nothing', { skip: !RUN },
     }
 })
 
-test('createComposio encrypts the key, hides the fingerprint, and is idempotent on re-paste', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('createComposio encrypts the key, hides the fingerprint, and is idempotent on re-paste', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db, true)
         const summary = await svc.createComposio(h.userId, {
@@ -136,8 +137,8 @@ test('createComposio encrypts the key, hides the fingerprint, and is idempotent 
     }
 })
 
-test('revealComposioKey returns the decrypted key to the owner, else 404', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('revealComposioKey returns the decrypted key to the owner, else 404', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db, true)
         const conn = await svc.createComposio(h.userId, {
@@ -155,8 +156,8 @@ test('revealComposioKey returns the decrypted key to the owner, else 404', { ski
     }
 })
 
-test('assertOwned rejects a composio connection the user does not own', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('assertOwned rejects a composio connection the user does not own', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const svc = makeService(h.db, true)
         await assert.rejects(
@@ -171,8 +172,8 @@ test('assertOwned rejects a composio connection the user does not own', { skip: 
 // B2/B3/S3: revoking a Composio connection fans out a re-materialize to every
 // agent bound to it, so the managed `composio` server is dropped from their
 // sprites. The fan-out finds agents by extras->>composioConnectionId.
-test('deleting a composio connection re-materializes bound agents', { skip: !RUN }, async () => {
-    const h = await buildHarness()
+test('deleting a composio connection re-materializes bound agents', { skip: !RUN }, async (t) => {
+    const h = await buildHarness(t)
     try {
         const refreshed: string[] = []
         const svc = makeService(h.db, true, (id) => refreshed.push(id))

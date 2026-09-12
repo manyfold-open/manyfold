@@ -26,7 +26,7 @@ import type { TelemetryService } from '../src/common/telemetry/telemetry.service
 // server error'. Real Postgres because the FakeDb unit suite structurally
 // cannot fail on constraints — it was green against this bug.
 //   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
-//     pnpm --filter @manyfold/api test -- --test-force-exit
+//     pnpm --filter @manyfold/api test --
 const RUN = process.env.RUN_PG_E2E === '1'
 
 interface Harness {

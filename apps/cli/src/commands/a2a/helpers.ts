@@ -91,7 +91,7 @@ export const resolveInterfaceUrl = (card: AgentCard, cardUrl: string): string =>
     return new URL(iface.url, cardUrl).toString()
 }
 
-// Match a peer from `mf a2a peers` by agent id (preferred) or name.
+// Match a peer from `mf a2a status` by agent id (preferred) or name.
 export const findSelfPeer = (
     peers: A2aSelfPeer[],
     ref: string

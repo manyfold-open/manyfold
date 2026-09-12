@@ -227,10 +227,9 @@ const addSendOptions = (cmd: Command): Command =>
             'client deadline in seconds (0 disables; default 900)'
         )
 
-// send (and its hidden `call`/`stream` aliases): one verb for both a granted
-// peer and a raw url. Default blocks for the final artifact; --stream follows
-// SSE; --async submits and returns the task id so a long peer turn survives a
-// caller sprite sleep (fetch the result later with `mf a2a tasks get`).
+// One verb for both a granted peer and a raw URL. Default blocks for the
+// final artifact; --stream follows SSE. --async returns the task id so a turn
+// survives caller sprite sleep (fetch it later with `mf a2a tasks get`).
 const runSend = async (
     program: Command,
     target: string,
@@ -443,30 +442,6 @@ const runTaskSubscribe = async (
     )
 }
 
-const renderPeers = async (
-    program: Command,
-    opts: { json?: boolean }
-): Promise<void> => {
-    const global = program.opts<GlobalAuthOpts>()
-    try {
-        const peers = await fetchSelfPeers(global)
-        if (opts.json) {
-            console.log(JSON.stringify(peers, null, 2))
-            return
-        }
-        if (peers.length === 0) {
-            console.error(kleur.dim('no peer agents granted'))
-            return
-        }
-        for (const peer of peers)
-            console.log(
-                `${peer.name}  ${kleur.dim(peer.agentId)}\n  ${kleur.dim(peer.rpcUrl)}`
-            )
-    } catch (err) {
-        fail(opts, err)
-    }
-}
-
 const renderStatus = async (
     program: Command,
     opts: { json?: boolean }
@@ -627,27 +602,4 @@ export const registerA2a = (program: Command): void => {
     ).action((target: string, taskId: string, opts: CommonOpts) =>
         runTaskSubscribe(program, target, taskId, opts)
     )
-
-    // Deprecated hidden aliases: existing provisioned agents still have these
-    // baked into their AGENTS.md/skill. `call`/`stream` map to `send`; `peers`
-    // keeps its original list output. New guidance points to `send`/`status`.
-    addSendOptions(
-        a2a.command('call <peer> <prompt>', { hidden: true })
-    ).action((peer: string, prompt: string, opts: SendOpts) =>
-        runSend(program, peer, prompt, opts)
-    )
-
-    addMessageOptions(
-        addCommonOptions(
-            a2a
-                .command('stream <url> <prompt>', { hidden: true })
-                .option('--timeout <seconds>', '')
-        )
-    ).action((url: string, prompt: string, opts: SendOpts) =>
-        runSend(program, url, prompt, { ...opts, stream: true })
-    )
-
-    a2a.command('peers', { hidden: true })
-        .option('--json', 'emit JSON', false)
-        .action((opts: { json?: boolean }) => renderPeers(program, opts))
 }

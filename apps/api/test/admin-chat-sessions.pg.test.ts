@@ -5,7 +5,7 @@ import 'reflect-metadata'
 import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes, randomUUID } from 'node:crypto'
-import test from 'node:test'
+import test, { type TestContext } from 'node:test'
 import { eq, inArray } from 'drizzle-orm'
 import {
     BadRequestException,
@@ -51,10 +51,11 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
+const buildHarness = async (t: TestContext): Promise<Harness> => {
     const url = process.env.DATABASE_URL
     if (!url) throw new Error('DATABASE_URL must be set in .env')
     const db = createDb(url)
+    t.after(() => db.$client.end())
     const suffix = randomBytes(6).toString('hex')
     const adminId = `user_pgadmses_a_${suffix}`
     const memberId = `user_pgadmses_m_${suffix}`
@@ -208,8 +209,8 @@ const fakeContext = (userId: string): ExecutionContext =>
 
 test('admin sees every user’s sessions, newest activity first', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const older = await createSession(h, {
             userId: h.memberId,
@@ -249,8 +250,8 @@ test('admin sees every user’s sessions, newest activity first', {
 
 test('AdminGuard admits admins and rejects members', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         assert.equal(await h.guard.canActivate(fakeContext(h.adminId)), true)
         await assert.rejects(
@@ -264,8 +265,8 @@ test('AdminGuard admits admins and rejects members', {
 
 test('cursor paging covers each session exactly once', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const seeded = [
             await createSession(h, {
@@ -328,8 +329,8 @@ test('cursor paging covers each session exactly once', {
 
 test('event ids serialize as strings and honour filters', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
@@ -399,8 +400,8 @@ test('event ids serialize as strings and honour filters', {
 
 test('status derives from the turn lock and the last turn outcome', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const failed = await createSession(h, {
             userId: h.memberId,
@@ -608,8 +609,8 @@ test('status derives from the turn lock and the last turn outcome', {
 // default rather than a backfill.
 test('a turn reports the stream rows retention has already deleted', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
@@ -659,8 +660,8 @@ test('a turn reports the stream rows retention has already deleted', {
 // a prompt retention has already deleted, and a run of several inputs.
 test('every turn is paired with its own prompt and its own answer', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
@@ -710,8 +711,8 @@ test('every turn is paired with its own prompt and its own answer', {
 
 test('a page boundary does not separate a turn from its prompt', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
@@ -755,8 +756,8 @@ test('a page boundary does not separate a turn from its prompt', {
 
 test('a turn whose prompt retention deleted reports no input, not the wrong one', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
@@ -807,8 +808,8 @@ test('a turn whose prompt retention deleted reports no input, not the wrong one'
 
 test('several inputs before one turn all land on that turn', {
     skip: !RUN && 'RUN_PG_E2E!=1'
-}, async () => {
-    const h = await buildHarness()
+}, async (t) => {
+    const h = await buildHarness(t)
     try {
         const sessionId = await createSession(h, {
             userId: h.memberId,
