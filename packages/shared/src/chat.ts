@@ -720,8 +720,15 @@ export interface RuntimeSessionSyncResponse {
     appended: number
     recoveredSourceCount: number
     // 'inflight' when a live turn holds the session; 'no-session-ref' /
-    // 'unsupported' when there is nothing to read. null when a read ran.
-    skipped: 'inflight' | 'no-session-ref' | 'unsupported' | null
+    // 'unsupported' when there is nothing to read; 'exec-unavailable' while
+    // the Sprite's exec endpoint awaits its single recovery probe.
+    // null when a read ran.
+    skipped:
+        | 'inflight'
+        | 'no-session-ref'
+        | 'unsupported'
+        | 'exec-unavailable'
+        | null
     warnings: string[]
 }
 
