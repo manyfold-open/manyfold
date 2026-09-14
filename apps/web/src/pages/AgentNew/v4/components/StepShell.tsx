@@ -20,10 +20,15 @@ const STEP_TITLE_KEY: Record<CreateStepId, string> = {
 // chosen lives in step ④, one line each with its own Change link, where it can
 // be read at leisure — and each step's own question restates the previous
 // answer ("Where does Claude Code run?"), so context is never lost in between.
+// A step already answered is also the way back to it. The bar had to exist
+// anyway, and turning its finished entries into links saves walking back one
+// step at a time from ③ to ① — the same move as the Change links on step ④'s
+// summary, not a second way of going back.
 const PathBar: FC<{
     current: CreateStepId
     reached: Set<CreateStepId>
-}> = ({ current, reached }): ReactNode => {
+    onJump: (step: CreateStepId) => void
+}> = ({ current, reached, onJump }): ReactNode => {
     const { t } = useI18n()
     return (
         <ol className='text-caption mb-7 flex flex-wrap items-center gap-x-2 gap-y-1'>
@@ -52,16 +57,26 @@ const PathBar: FC<{
                                 ·
                             </span>
                         )}
-                        <span
-                            aria-current={isCurrent ? 'step' : undefined}
-                            className={
-                                isCurrent
-                                    ? 'text-fg inline-flex items-center gap-1.5 font-medium'
-                                    : 'text-placeholder inline-flex items-center gap-1.5'
-                            }
-                        >
-                            {label}
-                        </span>
+                        {done ? (
+                            <button
+                                type='button'
+                                onClick={() => onJump(step)}
+                                className='text-fg inline-flex items-center gap-1.5 underline-offset-4 hover:underline'
+                            >
+                                {label}
+                            </button>
+                        ) : (
+                            <span
+                                aria-current={isCurrent ? 'step' : undefined}
+                                className={
+                                    isCurrent
+                                        ? 'text-fg inline-flex items-center gap-1.5 font-medium'
+                                        : 'text-placeholder inline-flex items-center gap-1.5'
+                                }
+                            >
+                                {label}
+                            </span>
+                        )}
                     </li>
                 )
             })}
@@ -93,6 +108,7 @@ export const StepShell: FC<{
     help?: ReactNode
     children: ReactNode
     onBack?: () => void
+    onJump: (step: CreateStepId) => void
     onNext: () => void
     primary: StepPrimary
     busy?: boolean
@@ -103,6 +119,7 @@ export const StepShell: FC<{
     help,
     children,
     onBack,
+    onJump,
     onNext,
     primary,
     busy = false
@@ -125,7 +142,7 @@ export const StepShell: FC<{
             <h1 className='text-h2 text-fg mb-5 font-medium'>
                 {t('web.agentNewV4.title')}
             </h1>
-            <PathBar current={current} reached={reached} />
+            <PathBar current={current} reached={reached} onJump={onJump} />
             <h2 className='text-h3 text-fg font-medium'>{question}</h2>
             {help !== undefined && help !== null && (
                 <p className='text-body text-muted mt-1.5'>{help}</p>

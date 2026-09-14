@@ -437,6 +437,7 @@ const AgentNewV4: FC = (): ReactNode => {
             onBack={
                 flow.step === 'type' ? undefined : () => goTo(previousStep(flow.step))
             }
+            onJump={goTo}
             onNext={() => void advance()}
             primary={primary}
             busy={busy}
@@ -532,7 +533,8 @@ const AgentNewV4: FC = (): ReactNode => {
                     onChangeWorkspace={(value: string) =>
                         setFlow((prev) => ({ ...prev, workspace: value }))
                     }
-                        />
+                    onJump={goTo}
+                />
             )}
             {create.error !== null && (
                 <p className='workbench-alert-error mt-4'>{create.error}</p>
