@@ -66,7 +66,8 @@ services:
             CHAT_UPLOAD_ALLOW_DISK: 'true'
             # New accounts land on the seeded unlimited plan instead of the
             # cloud 'free' tier. Applies at account creation only; accounts
-            # that predate it are moved once on the next API start.
+            # that predate it use the API 4.0.0 upgrade bridge or the Admin
+            # user detail Plan card; current startup preserves assignments.
             MF_DEFAULT_PLAN_ID: ${MF_SELFHOST_DEFAULT_PLAN_ID:-self_hosted}
         ports:
             - '${MF_SELFHOST_API_PORT:-2222}:2222'
