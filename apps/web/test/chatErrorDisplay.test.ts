@@ -108,3 +108,54 @@ test('the web never reclassifies an unclassified error by its wording', () => {
     assert.equal(display.kind, null)
     assert.equal(display.title, '401 unauthorized')
 })
+
+test('upstream and fail-fast empty pools use the same localized display', () => {
+    for (const code of ['gemini_exec_failed', 'managed_channel_unavailable']) {
+        const display = resolveChatErrorDisplay(
+            {
+                code,
+                message: 'Provider diagnostic with neutral wording',
+                retryable: false,
+                cause: 'account_pool_empty'
+            },
+            t
+        )
+        assert.equal(display.kind, 'account_pool_empty')
+        assert.equal(display.title, 'web.chat.error.accountPoolEmpty')
+        assert.equal(display.detail, 'Provider diagnostic with neutral wording')
+    }
+})
+
+test('empty-pool diagnostics are secondary and bounded even for long stderr', () => {
+    const message = 'No available Gemini accounts: '.repeat(200)
+    const display = resolveChatErrorDisplay(
+        {
+            code: 'gemini_exec_failed',
+            message,
+            retryable: true,
+            cause: 'account_pool_empty'
+        },
+        t
+    )
+    assert.equal(display.title, 'web.chat.error.accountPoolEmpty')
+    assert.equal(display.detail?.length, 1024)
+    assert.ok(display.detail?.endsWith('...'))
+    assert.notEqual(display.detail, message)
+})
+
+test('old and unknown causes retain the fallback without guessing from pool wording', () => {
+    const message = 'No available Gemini accounts'
+    for (const cause of [undefined, 'future_cause']) {
+        const error = {
+            code: 'gemini_exec_failed',
+            message,
+            retryable: false,
+            cause
+        } as Parameters<typeof resolveChatErrorDisplay>[0]
+        assert.deepEqual(resolveChatErrorDisplay(error, t), {
+            kind: null,
+            title: message,
+            detail: null
+        })
+    }
+})

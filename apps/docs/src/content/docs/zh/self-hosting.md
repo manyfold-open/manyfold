@@ -80,6 +80,11 @@ metadata 解析，缺少 whoami 端点仍以 404 失败。
 更旧的部署须先运行 API 4.0.0,完成套餐、runtime identity、shell 和 skill 的迁移。
 新版本不会在启动或日常 runtime 操作中执行这些一次性迁移。
 
+Editions journal 拆分之前的数据库(包括 API 0.51.1)须先用原发行版完成 journal
+转换,再进入 API 4.0.0 升级桥。该桥负责套餐修复,不会转换旧 journal。如果迁移
+报告数据库早于拆分,应先停止升级,在备份副本上使用兼容的转换版本完成迁移。
+不要通过重置数据库或手工把 migration 标为已应用来绕过检查。
+
 把 `WEB_BASE_URL`、`NCA_WEB_URL` 改为 `MF_WEB_URL`,其余旧 `NCA_*` API 配置改用
 对应的 `MF_*` 名称。移除 `A2A_TURN_TIMEOUT_MS` 前先在 Admin 保存 A2A timeout;
 `OPENCLAW_FETCH_TIMEOUT_MS` 改用独立的 `OPENCLAW_HEADERS_TIMEOUT_MS` 和
