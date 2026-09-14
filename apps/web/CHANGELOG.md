@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.0.1
+
+### Patch Changes
+
+- [#370](https://github.com/manyfold-open/manyfold/pull/370) [`8b493e7`](https://github.com/manyfold-open/manyfold/commit/8b493e736d085a506ab24bac647b140d51e702d9) Thanks [@yingca1](https://github.com/yingca1)! - Show a localized, actionable message when a model provider has no available accounts. Upstream failures and managed-channel refusals use the same message, with long diagnostic details bounded below it and no automatic provider change.
+
 ## 2.0.0
 
 ### Major Changes
