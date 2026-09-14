@@ -2077,6 +2077,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.primary.signIn": "{{vendor}} 에 로그인",
     "web.agentNewV4.primary.opensAuthPage": "1 분 정도 · 공급사 페이지가 열립니다",
     "web.agentNewV4.primary.createFine": "몇 초",
+    "web.agentNewV4.help.type": "아홉 가지 중 하나를 고르세요. 종류는 나중에 바꿀 수 없지만 새로 만드는 데는 몇 초면 됩니다.",
     "web.agentNew.title": "에이전트 생성",
     "web.agentNew.cancel": "취소",
     "web.agentNew.completed": "완료됨",

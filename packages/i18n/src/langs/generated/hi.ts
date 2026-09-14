@@ -2084,6 +2084,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.primary.signIn': '{{vendor}} में लॉगिन कीजिए',
     'web.agentNewV4.primary.opensAuthPage': 'लगभग एक मिनट · प्रदाता का पृष्ठ खुलेगा',
     'web.agentNewV4.primary.createFine': 'कुछ सेकंड',
+    'web.agentNewV4.help.type': 'नौ हैं, एक चुनिए। प्रकार बाद में नहीं बदलता, पर दूसरा बनाने में कुछ ही सेकंड लगते हैं।',
     'web.agentNew.title': 'एजेंट बनाएं',
     'web.agentNew.cancel': 'रद्द करें',
     'web.agentNew.completed': 'पूरा हुआ',

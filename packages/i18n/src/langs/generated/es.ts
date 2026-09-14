@@ -2086,6 +2086,7 @@ const es: Record<string, string> = {
     'web.agentNewV4.primary.signIn': 'Iniciar sesión en {{vendor}}',
     'web.agentNewV4.primary.opensAuthPage': 'alrededor de un minuto · abre la página del proveedor',
     'web.agentNewV4.primary.createFine': 'unos segundos',
+    'web.agentNewV4.help.type': 'Son nueve, elige uno. El tipo no se puede cambiar después, pero crear otro lleva segundos.',
     'web.agentNew.title': 'Crear agente',
     'web.agentNew.cancel': 'Cancelar',
     'web.agentNew.completed': 'Terminado',

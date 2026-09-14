@@ -3,6 +3,8 @@ import type {
     KeyboardEvent as ReactKeyboardEvent,
     ReactNode
 } from 'react'
+import { InfoIcon } from '@/components/icons'
+import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { useI18n } from '@/lib/i18n'
 import type { CreateStepId } from '@/pages/AgentNew/v4/flowState'
 import { CREATE_STEP_ORDER } from '@/pages/AgentNew/v4/flowState'
@@ -105,7 +107,16 @@ export const StepShell: FC<{
     current: CreateStepId
     reached: Set<CreateStepId>
     question: string
-    help?: ReactNode
+    // The step's standing explanation. It orients rather than instructs — the
+    // rows carry every operative fact — so it lives behind an info mark on the
+    // question instead of as a paragraph the eye has to cross on the way to
+    // the first choice.
+    hint?: string
+    // A live message about what is happening right now, which is not the same
+    // thing and stays on the page: the one shown while a machine is being
+    // built promises that leaving is safe, and a promise nobody sees is not
+    // one.
+    notice?: ReactNode
     children: ReactNode
     onBack?: () => void
     onJump: (step: CreateStepId) => void
@@ -116,7 +127,8 @@ export const StepShell: FC<{
     current,
     reached,
     question,
-    help,
+    hint,
+    notice,
     children,
     onBack,
     onJump,
@@ -143,9 +155,22 @@ export const StepShell: FC<{
                 {t('web.agentNewV4.title')}
             </h1>
             <PathBar current={current} reached={reached} onJump={onJump} />
-            <h2 className='text-h3 text-fg font-medium'>{question}</h2>
-            {help !== undefined && help !== null && (
-                <p className='text-body text-muted mt-1.5'>{help}</p>
+            <h2 className='text-h3 text-fg flex items-center gap-1.5 font-medium'>
+                {question}
+                {hint !== undefined && (
+                    <ShortcutTooltip label={hint} multiline placement='bottom-start'>
+                        <button
+                            type='button'
+                            aria-label={hint}
+                            className='text-placeholder hover:text-muted inline-flex h-5 w-5 items-center justify-center rounded-pill transition-colors'
+                        >
+                            <InfoIcon className='h-4 w-4' />
+                        </button>
+                    </ShortcutTooltip>
+                )}
+            </h2>
+            {notice !== undefined && notice !== null && (
+                <p className='text-body text-muted mt-1.5'>{notice}</p>
             )}
             <div className='mt-5'>{children}</div>
             <div className='create-step-actions'>

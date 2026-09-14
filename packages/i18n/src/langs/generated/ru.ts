@@ -2087,6 +2087,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.primary.signIn': 'Войти в {{vendor}}',
     'web.agentNewV4.primary.opensAuthPage': 'около минуты · откроется страница поставщика',
     'web.agentNewV4.primary.createFine': 'несколько секунд',
+    'web.agentNewV4.help.type': 'Их девять, выберите один. Тип потом не изменить, но создать ещё одного — дело секунд.',
     'web.agentNew.title': 'Создать агента',
     'web.agentNew.cancel': 'Отмена',
     'web.agentNew.completed': 'Завершённый',

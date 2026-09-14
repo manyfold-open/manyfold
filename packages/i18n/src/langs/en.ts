@@ -3592,7 +3592,8 @@ const en = {
             help: {
                 runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
                 cost: 'The three ways do not reach the same distance, so they are grouped by scope. You can change this once the agent exists.',
-                name: 'Check it over, and it is built.'
+                name: 'Check it over, and it is built.',
+                type: 'Nine of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.'
             },
             blocked: {
                 type: 'Pick one to continue',

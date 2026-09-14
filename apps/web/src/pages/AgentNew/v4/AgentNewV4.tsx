@@ -37,6 +37,15 @@ import type {
     SignInCost
 } from '@/pages/AgentNew/v4/machineOptions'
 
+// Each step's standing explanation, shown from the info mark on its question
+// rather than as a paragraph between the question and the first row.
+const STEP_HINT_KEY: Record<CreateStepId, string> = {
+    type: 'web.agentNewV4.help.type',
+    runtime: 'web.agentNewV4.help.runtime',
+    cost: 'web.agentNewV4.help.cost',
+    name: 'web.agentNewV4.help.name'
+}
+
 // The chosen row's cost, restated beside the button so the two never drift.
 const SIGN_IN_FINE_KEY: Record<SignInCost, string> = {
     none: 'web.agentNewV4.cost.noSignIn',
@@ -433,7 +442,14 @@ const AgentNewV4: FC = (): ReactNode => {
             current={flow.step}
             reached={reached}
             question={question}
-            help={<StepHelp step={flow.step} preparing={preparing} />}
+            hint={t(STEP_HINT_KEY[flow.step])}
+            notice={
+                preparing !== null
+                    ? t('web.agentNewV4.preparing.note', {
+                          machine: preparing
+                      })
+                    : undefined
+            }
             onBack={
                 flow.step === 'type' ? undefined : () => goTo(previousStep(flow.step))
             }
@@ -552,26 +568,6 @@ const costLabel = (
     if (cost.kind === 'provider') return cost.label
     if (cost.kind === 'platform') return t('web.agentNewV4.cost.managed')
     return t('web.agentNewV4.cost.externalShort')
-}
-
-const StepHelp: FC<{ step: CreateStepId; preparing: string | null }> = ({
-    step,
-    preparing
-}): ReactNode => {
-    const { t } = useI18n()
-    // While a machine is being built the help line carries the interruption
-    // promise, because this is the one moment the user might walk away
-    // mid-work — and what it promises is precise: the machine and the CLI
-    // survive, the position in the flow does not.
-    if (preparing !== null)
-        return <>{t('web.agentNewV4.preparing.note', { machine: preparing })}</>
-    // Step ① explains itself: nine named rows under two headings need no
-    // paragraph above them, and one fewer level of text is one less thing to
-    // read before the first choice.
-    if (step === 'type') return null
-    if (step === 'runtime') return <>{t('web.agentNewV4.help.runtime')}</>
-    if (step === 'cost') return <>{t('web.agentNewV4.help.cost')}</>
-    return <>{t('web.agentNewV4.help.name')}</>
 }
 
 export default AgentNewV4
