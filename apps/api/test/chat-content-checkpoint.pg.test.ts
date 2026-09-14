@@ -394,6 +394,20 @@ test(
     async () => {
         const h = await buildHarness([
             {
+                type: 'raw_source',
+                source: {
+                    sourceRef: 'checkpoint-session',
+                    sourceSeq: 1,
+                    externalId: 'last-output',
+                    parentExternalId: null,
+                    rawFormat: 'jsonl',
+                    rawText: '{"type":"assistant"}',
+                    parserName: 'claude-code-stream-json',
+                    parserVersion: '1'
+                }
+            } as EmittedChatEvent,
+            { type: 'token', text: 'tail' } as EmittedChatEvent,
+            {
                 type: 'suspended',
                 daemonId: 'dh-pgtest',
                 daemonExecRef: 'ref-pgtest',
@@ -420,12 +434,17 @@ test(
                 .select({
                     id: chatStreamEvents.id,
                     eventType: chatStreamEvents.eventType,
-                    payloadJson: chatStreamEvents.payloadJson
+                    payloadJson: chatStreamEvents.payloadJson,
+                    sourceEventKey: chatStreamEvents.sourceEventKey,
+                    sourceEventOrdinal: chatStreamEvents.sourceEventOrdinal
                 })
                 .from(chatStreamEvents)
                 .where(eq(chatStreamEvents.messageId, assistantMessageId))
                 .orderBy(asc(chatStreamEvents.id))
 
+            assert.equal(rows.at(-1)?.eventType, 'suspended')
+            assert.equal(rows.at(-1)?.sourceEventKey, null)
+            assert.equal(rows.at(-1)?.sourceEventOrdinal, null)
             const covered = rows.filter((r) => r.id <= cursor)
             assert.equal(
                 row.contentBlocksJson.length,
