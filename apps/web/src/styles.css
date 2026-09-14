@@ -755,6 +755,47 @@
         @apply text-ui text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-placeholder focus-visible:shadow-focus bg-surface block min-h-[112px] w-full resize-none rounded-sm px-3.5 py-3 transition-shadow focus:outline-none;
     }
 
+    /* Option rows for the four-step agent create flow (AgentNew v4).
+       These rows sit straight on the page canvas — no card, no nested list
+       container — which rules out a border as the separator: a border on a
+       rounded row follows the radius and curls up into the corners. It is an
+       inset hairline between siblings instead, and it is withdrawn on both
+       sides of the selected row so the selection fill is never cut by a line
+       crossing its corner. Selection itself stays the §8.12 static-tier
+       language (active fill + ring + check) — this rule only settles who
+       draws the edge between two rows. */
+    .create-option-row {
+        @apply text-ui relative flex w-full cursor-pointer items-start gap-3 rounded-sm px-3 py-3 text-left transition-colors;
+    }
+
+    .create-option-row + .create-option-row::before {
+        content: '';
+        @apply bg-divider/70 absolute inset-x-3 top-0 h-px;
+    }
+
+    .create-option-row[aria-checked='true']::before,
+    .create-option-row[aria-checked='true'] + .create-option-row::before {
+        @apply bg-transparent;
+    }
+
+    .create-option-row:not([aria-checked='true']):not(:disabled):hover {
+        @apply bg-surface-subtle dark:bg-surface;
+    }
+
+    .create-option-row[aria-checked='true'] {
+        @apply bg-surface-subtle shadow-ring-light dark:bg-surface;
+    }
+
+    .create-option-row:disabled {
+        @apply cursor-not-allowed opacity-55;
+    }
+
+    /* A quiet tile behind the row's mark, so nine rows of mixed brand glyphs
+       and generic icons still scan as one column. */
+    .create-option-mark {
+        @apply bg-icon-bg text-icon-fg mt-px inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xs;
+    }
+
     .chat-composer-dock {
         /* The composer floats over the chat canvas — no surface band
            below the input. The volume hierarchy (DESIGN.md §2) keeps the

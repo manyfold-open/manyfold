@@ -99,7 +99,9 @@ export const StepShell: FC<{
                 <p className='text-body text-muted mt-1.5'>{help}</p>
             )}
             <div className='mt-5'>{children}</div>
-            <div className='mt-7 flex flex-wrap items-center gap-3'>
+            {/* A rule above the actions closes the list: without it the last
+                row and the buttons read as one run of clickable things. */}
+            <div className='border-divider/70 mt-7 flex flex-wrap items-center gap-3 border-t pt-4'>
                 {onBack !== undefined && (
                     <button
                         type='button'
