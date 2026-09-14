@@ -90,6 +90,13 @@ Older installations must first run API 4.0.0 and complete their plan, runtime
 identity, shell and skill migrations. The new release does not run those
 one-time migrations during startup or normal runtime operations.
 
+Databases from before the editions journal split, including API 0.51.1,
+must complete their original distribution's journal transition before the
+API 4.0.0 bridge. That bridge repairs plan assignments; it does not convert
+the old journal. If migration reports that the database predates the split,
+stop and use the compatible transition release on a backup copy first.
+Do not reset the database or mark migration entries as applied to bypass it.
+
 Rename `WEB_BASE_URL` and `NCA_WEB_URL` to `MF_WEB_URL`, and other retired
 `NCA_*` API configuration aliases to their `MF_*` equivalents. Save A2A turn
 timeouts in Admin settings before removing `A2A_TURN_TIMEOUT_MS`. Replace

@@ -1538,6 +1538,7 @@ const es: Record<string, string> = {
     'web.chat.editMessage': 'Editar mensaje',
     'web.chat.error.modelAuth': 'El proveedor del modelo rechazó la solicitud: su clave de inicio de sesión o API no es válida o ha caducado. Actualice las credenciales del proveedor del modelo y vuelva a intentarlo.',
     'web.chat.error.modelBilling': 'El proveedor del modelo rechazó la solicitud; es posible que la clave no tenga crédito. Actualice la clave o cambie a créditos de plataforma.',
+    'web.chat.error.accountPoolEmpty': 'El proveedor de este modelo no tiene cuentas disponibles en este momento. Inténtalo de nuevo más tarde.',
     'web.chat.error.threadBusy': 'Esta conversación está abierta en una terminal y solo una sesión puede escribir en ella a la vez. Sal de la TUI allí y vuelve a enviar.',
     'web.chat.error.updateKey': 'Clave de actualización',
     'web.chat.error.switchToPlatform': 'Cambiar a créditos de plataforma',

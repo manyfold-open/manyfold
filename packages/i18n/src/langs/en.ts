@@ -2743,6 +2743,8 @@ const en = {
                     'The model provider rejected the request — its sign-in or API key is invalid or expired. Update the model provider credentials and try again.',
                 modelBilling:
                     'The model provider rejected the request — the key may be out of credit. Update the key or switch to platform credits.',
+                accountPoolEmpty:
+                    "This model's provider has no available accounts right now. Try again later.",
                 threadBusy:
                     'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
                 updateKey: 'Update key',

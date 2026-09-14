@@ -1538,6 +1538,7 @@ const de: Record<string, string> = {
     'web.chat.editMessage': 'Nachricht bearbeiten',
     'web.chat.error.modelAuth': 'Der Modellanbieter hat die Anfrage abgelehnt – sein Anmelde- oder API-Schlüssel ist ungültig oder abgelaufen. Aktualisieren Sie die Anmeldeinformationen des Modellanbieters und versuchen Sie es erneut.',
     'web.chat.error.modelBilling': 'Der Modellanbieter hat die Anfrage abgelehnt – der Schlüssel ist möglicherweise nicht mehr kreditwürdig. Aktualisieren Sie den Schlüssel oder wechseln Sie zu Plattform-Credits.',
+    'web.chat.error.accountPoolEmpty': 'Der Anbieter dieses Modells hat derzeit keine verfügbaren Konten. Versuche es später erneut.',
     'web.chat.error.threadBusy': 'Diese Unterhaltung ist in einem Terminal geöffnet, und es kann immer nur eine Sitzung darin schreiben. Beende die TUI dort und sende dann erneut.',
     'web.chat.error.updateKey': 'Schlüssel aktualisieren',
     'web.chat.error.switchToPlatform': 'Wechseln Sie zu Plattform-Credits',

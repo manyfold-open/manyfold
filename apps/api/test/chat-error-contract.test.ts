@@ -27,6 +27,16 @@ test('adapter errors carry the same cause used by terminal telemetry without cha
         ['dify_http_429', 'quota exceeded', 'rate_limited'],
         ['langflow_http_402', 'payment required', 'balance_exhausted'],
         [
+            'gemini_exec_failed',
+            '503 No available Gemini accounts: no available accounts',
+            'account_pool_empty'
+        ],
+        [
+            'managed_channel_unavailable',
+            'Provider diagnostic with neutral wording',
+            'account_pool_empty'
+        ],
+        [
             'provider_kind_mismatch',
             'binding is for the wrong provider',
             'invalid_request'

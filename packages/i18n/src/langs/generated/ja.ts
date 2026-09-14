@@ -1530,6 +1530,7 @@ const ja: Record<string, string> = {
     'web.chat.editMessage': 'メッセージを編集する',
     'web.chat.error.modelAuth': 'モデル プロバイダーは要求を拒否しました。サインインまたは API キーが無効であるか、期限切れです。モデルプロバイダーの資格情報を更新して、再試行してください。',
     'web.chat.error.modelBilling': 'モデルプロバイダーはリクエストを拒否しました - キーのクレジットが不足している可能性があります。キーを更新するか、プラットフォーム クレジットに切り替えてください。',
+    'web.chat.error.accountPoolEmpty': 'このモデルのプロバイダーには現在利用可能なアカウントがありません。しばらくしてから再試行してください。',
     'web.chat.error.threadBusy': 'この会話は端末で開かれており、同時に書き込めるセッションは 1 つだけです。そちらの TUI を終了してから、もう一度送信してください。',
     'web.chat.error.updateKey': '更新キー',
     'web.chat.error.switchToPlatform': 'プラットフォーム クレジットに切り替える',

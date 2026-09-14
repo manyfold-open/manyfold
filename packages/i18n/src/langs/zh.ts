@@ -2661,6 +2661,8 @@ const zh: Translations = {
                     '模型 Provider 拒绝了请求 —— 登录或 API Key 已失效或过期。请在 Agent 的模型 Provider 设置中重新登录或更新密钥后重试。',
                 modelBilling:
                     '模型 Provider 拒绝了请求 —— key 可能没额度了。更新 key 或改用平台额度。',
+                accountPoolEmpty:
+                    '此模型的提供商暂时没有可用账号，请稍后重试。',
                 threadBusy:
                     '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
                 updateKey: '更新 key',

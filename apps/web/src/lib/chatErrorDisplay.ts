@@ -5,6 +5,7 @@ export type ChatErrorKind =
     | 'model_auth'
     | 'model_billing'
     | 'thread_busy'
+    | 'account_pool_empty'
     | null
 
 export interface ChatErrorDisplay {
@@ -22,6 +23,16 @@ export const resolveChatErrorDisplay = (
     t: TFn
 ): ChatErrorDisplay => {
     const message = error.message.trim()
+    if (error.cause === 'account_pool_empty') {
+        return {
+            kind: 'account_pool_empty',
+            title: t('web.chat.error.accountPoolEmpty'),
+            detail:
+                message.length > 1024
+                    ? `${message.slice(0, 1021)}...`
+                    : message || null
+        }
+    }
     if (error.cause === 'auth_invalid') {
         return {
             kind: 'model_auth',
