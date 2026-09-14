@@ -66,6 +66,8 @@ const makeHarness = (
         runtimeSyncCursor?: number | null
         lineCount?: number
         openTurnStartSeq?: number | null
+        runtime?: 'sprites' | 'daemon'
+        execUnavailable?: boolean
     } = {}
 ) => {
     const session = {
@@ -86,7 +88,8 @@ const makeHarness = (
         id: 'agent-1',
         userId: 'user-1',
         framework: 'claude-code',
-        runtime: 'daemon',
+        runtime: options.runtime ?? 'daemon',
+        hostId: 'host-1',
         runtimeId: 'runtime-1'
     }
     const messages: DbMsg[] = options.cloudMessages ?? [
@@ -154,7 +157,15 @@ const makeHarness = (
             }
         }
     }
-    const drivers = { recoveryFsForAgent: async () => ({ fs: {} }) }
+    let fsCalls = 0
+    let execUnavailable = options.execUnavailable ?? false
+    const healthChecks: string[] = []
+    const drivers = {
+        recoveryFsForAgent: async () => {
+            fsCalls++
+            return { fs: {} }
+        }
+    }
     const reader = {
         readMessages: async () => ({
             sourceFile: '/tmp/s.jsonl',
@@ -178,14 +189,26 @@ const makeHarness = (
         repo as never,
         drivers as never,
         readers as never,
-        new CandidateScanCache()
+        new CandidateScanCache(),
+        undefined,
+        {
+            isKnownUnavailable: async (hostId: string) => {
+                healthChecks.push(hostId)
+                return execUnavailable
+            }
+        } as never
     )
     return {
         service,
         messages,
         sourceRows,
         cursorMoves,
-        appendCallCount: () => appendCalls
+        appendCallCount: () => appendCalls,
+        fsCallCount: () => fsCalls,
+        healthChecks,
+        setExecUnavailable: (value: boolean) => {
+            execUnavailable = value
+        }
     }
 }
 
@@ -197,6 +220,70 @@ const localSuperset = [
     recovered('l-user-2', 'user', 'and now from the terminal', 3),
     recovered('l-asst-2', 'assistant', 'got it, from the TUI', 4)
 ]
+
+test('automatic history sync does not touch a Sprite with marked exec unavailability', async () => {
+    const h = makeHarness({
+        runtime: 'sprites',
+        execUnavailable: true,
+        localMessages: localSuperset
+    })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.deepEqual(res, {
+        appended: 0,
+        recoveredSourceCount: 0,
+        skipped: 'exec-unavailable',
+        warnings: []
+    })
+    assert.deepEqual(h.healthChecks, ['host-1'])
+    assert.equal(h.fsCallCount(), 0)
+    assert.equal(h.appendCallCount(), 0)
+    assert.equal(h.messages.length, 2)
+    assert.deepEqual(h.cursorMoves, [])
+
+    h.setExecUnavailable(false)
+    const resumed = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(resumed.skipped, null)
+    assert.equal(resumed.appended, 2)
+    assert.equal(h.fsCallCount(), 1)
+    assert.equal(h.messages.length, 4)
+})
+
+test('a Sprite exec marker does not gate another runtime kind', async () => {
+    const h = makeHarness({
+        runtime: 'daemon',
+        execUnavailable: true,
+        localMessages: localSuperset
+    })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.skipped, null)
+    assert.equal(res.appended, 2)
+    assert.deepEqual(h.healthChecks, [])
+})
+
+test('history sync validates ownership before reporting exec unavailability', async () => {
+    const h = makeHarness({ runtime: 'sprites', execUnavailable: true })
+    await assert.rejects(
+        h.service.syncRuntimeSessionIntoCloud(
+            'other-user',
+            'agent-1',
+            'session-1'
+        )
+    )
+    assert.deepEqual(h.healthChecks, [])
+    assert.equal(h.fsCallCount(), 0)
+})
 
 test('appends the messages the TUI added, in order after the cloud ones', async () => {
     const h = makeHarness({ localMessages: localSuperset })

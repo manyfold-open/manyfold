@@ -42,6 +42,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
+import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import {
     ExecDriverFactory,
     type RecoveryFsHandle
@@ -114,10 +115,11 @@ export class SessionRecoveryService {
         private readonly drivers: ExecDriverFactory,
         private readonly readers: SessionReaderRegistry,
         private readonly scanCache: CandidateScanCache,
-        // Appended last and @Optional: the existing tests build this service
-        // positionally without it. Absent = no session-list push.
+        // Optional session-list pushes can be omitted by positional harnesses.
         @Optional()
-        private readonly statusBroadcaster?: SpriteStatusBroadcaster
+        private readonly statusBroadcaster?: SpriteStatusBroadcaster,
+        @Optional()
+        private readonly execHealth?: SpriteExecHealthService
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -784,6 +786,19 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'inflight',
+                warnings: []
+            }
+
+        // Chat opens trigger this read automatically. A marked Sprite must
+        // recover through the turn's single probe, not history-file execs.
+        if (
+            agent.runtime === 'sprites' &&
+            (await this.execHealth?.isKnownUnavailable(agent.hostId))
+        )
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'exec-unavailable',
                 warnings: []
             }
 
