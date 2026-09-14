@@ -28,6 +28,7 @@ import {
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import {
     agents,
@@ -61,9 +62,6 @@ const isInitUnitStartup = (
     method !== null && method !== 'manual'
 
 const ONLINE_THRESHOLD_MS = DAEMON_ONLINE_THRESHOLD_MS
-
-const sameJson = (a: unknown, b: unknown): boolean =>
-    JSON.stringify(a) === JSON.stringify(b)
 
 @Injectable()
 export class DaemonHostService {
@@ -233,7 +231,10 @@ export class DaemonHostService {
         const now = new Date()
         const terminalPty = args.terminalPty ?? null
         const changed: Partial<RuntimeHostRow> = {}
-        if (!sameJson(host.detectedFrameworks, args.detectedFrameworks))
+        // JSONB does not preserve object-key order; array order still matters.
+        if (
+            !isDeepStrictEqual(host.detectedFrameworks, args.detectedFrameworks)
+        )
             changed.detectedFrameworks = args.detectedFrameworks
         if (host.cliVersion !== args.cliVersion)
             changed.cliVersion = args.cliVersion
@@ -242,7 +243,7 @@ export class DaemonHostService {
         if (host.terminalPty !== terminalPty) changed.terminalPty = terminalPty
         if (
             args.clientFeatures &&
-            !sameJson(host.clientFeatures, args.clientFeatures)
+            !isDeepStrictEqual(host.clientFeatures, args.clientFeatures)
         )
             changed.clientFeatures = args.clientFeatures
         if (host.status !== 'active') changed.status = 'active'
