@@ -1,5 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import type { AgentFramework } from '@manyfold/shared'
+import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import {
     OptionGroup,
@@ -27,15 +28,19 @@ export const StepType: FC<{
                     {group.entries.map((entry) => (
                         <OptionRow
                             key={entry.framework}
-                            title={entry.label}
+                            title={frameworkLabel(entry.framework)}
                             detail={t(entry.identityKey)}
                             meta={
                                 entry.subscriptionKey !== undefined
                                     ? t(entry.subscriptionKey)
                                     : undefined
                             }
-                            Mark={entry.Mark}
-                            Icon={entry.FallbackIcon}
+                            mark={
+                                <FrameworkLogo
+                                    framework={entry.framework}
+                                    size={20}
+                                />
+                            }
                             selected={value === entry.framework}
                             onSelect={() => onChange(entry.framework)}
                         />

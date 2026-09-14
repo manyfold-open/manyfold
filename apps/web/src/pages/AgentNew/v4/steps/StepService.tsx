@@ -4,6 +4,7 @@ import type {
     UserExternalAgentProviderSummary
 } from '@manyfold/shared'
 import { PlugIcon, PlusIcon } from '@/components/icons'
+import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import {
     remoteIdHintFor,
@@ -14,7 +15,6 @@ import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
-import { frameworkLabel } from '@/pages/AgentNew/v4/frameworkCatalog'
 
 // Step ② for Dify / Langflow / A2A. Same step, same position in the flow, one
 // different question: which app on which service you already run. The backend
@@ -58,7 +58,7 @@ export const StepService: FC<{
                         key={provider.id}
                         title={provider.label}
                         detail={provider.endpointUrl}
-                        Icon={PlugIcon}
+                        mark={<PlugIcon className='h-5 w-5' />}
                         meta={
                             provider.lastTestStatus === 'ok'
                                 ? t('web.agentNewV4.service.reachable')
@@ -85,7 +85,7 @@ export const StepService: FC<{
                 <OptionRow
                     title={t('web.agentNewV4.service.connectNew', { service })}
                     detail={t('web.agentNewV4.service.connectNewDetail')}
-                    Icon={PlusIcon}
+                    mark={<PlusIcon className='h-5 w-5' />}
                     onSelect={onConnectNew}
                 />
             </OptionGroup>

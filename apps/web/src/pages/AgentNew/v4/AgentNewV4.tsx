@@ -4,6 +4,7 @@ import type { FC, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { useApiClient } from '@/lib/apiClient'
+import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useManagedCreditGate } from '@/lib/managedCreditGate'
@@ -23,10 +24,7 @@ import type {
     CreateStepId,
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
-import {
-    frameworkLabel,
-    runsOnOurMachine
-} from '@/pages/AgentNew/v4/frameworkCatalog'
+import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     buildMachineOptions,
     buildNewMachineOptions

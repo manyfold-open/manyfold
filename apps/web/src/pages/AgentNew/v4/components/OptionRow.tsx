@@ -1,7 +1,5 @@
 import type { FC, ReactNode } from 'react'
 import { CheckIcon } from '@/components/icons'
-import type { LucideIcon } from '@/components/icons'
-import type { IconType } from '@/lib/brandIcons'
 
 // One choice in a step. Rows sit directly on the page canvas — no card, no
 // nested list container — so the whole step is two levels deep (page → row)
@@ -18,8 +16,9 @@ export interface OptionRowProps {
     detail?: ReactNode
     // Right-hand attribute: a subscription badge, a cost read-out, a status.
     meta?: ReactNode
-    Icon?: LucideIcon
-    Mark?: IconType
+    // Whatever identifies the row: a framework logo, a Lucide glyph. The row
+    // only reserves the space and keeps the column aligned.
+    mark?: ReactNode
     selected?: boolean
     // A row the user cannot pick stays in place and says why — hiding it
     // leaves them wondering where their own machine went.
@@ -31,8 +30,7 @@ export const OptionRow: FC<OptionRowProps> = ({
     title,
     detail,
     meta,
-    Icon,
-    Mark,
+    mark,
     selected = false,
     disabled = false,
     onSelect
@@ -46,11 +44,7 @@ export const OptionRow: FC<OptionRowProps> = ({
         className='create-option-row'
     >
         <span className='create-option-mark' aria-hidden='true'>
-            {Mark ? (
-                <Mark size={20} />
-            ) : Icon ? (
-                <Icon className='h-5 w-5' />
-            ) : null}
+            {mark}
         </span>
         <span className='min-w-0 flex-1'>
             <span className='text-ui text-fg block font-medium'>{title}</span>

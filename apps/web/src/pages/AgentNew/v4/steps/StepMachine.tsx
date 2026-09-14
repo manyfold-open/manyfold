@@ -1,13 +1,13 @@
 import type { FC, ReactNode } from 'react'
 import type { AgentFramework } from '@manyfold/shared'
 import { BoxIcon, CloudComputerIcon, LocalDaemonIcon, PlusIcon } from '@/components/icons'
+import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
 import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
-import { frameworkLabel } from '@/pages/AgentNew/v4/frameworkCatalog'
 import type {
     MachineOption,
     NewMachineKind,
@@ -67,6 +67,11 @@ const NEW_MACHINE_ICON: Record<NewMachineKind, typeof PlusIcon> = {
     cloudComputer: CloudComputerIcon
 }
 
+const NewMachineMark: FC<{ kind: NewMachineKind }> = ({ kind }): ReactNode => {
+    const Icon = NEW_MACHINE_ICON[kind]
+    return <Icon className='h-5 w-5' />
+}
+
 const NEW_MACHINE_TITLE: Record<NewMachineKind, string> = {
     sandbox: 'web.agentNewV4.newMachine.sandbox',
     ownComputer: 'web.agentNewV4.newMachine.ownComputer',
@@ -111,12 +116,14 @@ export const StepMachine: FC<{
                             key={row.id}
                             title={row.title}
                             detail={machineDetail(row, framework, t)}
-                            Icon={
-                                row.hostKind === 'daemon'
-                                    ? LocalDaemonIcon
-                                    : row.hostKind === 'k8s'
-                                      ? CloudComputerIcon
-                                      : BoxIcon
+                            mark={
+                                row.hostKind === 'daemon' ? (
+                                    <LocalDaemonIcon className='h-5 w-5' />
+                                ) : row.hostKind === 'k8s' ? (
+                                    <CloudComputerIcon className='h-5 w-5' />
+                                ) : (
+                                    <BoxIcon className='h-5 w-5' />
+                                )
                             }
                             meta={
                                 <>
@@ -143,7 +150,7 @@ export const StepMachine: FC<{
                         key={option.kind}
                         title={t(NEW_MACHINE_TITLE[option.kind], { cli })}
                         detail={t(NEW_MACHINE_DETAIL[option.kind], { cli })}
-                        Icon={NEW_MACHINE_ICON[option.kind]}
+                        mark={<NewMachineMark kind={option.kind} />}
                         meta={
                             <>
                                 {option.kind === 'sandbox' &&

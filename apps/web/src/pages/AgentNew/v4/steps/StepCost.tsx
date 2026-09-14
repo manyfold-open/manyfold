@@ -17,12 +17,21 @@ import {
     OptionGroup,
     OptionRow
 } from '@/pages/AgentNew/v4/components/OptionRow'
-import {
-    canUseSubscription,
-    frameworkLabel,
-    vendorLabel
-} from '@/pages/AgentNew/v4/frameworkCatalog'
+import { frameworkLabel } from '@/lib/frameworkMeta'
+import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
+
+// Whose account the sign-in belongs to. A user signs in to Claude, not to
+// "Claude Code" — the CLI is only what carries the sign-in — so this step
+// names the vendor rather than reusing the product name from step ①.
+const VENDOR_LABEL: Partial<Record<AgentFramework, string>> = {
+    'claude-code': 'Claude',
+    codex: 'ChatGPT',
+    'gemini-cli': 'Google'
+}
+
+const vendorLabel = (framework: AgentFramework): string =>
+    VENDOR_LABEL[framework] ?? frameworkLabel(framework)
 
 // A credential the host can no longer use without the user going back to the
 // vendor. Both states mean the same thing to whoever is choosing here: picking
@@ -91,7 +100,7 @@ export const StepCost: FC<{
             <OptionRow
                 title={t('web.agentNewV4.cost.managed')}
                 detail={t('web.agentNewV4.cost.managedDetail')}
-                Icon={BillingIcon}
+                mark={<BillingIcon className='h-5 w-5' />}
                 meta={
                     managedAvailable
                         ? t('web.agentNewV4.cost.readyNow')
@@ -106,7 +115,7 @@ export const StepCost: FC<{
                     key={provider.id}
                     title={provider.providerName}
                     detail={t('web.agentNewV4.cost.ownKeyDetail')}
-                    Icon={ProviderIcon}
+                    mark={<ProviderIcon className='h-5 w-5' />}
                     selected={isSameChoice(value, {
                         kind: 'provider',
                         providerId: provider.id,
@@ -165,7 +174,7 @@ export const StepCost: FC<{
                                     })
                                   : t('web.agentNewV4.cost.signedIn')
                         }
-                        Icon={AccountIcon}
+                        mark={<AccountIcon className='h-5 w-5' />}
                         meta={
                             needsReauth(profile.credentialStatus)
                                 ? t('web.agentNewV4.cost.aboutAMinute')
@@ -191,7 +200,7 @@ export const StepCost: FC<{
                         detail={t('web.agentNewV4.cost.signInDetail', {
                             machine: machineLabel
                         })}
-                        Icon={AccountIcon}
+                        mark={<AccountIcon className='h-5 w-5' />}
                         meta={t('web.agentNewV4.cost.aboutAMinute')}
                         onSelect={onAddAccount}
                     />
@@ -215,7 +224,7 @@ export const StepCost: FC<{
                             vendor
                         })}
                         detail={t('web.agentNewV4.cost.signInAnotherDetail')}
-                        Icon={PlusIcon}
+                        mark={<PlusIcon className='h-5 w-5' />}
                         meta={t('web.agentNewV4.cost.aboutAMinute')}
                         onSelect={onAddAccount}
                     />
