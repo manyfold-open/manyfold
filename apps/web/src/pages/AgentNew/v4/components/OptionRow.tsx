@@ -47,9 +47,9 @@ export const OptionRow: FC<OptionRowProps> = ({
     >
         <span className='create-option-mark' aria-hidden='true'>
             {Mark ? (
-                <Mark size={16} />
+                <Mark size={20} />
             ) : Icon ? (
-                <Icon className='h-4 w-4' />
+                <Icon className='h-5 w-5' />
             ) : null}
         </span>
         <span className='min-w-0 flex-1'>

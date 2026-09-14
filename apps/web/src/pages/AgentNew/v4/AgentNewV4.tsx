@@ -439,7 +439,10 @@ const StepHelp: FC<{ step: CreateStepId; preparing: string | null }> = ({
     // survive, the position in the flow does not.
     if (preparing !== null)
         return <>{t('web.agentNewV4.preparing.note', { machine: preparing })}</>
-    if (step === 'type') return <>{t('web.agentNewV4.help.type')}</>
+    // Step ① explains itself: nine named rows under two headings need no
+    // paragraph above them, and one fewer level of text is one less thing to
+    // read before the first choice.
+    if (step === 'type') return null
     if (step === 'runtime') return <>{t('web.agentNewV4.help.runtime')}</>
     if (step === 'cost') return <>{t('web.agentNewV4.help.cost')}</>
     return <>{t('web.agentNewV4.help.name')}</>

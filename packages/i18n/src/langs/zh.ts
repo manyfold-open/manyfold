@@ -3424,7 +3424,6 @@ const zh: Translations = {
                 name: '给它起个名字'
             },
             help: {
-                type: '九种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。',
                 runtime: '登录是跟着机器走的，所以每一行都写清楚要花多少代价，包括之后要不要再登录一次。',
                 cost: '三条路的作用范围不一样，所以按作用域分组。agent 建好之后随时可以改。',
                 name: '确认一下，然后就建好了。'
@@ -3436,10 +3435,8 @@ const zh: Translations = {
                 name: '起个名字才能继续'
             },
             type: {
-                onMachine: '装在一台机器上',
-                onMachineHint: '沙箱和云端计算机由我们装，你自己的电脑由你装',
-                connected: '连到你已经在跑的服务',
-                connectedHint: '不占机器，模型也由那边调用和计费'
+                onMachine: '装在机器上',
+                connected: '在你自己的服务上'
             },
             identity: {
                 claudeCode: 'Anthropic 的编码 CLI',

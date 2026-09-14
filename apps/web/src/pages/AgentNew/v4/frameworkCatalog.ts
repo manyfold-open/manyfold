@@ -44,7 +44,6 @@ export interface FrameworkEntry {
 export interface FrameworkGroup {
     id: FrameworkGroupId
     titleKey: string
-    hintKey: string
     entries: FrameworkEntry[]
 }
 
@@ -52,7 +51,6 @@ export const FRAMEWORK_GROUPS: FrameworkGroup[] = [
     {
         id: 'onMachine',
         titleKey: 'web.agentNewV4.type.onMachine',
-        hintKey: 'web.agentNewV4.type.onMachineHint',
         entries: [
             {
                 framework: 'claude-code',
@@ -98,7 +96,6 @@ export const FRAMEWORK_GROUPS: FrameworkGroup[] = [
     {
         id: 'connected',
         titleKey: 'web.agentNewV4.type.connected',
-        hintKey: 'web.agentNewV4.type.connectedHint',
         entries: [
             {
                 framework: 'dify',

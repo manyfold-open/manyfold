@@ -3590,7 +3590,6 @@ const en = {
                 name: 'Give it a name'
             },
             help: {
-                type: 'Nine of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.',
                 runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
                 cost: 'The three ways do not reach the same distance, so they are grouped by scope. You can change this once the agent exists.',
                 name: 'Check it over, and it is built.'
@@ -3602,10 +3601,8 @@ const en = {
                 name: 'Give it a name to continue'
             },
             type: {
-                onMachine: 'Installed on a machine',
-                onMachineHint: 'we install on sandboxes and cloud computers, you install on your own computer',
-                connected: 'Connected to a service you already run',
-                connectedHint: 'takes no machine, and the model is called and billed over there'
+                onMachine: 'On a machine',
+                connected: 'On your own service'
             },
             identity: {
                 claudeCode: 'Anthropic\'s coding CLI',

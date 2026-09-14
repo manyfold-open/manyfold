@@ -23,11 +23,7 @@ export const StepType: FC<{
     return (
         <>
             {FRAMEWORK_GROUPS.map((group) => (
-                <OptionGroup
-                    key={group.id}
-                    title={t(group.titleKey)}
-                    hint={t(group.hintKey)}
-                >
+                <OptionGroup key={group.id} title={t(group.titleKey)}>
                     {group.entries.map((entry) => (
                         <OptionRow
                             key={entry.framework}

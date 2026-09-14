@@ -790,10 +790,10 @@
         @apply cursor-not-allowed opacity-55;
     }
 
-    /* A quiet tile behind the row's mark, so nine rows of mixed brand glyphs
-       and generic icons still scan as one column. */
+    /* Just the mark — no tile behind it. A fixed box keeps the column of
+       glyphs aligned without adding a second surface to the row. */
     .create-option-mark {
-        @apply bg-icon-bg text-icon-fg mt-px inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-xs;
+        @apply text-subtle mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center;
     }
 
     .chat-composer-dock {
