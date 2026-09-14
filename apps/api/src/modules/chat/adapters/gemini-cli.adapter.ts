@@ -55,6 +55,7 @@ const STDERR_DETAIL_CHARS = 512
 // the attach step keep a head as well as a tail, and mark the gap.
 const STDERR_HEAD_CHARS = 512
 const STDERR_ELISION = '\n...\n'
+const ERROR_SUMMARY_CHARS = 512
 
 const isRetryableRateLimit = (
     errorCode: 'gemini_error' | 'gemini_exec_failed' | 'gemini_result_error',
@@ -431,8 +432,13 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         let streamErrorText = ''
         let untrustedInspectedCauseCount = 0
         const withStderr = (message: string, stderr: string): string => {
+            const redacted = redactSecrets(message).trim()
+            const summary =
+                redacted.length > ERROR_SUMMARY_CHARS
+                    ? `${redacted.slice(0, ERROR_SUMMARY_CHARS)}${STDERR_ELISION}`
+                    : redacted
             const detail = stderrDetail(stderr)
-            return detail ? `${message}\n\nstderr: ${detail}` : message
+            return detail ? `${summary}\n\nstderr: ${detail}` : summary
         }
 
         // Thoughts never come over stdout (see gemini-thought-tail): they are
@@ -721,8 +727,13 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         }
 
         if (execResult && execResult.exitCode !== 0) {
+            // Startup warnings can fill stderr's bounded head. The structured
+            // result still carries the provider cause on a non-zero exit.
+            const summary = resultError
+                ? `gemini exited ${execResult.exitCode}\n${resultError}`
+                : `gemini exited ${execResult.exitCode}`
             const message = withHistoryHint(
-                withStderr(`gemini exited ${execResult.exitCode}`, stderrText),
+                withStderr(summary, stderrText),
                 poisonedHistory
             )
             const managedChannelFailure =
