@@ -774,6 +774,20 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'sandbox'
     ],
     'pages/AgentNew/v3/AgentNewV3.tsx': ['openai'],
+    // Vendor and product names, which are the same in every locale — the
+    // line under each one is the localizable part and comes from `t()`.
+    'pages/AgentNew/v4/frameworkCatalog.ts': [
+        'Claude Code',
+        'Codex',
+        'Dify',
+        'Gemini CLI',
+        'Hermes',
+        'Langflow',
+        'NarraNexus',
+        'OpenClaw'
+    ],
+    // An example path shown as a placeholder, not display copy.
+    'pages/AgentNew/v4/steps/StepName.tsx': ['~/code/my-project'],
     'pages/AgentRuntimesList.tsx': ['bg-error', 'error'],
     'pages/Challenge.tsx': [
         'Article Lens',

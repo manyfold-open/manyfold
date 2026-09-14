@@ -3569,6 +3569,141 @@ const en = {
             netmindMethodNote:
                 'Uses the sign-in method of your NetMind account, not a new one for Manyfold.'
         },
+        agentNewV4: {
+            title: 'New agent',
+            next: 'Next',
+            back: 'Back',
+            change: 'Change',
+            createAgent: 'Create agent',
+            step: {
+                type: 'Agent type',
+                runtime: 'Where it runs',
+                cost: 'Model cost',
+                name: 'Name'
+            },
+            question: {
+                type: 'What kind of agent do you want?',
+                machine: 'Where does {{cli}} run?',
+                service: 'Where is {{cli}} connected?',
+                cost: 'Whose allowance runs the model on {{machine}}?',
+                costExternal: 'Who pays for the model?',
+                name: 'Give it a name'
+            },
+            help: {
+                type: 'Nine of them, pick one. The type cannot be changed afterwards, but building another one takes seconds.',
+                runtime: 'A sign-in follows the machine it is written to, so every row says what it costs — including whether you have to sign in again afterwards.',
+                cost: 'The three ways do not reach the same distance, so they are grouped by scope. You can change this once the agent exists.',
+                name: 'Check it over, and it is built.'
+            },
+            blocked: {
+                type: 'Pick one to continue',
+                runtime: 'Pick where it runs to continue',
+                cost: 'Pick who pays to continue',
+                name: 'Give it a name to continue'
+            },
+            type: {
+                onMachine: 'Installed on a machine',
+                onMachineHint: 'we install on sandboxes and cloud computers, you install on your own computer',
+                connected: 'Connected to a service you already run',
+                connectedHint: 'takes no machine, and the model is called and billed over there'
+            },
+            identity: {
+                claudeCode: 'Anthropic\'s coding CLI',
+                codex: 'OpenAI\'s coding CLI',
+                geminiCli: 'Google\'s coding CLI',
+                openclaw: 'Long-running chat service, connects IM channels',
+                hermes: 'Long-running assistant service, calendar and mail',
+                narranexus: 'Long-running orchestration service',
+                dify: 'Connect one of your Dify apps',
+                langflow: 'Connect one of your Langflow flows',
+                a2a: 'Connect any agent that speaks A2A'
+            },
+            subscription: {
+                claude: 'Can use Claude Pro / Max',
+                codex: 'Can use ChatGPT Plus / Pro',
+                gemini: 'Can use a Google subscription'
+            },
+            machine: {
+                yours: 'Your machines',
+                newOne: 'A new one',
+                sandbox: 'Stateful sandbox',
+                ownComputer: 'Your own computer',
+                cloudComputer: 'Cloud computer',
+                readyWithAgents: '{{cli}} installed and working · {{count}} agents',
+                readyNoAgents: '{{cli}} installed, not signed in yet',
+                needsInstall: '{{cli}} has to be installed first',
+                needsInstallIdle: '{{cli}} has to be installed first; nothing on this machine yet',
+                notInstallable: 'Your computer does not have {{cli}}. Install it there and the daemon finds it within about five minutes',
+                slotTaken: 'Already serving {{other}}, and a sandbox has only one public port',
+                frameworkFixed: 'Fixed to {{other}} by the image chosen at purchase'
+            },
+            newMachine: {
+                sandbox: 'New sandbox',
+                sandboxDetail: 'Build a machine and install {{cli}} on it',
+                ownComputer: 'Connect my computer',
+                ownComputerDetail: 'Install the daemon on your own machine; the {{cli}} you already have is found',
+                cloudComputer: 'Cloud computer',
+                cloudComputerDetail: 'Always on, never sleeps — for an agent that has to stay reachable',
+                quota: '{{used}} of {{limit}} used',
+                needsPlan: 'Needs a plan'
+            },
+            cost: {
+                noSignIn: 'instant · no sign-in needed',
+                signInNextStep: 'sign in on the next step',
+                signInAfter: 'sign in once afterwards',
+                signInOnThatComputer: 'no sign-in if you signed in on that computer',
+                onThisMachine: '{{vendor}} accounts signed in on {{machine}}',
+                onThisMachineHint: 'only valid on this machine',
+                accountLevel: 'Account-level allowance',
+                accountLevelAlt: 'Or an account-level allowance',
+                accountLevelHint: 'follows your account, works on every machine, nothing to redo when you switch',
+                oneMore: 'Or sign in one more on this machine',
+                oneMoreHint: 'also only valid on {{machine}}',
+                managed: 'Manyfold managed',
+                managedDetail: 'Billed by usage',
+                managedUnavailable: 'Not available',
+                readyNow: 'ready now',
+                ownKeyDetail: 'Your own key, billed by the vendor directly',
+                signedIn: 'Signed in',
+                inUseBy: 'In use by {{count}} agents',
+                expired: 'Credentials expired — picking this needs a new sign-in',
+                aboutAMinute: 'about a minute',
+                signInTo: 'Your {{vendor}} account',
+                signInDetail: 'The sign-in is written to {{machine}}\'s disk; Manyfold never stores your token',
+                signInAnother: 'Sign in another {{vendor}} account',
+                signInAnotherDetail: 'One machine can hold several, in separate credential directories',
+                loadingAccounts: 'Reading the accounts on this machine…',
+                asleep: 'This machine is asleep, so these are the last known values. It is not woken just to answer this list.',
+                noSubscriptionFor: '{{vendor}} calls a model API rather than carrying its own sign-in, so there is no subscription route for it. Both options above follow your account.',
+                backToType: 'Go back and pick another type',
+                externalBilled: 'The model for this agent is called and billed by your own {{service}} service, with no machine involved. Manyfold takes no part in it and cannot see its usage — change the model over there.',
+                externalShort: 'Billed on your own service'
+            },
+            service: {
+                connected: '{{service}} services you have connected',
+                connectNewGroup: 'Connect a new one',
+                connectNew: 'Connect a {{service}} service',
+                connectNewDetail: 'Endpoint and API key; we try the connection once to confirm it works',
+                reachable: 'reachable',
+                lastCheckFailed: 'last check failed',
+                none: 'No {{service}} service connected yet.',
+                loading: 'Loading…'
+            },
+            name: {
+                label: 'Name',
+                workspaceLabel: 'Working directory',
+                workspaceHint: 'A real path on your computer; the agent can only read and write inside it. Leave it empty for its own directory under ~/.manyfold/workspaces/.',
+                workspaceManaged: 'The working directory is allocated for you and kept separate from the other agents on this machine.'
+            },
+            preparing: {
+                newMachine: 'a new machine',
+                note: 'Building {{machine}} and installing the CLI. Leaving now is fine — the machine and the CLI are kept; only your place in these four steps is not, so next time you start again from step one and find them waiting in the lists.'
+            },
+            error: {
+                machineNotReady: 'Pick a machine first.',
+                externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.'
+            }
+        },
         agentNew: {
             title: 'Create Agent',
             status: 'Status',
