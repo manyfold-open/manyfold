@@ -19,19 +19,8 @@ import {
 } from '@/pages/AgentNew/v4/components/OptionRow'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
+import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
-
-// Whose account the sign-in belongs to. A user signs in to Claude, not to
-// "Claude Code" — the CLI is only what carries the sign-in — so this step
-// names the vendor rather than reusing the product name from step ①.
-const VENDOR_LABEL: Partial<Record<AgentFramework, string>> = {
-    'claude-code': 'Claude',
-    codex: 'ChatGPT',
-    'gemini-cli': 'Google'
-}
-
-const vendorLabel = (framework: AgentFramework): string =>
-    VENDOR_LABEL[framework] ?? frameworkLabel(framework)
 
 // A credential the host can no longer use without the user going back to the
 // vendor. Both states mean the same thing to whoever is choosing here: picking
@@ -39,13 +28,33 @@ const vendorLabel = (framework: AgentFramework): string =>
 const needsReauth = (status: RuntimeAuthCredentialStatus): boolean =>
     status === 'reauth-required' || status === 'missing'
 
-const isSameChoice = (a: CostChoice | null, b: CostChoice): boolean => {
-    if (a === null) return false
-    if (a.kind !== b.kind) return false
-    if (a.kind === 'runtime-local' && b.kind === 'runtime-local')
-        return a.profileId === b.profileId
-    if (a.kind === 'provider' && b.kind === 'provider')
-        return a.providerId === b.providerId
+// Step ③ picks a row the same way step ② does, including the row that starts
+// a sign-in rather than answering the question. Keeping one shape for both
+// lets the shell describe the primary button from the pick alone — and it is
+// why nothing on this screen commits itself: every row waits for the button.
+export type CostPick =
+    | { kind: 'profile'; id: string; label: string; needsReauth: boolean }
+    | { kind: 'platform' }
+    | { kind: 'provider'; id: string; label: string }
+    | { kind: 'signin' }
+
+export const costChoiceFor = (pick: CostPick): CostChoice | null => {
+    if (pick.kind === 'profile')
+        return {
+            kind: 'runtime-local',
+            profileId: pick.id,
+            label: pick.label
+        }
+    if (pick.kind === 'platform') return { kind: 'platform' }
+    if (pick.kind === 'provider')
+        return { kind: 'provider', providerId: pick.id, label: pick.label }
+    return null
+}
+
+const samePick = (a: CostPick | null, b: CostPick): boolean => {
+    if (a === null || a.kind !== b.kind) return false
+    if (a.kind === 'profile' && b.kind === 'profile') return a.id === b.id
+    if (a.kind === 'provider' && b.kind === 'provider') return a.id === b.id
     return true
 }
 
@@ -63,9 +72,8 @@ export const StepCost: FC<{
     providers: UserModelProviderSummary[]
     managedAvailable: boolean
     managedUnavailableReason: string | null
-    value: CostChoice | null
-    onChange: (choice: CostChoice) => void
-    onAddAccount: () => void
+    value: CostPick | null
+    onChange: (pick: CostPick) => void
     onBackToType: () => void
 }> = ({
     framework,
@@ -77,7 +85,6 @@ export const StepCost: FC<{
     managedUnavailableReason,
     value,
     onChange,
-    onAddAccount,
     onBackToType
 }): ReactNode => {
     const { t } = useI18n()
@@ -106,7 +113,7 @@ export const StepCost: FC<{
                         ? t('web.agentNewV4.cost.readyNow')
                         : managedUnavailableReason
                 }
-                selected={isSameChoice(value, { kind: 'platform' })}
+                selected={samePick(value, { kind: 'platform' })}
                 disabled={!managedAvailable}
                 onSelect={() => onChange({ kind: 'platform' })}
             />
@@ -116,15 +123,15 @@ export const StepCost: FC<{
                     title={provider.providerName}
                     detail={t('web.agentNewV4.cost.ownKeyDetail')}
                     mark={<ProviderIcon className='h-5 w-5' />}
-                    selected={isSameChoice(value, {
+                    selected={samePick(value, {
                         kind: 'provider',
-                        providerId: provider.id,
+                        id: provider.id,
                         label: provider.providerName
                     })}
                     onSelect={() =>
                         onChange({
                             kind: 'provider',
-                            providerId: provider.id,
+                            id: provider.id,
                             label: provider.providerName
                         })
                     }
@@ -180,16 +187,21 @@ export const StepCost: FC<{
                                 ? t('web.agentNewV4.cost.aboutAMinute')
                                 : undefined
                         }
-                        selected={isSameChoice(value, {
-                            kind: 'runtime-local',
-                            profileId: profile.id,
-                            label: profile.identity?.email ?? profile.label
+                        selected={samePick(value, {
+                            kind: 'profile',
+                            id: profile.id,
+                            label: profile.identity?.email ?? profile.label,
+                            needsReauth: needsReauth(profile.credentialStatus)
                         })}
                         onSelect={() =>
                             onChange({
-                                kind: 'runtime-local',
-                                profileId: profile.id,
-                                label: profile.identity?.email ?? profile.label
+                                kind: 'profile',
+                                id: profile.id,
+                                label:
+                                    profile.identity?.email ?? profile.label,
+                                needsReauth: needsReauth(
+                                    profile.credentialStatus
+                                )
                             })
                         }
                     />
@@ -202,7 +214,8 @@ export const StepCost: FC<{
                         })}
                         mark={<AccountIcon className='h-5 w-5' />}
                         meta={t('web.agentNewV4.cost.aboutAMinute')}
-                        onSelect={onAddAccount}
+                        selected={samePick(value, { kind: 'signin' })}
+                        onSelect={() => onChange({ kind: 'signin' })}
                     />
                 )}
                 {authLoading && (
@@ -226,7 +239,8 @@ export const StepCost: FC<{
                         detail={t('web.agentNewV4.cost.signInAnotherDetail')}
                         mark={<PlusIcon className='h-5 w-5' />}
                         meta={t('web.agentNewV4.cost.aboutAMinute')}
-                        onSelect={onAddAccount}
+                        selected={samePick(value, { kind: 'signin' })}
+                        onSelect={() => onChange({ kind: 'signin' })}
                     />
                 </OptionGroup>
             )}

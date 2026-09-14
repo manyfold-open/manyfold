@@ -10,6 +10,7 @@ import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
 import { useManagedCreditGate } from '@/lib/managedCreditGate'
 import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 import { StepShell } from '@/pages/AgentNew/v4/components/StepShell'
+import type { StepPrimary } from '@/pages/AgentNew/v4/components/StepShell'
 import {
     advanceBlockedKey,
     initialFlowState,
@@ -25,15 +26,30 @@ import type {
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
 import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
+import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import {
     buildMachineOptions,
     buildNewMachineOptions
 } from '@/pages/AgentNew/v4/machineOptions'
 import type {
     MachineOption,
-    NewMachineOption
+    NewMachineOption,
+    SignInCost
 } from '@/pages/AgentNew/v4/machineOptions'
-import { StepCost, StepCostExternal } from '@/pages/AgentNew/v4/steps/StepCost'
+
+// The chosen row's cost, restated beside the button so the two never drift.
+const SIGN_IN_FINE_KEY: Record<SignInCost, string> = {
+    none: 'web.agentNewV4.cost.noSignIn',
+    'next-step': 'web.agentNewV4.cost.signInNextStep',
+    after: 'web.agentNewV4.cost.signInAfter',
+    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer'
+}
+import {
+    StepCost,
+    StepCostExternal,
+    costChoiceFor
+} from '@/pages/AgentNew/v4/steps/StepCost'
+import type { CostPick } from '@/pages/AgentNew/v4/steps/StepCost'
 import { StepMachine } from '@/pages/AgentNew/v4/steps/StepMachine'
 import { StepName } from '@/pages/AgentNew/v4/steps/StepName'
 import { StepService } from '@/pages/AgentNew/v4/steps/StepService'
@@ -65,6 +81,7 @@ const AgentNewV4: FC = (): ReactNode => {
     const [serviceProviderId, setServiceProviderId] = useState<string | null>(
         null
     )
+    const [costPick, setCostPick] = useState<CostPick | null>(null)
     const [remoteRef, setRemoteRef] = useState('')
     const [reached, setReached] = useState<Set<CreateStepId>>(
         () => new Set<CreateStepId>(['type'])
@@ -217,6 +234,14 @@ const AgentNewV4: FC = (): ReactNode => {
 
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
+        if (flow.step === 'runtime' && machinePick === 'new:ownComputer') {
+            navigate('/runtimes?connect=daemon')
+            return
+        }
+        if (flow.step === 'runtime' && machinePick === 'new:cloudComputer') {
+            navigate('/runtimes?buy=cloud-computer')
+            return
+        }
         if (flow.step === 'runtime') {
             const choice = onMachine ? await commitMachine() : commitService()
             if (choice === null) {
@@ -237,6 +262,23 @@ const AgentNewV4: FC = (): ReactNode => {
             await submit()
             return
         }
+        if (flow.step === 'cost' && onMachine) {
+            if (costPick === null) return
+            // The sign-in row is an action, not an answer: it leaves for the
+            // machine's account page rather than moving the flow on. The row
+            // is still picked the same way as any other, so the button can
+            // say "Sign in to Claude" instead of a "Next" that would lie.
+            if (
+                costPick.kind === 'signin' ||
+                (costPick.kind === 'profile' && costPick.needsReauth)
+            ) {
+                navigate('/runtimes/' + (runtimeId ?? '') + '?addAccount=1')
+                return
+            }
+            const choice = costChoiceFor(costPick)
+            if (choice === null) return
+            setFlow((prev) => ({ ...prev, cost: choice }))
+        }
         if (flow.step === 'cost' && flow.name.trim() === '')
             setFlow((prev) => ({ ...prev, name: randomAgentName() }))
         goTo(nextStep(flow.step))
@@ -244,6 +286,10 @@ const AgentNewV4: FC = (): ReactNode => {
         flow.step,
         flow.name,
         onMachine,
+        machinePick,
+        costPick,
+        runtimeId,
+        navigate,
         commitMachine,
         commitService,
         submit,
@@ -252,8 +298,115 @@ const AgentNewV4: FC = (): ReactNode => {
         t
     ])
 
-    const blockedKey = advanceBlockedKey(flow)
     const busy = preparing !== null || create.busy
+
+    // What the primary button will do from here. Because the bar never leaves
+    // the screen, this is the one place that can state the consequence before
+    // it is paid: picking a machine that already runs agents costs a click,
+    // picking "New sandbox" costs two minutes and one of five — and the label
+    // says which, instead of a uniform "Next" that hides the difference.
+    const primary = useMemo((): StepPrimary => {
+        const cli = framework !== null ? frameworkLabel(framework) : ''
+        const next = t('web.agentNewV4.next')
+        const blockedKey = advanceBlockedKey(flow)
+        if (flow.step === 'type')
+            return blockedKey !== null
+                ? { label: next, blockedReason: t(blockedKey) }
+                : { label: next }
+        if (flow.step === 'runtime' && onMachine) {
+            if (machinePick === null)
+                return {
+                    label: next,
+                    blockedReason: t('web.agentNewV4.blocked.runtime')
+                }
+            if (machinePick === 'new:ownComputer')
+                return {
+                    label: t('web.agentNewV4.primary.goToSettings'),
+                    fine: t('web.agentNewV4.primary.leavesFlow')
+                }
+            if (machinePick === 'new:cloudComputer')
+                return {
+                    label: t('web.agentNewV4.primary.goToSettings'),
+                    fine: t('web.agentNewV4.primary.leavesFlow')
+                }
+            if (machinePick === 'new:sandbox') {
+                const quota = newMachines.find((o) => o.kind === 'sandbox')
+                return {
+                    label: t('web.agentNewV4.primary.buildAndInstall', { cli }),
+                    fine: t('web.agentNewV4.primary.buildFine', {
+                        used: String(quota?.used ?? 0),
+                        limit: String(quota?.limit ?? 0)
+                    })
+                }
+            }
+            const row = machines.find((m) => m.id === machinePick)
+            if (row !== undefined && row.runtimeId === null)
+                return {
+                    label: t('web.agentNewV4.primary.installOn', {
+                        cli,
+                        machine: row.title
+                    }),
+                    fine: t('web.agentNewV4.primary.installFine')
+                }
+            return {
+                label: next,
+                fine:
+                    row !== undefined
+                        ? t(SIGN_IN_FINE_KEY[row.signInCost])
+                        : undefined
+            }
+        }
+        if (flow.step === 'runtime')
+            return serviceProviderId === null || remoteRef.trim() === ''
+                ? {
+                      label: next,
+                      blockedReason: t('web.agentNewV4.blocked.runtime')
+                  }
+                : { label: next }
+        if (flow.step === 'cost' && onMachine) {
+            if (costPick === null)
+                return {
+                    label: next,
+                    blockedReason: t('web.agentNewV4.blocked.cost')
+                }
+            // A credential that needs re-authorising costs exactly what a new
+            // sign-in costs, so it gets the same button rather than a "Next"
+            // that would drop the user into a broken agent.
+            if (
+                costPick.kind === 'signin' ||
+                (costPick.kind === 'profile' && costPick.needsReauth)
+            )
+                return {
+                    label: t('web.agentNewV4.primary.signIn', {
+                        vendor:
+                            framework !== null ? vendorLabel(framework) : ''
+                    }),
+                    fine: t('web.agentNewV4.primary.opensAuthPage')
+                }
+            return { label: next }
+        }
+        if (flow.step === 'cost') return { label: next }
+        return blockedKey !== null
+            ? {
+                  label: t('web.agentNewV4.createAgent'),
+                  blockedReason: t(blockedKey)
+              }
+            : {
+                  label: t('web.agentNewV4.createAgent'),
+                  fine: t('web.agentNewV4.primary.createFine')
+              }
+    }, [
+        flow,
+        framework,
+        onMachine,
+        machinePick,
+        machines,
+        newMachines,
+        costPick,
+        serviceProviderId,
+        remoteRef,
+        t
+    ])
 
     const question = useMemo((): string => {
         if (flow.step === 'type') return t('web.agentNewV4.question.type')
@@ -285,18 +438,7 @@ const AgentNewV4: FC = (): ReactNode => {
                 flow.step === 'type' ? undefined : () => goTo(previousStep(flow.step))
             }
             onNext={() => void advance()}
-            nextLabel={
-                flow.step === 'name'
-                    ? t('web.agentNewV4.createAgent')
-                    : t('web.agentNewV4.next')
-            }
-            nextBlockedReason={
-                blockedKey !== null && flow.step !== 'runtime'
-                    ? t(blockedKey)
-                    : blockedKey !== null && machinePick === null
-                      ? t(blockedKey)
-                      : undefined
-            }
+            primary={primary}
             busy={busy}
         >
             {flow.step === 'type' && (
@@ -317,17 +459,9 @@ const AgentNewV4: FC = (): ReactNode => {
                     onSelectMachine={(row: MachineOption) =>
                         setMachinePick(row.id)
                     }
-                    onSelectNew={(option: NewMachineOption) => {
-                        // These two leave the flow: a daemon is installed on
-                        // the user's own computer, a cloud computer is bought.
-                        // Neither can happen inside this step, so the row is a
-                        // door rather than a choice.
-                        if (option.kind === 'ownComputer')
-                            navigate('/runtimes?connect=daemon')
-                        else if (option.kind === 'cloudComputer')
-                            navigate('/runtimes?buy=cloud-computer')
-                        else setMachinePick('new:' + option.kind)
-                    }}
+                    onSelectNew={(option: NewMachineOption) =>
+                        setMachinePick('new:' + option.kind)
+                    }
                     quotaWarning={
                         stepError !== null ? (
                             <p className='workbench-alert-error mt-4'>
@@ -367,15 +501,8 @@ const AgentNewV4: FC = (): ReactNode => {
                     managedUnavailableReason={t(
                         'web.agentNewV4.cost.managedUnavailable'
                     )}
-                    value={flow.cost}
-                    onChange={(choice: CostChoice) =>
-                        setFlow((prev) => ({ ...prev, cost: choice }))
-                    }
-                    onAddAccount={() =>
-                        navigate(
-                            '/runtimes/' + (runtimeId ?? '') + '?addAccount=1'
-                        )
-                    }
+                    value={costPick}
+                    onChange={setCostPick}
                     onBackToType={() => goTo('type')}
                 />
             )}
@@ -405,8 +532,7 @@ const AgentNewV4: FC = (): ReactNode => {
                     onChangeWorkspace={(value: string) =>
                         setFlow((prev) => ({ ...prev, workspace: value }))
                     }
-                    onJump={goTo}
-                />
+                        />
             )}
             {create.error !== null && (
                 <p className='workbench-alert-error mt-4'>{create.error}</p>

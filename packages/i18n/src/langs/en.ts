@@ -3699,6 +3699,17 @@ const en = {
             error: {
                 machineNotReady: 'Pick a machine first.',
                 externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.'
+            },
+            primary: {
+                goToSettings: 'Go to settings',
+                leavesFlow: 'leaves this flow',
+                buildAndInstall: 'Build one and install {{cli}}',
+                buildFine: 'about 2 minutes · sign in once afterwards · {{used}} of {{limit}} used',
+                installOn: 'Install {{cli}} on {{machine}}',
+                installFine: 'about 1–2 minutes · sign in once afterwards',
+                signIn: 'Sign in to {{vendor}}',
+                opensAuthPage: 'about a minute · opens the vendor\'s page',
+                createFine: 'a few seconds'
             }
         },
         agentNew: {

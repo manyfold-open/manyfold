@@ -790,6 +790,21 @@
         @apply cursor-not-allowed opacity-55;
     }
 
+    /* The four-step flow's action bar. It sticks to the bottom of the page's
+       scrollport so it never scrolls out from under a nine-row list — the
+       button was previously below the fold on the taller steps, which is what
+       made an extra confirming click feel like a hunt rather than a click.
+       Being permanently on screen also gives the primary button somewhere to
+       say what it will DO, which is why its label changes with the selection
+       instead of always reading "Next".
+
+       The page drops its own bottom padding when this is present (`pb-0` on
+       the shell), because a sticky element is held inside its container's
+       padding box and would otherwise float a gap above the viewport edge. */
+    .create-step-actions {
+        @apply border-divider/70 bg-main sticky bottom-0 -mx-5 mt-7 flex flex-wrap items-center gap-3 border-t px-5 py-3.5 md:-mx-6 md:px-6;
+    }
+
     /* Just the mark — no tile behind it. A fixed box keeps the column of
        glyphs aligned without adding a second surface to the row. */
     .create-option-mark {

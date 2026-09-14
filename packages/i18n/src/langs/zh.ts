@@ -3533,6 +3533,17 @@ const zh: Translations = {
             error: {
                 machineNotReady: '先选一个运行环境。',
                 externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。'
+            },
+            primary: {
+                goToSettings: '去设置',
+                leavesFlow: '会离开这条流程',
+                buildAndInstall: '建一台并装 {{cli}}',
+                buildFine: '约 2 分钟 · 之后要登录一次 · 已用 {{used}} / {{limit}}',
+                installOn: '在 {{machine}} 上装 {{cli}}',
+                installFine: '约 1–2 分钟 · 之后要登录一次',
+                signIn: '登录 {{vendor}} 账号',
+                opensAuthPage: '约 1 分钟 · 会打开授权页',
+                createFine: '几秒'
             }
         },
         agentNew: {

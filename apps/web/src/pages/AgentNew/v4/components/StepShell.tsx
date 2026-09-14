@@ -1,4 +1,8 @@
-import type { FC, ReactNode } from 'react'
+import type {
+    FC,
+    KeyboardEvent as ReactKeyboardEvent,
+    ReactNode
+} from 'react'
 import { useI18n } from '@/lib/i18n'
 import type { CreateStepId } from '@/pages/AgentNew/v4/flowState'
 import { CREATE_STEP_ORDER } from '@/pages/AgentNew/v4/flowState'
@@ -16,16 +20,31 @@ const STEP_TITLE_KEY: Record<CreateStepId, string> = {
 // chosen lives in step ④, one line each with its own Change link, where it can
 // be read at leisure — and each step's own question restates the previous
 // answer ("Where does Claude Code run?"), so context is never lost in between.
-const PathBar: FC<{ current: CreateStepId; reached: Set<CreateStepId> }> = ({
-    current,
-    reached
-}): ReactNode => {
+const PathBar: FC<{
+    current: CreateStepId
+    reached: Set<CreateStepId>
+}> = ({ current, reached }): ReactNode => {
     const { t } = useI18n()
     return (
         <ol className='text-caption mb-7 flex flex-wrap items-center gap-x-2 gap-y-1'>
             {CREATE_STEP_ORDER.map((step, index) => {
                 const isCurrent = step === current
                 const done = reached.has(step) && !isCurrent
+                const label = (
+                    <>
+                        <span
+                            className={
+                                isCurrent
+                                    ? 'bg-strong text-strong-fg inline-flex h-4 w-4 items-center justify-center rounded-pill text-[10px] font-medium'
+                                    : 'shadow-ring-light inline-flex h-4 w-4 items-center justify-center rounded-pill text-[10px]'
+                            }
+                            aria-hidden='true'
+                        >
+                            {done ? '✓' : index + 1}
+                        </span>
+                        {t(STEP_TITLE_KEY[step])}
+                    </>
+                )
                 return (
                     <li key={step} className='flex items-center gap-2'>
                         {index > 0 && (
@@ -41,23 +60,28 @@ const PathBar: FC<{ current: CreateStepId; reached: Set<CreateStepId> }> = ({
                                     : 'text-placeholder inline-flex items-center gap-1.5'
                             }
                         >
-                            <span
-                                className={
-                                    isCurrent
-                                        ? 'bg-strong text-strong-fg inline-flex h-4 w-4 items-center justify-center rounded-pill text-[10px] font-medium'
-                                        : 'shadow-ring-light inline-flex h-4 w-4 items-center justify-center rounded-pill text-[10px]'
-                                }
-                                aria-hidden='true'
-                            >
-                                {done ? '✓' : index + 1}
-                            </span>
-                            {t(STEP_TITLE_KEY[step])}
+                            {label}
                         </span>
                     </li>
                 )
             })}
         </ol>
     )
+}
+
+// What the primary button will DO from where the user currently stands. The
+// bar is always on screen, so the button is the one place that can state the
+// consequence before it is paid — "Build one and install Claude Code · about
+// 2 minutes" rather than a uniform "Next" that hides which rows are cheap and
+// which spend two minutes and a sandbox out of five.
+export interface StepPrimary {
+    label: string
+    // The cost of the selected row, restated beside the button.
+    fine?: string
+    // Set when the step is not answered yet: the button is disabled and this
+    // says what it is waiting for. A control that refuses to move should not
+    // make the user guess why.
+    blockedReason?: string
 }
 
 // One step = one question and one column of rows. The question restates the
@@ -69,11 +93,8 @@ export const StepShell: FC<{
     help?: ReactNode
     children: ReactNode
     onBack?: () => void
-    onNext?: () => void
-    nextLabel: string
-    // Why Next is unavailable — shown beside the disabled button rather than
-    // left for the user to guess.
-    nextBlockedReason?: string
+    onNext: () => void
+    primary: StepPrimary
     busy?: boolean
 }> = ({
     current,
@@ -83,13 +104,24 @@ export const StepShell: FC<{
     children,
     onBack,
     onNext,
-    nextLabel,
-    nextBlockedReason,
+    primary,
     busy = false
 }): ReactNode => {
     const { t } = useI18n()
+    const blocked = primary.blockedReason !== undefined
+    // Enter advances from anywhere in the step. Picking a row focuses it, so
+    // the whole flow is arrow keys and Enter — which is where the speed of
+    // "one click per step" belongs, rather than in making some rows advance
+    // themselves and others not.
+    const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+        if (event.key !== 'Enter' || busy || blocked) return
+        const target = event.target as HTMLElement
+        if (target.tagName === 'TEXTAREA') return
+        event.preventDefault()
+        onNext()
+    }
     return (
-        <div className='workbench-page-narrow'>
+        <div className='workbench-page-narrow pb-0' onKeyDown={onKeyDown}>
             <h1 className='text-h2 text-fg mb-5 font-medium'>
                 {t('web.agentNewV4.title')}
             </h1>
@@ -99,9 +131,7 @@ export const StepShell: FC<{
                 <p className='text-body text-muted mt-1.5'>{help}</p>
             )}
             <div className='mt-5'>{children}</div>
-            {/* A rule above the actions closes the list: without it the last
-                row and the buttons read as one run of clickable things. */}
-            <div className='border-divider/70 mt-7 flex flex-wrap items-center gap-3 border-t pt-4'>
+            <div className='create-step-actions'>
                 {onBack !== undefined && (
                     <button
                         type='button'
@@ -112,19 +142,17 @@ export const StepShell: FC<{
                         {t('web.agentNewV4.back')}
                     </button>
                 )}
-                {onNext !== undefined && (
-                    <button
-                        type='button'
-                        className='workbench-button-primary'
-                        onClick={onNext}
-                        disabled={busy || nextBlockedReason !== undefined}
-                    >
-                        {nextLabel}
-                    </button>
-                )}
-                {nextBlockedReason !== undefined && (
+                <button
+                    type='button'
+                    className='workbench-button-primary'
+                    onClick={onNext}
+                    disabled={busy || blocked}
+                >
+                    {primary.label}
+                </button>
+                {(primary.blockedReason ?? primary.fine) !== undefined && (
                     <span className='text-caption text-placeholder'>
-                        {nextBlockedReason}
+                        {primary.blockedReason ?? primary.fine}
                     </span>
                 )}
             </div>
