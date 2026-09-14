@@ -24,21 +24,46 @@ Connect Matrix when you want an agent in direct messages, rooms, or Matrix threa
 - The bot account's homeserver URL and access token.
 - An unencrypted DM or room.
 
-Create the bot account using your homeserver's normal registration or administrator process. Obtain an access token through a trusted Matrix client login or homeserver administration flow; do not put the bot password or token in a room message.
+## Set it up
 
-## Connect it to Manyfold
+### Matrix set up
 
-1. Open **Settings -> Channels**.
-2. Create a channel and choose **Matrix**.
-3. Select the agent and enter a label.
-4. Enter the homeserver base URL, for example `https://matrix.example.org`.
-5. Paste the bot account access token.
-6. Configure room/user access, operator IDs, mention/session behavior, and optional media/history behavior.
-7. Create the channel and run **Register**.
-8. Invite the bot account into an unencrypted DM or room.
-9. Run **Test**.
+1. Open [Try Matrix](https://matrix.org/try-matrix/) and choose **Open Element Web**. Element runs in the browser, so there is nothing to install, and the account is created on the `matrix.org` homeserver.
+
+   ![The Try Matrix page with the Open Element Web button](../../../assets/docs/channels/matrix-01-try-matrix-open-element.webp)
+
+2. Register the account. Matrix is federated the way email is: an account lives on a homeserver and is written `@username:server`. Registering through Element puts it on `matrix.org`, which is free and the quickest way to start; its limits are 10 MB per attachment and 100 MB of traffic per day. Managed hosting and self-hosting are the alternatives when you want your own domain or full control of the data.
+
+   **A bot account is an ordinary account.** Matrix has no separate bot account type, so a bot account is a normal account you reserve for the agent. If the account you just registered is your own, register a second one for the agent to keep its messages out of your own conversations.
+
+3. Copy the access token. Open your avatar in the bottom left, go to **All settings -> Help & About**, scroll to **Advanced**, and expand **Access Token**. Note the homeserver printed just above it: that is the base URL Manyfold needs, and an account registered through Element on `matrix.org` reports `https://matrix-client.matrix.org`.
+
+   ![The Advanced section of Element's Help and About settings, showing the homeserver URL and the Access Token control](../../../assets/docs/channels/matrix-02-access-token.webp)
+
+   **The token grants full access to the account.** Keep it out of room messages, and sign that Element session out to revoke the token if it leaks.
+
+### Manyfold set up
+
+1. Open **Settings -> Channels**, create a channel, and choose **Matrix**.
+2. Select the agent and enter a label, such as `matrix-test`.
+3. Enter the homeserver base URL: `https://matrix-client.matrix.org` for a `matrix.org` account, or your own homeserver's client API URL.
+4. Paste the bot account access token.
+5. Leave the access and behavior settings at their defaults for a first connection. Room and user allowlists, operator IDs, and mention and session behavior are all covered in [Settings](#settings) once the channel works.
+6. Create the channel, then run **Register**.
+
+![The Manyfold New Matrix channel form with the agent, label, homeserver URL, and access token fields](../../../assets/docs/channels/matrix-03-manyfold-new-channel.webp)
 
 Registration calls Matrix `whoami`, stores the bot user ID and display name, and starts the `/sync` loop. The first sync stores a cursor without replaying its timeline as new agent turns; later syncs deliver new messages. You do not need to expose or copy the Manyfold inbound URL.
+
+### Invite the bot and test
+
+1. Back in Element, start a direct message with the bot account or invite it into a room.
+
+   ![Element's Direct Messages dialog, searching for the account to start a conversation with](../../../assets/docs/channels/matrix-04-invite-bot-dm-redacted.webp)
+
+   **Keep the room unencrypted.** Element turns encryption on for new rooms by default, and a room cannot be un-encrypted afterwards, so switch it off while creating the room. The REST provider is plaintext-only and records encrypted events as dropped.
+
+2. Return to Manyfold and run **Test**. [Verify](#verify) describes a healthy result.
 
 ## Rooms, DMs, and mentions
 
