@@ -790,6 +790,37 @@
         @apply cursor-not-allowed opacity-55;
     }
 
+    /* The four-step flow's summary bar (AgentNew v4, wide viewports).
+       One rule, along the bottom, and nothing else: the vertical separators a
+       four-column strip invites are doing the same job as the numbered pip at
+       the head of each cell, and a top rule would only restate the whitespace
+       under the page title. Five hairlines became one, on a page whose option
+       rows and action bar already carry their own.
+
+       No fill and no radius either. Directly below this sits a column of
+       filled, rounded, pressable rows; four filled rounded cells above them
+       would make one shape carry two meanings — "already chosen" and "choose
+       me" — and would outweigh the subject of the page. Hovering a finished
+       cell fills it edge to edge, which reads as a table row rather than a
+       box. */
+    .create-step-bar {
+        @apply border-divider/60 mb-7 hidden border-b md:grid md:grid-cols-4;
+        margin-left: -0.625rem;
+        margin-right: -0.625rem;
+    }
+
+    .create-step-bar-cell {
+        @apply block w-full min-w-0 px-2.5 pb-2.5 pt-2 text-left;
+    }
+
+    .create-step-bar-cell-done {
+        @apply hover:bg-surface-hover cursor-pointer transition-colors;
+    }
+
+    .create-step-bar-cell-done:hover .create-step-bar-value {
+        @apply underline underline-offset-4;
+    }
+
     /* The four-step flow's action bar. It sticks to the bottom of the page's
        scrollport so it never scrolls out from under a nine-row list — the
        button was previously below the fold on the taller steps, which is what

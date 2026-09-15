@@ -11,6 +11,7 @@ import { useManagedCreditGate } from '@/lib/managedCreditGate'
 import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 import { StepShell } from '@/pages/AgentNew/v4/components/StepShell'
 import type { StepPrimary } from '@/pages/AgentNew/v4/components/StepShell'
+import type { StepValues } from '@/pages/AgentNew/v4/components/StepBar'
 import {
     advanceBlockedKey,
     initialFlowState,
@@ -309,6 +310,23 @@ const AgentNewV4: FC = (): ReactNode => {
 
     const busy = preparing !== null || create.busy
 
+    // What the bar shows under each step name. These are the labels the flow
+    // already carries, not second copies written for display — a value that
+    // has to be composed twice is a value that will drift. User-named data
+    // (a provider's own name) can be long; the cell truncates rather than
+    // having us rewrite what they called it.
+    const stepValues = useMemo((): StepValues => {
+        const out: StepValues = {}
+        if (flow.framework !== null) out.type = frameworkLabel(flow.framework)
+        if (flow.runtime?.kind === 'runtime')
+            out.runtime = flow.runtime.hostLabel
+        else if (flow.runtime?.kind === 'external')
+            out.runtime = flow.runtime.providerLabel
+        if (flow.cost !== null) out.cost = costLabel(flow.cost, t)
+        if (flow.name.trim() !== '') out.name = flow.name.trim()
+        return out
+    }, [flow.framework, flow.runtime, flow.cost, flow.name, t])
+
     // What the primary button will do from here. Because the bar never leaves
     // the screen, this is the one place that can state the consequence before
     // it is paid: picking a machine that already runs agents costs a click,
@@ -441,6 +459,7 @@ const AgentNewV4: FC = (): ReactNode => {
         <StepShell
             current={flow.step}
             reached={reached}
+            values={stepValues}
             question={question}
             hint={t(STEP_HINT_KEY[flow.step])}
             notice={
