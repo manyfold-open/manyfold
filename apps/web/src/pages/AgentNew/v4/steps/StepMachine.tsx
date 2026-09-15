@@ -89,15 +89,13 @@ export const StepMachine: FC<{
     selectedId: string | null
     onSelectMachine: (row: MachineOption) => void
     onSelectNew: (option: NewMachineOption) => void
-    quotaWarning: ReactNode
 }> = ({
     framework,
     machines,
     newMachines,
     selectedId,
     onSelectMachine,
-    onSelectNew,
-    quotaWarning
+    onSelectNew
 }): ReactNode => {
     const { t } = useI18n()
     const cli = frameworkLabel(framework)
@@ -175,7 +173,6 @@ export const StepMachine: FC<{
                     />
                 ))}
             </OptionGroup>
-            {quotaWarning}
         </>
     )
 }

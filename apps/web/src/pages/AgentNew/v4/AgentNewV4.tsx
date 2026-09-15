@@ -1,8 +1,16 @@
-import type { AgentFramework, UserExternalAgentProviderSummary } from '@manyfold/shared'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import type {
+    AgentFramework,
+    DaemonHostSummary,
+    ExternalAgentProviderKind,
+    UserExternalAgentProviderSummary
+} from '@manyfold/shared'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
+import { apiErrorMessage } from '@/lib/errorMessage'
+import { lazyChunk } from '@/lib/lazyChunk'
+import { settleRuntimeAuthOperation } from '@/lib/runtimeAuth'
 import { useApiClient } from '@/lib/apiClient'
 import { fmtNetmindMoney } from '@/lib/usageFormat'
 import { frameworkLabel } from '@/lib/frameworkMeta'
@@ -26,12 +34,7 @@ import type {
     CreateStepId,
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
-import {
-    EXIT_CONNECT_COMPUTER,
-    EXIT_CONNECT_EXTERNAL_PROVIDER,
-    EXIT_RENT_CLOUD_COMPUTER,
-    exitToMachineAccounts
-} from '@/pages/AgentNew/v4/exits'
+import { EXIT_RENT_CLOUD_COMPUTER } from '@/pages/AgentNew/v4/exits'
 import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     costFull,
@@ -77,6 +80,28 @@ import { StepName } from '@/pages/AgentNew/v4/steps/StepName'
 import { StepService } from '@/pages/AgentNew/v4/steps/StepService'
 import { StepType } from '@/pages/AgentNew/v4/steps/StepType'
 
+// xterm is a large chunk and most runs of this flow never sign in, so the
+// terminal only loads for the step that actually opens one.
+const RuntimeSignInTerminal = lazyChunk(
+    () => import('@/components/RuntimeSignInTerminal')
+)
+
+const ExternalProviderDialog = lazyChunk(
+    () => import('@/components/ExternalProviderDialog')
+)
+
+const ConnectDaemonDialog = lazyChunk(
+    () => import('@/components/ConnectDaemonDialog')
+)
+
+// The three connected kinds are named the same on both sides; the flow's
+// framework id IS the provider kind, but say so once here rather than casting
+// at the call site.
+const externalProviderKind = (
+    framework: AgentFramework
+): ExternalAgentProviderKind =>
+    framework === 'langflow' ? 'langflow' : framework === 'a2a' ? 'a2a' : 'dify'
+
 // Four steps, one screen at a time.
 //
 // The flow keeps NO progress of its own: no draft, no "resume where you left
@@ -105,6 +130,20 @@ const AgentNewV4: FC = (): ReactNode => {
     )
     const [costPick, setCostPick] = useState<CostPick | null>(null)
     const [remoteRef, setRemoteRef] = useState('')
+    // A sign-in running inside step ③. The whole point is that it runs HERE:
+    // sending the user to the machine's settings page also left the flow, and
+    // because the flow keeps no progress (decision D) answering "who pays"
+    // cost them the three answers they had already given.
+    const [signIn, setSignIn] = useState<{
+        operationId: string
+        profileId: string
+    } | null>(null)
+    const [busySignIn, setBusySignIn] = useState(false)
+    // Connecting the user's own computer, in place. v3 already did this with
+    // `ConnectDaemonDialog`; v4 had regressed to sending them to settings.
+    const [connectingDaemon, setConnectingDaemon] = useState(false)
+    // Connecting a Dify / Langflow / A2A service, likewise in place.
+    const [connecting, setConnecting] = useState(false)
     const [reached, setReached] = useState<Set<CreateStepId>>(
         () => new Set<CreateStepId>(['type'])
     )
@@ -254,10 +293,79 @@ const AgentNewV4: FC = (): ReactNode => {
         if (created !== null) navigate('/agents/' + created.id + '/chat')
     }, [create, flow, navigate, t])
 
+    // Create the profile if this is a new account, then ask the host to start
+    // the CLI's own login and keep the operation it hands back. The terminal
+    // the API opens is scoped to that account's credential directory, which is
+    // what lets one machine hold several vendor accounts at once.
+    const startSignIn = useCallback(async (): Promise<void> => {
+        if (runtimeId === null || costPick === null) return
+        setStepError(null)
+        setBusySignIn(true)
+        try {
+            const profileId =
+                costPick.kind === 'profile'
+                    ? costPick.id
+                    : (
+                          await client.runtimeAuth.create(runtimeId, {
+                              authMethod: 'subscription',
+                              wake: true
+                          })
+                      ).id
+            const op = await client.runtimeAuth.login(runtimeId, profileId, {
+                wake: true
+            })
+            setSignIn({ operationId: op.id, profileId })
+        } catch (e) {
+            setStepError(apiErrorMessage(e))
+        } finally {
+            setBusySignIn(false)
+        }
+    }, [client, costPick, runtimeId])
+
+    // The terminal closing is not the same as the sign-in having worked, so
+    // the operation is settled before the list is read back — otherwise a
+    // failed login comes back as a selectable account that cannot take a turn.
+    const finishSignIn = useCallback(async (): Promise<void> => {
+        const pending = signIn
+        setSignIn(null)
+        if (pending === null || runtimeId === null) return
+        setBusySignIn(true)
+        try {
+            const op = await settleRuntimeAuthOperation(
+                (id) => client.runtimeAuth.operation(id),
+                pending.operationId,
+                (e) => setStepError(apiErrorMessage(e))
+            )
+            if (op?.status === 'failed') {
+                setStepError(
+                    t('web.runtimeAuth.signInFailed', {
+                        reason: op.error ?? op.resultCode ?? op.status
+                    })
+                )
+            }
+            const list = await auth.reload()
+            const profile = list?.profiles.find(
+                (row) => row.id === pending.profileId
+            )
+            // Select what was just signed in, so the step reads as answered
+            // rather than making the user find their own new row. Nothing
+            // advances on its own (decision O) — the button says "Next" now.
+            if (profile !== undefined)
+                setCostPick({
+                    kind: 'profile',
+                    id: profile.id,
+                    label: profile.identity?.email ?? profile.label,
+                    needsReauth: false
+                })
+        } finally {
+            setBusySignIn(false)
+        }
+    }, [auth, client, runtimeId, signIn, t])
+
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
         if (flow.step === 'runtime' && machinePick === 'new:ownComputer') {
-            navigate(EXIT_CONNECT_COMPUTER)
+            setConnectingDaemon(true)
             return
         }
         if (flow.step === 'runtime' && machinePick === 'new:cloudComputer') {
@@ -286,15 +394,15 @@ const AgentNewV4: FC = (): ReactNode => {
         }
         if (flow.step === 'cost' && onMachine) {
             if (costPick === null) return
-            // The sign-in row is an action, not an answer: it leaves for the
-            // machine's account page rather than moving the flow on. The row
-            // is still picked the same way as any other, so the button can
-            // say "Sign in to Claude" instead of a "Next" that would lie.
+            // The sign-in row is an action, not an answer: it opens the
+            // login in this step rather than moving the flow on. The row is
+            // still picked the same way as any other, so the button can say
+            // "Sign in to Claude" instead of a "Next" that would lie.
             if (
                 costPick.kind === 'signin' ||
                 (costPick.kind === 'profile' && costPick.needsReauth)
             ) {
-                navigate(exitToMachineAccounts(runtimeId))
+                await startSignIn()
                 return
             }
             const choice = costChoiceFor(costPick)
@@ -310,7 +418,7 @@ const AgentNewV4: FC = (): ReactNode => {
         onMachine,
         machinePick,
         costPick,
-        runtimeId,
+        startSignIn,
         navigate,
         commitMachine,
         commitService,
@@ -434,6 +542,14 @@ const AgentNewV4: FC = (): ReactNode => {
             // A credential that needs re-authorising costs exactly what a new
             // sign-in costs, so it gets the same button rather than a "Next"
             // that would drop the user into a broken agent.
+            // While the terminal is open the step is waiting on the vendor,
+            // not on the user's answer: the button must not offer to start a
+            // second sign-in, and must say what it is waiting for.
+            if (signIn !== null)
+                return {
+                    label: next,
+                    blockedReason: t('web.agentNewV4.blocked.signIn')
+                }
             if (
                 costPick.kind === 'signin' ||
                 (costPick.kind === 'profile' && costPick.needsReauth)
@@ -443,12 +559,10 @@ const AgentNewV4: FC = (): ReactNode => {
                         vendor:
                             framework !== null ? vendorLabel(framework) : ''
                     }),
-                    // Not "opens the vendor's page": it opens the
-                    // machine's page, where signing in is one more click.
-                    // What the user is actually paying here is the flow.
-                    fine: `${t('web.agentNewV4.cost.aboutAMinute')} · ${t(
-                        'web.agentNewV4.primary.leavesFlow'
-                    )}`
+                    // It opens the login right here now, so the old
+                    // "leaves this flow" is gone with the navigation it
+                    // described. What is left is what it costs.
+                    fine: t('web.agentNewV4.cost.aboutAMinute')
                 }
             return { label: next }
         }
@@ -472,6 +586,7 @@ const AgentNewV4: FC = (): ReactNode => {
         costPick,
         serviceProviderId,
         remoteRef,
+        signIn,
         t
     ])
 
@@ -507,15 +622,28 @@ const AgentNewV4: FC = (): ReactNode => {
                     ? t('web.agentNewV4.preparing.note', {
                           machine: preparing
                       })
-                    : undefined
+                    : // Waking a sleeping machine to open a login takes about
+                      // a minute, during which the only feedback was a greyed
+                      // button — which reads as a dead control, the exact
+                      // failure this whole pass is about.
+                      busySignIn && flow.runtime?.kind === 'runtime'
+                      ? t('web.agentNewV4.preparing.signIn', {
+                            machine: flow.runtime.hostLabel
+                        })
+                      : undefined
             }
             onBack={
-                flow.step === 'type' ? undefined : () => goTo(previousStep(flow.step))
+                signIn !== null
+                    ? () => void finishSignIn()
+                    : flow.step === 'type'
+                      ? undefined
+                      : () => goTo(previousStep(flow.step))
             }
+            error={stepError ?? create.error}
             onJump={goTo}
             onNext={() => void advance()}
             primary={primary}
-            busy={busy}
+            busy={busy || busySignIn}
         >
             {flow.step === 'type' && (
                 <StepType
@@ -538,13 +666,6 @@ const AgentNewV4: FC = (): ReactNode => {
                     onSelectNew={(option: NewMachineOption) =>
                         setMachinePick('new:' + option.kind)
                     }
-                    quotaWarning={
-                        stepError !== null ? (
-                            <p className='workbench-alert-error mt-4'>
-                                {stepError}
-                            </p>
-                        ) : null
-                    }
                 />
             )}
             {flow.step === 'runtime' && framework !== null && !onMachine && (
@@ -559,12 +680,26 @@ const AgentNewV4: FC = (): ReactNode => {
                         setServiceProviderId(p.id)
                     }
                     onChangeRemoteRef={setRemoteRef}
-                    onConnectNew={() =>
-                        navigate(EXIT_CONNECT_EXTERNAL_PROVIDER)
-                    }
+                    onConnectNew={() => setConnecting(true)}
                 />
             )}
-            {flow.step === 'cost' && framework !== null && onMachine && (
+            {flow.step === 'cost' &&
+                framework !== null &&
+                signIn !== null &&
+                runtimeId !== null && (
+                    <Suspense fallback={null}>
+                        <RuntimeSignInTerminal
+                            runtimeId={runtimeId}
+                            framework={framework}
+                            operationId={signIn.operationId}
+                            onDone={() => void finishSignIn()}
+                        />
+                    </Suspense>
+                )}
+            {flow.step === 'cost' &&
+                framework !== null &&
+                onMachine &&
+                signIn === null && (
                 <StepCost
                     framework={framework}
                     authList={auth.list}
@@ -610,9 +745,46 @@ const AgentNewV4: FC = (): ReactNode => {
                     onJump={goTo}
                 />
             )}
-            {create.error !== null && (
-                <p className='workbench-alert-error mt-4'>{create.error}</p>
+            {/* Connecting a service is endpoint + key and one test call, so
+                it finishes here rather than sending the user to settings and
+                losing the two answers already given. The dialog is the one
+                the settings page uses. */}
+            {/* The command is token-less and static, so the dialog only has
+                to show it and watch for the machine to appear — which is why
+                this can finish here rather than in settings. */}
+            {connectingDaemon && framework !== null && (
+                <Suspense fallback={null}>
+                    <ConnectDaemonDialog
+                        framework={framework}
+                        onClose={() => setConnectingDaemon(false)}
+                        onConnected={async (host: DaemonHostSummary) => {
+                            setConnectingDaemon(false)
+                            await create.refetchRuntimes()
+                            // Highlighted, not advanced: decision O keeps
+                            // every row waiting for the button.
+                            setMachinePick('daemon:' + host.id)
+                        }}
+                    />
+                </Suspense>
             )}
+            {connecting && framework !== null && !onMachine && (
+                <Suspense fallback={null}>
+                    <ExternalProviderDialog
+                        provider={externalProviderKind(framework)}
+                        onClose={() => setConnecting(false)}
+                        onCreated={async (
+                            row: UserExternalAgentProviderSummary
+                        ) => {
+                            setConnecting(false)
+                            await loadExternalProviders(
+                                externalProviderKind(framework)
+                            )
+                            setServiceProviderId(row.id)
+                        }}
+                    />
+                </Suspense>
+            )}
+
         </StepShell>
     )
 }

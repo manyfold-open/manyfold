@@ -3433,7 +3433,8 @@ const zh: Translations = {
                 type: '选一种才能继续',
                 runtime: '选一个运行环境才能继续',
                 cost: '选一种计费方式才能继续',
-                name: '起个名字才能继续'
+                name: '起个名字才能继续',
+                signIn: '在上面完成登录才能继续'
             },
             type: {
                 onMachine: '装在机器上',
@@ -3527,7 +3528,8 @@ const zh: Translations = {
             },
             preparing: {
                 newMachine: '一台新机器',
-                note: '正在准备 {{machine}} 并安装 CLI。现在离开也没关系——建好的机器和装好的 CLI 都会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它们就在列表里等着。'
+                note: '正在准备 {{machine}} 并安装 CLI。现在离开也没关系——建好的机器和装好的 CLI 都会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它们就在列表里等着。',
+                signIn: '正在 {{machine}} 上打开登录。休眠的机器要先唤醒，约一分钟。'
             },
             error: {
                 machineNotReady: '先选一个运行环境。',

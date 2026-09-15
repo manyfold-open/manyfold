@@ -44,6 +44,11 @@ export const StepShell: FC<{
     // built promises that leaving is safe, and a promise nobody sees is not
     // one.
     notice?: ReactNode
+    // Whatever the step just failed at. It lives on the shell rather than
+    // inside each step because a step that forgets to render it swallows the
+    // failure whole — pressing the button then does nothing at all, which is
+    // indistinguishable from a dead control.
+    error?: string | null
     children: ReactNode
     onBack?: () => void
     onJump: (step: CreateStepId) => void
@@ -58,6 +63,7 @@ export const StepShell: FC<{
     hint,
     notice,
     children,
+    error,
     onBack,
     onJump,
     onNext,
@@ -106,6 +112,9 @@ export const StepShell: FC<{
                 <p className='text-body text-muted mt-1.5'>{notice}</p>
             )}
             <div className='mt-5'>{children}</div>
+            {error !== undefined && error !== null && (
+                <p className='workbench-alert-error mt-4'>{error}</p>
+            )}
             <div className='create-step-actions'>
                 {onBack !== undefined && (
                     <button

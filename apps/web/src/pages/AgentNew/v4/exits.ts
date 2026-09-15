@@ -1,31 +1,21 @@
 import { NEW_RUNTIME_OPTIONS } from '@/lib/newRuntimeOptions'
 
-// Where a row that LEAVES this flow actually goes.
+// The one place this flow still sends the user somewhere else.
 //
-// Seen on staging [2026-09-15]: all four of these were hand-written URLs —
-// `/runtimes?connect=daemon`, `/runtimes?buy=cloud-computer`,
-// `/runtimes/<id>?addAccount=1`, `/settings/providers` — and not one was a
-// route. The runtime pages live under `/settings`, and nothing anywhere read
-// those query parameters. Every one of them fell through to the catch-all,
-// which lands the user in a chat with the half-finished create abandoned
-// without a word.
+// Everything else a row can start now finishes inside the step that offered
+// it: signing in opens the CLI's own login here, connecting your computer
+// shows the command and waits here, connecting a Dify / Langflow / A2A
+// service is a dialog here. Renting a cloud computer cannot join them — it
+// ends in a purchase, the buy surface belongs to the cloud edition (open
+// source only redirects), and a payment is not something to slip into the
+// middle of another task. The row says "leaves this flow" and means it.
 //
-// So they are values in one module now, where a node:test can hold them
-// against the router's own table. The two new-machine ones are read from
-// `NEW_RUNTIME_OPTIONS`, which exists precisely so "where does a new runtime
-// of this kind get made" is not answered in two places.
-const newRuntimeExit = (kind: 'daemon' | 'k8s'): string =>
-    NEW_RUNTIME_OPTIONS.find((option) => option.kind === kind)?.to ??
+// Seen on staging [2026-09-15]: all four exits were once hand-written URLs
+// that matched no route, so they fell through to the catch-all and dropped
+// the user into a chat mid-create. What survives of that is the rule — the
+// destination is read from `NEW_RUNTIME_OPTIONS`, which exists so "where does
+// a new runtime of this kind get made" is answered once, and a node:test
+// holds it against the router's own table.
+export const EXIT_RENT_CLOUD_COMPUTER =
+    NEW_RUNTIME_OPTIONS.find((option) => option.kind === 'k8s')?.to ??
     '/settings/runtimes'
-
-export const EXIT_CONNECT_COMPUTER = newRuntimeExit('daemon')
-export const EXIT_RENT_CLOUD_COMPUTER = newRuntimeExit('k8s')
-
-// Signing in happens on the machine's own page, which is where the account
-// list and its "Add account" live. There is no deep link that opens that
-// dialog for us, so the button must not promise one.
-export const exitToMachineAccounts = (runtimeId: string | null): string =>
-    runtimeId === null ? '/settings/runtimes' : `/settings/runtimes/${runtimeId}`
-
-export const EXIT_CONNECT_EXTERNAL_PROVIDER =
-    '/settings/runtimes/external-agent-providers'

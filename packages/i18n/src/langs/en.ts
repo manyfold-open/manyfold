@@ -3599,7 +3599,8 @@ const en = {
                 type: 'Pick one to continue',
                 runtime: 'Pick where it runs to continue',
                 cost: 'Pick who pays to continue',
-                name: 'Give it a name to continue'
+                name: 'Give it a name to continue',
+                signIn: 'Finish signing in above to continue'
             },
             type: {
                 onMachine: 'On a machine',
@@ -3693,7 +3694,8 @@ const en = {
             },
             preparing: {
                 newMachine: 'a new machine',
-                note: 'Building {{machine}} and installing the CLI. Leaving now is fine — the machine and the CLI are kept; only your place in these four steps is not, so next time you start again from step one and find them waiting in the lists.'
+                note: 'Building {{machine}} and installing the CLI. Leaving now is fine — the machine and the CLI are kept; only your place in these four steps is not, so next time you start again from step one and find them waiting in the lists.',
+                signIn: 'Opening the sign-in on {{machine}}. A sleeping machine wakes up first, which takes about a minute.'
             },
             error: {
                 machineNotReady: 'Pick a machine first.',

@@ -4,12 +4,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { NEW_RUNTIME_OPTIONS } from '../src/lib/newRuntimeOptions'
-import {
-    EXIT_CONNECT_COMPUTER,
-    EXIT_CONNECT_EXTERNAL_PROVIDER,
-    EXIT_RENT_CLOUD_COMPUTER,
-    exitToMachineAccounts
-} from '../src/pages/AgentNew/v4/exits'
+import { EXIT_RENT_CLOUD_COMPUTER } from '../src/pages/AgentNew/v4/exits'
 
 const webRoot = join(dirname(fileURLToPath(import.meta.url)), '..', 'src')
 
@@ -46,13 +41,10 @@ const matchers = routeMatchers()
 const resolves = (path: string): boolean =>
     matchers.some((re) => re.test(path))
 
-const EXITS = [
-    EXIT_CONNECT_COMPUTER,
-    EXIT_RENT_CLOUD_COMPUTER,
-    EXIT_CONNECT_EXTERNAL_PROVIDER,
-    exitToMachineAccounts('rt_123'),
-    exitToMachineAccounts(null)
-]
+// Renting a cloud computer is the only row left that leaves: it ends in a
+// purchase, on a surface the cloud edition owns. Signing in, connecting your
+// own computer and connecting a service all finish inside their own step now.
+const EXITS = [EXIT_RENT_CLOUD_COMPUTER]
 
 // Seen on staging [2026-09-15]: every one of these was a hand-written URL that
 // matched no route, so picking "Connect my computer", "Cloud computer" or
@@ -74,11 +66,11 @@ test('no exit leans on a query parameter', () => {
 // `NEW_RUNTIME_OPTIONS` documents itself as the single source for where a new
 // runtime of each kind gets created, so that destinations "cannot drift apart".
 // They drifted because this flow wrote its own instead of reading it.
-test('the two new-machine exits are the ones the rest of the app uses', () => {
-    const to = (kind: string): string | undefined =>
-        NEW_RUNTIME_OPTIONS.find((o) => o.kind === kind)?.to
-    assert.equal(EXIT_CONNECT_COMPUTER, to('daemon'))
-    assert.equal(EXIT_RENT_CLOUD_COMPUTER, to('k8s'))
+test('the cloud-computer exit is the one the rest of the app uses', () => {
+    assert.equal(
+        EXIT_RENT_CLOUD_COMPUTER,
+        NEW_RUNTIME_OPTIONS.find((o) => o.kind === 'k8s')?.to
+    )
 })
 
 const walk = (dir: string): string[] =>
