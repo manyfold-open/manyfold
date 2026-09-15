@@ -4,6 +4,7 @@ import type {
     ExternalAgentProviderKind,
     UserExternalAgentProviderSummary
 } from '@manyfold/shared'
+import { stepsFor } from '@manyfold/shared'
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -43,8 +44,14 @@ import { EXIT_RENT_CLOUD_COMPUTER } from '@/pages/AgentNew/v4/exits'
 import {
     defaultWorkspacePath,
     hasWorkspace,
+    installsAtCreate,
     runsOnOurMachine
 } from '@/pages/AgentNew/v4/frameworkCatalog'
+import {
+    bindsModelAtCreate,
+    serviceCreateBody,
+    withServiceBinding
+} from '@/pages/AgentNew/v4/serviceModel'
 import {
     costFull,
     costShort,
@@ -77,7 +84,8 @@ const SIGN_IN_FINE_KEY: Record<SignInCost, string> = {
     none: 'web.agentNewV4.cost.noSignIn',
     'next-step': 'web.agentNewV4.cost.signInNextStep',
     after: 'web.agentNewV4.cost.signInAfter',
-    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer'
+    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer',
+    'install-at-create': 'web.agentNewV4.cost.installAtCreate'
 }
 import {
     StepCost,
@@ -242,19 +250,36 @@ const AgentNewV4: FC = (): ReactNode => {
     // Step ② commits the machine. Everything that has to happen for the chosen
     // row to become a real runtime happens HERE, with its progress on screen,
     // rather than being queued for a final submit.
+    //
+    // With one exception, named in `installsAtCreate`: a service framework is
+    // not installed here but at step ④, together with the agent, because the
+    // install needs the provider step ③ has not asked yet. The machine itself
+    // is still built here — only the CLI waits, and the choice says so with a
+    // null `runtimeId`.
     const commitMachine = useCallback(async (): Promise<RuntimeChoice | null> => {
         if (framework === null) return null
+        const deferred = installsAtCreate(framework)
         const row = machines.find((m) => m.id === machinePick)
         if (row !== undefined && row.runtimeId !== null)
             return {
                 kind: 'runtime',
                 runtimeId: row.runtimeId,
+                sandboxId: row.sandboxId,
                 hostKind: row.hostKind,
                 hostLabel: row.title,
                 ownComputer: row.ownComputer
             }
         try {
             if (row !== undefined && row.sandboxId !== null) {
+                if (deferred)
+                    return {
+                        kind: 'runtime',
+                        runtimeId: null,
+                        sandboxId: row.sandboxId,
+                        hostKind: 'sprites',
+                        hostLabel: row.title,
+                        ownComputer: false
+                    }
                 setPreparing(row.title)
                 const runtime = await client.sandboxes.prepareRuntime(
                     row.sandboxId,
@@ -264,6 +289,7 @@ const AgentNewV4: FC = (): ReactNode => {
                 return {
                     kind: 'runtime',
                     runtimeId: runtime.id,
+                    sandboxId: row.sandboxId,
                     hostKind: 'sprites',
                     hostLabel: row.title,
                     ownComputer: false
@@ -272,6 +298,17 @@ const AgentNewV4: FC = (): ReactNode => {
             if (machinePick === 'new:sandbox') {
                 setPreparing(t('web.agentNewV4.preparing.newMachine'))
                 const sandbox = await client.sandboxes.create({})
+                if (deferred) {
+                    await create.refetchSandboxes()
+                    return {
+                        kind: 'runtime',
+                        runtimeId: null,
+                        sandboxId: sandbox.id,
+                        hostKind: 'sprites',
+                        hostLabel: sandbox.name,
+                        ownComputer: false
+                    }
+                }
                 setPreparing(sandbox.name)
                 const runtime = await client.sandboxes.prepareRuntime(
                     sandbox.id,
@@ -282,6 +319,7 @@ const AgentNewV4: FC = (): ReactNode => {
                 return {
                     kind: 'runtime',
                     runtimeId: runtime.id,
+                    sandboxId: sandbox.id,
                     hostKind: 'sprites',
                     hostLabel: sandbox.name,
                     ownComputer: false
@@ -323,30 +361,53 @@ const AgentNewV4: FC = (): ReactNode => {
             setStepError(t('web.agentNewV4.error.externalNotSupportedYet'))
             return
         }
-        const created = await create.submitAddToRuntime({
-            runtimeId: flow.runtime.runtimeId,
-            body: {
-                name: flow.name.trim(),
-                // Not own-computer only: a sandbox takes a path too, and
-                // leaving it empty is what asks for the default shown in the
-                // field's placeholder.
-                workspace:
-                    defaultWorkspace === null
-                        ? undefined
-                        : optionalWorkspace(flow.workspace),
-                modelConfigSource:
-                    flow.cost?.kind === 'runtime-local'
-                        ? 'runtime-local'
-                        : flow.cost?.kind === 'platform' ||
-                            flow.cost?.kind === 'provider'
-                          ? 'platform'
-                          : undefined,
-                runtimeAuthProfileId:
-                    flow.cost?.kind === 'runtime-local'
-                        ? flow.cost.profileId
-                        : undefined
-            }
-        })
+        const target = flow.runtime
+        // A service framework arrives here with no runtime yet (see
+        // `installsAtCreate`): this is the request that installs it onto the
+        // sandbox AND creates the agent — `POST /agents` with `sandboxId`, the
+        // path v3 has always taken, so the provider chosen in step ③ reaches
+        // the install. Everything else joins a runtime that already exists.
+        const created =
+            target.runtimeId === null
+                ? target.sandboxId === null
+                    ? null
+                    : await create.submitCreateStream({
+                          body: serviceCreateBody({
+                              framework: flow.framework,
+                              sandboxId: target.sandboxId,
+                              name: flow.name,
+                              workspace:
+                                  defaultWorkspace === null
+                                      ? ''
+                                      : flow.workspace,
+                              cost: flow.cost
+                          }),
+                          steps: stepsFor(flow.framework, 'sprites')
+                      })
+                : await create.submitAddToRuntime({
+                      runtimeId: target.runtimeId,
+                      body: {
+                          name: flow.name.trim(),
+                          // Not own-computer only: a sandbox takes a path
+                          // too, and leaving it empty is what asks for the
+                          // default shown in the field's placeholder.
+                          workspace:
+                              defaultWorkspace === null
+                                  ? undefined
+                                  : optionalWorkspace(flow.workspace),
+                          modelConfigSource:
+                              flow.cost?.kind === 'runtime-local'
+                                  ? 'runtime-local'
+                                  : flow.cost?.kind === 'platform' ||
+                                      flow.cost?.kind === 'provider'
+                                    ? 'platform'
+                                    : undefined,
+                          runtimeAuthProfileId:
+                              flow.cost?.kind === 'runtime-local'
+                                  ? flow.cost.profileId
+                                  : undefined
+                      }
+                  })
         if (created === null) return
         // Seen on staging [2026-09-15]: navigating straight to the new chat
         // showed "Agent not found — it may have been deleted", because the
@@ -528,7 +589,7 @@ const AgentNewV4: FC = (): ReactNode => {
             await submit()
             return
         }
-        if (flow.step === 'cost' && onMachine) {
+        if (flow.step === 'cost' && onMachine && framework !== null) {
             if (costPick === null) return
             // The sign-in row is an action, not an answer: it opens the
             // login in this step rather than moving the flow on. The row is
@@ -543,7 +604,19 @@ const AgentNewV4: FC = (): ReactNode => {
             }
             const choice = costChoiceFor(costPick)
             if (choice === null) return
-            setFlow((prev) => ({ ...prev, cost: choice }))
+            // When the install is part of the create, the answer also has to
+            // say WHICH provider row and model the install gets — decided
+            // here, once, so step ④ shows exactly what the request will send.
+            const bound =
+                flow.runtime?.kind === 'runtime' &&
+                flow.runtime.runtimeId === null
+                    ? withServiceBinding(choice, framework, create.providers)
+                    : choice
+            if (bound === null) {
+                setStepError(t('web.agentNewV4.error.noModel'))
+                return
+            }
+            setFlow((prev) => ({ ...prev, cost: bound }))
         }
         if (flow.step === 'cost' && flow.name.trim() === '')
             setFlow((prev) => ({ ...prev, name: randomAgentName() }))
@@ -551,10 +624,13 @@ const AgentNewV4: FC = (): ReactNode => {
     }, [
         flow.step,
         flow.name,
+        flow.runtime,
+        framework,
         onMachine,
         machinePick,
         costPick,
         signIn,
+        create.providers,
         finishSignIn,
         startSignIn,
         navigate,
@@ -636,25 +712,49 @@ const AgentNewV4: FC = (): ReactNode => {
                     label: t('web.agentNewV4.primary.goToSettings'),
                     fine: t('web.agentNewV4.primary.leavesFlow')
                 }
+            // A service framework is installed at create, not here, so the
+            // button only builds (or only moves on) and the cost line says
+            // when the install will happen instead.
+            const deferred = framework !== null && installsAtCreate(framework)
             if (machinePick === 'new:sandbox') {
                 const quota = newMachines.find((o) => o.kind === 'sandbox')
-                return {
-                    label: t('web.agentNewV4.primary.buildAndInstall', { cli }),
-                    fine: t('web.agentNewV4.primary.buildFine', {
-                        used: String(quota?.used ?? 0),
-                        limit: String(quota?.limit ?? 0)
-                    })
-                }
+                const used = String(quota?.used ?? 0)
+                const limit = String(quota?.limit ?? 0)
+                return deferred
+                    ? {
+                          label: t('web.agentNewV4.primary.build'),
+                          fine: t('web.agentNewV4.primary.buildFineService', {
+                              cli,
+                              used,
+                              limit
+                          })
+                      }
+                    : {
+                          label: t('web.agentNewV4.primary.buildAndInstall', {
+                              cli
+                          }),
+                          fine: t('web.agentNewV4.primary.buildFine', {
+                              used,
+                              limit
+                          })
+                      }
             }
             const row = machines.find((m) => m.id === machinePick)
             if (row !== undefined && row.runtimeId === null)
-                return {
-                    label: t('web.agentNewV4.primary.installOn', {
-                        cli,
-                        machine: row.title
-                    }),
-                    fine: t('web.agentNewV4.primary.installFine')
-                }
+                return deferred
+                    ? {
+                          label: next,
+                          fine: t('web.agentNewV4.primary.installsAtCreate', {
+                              cli
+                          })
+                      }
+                    : {
+                          label: t('web.agentNewV4.primary.installOn', {
+                              cli,
+                              machine: row.title
+                          }),
+                          fine: t('web.agentNewV4.primary.installFine')
+                      }
             return {
                 label: next,
                 fine:
@@ -709,16 +809,36 @@ const AgentNewV4: FC = (): ReactNode => {
         // overruns — so nothing appears or disappears during the wait, the one
         // moving thing is the count inside the button, and the one text change
         // is itself the signal that something is off.
-        const cost = machineAsleep
-            ? t('web.agentNewV4.primary.createFineAsleep')
-            : t('web.agentNewV4.primary.createFine')
+        // When the install is part of the create (a service framework), the
+        // wait is the install, and the line says so — "a few seconds" would
+        // be a promise the request cannot keep.
+        const installing =
+            framework !== null &&
+            installsAtCreate(framework) &&
+            flow.runtime?.kind === 'runtime' &&
+            flow.runtime.runtimeId === null
+        const cost = installing
+            ? machineAsleep
+                ? t('web.agentNewV4.primary.createFineInstallAsleep', { cli })
+                : t('web.agentNewV4.primary.createFineInstall', { cli })
+            : machineAsleep
+              ? t('web.agentNewV4.primary.createFineAsleep')
+              : t('web.agentNewV4.primary.createFine')
         // The button does not claim to know WHICH phase it is in — the server
         // tells us nothing until it answers, and on a cold machine most of
         // this is the wake, which the cost line beside it already explains.
+        // Measured on staging [2026-09-15]: 692ms warm, ~60s cold; an
+        // OpenClaw install is 1–2 minutes on top.
         if (create.busy)
             return creatingPrimary(
                 creatingFor,
-                machineAsleep ? 75 : 15,
+                installing
+                    ? machineAsleep
+                        ? 210
+                        : 150
+                    : machineAsleep
+                      ? 75
+                      : 15,
                 cost,
                 t
             )
@@ -774,9 +894,12 @@ const AgentNewV4: FC = (): ReactNode => {
             hint={t(STEP_HINT_KEY[flow.step])}
             notice={
                 preparing !== null
-                    ? t('web.agentNewV4.preparing.note', {
-                          machine: preparing
-                      })
+                    ? t(
+                          framework !== null && installsAtCreate(framework)
+                              ? 'web.agentNewV4.preparing.noteBuild'
+                              : 'web.agentNewV4.preparing.note',
+                          { machine: preparing }
+                      )
                     : // Waking a sleeping machine to open a login takes about
                       // a minute, during which the only feedback was a greyed
                       // button — which reads as a dead control, the exact
@@ -865,6 +988,11 @@ const AgentNewV4: FC = (): ReactNode => {
                     managedUnavailableReason={t(
                         'web.agentNewV4.cost.managedUnavailable'
                     )}
+                    bindsModel={
+                        bindsModelAtCreate(framework) &&
+                        flow.runtime?.kind === 'runtime' &&
+                        flow.runtime.runtimeId === null
+                    }
                     value={costPick}
                     onChange={setCostPick}
                     onBackToType={() => goTo('type')}

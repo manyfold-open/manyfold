@@ -34,6 +34,15 @@ A bar across the top carries every step's name with the answer under it, so stan
 
 Everything the flow starts, it finishes on the flow's own page. Signing in to your Claude, ChatGPT or Google account opens the CLI's login in the step that asked who pays; connecting your own computer and connecting a Dify, Langflow or A2A service each open where you are. Renting a cloud computer is the one thing that still takes you elsewhere, because it ends in a purchase.
 
+OpenClaw, Hermes and NarraNexus are installed at the last step, together with
+the agent, rather than at step two: those frameworks are handed their model
+provider when installed, and the provider is what step three asks. Step two
+still builds the machine and says so — "installs when you create · no
+sign-in" on the row, and the minutes on the button — and the last step names
+the model the install will be given. A provider the framework cannot use, or
+one whose models were never tested, stays on the list disabled with its
+reason.
+
 Nothing is preselected and no progress is kept: leave halfway and you start
 again from step one, but the machine built, the CLI installed and the account
 signed in are all still there, waiting as ordinary rows with no "last time"

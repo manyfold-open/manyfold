@@ -15,12 +15,14 @@ import type {
     SignInCost
 } from '@/pages/AgentNew/v4/machineOptions'
 import { MACHINE_KIND_KEY } from '@/pages/AgentNew/v4/summaryLabels'
+import { installsAtCreate } from '@/pages/AgentNew/v4/frameworkCatalog'
 
 const SIGN_IN_KEY: Record<SignInCost, string> = {
     none: 'web.agentNewV4.cost.noSignIn',
     'next-step': 'web.agentNewV4.cost.signInNextStep',
     after: 'web.agentNewV4.cost.signInAfter',
-    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer'
+    'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer',
+    'install-at-create': 'web.agentNewV4.cost.installAtCreate'
 }
 
 // The second line of a machine row: what is on it, in terms of the framework
@@ -141,7 +143,13 @@ export const StepMachine: FC<{
                     <OptionRow
                         key={option.kind}
                         title={t(NEW_MACHINE_TITLE[option.kind], { cli })}
-                        detail={t(NEW_MACHINE_DETAIL[option.kind], { cli })}
+                        detail={t(
+                            option.kind === 'sandbox' &&
+                                installsAtCreate(framework)
+                                ? 'web.agentNewV4.newMachine.sandboxDetailService'
+                                : NEW_MACHINE_DETAIL[option.kind],
+                            { cli }
+                        )}
                         mark={<NewMachineMark kind={option.kind} />}
                         meta={
                             <>

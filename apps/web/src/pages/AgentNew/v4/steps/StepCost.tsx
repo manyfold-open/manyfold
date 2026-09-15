@@ -19,6 +19,10 @@ import {
 } from '@/pages/AgentNew/v4/components/OptionRow'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
+import {
+    managedChannelFor,
+    serviceRowVerdict
+} from '@/pages/AgentNew/v4/serviceModel'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
 
@@ -76,6 +80,14 @@ export const StepCost: FC<{
     // usage", plus the balance once it is known.
     managedDetail: string
     managedUnavailableReason: string | null
+    // True when the pick decides which provider a service framework is
+    // INSTALLED with (the install happens at create, and the API needs a
+    // concrete channel plus a model name). Then a row the API would refuse —
+    // a protocol this framework cannot speak, a managed channel closed to it,
+    // a key never tested — stays on screen, disabled, and says why. When the
+    // agent joins an instance that already runs, it inherits that instance's
+    // provider and every row is pickable as before.
+    bindsModel: boolean
     value: CostPick | null
     onChange: (pick: CostPick) => void
     onBackToType: () => void
@@ -87,49 +99,71 @@ export const StepCost: FC<{
     managedAvailable,
     managedDetail,
     managedUnavailableReason,
+    bindsModel,
     value,
     onChange,
     onBackToType
 }): ReactNode => {
     const { t } = useI18n()
     const vendor = vendorLabel(framework)
+    const cli = frameworkLabel(framework)
     const subscriptionPossible = canUseSubscription(framework)
     const profiles = authList?.profiles ?? []
     // Managed supply is already represented by the single "Manyfold managed"
     // row above; listing the individual managed channels again under "your own
     // key" would both double-count the offer and mislabel it.
     const ownKeys = providers.filter((p) => p.source !== 'managed')
+    const managedBlocked = !managedAvailable
+        ? managedUnavailableReason
+        : bindsModel && managedChannelFor(framework, providers) === null
+          ? t('web.agentNewV4.cost.managedNoChannel', { cli })
+          : null
     const accountLevel = (
         <OptionGroup title={t('web.agentNewV4.cost.accountLevel')}>
             <OptionRow
                 title={t('web.agentNewV4.cost.managed')}
                 detail={managedDetail}
                 mark={<BillingIcon className='h-5 w-5' />}
-                meta={managedAvailable ? undefined : managedUnavailableReason}
+                meta={managedBlocked ?? undefined}
                 selected={samePick(value, { kind: 'platform' })}
-                disabled={!managedAvailable}
+                disabled={managedBlocked !== null}
                 onSelect={() => onChange({ kind: 'platform' })}
             />
-            {ownKeys.map((provider) => (
-                <OptionRow
-                    key={provider.id}
-                    title={provider.providerName}
-                    detail={t('web.agentNewV4.cost.ownKeyDetail')}
-                    mark={<ProviderIcon className='h-5 w-5' />}
-                    selected={samePick(value, {
-                        kind: 'provider',
-                        id: provider.id,
-                        label: provider.providerName
-                    })}
-                    onSelect={() =>
-                        onChange({
+            {ownKeys.map((provider) => {
+                const verdict = bindsModel
+                    ? serviceRowVerdict(framework, provider)
+                    : 'usable'
+                return (
+                    <OptionRow
+                        key={provider.id}
+                        title={provider.providerName}
+                        detail={t('web.agentNewV4.cost.ownKeyDetail')}
+                        mark={<ProviderIcon className='h-5 w-5' />}
+                        meta={
+                            verdict === 'incompatible'
+                                ? t('web.agentNewV4.cost.providerIncompatible', {
+                                      cli
+                                  })
+                                : verdict === 'untested'
+                                  ? t('web.agentNewV4.cost.providerUntested')
+                                  : undefined
+                        }
+                        selected={samePick(value, {
                             kind: 'provider',
                             id: provider.id,
                             label: provider.providerName
-                        })
-                    }
-                />
-            ))}
+                        })}
+                        disabled={verdict !== 'usable'}
+                        onSelect={() =>
+                            onChange({
+                                kind: 'provider',
+                                id: provider.id,
+                                label: provider.providerName
+                            })
+                        }
+                    />
+                )
+            })}
         </OptionGroup>
     )
     // A framework that calls a model API rather than carrying its own sign-in

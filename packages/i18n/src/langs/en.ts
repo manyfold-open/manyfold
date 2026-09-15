@@ -3640,6 +3640,7 @@ const en = {
             newMachine: {
                 sandbox: 'New sandbox',
                 sandboxDetail: 'Build a machine and install {{cli}} on it',
+                sandboxDetailService: 'Build a machine; {{cli}} installs on it when you create',
                 ownComputer: 'Connect my computer',
                 ownComputerDetail: 'Install the daemon; the {{cli}} you already have is found',
                 cloudComputer: 'Cloud computer',
@@ -3660,6 +3661,10 @@ const en = {
                 preparingAccount: 'Preparing your account…',
                 managedUnavailable: 'Not available',
                 ownKeyDetail: 'Billed by the vendor',
+                installAtCreate: 'installs when you create · no sign-in',
+                managedNoChannel: 'No managed model {{cli}} can use yet',
+                providerIncompatible: '{{cli}} cannot talk to this provider',
+                providerUntested: 'No tested models yet · test it in Settings first',
                 signedIn: 'Signed in',
                 inUseBy: 'In use by {{count}} agents',
                 expired: 'Credentials expired — picking this needs a new sign-in',
@@ -3696,12 +3701,14 @@ const en = {
             preparing: {
                 newMachine: 'a new machine',
                 note: 'Building {{machine}} and installing the CLI. Leaving now is fine — the machine and the CLI are kept; only your place in these four steps is not, so next time you start again from step one and find them waiting in the lists.',
+                noteBuild: 'Building {{machine}}. Leaving now is fine — the machine is kept; only your place in these four steps is not, so next time you start again from step one and find it waiting in the list.',
                 signIn: 'Opening the sign-in on {{machine}}. A sleeping machine wakes up first, which takes about a minute.'
             },
             error: {
                 machineNotReady: 'Pick a machine first.',
                 serviceNotReady: 'Pick a service and name the app on it first.',
-                externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.'
+                externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.',
+                noModel: 'No model could be chosen for that provider. Pick another way to pay.'
             },
             primary: {
                 goToSettings: 'Go to settings',
@@ -3710,6 +3717,11 @@ const en = {
                 buildFine: 'about 2 minutes · sign in once afterwards · {{used}} of {{limit}} used',
                 installOn: 'Install {{cli}} on {{machine}}',
                 installFine: 'about 1–2 minutes · sign in once afterwards',
+                build: 'Build one',
+                buildFineService: 'about a minute · {{cli}} installs when you create · {{used}} of {{limit}} used',
+                installsAtCreate: '{{cli}} installs when you create · about 1–2 minutes then',
+                createFineInstall: 'about 1–2 minutes · installs {{cli}} first',
+                createFineInstallAsleep: 'about 2–3 minutes · this machine has to wake up, then {{cli}} installs',
                 signIn: 'Sign in to {{vendor}}',
 
                 createFine: 'a few seconds',

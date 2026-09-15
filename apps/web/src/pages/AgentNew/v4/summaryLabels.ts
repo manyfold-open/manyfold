@@ -69,11 +69,19 @@ export const costFull = (
     if (cost.kind === 'runtime-local')
         return `${cost.label} · ${t('web.agentNewV4.cost.subscriptionOf', { vendor })}`
     if (cost.kind === 'provider')
-        return `${cost.label} · ${t('web.agentNewV4.cost.ownKeyDetail')}`
+        return `${cost.label} · ${t('web.agentNewV4.cost.ownKeyDetail')}${modelSuffix(cost.model)}`
     if (cost.kind === 'platform')
-        return `${t('web.agentNewV4.cost.managed')} · ${t('web.agentNewV4.cost.managedDetail')}`
+        return `${t('web.agentNewV4.cost.managed')} · ${t('web.agentNewV4.cost.managedDetail')}${modelSuffix(cost.model)}`
     return t('web.agentNewV4.cost.externalSummary', { service })
 }
+
+// The model a service framework will be installed with, when the install is
+// part of the create. It is named here and nowhere earlier: step ③ asks who
+// pays, and the model is a consequence of that answer, decided by the same
+// rules the API applies. An agent that joins an existing instance inherits
+// that instance's model instead, so no model is claimed for it.
+const modelSuffix = (model: string | undefined): string =>
+    model === undefined ? '' : ` · ${model}`
 
 // What the primary button says while a create is in flight.
 //

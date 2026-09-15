@@ -1,4 +1,4 @@
-import { supportsRuntime } from '@manyfold/shared'
+import { frameworkCapability, supportsRuntime } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntime,
@@ -28,6 +28,19 @@ export type SignInCost =
     // A daemon host signs in on the user's own computer, so it is already done
     // if they have ever signed in there.
     | 'already-if-signed-in'
+    // A service framework (OpenClaw / Hermes / NarraNexus) never signs in —
+    // it is handed its provider when installed, and in this flow that install
+    // happens at step ④ with the agent (`installsAtCreate`). Its rows owe no
+    // sign-in, so the cost column says what they owe instead.
+    | 'install-at-create'
+
+const forFramework = (
+    framework: AgentFramework,
+    cost: SignInCost
+): SignInCost => {
+    if (frameworkCapability(framework).kind !== 'service') return cost
+    return cost === 'after' ? 'install-at-create' : 'none'
+}
 
 export type MachineState =
     | 'ready'
@@ -216,7 +229,10 @@ export const buildMachineOptions = (args: {
             disabled: true
         })
     }
-    return rows
+    return rows.map((row) => ({
+        ...row,
+        signInCost: forFramework(framework, row.signInCost)
+    }))
 }
 
 export const buildNewMachineOptions = (args: {
@@ -231,7 +247,7 @@ export const buildNewMachineOptions = (args: {
             disabled: remaining !== null && remaining <= 0,
             used: access?.statefulSandboxUsage,
             limit: access?.statefulSandboxLimit,
-            signInCost: 'after'
+            signInCost: forFramework(framework, 'after')
         },
         {
             kind: 'ownComputer',

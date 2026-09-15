@@ -3474,6 +3474,7 @@ const zh: Translations = {
             newMachine: {
                 sandbox: '新建沙箱',
                 sandboxDetail: '建一台机器，并在上面装好 {{cli}}',
+                sandboxDetailService: '建一台机器；{{cli}} 在创建时装上去',
                 ownComputer: '连接我的电脑',
                 ownComputerDetail: '装上 daemon；你已装的 {{cli}} 会被发现',
                 cloudComputer: '云端计算机',
@@ -3494,6 +3495,10 @@ const zh: Translations = {
                 preparingAccount: '正在准备你的账户…',
                 managedUnavailable: '暂不可用',
                 ownKeyDetail: '由厂商计费',
+                installAtCreate: '创建时安装 · 不用登录',
+                managedNoChannel: '还没有 {{cli}} 能用的托管模型',
+                providerIncompatible: '{{cli}} 用不了这个 provider',
+                providerUntested: '还没测过模型 · 先去设置里测一次',
                 signedIn: '已登录',
                 inUseBy: '{{count}} 个 agent 在用',
                 expired: '凭据过期，选它需要重新登录',
@@ -3530,12 +3535,14 @@ const zh: Translations = {
             preparing: {
                 newMachine: '一台新机器',
                 note: '正在准备 {{machine}} 并安装 CLI。现在离开也没关系——建好的机器和装好的 CLI 都会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它们就在列表里等着。',
+                noteBuild: '正在准备 {{machine}}。现在离开也没关系——建好的机器会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它就在列表里等着。',
                 signIn: '正在 {{machine}} 上打开登录。休眠的机器要先唤醒，约一分钟。'
             },
             error: {
                 machineNotReady: '先选一个运行环境。',
                 serviceNotReady: '先选一个已接入的服务，并填上它上面的 app。',
-                externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。'
+                externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。',
+                noModel: '这个 provider 选不出模型。换一种付费方式。'
             },
             primary: {
                 goToSettings: '去设置',
@@ -3544,6 +3551,11 @@ const zh: Translations = {
                 buildFine: '约 2 分钟 · 之后要登录一次 · 已用 {{used}} / {{limit}}',
                 installOn: '在 {{machine}} 上装 {{cli}}',
                 installFine: '约 1–2 分钟 · 之后要登录一次',
+                build: '建一台',
+                buildFineService: '约一分钟 · {{cli}} 在创建时安装 · 已用 {{used}} / {{limit}}',
+                installsAtCreate: '{{cli}} 在创建时安装 · 那时约 1–2 分钟',
+                createFineInstall: '约 1–2 分钟 · 先装 {{cli}}',
+                createFineInstallAsleep: '约 2–3 分钟 · 这台机器要先唤醒，再装 {{cli}}',
                 signIn: '登录 {{vendor}} 账号',
 
                 createFine: '几秒',

@@ -4,7 +4,8 @@ import type {
     AgentRuntimeSummary,
     DaemonHostSummary,
     RuntimeAccessSummary,
-    SandboxSummary
+    SandboxSummary,
+    UserModelProviderSummary
 } from '@manyfold/shared'
 import {
     advanceBlockedKey,
@@ -26,8 +27,16 @@ import {
     FRAMEWORK_GROUPS,
     canUseSubscription,
     hasWorkspace,
+    installsAtCreate,
     runsOnOurMachine
 } from '../src/pages/AgentNew/v4/frameworkCatalog'
+import {
+    managedChannelFor,
+    serviceCreateBody,
+    serviceModelFor,
+    serviceRowVerdict,
+    withServiceBinding
+} from '../src/pages/AgentNew/v4/serviceModel'
 import {
     buildMachineOptions,
     buildNewMachineOptions
@@ -139,6 +148,7 @@ test('changing the type drops the answers that depended on it', () => {
     const choice: RuntimeChoice = {
         kind: 'runtime',
         runtimeId: 'r1',
+        sandboxId: 'h1',
         hostKind: 'sprites',
         hostLabel: 'dev-box',
         ownComputer: false
@@ -300,6 +310,7 @@ test('the bar names the machine, the confirmation list says what kind it is', ()
     const sandbox: RuntimeChoice = {
         kind: 'runtime',
         runtimeId: 'r1',
+        sandboxId: 'h1',
         hostKind: 'sprites',
         hostLabel: 'sandbox-002',
         ownComputer: false
@@ -428,4 +439,218 @@ test('overrunning replaces the cost line rather than adding a second one', () =>
     // Past it, the same slot says something different. Because that line had
     // been constant, changing it is the signal.
     assert.equal(creatingPrimary(76, 75, cost, tt).fine, 'web.agentNewV4.primary.tookLonger')
+})
+
+// A service framework (OpenClaw / Hermes / NarraNexus) is installed at
+// step ④, with the agent, because the install needs the provider step ③ has
+// not asked yet. Seen on staging [2026-09-16]: installing OpenClaw at step ②
+// answered 500, `cannot resolve base_url for openclaw provider ''`.
+test('a service framework installs at create, and its rows owe no sign-in', () => {
+    for (const fw of ['openclaw', 'hermes', 'narranexus'] as const)
+        assert.equal(installsAtCreate(fw), true, fw)
+    for (const fw of ['claude-code', 'codex', 'gemini-cli'] as const)
+        assert.equal(installsAtCreate(fw), false, fw)
+    const rows = buildMachineOptions({
+        framework: 'openclaw',
+        runtimes: [
+            runtime({ id: 'r1', framework: 'openclaw', hostId: 'h1', agentsCount: 0 })
+        ],
+        sandboxes: [sandbox('h1', 'busy'), sandbox('h2', 'empty')],
+        daemonHosts: []
+    })
+    assert.equal(rows.find((r) => r.id === 'sandbox:h2')?.signInCost, 'install-at-create')
+    // Joining the instance that already runs costs nothing more — and never
+    // a sign-in, which this kind of framework does not have.
+    assert.equal(rows.find((r) => r.id === 'runtime:r1')?.signInCost, 'none')
+    const fresh = (fw: 'openclaw' | 'claude-code') =>
+        buildNewMachineOptions({ framework: fw, access: access({}) }).find(
+            (o) => o.kind === 'sandbox'
+        )?.signInCost
+    assert.equal(fresh('openclaw'), 'install-at-create')
+    assert.equal(fresh('claude-code'), 'after')
+})
+
+const providerRow = (
+    over: Partial<UserModelProviderSummary> &
+        Pick<UserModelProviderSummary, 'id' | 'providerName'>
+): UserModelProviderSummary =>
+    ({
+        inferenceProtocol: null,
+        builtInId: null,
+        externalAccountId: null,
+        apiKeyMasked: '',
+        baseUrl: null,
+        modelsListUrl: null,
+        source: 'byo',
+        managedService: null,
+        managedKeyId: null,
+        managedBrand: null,
+        lastTestedAt: null,
+        lastTestStatus: 'ok',
+        lastTestMessage: null,
+        lastTestModels: null,
+        enabledModels: null,
+        createdAt: '',
+        updatedAt: '',
+        ...over
+    }) as UserModelProviderSummary
+
+// Measured on staging [2026-09-16]: the shape of one account's provider list —
+// a managed channel per vendor, plus a NetMind key that speaks four protocols.
+const managedAnthropic = providerRow({
+    id: 'm-anthropic',
+    providerName: 'Managed Anthropic',
+    source: 'managed',
+    inferenceProtocol: 'anthropic_messages',
+    managedBrand: 'anthropic',
+    lastTestModels: { anthropic_messages: ['claude-fable-5', 'claude-haiku-4-5-20251001'] }
+})
+const managedOpenAI = providerRow({
+    id: 'm-openai',
+    providerName: 'Managed OpenAI',
+    source: 'managed',
+    inferenceProtocol: 'openai_responses',
+    managedBrand: 'openai',
+    lastTestModels: { openai_responses: ['gpt-5.2', 'gpt-5.4-mini', 'gpt-6'] }
+})
+const managedGemini = providerRow({
+    id: 'm-gemini',
+    providerName: 'Managed Gemini',
+    source: 'managed',
+    inferenceProtocol: 'google_generate_content',
+    managedBrand: 'google',
+    lastTestModels: { google_generate_content: ['gemini-2.5-flash'] }
+})
+const netmind = providerRow({
+    id: 'k-netmind',
+    providerName: 'NetMind API',
+    builtInId: 'netmind',
+    lastTestModels: {
+        anthropic_messages: [
+            'netmind/smart-model-claude-based',
+            'anthropic/claude-sonnet-5',
+            'anthropic/claude-haiku-4-5'
+        ],
+        openai_responses: ['openai/gpt-5.4-mini']
+    }
+})
+const untested = providerRow({ id: 'k-fresh', providerName: 'Fresh key', builtInId: 'netmind' })
+
+test('the managed row resolves to a channel the API will accept for this framework', () => {
+    // Managed Anthropic is closed to OpenClaw and Hermes, Managed Gemini
+    // speaks a protocol they cannot; OpenAI is what is left — the same
+    // verdict `isManagedProtocolAllowedForFramework` and the resolver give.
+    assert.equal(
+        managedChannelFor('openclaw', [managedAnthropic, managedGemini, managedOpenAI])?.id,
+        'm-openai'
+    )
+    assert.equal(managedChannelFor('hermes', [managedAnthropic, managedGemini]), null)
+    // A channel an admin switched off is not offered to new agents.
+    assert.equal(managedChannelFor('openclaw', [{ ...managedOpenAI, channelDisabled: true }]), null)
+})
+
+test('the model is the economical default on the protocol the API will resolve to', () => {
+    // A built-in that speaks several protocols is resolved to the first in
+    // the resolver's own order — anthropic_messages before the OpenAI pair —
+    // so the model has to come from THAT list, not from the longest one.
+    assert.equal(serviceModelFor('openclaw', netmind), 'anthropic/claude-haiku-4-5')
+    assert.equal(serviceModelFor('openclaw', managedOpenAI), 'gpt-5.4-mini')
+    assert.equal(serviceModelFor('openclaw', untested), null)
+})
+
+test('a row the API would refuse stays on screen and says why', () => {
+    assert.equal(serviceRowVerdict('openclaw', managedGemini), 'incompatible')
+    assert.equal(serviceRowVerdict('openclaw', managedAnthropic), 'incompatible')
+    assert.equal(serviceRowVerdict('openclaw', untested), 'untested')
+    assert.equal(serviceRowVerdict('openclaw', netmind), 'usable')
+})
+
+test('a step ③ answer carries its binding only for a framework installed at create', () => {
+    const providers = [managedAnthropic, managedOpenAI, netmind]
+    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'openclaw', providers), {
+        kind: 'platform',
+        providerId: 'm-openai',
+        model: 'gpt-5.4-mini'
+    })
+    assert.deepEqual(
+        withServiceBinding(
+            { kind: 'provider', providerId: 'k-netmind', label: 'NetMind API' },
+            'openclaw',
+            providers
+        ),
+        {
+            kind: 'provider',
+            providerId: 'k-netmind',
+            label: 'NetMind API',
+            model: 'anthropic/claude-haiku-4-5'
+        }
+    )
+    // A coding CLI was installed at step ② and picks its model later.
+    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'claude-code', providers), {
+        kind: 'platform'
+    })
+    // NarraNexus takes no provider from us at all.
+    assert.deepEqual(withServiceBinding({ kind: 'platform' }, 'narranexus', providers), {
+        kind: 'platform'
+    })
+    assert.equal(withServiceBinding({ kind: 'platform' }, 'hermes', [managedAnthropic]), null)
+})
+
+test('the create request is the one v3 sends: install onto the sandbox and bind, in one POST', () => {
+    assert.deepEqual(
+        serviceCreateBody({
+            framework: 'openclaw',
+            sandboxId: 'sb-1',
+            name: ' Bot ',
+            workspace: '',
+            cost: { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' }
+        }),
+        {
+            name: 'Bot',
+            framework: 'openclaw',
+            runtime: 'sprites',
+            sandboxId: 'sb-1',
+            openclawCredentials: { providerId: 'm-openai', primaryModelName: 'gpt-5.4-mini' }
+        }
+    )
+    assert.deepEqual(
+        serviceCreateBody({
+            framework: 'hermes',
+            sandboxId: 'sb-1',
+            name: 'H',
+            workspace: '',
+            cost: {
+                kind: 'provider',
+                providerId: 'k-netmind',
+                label: 'NetMind',
+                model: 'anthropic/claude-haiku-4-5'
+            }
+        }).hermesCredentials,
+        { primaryProviderId: 'k-netmind', primaryModelName: 'anthropic/claude-haiku-4-5' }
+    )
+    assert.deepEqual(
+        serviceCreateBody({
+            framework: 'narranexus',
+            sandboxId: 'sb-1',
+            name: 'N',
+            workspace: '/srv/n',
+            cost: { kind: 'platform' }
+        }),
+        { name: 'N', framework: 'narranexus', runtime: 'sprites', sandboxId: 'sb-1', workspace: '/srv/n' }
+    )
+})
+
+test('step ④ names the model the install will be given, and only then', () => {
+    const bound = { kind: 'platform', providerId: 'm-openai', model: 'gpt-5.4-mini' } as const
+    assert.equal(
+        costFull(bound, 'Claude', 'Dify', tt),
+        'web.agentNewV4.cost.managed · web.agentNewV4.cost.managedDetail · gpt-5.4-mini'
+    )
+    // The bar stays at identity: which account, not which model.
+    assert.equal(costShort(bound, tt), 'web.agentNewV4.cost.managed')
+    // Joining an instance inherits its model; none is claimed.
+    assert.equal(
+        costFull({ kind: 'platform' }, 'Claude', 'Dify', tt),
+        'web.agentNewV4.cost.managed · web.agentNewV4.cost.managedDetail'
+    )
 })

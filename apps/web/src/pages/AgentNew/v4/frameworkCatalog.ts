@@ -150,3 +150,19 @@ export const defaultWorkspacePath = (
 // subscription. Step ③ says so in as many words rather than greying rows out.
 export const canUseSubscription = (framework: AgentFramework): boolean =>
     frameworkCapability(framework).kind === 'coding'
+
+// A service framework is installed at step ④, together with the agent, not at
+// step ② like a coding CLI. OpenClaw writes its model provider into its own
+// config at install and the API's sprite bootstrap refuses to run without
+// one; Hermes installs blind and cannot take a turn until told — and the
+// provider is exactly the thing step ③ has not asked yet. The API already
+// does both in one request: `POST /agents` with a `sandboxId` installs onto
+// that sandbox with the credentials and binds the agent, the path v3 has
+// always taken. So the flow defers the install rather than inventing a
+// provider-less one. The machine itself is still built at step ② — it is a
+// real resource either way, and the bar needs its name.
+//
+// Seen on staging [2026-09-16]: installing OpenClaw at step ② answered 500,
+// `cannot resolve base_url for openclaw provider ''`.
+export const installsAtCreate = (framework: AgentFramework): boolean =>
+    frameworkCapability(framework).kind === 'service'

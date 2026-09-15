@@ -12,10 +12,16 @@ export type CreateStepId = (typeof CREATE_STEP_ORDER)[number]
 // them (decision E), which is what lets the flow keep no progress at all
 // (decision D) — leave halfway and the machine, the CLI and the sign-in are
 // all still there next time, as ordinary options in these same lists.
+//
+// One named exception: a service framework (OpenClaw / Hermes / NarraNexus)
+// is not installed at step ② but at step ④, together with the agent — see
+// `installsAtCreate`. Then `runtimeId` is null and `sandboxId` says where the
+// install will land. The machine itself still exists; only the CLI waits.
 export type RuntimeChoice =
     | {
           kind: 'runtime'
-          runtimeId: string
+          runtimeId: string | null
+          sandboxId: string | null
           hostKind: AgentRuntime
           hostLabel: string
           // Only a daemon host makes the workspace a real question, so only it
@@ -33,10 +39,16 @@ export type RuntimeChoice =
 // Who pays for the model. The three groups in step ③ differ by SCOPE, which is
 // why they are grouped rather than listed flat: a vendor sign-in is written to
 // one machine's disk, an account-level balance follows the user everywhere.
+//
+// For a service framework installed at create time, `platform` and `provider`
+// also carry WHICH provider row and WHICH model the install will be given:
+// the managed family is several channels, the API needs a concrete one plus
+// a model name, and both are decided by the same rules the API applies
+// (`serviceModel.ts`) so what step ④ shows is what the request sends.
 export type CostChoice =
     | { kind: 'runtime-local'; profileId: string; label: string }
-    | { kind: 'platform' }
-    | { kind: 'provider'; providerId: string; label: string }
+    | { kind: 'platform'; providerId?: string; model?: string }
+    | { kind: 'provider'; providerId: string; label: string; model?: string }
     // Dify / Langflow / A2A call and bill the model on the user's own service.
     // The step still appears with nothing to pick, so the flow is identical
     // for all nine types and nobody has to learn "this kind has three steps".
