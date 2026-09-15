@@ -1,8 +1,14 @@
 import type { UpdateEmailProviderSettingsBody } from '@manyfold/shared'
 import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
 import test from 'node:test'
-import { EmailSettingsService } from '../src/modules/email/email-settings.service'
+import { ConfigService } from '@nestjs/config'
+import {
+    EmailSettingsService,
+    type ResolvedEmailProviderConfig
+} from '../src/modules/email/email-settings.service'
 import { smtpTransportOptions } from '../src/modules/email/email.service'
+import { CryptoService } from '../src/modules/secrets/crypto.service'
 
 const stubCrypto = {
     encrypt: (plain: string) => ({ ciphertext: `enc:${plain}`, keyVersion: 1 }),
@@ -58,12 +64,61 @@ test('smtp settings: omitting the password keeps the stored one', () => {
     const svc = service()
     const first = svc.normalizeForStorage(smtpInput, null)
     const second = svc.normalizeForStorage(
-        { ...smtpInput, smtpPassword: undefined, smtpHost: 'smtp2.example.com' },
+        {
+            ...smtpInput,
+            smtpPassword: undefined,
+            smtpHost: 'smtp2.example.com'
+        },
         first
     )
     const smtp = second.smtp as Record<string, unknown>
     assert.equal(smtp.host, 'smtp2.example.com')
     assert.equal(smtp.passwordCiphertext, 'enc:hunter2-hunter2')
+})
+
+test('smtp settings: significant password whitespace survives encryption and transport', () => {
+    const crypto = new CryptoService(
+        new ConfigService({
+            API_CRYPTO_KEY: randomBytes(32).toString('base64')
+        })
+    )
+    const svc = new EmailSettingsService(
+        {} as never,
+        crypto
+    ) as unknown as Internals
+    const password = '  smtp fixture password\t '
+    const stored = svc.normalizeForStorage(
+        { ...smtpInput, smtpPassword: password },
+        null
+    )
+    const smtp = stored.smtp as {
+        passwordCiphertext: string
+        passwordVersion: number
+        passwordMasked: string
+    }
+    assert.notEqual(smtp.passwordCiphertext, password)
+    assert.equal(
+        crypto.decrypt({
+            ciphertext: smtp.passwordCiphertext,
+            keyVersion: smtp.passwordVersion
+        }),
+        password
+    )
+    assert.notEqual(smtp.passwordMasked, password)
+    const resolved = svc.resolveStored(stored) as Extract<
+        ResolvedEmailProviderConfig,
+        { provider: 'smtp' }
+    >
+    assert.equal(resolved.password, password)
+    assert.equal(smtpTransportOptions(resolved).auth?.pass, password)
+
+    for (const blank of [undefined, '', ' \t ']) {
+        const next = svc.normalizeForStorage(
+            { ...smtpInput, smtpPassword: blank },
+            stored
+        )
+        assert.equal(svc.resolveStored(next).password, password)
+    }
 })
 
 test('smtp settings: username without any password is rejected', () => {
@@ -88,7 +143,10 @@ test('smtp settings: unauthenticated relay needs no credentials', () => {
         },
         null
     )
-    const resolved = svc.resolveStored(stored) as { username: unknown; password: unknown }
+    const resolved = svc.resolveStored(stored) as {
+        username: unknown
+        password: unknown
+    }
     assert.equal(resolved.username, null)
     assert.equal(resolved.password, null)
 })
