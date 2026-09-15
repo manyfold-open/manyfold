@@ -54,17 +54,21 @@ export const OptionRow: FC<OptionRowProps> = ({
                 </span>
             )}
         </span>
-        {meta !== undefined && meta !== null && (
-            <span className='text-caption text-subtle mt-0.5 shrink-0 text-right'>
-                {meta}
-            </span>
-        )}
+        {/* The check is before the attribute in the DOM so that on a phone,
+            where the row wraps, the attribute is what drops to a second line
+            and the check stays on the first. `order` puts them back the other
+            way round once there is room for one line. */}
         <span
-            className='mt-1 inline-flex h-4 w-4 shrink-0 items-center justify-center'
+            className='mt-1 inline-flex h-4 w-4 shrink-0 items-center justify-center sm:order-3'
             aria-hidden='true'
         >
             {selected && <CheckIcon className='text-link h-4 w-4' />}
         </span>
+        {meta !== undefined && meta !== null && (
+            <span className='text-caption text-subtle ml-8 basis-full shrink-0 text-left sm:order-2 sm:ml-0 sm:mt-0.5 sm:basis-auto sm:text-right'>
+                {meta}
+            </span>
+        )}
     </button>
 )
 

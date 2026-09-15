@@ -288,11 +288,15 @@ const AgentNewV4: FC = (): ReactNode => {
                 }
             }
         } catch (err) {
-            setStepError((err as Error).message)
+            setStepError(apiErrorMessage(err))
             return null
         } finally {
             setPreparing(null)
         }
+        // Nothing was picked — which is a different failure from the one
+        // above, and has to be said here rather than guessed at by the
+        // caller. See `advance`.
+        setStepError(t('web.agentNewV4.error.machineNotReady'))
         return null
     }, [client, create, framework, machinePick, machines, t])
 
@@ -300,7 +304,10 @@ const AgentNewV4: FC = (): ReactNode => {
         const provider = create.externalProviders.find(
             (p: UserExternalAgentProviderSummary) => p.id === serviceProviderId
         )
-        if (provider === undefined || remoteRef.trim() === '') return null
+        if (provider === undefined || remoteRef.trim() === '') {
+            setStepError(t('web.agentNewV4.error.serviceNotReady'))
+            return null
+        }
         return {
             kind: 'external',
             providerId: provider.id,
@@ -308,7 +315,7 @@ const AgentNewV4: FC = (): ReactNode => {
             remoteRef: remoteRef.trim(),
             remoteLabel: remoteRef.trim()
         }
-    }, [create.externalProviders, remoteRef, serviceProviderId])
+    }, [create.externalProviders, remoteRef, serviceProviderId, t])
 
     const submit = useCallback(async (): Promise<void> => {
         if (flow.runtime === null || flow.framework === null) return
@@ -498,12 +505,16 @@ const AgentNewV4: FC = (): ReactNode => {
             return
         }
         if (flow.step === 'runtime') {
+            // Seen on staging [2026-09-15]: this used to fall back to "Pick a
+            // machine first" whenever `stepError` read null — but `stepError`
+            // here is the value captured when this callback was built, and
+            // advance's own first line had just cleared it, so the guard was
+            // always true and the real failure (a CLI install that did not
+            // work) was replaced by a sentence telling the user to do
+            // something they had already done. Each commit now says its own
+            // failure and the caller does not guess.
             const choice = onMachine ? await commitMachine() : commitService()
-            if (choice === null) {
-                if (stepError === null)
-                    setStepError(t('web.agentNewV4.error.machineNotReady'))
-                return
-            }
+            if (choice === null) return
             setFlow((prev) => withRuntime(prev, choice))
             // A connected service settles its own billing, so step ③ has
             // nothing to ask — but it still appears, so every run of the flow
@@ -551,7 +562,6 @@ const AgentNewV4: FC = (): ReactNode => {
         commitService,
         submit,
         goTo,
-        stepError,
         t
     ])
 

@@ -2078,6 +2078,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.preparing.note': 'Создаём {{machine}} и устанавливаем CLI. Можно спокойно уйти: машина и CLI сохранятся, а вот ваше место в этих четырёх шагах — нет. В следующий раз вы начнёте с первого шага и найдёте их в списках.',
     'web.agentNewV4.preparing.signIn': 'Открываем вход на {{machine}}. Спящая машина сначала просыпается, это занимает около минуты.',
     'web.agentNewV4.error.machineNotReady': 'Сначала выберите машину.',
+    'web.agentNewV4.error.serviceNotReady': 'Сначала выберите службу и укажите приложение на ней.',
     'web.agentNewV4.error.externalNotSupportedYet': 'Создание подключённого агента на этом экране пока не реализовано.',
     'web.agentNewV4.primary.goToSettings': 'Перейти к настройкам',
     'web.agentNewV4.primary.leavesFlow': 'уводит из этого процесса',

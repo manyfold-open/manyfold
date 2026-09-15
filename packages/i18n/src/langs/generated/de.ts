@@ -2077,6 +2077,7 @@ const de: Record<string, string> = {
     'web.agentNewV4.preparing.note': '{{machine}} wird gebaut und die CLI installiert. Du kannst jetzt ruhig weggehen — Maschine und CLI bleiben erhalten; nur deine Position in diesen vier Schritten nicht. Beim nächsten Mal beginnst du wieder bei Schritt eins und findest beide in den Listen wieder.',
     'web.agentNewV4.preparing.signIn': 'Die Anmeldung auf {{machine}} wird geöffnet. Eine schlafende Maschine wacht zuerst auf, das dauert etwa eine Minute.',
     'web.agentNewV4.error.machineNotReady': 'Wähle zuerst eine Maschine aus.',
+    'web.agentNewV4.error.serviceNotReady': 'Wähle zuerst einen Dienst und benenne die App darauf.',
     'web.agentNewV4.error.externalNotSupportedYet': 'Das Erstellen eines angebundenen Agenten ist auf dieser Seite noch nicht verdrahtet.',
     'web.agentNewV4.primary.goToSettings': 'Zu den Einstellungen',
     'web.agentNewV4.primary.leavesFlow': 'verlässt diesen Ablauf',

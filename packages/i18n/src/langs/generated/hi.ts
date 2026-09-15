@@ -2075,6 +2075,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.preparing.note': '{{machine}} तैयार की जा रही है और CLI साधन लगाया जा रहा है। अभी चले जाएँ तो भी ठीक है — मशीन और साधन बने रहेंगे; बस इन चार चरणों में आप कहाँ तक पहुँचे थे, वह नहीं रहेगा। अगली बार पहले चरण से शुरू करेंगे और वे सूची में मिल जाएँगे।',
     'web.agentNewV4.preparing.signIn': '{{machine}} पर साइन-इन खोला जा रहा है। सोई हुई मशीन पहले जागती है, जिसमें लगभग एक मिनट लगता है।',
     'web.agentNewV4.error.machineNotReady': 'पहले एक मशीन चुनिए।',
+    'web.agentNewV4.error.serviceNotReady': 'पहले एक सेवा चुनें और उस पर मौजूद ऐप बताएँ।',
     'web.agentNewV4.error.externalNotSupportedYet': 'जुड़ी हुई सेवा वाला एजेंट बनाना इस पर्दे पर अभी नहीं जोड़ा गया है।',
     'web.agentNewV4.primary.goToSettings': 'सेटिंग्स पर जाइए',
     'web.agentNewV4.primary.leavesFlow': 'इस प्रवाह से बाहर ले जाता है',

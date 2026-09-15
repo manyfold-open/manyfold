@@ -3534,6 +3534,7 @@ const zh: Translations = {
             },
             error: {
                 machineNotReady: '先选一个运行环境。',
+                serviceNotReady: '先选一个已接入的服务，并填上它上面的 app。',
                 externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。'
             },
             primary: {

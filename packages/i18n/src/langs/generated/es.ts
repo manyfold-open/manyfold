@@ -2077,6 +2077,7 @@ const es: Record<string, string> = {
     'web.agentNewV4.preparing.note': 'Creando {{machine}} e instalando la CLI. Puedes marcharte ahora: la máquina y la CLI se conservan; lo que no se guarda es tu posición en estos cuatro pasos. La próxima vez empezarás de nuevo por el primero y las encontrarás esperando en las listas.',
     'web.agentNewV4.preparing.signIn': 'Abriendo el inicio de sesión en {{machine}}. Una máquina dormida se despierta primero, lo que tarda alrededor de un minuto.',
     'web.agentNewV4.error.machineNotReady': 'Elige antes una máquina.',
+    'web.agentNewV4.error.serviceNotReady': 'Elige primero un servicio y nombra la app que hay en él.',
     'web.agentNewV4.error.externalNotSupportedYet': 'Crear un agente conectado todavía no está enlazado en esta pantalla.',
     'web.agentNewV4.primary.goToSettings': 'Ir a los ajustes',
     'web.agentNewV4.primary.leavesFlow': 'sale de este flujo',

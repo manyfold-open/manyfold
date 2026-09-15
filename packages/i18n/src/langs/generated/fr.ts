@@ -2077,6 +2077,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.preparing.note': 'Création de {{machine}} et installation du CLI. Vous pouvez partir maintenant : la machine et le CLI sont conservés ; seule votre position dans ces quatre étapes ne l\'est pas. La prochaine fois vous repartirez de la première et les retrouverez dans les listes.',
     'web.agentNewV4.preparing.signIn': 'Ouverture de la connexion sur {{machine}}. Une machine en veille se réveille d\'abord, ce qui prend environ une minute.',
     'web.agentNewV4.error.machineNotReady': 'Choisissez d\'abord une machine.',
+    'web.agentNewV4.error.serviceNotReady': 'Choisissez d\'abord un service et nommez l\'app qui s\'y trouve.',
     'web.agentNewV4.error.externalNotSupportedYet': 'La création d\'un agent raccordé n\'est pas encore branchée sur cet écran.',
     'web.agentNewV4.primary.goToSettings': 'Aller aux réglages',
     'web.agentNewV4.primary.leavesFlow': 'quitte ce parcours',

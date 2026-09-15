@@ -764,8 +764,13 @@
        crossing its corner. Selection itself stays the §8.12 static-tier
        language (active fill + ring + check) — this rule only settles who
        draws the edge between two rows. */
+    /* Wraps on purpose. Below `sm` the row's trailing attribute ("Can use
+       Claude Pro / Max", "instant · no sign-in needed") is wider than the
+       space left beside the title, so on a phone it takes a line of its own
+       under the detail instead of squeezing the title column to nothing —
+       see OptionRow for the ordering that keeps the check on the first line. */
     .create-option-row {
-        @apply text-ui relative flex w-full cursor-pointer items-start gap-3 rounded-sm px-3 py-3 text-left transition-colors;
+        @apply text-ui relative flex w-full cursor-pointer flex-wrap items-start gap-x-3 gap-y-1 rounded-sm px-3 py-3 text-left transition-colors;
     }
 
     .create-option-row + .create-option-row::before {

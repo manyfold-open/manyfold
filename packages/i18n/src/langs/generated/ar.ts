@@ -318,6 +318,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.preparing.note': 'جارٍ تجهيز {{machine}} وتثبيت أداة CLI. يمكنك المغادرة الآن، فالجهاز والأداة يبقيان، أما موضعك في هذه الخطوات الأربع فلا يبقى. في المرة القادمة ستبدأ من الخطوة الأولى وستجدهما في القوائم.',
     'web.agentNewV4.preparing.signIn': 'يجري فتح تسجيل الدخول على {{machine}}. الجهاز النائم يستيقظ أولاً، ويستغرق ذلك دقيقة تقريباً.',
     'web.agentNewV4.error.machineNotReady': 'اختر جهازاً أولاً.',
+    'web.agentNewV4.error.serviceNotReady': 'اختر خدمة أولاً وحدّد التطبيق الموجود عليها.',
     'web.agentNewV4.error.externalNotSupportedYet': 'إنشاء وكيل مرتبط غير مُفعَّل في هذه الشاشة بعد.',
     'web.agentNewV4.primary.goToSettings': 'الانتقال إلى الإعدادات',
     'web.agentNewV4.primary.leavesFlow': 'يغادر هذا المسار',

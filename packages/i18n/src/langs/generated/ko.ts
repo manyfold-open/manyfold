@@ -2068,6 +2068,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.preparing.note": "{{machine}} 을(를) 마련하고 CLI 도구를 설치하는 중입니다. 지금 나가셔도 됩니다. 기기와 CLI 는 남지만 이 네 단계 중 어디까지 왔는지는 남지 않습니다. 다음에는 첫 단계부터 다시 시작하게 되며 그때 목록에서 찾을 수 있습니다.",
     "web.agentNewV4.preparing.signIn": "{{machine}} 에서 로그인을 여는 중입니다. 잠든 기기는 먼저 깨어나며 1분 정도 걸립니다.",
     "web.agentNewV4.error.machineNotReady": "먼저 기기를 고르세요.",
+    "web.agentNewV4.error.serviceNotReady": "먼저 서비스를 고르고 그 위의 앱을 지정하세요.",
     "web.agentNewV4.error.externalNotSupportedYet": "연결형 에이전트 만들기는 이 화면에 아직 연결되어 있지 않습니다.",
     "web.agentNewV4.primary.goToSettings": "설정으로 이동",
     "web.agentNewV4.primary.leavesFlow": "이 흐름에서 벗어납니다",

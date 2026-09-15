@@ -2069,6 +2069,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.preparing.note': '{{machine}} を用意して CLI を導入しています。ここで離れても構いません。マシンと CLI は残りますが、この 4 手順のどこまで進んだかは残りません。次回は最初からやり直すことになり、そのときは一覧に並んでいます。',
     'web.agentNewV4.preparing.signIn': '{{machine}} でログインを開いています。休止中のマシンはまず起動するため、1 分ほどかかります。',
     'web.agentNewV4.error.machineNotReady': '先にマシンを選んでください。',
+    'web.agentNewV4.error.serviceNotReady': '先にサービスを選び、その上のアプリを指定してください。',
     'web.agentNewV4.error.externalNotSupportedYet': '接続型エージェントの作成は、この画面ではまだつながっていません。',
     'web.agentNewV4.primary.goToSettings': '設定へ移動',
     'web.agentNewV4.primary.leavesFlow': 'この流れから離れます',

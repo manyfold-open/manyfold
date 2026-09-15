@@ -3700,6 +3700,7 @@ const en = {
             },
             error: {
                 machineNotReady: 'Pick a machine first.',
+                serviceNotReady: 'Pick a service and name the app on it first.',
                 externalNotSupportedYet: 'Creating a connected agent is not wired up on this screen yet.'
             },
             primary: {
