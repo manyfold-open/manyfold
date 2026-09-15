@@ -3541,7 +3541,6 @@ const zh: Translations = {
                 installOn: '在 {{machine}} 上装 {{cli}}',
                 installFine: '约 1–2 分钟 · 之后要登录一次',
                 signIn: '登录 {{vendor}} 账号',
-                opensAuthPage: '约 1 分钟 · 会打开授权页',
                 createFine: '几秒'
             }
         },

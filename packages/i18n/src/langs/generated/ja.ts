@@ -2074,7 +2074,6 @@ const ja: Record<string, string> = {
     'web.agentNewV4.primary.installOn': '{{machine}} に {{cli}} を導入',
     'web.agentNewV4.primary.installFine': '約 1〜2 分 · この後に一度ログイン',
     'web.agentNewV4.primary.signIn': '{{vendor}} にログイン',
-    'web.agentNewV4.primary.opensAuthPage': '1 分ほど · 提供元のページが開きます',
     'web.agentNewV4.primary.createFine': '数秒',
     'web.agentNewV4.help.type': '9 種類から 1 つ選びます。種類は後から変更できませんが、別のものを作り直すのは数秒です。',
     'web.agentNew.title': 'エージェントの作成',

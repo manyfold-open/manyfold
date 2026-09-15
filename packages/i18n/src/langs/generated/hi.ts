@@ -2080,7 +2080,6 @@ const hi: Record<string, string> = {
     'web.agentNewV4.primary.installOn': '{{machine}} पर {{cli}} लगाइए',
     'web.agentNewV4.primary.installFine': 'लगभग 1–2 मिनट · उसके बाद एक बार लॉगिन',
     'web.agentNewV4.primary.signIn': '{{vendor}} में लॉगिन कीजिए',
-    'web.agentNewV4.primary.opensAuthPage': 'लगभग एक मिनट · प्रदाता का पृष्ठ खुलेगा',
     'web.agentNewV4.primary.createFine': 'कुछ सेकंड',
     'web.agentNewV4.help.type': 'नौ हैं, एक चुनिए। प्रकार बाद में नहीं बदलता, पर दूसरा बनाने में कुछ ही सेकंड लगते हैं।',
     'web.agentNew.title': 'एजेंट बनाएं',

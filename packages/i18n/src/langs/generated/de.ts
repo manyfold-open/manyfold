@@ -2082,7 +2082,6 @@ const de: Record<string, string> = {
     'web.agentNewV4.primary.installOn': '{{cli}} auf {{machine}} installieren',
     'web.agentNewV4.primary.installFine': 'etwa 1–2 Minuten · danach einmal anmelden',
     'web.agentNewV4.primary.signIn': 'Bei {{vendor}} anmelden',
-    'web.agentNewV4.primary.opensAuthPage': 'etwa eine Minute · öffnet die Seite des Anbieters',
     'web.agentNewV4.primary.createFine': 'ein paar Sekunden',
     'web.agentNewV4.help.type': 'Neun Stück, wähle eines aus. Der Typ lässt sich später nicht mehr ändern, aber ein weiterer ist in Sekunden gebaut.',
     'web.agentNew.title': 'Agent erstellen',

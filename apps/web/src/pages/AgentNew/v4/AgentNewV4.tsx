@@ -26,6 +26,12 @@ import type {
     CreateStepId,
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
+import {
+    EXIT_CONNECT_COMPUTER,
+    EXIT_CONNECT_EXTERNAL_PROVIDER,
+    EXIT_RENT_CLOUD_COMPUTER,
+    exitToMachineAccounts
+} from '@/pages/AgentNew/v4/exits'
 import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     costFull,
@@ -251,11 +257,11 @@ const AgentNewV4: FC = (): ReactNode => {
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
         if (flow.step === 'runtime' && machinePick === 'new:ownComputer') {
-            navigate('/runtimes?connect=daemon')
+            navigate(EXIT_CONNECT_COMPUTER)
             return
         }
         if (flow.step === 'runtime' && machinePick === 'new:cloudComputer') {
-            navigate('/runtimes?buy=cloud-computer')
+            navigate(EXIT_RENT_CLOUD_COMPUTER)
             return
         }
         if (flow.step === 'runtime') {
@@ -288,7 +294,7 @@ const AgentNewV4: FC = (): ReactNode => {
                 costPick.kind === 'signin' ||
                 (costPick.kind === 'profile' && costPick.needsReauth)
             ) {
-                navigate('/runtimes/' + (runtimeId ?? '') + '?addAccount=1')
+                navigate(exitToMachineAccounts(runtimeId))
                 return
             }
             const choice = costChoiceFor(costPick)
@@ -437,7 +443,12 @@ const AgentNewV4: FC = (): ReactNode => {
                         vendor:
                             framework !== null ? vendorLabel(framework) : ''
                     }),
-                    fine: t('web.agentNewV4.primary.opensAuthPage')
+                    // Not "opens the vendor's page": it opens the
+                    // machine's page, where signing in is one more click.
+                    // What the user is actually paying here is the flow.
+                    fine: `${t('web.agentNewV4.cost.aboutAMinute')} · ${t(
+                        'web.agentNewV4.primary.leavesFlow'
+                    )}`
                 }
             return { label: next }
         }
@@ -548,7 +559,9 @@ const AgentNewV4: FC = (): ReactNode => {
                         setServiceProviderId(p.id)
                     }
                     onChangeRemoteRef={setRemoteRef}
-                    onConnectNew={() => navigate('/settings/providers')}
+                    onConnectNew={() =>
+                        navigate(EXIT_CONNECT_EXTERNAL_PROVIDER)
+                    }
                 />
             )}
             {flow.step === 'cost' && framework !== null && onMachine && (

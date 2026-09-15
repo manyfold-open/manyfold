@@ -323,7 +323,6 @@ const ar: Record<string, string> = {
     'web.agentNewV4.primary.installOn': 'ثبّت {{cli}} على {{machine}}',
     'web.agentNewV4.primary.installFine': 'من دقيقة إلى دقيقتين · ثم تسجيل دخول واحد',
     'web.agentNewV4.primary.signIn': 'سجّل الدخول إلى {{vendor}}',
-    'web.agentNewV4.primary.opensAuthPage': 'دقيقة تقريباً · يفتح صفحة المزوّد',
     'web.agentNewV4.primary.createFine': 'بضع ثوانٍ',
     'web.agentNewV4.help.type': 'تسعة أنواع، اختر واحداً. لا يمكن تغيير النوع لاحقاً، لكن إنشاء وكيل آخر لا يستغرق سوى ثوانٍ.',
     'web.agentNew.title': 'إنشاء وكيل',

@@ -3707,7 +3707,6 @@ const en = {
                 installOn: 'Install {{cli}} on {{machine}}',
                 installFine: 'about 1–2 minutes · sign in once afterwards',
                 signIn: 'Sign in to {{vendor}}',
-                opensAuthPage: 'about a minute · opens the vendor\'s page',
                 createFine: 'a few seconds'
             }
         },
