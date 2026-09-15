@@ -822,13 +822,18 @@
        cell fills it edge to edge, which reads as a table row rather than a
        box. */
     .create-step-bar {
-        @apply border-divider/60 mb-7 hidden border-b md:grid md:grid-cols-4;
+        @apply border-divider/60 mb-6 hidden border-b md:grid md:grid-cols-4;
         margin-left: -0.625rem;
         margin-right: -0.625rem;
     }
 
+    /* Tight on purpose. On the first screen the bar carries four step names
+       and four empty value lines, and every pixel of its own padding is then
+       pure chrome standing between the page title and the question. The value
+       line keeps its reserved height there rather than collapsing — see
+       StepBar — so the saving has to come from the padding instead. */
     .create-step-bar-cell {
-        @apply block w-full min-w-0 px-2.5 pb-2.5 pt-2 text-left;
+        @apply block w-full min-w-0 px-2.5 pb-2 pt-1.5 text-left;
     }
 
     .create-step-bar-cell-done {

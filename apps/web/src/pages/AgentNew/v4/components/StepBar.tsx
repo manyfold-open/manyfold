@@ -73,7 +73,7 @@ const SummaryBar: FC<StepBarProps> = ({
                         <span className='text-caption text-subtle truncate leading-tight'>
                             {t(STEP_TITLE_KEY[step])}
                         </span>
-                        <span className='create-step-bar-value text-ui text-fg col-start-2 mt-1 h-5 truncate leading-5'>
+                        <span className='create-step-bar-value text-ui text-fg col-start-2 mt-0.5 h-[1.125rem] truncate leading-[1.125rem]'>
                             {value ?? ''}
                         </span>
                     </span>
