@@ -32,6 +32,8 @@ instead of carrying a sign-in say so and offer the way back to step one.
 
 A bar across the top carries every step's name with the answer under it, so standing on model cost you can still see which agent type you picked — each step's question only ever restates the step immediately before it. Finished steps in that bar are clickable and take you back. It shows the short form of each answer; the confirmation list on the last step keeps the full one. Below the medium breakpoint the bar falls back to a single line of step names, which stay clickable.
 
+Everything the flow starts, it finishes on the flow's own page. Signing in to your Claude, ChatGPT or Google account opens the CLI's login in the step that asked who pays; connecting your own computer and connecting a Dify, Langflow or A2A service each open where you are. Renting a cloud computer is the one thing that still takes you elsewhere, because it ends in a purchase.
+
 Nothing is preselected and no progress is kept: leave halfway and you start
 again from step one, but the machine built, the CLI installed and the account
 signed in are all still there, waiting as ordinary rows with no "last time"
