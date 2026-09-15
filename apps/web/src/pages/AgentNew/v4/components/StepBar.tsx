@@ -60,18 +60,23 @@ const SummaryBar: FC<StepBarProps> = ({
                 const isCurrent = step === current
                 const done = reached.has(step) && !isCurrent
                 const value = values[step]
+                // Two rows, one text column: the pip sits in a gutter beside
+                // both of them rather than inside the first, so the step name
+                // and the value it settled on share a left edge. Hung the
+                // other way the value starts 22px left of its own label, and
+                // a cell with two left edges reads as two fragments instead
+                // of one answer. The gutter is a grid track, not a padding
+                // guess, so it follows the pip if the pip ever resizes.
                 const body = (
-                    <>
-                        <span className='text-caption text-subtle flex items-center gap-1.5 leading-tight'>
-                            {marker(index, isCurrent, done)}
-                            <span className='truncate'>
-                                {t(STEP_TITLE_KEY[step])}
-                            </span>
+                    <span className='grid grid-cols-[1rem_minmax(0,1fr)] items-center gap-x-1.5'>
+                        {marker(index, isCurrent, done)}
+                        <span className='text-caption text-subtle truncate leading-tight'>
+                            {t(STEP_TITLE_KEY[step])}
                         </span>
-                        <span className='create-step-bar-value text-ui text-fg mt-1 block h-5 truncate leading-5'>
+                        <span className='create-step-bar-value text-ui text-fg col-start-2 mt-1 h-5 truncate leading-5'>
                             {value ?? ''}
                         </span>
-                    </>
+                    </span>
                 )
                 return (
                     <li key={step} className='min-w-0'>
