@@ -30,6 +30,8 @@ more sign-in on this machine. A sleeping sandbox reports its last known values
 and is never woken just to fill the list. Frameworks that call a model API
 instead of carrying a sign-in say so and offer the way back to step one.
 
+A bar across the top carries every step's name with the answer under it, so standing on model cost you can still see which agent type you picked — each step's question only ever restates the step immediately before it. Finished steps in that bar are clickable and take you back. It shows the short form of each answer; the confirmation list on the last step keeps the full one. Below the medium breakpoint the bar falls back to a single line of step names, which stay clickable.
+
 Nothing is preselected and no progress is kept: leave halfway and you start
 again from step one, but the machine built, the CLI installed and the account
 signed in are all still there, waiting as ordinary rows with no "last time"
