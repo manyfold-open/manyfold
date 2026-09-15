@@ -10,7 +10,10 @@ import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { lazyChunk } from '@/lib/lazyChunk'
-import { settleRuntimeAuthOperation } from '@/lib/runtimeAuth'
+import {
+    profileNeedsSignIn,
+    settleRuntimeAuthOperation
+} from '@/lib/runtimeAuth'
 import { useApiClient } from '@/lib/apiClient'
 import { fmtNetmindMoney } from '@/lib/usageFormat'
 import { frameworkLabel } from '@/lib/frameworkMeta'
@@ -355,12 +358,57 @@ const AgentNewV4: FC = (): ReactNode => {
                     kind: 'profile',
                     id: profile.id,
                     label: profile.identity?.email ?? profile.label,
-                    needsReauth: false
+                    needsReauth: profileNeedsSignIn(profile)
                 })
         } finally {
             setBusySignIn(false)
         }
     }, [auth, client, runtimeId, signIn, t])
+
+    // While the terminal is open, watch the profile rather than asking the
+    // user to certify their own sign-in. The host reports `credentialStatus`
+    // and turns it `valid` when the credentials land, so the page can notice
+    // by itself — and the alternative was a filled primary button reading
+    // "Done signing in" that was pressable before anything had been done: the
+    // most prominent control on the page, making a claim we could not check,
+    // and punishing an early press with a failed operation.
+    //
+    // The panel's own "Close terminal" still settles and reports, which is the
+    // way out if the host never reports the credentials.
+    const { reload: reloadAuth } = auth
+    useEffect(() => {
+        if (signIn === null) return
+        let cancelled = false
+        const timer = setInterval(() => {
+            void (async () => {
+                const list = await reloadAuth()
+                if (cancelled || list === null) return
+                const profile = list.profiles.find(
+                    (row) => row.id === signIn.profileId
+                )
+                // The app's own predicate, not a fresh reading of
+                // `credentialStatus`: a just-created profile sits at
+                // lifecycle `pending`, and `unknown` / `refresh-required`
+                // are usable. Writing the test again here is how you get a
+                // button that never enables.
+                if (profile === undefined || profileNeedsSignIn(profile))
+                    return
+                setSignIn(null)
+                // Answered, not advanced: decision O leaves the step for the
+                // user to leave.
+                setCostPick({
+                    kind: 'profile',
+                    id: profile.id,
+                    label: profile.identity?.email ?? profile.label,
+                    needsReauth: false
+                })
+            })()
+        }, 3000)
+        return () => {
+            cancelled = true
+            clearInterval(timer)
+        }
+    }, [reloadAuth, signIn])
 
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
@@ -552,15 +600,13 @@ const AgentNewV4: FC = (): ReactNode => {
             // A credential that needs re-authorising costs exactly what a new
             // sign-in costs, so it gets the same button rather than a "Next"
             // that would drop the user into a broken agent.
-            // While the terminal is open the button must not offer to start a
-            // second sign-in. It carries the way out instead: the CLI cannot
-            // tell us it finished, so this is the user saying so, and it is
-            // deliberately not also a "Next" — pressing it checks the sign-in
-            // and selects the account, and the step is answered after that.
+            // The work is in the terminal, so the bar says so and waits. It
+            // must not offer to start a second sign-in, and it must not offer
+            // a "done" it cannot verify — the page finds out on its own.
             if (signIn !== null)
                 return {
-                    label: t('web.agentNewV4.primary.signedIn'),
-                    fine: t('web.agentNewV4.primary.signedInFine')
+                    label: next,
+                    blockedReason: t('web.agentNewV4.blocked.signIn')
                 }
             if (
                 costPick.kind === 'signin' ||

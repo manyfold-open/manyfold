@@ -1,7 +1,6 @@
 import type { FC, ReactNode } from 'react'
 import type {
     AgentFramework,
-    RuntimeAuthCredentialStatus,
     RuntimeAuthListView,
     UserModelProviderSummary
 } from '@manyfold/shared'
@@ -13,6 +12,7 @@ import {
     ProviderIcon
 } from '@/components/icons'
 import { useI18n } from '@/lib/i18n'
+import { profileNeedsSignIn } from '@/lib/runtimeAuth'
 import {
     OptionGroup,
     OptionRow
@@ -22,11 +22,6 @@ import { canUseSubscription } from '@/pages/AgentNew/v4/frameworkCatalog'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import type { CostChoice } from '@/pages/AgentNew/v4/flowState'
 
-// A credential the host can no longer use without the user going back to the
-// vendor. Both states mean the same thing to whoever is choosing here: picking
-// this account costs a sign-in.
-const needsReauth = (status: RuntimeAuthCredentialStatus): boolean =>
-    status === 'reauth-required' || status === 'missing'
 
 // Step ③ picks a row the same way step ② does, including the row that starts
 // a sign-in rather than answering the question. Keeping one shape for both
@@ -165,7 +160,7 @@ export const StepCost: FC<{
                         key={profile.id}
                         title={profile.identity?.email ?? profile.label}
                         detail={
-                            needsReauth(profile.credentialStatus)
+                            profileNeedsSignIn(profile)
                                 ? t('web.agentNewV4.cost.expired')
                                 : profile.agentCount > 0
                                   ? t('web.agentNewV4.cost.inUseBy', {
@@ -175,7 +170,7 @@ export const StepCost: FC<{
                         }
                         mark={<AccountIcon className='h-5 w-5' />}
                         meta={
-                            needsReauth(profile.credentialStatus)
+                            profileNeedsSignIn(profile)
                                 ? t('web.agentNewV4.cost.aboutAMinute')
                                 : undefined
                         }
@@ -183,7 +178,7 @@ export const StepCost: FC<{
                             kind: 'profile',
                             id: profile.id,
                             label: profile.identity?.email ?? profile.label,
-                            needsReauth: needsReauth(profile.credentialStatus)
+                            needsReauth: profileNeedsSignIn(profile)
                         })}
                         onSelect={() =>
                             onChange({
@@ -191,9 +186,7 @@ export const StepCost: FC<{
                                 id: profile.id,
                                 label:
                                     profile.identity?.email ?? profile.label,
-                                needsReauth: needsReauth(
-                                    profile.credentialStatus
-                                )
+                                needsReauth: profileNeedsSignIn(profile)
                             })
                         }
                     />

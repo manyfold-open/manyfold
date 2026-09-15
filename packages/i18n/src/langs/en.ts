@@ -3599,7 +3599,8 @@ const en = {
                 type: 'Pick one to continue',
                 runtime: 'Pick where it runs to continue',
                 cost: 'Pick who pays to continue',
-                name: 'Give it a name to continue'
+                name: 'Give it a name to continue',
+                signIn: 'Waiting for the sign-in above to finish'
             },
             type: {
                 onMachine: 'On a machine',
@@ -3708,8 +3709,7 @@ const en = {
                 installOn: 'Install {{cli}} on {{machine}}',
                 installFine: 'about 1–2 minutes · sign in once afterwards',
                 signIn: 'Sign in to {{vendor}}',
-                signedIn: 'Done signing in',
-                signedInFine: 'checks it and picks that account',
+
                 createFine: 'a few seconds'
             }
         },
