@@ -364,6 +364,14 @@ const AgentNewV4: FC = (): ReactNode => {
 
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
+        // The terminal is open: the one thing to do from here is say the
+        // sign-in is done, so the primary button does that rather than
+        // sitting disabled while the only way forward hides in the panel's
+        // corner as a secondary "Close terminal".
+        if (signIn !== null) {
+            await finishSignIn()
+            return
+        }
         if (flow.step === 'runtime' && machinePick === 'new:ownComputer') {
             setConnectingDaemon(true)
             return
@@ -418,6 +426,8 @@ const AgentNewV4: FC = (): ReactNode => {
         onMachine,
         machinePick,
         costPick,
+        signIn,
+        finishSignIn,
         startSignIn,
         navigate,
         commitMachine,
@@ -542,13 +552,15 @@ const AgentNewV4: FC = (): ReactNode => {
             // A credential that needs re-authorising costs exactly what a new
             // sign-in costs, so it gets the same button rather than a "Next"
             // that would drop the user into a broken agent.
-            // While the terminal is open the step is waiting on the vendor,
-            // not on the user's answer: the button must not offer to start a
-            // second sign-in, and must say what it is waiting for.
+            // While the terminal is open the button must not offer to start a
+            // second sign-in. It carries the way out instead: the CLI cannot
+            // tell us it finished, so this is the user saying so, and it is
+            // deliberately not also a "Next" — pressing it checks the sign-in
+            // and selects the account, and the step is answered after that.
             if (signIn !== null)
                 return {
-                    label: next,
-                    blockedReason: t('web.agentNewV4.blocked.signIn')
+                    label: t('web.agentNewV4.primary.signedIn'),
+                    fine: t('web.agentNewV4.primary.signedInFine')
                 }
             if (
                 costPick.kind === 'signin' ||

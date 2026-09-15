@@ -3433,8 +3433,7 @@ const zh: Translations = {
                 type: '选一种才能继续',
                 runtime: '选一个运行环境才能继续',
                 cost: '选一种计费方式才能继续',
-                name: '起个名字才能继续',
-                signIn: '在上面完成登录才能继续'
+                name: '起个名字才能继续'
             },
             type: {
                 onMachine: '装在机器上',
@@ -3543,6 +3542,8 @@ const zh: Translations = {
                 installOn: '在 {{machine}} 上装 {{cli}}',
                 installFine: '约 1–2 分钟 · 之后要登录一次',
                 signIn: '登录 {{vendor}} 账号',
+                signedIn: '登录好了',
+                signedInFine: '核对一下并选中这个账号',
                 createFine: '几秒'
             }
         },
