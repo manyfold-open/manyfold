@@ -2073,7 +2073,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.name.label': 'Имя',
     'web.agentNewV4.name.workspaceLabel': 'Рабочая область',
     'web.agentNewV4.name.chosen': 'Что вы выбрали',
-    'web.agentNewV4.name.workspaceHint': 'Оставьте пустым — будет показанный путь. Агент может читать и писать только внутри этого каталога, отдельно от других агентов на этой машине.',
+    'web.agentNewV4.name.workspaceHint': 'Оставьте пустым — будет показанный путь. Агент может читать и писать только внутри.',
     'web.agentNewV4.preparing.newMachine': 'новая машина',
     'web.agentNewV4.preparing.note': 'Создаём {{machine}} и устанавливаем CLI. Можно спокойно уйти: машина и CLI сохранятся, а вот ваше место в этих четырёх шагах — нет. В следующий раз вы начнёте с первого шага и найдёте их в списках.',
     'web.agentNewV4.preparing.signIn': 'Открываем вход на {{machine}}. Спящая машина сначала просыпается, это занимает около минуты.',

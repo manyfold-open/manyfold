@@ -2072,7 +2072,7 @@ const pt: Record<string, string> = {
     'web.agentNewV4.name.label': 'Nome',
     'web.agentNewV4.name.workspaceLabel': 'workspace',
     'web.agentNewV4.name.chosen': 'O que você escolheu',
-    'web.agentNewV4.name.workspaceHint': 'Deixe vazio para o caminho mostrado. O agente só pode ler e escrever dentro deste diretório, separado dos outros agentes desta máquina.',
+    'web.agentNewV4.name.workspaceHint': 'Deixe vazio para o caminho mostrado. O agente só pode ler e escrever dentro dele.',
     'web.agentNewV4.preparing.newMachine': 'uma máquina nova',
     'web.agentNewV4.preparing.note': 'Criando {{machine}} e instalando a CLI. Pode sair agora: a máquina e a CLI ficam guardadas; o que não fica é sua posição nestes quatro passos. Da próxima vez você recomeça do primeiro e encontra as duas esperando nas listas.',
     'web.agentNewV4.preparing.signIn': 'Abrindo o login em {{machine}}. Uma máquina adormecida acorda primeiro, o que leva cerca de um minuto.',

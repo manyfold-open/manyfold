@@ -2063,7 +2063,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.name.label": "이름",
     "web.agentNewV4.name.workspaceLabel": "작업공간",
     "web.agentNewV4.name.chosen": "선택한 내용",
-    "web.agentNewV4.name.workspaceHint": "비워 두면 표시된 경로를 사용합니다. 에이전트는 이 디렉터리 안에서만 읽고 쓸 수 있으며, 이 기기의 다른 에이전트와 분리됩니다.",
+    "web.agentNewV4.name.workspaceHint": "비워 두면 표시된 경로가 됩니다. 에이전트는 그 안에서만 읽고 쓸 수 있습니다.",
     "web.agentNewV4.preparing.newMachine": "새 기기",
     "web.agentNewV4.preparing.note": "{{machine}} 을(를) 마련하고 CLI 도구를 설치하는 중입니다. 지금 나가셔도 됩니다. 기기와 CLI 는 남지만 이 네 단계 중 어디까지 왔는지는 남지 않습니다. 다음에는 첫 단계부터 다시 시작하게 되며 그때 목록에서 찾을 수 있습니다.",
     "web.agentNewV4.preparing.signIn": "{{machine}} 에서 로그인을 여는 중입니다. 잠든 기기는 먼저 깨어나며 1분 정도 걸립니다.",

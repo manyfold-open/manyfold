@@ -2072,7 +2072,7 @@ const de: Record<string, string> = {
     'web.agentNewV4.name.label': 'Name',
     'web.agentNewV4.name.workspaceLabel': 'Arbeitsplatz',
     'web.agentNewV4.name.chosen': 'Was du gewählt hast',
-    'web.agentNewV4.name.workspaceHint': 'Leer lassen für den angezeigten Pfad. Der Agent darf nur in diesem Verzeichnis lesen und schreiben, und es bleibt von den anderen Agents auf dieser Maschine getrennt.',
+    'web.agentNewV4.name.workspaceHint': 'Leer lassen für den angezeigten Pfad. Der Agent darf nur darin lesen und schreiben.',
     'web.agentNewV4.preparing.newMachine': 'eine neue Maschine',
     'web.agentNewV4.preparing.note': '{{machine}} wird gebaut und die CLI installiert. Du kannst jetzt ruhig weggehen — Maschine und CLI bleiben erhalten; nur deine Position in diesen vier Schritten nicht. Beim nächsten Mal beginnst du wieder bei Schritt eins und findest beide in den Listen wieder.',
     'web.agentNewV4.preparing.signIn': 'Die Anmeldung auf {{machine}} wird geöffnet. Eine schlafende Maschine wacht zuerst auf, das dauert etwa eine Minute.',

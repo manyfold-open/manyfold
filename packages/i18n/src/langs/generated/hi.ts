@@ -2070,7 +2070,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.name.label': 'नाम',
     'web.agentNewV4.name.workspaceLabel': 'कार्यस्थान',
     'web.agentNewV4.name.chosen': 'आपने जो चुना',
-    'web.agentNewV4.name.workspaceHint': 'खाली छोड़ें तो दिखाया गया पथ इस्तेमाल होगा। एजेंट सिर्फ़ इसी निर्देशिका में पढ़-लिख सकता है, और यह इस मशीन के बाकी एजेंट से अलग रहती है।',
+    'web.agentNewV4.name.workspaceHint': 'खाली छोड़ें तो दिखाया गया पथ मिलेगा। एजेंट सिर्फ़ इसी में पढ़-लिख सकता है।',
     'web.agentNewV4.preparing.newMachine': 'एक नई मशीन',
     'web.agentNewV4.preparing.note': '{{machine}} तैयार की जा रही है और CLI साधन लगाया जा रहा है। अभी चले जाएँ तो भी ठीक है — मशीन और साधन बने रहेंगे; बस इन चार चरणों में आप कहाँ तक पहुँचे थे, वह नहीं रहेगा। अगली बार पहले चरण से शुरू करेंगे और वे सूची में मिल जाएँगे।',
     'web.agentNewV4.preparing.signIn': '{{machine}} पर साइन-इन खोला जा रहा है। सोई हुई मशीन पहले जागती है, जिसमें लगभग एक मिनट लगता है।',

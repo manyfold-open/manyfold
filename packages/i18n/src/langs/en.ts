@@ -3690,7 +3690,7 @@ const en = {
             name: {
                 label: 'Name',
                 workspaceLabel: 'Workspace',
-                workspaceHint: 'Leave it empty for the path shown. The agent can only read and write inside this directory, and it is kept separate from the other agents on this machine.',
+                workspaceHint: 'Leave it empty for the path shown. The agent can only read and write inside it.',
                 chosen: 'What you picked'
             },
             preparing: {

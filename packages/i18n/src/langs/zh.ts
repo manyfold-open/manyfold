@@ -4038,7 +4038,7 @@ const zh: Translations = {
             nameFixTo: '改成「{{name}}」',
             randomize: '换一个名称',
             workspaceLabel: '工作区',
-            workspaceHint: 'agent 的工作目录，{agent-id} 会自动替换。',
+            workspaceHint: '留空就用上面这个路径。agent 只能读写它。',
             modelLabel: '模型',
             modelProbing: '获取模型中…',
             modelManualHint: '无法获取模型列表，请手动填写。',

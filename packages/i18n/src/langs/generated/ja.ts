@@ -2064,7 +2064,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.name.label': '名前',
     'web.agentNewV4.name.workspaceLabel': 'ワークスペース',
     'web.agentNewV4.name.chosen': '選んだ内容',
-    'web.agentNewV4.name.workspaceHint': '空のままにすると表示されたパスを使います。エージェントはこのディレクトリの中しか読み書きできず、このマシンの他のエージェントとは分けて用意されます。',
+    'web.agentNewV4.name.workspaceHint': '空のままにすると表示されたパスになります。エージェントはこの中しか読み書きできません。',
     'web.agentNewV4.preparing.newMachine': '新しいマシン',
     'web.agentNewV4.preparing.note': '{{machine}} を用意して CLI を導入しています。ここで離れても構いません。マシンと CLI は残りますが、この 4 手順のどこまで進んだかは残りません。次回は最初からやり直すことになり、そのときは一覧に並んでいます。',
     'web.agentNewV4.preparing.signIn': '{{machine}} でログインを開いています。休止中のマシンはまず起動するため、1 分ほどかかります。',

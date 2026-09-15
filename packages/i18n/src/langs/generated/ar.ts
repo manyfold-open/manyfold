@@ -313,7 +313,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.name.label': 'الاسم',
     'web.agentNewV4.name.workspaceLabel': 'مساحة العمل',
     'web.agentNewV4.name.chosen': 'ما اخترته',
-    'web.agentNewV4.name.workspaceHint': 'اتركه فارغاً لاستخدام المسار المعروض. لا يستطيع الوكيل القراءة والكتابة إلا داخل هذا الدليل، وهو منفصل عن بقية الوكلاء على هذا الجهاز.',
+    'web.agentNewV4.name.workspaceHint': 'اتركه فارغاً للمسار المعروض. لا يستطيع الوكيل القراءة والكتابة إلا داخله.',
     'web.agentNewV4.preparing.newMachine': 'جهاز جديد',
     'web.agentNewV4.preparing.note': 'جارٍ تجهيز {{machine}} وتثبيت أداة CLI. يمكنك المغادرة الآن، فالجهاز والأداة يبقيان، أما موضعك في هذه الخطوات الأربع فلا يبقى. في المرة القادمة ستبدأ من الخطوة الأولى وستجدهما في القوائم.',
     'web.agentNewV4.preparing.signIn': 'يجري فتح تسجيل الدخول على {{machine}}. الجهاز النائم يستيقظ أولاً، ويستغرق ذلك دقيقة تقريباً.',
