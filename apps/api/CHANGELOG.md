@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.2
+
+### Patch Changes
+
+- [#383](https://github.com/manyfold-open/manyfold/pull/383) [`fb5412f`](https://github.com/manyfold-open/manyfold/commit/fb5412f572f375cd15e18ee22b1df1320d666c30) Thanks [@yingca1](https://github.com/yingca1)! - Require STARTTLS before SMTP authentication or message delivery when implicit TLS is disabled. Relays without a working TLS upgrade now fail before any password or email is sent. Clarify the TLS modes in Admin settings and preserve significant leading and trailing whitespace in SMTP passwords.
+
 ## 5.1.1
 
 ### Patch Changes
