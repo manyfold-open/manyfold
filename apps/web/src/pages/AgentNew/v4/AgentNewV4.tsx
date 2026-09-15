@@ -506,11 +506,6 @@ const AgentNewV4: FC = (): ReactNode => {
             {flow.step === 'cost' && framework !== null && onMachine && (
                 <StepCost
                     framework={framework}
-                    machineLabel={
-                        flow.runtime?.kind === 'runtime'
-                            ? flow.runtime.hostLabel
-                            : ''
-                    }
                     authList={auth.list}
                     authLoading={auth.loading}
                     providers={create.providers}

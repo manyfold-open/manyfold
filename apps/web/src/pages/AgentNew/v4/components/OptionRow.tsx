@@ -69,25 +69,20 @@ export const OptionRow: FC<OptionRowProps> = ({
 )
 
 // A set of sibling rows under one heading. The heading names a FACT about the
-// set — where these run — never a judgement about what they are good at.
+// set — where these run — never a judgement about what they are good at, and
+// never with a trailing clause: a heading longer than the rows it heads puts
+// the weight on the chrome. Whatever needs explaining goes on the question's
+// info mark, which is why this takes no hint.
 //
 // The list is pulled out by the row's own padding so the row text, the group
 // heading and the step's question all start on the same left edge; indenting
 // the rows instead would make the list read as a nested thing.
 export const OptionGroup: FC<{
     title: string
-    hint?: string
     children: ReactNode
-}> = ({ title, hint, children }): ReactNode => (
+}> = ({ title, children }): ReactNode => (
     <div className='mt-6 first:mt-0'>
-        <span className='workbench-group-label mb-0.5'>
-            {title}
-            {hint !== undefined && (
-                <span className='text-placeholder font-normal'>
-                    {' · ' + hint}
-                </span>
-            )}
-        </span>
+        <span className='workbench-group-label mb-0.5'>{title}</span>
         <div role='radiogroup' aria-label={title} className='-mx-3'>
             {children}
         </div>

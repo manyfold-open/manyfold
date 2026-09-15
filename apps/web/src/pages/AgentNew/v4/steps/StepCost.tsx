@@ -58,15 +58,21 @@ const samePick = (a: CostPick | null, b: CostPick): boolean => {
     return true
 }
 
-// Step ③. The three ways to pay look alike but do not reach alike: a vendor
-// sign-in is written to ONE machine's disk, while a balance or an API key
-// follows the account to every machine. Grouping by scope — and saying the
-// scope on the group heading — is the only way the difference is visible at
-// the moment of choosing. The question itself carries the machine name for
-// the same reason.
+// Step ③. The ways to pay look alike but do not reach alike: a vendor sign-in
+// is written to ONE machine's disk, while a balance or an API key follows the
+// account everywhere. Two headings carry that whole distinction — "On this
+// machine" against "On your account" — and nothing more. The clauses those
+// headings used to trail were longer than the rows beneath them, which put
+// the weight on the chrome instead of the choices; what they explained now
+// lives on the question's info mark, and the scope is still legible from the
+// contrast between the two names.
+//
+// Signing in one more account is not a third scope, so it is the last row of
+// the first group rather than a group of its own. Step ② separates "A new
+// one" because building a machine is a different KIND of act; adding an
+// account to the machine you already picked is not.
 export const StepCost: FC<{
     framework: AgentFramework
-    machineLabel: string
     authList: RuntimeAuthListView | null
     authLoading: boolean
     providers: UserModelProviderSummary[]
@@ -77,7 +83,6 @@ export const StepCost: FC<{
     onBackToType: () => void
 }> = ({
     framework,
-    machineLabel,
     authList,
     authLoading,
     providers,
@@ -96,23 +101,12 @@ export const StepCost: FC<{
     // key" would both double-count the offer and mislabel it.
     const ownKeys = providers.filter((p) => p.source !== 'managed')
     const accountLevel = (
-        <OptionGroup
-            title={
-                subscriptionPossible
-                    ? t('web.agentNewV4.cost.accountLevelAlt')
-                    : t('web.agentNewV4.cost.accountLevel')
-            }
-            hint={t('web.agentNewV4.cost.accountLevelHint')}
-        >
+        <OptionGroup title={t('web.agentNewV4.cost.accountLevel')}>
             <OptionRow
                 title={t('web.agentNewV4.cost.managed')}
                 detail={t('web.agentNewV4.cost.managedDetail')}
                 mark={<BillingIcon className='h-5 w-5' />}
-                meta={
-                    managedAvailable
-                        ? t('web.agentNewV4.cost.readyNow')
-                        : managedUnavailableReason
-                }
+                meta={managedAvailable ? undefined : managedUnavailableReason}
                 selected={samePick(value, { kind: 'platform' })}
                 disabled={!managedAvailable}
                 onSelect={() => onChange({ kind: 'platform' })}
@@ -161,13 +155,7 @@ export const StepCost: FC<{
         )
     return (
         <>
-            <OptionGroup
-                title={t('web.agentNewV4.cost.onThisMachine', {
-                    vendor,
-                    machine: machineLabel
-                })}
-                hint={t('web.agentNewV4.cost.onThisMachineHint')}
-            >
+            <OptionGroup title={t('web.agentNewV4.cost.onThisMachine')}>
                 {profiles.map((profile) => (
                     <OptionRow
                         key={profile.id}
@@ -206,18 +194,28 @@ export const StepCost: FC<{
                         }
                     />
                 ))}
-                {profiles.length === 0 && (
-                    <OptionRow
-                        title={t('web.agentNewV4.cost.signInTo', { vendor })}
-                        detail={t('web.agentNewV4.cost.signInDetail', {
-                            machine: machineLabel
-                        })}
-                        mark={<AccountIcon className='h-5 w-5' />}
-                        meta={t('web.agentNewV4.cost.aboutAMinute')}
-                        selected={samePick(value, { kind: 'signin' })}
-                        onSelect={() => onChange({ kind: 'signin' })}
-                    />
-                )}
+                <OptionRow
+                    title={
+                        profiles.length === 0
+                            ? t('web.agentNewV4.cost.signInTo', { vendor })
+                            : t('web.agentNewV4.cost.signInAnother', { vendor })
+                    }
+                    detail={
+                        profiles.length === 0
+                            ? t('web.agentNewV4.cost.signInDetail', { vendor })
+                            : t('web.agentNewV4.cost.signInAnotherDetail')
+                    }
+                    mark={
+                        profiles.length === 0 ? (
+                            <AccountIcon className='h-5 w-5' />
+                        ) : (
+                            <PlusIcon className='h-5 w-5' />
+                        )
+                    }
+                    meta={t('web.agentNewV4.cost.aboutAMinute')}
+                    selected={samePick(value, { kind: 'signin' })}
+                    onSelect={() => onChange({ kind: 'signin' })}
+                />
                 {authLoading && (
                     <p className='text-body text-muted px-3 py-3'>
                         {t('web.agentNewV4.cost.loadingAccounts')}
@@ -225,30 +223,19 @@ export const StepCost: FC<{
                 )}
             </OptionGroup>
             {accountLevel}
-            {profiles.length > 0 && (
-                <OptionGroup
-                    title={t('web.agentNewV4.cost.oneMore')}
-                    hint={t('web.agentNewV4.cost.oneMoreHint', {
-                        machine: machineLabel
-                    })}
-                >
-                    <OptionRow
-                        title={t('web.agentNewV4.cost.signInAnother', {
-                            vendor
-                        })}
-                        detail={t('web.agentNewV4.cost.signInAnotherDetail')}
-                        mark={<PlusIcon className='h-5 w-5' />}
-                        meta={t('web.agentNewV4.cost.aboutAMinute')}
-                        selected={samePick(value, { kind: 'signin' })}
-                        onSelect={() => onChange({ kind: 'signin' })}
-                    />
-                </OptionGroup>
-            )}
             {/* A sleeping sandbox reports what it last knew rather than being
                 woken to answer this list — waking one starts its billed running
-                time, and nobody asked for that by arriving on this step. */}
+                time, and nobody asked for that by arriving on this step.
+                It is a read-out, not a warning: a filled alert box would make
+                the quietest fact on the screen its heaviest element. */}
             {authList?.availability === 'sandbox-asleep' && (
-                <Note>{t('web.agentNewV4.cost.asleep')}</Note>
+                <p className='text-caption text-subtle mt-4 flex items-start gap-2 px-3'>
+                    <InfoIcon
+                        className='mt-0.5 h-3.5 w-3.5 shrink-0'
+                        aria-hidden='true'
+                    />
+                    <span>{t('web.agentNewV4.cost.asleep')}</span>
+                </p>
             )}
         </>
     )
