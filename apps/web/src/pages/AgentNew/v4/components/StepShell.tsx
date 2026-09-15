@@ -78,7 +78,7 @@ export const StepShell: FC<{
         onNext()
     }
     return (
-        <div className='workbench-page-narrow pb-0' onKeyDown={onKeyDown}>
+        <div className='create-page' onKeyDown={onKeyDown}>
             <h1 className='text-h2 text-fg mb-5 font-medium'>
                 {t('web.agentNewV4.title')}
             </h1>

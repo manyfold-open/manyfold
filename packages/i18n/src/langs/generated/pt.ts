@@ -2026,7 +2026,7 @@ const pt: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': 'Novo ambiente isolado',
     'web.agentNewV4.newMachine.sandboxDetail': 'Criar uma máquina e instalar o {{cli}} nela',
     'web.agentNewV4.newMachine.ownComputer': 'Ligar meu computador',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'Instale o daemon na sua própria máquina; o {{cli}} que você já tem será encontrado',
+    'web.agentNewV4.newMachine.ownComputerDetail': 'Instale o daemon; o {{cli}} que você já tem será encontrado',
     'web.agentNewV4.newMachine.cloudComputer': 'Computador em nuvem',
     'web.agentNewV4.newMachine.cloudComputerDetail': 'Sempre ligado, nunca dorme — para um agente que precisa continuar acessível',
     'web.agentNewV4.newMachine.quota': '{{used}} de {{limit}} em uso',

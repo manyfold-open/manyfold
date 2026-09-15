@@ -2018,7 +2018,7 @@ const ja: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': '新しいサンドボックス',
     'web.agentNewV4.newMachine.sandboxDetail': 'マシンを用意して {{cli}} を導入します',
     'web.agentNewV4.newMachine.ownComputer': '自分の端末をつなぐ',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'ご自身のマシンに常駐プログラムを導入すると、既にある {{cli}} が見つかります',
+    'web.agentNewV4.newMachine.ownComputerDetail': '常駐プログラムを導入すると、既にある {{cli}} が見つかります',
     'web.agentNewV4.newMachine.cloudComputer': 'クラウドコンピューター',
     'web.agentNewV4.newMachine.cloudComputerDetail': '常時稼働で休眠しません。つながり続ける必要があるエージェント向けです',
     'web.agentNewV4.newMachine.quota': '{{limit}} 中 {{used}} 使用',

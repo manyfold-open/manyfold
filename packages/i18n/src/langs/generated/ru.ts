@@ -2027,7 +2027,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': 'Новая песочница',
     'web.agentNewV4.newMachine.sandboxDetail': 'Создать машину и установить на неё {{cli}}',
     'web.agentNewV4.newMachine.ownComputer': 'Подключить мой компьютер',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'Установите службу на свою машину; уже имеющийся у вас {{cli}} будет найден',
+    'web.agentNewV4.newMachine.ownComputerDetail': 'Установите службу; уже имеющийся у вас {{cli}} будет найден',
     'web.agentNewV4.newMachine.cloudComputer': 'Облачный компьютер',
     'web.agentNewV4.newMachine.cloudComputerDetail': 'Всегда включён и никогда не засыпает — для агента, который должен оставаться доступным',
     'web.agentNewV4.newMachine.quota': 'занято {{used}} из {{limit}}',

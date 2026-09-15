@@ -3639,7 +3639,7 @@ const en = {
                 sandbox: 'New sandbox',
                 sandboxDetail: 'Build a machine and install {{cli}} on it',
                 ownComputer: 'Connect my computer',
-                ownComputerDetail: 'Install the daemon on your own machine; the {{cli}} you already have is found',
+                ownComputerDetail: 'Install the daemon; the {{cli}} you already have is found',
                 cloudComputer: 'Cloud computer',
                 cloudComputerDetail: 'Always on, never sleeps — for an agent that has to stay reachable',
                 quota: '{{used}} of {{limit}} used',

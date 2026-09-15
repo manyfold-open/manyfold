@@ -267,7 +267,7 @@ const ar: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': 'بيئة معزولة جديدة',
     'web.agentNewV4.newMachine.sandboxDetail': 'إنشاء جهاز وتثبيت {{cli}} عليه',
     'web.agentNewV4.newMachine.ownComputer': 'ربط حاسوبي',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'ثبّت الخدمة المقيمة على جهازك، وسيُعثر على {{cli}} الموجود لديك',
+    'web.agentNewV4.newMachine.ownComputerDetail': 'ثبّت الخدمة المقيمة، وسيُعثر على {{cli}} الموجود لديك',
     'web.agentNewV4.newMachine.cloudComputer': 'حاسوب سحابي',
     'web.agentNewV4.newMachine.cloudComputerDetail': 'يعمل دائماً ولا ينام، لوكيل يجب أن يبقى متاحاً',
     'web.agentNewV4.newMachine.quota': '{{used}} من {{limit}} مستخدَمة',

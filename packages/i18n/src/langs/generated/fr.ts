@@ -2026,7 +2026,7 @@ const fr: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': 'Nouveau bac à sable',
     'web.agentNewV4.newMachine.sandboxDetail': 'Créer une machine et y installer {{cli}}',
     'web.agentNewV4.newMachine.ownComputer': 'Raccorder mon ordinateur',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'Installez le démon sur votre propre machine ; le {{cli}} que vous avez déjà sera trouvé',
+    'web.agentNewV4.newMachine.ownComputerDetail': 'Installez le démon ; le {{cli}} que vous avez déjà sera trouvé',
     'web.agentNewV4.newMachine.cloudComputer': 'Ordinateur en nuage',
     'web.agentNewV4.newMachine.cloudComputerDetail': 'Toujours allumé, ne dort jamais — pour un agent qui doit rester joignable',
     'web.agentNewV4.newMachine.quota': '{{used}} sur {{limit}} utilisés',

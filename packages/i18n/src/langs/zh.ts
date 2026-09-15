@@ -3473,7 +3473,7 @@ const zh: Translations = {
                 sandbox: '新建沙箱',
                 sandboxDetail: '建一台机器，并在上面装好 {{cli}}',
                 ownComputer: '连接我的电脑',
-                ownComputerDetail: '在你自己的机器上装 daemon；你已装的 {{cli}} 会被发现',
+                ownComputerDetail: '装上 daemon；你已装的 {{cli}} 会被发现',
                 cloudComputer: '云端计算机',
                 cloudComputerDetail: '常驻不休眠，适合要长期在线的 agent',
                 quota: '已用 {{used}} / {{limit}}',

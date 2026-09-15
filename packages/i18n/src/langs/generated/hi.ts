@@ -2024,7 +2024,7 @@ const hi: Record<string, string> = {
     'web.agentNewV4.newMachine.sandbox': 'नया सैंडबॉक्स',
     'web.agentNewV4.newMachine.sandboxDetail': 'एक मशीन बनाइए और उस पर {{cli}} लगाइए',
     'web.agentNewV4.newMachine.ownComputer': 'मेरा कंप्यूटर जोड़िए',
-    'web.agentNewV4.newMachine.ownComputerDetail': 'अपनी मशीन पर सेवा लगाइए; आपके पास पहले से मौजूद {{cli}} मिल जाएगा',
+    'web.agentNewV4.newMachine.ownComputerDetail': 'सेवा लगाइए; आपके पास पहले से मौजूद {{cli}} मिल जाएगा',
     'web.agentNewV4.newMachine.cloudComputer': 'क्लाउड कंप्यूटर',
     'web.agentNewV4.newMachine.cloudComputerDetail': 'हमेशा चालू, कभी सोता नहीं — उस एजेंट के लिए जिसे पहुँच में बने रहना है',
     'web.agentNewV4.newMachine.quota': '{{limit}} में से {{used}} इस्तेमाल',

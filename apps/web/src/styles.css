@@ -790,6 +790,24 @@
         @apply cursor-not-allowed opacity-55;
     }
 
+    /* The four-step flow's measure. Narrower than the workspace pages in
+       DESIGN.md §9.1 because this is not a page of data — it is one question
+       and one column of answers, which is form shape, and at workspace width
+       everything that belongs together drifts apart: the four bar cells hold
+       ~70px of text in a 213px column, and a row's trailing cost note ends up
+       642px from the title it qualifies.
+
+       It stops at 768 rather than going down to the form's own ~640, because
+       the bar underneath it has to stay readable: each cell gives its value
+       `cell − 42px` (the side padding plus the pip's gutter), and at 640 that
+       is 119px, which truncates "Manyfold managed", a signed-in email, and
+       the random agent name we generate ourselves. At 768 it is 143px and all
+       three fit. Padding matches the workspace containers so the action bar's
+       negative margins bleed to the same edge. */
+    .create-page {
+        @apply mx-auto w-full max-w-3xl px-5 pt-7 md:px-6 md:pt-8;
+    }
+
     /* The four-step flow's summary bar (AgentNew v4, wide viewports).
        One rule, along the bottom, and nothing else: the vertical separators a
        four-column strip invites are doing the same job as the numbered pip at
@@ -829,9 +847,9 @@
        say what it will DO, which is why its label changes with the selection
        instead of always reading "Next".
 
-       The page drops its own bottom padding when this is present (`pb-0` on
-       the shell), because a sticky element is held inside its container's
-       padding box and would otherwise float a gap above the viewport edge. */
+       `.create-page` carries no bottom padding at all, because a sticky
+       element is held inside its container's padding box and would otherwise
+       float a gap above the viewport edge. */
     .create-step-actions {
         @apply border-divider/70 bg-main sticky bottom-0 -mx-5 mt-7 flex flex-wrap items-center gap-3 border-t px-5 py-3.5 md:-mx-6 md:px-6;
     }

@@ -2017,7 +2017,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.newMachine.sandbox": "새 샌드박스",
     "web.agentNewV4.newMachine.sandboxDetail": "기기를 만들고 그 위에 {{cli}} 을(를) 설치합니다",
     "web.agentNewV4.newMachine.ownComputer": "내 컴퓨터 연결",
-    "web.agentNewV4.newMachine.ownComputerDetail": "본인 기기에 상주 프로그램을 설치하면 이미 있는 {{cli}} 을(를) 찾아냅니다",
+    "web.agentNewV4.newMachine.ownComputerDetail": "상주 프로그램을 설치하면 이미 있는 {{cli}} 을(를) 찾아냅니다",
     "web.agentNewV4.newMachine.cloudComputer": "클라우드 컴퓨터",
     "web.agentNewV4.newMachine.cloudComputerDetail": "항상 켜져 있고 잠들지 않습니다. 계속 연결되어 있어야 하는 에이전트에 맞습니다",
     "web.agentNewV4.newMachine.quota": "{{limit}} 중 {{used}} 사용",
