@@ -84,6 +84,7 @@ export const smtpTransportOptions = (
     host: string
     port: number
     secure: boolean
+    requireTLS: boolean
     auth?: { user: string; pass: string }
     connectionTimeout: number
     greetingTimeout: number
@@ -91,9 +92,9 @@ export const smtpTransportOptions = (
 } => ({
     host: config.host,
     port: config.port,
-    // secure=true is implicit TLS (typically 465); secure=false starts plain
-    // and upgrades via STARTTLS when the server offers it (typically 587).
+    // Both modes require encryption before authentication or message delivery.
     secure: config.secure,
+    requireTLS: !config.secure,
     ...(config.username
         ? { auth: { user: config.username, pass: config.password ?? '' } }
         : {}),
