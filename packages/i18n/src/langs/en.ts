@@ -3710,7 +3710,10 @@ const en = {
                 installFine: 'about 1–2 minutes · sign in once afterwards',
                 signIn: 'Sign in to {{vendor}}',
 
-                createFine: 'a few seconds'
+                createFine: 'a few seconds',
+                createFineAsleep: 'about a minute · this machine is asleep and wakes up first',
+                creating: 'Creating…',
+                creatingWaking: 'waking the machine first'
             }
         },
         agentNew: {

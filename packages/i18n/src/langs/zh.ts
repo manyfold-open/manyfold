@@ -3544,7 +3544,10 @@ const zh: Translations = {
                 installFine: '约 1–2 分钟 · 之后要登录一次',
                 signIn: '登录 {{vendor}} 账号',
 
-                createFine: '几秒'
+                createFine: '几秒',
+                createFineAsleep: '约一分钟 · 这台机器在休眠，要先唤醒',
+                creating: '正在创建…',
+                creatingWaking: '先把机器唤醒'
             }
         },
         agentNew: {

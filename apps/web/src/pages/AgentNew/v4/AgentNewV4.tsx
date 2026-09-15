@@ -15,6 +15,7 @@ import {
     settleRuntimeAuthOperation
 } from '@/lib/runtimeAuth'
 import { useApiClient } from '@/lib/apiClient'
+import { useAppShellContext } from '@/components/AppShell'
 import { fmtNetmindMoney } from '@/lib/usageFormat'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
@@ -120,6 +121,7 @@ const AgentNewV4: FC = (): ReactNode => {
     const navigate = useNavigate()
     const create = useAgentCreate()
     const managed = useManagedCreditGate()
+    const { refreshAgents } = useAppShellContext()
 
     const [flow, setFlow] = useState<CreateFlowState>(initialFlowState)
     // Which row is highlighted in step ②. Held apart from `flow.runtime`
@@ -176,6 +178,19 @@ const AgentNewV4: FC = (): ReactNode => {
                   }),
         [framework, onMachine, create.runtimeAccess]
     )
+
+    // A cold sandbox wakes before it can take the agent, which is the
+    // difference between "a few seconds" and "about a minute" — the button
+    // should not promise the first when it owes the second.
+    const machineAsleep = useMemo((): boolean => {
+        const sandboxId =
+            machines.find((row) => row.id === machinePick)?.sandboxId ?? null
+        if (sandboxId === null) return false
+        return (
+            create.sandboxes.find((row) => row.id === sandboxId)
+                ?.spriteStatus === 'cold'
+        )
+    }, [machinePick, machines, create.sandboxes])
 
     const runtimeId =
         flow.runtime?.kind === 'runtime' ? flow.runtime.runtimeId : null
@@ -293,8 +308,17 @@ const AgentNewV4: FC = (): ReactNode => {
                         : undefined
             }
         })
-        if (created !== null) navigate('/agents/' + created.id + '/chat')
-    }, [create, flow, navigate, t])
+        if (created === null) return
+        // Seen on staging [2026-09-15]: navigating straight to the new chat
+        // showed "Agent not found — it may have been deleted", because the
+        // sidebar's list is what the chat page resolves the id against and it
+        // had not been refetched yet. The agent then appeared on its own a
+        // moment later, so the first thing the flow said about a successful
+        // creation was that it had failed. v1 and v3 both refresh first; v4
+        // had answered the question a second time and got it wrong.
+        await refreshAgents()
+        navigate('/agents/' + created.id + '/chat')
+    }, [create, flow, navigate, refreshAgents, t])
 
     // Create the profile if this is a new account, then ask the host to start
     // the CLI's own login and keep the operation it hands back. The terminal
@@ -625,6 +649,16 @@ const AgentNewV4: FC = (): ReactNode => {
             return { label: next }
         }
         if (flow.step === 'cost') return { label: next }
+        // Creation is synchronous and can take a minute on a cold machine, so
+        // the wait is reported where the user just pressed (§④: progress on
+        // the button) rather than leaving a greyed control and no words.
+        if (create.busy)
+            return {
+                label: t('web.agentNewV4.primary.creating'),
+                fine: machineAsleep
+                    ? t('web.agentNewV4.primary.creatingWaking')
+                    : undefined
+            }
         return blockedKey !== null
             ? {
                   label: t('web.agentNewV4.createAgent'),
@@ -632,7 +666,9 @@ const AgentNewV4: FC = (): ReactNode => {
               }
             : {
                   label: t('web.agentNewV4.createAgent'),
-                  fine: t('web.agentNewV4.primary.createFine')
+                  fine: machineAsleep
+                      ? t('web.agentNewV4.primary.createFineAsleep')
+                      : t('web.agentNewV4.primary.createFine')
               }
     }, [
         flow,
@@ -645,6 +681,8 @@ const AgentNewV4: FC = (): ReactNode => {
         serviceProviderId,
         remoteRef,
         signIn,
+        create.busy,
+        machineAsleep,
         t
     ])
 
