@@ -2053,6 +2053,8 @@ const hi: Record<string, string> = {
     'web.agentNewV4.cost.backToType': 'लौटकर दूसरा प्रकार चुनिए',
     'web.agentNewV4.cost.externalBilled': 'इस एजेंट का मॉडल आपकी अपनी {{service}} सेवा चलाती है और उसी का खर्च गिनती है, इसमें कोई मशीन नहीं लगती। Manyfold इसमें शामिल नहीं है और खपत भी नहीं देख पाती — मॉडल वहीं बदलिए।',
     'web.agentNewV4.cost.externalShort': 'आपकी अपनी सेवा पर शुल्क',
+    'web.agentNewV4.cost.subscriptionOf': 'आपकी {{vendor}} सदस्यता',
+    'web.agentNewV4.cost.externalSummary': 'आपकी अपनी {{service}} सेवा पर शुल्क',
     'web.agentNewV4.service.connected': 'आपकी जोड़ी हुई {{service}} सेवाएँ',
     'web.agentNewV4.service.connectNewGroup': 'नई सेवा जोड़िए',
     'web.agentNewV4.service.connectNew': '{{service}} सेवा जोड़िए',

@@ -2047,6 +2047,8 @@ const ja: Record<string, string> = {
     'web.agentNewV4.cost.backToType': '戻って別の種類を選ぶ',
     'web.agentNewV4.cost.externalBilled': 'このエージェントのモデルは、ご自身の {{service}} サービスが呼び出して課金します。マシンは関与しません。Manyfold は関与せず使用量も見えないため、モデルの変更はそちらで行ってください。',
     'web.agentNewV4.cost.externalShort': '自分のサービスで課金',
+    'web.agentNewV4.cost.subscriptionOf': 'あなたの {{vendor}} サブスクリプション',
+    'web.agentNewV4.cost.externalSummary': '自分の {{service}} サービスで課金',
     'web.agentNewV4.service.connected': '接続済みの {{service}} サービス',
     'web.agentNewV4.service.connectNewGroup': '新しく接続する',
     'web.agentNewV4.service.connectNew': '{{service}} サービスを接続',

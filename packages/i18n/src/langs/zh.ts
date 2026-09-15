@@ -3503,7 +3503,9 @@ const zh: Translations = {
                 noSubscriptionFor: '{{vendor}} 调模型 API，不走 CLI 登录，所以没有订阅这条路。上面两种都是账户级的，换机器通用。',
                 backToType: '回第一步换一种',
                 externalBilled: '这种 agent 的模型由你自己的 {{service}} 服务调用和计费，和机器无关。Manyfold 不参与，也拿不到它的用量；要改模型请到那边改。',
-                externalShort: '由你自己的服务计费'
+                externalShort: '由你自己的服务计费',
+                subscriptionOf: '你的 {{vendor}} 订阅',
+                externalSummary: '由你自己的 {{service}} 服务计费'
             },
             service: {
                 connected: '你已经接入的 {{service}} 服务',

@@ -2046,6 +2046,8 @@ const ko: Record<string, string> = {
     "web.agentNewV4.cost.backToType": "돌아가서 다른 종류 고르기",
     "web.agentNewV4.cost.externalBilled": "이 에이전트의 모델은 본인의 {{service}} 서비스가 호출하고 청구하며 기기와는 무관합니다. Manyfold 는 관여하지 않고 사용량도 볼 수 없으니 모델은 그쪽에서 바꾸세요.",
     "web.agentNewV4.cost.externalShort": "본인 서비스에서 청구",
+    "web.agentNewV4.cost.subscriptionOf": "내 {{vendor}} 구독",
+    "web.agentNewV4.cost.externalSummary": "본인 {{service}} 서비스에서 청구",
     "web.agentNewV4.service.connected": "연결해 둔 {{service}} 서비스",
     "web.agentNewV4.service.connectNewGroup": "새로 연결하기",
     "web.agentNewV4.service.connectNew": "{{service}} 서비스 연결",

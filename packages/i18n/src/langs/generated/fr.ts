@@ -2055,6 +2055,8 @@ const fr: Record<string, string> = {
     'web.agentNewV4.cost.backToType': 'Revenir et choisir un autre type',
     'web.agentNewV4.cost.externalBilled': 'Le modèle de cet agent est appelé et facturé par votre propre service {{service}}, sans aucune machine. Manyfold n\'y participe pas et n\'en voit pas la consommation : changez le modèle là-bas.',
     'web.agentNewV4.cost.externalShort': 'Facturé sur votre propre service',
+    'web.agentNewV4.cost.subscriptionOf': 'Votre abonnement {{vendor}}',
+    'web.agentNewV4.cost.externalSummary': 'Facturé sur votre propre service {{service}}',
     'web.agentNewV4.service.connected': 'Services {{service}} que vous avez raccordés',
     'web.agentNewV4.service.connectNewGroup': 'En raccorder un nouveau',
     'web.agentNewV4.service.connectNew': 'Raccorder un service {{service}}',

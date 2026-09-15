@@ -296,6 +296,8 @@ const ar: Record<string, string> = {
     'web.agentNewV4.cost.backToType': 'ارجع واختر نوعاً آخر',
     'web.agentNewV4.cost.externalBilled': 'يستدعي نموذج هذا الوكيل ويحتسب تكلفته خدمة {{service}} الخاصة بك، دون أي جهاز. ولا تشارك Manyfold في ذلك ولا ترى الاستهلاك، فغيّر النموذج هناك.',
     'web.agentNewV4.cost.externalShort': 'تُحتسب التكلفة على خدمتك',
+    'web.agentNewV4.cost.subscriptionOf': 'اشتراك {{vendor}} الخاص بك',
+    'web.agentNewV4.cost.externalSummary': 'تُحتسب التكلفة على خدمة {{service}} الخاصة بك',
     'web.agentNewV4.service.connected': 'خدمات {{service}} التي ربطتها',
     'web.agentNewV4.service.connectNewGroup': 'اربط خدمة جديدة',
     'web.agentNewV4.service.connectNew': 'اربط خدمة {{service}}',

@@ -2056,6 +2056,8 @@ const ru: Record<string, string> = {
     'web.agentNewV4.cost.backToType': 'Вернуться и выбрать другой тип',
     'web.agentNewV4.cost.externalBilled': 'Модель этого агента вызывает и оплачивает ваша собственная служба {{service}}, без участия машины. Manyfold в этом не участвует и не видит расход — меняйте модель там.',
     'web.agentNewV4.cost.externalShort': 'Оплата на вашей собственной службе',
+    'web.agentNewV4.cost.subscriptionOf': 'Ваша подписка {{vendor}}',
+    'web.agentNewV4.cost.externalSummary': 'Оплата на вашей собственной службе {{service}}',
     'web.agentNewV4.service.connected': 'Подключённые вами службы {{service}}',
     'web.agentNewV4.service.connectNewGroup': 'Подключить новую',
     'web.agentNewV4.service.connectNew': 'Подключить службу {{service}}',

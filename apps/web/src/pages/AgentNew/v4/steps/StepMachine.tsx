@@ -14,6 +14,7 @@ import type {
     NewMachineOption,
     SignInCost
 } from '@/pages/AgentNew/v4/machineOptions'
+import { MACHINE_KIND_KEY } from '@/pages/AgentNew/v4/summaryLabels'
 
 const SIGN_IN_KEY: Record<SignInCost, string> = {
     none: 'web.agentNewV4.cost.noSignIn',
@@ -21,13 +22,6 @@ const SIGN_IN_KEY: Record<SignInCost, string> = {
     after: 'web.agentNewV4.cost.signInAfter',
     'already-if-signed-in': 'web.agentNewV4.cost.signInOnThatComputer'
 }
-
-const MACHINE_KIND_KEY = {
-    sprites: 'web.agentNewV4.machine.sandbox',
-    daemon: 'web.agentNewV4.machine.ownComputer',
-    k8s: 'web.agentNewV4.machine.cloudComputer',
-    external: 'web.agentNewV4.machine.sandbox'
-} as const
 
 // The second line of a machine row: what is on it, in terms of the framework
 // the user picked in step ①. Naming the CLI is only possible because the type

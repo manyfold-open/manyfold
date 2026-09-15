@@ -3669,7 +3669,9 @@ const en = {
                 noSubscriptionFor: '{{vendor}} calls a model API rather than carrying its own sign-in, so there is no subscription route for it. Both options above follow your account.',
                 backToType: 'Go back and pick another type',
                 externalBilled: 'The model for this agent is called and billed by your own {{service}} service, with no machine involved. Manyfold takes no part in it and cannot see its usage — change the model over there.',
-                externalShort: 'Billed on your own service'
+                externalShort: 'Billed on your own service',
+                subscriptionOf: 'Your {{vendor}} subscription',
+                externalSummary: 'Billed by your own {{service}} service'
             },
             service: {
                 connected: '{{service}} services you have connected',

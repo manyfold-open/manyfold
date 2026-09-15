@@ -16,6 +16,12 @@ import {
 } from '../src/pages/AgentNew/v4/flowState'
 import type { RuntimeChoice } from '../src/pages/AgentNew/v4/flowState'
 import {
+    costFull,
+    costShort,
+    runtimeFull,
+    runtimeShort
+} from '../src/pages/AgentNew/v4/summaryLabels'
+import {
     FRAMEWORK_GROUPS,
     canUseSubscription,
     runsOnOurMachine
@@ -274,4 +280,87 @@ test('the one framework that cannot use a daemon says so on that row', () => {
         claude.find((o) => o.kind === 'ownComputer')?.disabled,
         false
     )
+})
+
+// The step bar and step ④'s confirmation list both summarise the same run.
+// They are allowed to coexist only because they say it at different
+// precisions — the bar names the thing, the list says what the thing means.
+// Print the same string in both and the second one reads as a bug.
+const tt = (
+    key: string,
+    params?: Record<string, string | number>
+): string =>
+    params === undefined
+        ? key
+        : `${key}(${Object.values(params).join(',')})`
+
+test('the bar names the machine, the confirmation list says what kind it is', () => {
+    const sandbox: RuntimeChoice = {
+        kind: 'runtime',
+        runtimeId: 'r1',
+        hostKind: 'sprites',
+        hostLabel: 'sandbox-002',
+        ownComputer: false
+    }
+    assert.equal(runtimeShort(sandbox), 'sandbox-002')
+    assert.equal(
+        runtimeFull(sandbox, tt),
+        'sandbox-002 · web.agentNewV4.machine.sandbox'
+    )
+})
+
+test('a connected service is named by endpoint, then by which app on it', () => {
+    const dify: RuntimeChoice = {
+        kind: 'external',
+        providerId: 'p1',
+        providerLabel: 'dify.mycorp.com',
+        remoteRef: 'app-1',
+        remoteLabel: 'Support assistant'
+    }
+    assert.equal(runtimeShort(dify), 'dify.mycorp.com')
+    assert.equal(
+        runtimeFull(dify, tt),
+        'dify.mycorp.com · Support assistant'
+    )
+})
+
+test('the bar identifies the account; the list says what paying with it means', () => {
+    const account = {
+        kind: 'runtime-local' as const,
+        profileId: 'a1',
+        label: 'jiaming@netmind.ai'
+    }
+    // Several accounts can be signed in on one machine, so the glanceable
+    // line has to be the one that distinguishes them.
+    assert.equal(costShort(account, tt), 'jiaming@netmind.ai')
+    assert.equal(
+        costFull(account, 'Claude', 'Dify', tt),
+        'jiaming@netmind.ai · web.agentNewV4.cost.subscriptionOf(Claude)'
+    )
+})
+
+test('no step summarises itself the same way twice', () => {
+    const cases: { short: string; full: string }[] = [
+        {
+            short: costShort({ kind: 'platform' }, tt),
+            full: costFull({ kind: 'platform' }, 'Claude', 'Dify', tt)
+        },
+        {
+            short: costShort(
+                { kind: 'provider', providerId: 'p', label: 'NetMind API' },
+                tt
+            ),
+            full: costFull(
+                { kind: 'provider', providerId: 'p', label: 'NetMind API' },
+                'Claude',
+                'Dify',
+                tt
+            )
+        },
+        {
+            short: costShort({ kind: 'external' }, tt),
+            full: costFull({ kind: 'external' }, 'Claude', 'Dify', tt)
+        }
+    ]
+    for (const c of cases) assert.notEqual(c.short, c.full)
 })

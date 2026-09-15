@@ -21,12 +21,17 @@ import {
     withRuntime
 } from '@/pages/AgentNew/v4/flowState'
 import type {
-    CostChoice,
     CreateFlowState,
     CreateStepId,
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
 import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
+import {
+    costFull,
+    costShort,
+    runtimeFull,
+    runtimeShort
+} from '@/pages/AgentNew/v4/summaryLabels'
 import { vendorLabel } from '@/pages/AgentNew/v4/vendorLabel'
 import {
     buildMachineOptions,
@@ -318,11 +323,8 @@ const AgentNewV4: FC = (): ReactNode => {
     const stepValues = useMemo((): StepValues => {
         const out: StepValues = {}
         if (flow.framework !== null) out.type = frameworkLabel(flow.framework)
-        if (flow.runtime?.kind === 'runtime')
-            out.runtime = flow.runtime.hostLabel
-        else if (flow.runtime?.kind === 'external')
-            out.runtime = flow.runtime.providerLabel
-        if (flow.cost !== null) out.cost = costLabel(flow.cost, t)
+        if (flow.runtime !== null) out.runtime = runtimeShort(flow.runtime)
+        if (flow.cost !== null) out.cost = costShort(flow.cost, t)
         if (flow.name.trim() !== '') out.name = flow.name.trim()
         return out
     }, [flow.framework, flow.runtime, flow.cost, flow.name, t])
@@ -545,12 +547,13 @@ const AgentNewV4: FC = (): ReactNode => {
                     typeLabel={
                         framework !== null ? frameworkLabel(framework) : ''
                     }
-                    whereLabel={
-                        flow.runtime?.kind === 'runtime'
-                            ? flow.runtime.hostLabel
-                            : (flow.runtime?.providerLabel ?? '')
-                    }
-                    costLabel={costLabel(flow.cost, t)}
+                    whereLabel={runtimeFull(flow.runtime, t)}
+                    costLabel={costFull(
+                        flow.cost,
+                        framework !== null ? vendorLabel(framework) : '',
+                        framework !== null ? frameworkLabel(framework) : '',
+                        t
+                    )}
                     name={flow.name}
                     onChangeName={(value: string) =>
                         setFlow((prev) => ({ ...prev, name: value }))
@@ -571,17 +574,6 @@ const AgentNewV4: FC = (): ReactNode => {
             )}
         </StepShell>
     )
-}
-
-const costLabel = (
-    cost: CostChoice | null,
-    t: (key: string) => string
-): string => {
-    if (cost === null) return ''
-    if (cost.kind === 'runtime-local') return cost.label
-    if (cost.kind === 'provider') return cost.label
-    if (cost.kind === 'platform') return t('web.agentNewV4.cost.managed')
-    return t('web.agentNewV4.cost.externalShort')
 }
 
 export default AgentNewV4
