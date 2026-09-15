@@ -74,3 +74,36 @@ export const costFull = (
         return `${t('web.agentNewV4.cost.managed')} · ${t('web.agentNewV4.cost.managedDetail')}`
     return t('web.agentNewV4.cost.externalSummary', { service })
 }
+
+// What the primary button says while a create is in flight.
+//
+// The request carries no progress of its own — one POST, and the server says
+// nothing until it answers — so the only honest signals are that it is running
+// and how long it has been. A progress bar here would be invented, and an
+// invented one is worst exactly when it matters: it keeps moving while the
+// thing is stuck.
+//
+// The cost line does not move. It says what this wait will cost BEFORE the
+// press, stays put while the request runs, and is only REPLACED when the wait
+// overruns — so nothing appears or disappears mid-wait, the one moving thing
+// is the count inside the button, and the one text change is itself the news.
+export const creatingPrimary = (
+    elapsedSeconds: number,
+    budgetSeconds: number,
+    cost: string,
+    t: TFn
+): { label: string; fine: string } => {
+    const creating = t('web.agentNewV4.primary.creating')
+    return {
+        // Below two seconds the count is noise: it would read "· 0s" and then
+        // "· 1s" on a create that is already finishing.
+        label:
+            elapsedSeconds < 2
+                ? creating
+                : `${creating} · ${elapsedSeconds}s`,
+        fine:
+            elapsedSeconds > budgetSeconds
+                ? t('web.agentNewV4.primary.tookLonger')
+                : cost
+    }
+}

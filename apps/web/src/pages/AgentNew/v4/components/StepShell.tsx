@@ -128,7 +128,11 @@ export const StepShell: FC<{
                 )}
                 <button
                     type='button'
-                    className='workbench-button-primary'
+                    className={
+                        busy
+                            ? 'workbench-button-primary create-button-busy tabular-nums'
+                            : 'workbench-button-primary'
+                    }
                     onClick={onNext}
                     disabled={busy || blocked}
                 >

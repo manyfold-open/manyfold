@@ -18,6 +18,7 @@ import type { RuntimeChoice } from '../src/pages/AgentNew/v4/flowState'
 import {
     costFull,
     costShort,
+    creatingPrimary,
     runtimeFull,
     runtimeShort
 } from '../src/pages/AgentNew/v4/summaryLabels'
@@ -398,4 +399,33 @@ test('a working directory the API would reject blocks the button first', () => {
         advanceBlockedKey({ ...named, workspace: 'code/my-project' }),
         'web.agentNewV4.blocked.workspace'
     )
+})
+
+// The wait after "Create agent". One POST, no server events — so the button
+// reports the two things that are actually known, and the cost line beside it
+// is replaced rather than joined by a second block of text.
+test('the count appears only once it is worth reading', () => {
+    const cost = 'about a minute'
+    assert.equal(creatingPrimary(0, 75, cost, tt).label, 'web.agentNewV4.primary.creating')
+    assert.equal(creatingPrimary(1, 75, cost, tt).label, 'web.agentNewV4.primary.creating')
+    assert.equal(
+        creatingPrimary(2, 75, cost, tt).label,
+        'web.agentNewV4.primary.creating · 2s'
+    )
+    assert.equal(
+        creatingPrimary(23, 75, cost, tt).label,
+        'web.agentNewV4.primary.creating · 23s'
+    )
+})
+
+test('overrunning replaces the cost line rather than adding a second one', () => {
+    const cost = 'about a minute · this machine has to wake up first'
+    // Inside the budget the line the user read before pressing stays exactly
+    // as it was — no appearing text, no layout shift, and the seconds in the
+    // button keep their yardstick.
+    assert.equal(creatingPrimary(23, 75, cost, tt).fine, cost)
+    assert.equal(creatingPrimary(75, 75, cost, tt).fine, cost)
+    // Past it, the same slot says something different. Because that line had
+    // been constant, changing it is the signal.
+    assert.equal(creatingPrimary(76, 75, cost, tt).fine, 'web.agentNewV4.primary.tookLonger')
 })

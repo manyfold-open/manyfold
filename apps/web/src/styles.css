@@ -844,6 +844,18 @@
         @apply underline underline-offset-4;
     }
 
+    /* Busy is not disabled. `workbench-button-primary` dims a disabled button
+       to `opacity-50`, which is right for "you have not met the condition
+       yet" and wrong for "this is working": while a create is in flight the
+       elapsed count inside this button is the only evidence the page is still
+       alive, and rendering that evidence in the dimmest style available is
+       the same dead-control shape this flow keeps having to fix. The button
+       stays unclickable — it is still `disabled` — it just does not pretend
+       to be switched off. */
+    .create-button-busy:disabled {
+        @apply cursor-progress opacity-100;
+    }
+
     /* The four-step flow's action bar. It sticks to the bottom of the page's
        scrollport so it never scrolls out from under a nine-row list — the
        button was previously below the fold on the taller steps, which is what

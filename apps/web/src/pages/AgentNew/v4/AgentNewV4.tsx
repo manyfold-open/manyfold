@@ -48,6 +48,7 @@ import {
 import {
     costFull,
     costShort,
+    creatingPrimary,
     runtimeFull,
     runtimeShort
 } from '@/pages/AgentNew/v4/summaryLabels'
@@ -149,6 +150,11 @@ const AgentNewV4: FC = (): ReactNode => {
         profileId: string
     } | null>(null)
     const [busySignIn, setBusySignIn] = useState(false)
+    // Seconds since the create was pressed. The request carries no progress
+    // of its own — it is one POST, and the server sends nothing until it
+    // answers — so a moving number is the only honest evidence the page is
+    // still alive. Everything else would be a progress bar we invented.
+    const [creatingFor, setCreatingFor] = useState(0)
     // Connecting the user's own computer, in place. v3 already did this with
     // `ConnectDaemonDialog`; v4 had regressed to sending them to settings.
     const [connectingDaemon, setConnectingDaemon] = useState(false)
@@ -460,6 +466,19 @@ const AgentNewV4: FC = (): ReactNode => {
         }
     }, [reloadAuth, signIn])
 
+    useEffect(() => {
+        if (!create.busy) {
+            setCreatingFor(0)
+            return
+        }
+        const started = Date.now()
+        const timer = setInterval(
+            () => setCreatingFor(Math.floor((Date.now() - started) / 1000)),
+            1000
+        )
+        return () => clearInterval(timer)
+    }, [create.busy])
+
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
         // The terminal is open: the one thing to do from here is say the
@@ -675,27 +694,30 @@ const AgentNewV4: FC = (): ReactNode => {
             return { label: next }
         }
         if (flow.step === 'cost') return { label: next }
-        // Creation is synchronous and can take a minute on a cold machine, so
-        // the wait is reported where the user just pressed (§④: progress on
-        // the button) rather than leaving a greyed control and no words.
+        // What this wait costs, stated before it is paid. The same line stays
+        // put while the request runs and is only REPLACED when the wait
+        // overruns — so nothing appears or disappears during the wait, the one
+        // moving thing is the count inside the button, and the one text change
+        // is itself the signal that something is off.
+        const cost = machineAsleep
+            ? t('web.agentNewV4.primary.createFineAsleep')
+            : t('web.agentNewV4.primary.createFine')
+        // The button does not claim to know WHICH phase it is in — the server
+        // tells us nothing until it answers, and on a cold machine most of
+        // this is the wake, which the cost line beside it already explains.
         if (create.busy)
-            return {
-                label: t('web.agentNewV4.primary.creating'),
-                fine: machineAsleep
-                    ? t('web.agentNewV4.primary.creatingWaking')
-                    : undefined
-            }
+            return creatingPrimary(
+                creatingFor,
+                machineAsleep ? 75 : 15,
+                cost,
+                t
+            )
         return blockedKey !== null
             ? {
                   label: t('web.agentNewV4.createAgent'),
                   blockedReason: t(blockedKey)
               }
-            : {
-                  label: t('web.agentNewV4.createAgent'),
-                  fine: machineAsleep
-                      ? t('web.agentNewV4.primary.createFineAsleep')
-                      : t('web.agentNewV4.primary.createFine')
-              }
+            : { label: t('web.agentNewV4.createAgent'), fine: cost }
     }, [
         flow,
         framework,
@@ -708,6 +730,7 @@ const AgentNewV4: FC = (): ReactNode => {
         remoteRef,
         signIn,
         create.busy,
+        creatingFor,
         machineAsleep,
         t
     ])

@@ -3712,9 +3712,9 @@ const en = {
                 signIn: 'Sign in to {{vendor}}',
 
                 createFine: 'a few seconds',
-                createFineAsleep: 'about a minute · this machine is asleep and wakes up first',
+                createFineAsleep: 'about a minute · this machine has to wake up first',
                 creating: 'Creating…',
-                creatingWaking: 'waking the machine first'
+                tookLonger: 'longer than usual · a failure leaves nothing half-made'
             }
         },
         agentNew: {
