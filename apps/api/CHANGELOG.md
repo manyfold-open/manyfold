@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 5.1.1
+
+### Patch Changes
+
+- [#375](https://github.com/manyfold-open/manyfold/pull/375) [`ed12eb7`](https://github.com/manyfold-open/manyfold/commit/ed12eb7babcd48713fd3ff796f8c2f2cabab4ec8) Thanks [@yingca1](https://github.com/yingca1)! - Keep daemon chat turns suspended across repeated disconnects instead of marking an unfinished response complete when a replayed output identity deduplicates its suspension event.
+
+- [#377](https://github.com/manyfold-open/manyfold/pull/377) [`dff686e`](https://github.com/manyfold-open/manyfold/commit/dff686e9d8821b9bc68e4cc1c69576209450e9ad) Thanks [@yingca1](https://github.com/yingca1)! - Preserve Gemini's structured provider error when the CLI exits unsuccessfully, even if startup warnings fill the stderr preview. Redact and bound error summaries before attaching the stderr head and stack tail.
+
+- [#378](https://github.com/manyfold-open/manyfold/pull/378) [`bf609bd`](https://github.com/manyfold-open/manyfold/commit/bf609bdfb96db89776f45f5c5df9dde8220fd50c) Thanks [@yingca1](https://github.com/yingca1)! - Skip automatic runtime history sync while a Sprite's exec endpoint is marked unavailable. Opening Chat no longer starts history-file commands against that endpoint; sync resumes after the turn's recovery probe clears the marker.
+
+- [#376](https://github.com/manyfold-open/manyfold/pull/376) [`42f6c8e`](https://github.com/manyfold-open/manyfold/commit/42f6c8e4248908a126295253a006a4230b0c52b4) Thanks [@yingca1](https://github.com/yingca1)! - Avoid rewriting unchanged daemon metadata when PostgreSQL JSONB returns object keys in a different order. Heartbeats still update presence, and changed framework values or array order continue to update metadata.
+
 ## 5.1.0
 
 ### Minor Changes
