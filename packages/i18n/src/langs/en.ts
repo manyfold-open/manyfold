@@ -3600,6 +3600,7 @@ const en = {
                 runtime: 'Pick where it runs to continue',
                 cost: 'Pick who pays to continue',
                 name: 'Give it a name to continue',
+                workspace: 'The working directory has to be an absolute path',
                 signIn: 'Waiting for the sign-in above to finish'
             },
             type: {
@@ -3689,8 +3690,11 @@ const en = {
             name: {
                 label: 'Name',
                 workspaceLabel: 'Working directory',
-                workspaceHint: 'A real path on your computer; the agent can only read and write inside it. Leave it empty for its own directory under ~/.manyfold/workspaces/.',
-                workspaceManaged: 'The working directory is allocated for you and kept separate from the other agents on this machine.'
+                workspacePlaceholder: '/path/to/your/project',
+                workspacePlaceholderManaged: 'Allocated for you',
+                workspaceHint: 'An absolute path on your computer; the agent can only read and write inside it. Leave it empty for its own directory under ~/.manyfold/workspaces/.',
+                workspaceManaged: 'Leave it empty and one is allocated for you, kept separate from the other agents on this machine.',
+                chosen: 'What you picked'
             },
             preparing: {
                 newMachine: 'a new machine',

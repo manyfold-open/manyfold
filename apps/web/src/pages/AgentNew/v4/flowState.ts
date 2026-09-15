@@ -1,4 +1,5 @@
 import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
+import { workspaceValidationMessage } from '@/lib/agentCreateDraft'
 
 export const CREATE_STEP_ORDER = ['type', 'runtime', 'cost', 'name'] as const
 
@@ -87,7 +88,13 @@ export const advanceBlockedKey = (state: CreateFlowState): string | null => {
             : null
     if (state.step === 'cost')
         return state.cost === null ? 'web.agentNewV4.blocked.cost' : null
-    return state.name.trim() === '' ? 'web.agentNewV4.blocked.name' : null
+    if (state.name.trim() === '') return 'web.agentNewV4.blocked.name'
+    // Absolute or empty. The API rejects anything else, and this is the last
+    // step, so without the check the rejection lands after the agent already
+    // has a name — a format error reported as a failed creation.
+    return workspaceValidationMessage(state.workspace) === null
+        ? null
+        : 'web.agentNewV4.blocked.workspace'
 }
 
 // Changing the type invalidates everything downstream, because step ② asks a

@@ -99,6 +99,14 @@ export const FRAMEWORK_GROUPS: FrameworkGroup[] = [
 export const runsOnOurMachine = (framework: AgentFramework): boolean =>
     frameworkCapability(framework).kind !== 'external'
 
+// Hermes is the one framework with no working directory to point at: it is a
+// calendar-and-mail assistant, not something that opens a project. v1 has
+// excluded it from the workspace field since the beginning and there is no
+// capability flag for it, so the exception is named here rather than left as a
+// bare literal wherever the field is drawn.
+export const hasWorkspace = (framework: AgentFramework): boolean =>
+    framework !== 'hermes'
+
 // Only a CLI that carries its own vendor sign-in can run on the user's
 // subscription. Step ③ says so in as many words rather than greying rows out.
 export const canUseSubscription = (framework: AgentFramework): boolean =>

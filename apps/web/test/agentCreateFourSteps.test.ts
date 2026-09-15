@@ -24,6 +24,7 @@ import {
 import {
     FRAMEWORK_GROUPS,
     canUseSubscription,
+    hasWorkspace,
     runsOnOurMachine
 } from '../src/pages/AgentNew/v4/frameworkCatalog'
 import {
@@ -363,4 +364,38 @@ test('no step summarises itself the same way twice', () => {
         }
     ]
     for (const c of cases) assert.notEqual(c.short, c.full)
+})
+
+// Step ④ asks for two things and recaps three. The two it asks for come
+// first: putting the recap of settled decisions between the question and the
+// first input made the reader cross what they had already decided to reach
+// what they had not — and left the last look at the choices as far from the
+// Create button as the page allows.
+test('the working directory is offered on every framework that has one', () => {
+    assert.equal(hasWorkspace('claude-code'), true)
+    assert.equal(hasWorkspace('codex'), true)
+    // A sandbox takes a path too — leaving it empty is what asks the platform
+    // to allocate one, which is not the same as having no field.
+    assert.equal(hasWorkspace('openclaw'), true)
+    // Hermes is calendar and mail; there is no project to point at.
+    assert.equal(hasWorkspace('hermes'), false)
+})
+
+test('a working directory the API would reject blocks the button first', () => {
+    const named = {
+        ...initialFlowState(),
+        step: 'name' as const,
+        name: 'alert-firefly-5493'
+    }
+    assert.equal(advanceBlockedKey(named), null)
+    assert.equal(
+        advanceBlockedKey({ ...named, workspace: '  ' }),
+        null,
+        'empty asks for an allocated one, which is allowed'
+    )
+    assert.equal(advanceBlockedKey({ ...named, workspace: '/srv/work' }), null)
+    assert.equal(
+        advanceBlockedKey({ ...named, workspace: 'code/my-project' }),
+        'web.agentNewV4.blocked.workspace'
+    )
 })

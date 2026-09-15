@@ -8,6 +8,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
+import { optionalWorkspace } from '@/lib/agentCreateDraft'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { lazyChunk } from '@/lib/lazyChunk'
 import {
@@ -39,7 +40,10 @@ import type {
     RuntimeChoice
 } from '@/pages/AgentNew/v4/flowState'
 import { EXIT_RENT_CLOUD_COMPUTER } from '@/pages/AgentNew/v4/exits'
-import { runsOnOurMachine } from '@/pages/AgentNew/v4/frameworkCatalog'
+import {
+    hasWorkspace,
+    runsOnOurMachine
+} from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
     costFull,
     costShort,
@@ -291,10 +295,11 @@ const AgentNewV4: FC = (): ReactNode => {
             runtimeId: flow.runtime.runtimeId,
             body: {
                 name: flow.name.trim(),
-                workspace:
-                    flow.runtime.ownComputer && flow.workspace.trim() !== ''
-                        ? flow.workspace.trim()
-                        : undefined,
+                // Not own-computer only: a sandbox takes a path too, and
+                // leaving it empty is what asks the platform to allocate one.
+                workspace: hasWorkspace(flow.framework)
+                    ? optionalWorkspace(flow.workspace)
+                    : undefined,
                 modelConfigSource:
                     flow.cost?.kind === 'runtime-local'
                         ? 'runtime-local'
@@ -814,11 +819,10 @@ const AgentNewV4: FC = (): ReactNode => {
             {flow.step === 'cost' && framework !== null && !onMachine && (
                 <StepCostExternal framework={framework} />
             )}
-            {flow.step === 'name' && (
+            {flow.step === 'name' && framework !== null && (
                 <StepName
-                    typeLabel={
-                        framework !== null ? frameworkLabel(framework) : ''
-                    }
+                    framework={framework}
+                    typeLabel={frameworkLabel(framework)}
                     whereLabel={runtimeFull(flow.runtime, t)}
                     costLabel={costFull(
                         flow.cost,
