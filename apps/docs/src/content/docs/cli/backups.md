@@ -26,6 +26,8 @@ When upgrading from a version without workspace operation locking, pause new
 backup and restore requests, let existing operations finish, and update all API
 instances before resuming these requests. Old and new API versions must not
 accept backup jobs concurrently during this first upgrade.
+The migration refuses to proceed while an older running job has no operation
+owner. Once migrated, the database rejects new unowned jobs from old API versions.
 
 ## Restore an agent
 

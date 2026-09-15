@@ -38,6 +38,57 @@ const exec = promisify(execFile)
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 test(
+    'the rollout constraint waits for legacy work and rejects old-code admission',
+    { skip: !RUN },
+    async () => {
+        const db = createDb(process.env.DATABASE_URL!)
+        const migration = await readFile(
+            join(__dirname, '../drizzle/0018_require_owned_backup_jobs.sql'),
+            'utf8'
+        )
+        try {
+            await db.$client.begin(async (tx) => {
+                await tx.unsafe(
+                    'create temporary table agent_backups (like public.agent_backups including defaults) on commit drop'
+                )
+                await tx.unsafe(
+                    'create temporary table agent_backup_restores (like public.agent_backup_restores including defaults) on commit drop'
+                )
+                await tx.unsafe(
+                    "insert into agent_backups (id, user_id, source_agent_name, framework, runtime_kind, object_key) values ('legacy', 'test', 'test', 'codex', 'daemon', 'legacy')"
+                )
+                await assert.rejects(
+                    tx.savepoint((sp) => sp.unsafe(migration)),
+                    (error) => (error as { code?: string }).code === '23514'
+                )
+                await tx.unsafe(
+                    "update agent_backups set status = 'succeeded' where id = 'legacy'"
+                )
+                await tx.unsafe(migration)
+                await assert.rejects(
+                    tx.savepoint((sp) =>
+                        sp.unsafe(
+                            "insert into agent_backups (id, user_id, source_agent_name, framework, runtime_kind, object_key) values ('old-api', 'test', 'test', 'codex', 'daemon', 'old-api')"
+                        )
+                    ),
+                    (error) => (error as { code?: string }).code === '23514'
+                )
+                await assert.rejects(
+                    tx.savepoint((sp) =>
+                        sp.unsafe(
+                            "insert into agent_backup_restores (id, user_id, backup_id) values ('old-restore', 'test', 'legacy')"
+                        )
+                    ),
+                    (error) => (error as { code?: string }).code === '23514'
+                )
+            })
+        } finally {
+            await db.$client.end()
+        }
+    }
+)
+
+test(
     'backup admission, peer startup, expiry recovery and restore preserve workspace state',
     { skip: !RUN },
     async () => {

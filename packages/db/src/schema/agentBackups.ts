@@ -1,5 +1,6 @@
 import {
     bigint,
+    check,
     index,
     integer,
     pgTable,
@@ -69,6 +70,10 @@ export const agentBackups = pgTable(
             .defaultNow()
     },
     (table) => ({
+        runningOwned: check(
+            'agent_backups_running_owned',
+            sql`${table.status} <> 'running' or ${table.operationKey} is not null`
+        ),
         userCreatedIdx: index('agent_backups_user_created_idx').on(
             table.userId,
             table.createdAt
@@ -123,6 +128,10 @@ export const agentBackupRestores = pgTable(
             .defaultNow()
     },
     (table) => ({
+        runningOwned: check(
+            'agent_backup_restores_running_owned',
+            sql`${table.status} <> 'running' or ${table.operationKey} is not null`
+        ),
         userCreatedIdx: index('agent_backup_restores_user_created_idx').on(
             table.userId,
             table.createdAt
