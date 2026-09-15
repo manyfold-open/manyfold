@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.3
+
+### Patch Changes
+
+- [#387](https://github.com/manyfold-open/manyfold/pull/387) [`f65315a`](https://github.com/manyfold-open/manyfold/commit/f65315ab77838f0efb5289b91c424900ed805344) Thanks [@yingca1](https://github.com/yingca1)! - Reject overlapping backup and restore operations on the same workspace across API replicas. Keep operation ownership through archive transfer and cleanup, preserve active jobs when another API starts, and recover interrupted operations before allowing a retry. Remote archive and restore commands record cancellation state so a delayed command cannot overwrite a newer operation.
+
 ## 5.1.2
 
 ### Patch Changes
