@@ -4872,14 +4872,18 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             payload: Record<string, unknown>,
             terminalContent?: TerminalStreamContent
         ): Promise<{ persisted: boolean }> => {
+            // A fresh transport loss is not a replay of the last content line.
+            // Reusing that line's identity can drop the next suspension.
+            const sourceEventKey =
+                type === 'suspended' ? null : currentSourceEventKey
             const sourceEventOrdinal =
-                currentSourceEventKey !== null
+                sourceEventKey !== null
                     ? currentSourceEventOrdinal++
                     : null
             const replayed =
-                currentSourceEventKey !== null && sourceEventOrdinal !== null
+                sourceEventKey !== null && sourceEventOrdinal !== null
                     ? replayedContent
-                          ?.get(currentSourceEventKey)
+                          ?.get(sourceEventKey)
                           ?.get(sourceEventOrdinal)
                     : undefined
             if (replayed) {
@@ -4900,7 +4904,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 {
                     type,
                     payload,
-                    sourceEventKey: currentSourceEventKey,
+                    sourceEventKey,
                     sourceEventOrdinal,
                     runnerSeq: emittedThroughSeq
                 },
@@ -5026,14 +5030,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         continue
                     }
                     if (event.type === 'suspended') {
-                        const accepted = (
-                            await emitEvent('suspended', {
-                                daemonId: event.daemonId,
-                                daemonExecRef: event.daemonExecRef,
-                                reason: event.reason
-                            })
-                        ).persisted
-                        if (!accepted) break
+                        await emitEvent('suspended', {
+                            daemonId: event.daemonId,
+                            daemonExecRef: event.daemonExecRef,
+                            reason: event.reason
+                        })
                         suspended = true
                         break
                     }
@@ -5816,9 +5817,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         ): EmittedStreamEvent => ({
             type,
             payload,
-            sourceEventKey: currentSourceEventKey,
+            sourceEventKey:
+                type === 'suspended' ? null : currentSourceEventKey,
             sourceEventOrdinal:
-                currentSourceEventKey !== null
+                type !== 'suspended' && currentSourceEventKey !== null
                     ? currentSourceEventOrdinal++
                     : null,
             runnerSeq: emittedThroughSeq
@@ -5974,9 +5976,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             reason: event.reason
                         })
                     ).persisted
+                    suspended = true
                     if (!accepted) break
                     notifyObserver(observer, event)
-                    suspended = true
                     this.logger.log(
                         `chat suspended messageId=${assistantMessageId} daemonId=${event.daemonId}`
                     )

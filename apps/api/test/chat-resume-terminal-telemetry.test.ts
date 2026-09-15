@@ -89,6 +89,7 @@ const makeHarness = (
     managedProbe = false,
     opts: {
         agent?: typeof agentRow
+        rejectSuspended?: boolean
         streamEvents?: Array<{
             eventType: string
             payloadJson: unknown
@@ -199,7 +200,12 @@ const makeHarness = (
             payload: event.payload,
             ...(terminalContent ? { terminalContent } : {})
         })
-        return { persisted: persistedState.value, fenceLost: false }
+        return {
+            persisted:
+                persistedState.value &&
+                !(opts.rejectSuspended && event.type === 'suspended'),
+            fenceLost: false
+        }
     }
     const broadcaster = {
         hasStream: () => false,
@@ -447,6 +453,33 @@ test('a turn that suspends again emits no terminal, and the next resume emits ex
     await resume(second)
     assert.equal(second.named('chat.turn.terminal').length, 1)
     assert.equal(second.named('chat.turn.terminal')[0].props.outcome, 'done')
+})
+
+test('a rejected suspended write cannot turn an unfinished resume into done', async () => {
+    const harness = makeHarness(
+        streamOf(token('partial'), {
+            type: 'suspended',
+            daemonId: 'dh-1',
+            daemonExecRef: 'ref-1',
+            reason: 'connection closed'
+        }),
+        false,
+        { rejectSuspended: true }
+    )
+    await resume(harness)
+
+    assert.equal(harness.named('chat.turn.terminal').length, 0)
+    assert.equal(harness.named('chat.stream.complete').length, 0)
+    assert.equal(
+        harness.durable.filter((row) => ['done', 'error'].includes(row.type)).length,
+        0
+    )
+    assert.deepEqual(harness.handedOff, [2])
+    assert.equal(harness.released.length, 0)
+    assert.equal(
+        harness.named('chat.turn.resume')[0].props.outcome,
+        'suspended_again'
+    )
 })
 
 test('a resumed terminal settles a probe only after its durable terminal', async () => {

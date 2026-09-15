@@ -24,21 +24,46 @@ order: 14
 - bot 账号的 homeserver URL 和 access token。
 - 未加密的私聊或房间。
 
-请使用 homeserver 的正常注册流程或管理员流程创建 bot 账号，并通过可信的 Matrix client 登录或 homeserver 管理流程获取 access token。不要把 bot 密码或 token 发送到房间消息中。
+## 设置步骤
 
-## 连接到 Manyfold
+### Matrix 设置
 
-1. 打开 **Settings -> Channels**。
-2. 创建渠道并选择 **Matrix**。
-3. 选择 Agent 并输入标签。
-4. 输入 homeserver 基础 URL，例如 `https://matrix.example.org`。
-5. 粘贴 bot 账号 access token。
-6. 配置 room/user 访问、operator ID、mention/session 行为，以及可选的媒体/历史行为。
-7. 创建渠道并运行 **Register**。
-8. 把 bot 账号邀请到未加密的私聊或房间。
-9. 运行 **Test**。
+1. 打开 [Try Matrix](https://matrix.org/try-matrix/)，点击 **Open Element Web**。Element 直接在浏览器中运行，无需安装，账号会创建在 `matrix.org` 这台 homeserver 上。
+
+   ![Try Matrix 页面上的 Open Element Web 按钮](../../../../assets/docs/channels/matrix-01-try-matrix-open-element.webp)
+
+2. 注册账号。Matrix 和 email 一样是联邦式的：账号建在某台 homeserver 上，格式为 `@username:server`。通过 Element 注册会把账号建在 `matrix.org`，免费且最容易上手，限制是单个附件 10 MB、每天 100 MB 流量。如果想使用自己的域名或完全掌控数据，可以改用托管服务或自建 homeserver。
+
+   **bot 账号就是普通账号。** Matrix 没有专门的 bot 账号类型，所谓 bot 账号只是你保留给 Agent 专用的普通账号。如果刚才注册的账号是你自己日常使用的，请再注册一个给 Agent，避免它的消息和你自己的对话混在一起。
+
+3. 复制 access token。点击左下角头像，进入 **All settings -> Help & About**，向下滚动到 **Advanced**，展开 **Access Token**。注意它上方显示的 homeserver，那就是 Manyfold 需要的基础 URL；通过 Element 在 `matrix.org` 注册的账号会显示为 `https://matrix-client.matrix.org`。
+
+   ![Element 的 Help and About 设置中的 Advanced 部分，显示 homeserver URL 和 Access Token 控件](../../../../assets/docs/channels/matrix-02-access-token.webp)
+
+   **token 拥有账号的完整权限。** 不要把它发送到房间消息中；一旦泄露，退出对应的 Element session 即可让 token 失效。
+
+### Manyfold 设置
+
+1. 打开 **Settings -> Channels**，创建渠道并选择 **Matrix**。
+2. 选择 Agent 并输入标签，例如 `matrix-test`。
+3. 输入 homeserver 基础 URL：`matrix.org` 账号填 `https://matrix-client.matrix.org`，自建 homeserver 则填它的 client API URL。
+4. 粘贴 bot 账号 access token。
+5. 首次连接时，访问控制和行为设置全部保持默认。room 和 user 白名单、operator ID、mention 和 session 行为等，等渠道跑通后再参考[设置](#设置)调整。
+6. 创建渠道，然后运行 **Register**。
+
+![Manyfold 创建 Matrix 渠道的 New channel 表单，包含 Agent、标签、homeserver URL 和 access token 字段](../../../../assets/docs/channels/matrix-03-manyfold-new-channel.webp)
 
 注册会调用 Matrix `whoami`，保存 bot user ID 和显示名称，并启动 `/sync` loop。第一次 sync 会保存 cursor，但不会把其中的 timeline 作为新 Agent turn 回放；后续 sync 才投递新消息。不需要暴露或复制 Manyfold inbound URL。
+
+### 邀请 bot 并测试
+
+1. 回到 Element，与 bot 账号开启私聊，或者把它邀请到某个房间。
+
+   ![Element 的 Direct Messages 对话框，正在搜索要发起对话的账号](../../../../assets/docs/channels/matrix-04-invite-bot-dm-redacted.webp)
+
+   **房间必须未加密。** Element 新建房间时默认开启加密，而且房间一旦加密就无法再关闭，所以请在创建房间时就把加密关掉。REST provider 只支持明文，会把加密 event 记录为 dropped。
+
+2. 回到 Manyfold 运行 **Test**。健康的结果参见[验证](#验证)。
 
 ## 房间、私聊和 mention
 

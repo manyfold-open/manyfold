@@ -310,6 +310,72 @@ test('the surviving head of a long stderr is still redacted', async () => {
     assert.match(error.error.message, /missing a thought_signature/)
 })
 
+// Seen on isolated QA with the published Gemini CLI 0.54.4 [2026-09-14]:
+// startup warnings and the report path push the provider cause past byte 512.
+// The structured result retains it even when the CLI exits 144.
+const STARTUP_DIAGNOSTICS = [
+    'Warning: 256-color support not detected. Using a terminal with at least 256-color support is recommended for a better visual experience.',
+    'YOLO mode is enabled. All tool calls will be automatically approved.',
+    'YOLO mode is enabled. All tool calls will be automatically approved.',
+    'Ripgrep is not available. Falling back to GrepTool.',
+    'Error when talking to Gemini API Full report available at: /tmp/gemini-client-error-Turn.run-sendMessageStream-2026-09-14T20-18-33-143Z.json _ApiError: '
+].join('\n')
+
+for (const exitCode of [144, 0]) {
+    test(`structured provider cause survives long stderr and is bounded/redacted at exit ${exitCode}`, async () => {
+        const key = 'sk-qa594SYNTHETICVALUE123456'
+        const cause = JSON.stringify({
+            error: {
+                code: 400,
+                status: 'INVALID_ARGUMENT',
+                message:
+                    'Function call is missing a thought_signature in functionCall parts. ' +
+                    `GEMINI_API_KEY=${key} ` +
+                    'provider-history-diagnostic '.repeat(240)
+            }
+        })
+        const stderr = `${STARTUP_DIAGNOSTICS}${cause}\n${STACK}\nnode:internal/process/promises:391 triggerUncaughtException`
+        assert.ok(stderr.indexOf('missing a thought_signature') > 512)
+        const { events, refs } = await runTurn({
+            sessionRef: 'sess-poisoned',
+            handle: handleFor({
+                stdout:
+                    LINE({ type: 'init', session_id: 'sess-poisoned' }) +
+                    LINE({
+                        type: 'result',
+                        status: 'error',
+                        error: {
+                            type: 'APIError',
+                            message: `[API Error: ${cause}]`
+                        }
+                    }),
+                stderr,
+                exitCode,
+                resultStderr: ''
+            })
+        })
+        const error = events.find((e) => e.type === 'error')
+        assert.ok(error && error.type === 'error')
+        assert.equal(
+            error.error.code,
+            exitCode ? 'gemini_exec_failed' : 'gemini_result_error'
+        )
+        assert.equal(error.error.retryable, true)
+        assert.deepEqual(refs, [null])
+        const message = error.error.message
+        assert.match(
+            message.split('\n\nstderr:')[0],
+            /missing a thought_signature/
+        )
+        assert.match(message, /triggerUncaughtException/)
+        assert.match(message, /fresh gemini session/)
+        assert.match(message, /REDACTED/)
+        assert.ok(!message.includes(key))
+        assert.ok(message.length < 2000, `message length ${message.length}`)
+        if (exitCode) assert.match(message, /^gemini exited 144/)
+    })
+}
+
 // Forking costs the turn's conversational context, so it must happen only for
 // the one failure it fixes — not for every gemini error.
 test('an ordinary failure leaves the session ref alone', async () => {
