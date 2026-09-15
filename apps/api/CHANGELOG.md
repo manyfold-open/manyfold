@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.4
+
+### Patch Changes
+
+- [#391](https://github.com/manyfold-open/manyfold/pull/391) [`a06ff77`](https://github.com/manyfold-open/manyfold/commit/a06ff77cffdf47b7998784243dd5a7d59ee71b52) Thanks [@yingca1](https://github.com/yingca1)! - Allow interrupted backup and restore cleanup to finish when only exited, unreaped processes remain in a runtime container. Continue blocking retry while any member of the operation's process group is still alive or its state cannot be determined, and retain the operation timeout when descendants outlive their group leader.
+
 ## 5.1.3
 
 ### Patch Changes
