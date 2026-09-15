@@ -2040,6 +2040,8 @@ const ru: Record<string, string> = {
     'web.agentNewV4.cost.accountLevel': 'На вашей учётной записи',
     'web.agentNewV4.cost.managed': 'Под управлением Manyfold',
     'web.agentNewV4.cost.managedDetail': 'Оплата по потреблению',
+    'web.agentNewV4.cost.balance': 'Баланс {{amount}}',
+    'web.agentNewV4.cost.preparingAccount': 'Готовим ваш аккаунт…',
     'web.agentNewV4.cost.managedUnavailable': 'Недоступно',
     'web.agentNewV4.cost.ownKeyDetail': 'Оплата поставщику',
     'web.agentNewV4.cost.signedIn': 'Вход выполнен',

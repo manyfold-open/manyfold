@@ -2031,6 +2031,8 @@ const ja: Record<string, string> = {
     'web.agentNewV4.cost.accountLevel': 'アカウント単位',
     'web.agentNewV4.cost.managed': 'Manyfold 管理',
     'web.agentNewV4.cost.managedDetail': '使った分だけ課金',
+    'web.agentNewV4.cost.balance': '残高 {{amount}}',
+    'web.agentNewV4.cost.preparingAccount': 'アカウントを準備しています…',
     'web.agentNewV4.cost.managedUnavailable': '利用できません',
     'web.agentNewV4.cost.ownKeyDetail': '提供元が課金',
     'web.agentNewV4.cost.signedIn': 'ログイン済み',

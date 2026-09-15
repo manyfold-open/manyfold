@@ -4,6 +4,7 @@ import type { FC, ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { randomAgentName } from '@/lib/agentCreate/agentName'
 import { useApiClient } from '@/lib/apiClient'
+import { fmtNetmindMoney } from '@/lib/usageFormat'
 import { frameworkLabel } from '@/lib/frameworkMeta'
 import { useI18n } from '@/lib/i18n'
 import { useAgentCreate } from '@/lib/agentCreate/useAgentCreate'
@@ -315,6 +316,32 @@ const AgentNewV4: FC = (): ReactNode => {
 
     const busy = preparing !== null || create.busy
 
+    // The managed row's second line. "Billed by usage" alone asks the user
+    // to choose how to pay without saying whether there is anything to pay
+    // with — and a balance of zero is the one case where this row produces an
+    // agent that cannot take a turn. It goes on the detail line, next to the
+    // sibling row's "in use by 3 agents", because it is state: decision R
+    // keeps the row's trailing column for what PICKING it costs, and mixing
+    // state back into that column is exactly what R was written to stop.
+    //
+    // While the account is still being provisioned the line says so rather
+    // than staying blank and gaining a number a second later, which reads as
+    // a late-arriving surprise on a row the user may already have chosen.
+    const managedDetail = useMemo((): string => {
+        const base = t('web.agentNewV4.cost.managedDetail')
+        if (managed.phase === 'ready' && managed.balance !== null)
+            return `${base} · ${t('web.agentNewV4.cost.balance', {
+                // A balance, not a per-turn cost: two decimals, the way
+                // the account page renders the same number. `fmtCost` keeps
+                // four, which is right for what one turn spent and wrong for
+                // what is left.
+                amount: fmtNetmindMoney(managed.balance)
+            })}`
+        if (managed.phase === 'pending')
+            return `${base} · ${t('web.agentNewV4.cost.preparingAccount')}`
+        return base
+    }, [managed.phase, managed.balance, t])
+
     // What the bar shows under each step name. These are the labels the flow
     // already carries, not second copies written for display — a value that
     // has to be composed twice is a value that will drift. User-named data
@@ -531,6 +558,7 @@ const AgentNewV4: FC = (): ReactNode => {
                     authLoading={auth.loading}
                     providers={create.providers}
                     managedAvailable={managed.managedAvailable}
+                    managedDetail={managedDetail}
                     managedUnavailableReason={t(
                         'web.agentNewV4.cost.managedUnavailable'
                     )}

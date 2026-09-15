@@ -2030,6 +2030,8 @@ const ko: Record<string, string> = {
     "web.agentNewV4.cost.accountLevel": "내 계정에서",
     "web.agentNewV4.cost.managed": "Manyfold 관리형",
     "web.agentNewV4.cost.managedDetail": "사용한 만큼 청구",
+    "web.agentNewV4.cost.balance": "잔액 {{amount}}",
+    "web.agentNewV4.cost.preparingAccount": "계정을 준비하는 중…",
     "web.agentNewV4.cost.managedUnavailable": "사용할 수 없음",
     "web.agentNewV4.cost.ownKeyDetail": "공급사가 청구",
     "web.agentNewV4.cost.signedIn": "로그인됨",

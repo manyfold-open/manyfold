@@ -2037,6 +2037,8 @@ const hi: Record<string, string> = {
     'web.agentNewV4.cost.accountLevel': 'आपके खाते पर',
     'web.agentNewV4.cost.managed': 'Manyfold द्वारा प्रबंधित',
     'web.agentNewV4.cost.managedDetail': 'इस्तेमाल के हिसाब से शुल्क',
+    'web.agentNewV4.cost.balance': 'शेष राशि {{amount}}',
+    'web.agentNewV4.cost.preparingAccount': 'आपका खाता तैयार हो रहा है…',
     'web.agentNewV4.cost.managedUnavailable': 'अभी उपलब्ध नहीं',
     'web.agentNewV4.cost.ownKeyDetail': 'प्रदाता शुल्क लेता है',
     'web.agentNewV4.cost.signedIn': 'लॉगिन हो चुका है',

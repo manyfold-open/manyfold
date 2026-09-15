@@ -2039,6 +2039,8 @@ const pt: Record<string, string> = {
     'web.agentNewV4.cost.accountLevel': 'Na sua conta',
     'web.agentNewV4.cost.managed': 'Gerenciado pela Manyfold',
     'web.agentNewV4.cost.managedDetail': 'Cobrado pelo uso',
+    'web.agentNewV4.cost.balance': 'Saldo {{amount}}',
+    'web.agentNewV4.cost.preparingAccount': 'Preparando a sua conta…',
     'web.agentNewV4.cost.managedUnavailable': 'Indisponível',
     'web.agentNewV4.cost.ownKeyDetail': 'Cobrado pelo fornecedor',
     'web.agentNewV4.cost.signedIn': 'Sessão iniciada',

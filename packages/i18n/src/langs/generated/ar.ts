@@ -280,6 +280,8 @@ const ar: Record<string, string> = {
     'web.agentNewV4.cost.accountLevel': 'على حسابك',
     'web.agentNewV4.cost.managed': 'مُدار من Manyfold',
     'web.agentNewV4.cost.managedDetail': 'تُحتسب التكلفة حسب الاستخدام',
+    'web.agentNewV4.cost.balance': 'الرصيد {{amount}}',
+    'web.agentNewV4.cost.preparingAccount': 'يجري تجهيز حسابك…',
     'web.agentNewV4.cost.managedUnavailable': 'غير متوفر حالياً',
     'web.agentNewV4.cost.ownKeyDetail': 'يحاسبك المزوّد',
     'web.agentNewV4.cost.signedIn': 'تم تسجيل الدخول',

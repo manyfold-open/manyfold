@@ -3654,6 +3654,8 @@ const en = {
                 accountLevel: 'On your account',
                 managed: 'Manyfold managed',
                 managedDetail: 'Billed by usage',
+                balance: 'Balance {{amount}}',
+                preparingAccount: 'Preparing your account…',
                 managedUnavailable: 'Not available',
                 ownKeyDetail: 'Billed by the vendor',
                 signedIn: 'Signed in',

@@ -77,6 +77,9 @@ export const StepCost: FC<{
     authLoading: boolean
     providers: UserModelProviderSummary[]
     managedAvailable: boolean
+    // Composed by the shell, which is where the credit gate lives: "Billed by
+    // usage", plus the balance once it is known.
+    managedDetail: string
     managedUnavailableReason: string | null
     value: CostPick | null
     onChange: (pick: CostPick) => void
@@ -87,6 +90,7 @@ export const StepCost: FC<{
     authLoading,
     providers,
     managedAvailable,
+    managedDetail,
     managedUnavailableReason,
     value,
     onChange,
@@ -104,7 +108,7 @@ export const StepCost: FC<{
         <OptionGroup title={t('web.agentNewV4.cost.accountLevel')}>
             <OptionRow
                 title={t('web.agentNewV4.cost.managed')}
-                detail={t('web.agentNewV4.cost.managedDetail')}
+                detail={managedDetail}
                 mark={<BillingIcon className='h-5 w-5' />}
                 meta={managedAvailable ? undefined : managedUnavailableReason}
                 selected={samePick(value, { kind: 'platform' })}

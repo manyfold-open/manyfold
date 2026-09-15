@@ -3488,6 +3488,8 @@ const zh: Translations = {
                 accountLevel: '你的账户上',
                 managed: 'Manyfold 托管',
                 managedDetail: '按用量计费',
+                balance: '余额 {{amount}}',
+                preparingAccount: '正在准备你的账户…',
                 managedUnavailable: '暂不可用',
                 ownKeyDetail: '由厂商计费',
                 signedIn: '已登录',
