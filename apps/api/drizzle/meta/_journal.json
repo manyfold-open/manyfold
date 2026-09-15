@@ -120,6 +120,20 @@
       "when": 1789055258192,
       "tag": "0016_a2a_peer_mirror_retirement.contract",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1789499458347,
+      "tag": "0017_backup_operation_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1789500315972,
+      "tag": "0018_require_owned_backup_jobs",
+      "breakpoints": true
     }
   ]
 }

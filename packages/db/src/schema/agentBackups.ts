@@ -1,11 +1,13 @@
 import {
     bigint,
+    check,
     index,
     integer,
     pgTable,
     text,
     timestamp
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { users } from './users'
 import { agents } from './agents'
 
@@ -42,6 +44,10 @@ export const agentBackups = pgTable(
             .notNull()
             .default('running'),
         objectKey: text('object_key').notNull(),
+        operationKey: text('operation_key'),
+        operationReleasedAt: timestamp('operation_released_at', {
+            withTimezone: true
+        }),
         archiveBytes: bigint('archive_bytes', { mode: 'number' })
             .notNull()
             .default(0),
@@ -64,6 +70,10 @@ export const agentBackups = pgTable(
             .defaultNow()
     },
     (table) => ({
+        runningOwned: check(
+            'agent_backups_running_owned',
+            sql`${table.status} <> 'running' or ${table.operationKey} is not null`
+        ),
         userCreatedIdx: index('agent_backups_user_created_idx').on(
             table.userId,
             table.createdAt
@@ -71,7 +81,12 @@ export const agentBackups = pgTable(
         sourceAgentIdx: index('agent_backups_source_agent_idx').on(
             table.sourceAgentId
         ),
-        statusIdx: index('agent_backups_status_idx').on(table.status)
+        statusIdx: index('agent_backups_status_idx').on(table.status),
+        operationIdx: index('agent_backups_operation_idx')
+            .on(table.operationKey)
+            .where(
+                sql`${table.operationKey} is not null and ${table.operationReleasedAt} is null`
+            )
     })
 )
 
@@ -96,6 +111,10 @@ export const agentBackupRestores = pgTable(
         mode: text('mode', { enum: ['replace'] })
             .notNull()
             .default('replace'),
+        operationKey: text('operation_key'),
+        operationReleasedAt: timestamp('operation_released_at', {
+            withTimezone: true
+        }),
         errorMessage: text('error_message'),
         startedAt: timestamp('started_at', { withTimezone: true })
             .notNull()
@@ -109,6 +128,10 @@ export const agentBackupRestores = pgTable(
             .defaultNow()
     },
     (table) => ({
+        runningOwned: check(
+            'agent_backup_restores_running_owned',
+            sql`${table.status} <> 'running' or ${table.operationKey} is not null`
+        ),
         userCreatedIdx: index('agent_backup_restores_user_created_idx').on(
             table.userId,
             table.createdAt
@@ -116,7 +139,12 @@ export const agentBackupRestores = pgTable(
         backupIdx: index('agent_backup_restores_backup_idx').on(table.backupId),
         targetAgentIdx: index('agent_backup_restores_target_agent_idx').on(
             table.targetAgentId
-        )
+        ),
+        operationIdx: index('agent_backup_restores_operation_idx')
+            .on(table.operationKey)
+            .where(
+                sql`${table.operationKey} is not null and ${table.operationReleasedAt} is null`
+            )
     })
 )
 

@@ -1,4 +1,4 @@
-import { Readable, Transform } from 'node:stream'
+import { Readable, Transform, addAbortSignal } from 'node:stream'
 import { createHash } from 'node:crypto'
 import {
     DeleteObjectCommand,
@@ -63,7 +63,8 @@ export class BackupStorageService {
 
     async upload(
         key: string,
-        stream: AsyncIterable<Uint8Array>
+        stream: AsyncIterable<Uint8Array>,
+        signal?: AbortSignal
     ): Promise<BackupUploadResult> {
         const cfg = this.readConfig()
         const client = this.clientFor(cfg)
@@ -77,8 +78,13 @@ export class BackupStorageService {
                 callback(null, buf)
             }
         })
-        const body = Readable.from(stream).pipe(meter)
-        await new Upload({
+        const source = Readable.from(stream)
+        // An already-aborted caller can exit before Upload attaches its listeners.
+        meter.on('error', () => {})
+        if (signal) addAbortSignal(signal, source)
+        source.on('error', (err) => meter.destroy(err))
+        const body = source.pipe(meter)
+        const upload = new Upload({
             client,
             params: {
                 Bucket: cfg.bucket,
@@ -86,18 +92,36 @@ export class BackupStorageService {
                 Body: body,
                 ContentType: 'application/gzip'
             }
-        }).done()
+        })
+        const abort = () => {
+            void upload.abort().catch(() => {})
+        }
+        signal?.addEventListener('abort', abort, { once: true })
+        try {
+            signal?.throwIfAborted()
+            await upload.done()
+        } finally {
+            signal?.removeEventListener('abort', abort)
+            source.destroy()
+            meter.destroy()
+        }
         return { bytes, sha256: hash.digest('hex') }
     }
 
-    async download(key: string): Promise<BackupDownloadResult> {
+    async download(
+        key: string,
+        signal?: AbortSignal
+    ): Promise<BackupDownloadResult> {
         const cfg = this.readConfig()
         const res = await this.clientFor(cfg).send(
-            new GetObjectCommand({ Bucket: cfg.bucket, Key: key })
+            new GetObjectCommand({ Bucket: cfg.bucket, Key: key }),
+            { abortSignal: signal }
         )
         if (!res.Body) throw new Error(`backup object ${key} has no body`)
+        const body = Readable.from(toAsyncIterable(res.Body))
+        if (signal) addAbortSignal(signal, body)
         return {
-            stream: toAsyncIterable(res.Body),
+            stream: body,
             size: res.ContentLength ?? null
         }
     }
@@ -105,7 +129,8 @@ export class BackupStorageService {
     async deleteObject(key: string): Promise<void> {
         const cfg = this.readConfig()
         await this.clientFor(cfg).send(
-            new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key })
+            new DeleteObjectCommand({ Bucket: cfg.bucket, Key: key }),
+            { abortSignal: AbortSignal.timeout(60_000) }
         )
     }
 
