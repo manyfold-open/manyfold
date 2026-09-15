@@ -10,6 +10,16 @@ interface SummaryLine {
     value: string
 }
 
+// Nothing here carries horizontal padding of its own. This page aligns on
+// INK, not on boxes: the question, the group labels and the option rows' icons
+// on the three steps before this one all start at the same x, which is why
+// `.create-option-row` hangs 12px outside the column — its own padding, paid
+// back so its text lands on the line. A field is not that shape (its border is
+// always visible, so it belongs ON the column rather than outside it), but
+// wrapping these blocks in `px-3` pushed every label, hint and summary row 12px
+// right of everything that led here, and the last screen read as narrower than
+// the flow it finishes.
+//
 // The full record of what was chosen — the long form of what the step bar
 // shows short (decision T). It sits BELOW the fields, not above them: this
 // step's own work is the name and the directory, and putting a recap of three
@@ -31,7 +41,7 @@ const Summary: FC<{
             {lines.map((line) => (
                 <div
                     key={line.step + line.label}
-                    className='flex items-baseline gap-3 px-3 py-2.5'
+                    className='flex items-baseline gap-3 py-2.5'
                 >
                     <dt className='text-caption text-placeholder w-20 shrink-0'>
                         {line.label}
@@ -80,7 +90,7 @@ export const StepName: FC<{
     const workspaceError = workspaceValidationMessage(workspace)
     return (
         <>
-            <div className='px-3'>
+            <div>
                 <label className='workbench-field-label' htmlFor='v4-name'>
                     {t('web.agentNewV4.name.label')}
                 </label>
@@ -92,7 +102,7 @@ export const StepName: FC<{
                 />
             </div>
             {defaultWorkspace !== null && (
-                <div className='mt-5 px-3'>
+                <div className='mt-5'>
                     <label
                         className='workbench-field-label'
                         htmlFor='v4-workspace'
@@ -114,7 +124,7 @@ export const StepName: FC<{
                     </p>
                 </div>
             )}
-            <p className='text-caption text-subtle mt-7 px-3'>
+            <p className='text-caption text-subtle mt-7'>
                 {t('web.agentNewV4.name.chosen')}
             </p>
             <div className='mt-1.5'>
