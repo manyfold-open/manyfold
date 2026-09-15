@@ -1,5 +1,11 @@
-import { frameworkCapability } from '@manyfold/shared'
-import type { AgentFramework } from '@manyfold/shared'
+import {
+    K8S_HOME_BASE,
+    SPRITE_HOME_BASE,
+    codingAgentWorkspacePathForHome,
+    frameworkCapability,
+    narraNexusBaseWorkingPath
+} from '@manyfold/shared'
+import type { AgentFramework, AgentRuntime } from '@manyfold/shared'
 
 // Step ① groups the nine frameworks by ONE fact: does it need a machine from
 // us, or does it connect to a service the user already runs. That boundary is
@@ -106,6 +112,39 @@ export const runsOnOurMachine = (framework: AgentFramework): boolean =>
 // bare literal wherever the field is drawn.
 export const hasWorkspace = (framework: AgentFramework): boolean =>
     framework !== 'hermes'
+
+// What the workspace will be if the field is left empty — the real path, with
+// `{agent-id}` standing in for the id that does not exist yet. v1 shows the
+// same token, and showing it beats "allocated for you": the placeholder is
+// then the answer to "where will my files be", not a promise that there will
+// be somewhere.
+//
+// Only the three shapes this flow can actually reach are here. A connected
+// service has no machine and so no workspace at all, and hermes is excluded
+// by `hasWorkspace` above.
+export const defaultWorkspacePath = (
+    framework: AgentFramework,
+    hostKind: AgentRuntime,
+    homeDir: string | null
+): string => {
+    const home =
+        hostKind === 'daemon'
+            ? homeDir
+            : hostKind === 'k8s'
+              ? K8S_HOME_BASE
+              : SPRITE_HOME_BASE
+    if (framework === 'narranexus')
+        return `${narraNexusBaseWorkingPath(hostKind)}/{agent-id}_<mf-user>`
+    // OpenClaw keeps one workspace for the service rather than one per agent,
+    // so there is no id in its path.
+    if (framework === 'openclaw')
+        return `${home ?? '~'}/.openclaw/workspace`
+    // A daemon that has not reported its home yet: say the shape without
+    // inventing a path the machine may not have.
+    return home === null
+        ? '~/.manyfold/workspaces/{agent-id}'
+        : codingAgentWorkspacePathForHome(home, '{agent-id}')
+}
 
 // Only a CLI that carries its own vendor sign-in can run on the user's
 // subscription. Step ③ says so in as many words rather than greying rows out.

@@ -1,9 +1,8 @@
 import type { FC, ReactNode } from 'react'
-import type { AgentFramework } from '@manyfold/shared'
 import { useI18n } from '@/lib/i18n'
 import { workspaceValidationMessage } from '@/lib/agentCreateDraft'
 import type { CreateStepId } from '@/pages/AgentNew/v4/flowState'
-import { hasWorkspace } from '@/pages/AgentNew/v4/frameworkCatalog'
+
 
 interface SummaryLine {
     step: CreateStepId
@@ -54,28 +53,25 @@ const Summary: FC<{
 }
 
 export const StepName: FC<{
-    framework: AgentFramework
     typeLabel: string
     whereLabel: string
     costLabel: string
     name: string
     onChangeName: (value: string) => void
-    // Whether the path names a disk the user themselves can see. It changes
-    // what the field means, not whether it exists: on a sandbox or a cloud
-    // computer the platform allocates one when this is left empty, and on the
-    // user's own machine it falls back to ~/.manyfold/workspaces/.
-    ownComputer: boolean
+    // The path the agent gets if this is left empty, resolved for the machine
+    // that was picked. Null when there is no workspace to speak of — a
+    // connected service has no machine, and hermes has no project directory.
+    defaultWorkspace: string | null
     workspace: string
     onChangeWorkspace: (value: string) => void
     onJump: (step: CreateStepId) => void
 }> = ({
-    framework,
     typeLabel,
     whereLabel,
     costLabel,
     name,
     onChangeName,
-    ownComputer,
+    defaultWorkspace,
     workspace,
     onChangeWorkspace,
     onJump
@@ -95,7 +91,7 @@ export const StepName: FC<{
                     onChange={(event) => onChangeName(event.target.value)}
                 />
             </div>
-            {hasWorkspace(framework) && (
+            {defaultWorkspace !== null && (
                 <div className='mt-5 px-3'>
                     <label
                         className='workbench-field-label'
@@ -108,21 +104,13 @@ export const StepName: FC<{
                         className='workbench-input font-mono'
                         value={workspace}
                         aria-invalid={workspaceError !== null}
-                        placeholder={
-                            ownComputer
-                                ? t('web.agentNewV4.name.workspacePlaceholder')
-                                : t(
-                                      'web.agentNewV4.name.workspacePlaceholderManaged'
-                                  )
-                        }
+                        placeholder={defaultWorkspace}
                         onChange={(event) =>
                             onChangeWorkspace(event.target.value)
                         }
                     />
                     <p className='workbench-hint mt-1.5'>
-                        {ownComputer
-                            ? t('web.agentNewV4.name.workspaceHint')
-                            : t('web.agentNewV4.name.workspaceManaged')}
+                        {t('web.agentNewV4.name.workspaceHint')}
                     </p>
                 </div>
             )}

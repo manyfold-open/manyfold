@@ -3434,7 +3434,7 @@ const zh: Translations = {
                 runtime: '选一个运行环境才能继续',
                 cost: '选一种计费方式才能继续',
                 name: '起个名字才能继续',
-                workspace: '工作目录必须是绝对路径',
+                workspace: '工作区必须是绝对路径',
                 signIn: '等上面的登录完成'
             },
             type: {
@@ -3523,12 +3523,9 @@ const zh: Translations = {
             },
             name: {
                 label: '名字',
-                workspaceLabel: '工作目录',
-                workspacePlaceholder: '/path/to/your/project',
-                workspacePlaceholderManaged: '自动分配',
+                workspaceLabel: '工作区',
                 chosen: '你选的',
-                workspaceHint: '你电脑上的绝对路径，agent 只能读写这个目录。留空则用 ~/.manyfold/workspaces/ 下的独立目录。',
-                workspaceManaged: '留空就自动分配一个，和这台机器上的其它 agent 隔离。'
+                workspaceHint: '留空就用上面这个路径。agent 只能读写这个目录，且与这台机器上的其它 agent 隔离。'
             },
             preparing: {
                 newMachine: '一台新机器',

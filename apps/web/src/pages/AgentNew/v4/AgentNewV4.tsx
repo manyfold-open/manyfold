@@ -41,6 +41,7 @@ import type {
 } from '@/pages/AgentNew/v4/flowState'
 import { EXIT_RENT_CLOUD_COMPUTER } from '@/pages/AgentNew/v4/exits'
 import {
+    defaultWorkspacePath,
     hasWorkspace,
     runsOnOurMachine
 } from '@/pages/AgentNew/v4/frameworkCatalog'
@@ -196,6 +197,24 @@ const AgentNewV4: FC = (): ReactNode => {
         )
     }, [machinePick, machines, create.sandboxes])
 
+    // Where the agent's files land if step ④'s field is left empty. Null when
+    // there is nothing to say: a connected service has no machine of ours, and
+    // hermes has no project directory. The daemon case needs the machine's own
+    // home, which only the runtime row knows.
+    const defaultWorkspace = useMemo((): string | null => {
+        const machine = flow.runtime
+        if (flow.framework === null || machine?.kind !== 'runtime') return null
+        if (!hasWorkspace(flow.framework)) return null
+        const row = create.runtimes.find(
+            (item) => item.id === machine.runtimeId
+        )
+        return defaultWorkspacePath(
+            flow.framework,
+            machine.hostKind,
+            row?.workspaceBaseDir ?? row?.homeDir ?? null
+        )
+    }, [flow.framework, flow.runtime, create.runtimes])
+
     const runtimeId =
         flow.runtime?.kind === 'runtime' ? flow.runtime.runtimeId : null
     const auth = useRuntimeAuthList(flow.step === 'cost' ? runtimeId : null)
@@ -296,10 +315,12 @@ const AgentNewV4: FC = (): ReactNode => {
             body: {
                 name: flow.name.trim(),
                 // Not own-computer only: a sandbox takes a path too, and
-                // leaving it empty is what asks the platform to allocate one.
-                workspace: hasWorkspace(flow.framework)
-                    ? optionalWorkspace(flow.workspace)
-                    : undefined,
+                // leaving it empty is what asks for the default shown in the
+                // field's placeholder.
+                workspace:
+                    defaultWorkspace === null
+                        ? undefined
+                        : optionalWorkspace(flow.workspace),
                 modelConfigSource:
                     flow.cost?.kind === 'runtime-local'
                         ? 'runtime-local'
@@ -821,7 +842,6 @@ const AgentNewV4: FC = (): ReactNode => {
             )}
             {flow.step === 'name' && framework !== null && (
                 <StepName
-                    framework={framework}
                     typeLabel={frameworkLabel(framework)}
                     whereLabel={runtimeFull(flow.runtime, t)}
                     costLabel={costFull(
@@ -834,10 +854,7 @@ const AgentNewV4: FC = (): ReactNode => {
                     onChangeName={(value: string) =>
                         setFlow((prev) => ({ ...prev, name: value }))
                     }
-                    ownComputer={
-                        flow.runtime?.kind === 'runtime' &&
-                        flow.runtime.ownComputer
-                    }
+                    defaultWorkspace={defaultWorkspace}
                     workspace={flow.workspace}
                     onChangeWorkspace={(value: string) =>
                         setFlow((prev) => ({ ...prev, workspace: value }))
