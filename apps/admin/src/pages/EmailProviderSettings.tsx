@@ -227,9 +227,8 @@ const EmailProviderSettingsPage: FC = (): ReactNode => {
                                     }
                                 />
                                 <span className='text-caption text-label'>
-                                    Implicit TLS (port 465). Leave unchecked to
-                                    upgrade via STARTTLS when the server offers
-                                    it.
+                                    Implicit TLS (port 465). Unchecked requires
+                                    STARTTLS (port 587).
                                 </span>
                             </label>
                             <Input

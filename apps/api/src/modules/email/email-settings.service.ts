@@ -236,7 +236,10 @@ export class EmailSettingsService {
         const replyTo = optionalString(input.smtpReplyTo)
         if (replyTo) assertEmailAddress(replyTo, 'smtpReplyTo')
 
-        const password = optionalString(input.smtpPassword)
+        const password =
+            typeof input.smtpPassword === 'string' && input.smtpPassword.trim()
+                ? input.smtpPassword
+                : null
         let secret: Pick<
             StoredSmtpSettings,
             'passwordCiphertext' | 'passwordVersion' | 'passwordMasked'

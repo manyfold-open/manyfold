@@ -173,6 +173,11 @@ takes the SMTP host, port, and TLS mode, and everything that sends mail
 (sign-up verification, invites) uses it. Without a provider configured the
 features that need mail say so instead of failing silently.
 
+Both SMTP modes require encryption: implicit TLS (usually port 465), or
+STARTTLS (usually port 587). If STARTTLS is unavailable or fails, no password
+or message is sent. Passwords preserve leading and trailing whitespace;
+leaving the password blank keeps the stored credential.
+
 ## Account deletion
 
 Deletion is admin-only: Admin → Users → user detail → Danger zone.
