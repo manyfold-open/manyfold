@@ -1,4 +1,5 @@
 import * as posix from 'node:path/posix'
+import { createHash } from 'node:crypto'
 import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { Agent, FileRoot } from '@manyfold/db'
 import {
@@ -22,6 +23,12 @@ import {
 } from '@/modules/agents/files/k8s-files-client'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { isCustomWorkspace } from '@/modules/agents/workspace/workspace-preflight'
+import {
+    cancelWorkspaceOperationScript,
+    shellQuote,
+    trackedWorkspaceScript,
+    workspaceOperationRoot
+} from './workspace-operation-scripts'
 
 const DAEMON_BACKUP_MAX_BYTES = 100 * 1024 * 1024
 
@@ -63,7 +70,14 @@ export class WorkspaceRuntimeService {
         try {
             result = await this.run(
                 agent,
-                createArchiveScript(workspace, archivePath)
+                trackedWorkspaceScript(
+                    workspaceOperationRoot(
+                        workspaceOperationKey(agent),
+                        backupId
+                    ),
+                    'archive',
+                    createArchiveScript(workspace, archivePath)
+                )
             )
         } catch (err) {
             await this.cleanupPath(agent, archivePath)
@@ -123,7 +137,14 @@ export class WorkspaceRuntimeService {
         try {
             const result = await this.run(
                 agent,
-                restoreArchiveScript(workspace, archivePath, restoreId)
+                trackedWorkspaceScript(
+                    workspaceOperationRoot(
+                        workspaceOperationKey(agent),
+                        restoreId
+                    ),
+                    'restore',
+                    restoreArchiveScript(workspace, archivePath, restoreId)
+                )
             )
             const metrics = parseMetrics(result.stdout)
             return {
@@ -133,6 +154,36 @@ export class WorkspaceRuntimeService {
         } finally {
             await this.cleanupPath(agent, archivePath)
         }
+    }
+
+    async operationIsIdle(agent: Agent, operationId: string): Promise<boolean> {
+        const result = await this.run(
+            agent,
+            cancelWorkspaceOperationScript(
+                workspaceOperationRoot(
+                    workspaceOperationKey(agent),
+                    operationId
+                )
+            )
+        )
+        return numberMetric(parseMetrics(result.stdout), 'active') === 0
+    }
+
+    async recoverOperation(
+        agent: Agent,
+        operationId: string,
+        restore: boolean
+    ): Promise<void> {
+        if (restore)
+            await this.run(
+                agent,
+                recoverRestoreScript(workspaceRoot(agent), operationId)
+            )
+        const archiveName = restore ? `restore-${operationId}` : operationId
+        await this.cleanupPath(
+            agent,
+            `${workspaceRoot(agent)}/.nca-backup-tmp/${archiveName}.tar.gz`
+        )
     }
 
     private async readFile(
@@ -471,6 +522,18 @@ export class WorkspaceRuntimeService {
 const workspaceRoot = (agent: Agent): string =>
     normalizeAbsPath(agent.mountPath || agent.workspacePath || '/workspace')
 
+export const workspaceOperationKey = (agent: Agent): string => {
+    const host =
+        agent.runtime === 'sprites'
+            ? [agent.accountId, agent.spriteName]
+            : agent.runtime === 'daemon'
+              ? [agent.daemonId]
+              : [agent.runtimeId]
+    return createHash('sha256')
+        .update(JSON.stringify([agent.runtime, host, workspaceRoot(agent)]))
+        .digest('hex')
+}
+
 const workspaceFileRoot = (agent: Agent): FileRoot => ({
     id: 'workspace',
     label: 'Workspace',
@@ -513,12 +576,14 @@ const restoreArchiveScript = (
     const parent = posix.dirname(workspace)
     const tmpBase = `${parent}/.nca-restore-${restoreId}`
     const oldPath = `${parent}/.nca-restore-old-${restoreId}`
+    const committed = `${parent}/.nca-restore-committed-${restoreId}`
     return [
         'set -euo pipefail',
         `workspace=${shellQuote(workspace)}`,
         `archive=${shellQuote(archivePath)}`,
         `tmp_base=${shellQuote(tmpBase)}`,
         `old_path=${shellQuote(oldPath)}`,
+        `committed=${shellQuote(committed)}`,
         'parent="$(dirname "$workspace")"',
         'rm -rf "$tmp_base" "$old_path"',
         'cleanup_tmp() { rm -rf "$tmp_base"; }',
@@ -527,6 +592,7 @@ const restoreArchiveScript = (
         'tar -xzf "$archive" -C "$tmp_base/extract"',
         'if [ -e "$workspace" ]; then mv "$workspace" "$old_path"; fi',
         'if mv "$tmp_base/extract" "$workspace"; then',
+        '  : > "$committed"',
         '  rm -rf "$old_path" "$tmp_base"',
         'else',
         '  status=$?',
@@ -541,6 +607,24 @@ const restoreArchiveScript = (
         'workspace_bytes=$(find "$workspace" -path "$tmp_dir" -prune -o -type f -exec stat $stat_size {} + | awk \'{s+=$1} END{print s+0}\')',
         'rm -rf "$tmp_dir"',
         'printf "workspaceBytes=%s\\nfileCount=%s\\n" "$workspace_bytes" "$file_count"'
+    ].join('\n')
+}
+
+const recoverRestoreScript = (workspace: string, restoreId: string): string => {
+    const parent = posix.dirname(workspace)
+    return [
+        'set -euo pipefail',
+        `workspace=${shellQuote(workspace)}`,
+        `old_path=${shellQuote(`${parent}/.nca-restore-old-${restoreId}`)}`,
+        `tmp_base=${shellQuote(`${parent}/.nca-restore-${restoreId}`)}`,
+        `committed=${shellQuote(`${parent}/.nca-restore-committed-${restoreId}`)}`,
+        'if [ -e "$old_path" ] && [ ! -e "$committed" ]; then',
+        '  mkdir -p "$tmp_base"',
+        '  if [ -e "$workspace" ]; then mv "$workspace" "$tmp_base/interrupted"; fi',
+        '  mv "$old_path" "$workspace"',
+        'fi',
+        'rm -rf "$tmp_base" "$old_path"',
+        'rm -f "$committed"'
     ].join('\n')
 }
 
@@ -569,9 +653,6 @@ const numberMetric = (metrics: Record<string, string>, key: string): number => {
     if (!Number.isFinite(value)) throw new Error(`missing metric ${key}`)
     return value
 }
-
-const shellQuote = (value: string): string =>
-    `'${value.replace(/'/g, `'\\''`)}'`
 
 const spritesLoggerFor = (log: Logger): SpritesLogger => ({
     debug: (m, meta) =>
