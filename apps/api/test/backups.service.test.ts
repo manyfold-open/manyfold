@@ -9,6 +9,7 @@ import {
     meteredStream
 } from '../src/modules/backups/backup-storage.service'
 import { BackupsService } from '../src/modules/backups/backups.service'
+import type { BackupOperationClaim } from '../src/modules/backups/backup-operations.service'
 
 const now = new Date('2026-04-29T12:00:00.000Z')
 
@@ -53,6 +54,43 @@ test('meteredStream forwards chunks while calculating bytes and sha256', async (
     })
 })
 
+test('an already-aborted backup upload rejects without leaking a stream error', async () => {
+    const service = new BackupStorageService(
+        config({
+            BACKUP_S3_ENDPOINT: 'http://127.0.0.1:9',
+            BACKUP_S3_BUCKET: 'test',
+            BACKUP_S3_ACCESS_KEY_ID: 'test',
+            BACKUP_S3_SECRET_ACCESS_KEY: 'test'
+        })
+    )
+    const controller = new AbortController()
+    controller.abort(new Error('cancelled before upload'))
+    await assert.rejects(
+        service.upload('test', chunks('payload'), controller.signal),
+        /cancelled before upload/
+    )
+    await new Promise((resolve) => setImmediate(resolve))
+})
+
+test('archive stream failure reaches the upload caller', async () => {
+    const service = new BackupStorageService(
+        config({
+            BACKUP_S3_ENDPOINT: 'http://127.0.0.1:9',
+            BACKUP_S3_BUCKET: 'test',
+            BACKUP_S3_ACCESS_KEY_ID: 'test',
+            BACKUP_S3_SECRET_ACCESS_KEY: 'test'
+        })
+    )
+    const source = async function* () {
+        yield Buffer.from('partial')
+        throw new Error('archive stream interrupted')
+    }
+    await assert.rejects(
+        service.upload('test', source()),
+        /archive stream interrupted/
+    )
+})
+
 test('BackupsService startup cleanup skips missing backup tables before migration', async () => {
     const db = new FakeBackupsDb()
     db.updateError = Object.assign(new Error('relation does not exist'), {
@@ -61,6 +99,7 @@ test('BackupsService startup cleanup skips missing backup tables before migratio
     const service = serviceFor(db, new FakeStorage(), new FakeRuntime())
 
     await service.onModuleInit()
+    service.onModuleDestroy()
 })
 
 test('BackupsService startup cleanup rethrows unexpected database errors', async () => {
@@ -71,6 +110,58 @@ test('BackupsService startup cleanup rethrows unexpected database errors', async
     const service = serviceFor(db, new FakeStorage(), new FakeRuntime())
 
     await assert.rejects(() => service.onModuleInit(), /permission denied/)
+})
+
+test('BackupsService rejects a peer restore while the workspace archive is running', async () => {
+    const db = new FakeBackupsDb()
+    db.agentRows.push(agentRow())
+    db.backupRows.push(backupRow({ status: 'succeeded' }))
+    const storage = new FakeStorage()
+    const runtime = new FakeRuntime()
+    const archive = holdArchive(runtime)
+    const first = serviceFor(db, storage, runtime)
+    const peer = serviceFor(db, storage, runtime)
+    // Track both mutable arrays so even a wrongly admitted detached restore settles.
+    const firstJobs = trackJobs(first)
+    const peerJobs = trackJobs(peer)
+    try {
+        await first.createBackup('user-1', 'agent-1', false)
+        await archive.started
+        await assert.rejects(
+            peer.restoreToAgent('user-1', 'agent-1', 'backup-1', false),
+            ConflictException
+        )
+        assert.equal(runtime.applied.length, 0)
+        assert.equal(db.restoreRows.length, 0)
+    } finally {
+        archive.release()
+        await Promise.all([...firstJobs, ...peerJobs])
+    }
+})
+
+test('BackupsService startup preserves a peer backup that is still archiving', async () => {
+    const db = new FakeBackupsDb()
+    db.agentRows.push(agentRow())
+    const storage = new FakeStorage()
+    const runtime = new FakeRuntime()
+    const archive = holdArchive(runtime)
+    const first = serviceFor(db, storage, runtime)
+    const peer = serviceFor(db, storage, runtime)
+    const jobs = trackJobs(first)
+    try {
+        const { backup } = await first.createBackup('user-1', 'agent-1', false)
+        await archive.started
+        await peer.onModuleInit()
+        assert.equal(
+            db.backupRows.find((row) => row.id === backup.id)?.status,
+            'running',
+            'another API startup must not invalidate an active archive'
+        )
+    } finally {
+        archive.release()
+        await Promise.all(jobs)
+        peer.onModuleDestroy()
+    }
 })
 
 test('BackupsService marks backup succeeded and cleans runtime archive', async () => {
@@ -113,6 +204,37 @@ test('BackupsService records backup failure and removes partial object', async (
     assert.deepEqual(runtime.cleaned, [
         '/workspace/.nca-backup-tmp/backup-1.tar.gz'
     ])
+})
+
+test('retention failure does not delete a completed backup', async () => {
+    const db = new FakeBackupsDb()
+    db.agentRows.push(agentRow())
+    db.backupRows.push(backupRow())
+    const storage = new FakeStorage()
+    const service = serviceFor(db, storage, new FakeRuntime())
+    privateApi(service).enforceRetention = async () => {
+        throw new Error('retention unavailable')
+    }
+    await privateApi(service).runBackupJob('backup-1')
+    assert.equal(db.backupRows[0].status, 'succeeded')
+    assert.deepEqual(storage.deleted, [])
+})
+
+test('a stale restore completion cannot revive a recovery-failed row', async () => {
+    const db = new FakeBackupsDb()
+    db.agentRows.push(agentRow())
+    db.backupRows.push(backupRow({ status: 'succeeded' }))
+    db.restoreRows.push(restoreRow())
+    const runtime = new FakeRuntime()
+    runtime.applyRestoreArchive = async () => {
+        db.restoreRows[0].status = 'failed'
+        db.restoreRows[0].errorMessage = 'interrupted by recovery'
+        return { workspaceBytes: 1, fileCount: 1 }
+    }
+    const service = serviceFor(db, new FakeStorage(), runtime)
+    await privateApi(service).runRestoreJob('restore-1', false)
+    assert.equal(db.restoreRows[0].status, 'failed')
+    assert.equal(db.restoreRows[0].errorMessage, 'interrupted by recovery')
 })
 
 test('BackupsService retention deletes objects beyond configured count', async () => {
@@ -299,6 +421,42 @@ test('BackupsService restore hash mismatch does not replace workspace', async ()
     ])
 })
 
+const holdArchive = (runtime: FakeRuntime) => {
+    let release!: () => void
+    let signalStarted!: () => void
+    const gate = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    const started = new Promise<void>((resolve) => {
+        signalStarted = resolve
+    })
+    const original = runtime.createArchive.bind(runtime)
+    runtime.createArchive = async (agent, backupId) => {
+        signalStarted()
+        await gate
+        return original(agent, backupId)
+    }
+    return { started, release }
+}
+
+const trackJobs = (service: BackupsService): Promise<void>[] => {
+    const jobs: Promise<void>[] = []
+    const runner = privateApi(service)
+    const backup = runner.runBackupJob.bind(service)
+    const restore = runner.runRestoreJob.bind(service)
+    runner.runBackupJob = (id) => {
+        const job = backup(id)
+        jobs.push(job)
+        return job
+    }
+    runner.runRestoreJob = (id, throwOnError) => {
+        const job = restore(id, throwOnError)
+        jobs.push(job)
+        return job
+    }
+    return jobs
+}
+
 const config = (values: Record<string, string>): ConfigService =>
     ({
         get: (key: string) => values[key]
@@ -317,8 +475,38 @@ const serviceFor = (
     db: FakeBackupsDb,
     storage: FakeStorage,
     runtime: FakeRuntime
-): BackupsService =>
-    new BackupsService(db as never, storage as never, runtime as never)
+): BackupsService => {
+    const service = new BackupsService(
+        db as never,
+        storage as never,
+        runtime as never,
+        {
+            claim: async (key: string, id: string) => {
+                if (db.owners.has(key)) return null
+                db.owners.set(key, id)
+                return {
+                    ...testClaim(),
+                    close: async () => {
+                        if (db.owners.get(key) === id) db.owners.delete(key)
+                    }
+                }
+            }
+        } as never
+    )
+    const claims = (
+        service as unknown as { claims: Map<string, BackupOperationClaim> }
+    ).claims
+    for (const row of [...db.backupRows, ...db.restoreRows])
+        if (row.status === 'running') claims.set(String(row.id), testClaim())
+    return service
+}
+
+const testClaim = (): BackupOperationClaim => ({
+    signal: new AbortController().signal,
+    assertOwned: async () => {},
+    ownsLease: async () => true,
+    close: async () => {}
+})
 
 const privateApi = (
     service: BackupsService
@@ -358,6 +546,8 @@ const backupRow = (
     runtimeKind: 'sprites',
     status: 'running',
     objectKey: 'object-key',
+    operationKey: null,
+    operationReleasedAt: null,
     archiveBytes: 0,
     workspaceBytes: 0,
     fileCount: 0,
@@ -380,6 +570,8 @@ const restoreRow = (
     targetAgentId: 'agent-1',
     status: 'running',
     mode: 'replace',
+    operationKey: null,
+    operationReleasedAt: null,
     errorMessage: null,
     startedAt: now,
     completedAt: null,
@@ -442,6 +634,11 @@ class FakeRuntime {
     written: Array<{ restoreId: string; data: string }> = []
     applied: Array<{ restoreId: string; archivePath: string }> = []
 
+    async operationIsIdle(): Promise<boolean> {
+        return true
+    }
+    async recoverOperation(): Promise<void> {}
+
     async createArchive(
         _agent: unknown,
         backupId: string
@@ -490,16 +687,20 @@ class FakeRuntime {
 }
 
 class FakeBackupsDb {
+    owners = new Map<string, string>()
     agentRows: Array<Record<string, unknown>> = []
     backupRows: Array<Record<string, unknown>> = []
     restoreRows: Array<Record<string, unknown>> = []
     updateError: Error | null = null
 
-    select(): {
+    select(selection?: Record<string, { name: string }>): {
         from: (table: unknown) => FakeSelectBuilder
     } {
         return {
-            from: (table: unknown) => new FakeSelectBuilder(this.rowsFor(table))
+            from: (table: unknown) => {
+                if (this.updateError) throw this.updateError
+                return new FakeSelectBuilder(this.rowsFor(table), selection)
+            }
         }
     }
 
@@ -511,6 +712,11 @@ class FakeBackupsDb {
         return {
             values: (row: Record<string, unknown>) => ({
                 returning: async () => {
+                    row = {
+                        operationKey: null,
+                        operationReleasedAt: null,
+                        ...row
+                    }
                     this.rowsFor(table).push(row)
                     return [row]
                 }
@@ -546,7 +752,23 @@ class FakeBackupsDb {
 }
 
 class FakeSelectBuilder {
-    constructor(private rows: Array<Record<string, unknown>>) {}
+    constructor(
+        private rows: Array<Record<string, unknown>>,
+        private selection?: Record<string, { name: string }>
+    ) {}
+
+    private selected(): Array<Record<string, unknown>> {
+        return this.selection
+            ? this.rows.map((row) =>
+                  Object.fromEntries(
+                      Object.entries(this.selection!).map(([key, column]) => [
+                          key,
+                          row[columnToProperty(column.name)]
+                      ])
+                  )
+              )
+            : this.rows
+    }
 
     where(condition?: unknown): FakeSelectBuilder {
         this.rows = filterRows(this.rows, condition)
@@ -554,11 +776,11 @@ class FakeSelectBuilder {
     }
 
     orderBy(): Promise<Array<Record<string, unknown>>> {
-        return Promise.resolve(this.rows)
+        return Promise.resolve(this.selected())
     }
 
     limit(count: number): Promise<Array<Record<string, unknown>>> {
-        return Promise.resolve(this.rows.slice(0, count))
+        return Promise.resolve(this.selected().slice(0, count))
     }
 
     then<TResult1 = Array<Record<string, unknown>>, TResult2 = never>(
@@ -568,10 +790,9 @@ class FakeSelectBuilder {
               ) => TResult1 | PromiseLike<TResult1>)
             | null,
         onrejected?:
-            | ((reason: unknown) => TResult2 | PromiseLike<TResult2>)
-            | null
+            ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
     ): Promise<TResult1 | TResult2> {
-        return Promise.resolve(this.rows).then(onfulfilled, onrejected)
+        return Promise.resolve(this.selected()).then(onfulfilled, onrejected)
     }
 }
 
@@ -579,21 +800,42 @@ const filterRows = (
     rows: Array<Record<string, unknown>>,
     condition?: unknown
 ): Array<Record<string, unknown>> => {
+    const chunks = (condition as { queryChunks?: unknown[] } | undefined)
+        ?.queryChunks
+    const operator = chunks?.find((chunk) => {
+        const raw = (chunk as { value?: unknown })?.value
+        const value = Array.isArray(raw) ? raw.join('').trim() : undefined
+        return value === 'or' || value === 'and'
+    }) as { value: string[] } | undefined
+    if (operator) {
+        const children = chunks!.filter(
+            (chunk) => (chunk as { queryChunks?: unknown[] })?.queryChunks
+        )
+        return rows.filter((row) =>
+            operator.value.join('').trim() === 'or'
+                ? children.some((child) => filterRows([row], child).length > 0)
+                : children.every((child) => filterRows([row], child).length > 0)
+        )
+    }
     const filters = conditionFilters(condition)
     if (filters.length === 0) return rows
     return rows.filter((row) =>
         filters.every((filter) => {
             const actual = row[columnToProperty(filter.column)]
-            return filter.op === 'eq'
-                ? actual === filter.value
-                : actual !== filter.value
+            return filter.op === 'null'
+                ? actual == null
+                : filter.op === 'notNull'
+                  ? actual != null
+                  : filter.op === 'eq'
+                    ? actual === filter.value
+                    : actual !== filter.value
         })
     )
 }
 
 interface ConditionFilter {
     column: string
-    op: 'eq' | 'ne'
+    op: 'eq' | 'ne' | 'null' | 'notNull'
     value: unknown
 }
 
@@ -622,6 +864,10 @@ const conditionFilters = (condition?: unknown): ConditionFilter[] => {
             filters.push({ column: chunk.name, op: 'eq', value: param?.value })
         if (opText === '<>')
             filters.push({ column: chunk.name, op: 'ne', value: param?.value })
+        if (opText === 'is null')
+            filters.push({ column: chunk.name, op: 'null', value: null })
+        if (opText === 'is not null')
+            filters.push({ column: chunk.name, op: 'notNull', value: null })
     }
     return filters
 }

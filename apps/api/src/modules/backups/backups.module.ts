@@ -12,6 +12,8 @@ import {
 import { BackupsService } from '@/modules/backups/backups.service'
 import { BackupStorageService } from '@/modules/backups/backup-storage.service'
 import { WorkspaceRuntimeService } from '@/modules/backups/workspace-runtime.service'
+import { BackupOperationsService } from '@/modules/backups/backup-operations.service'
+import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 
 @Module({
     imports: [
@@ -26,7 +28,9 @@ import { WorkspaceRuntimeService } from '@/modules/backups/workspace-runtime.ser
         AdminGuard,
         BackupsService,
         BackupStorageService,
-        WorkspaceRuntimeService
+        WorkspaceRuntimeService,
+        BackupOperationsService,
+        ServiceLeaseService
     ],
     exports: [BackupsService]
 })

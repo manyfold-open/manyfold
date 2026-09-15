@@ -15,6 +15,15 @@ mf backups list --agent-id agt_xxx
 
 Restore 或删除时使用返回的 backup ID。脚本需要准确保存 ID 时请加 `--json`。
 
+同一 workspace 同时只能运行一个备份或恢复任务。重叠请求会返回冲突；等待
+当前任务结束后再重试。任务中断后，必须等文件操作停止并完成清理，才能重试。
+
+从尚不支持 workspace 互斥的旧版本升级时，先暂停新的备份和恢复请求，等待
+现有任务结束，再更新全部 API 实例，最后恢复请求。首次升级期间不要让新旧
+API 版本同时接受备份任务。
+只要仍有旧版本创建的无归属运行任务，数据库迁移就会拒绝继续。迁移成功后，
+数据库会拒绝旧 API 创建新的无归属任务。
+
 ## 恢复 Agent
 
 Restore 会替换 Agent 当前 state：
@@ -27,7 +36,8 @@ CLI 要求显式传入 `--yes`，不会打开 interactive prompt。传入之前�
 
 1. 核对 Agent ID 和 backup ID。
 2. 停止或完成仍在写入 Agent 的工作。
-3. 如果需要 rollback，先为当前 state 创建新的 backup。
+3. 如果需要 rollback，先为当前 state 创建新的 backup，并等待其状态变为
+   `succeeded`。安全备份失败或超时后不要继续恢复。
 
 Unattended restore 需要 machine-readable output 时再加 `--json`。
 

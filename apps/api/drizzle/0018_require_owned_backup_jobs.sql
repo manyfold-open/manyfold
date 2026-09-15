@@ -1,0 +1,2 @@
+ALTER TABLE "agent_backup_restores" ADD CONSTRAINT "agent_backup_restores_running_owned" CHECK ("agent_backup_restores"."status" <> 'running' or "agent_backup_restores"."operation_key" is not null);--> statement-breakpoint
+ALTER TABLE "agent_backups" ADD CONSTRAINT "agent_backups_running_owned" CHECK ("agent_backups"."status" <> 'running' or "agent_backups"."operation_key" is not null);
