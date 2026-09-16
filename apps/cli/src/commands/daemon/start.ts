@@ -1,6 +1,4 @@
 import os from 'node:os'
-import { spawnSync } from 'node:child_process'
-import { dirname } from 'node:path'
 import type { Command } from 'commander'
 import kleur from 'kleur'
 import type { HeartbeatRequest } from '@manyfold/shared'
@@ -57,54 +55,12 @@ import {
 import { detectStartupMethod } from '@/daemon/startup-method'
 import { boundErrSink, createDaemonLog } from '@/daemon/log-file'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
+import { augmentPathFromUserShell } from '@/daemon/shell-path'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 const DETECT_REFRESH_MS = DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
 
-// Launchd / systemd start daemons with a stripped PATH (typically just
-// /usr/bin:/bin:/usr/sbin:/sbin). User-installed tools like node (via mise /
-// nvm / volta), pnpm-installed CLIs, and python venvs live outside this set
-// and become invisible to spawned children — so `openclaw` (a wrapper that
-// `exec`s node) and `hermes profile list` (uses a venv python) blow up with
-// ENOENT. We mirror what the user's interactive shell sees by sourcing
-// `$SHELL -lic 'printf %s "$PATH"'` and prepending it to process.env.PATH;
-// we always also prepend the directory of our own node binary as a
-// belt-and-braces fallback in case the shell can't be invoked.
-const augmentPathFromUserShell = (): void => {
-    const ourBinDir = dirname(process.execPath)
-    const additions: string[] = [ourBinDir]
-    const shell = process.env.SHELL?.trim()
-    if (shell) {
-        try {
-            const res = spawnSync(shell, ['-lic', 'printf %s "$PATH"'], {
-                encoding: 'utf8',
-                timeout: 3_000,
-                stdio: ['ignore', 'pipe', 'ignore']
-            })
-            const shellPath = res.stdout?.trim()
-            if (shellPath)
-                additions.unshift(
-                    ...shellPath.split(':').filter((p) => p.length > 0)
-                )
-        } catch {}
-    }
-    const current = (process.env.PATH ?? '')
-        .split(':')
-        .filter((p) => p.length > 0)
-    const seen = new Set<string>()
-    const merged: string[] = []
-    for (const dir of [...additions, ...current]) {
-        if (seen.has(dir)) continue
-        seen.add(dir)
-        merged.push(dir)
-    }
-    process.env.PATH = merged.join(':')
-}
-
 const runForeground = async (): Promise<void> => {
-    const beforePath = process.env.PATH ?? ''
-    augmentPathFromUserShell()
-    const pathLog = `PATH augmented: before=${beforePath.split(':').length} entries, after=${(process.env.PATH ?? '').split(':').length} entries`
     const config = await loadDaemonConfigForStart()
     if (!config) {
         console.error(
@@ -132,12 +88,7 @@ const runForeground = async (): Promise<void> => {
     }
 
     try {
-        await runClaimedForeground(
-            config,
-            pathLog,
-            channelWarning,
-            ownership.instanceId
-        )
+        await runClaimedForeground(config, channelWarning, ownership.instanceId)
     } finally {
         await ownership.release()
     }
@@ -146,7 +97,6 @@ const runForeground = async (): Promise<void> => {
 
 const runClaimedForeground = async (
     config: DaemonConfig,
-    pathLog: string,
     channelWarning: string | null,
     clientInstanceId: string
 ): Promise<void> => {
@@ -181,8 +131,14 @@ const runClaimedForeground = async (
     }
     const onInterrupt = () => requestStop('SIGINT')
     const onTerminate = () => requestStop('SIGTERM')
+    process.once('SIGINT', onInterrupt)
+    process.once('SIGTERM', onTerminate)
     try {
-        await log(pathLog)
+        await log(
+            `daemon starting version=${MF_CLI_VERSION} startup=${startupMethod} pid=${process.pid}`
+        )
+        await augmentPathFromUserShell(log, abort.signal)
+        if (stopping) return
         if (channelWarning) await log(channelWarning)
 
         // Declared here, FILLED after the WS dial: the five `--version` probes
@@ -333,8 +289,6 @@ const runClaimedForeground = async (
             autoUpdater.start()
         }
 
-        process.once('SIGINT', onInterrupt)
-        process.once('SIGTERM', onTerminate)
         await log(
             `daemon running pid=${process.pid} clientInstanceId=${clientInstanceId} apiUrl=${config.apiUrl} hostname=${os.hostname()}`
         )
