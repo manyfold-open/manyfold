@@ -226,6 +226,7 @@ test(
             releaseRequests = resolve
         })
         let detachedDone: () => void = () => {}
+        let continuationTraceId: string | undefined
         const detached = new Promise<void>((resolve) => {
             detachedDone = resolve
         })
@@ -247,6 +248,7 @@ test(
                         const continuationTrace = trace
                             .getActiveSpan()
                             ?.spanContext().traceId
+                        continuationTraceId = continuationTrace
                         assert.ok(requestTrace && continuationTrace)
                         assert.notEqual(continuationTrace, requestTrace)
                         await delay(30)
@@ -316,8 +318,10 @@ test(
                 }),
                 /parent-request/
             )
-            if (id === 'detached-user-a')
+            if (id === 'detached-user-a') {
                 assert.equal(event.transaction, 'request-user-a')
+                assert.equal(event.contexts?.trace?.trace_id, continuationTraceId)
+            }
         }
         const background = exporter
             .getFinishedSpans()
