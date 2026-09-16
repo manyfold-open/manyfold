@@ -1,6 +1,8 @@
 import { Axiom } from '@axiomhq/js'
 import { AxiomJSTransport, ConsoleTransport, Logger } from '@axiomhq/logging'
-import { createWebVitalsComponent } from '@axiomhq/react'
+import { useReportWebVitals } from '@axiomhq/react'
+import { useRef } from 'react'
+import { createBrowserTelemetry, reportBrowserWebVital } from '@manyfold/shared'
 
 const token = import.meta.env.VITE_AXIOM_TOKEN as string | undefined
 const dataset =
@@ -26,4 +28,15 @@ export const logger = new Logger({
     ]
 })
 
-export const WebVitals = createWebVitalsComponent(logger)
+export const browserTelemetry: ReturnType<typeof createBrowserTelemetry> = createBrowserTelemetry(logger, {
+    origin: window.location.origin
+})
+
+export const WebVitals = (): null => {
+    const pathname = useRef(window.location.pathname)
+    useReportWebVitals(
+        metric => reportBrowserWebVital(logger, metric, pathname.current),
+        () => { void browserTelemetry.flush() }
+    )
+    return null
+}
