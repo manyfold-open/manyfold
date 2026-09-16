@@ -77,6 +77,19 @@ just dev         # api :2222, web :3002, admin :3001
 `AGENTS.md` documents the workspace layout and conventions; `justfile` lists
 every task. All checks: `pnpm check && pnpm lint && pnpm knip`.
 
+The self-host upgrade regression builds the real Compose images in an isolated
+local project, uploads through the API, recreates its container, checks CORS
+and verifies the resource summary in desktop/mobile browsers:
+
+```sh
+pnpm --filter @manyfold/shared build
+pnpm exec playwright install chromium
+RUN_SELFHOST_E2E=1 node apps/api/test/selfhost-compose.e2e.mjs /tmp/selfhost-report
+```
+
+It removes its own containers and volumes after the run. The report and
+screenshots remain in the requested directory.
+
 Browser telemetry regressions run with `pnpm test:browser-telemetry` after
 `pnpm exec playwright install chromium webkit`. They use synthetic events,
 real React DOM nodes and SDK payloads intercepted locally; no service
