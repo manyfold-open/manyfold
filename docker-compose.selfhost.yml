@@ -58,17 +58,19 @@ services:
             MF_WEB_URL: ${MF_SELFHOST_WEB_URL:-http://localhost:3002}
             MF_ADMIN_URL: ${MF_SELFHOST_ADMIN_URL:-http://localhost:3001}
             PUBLIC_API_BASE_URL: ${MF_SELFHOST_PUBLIC_API_URL:-http://localhost:2222}
-            # Empty = reflect any origin (fine on localhost). Pin to the exact
-            # web + admin origins when the API is reachable from elsewhere.
-            CORS_ORIGIN: ${MF_SELFHOST_CORS_ORIGIN:-}
-            # Single-node deployment: chat uploads may fall back to local disk
-            # instead of requiring S3.
+            # Default to this deployment's two browser origins. An explicit
+            # override can allow additional frontends.
+            CORS_ORIGIN: ${MF_SELFHOST_CORS_ORIGIN:-${MF_SELFHOST_WEB_URL:-http://localhost:3002},${MF_SELFHOST_ADMIN_URL:-http://localhost:3001}}
+            # Single-node uploads survive container replacement. The normal
+            # transient-upload expiry still applies; multiple API nodes need S3.
             CHAT_UPLOAD_ALLOW_DISK: 'true'
             # New accounts land on the seeded unlimited plan instead of the
             # cloud 'free' tier. Applies at account creation only; accounts
             # that predate it use the API 4.0.0 upgrade bridge or the Admin
             # user detail Plan card; current startup preserves assignments.
             MF_DEFAULT_PLAN_ID: ${MF_SELFHOST_DEFAULT_PLAN_ID:-self_hosted}
+        volumes:
+            - chat_uploads:/tmp/manyfold-chat-uploads
         ports:
             - '${MF_SELFHOST_API_PORT:-2222}:2222'
         depends_on:
@@ -116,3 +118,4 @@ services:
 
 volumes:
     pgdata:
+    chat_uploads:

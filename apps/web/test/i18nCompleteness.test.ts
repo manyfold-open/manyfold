@@ -656,6 +656,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
     'components/Loading.tsx': ['h-[18px] rounded-xs'],
     'components/NetmindSignIn.tsx': ['GitHub', 'Google', 'Microsoft'],
     'components/QuotaBanner.tsx': ['bg-info-bg text-fg'],
+    // The API usage window is UTC; this is its time-zone identifier, not copy.
+    'components/SelfHostedResourceUsage.tsx': ['(UTC)'],
     'components/TerminalDock.tsx': [
         'bg-[#f59e0b]',
         'bg-placeholder',

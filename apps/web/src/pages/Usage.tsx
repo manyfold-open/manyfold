@@ -27,6 +27,8 @@ import {
     hoursAgoIso
 } from '@/lib/usageFormat'
 import UsageEventsTable from '@/components/UsageEventsTable'
+import SelfHostedResourceUsage from '@/components/SelfHostedResourceUsage'
+import { BILLING_SURFACE } from '@/edition-capabilities'
 
 type RangeKey = '5h' | '1d' | '7d' | '30d' | '90d'
 
@@ -428,6 +430,7 @@ const Usage: FC = (): ReactNode => {
     return (
         <div className='settings-page'>
             <SettingsPageHeader title={t('web.usage.title')} />
+            {!BILLING_SURFACE && <SelfHostedResourceUsage />}
             {error && <div className='workbench-alert-error mb-6'>{error}</div>}
 
             <section className='settings-section'>
