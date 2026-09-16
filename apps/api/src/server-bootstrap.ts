@@ -60,12 +60,17 @@ const delay = (ms: number): Promise<void> =>
 // POST — and the captured Sentry error before synchronous span conversion
 // can starve the event loop. Pending spans must then reach the Sentry client
 // before SDK teardown discards them. Every stage shares the caller's deadline.
-const flushTelemetry = async (deadline: number): Promise<void> => {
+const flushTelemetry = async (
+    deadline: number,
+    fatal: boolean
+): Promise<void> => {
     const remaining = (cap: number): number =>
         Math.max(0, Math.min(cap, deadline - performance.now()))
     await flushOtelLogs(remaining(FLUSH_STAGE_TIMEOUT_MS))
-    if (remaining(OTEL_FLUSH_TIMEOUT_MS) <= 0) return
-    await flushSentry(remaining(FLUSH_STAGE_TIMEOUT_MS))
+    if (fatal) {
+        if (remaining(FLUSH_STAGE_TIMEOUT_MS) <= 0) return
+        await flushSentry(remaining(FLUSH_STAGE_TIMEOUT_MS))
+    }
     if (remaining(FLUSH_STAGE_TIMEOUT_MS) <= 0) return
     await flushSentrySpans(remaining(FLUSH_STAGE_TIMEOUT_MS))
     if (remaining(OTEL_FLUSH_TIMEOUT_MS) <= 0) return
@@ -102,7 +107,7 @@ const finalizeExit = (
     } catch {}
     console.log(processExitLogLine(record))
     void Promise.race([
-        flushTelemetry(flushDeadline),
+        flushTelemetry(flushDeadline, record.shutdownOutcome === 'fatal'),
         delay(Math.max(0, flushDeadline - performance.now()))
     ]).finally(() => {
         clearTimeout(hardExit)
