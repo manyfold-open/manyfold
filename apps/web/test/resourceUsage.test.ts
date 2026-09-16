@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { RuntimeAccessSummary } from '@manyfold/shared'
 import { resourceUsageRows } from '../src/lib/resourceUsageRows'
 
-const access: RuntimeAccessSummary = {
-    userId: 'fixture',
+const access: Parameters<typeof resourceUsageRows>[0] = {
     plan: {
         id: 'self_hosted',
         name: 'Self-hosted',
@@ -22,33 +20,18 @@ const access: RuntimeAccessSummary = {
     },
     statefulSandboxLimit: 12,
     statefulSandboxUsage: 2,
-    statefulSandboxRemaining: 10,
-    alwaysOnlineRuntimeBonus: 2,
     alwaysOnlineRuntimeLimit: 5,
     alwaysOnlineRuntimesUsed: 1,
-    alwaysOnlineRuntimesRemaining: 4,
     alwaysOnlineAgentsLimit: 6,
     alwaysOnlineAgentsUsed: 3,
-    alwaysOnlineAgentsRemaining: 3,
-    persistentContainersUsed: 0,
-    localDaemonsUsed: 1,
-    cloudComputerEnabled: false,
     activeSandboxUsage: 1,
-    activeSandboxRemaining: 7,
     storageBytesTotal: 1_500_000_000,
-    usagePeriod: {
-        start: '2026-09-01T00:00:00.000Z',
-        end: '2026-10-01T00:00:00.000Z',
-        source: 'calendar'
-    },
     activeHoursThisPeriod: null,
     activeHoursLimit: null,
-    activeHoursBonus: 0,
     channelsUsed: 2,
     automationsUsed: 3,
     automationRunsThisPeriod: 9,
-    apiRequestsThisPeriod: 42,
-    activeContainerSubscriptions: 0
+    apiRequestsThisPeriod: 42
 }
 
 test('resource summary uses effective grants, preserves unknown usage and nullable limits', () => {

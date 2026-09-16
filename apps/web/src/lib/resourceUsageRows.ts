@@ -7,8 +7,27 @@ interface ResourceUsageRow {
     unit: 'count' | 'hours' | 'bytes'
 }
 
+type ResourceUsage = Pick<
+    RuntimeAccessSummary,
+    | 'plan'
+    | 'statefulSandboxUsage'
+    | 'statefulSandboxLimit'
+    | 'activeSandboxUsage'
+    | 'storageBytesTotal'
+    | 'activeHoursThisPeriod'
+    | 'activeHoursLimit'
+    | 'alwaysOnlineRuntimesUsed'
+    | 'alwaysOnlineRuntimeLimit'
+    | 'alwaysOnlineAgentsUsed'
+    | 'alwaysOnlineAgentsLimit'
+    | 'channelsUsed'
+    | 'automationsUsed'
+    | 'automationRunsThisPeriod'
+    | 'apiRequestsThisPeriod'
+>
+
 export const resourceUsageRows = (
-    access: RuntimeAccessSummary
+    access: ResourceUsage
 ): ResourceUsageRow[] => [
     {
         labelKey: 'web.planAndBilling.quotaAgents',

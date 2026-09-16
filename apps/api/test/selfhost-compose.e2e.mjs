@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium } from 'playwright'
-import { createObjectId } from '@manyfold/shared'
+import { apiPaths, createObjectId } from '@manyfold/shared'
 
 assert.equal(
     process.env.RUN_SELFHOST_E2E,
@@ -383,6 +383,9 @@ try {
     assert.deepEqual(await probe(), before)
 
     browser = await chromium.launch({ headless: true })
+    const corePaths = new Set(
+        Object.values(apiPaths).filter((path) => typeof path === 'string')
+    )
     const forbidden = []
     const pageErrors = []
     for (const viewport of [
@@ -402,9 +405,7 @@ try {
                     const url = new URL(req.url())
                     if (
                         url.origin === new URL(api).origin &&
-                        /\/(?:me\/billing|managed-model-account|managed-models|managed-credits|recharge|container-skus)/.test(
-                            url.pathname
-                        )
+                        !corePaths.has(url.pathname.replace(/^\/api/, ''))
                     )
                         forbidden.push(url.pathname)
                 })
