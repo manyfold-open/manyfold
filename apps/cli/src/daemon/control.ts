@@ -1,10 +1,12 @@
 import http from 'node:http'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { chmod, unlink } from 'node:fs/promises'
+import { chmod, lstat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createConnection } from 'node:net'
+import { tmpdir } from 'node:os'
 import type { CliChannel } from '@/channel'
 import type { DaemonStartupMethod } from '@manyfold/shared'
+import { acquireProcessLock, ProcessLockBusyError } from './process-lock'
 
 // Local control plane for `mf daemon`: the foreground daemon serves GET
 // /health over a unix socket (named pipe on Windows) inside its state dir, so
@@ -15,6 +17,7 @@ import type { DaemonStartupMethod } from '@manyfold/shared'
 export interface DaemonLocalHealth {
     status: 'starting' | 'running'
     pid: number
+    clientInstanceId?: string
     version: string
     channel: CliChannel
     profile: string
@@ -97,17 +100,93 @@ export const waitForDaemonHealth = async (
     }
 }
 
+const socketAcceptsConnections = (socketPath: string): Promise<boolean> =>
+    new Promise((resolve, reject) => {
+        const socket = createConnection({ path: socketPath })
+        socket.setTimeout(1000)
+        socket.once('connect', () => {
+            socket.destroy()
+            resolve(true)
+        })
+        socket.once('error', (err: NodeJS.ErrnoException) => {
+            if (err.code === 'ECONNREFUSED' || err.code === 'ENOENT')
+                resolve(false)
+            else reject(err)
+        })
+        socket.once('timeout', () => {
+            socket.destroy()
+            reject(
+                new Error(
+                    'control socket probe timed out; refusing to replace it'
+                )
+            )
+        })
+    })
+
 export const startControlServer = async (opts: {
     socketPath: string
     getHealth: () => DaemonLocalHealth
 }): Promise<() => Promise<void>> => {
-    if (process.platform !== 'win32' && existsSync(opts.socketPath)) {
-        const live = await queryDaemonHealth(opts.socketPath)
-        if (live)
+    let lock
+    try {
+        lock = await acquireProcessLock(
+            process.platform === 'win32'
+                ? join(
+                      tmpdir(),
+                      `mf-control-${createHash('sha256').update(opts.socketPath).digest('hex')}.locks`
+                  )
+                : `${opts.socketPath}.locks`
+        )
+    } catch (err) {
+        if (err instanceof ProcessLockBusyError)
             throw new Error(
-                `another daemon (pid=${live.pid}) is already serving ${opts.socketPath}`
+                `another daemon (pid=${err.pid}) is already serving ${opts.socketPath}`
             )
-        await unlink(opts.socketPath).catch(() => {})
+        throw err
+    }
+    try {
+        const close = await bindControlServer(opts)
+        let closing: Promise<void> | null = null
+        return () =>
+            (closing ??= (async () => {
+                try {
+                    await close()
+                } finally {
+                    await lock.release()
+                }
+            })())
+    } catch (err) {
+        await lock.release()
+        throw err
+    }
+}
+
+const bindControlServer = async (opts: {
+    socketPath: string
+    getHealth: () => DaemonLocalHealth
+}): Promise<() => Promise<void>> => {
+    if (process.platform !== 'win32') {
+        const existing = await lstat(opts.socketPath).catch(
+            (err: NodeJS.ErrnoException) => {
+                if (err.code === 'ENOENT') return null
+                throw err
+            }
+        )
+        if (existing) {
+            if (!existing.isSocket())
+                throw new Error(
+                    `control socket path is not a socket: ${opts.socketPath}`
+                )
+            if (await socketAcceptsConnections(opts.socketPath))
+                throw new Error(
+                    `another process is already serving ${opts.socketPath}`
+                )
+            await unlink(opts.socketPath).catch(
+                (err: NodeJS.ErrnoException) => {
+                    if (err.code !== 'ENOENT') throw err
+                }
+            )
+        }
     }
 
     const server = http.createServer((req, res) => {
@@ -120,19 +199,23 @@ export const startControlServer = async (opts: {
         res.end(JSON.stringify({ error: 'not found' }))
     })
 
-    await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(opts.socketPath, () => {
-            server.removeListener('error', reject)
-            resolve()
+    try {
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(opts.socketPath, () => {
+                server.removeListener('error', reject)
+                resolve()
+            })
         })
-    })
+    } catch (err) {
+        server.close()
+        throw err
+    }
     if (process.platform !== 'win32')
         await chmod(opts.socketPath, 0o600).catch(() => {})
 
     return async (): Promise<void> => {
+        server.closeAllConnections()
         await new Promise<void>((resolve) => server.close(() => resolve()))
-        if (process.platform !== 'win32')
-            await unlink(opts.socketPath).catch(() => {})
     }
 }

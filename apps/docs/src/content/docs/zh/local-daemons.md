@@ -107,6 +107,27 @@ macOS 和 Linux；Windows 需要前台进程或自行配置 service manager。
 
 执行 `mf update` 升级 CLI 后，先 `mf daemon stop` 再 `mf daemon start`，让自启单元重新写入新的二进制路径。否则 launchd / systemd 在你手动重启单元前会一直用旧路径。
 
+### 每个 profile 只运行一个 daemon
+
+同一 profile 只允许一个 daemon 进程。重叠的 foreground 启动会在建立连接或
+发送 heartbeat 前退出。即使 PID 文件缺失，仍在服务的 control socket 也会阻止
+第二个进程启动。进程停止或崩溃后，下次启动会回收其归属记录；电脑休眠期间，
+仍存活的进程继续持有归属。
+
+如果旧 CLI 已经运行了多个副本，先让当前任务结束，关闭你为该 profile 启动的
+foreground 进程，再停止、升级并重启目标 profile：
+
+```sh
+mf --profile default daemon stop
+mf update
+mf --profile default daemon start
+mf --profile default daemon status
+```
+
+保留原 profile 和注册信息。不要通过删除 PID、socket 或归属文件来绕过
+already-running 错误；先检查 `mf daemon status` 和该 profile 的日志。
+不同 profile 仍可分别运行 daemon。
+
 ### 自启动级别
 
 默认的 `mf daemon start` 把 daemon 注册在**登录级（user scope）**：

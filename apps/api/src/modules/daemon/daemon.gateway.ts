@@ -2,6 +2,7 @@ import {
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
+    DaemonClientProcess,
     DaemonInflightStream,
     DaemonWsFrame
 } from '@manyfold/shared'
@@ -17,10 +18,19 @@ import { DaemonTokenService } from './daemon-token.service'
 import { DaemonHostService } from './daemon-host.service'
 import { DaemonRegistryService } from './daemon-registry.service'
 import { DaemonExecResumeService } from './daemon-exec-resume.service'
+import {
+    daemonClientProcessFields,
+    parseDaemonClientProcess
+} from './daemon-client-process'
 
 const PING_INTERVAL_MS = 25_000
 const PONG_TIMEOUT_MS = 35_000
 const HELLO_TIMEOUT_MS = 10_000
+type HelloFrame = Extract<DaemonWsFrame, { type: 'hello' }>
+interface HelloDecision {
+    accepted: boolean
+    clientProcess?: DaemonClientProcess
+}
 
 @Injectable()
 export class DaemonGateway implements OnModuleInit {
@@ -137,6 +147,8 @@ export class DaemonGateway implements OnModuleInit {
         }
 
         let registered = false
+        let helloSeen = false
+        let clientProcess: DaemonClientProcess | undefined
         let bufferedInflight: DaemonInflightStream[] | null = null
         let acceptHello!: (accepted: boolean) => void
         const helloReady = new Promise<boolean>((resolve) => {
@@ -149,18 +161,22 @@ export class DaemonGateway implements OnModuleInit {
             } catch {}
         }, HELLO_TIMEOUT_MS)
 
-        const handleHelloVersion = (version: string | undefined): boolean => {
+        const handleHelloVersion = (frame: HelloFrame): HelloDecision => {
             const accepted = !isCliVersionTooOld(
-                version,
+                frame.cliVersion,
                 DAEMON_MIN_CLI_VERSION
             )
+            if (accepted && !helloSeen) {
+                clientProcess = parseDaemonClientProcess(frame.clientProcess)
+                helloSeen = true
+            }
             acceptHello(accepted)
             if (!accepted)
                 socket.close(
                     4406,
                     `daemon CLI ${DAEMON_MIN_CLI_VERSION} or newer required; run mf update`
                 )
-            return accepted
+            return { accepted, clientProcess }
         }
 
         const handleInflightWhenReady = (
@@ -227,6 +243,7 @@ export class DaemonGateway implements OnModuleInit {
             userId: host.userId,
             cliVersion: host.cliVersion,
             hostname: host.hostname,
+            clientProcess,
             socket
         })
         registered = true
@@ -263,7 +280,7 @@ export class DaemonGateway implements OnModuleInit {
         raw: unknown,
         armPongDeadline: () => void,
         handleInflightStreams: (streams: DaemonInflightStream[]) => void,
-        handleHelloVersion: (version: string | undefined) => boolean
+        handleHelloVersion: (frame: HelloFrame) => HelloDecision
     ): Promise<void> {
         let frame: DaemonWsFrame
         try {
@@ -278,12 +295,28 @@ export class DaemonGateway implements OnModuleInit {
             return
         }
         switch (frame.type) {
-            case 'hello':
-                if (!handleHelloVersion(frame.cliVersion)) return
-                if (frame.inflightStreams && frame.inflightStreams.length > 0)
-                    this.log.log(
-                        `daemon.ws.hello daemonId=${daemonId} inflightStreams=${frame.inflightStreams.length} clientFeatures=${(frame.clientFeatures ?? []).join(',')}`
-                    )
+            case 'hello': {
+                const hello = handleHelloVersion(frame)
+                if (!hello.accepted) return
+                const features = Array.isArray(frame.clientFeatures)
+                    ? frame.clientFeatures
+                          .filter(
+                              (value) =>
+                                  typeof value === 'string' &&
+                                  /^[-a-z0-9._:]{1,80}$/i.test(value)
+                          )
+                          .slice(0, 64)
+                          .join(',')
+                    : ''
+                const inventory =
+                    frame.inflightStreams === undefined
+                        ? 'missing'
+                        : Array.isArray(frame.inflightStreams)
+                          ? 'present'
+                          : 'invalid'
+                this.log.log(
+                    `daemon.ws.hello daemonId=${daemonId} inflightStreams=${Array.isArray(frame.inflightStreams) ? frame.inflightStreams.length : 'unknown'} inventory=${inventory} clientFeatures=${features} ${daemonClientProcessFields(hello.clientProcess)}`
+                )
                 // Missing inventory means enumeration failed, never an empty
                 // stream set. Preserve resumable turns until the next hello.
                 if (frame.inflightStreams === undefined) {
@@ -294,6 +327,7 @@ export class DaemonGateway implements OnModuleInit {
                 }
                 handleInflightStreams(frame.inflightStreams)
                 return
+            }
             case 'ping': {
                 const pong: DaemonWsFrame = { type: 'pong' }
                 try {

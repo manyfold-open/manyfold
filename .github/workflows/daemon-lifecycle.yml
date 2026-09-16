@@ -1,0 +1,71 @@
+name: daemon-lifecycle
+
+on:
+    pull_request:
+        branches: [develop, main]
+        paths:
+            - 'apps/cli/**'
+            - 'packages/shared/**'
+            - 'pnpm-lock.yaml'
+            - '.github/workflows/daemon-lifecycle.yml'
+    push:
+        branches: [develop, main]
+        paths:
+            - 'apps/cli/**'
+            - 'packages/shared/**'
+            - 'pnpm-lock.yaml'
+            - '.github/workflows/daemon-lifecycle.yml'
+    workflow_dispatch: {}
+
+permissions:
+    contents: read
+
+concurrency:
+    group: daemon-lifecycle-${{ github.event.pull_request.number || github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    ownership:
+        runs-on: ${{ matrix.os }}
+        timeout-minutes: 20
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-24.04, macos-latest, windows-latest]
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+            - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+              with:
+                  version: 10.29.3
+            - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+              with:
+                  node-version: '22'
+                  cache: pnpm
+            - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+              with:
+                  bun-version: latest
+            - run: pnpm install --frozen-lockfile
+            - run: pnpm exec turbo run build --filter='@manyfold/cli^...' --concurrency=2
+            - name: Compile the standalone ownership worker
+              working-directory: apps/cli
+              run: |
+                  bun build --compile --minify --bytecode --sourcemap \
+                    --external=fs-native-extensions \
+                    --outfile=dist-bin/daemon-owner-worker.exe \
+                    test/fixtures/daemon-owner-worker.ts
+            - name: Verify Node and standalone Bun ownership
+              working-directory: apps/cli
+              run: |
+                  export MF_TEST_LOCK_WORKER="$(node -p "require('node:path').resolve('dist-bin/daemon-owner-worker.exe')")"
+                  node ../../scripts/test-sealed-env.mjs -- node \
+                    --import tsx --import ./test/md-text-loader.mjs \
+                    --test --test-concurrency=2 \
+                    test/daemon-pid.test.ts \
+                    test/daemon-ownership-process.test.ts \
+                    test/daemon-control.test.ts \
+                    test/daemon-lock-exited-process.test.ts \
+                    test/ws-client-lifecycle.test.ts \
+                    test/ws-client-hello.test.ts

@@ -836,6 +836,7 @@ export type {
     DaemonRpcMethod,
     DaemonStreamKind,
     DaemonWsFrame,
+    DaemonClientProcess,
     DaemonInflightStream,
     DaemonInflightStreamStatus,
     DaemonTurnStartPayload,

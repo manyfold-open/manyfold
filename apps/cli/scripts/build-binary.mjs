@@ -91,6 +91,7 @@ execFileSync(
         '--minify',
         '--bytecode',
         '--sourcemap',
+        '--external=fs-native-extensions',
         `--outfile=${exePath}`,
         distEntry
     ],

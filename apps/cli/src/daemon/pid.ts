@@ -1,31 +1,33 @@
-import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { daemonPaths } from '@/daemon/config'
+import {
+    acquireProcessLock,
+    isProcessRunning,
+    ProcessLockBusyError
+} from './process-lock'
+
+export { isProcessRunning } from './process-lock'
 
 export interface DaemonPidPaths {
     pidPath: string
 }
 
 export class DaemonAlreadyRunningError extends Error {
-    constructor(readonly pid: number) {
-        super(`daemon already running pid=${pid}`)
+    constructor(readonly pid: number | null) {
+        super(
+            pid === null
+                ? 'daemon already running (owner is starting)'
+                : `daemon already running pid=${pid}`
+        )
         this.name = 'DaemonAlreadyRunningError'
     }
 }
 
 const parsePid = (raw: string): number | null => {
-    const pid = Number.parseInt(raw.trim(), 10)
-    return Number.isFinite(pid) && pid > 0 ? pid : null
-}
-
-export const isProcessRunning = (pid: number): boolean => {
-    try {
-        process.kill(pid, 0)
-        return true
-    } catch (err) {
-        const code = (err as NodeJS.ErrnoException).code
-        return code === 'EPERM'
-    }
+    if (!/^[1-9][0-9]*$/.test(raw.trim())) return null
+    const pid = Number(raw.trim())
+    return Number.isSafeInteger(pid) ? pid : null
 }
 
 export const readDaemonPid = async (
@@ -42,13 +44,22 @@ export const clearDaemonPid = async (
     pid?: number,
     paths: DaemonPidPaths = daemonPaths
 ): Promise<void> => {
-    if (pid !== undefined) {
-        const current = await readDaemonPid(paths)
-        if (current !== pid) return
+    const target = { pidPath: paths.pidPath }
+    let lock
+    try {
+        lock = await acquireProcessLock(`${target.pidPath}.locks`)
+    } catch (err) {
+        if (err instanceof ProcessLockBusyError) return
+        throw err
     }
     try {
-        await unlink(paths.pidPath)
-    } catch {}
+        if (pid !== undefined && (await readDaemonPid(target)) !== pid) return
+        await unlink(target.pidPath).catch((err: NodeJS.ErrnoException) => {
+            if (err.code !== 'ENOENT') throw err
+        })
+    } finally {
+        await lock.release()
+    }
 }
 
 export const runningDaemonPid = async (
@@ -61,29 +72,70 @@ export const runningDaemonPid = async (
         return null
     }
     const pid = parsePid(raw)
-    if (!pid) {
-        await clearDaemonPid(undefined, paths)
-        return null
-    }
+    if (!pid) return null
     if (isProcessRunning(pid)) return pid
-    await clearDaemonPid(pid, paths)
     return null
 }
 
-export const writeDaemonPid = async (
+const writeDaemonPid = async (
     pid: number,
-    paths: DaemonPidPaths = daemonPaths
+    paths: DaemonPidPaths,
+    instanceId: string
 ): Promise<void> => {
     await mkdir(dirname(paths.pidPath), { recursive: true })
-    await writeFile(paths.pidPath, `${pid}\n`, 'utf8')
+    const temporary = `${paths.pidPath}.${instanceId}.tmp`
+    try {
+        await writeFile(temporary, `${pid}\n`, { flag: 'wx', mode: 0o600 })
+        await rename(temporary, paths.pidPath)
+    } finally {
+        await unlink(temporary).catch((err: NodeJS.ErrnoException) => {
+            if (err.code !== 'ENOENT') throw err
+        })
+    }
+}
+
+export interface DaemonPidOwnership {
+    instanceId: string
+    release(): Promise<void>
 }
 
 export const claimDaemonPid = async (
     pid: number,
     paths: DaemonPidPaths = daemonPaths
-): Promise<void> => {
-    const running = await runningDaemonPid(paths)
-    if (running !== null && running !== pid)
-        throw new DaemonAlreadyRunningError(running)
-    await writeDaemonPid(pid, paths)
+): Promise<DaemonPidOwnership> => {
+    const target = { pidPath: paths.pidPath }
+    let lock
+    try {
+        lock = await acquireProcessLock(`${target.pidPath}.locks`)
+    } catch (err) {
+        if (err instanceof ProcessLockBusyError)
+            throw new DaemonAlreadyRunningError(err.pid)
+        throw err
+    }
+    try {
+        const running = await runningDaemonPid(target)
+        if (running !== null && running !== pid)
+            throw new DaemonAlreadyRunningError(running)
+        await writeDaemonPid(pid, target, lock.instanceId)
+    } catch (err) {
+        await lock.release()
+        throw err
+    }
+    let releasing: Promise<void> | null = null
+    return {
+        instanceId: lock.instanceId,
+        release: () =>
+            (releasing ??= (async () => {
+                try {
+                    if ((await readDaemonPid(target)) === pid)
+                        await unlink(target.pidPath).catch(
+                            (err: NodeJS.ErrnoException) => {
+                                if (err.code !== 'ENOENT') throw err
+                            }
+                        )
+                } finally {
+                    await lock.release()
+                }
+            })())
+    }
 }

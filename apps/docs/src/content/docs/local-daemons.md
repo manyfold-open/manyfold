@@ -113,6 +113,29 @@ own service manager.
 
 After updating the CLI with `mf update`, run `mf daemon stop` then `mf daemon start` so the autostart unit is rewritten with the new binary path. Launchd / systemd otherwise keeps using the previous path until you restart the unit explicitly.
 
+### One daemon per profile
+
+Each profile admits one daemon process. An overlapping foreground start exits
+before connecting or sending heartbeats. A live control socket also blocks a
+second start, even if the PID file is missing. A stopped or crashed process's
+ownership is recovered on the next start; a live process retains it while the
+computer is asleep.
+
+If an older CLI already has multiple copies running, let active work finish
+and close the foreground processes you started for that profile. Then stop,
+update and restart the selected profile:
+
+```sh
+mf --profile default daemon stop
+mf update
+mf --profile default daemon start
+mf --profile default daemon status
+```
+
+Keep the same profile and registration. Do not remove PID, socket or ownership
+files to bypass an already-running error. Check `mf daemon status` and the
+profile's logs first. Separate profiles can still run separate daemons.
+
 ### Autostart scope
 
 The default `mf daemon start` registers the daemon at **user scope**:
