@@ -774,6 +774,8 @@ const allowedEnglishByFile: Record<string, readonly string[]> = {
         'sandbox'
     ],
     'pages/AgentNew/v3/AgentNewV3.tsx': ['openai'],
+    // An example path shown as a placeholder, not display copy.
+    'pages/AgentNew/v4/steps/StepName.tsx': ['~/code/my-project'],
     'pages/AgentRuntimesList.tsx': ['bg-error', 'error'],
     'pages/Challenge.tsx': [
         'Article Lens',

@@ -22,6 +22,10 @@ interface ShortcutTooltipProps {
     className?: string
     disabled?: boolean
     label?: string
+    // A sentence rather than a shortcut hint: the label wraps instead of
+    // being truncated to one line, and the panel is allowed to be wider.
+    // Opt-in, because a shortcut hint that wrapped would be a regression.
+    multiline?: boolean
     placement?: TooltipPlacement
     shortcut?: string
 }
@@ -43,6 +47,7 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
     className,
     disabled = false,
     label,
+    multiline = false,
     placement = 'bottom',
     shortcut
 }): ReactNode => {
@@ -166,7 +171,10 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                         ref={tooltipRef}
                         role='tooltip'
                         className={[
-                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[90] hidden max-w-[18rem] items-center gap-2 px-2.5 py-1.5 font-medium transition-opacity duration-100 md:inline-flex',
+                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[90] hidden items-center gap-2 px-2.5 py-1.5 transition-opacity duration-100 md:inline-flex',
+                            multiline
+                                ? 'max-w-[22rem] font-normal leading-relaxed'
+                                : 'max-w-[18rem] font-medium',
                             open && position.ready ? 'opacity-100' : 'opacity-0'
                         ].join(' ')}
                         style={{
@@ -174,7 +182,9 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                             top: position.top
                         }}
                     >
-                        <span className='truncate'>{label}</span>
+                        <span className={multiline ? '' : 'truncate'}>
+                            {label}
+                        </span>
                         {shortcut && (
                             <span className='bg-soft text-muted shadow-ring-light rounded-xs px-1.5 py-0.5 font-mono text-[0.68rem] leading-none'>
                                 {shortcut}

@@ -8,7 +8,11 @@ import {
 } from 'react-router-dom'
 import * as Sentry from '@sentry/react'
 import { useAppAuth } from '@/lib/auth'
-import { scrubSentryBreadcrumb, scrubSentryEvent } from '@/lib/sentryScrub'
+import {
+    scrubSentryBreadcrumb,
+    scrubSentryEvent,
+    scrubSentrySpan
+} from '@/lib/sentryScrub'
 
 const dsn = (import.meta.env.VITE_SENTRY_DSN as string | undefined)?.trim()
 
@@ -38,6 +42,7 @@ if (dsn) {
         tracePropagationTargets: [],
         beforeSend: scrubSentryEvent,
         beforeSendTransaction: scrubSentryEvent,
+        beforeSendSpan: scrubSentrySpan,
         beforeBreadcrumb: scrubSentryBreadcrumb
     })
 }

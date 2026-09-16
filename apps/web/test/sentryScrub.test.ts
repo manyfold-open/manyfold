@@ -7,9 +7,6 @@ import {
     scrubSentryUrl
 } from '../src/lib/sentryScrub'
 
-// apps/admin/src/lib/sentryScrub.ts is a byte-identical copy (same convention
-// as lib/axiom.ts); admin has no test runner of its own.
-
 test('the session token in the login fragment is redacted', () => {
     // auth.tsx puts it in the fragment on purpose so it never reaches a server
     // log. Sentry reports the full href, so it has to be stripped here too.
@@ -102,3 +99,66 @@ test('the waitlist invite token is a credential and never reaches Sentry', () =>
     assert.match(scrubbed, /\/invite\/REDACTED/)
 })
 
+test('final transactions scrub navigation descriptions and root/child URL carriers', () => {
+    const url = 'https://manyfold.ai/landing?key=NAV_SECRET&utm_source=campaign'
+    const phases = [
+        'redirect',
+        'cache',
+        'dns',
+        'ssl',
+        'connect',
+        'request',
+        'response',
+        'domContentLoadedEvent',
+        'loadEvent'
+    ]
+    const event = {
+        type: 'transaction',
+        transaction: '/landing',
+        contexts: {
+            trace: {
+                trace_id: 'a'.repeat(32),
+                span_id: 'a'.repeat(16),
+                data: {
+                    'url.full': url,
+                    'url.query': 'key=NAV_SECRET&utm_source=campaign'
+                }
+            }
+        },
+        spans: phases.map((phase, index) => ({
+            trace_id: 'a'.repeat(32),
+            span_id: index.toString(16).padStart(16, '0'),
+            op: 'browser',
+            description: url,
+            start_timestamp: index,
+            timestamp: index + 0.25,
+            data: {
+                'browser.phase': phase,
+                'http.url': url,
+                'http.query': 'key=NAV_SECRET&utm_source=campaign'
+            }
+        }))
+    } as Event
+    const scrubbed = scrubSentryEvent(event)
+    assert.doesNotMatch(JSON.stringify(scrubbed), /NAV_SECRET/)
+    assert.equal(scrubbed.transaction, '/landing')
+    assert.equal(scrubbed.spans?.length, phases.length)
+    for (const [index, span] of (scrubbed.spans ?? []).entries()) {
+        assert.match(span.description ?? '', /utm_source=campaign/)
+        assert.equal(span.timestamp, index + 0.25)
+        assert.equal(span.data?.['browser.phase'], phases[index])
+    }
+})
+
+test('standalone breadcrumb queries and lowercase referers are scrubbed', () => {
+    const event = scrubSentryEvent({
+        request: {
+            headers: { referer: 'https://host/?key=QUERY_SECRET&utm_id=kept' }
+        },
+        breadcrumbs: [
+            { data: { 'http.query': 'key=QUERY_SECRET&utm_id=kept' } }
+        ]
+    } as Event)
+    assert.doesNotMatch(JSON.stringify(event), /QUERY_SECRET/)
+    assert.match(String(event.request?.headers?.referer), /utm_id=kept/)
+})

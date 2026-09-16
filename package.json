@@ -23,6 +23,7 @@
         "social-card:check": "pnpm --filter @manyfold/web exec tsx scripts/og/check.ts",
         "check": "turbo check",
         "test": "turbo test",
+        "test:browser-sentry": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx ../../scripts/verify-browser-sentry.mjs",
         "db:generate": "pnpm --filter @manyfold/api db:generate",
         "db:migrate": "pnpm --filter @manyfold/api db:migrate",
         "db:studio": "pnpm --filter @manyfold/api db:studio",

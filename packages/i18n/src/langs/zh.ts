@@ -3403,6 +3403,167 @@ const zh: Translations = {
             netmindMethodNote:
                 '这里使用的是 NetMind 账号已有的登录方式，不会为 Manyfold 新建登录方式。'
         },
+        agentNewV4: {
+            title: '新建 agent',
+            next: '下一步',
+            back: '上一步',
+            change: '更改',
+            createAgent: '创建 agent',
+            step: {
+                type: 'Agent 类型',
+                runtime: '运行环境',
+                cost: '模型费用',
+                name: '名字'
+            },
+            question: {
+                type: '想要哪种 agent？',
+                machine: '{{cli}} 在哪儿跑？',
+                service: '{{cli}} 接在哪儿？',
+                cost: '{{machine}} 用谁的额度跑模型？',
+                costExternal: '模型的钱谁来付？',
+                name: '给它起个名字'
+            },
+            help: {
+                runtime: '登录是跟着机器走的，所以每一行都写清楚要花多少代价，包括之后要不要再登录一次。',
+                cost: '厂商登录写在那台机器的磁盘上，只在那台有效；账户级的额度跟着你走，所有机器通用。agent 建好之后随时可以改。',
+                name: '确认一下，然后就建好了。',
+                type: '九种，选一种。类型创建之后不能改，但装错了再建一个只要几秒。'
+            },
+            blocked: {
+                type: '选一种才能继续',
+                runtime: '选一个运行环境才能继续',
+                cost: '选一种计费方式才能继续',
+                name: '起个名字才能继续',
+                workspace: '工作区必须是绝对路径',
+                signIn: '等上面的登录完成'
+            },
+            type: {
+                onMachine: '装在机器上',
+                connected: '在你自己的服务上'
+            },
+            identity: {
+                claudeCode: 'Anthropic 的编码 CLI',
+                codex: 'OpenAI 的编码 CLI',
+                geminiCli: 'Google 的编码 CLI',
+                openclaw: '常驻对话服务，接 IM 渠道',
+                hermes: '常驻助理服务，日程与邮件',
+                narranexus: '常驻编排服务',
+                dify: '接入你的 Dify 应用',
+                langflow: '接入你的 Langflow 流程',
+                a2a: '接入任何支持 A2A 协议的 agent'
+            },
+            subscription: {
+                claude: '可用 Claude Pro / Max',
+                codex: '可用 ChatGPT Plus / Pro',
+                gemini: '可用 Google 订阅'
+            },
+            machine: {
+                yours: '你的机器',
+                newOne: '新开一台',
+                sandbox: '有状态沙箱',
+                ownComputer: '自有计算机',
+                cloudComputer: '云端计算机',
+                readyWithAgents: '已装 {{cli}} 并已跑起来 · {{count}} 个 agent',
+                readyNoAgents: '已装 {{cli}}，还没登录',
+                needsInstall: '要先装 {{cli}}',
+                needsInstallIdle: '要先装 {{cli}}；这台上面什么都没有',
+                notInstallable: '你电脑上没有 {{cli}}。自己装好之后 daemon 约五分钟内会发现它',
+                slotTaken: '已经在跑 {{other}}，而一个沙箱只有一个公网端口',
+                frameworkFixed: '这台在购买时随镜像定死为 {{other}}'
+            },
+            newMachine: {
+                sandbox: '新建沙箱',
+                sandboxDetail: '建一台机器，并在上面装好 {{cli}}',
+                sandboxDetailService: '建一台机器；{{cli}} 在创建时装上去',
+                ownComputer: '连接我的电脑',
+                ownComputerDetail: '装上 daemon；你已装的 {{cli}} 会被发现',
+                cloudComputer: '云端计算机',
+                cloudComputerDetail: '常驻不休眠，适合要长期在线的 agent',
+                quota: '已用 {{used}} / {{limit}}',
+                needsPlan: '需订阅'
+            },
+            cost: {
+                noSignIn: '秒开 · 不用再登录',
+                signInNextStep: '下一步要登录',
+                signInAfter: '之后要登录一次',
+                signInOnThatComputer: '那台电脑登过就不用再登',
+                onThisMachine: '这台机器上',
+                accountLevel: '你的账户上',
+                managed: 'Manyfold 托管',
+                managedDetail: '按用量计费',
+                balance: '余额 {{amount}}',
+                preparingAccount: '正在准备你的账户…',
+                managedUnavailable: '暂不可用',
+                ownKeyDetail: '由厂商计费',
+                installAtCreate: '创建时安装 · 不用登录',
+                managedNoChannel: '还没有 {{cli}} 能用的托管模型',
+                providerIncompatible: '{{cli}} 用不了这个 provider',
+                providerUntested: '还没测过模型 · 先去设置里测一次',
+                signedIn: '已登录',
+                inUseBy: '{{count}} 个 agent 在用',
+                expired: '凭据过期，选它需要重新登录',
+                aboutAMinute: '约 1 分钟',
+                signInTo: '你的 {{vendor}} 账号',
+                signInDetail: '用你的 {{vendor}} 订阅登录',
+                signInAnother: '再登录一个 {{vendor}} 账号',
+                signInAnotherDetail: '凭据目录隔离',
+                loadingAccounts: '正在读这台机器上的账号…',
+                asleep: '这台机器在休眠，下面是上次检查到的值。不会为了回答这个列表去唤醒它。',
+                noSubscriptionFor: '{{vendor}} 调模型 API，不走 CLI 登录，所以没有订阅这条路。上面两种都是账户级的，换机器通用。',
+                backToType: '回第一步换一种',
+                externalBilled: '这种 agent 的模型由你自己的 {{service}} 服务调用和计费，和机器无关。Manyfold 不参与，也拿不到它的用量；要改模型请到那边改。',
+                externalShort: '由你自己的服务计费',
+                subscriptionOf: '你的 {{vendor}} 订阅',
+                externalSummary: '由你自己的 {{service}} 服务计费'
+            },
+            service: {
+                connected: '你已经接入的 {{service}} 服务',
+                connectNewGroup: '接入一个新的',
+                connectNew: '接入 {{service}} 服务',
+                connectNewDetail: '填 endpoint 和 API key，我们当场连一次确认可用',
+                reachable: '连通正常',
+                lastCheckFailed: '上次连通检查失败',
+                none: '还没有接入任何 {{service}} 服务。',
+                loading: '加载中…'
+            },
+            name: {
+                label: '名字',
+                workspaceLabel: '工作区',
+                chosen: '你选的',
+                workspaceHint: '留空就用上面这个路径。agent 只能读写这个目录，且与这台机器上的其它 agent 隔离。'
+            },
+            preparing: {
+                newMachine: '一台新机器',
+                note: '正在准备 {{machine}} 并安装 CLI。现在离开也没关系——建好的机器和装好的 CLI 都会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它们就在列表里等着。',
+                noteBuild: '正在准备 {{machine}}。现在离开也没关系——建好的机器会留着，只是这四步走到哪儿不会留，下次要从第一步重新走一遍，那时它就在列表里等着。',
+                signIn: '正在 {{machine}} 上打开登录。休眠的机器要先唤醒，约一分钟。'
+            },
+            error: {
+                machineNotReady: '先选一个运行环境。',
+                serviceNotReady: '先选一个已接入的服务，并填上它上面的 app。',
+                externalNotSupportedYet: '这一屏还没接上「接入类 agent」的创建。',
+                noModel: '这个 provider 选不出模型。换一种付费方式。'
+            },
+            primary: {
+                goToSettings: '去设置',
+                leavesFlow: '会离开这条流程',
+                buildAndInstall: '建一台并装 {{cli}}',
+                buildFine: '约 2 分钟 · 之后要登录一次 · 已用 {{used}} / {{limit}}',
+                installOn: '在 {{machine}} 上装 {{cli}}',
+                installFine: '约 1–2 分钟 · 之后要登录一次',
+                build: '建一台',
+                buildFineService: '约一分钟 · {{cli}} 在创建时安装 · 已用 {{used}} / {{limit}}',
+                installsAtCreate: '{{cli}} 在创建时安装 · 那时约 1–2 分钟',
+                createFineInstall: '约 1–2 分钟 · 先装 {{cli}}',
+                createFineInstallAsleep: '约 2–3 分钟 · 这台机器要先唤醒，再装 {{cli}}',
+                signIn: '登录 {{vendor}} 账号',
+
+                createFine: '几秒',
+                createFineAsleep: '约一分钟 · 这台机器要先唤醒',
+                creating: '正在创建…',
+                tookLonger: '比平常久了 · 失败不会留下半个 agent'
+            }
+        },
         agentNew: {
             title: '创建智能体',
             status: '状态',
@@ -3890,7 +4051,7 @@ const zh: Translations = {
             nameFixTo: '改成「{{name}}」',
             randomize: '换一个名称',
             workspaceLabel: '工作区',
-            workspaceHint: 'agent 的工作目录，{agent-id} 会自动替换。',
+            workspaceHint: '留空就用上面这个路径。agent 只能读写它。',
             modelLabel: '模型',
             modelProbing: '获取模型中…',
             modelManualHint: '无法获取模型列表，请手动填写。',

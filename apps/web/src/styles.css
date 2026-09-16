@@ -755,6 +755,133 @@
         @apply text-ui text-fg shadow-ring-light hover:shadow-ring-hover placeholder:text-placeholder focus-visible:shadow-focus bg-surface block min-h-[112px] w-full resize-none rounded-sm px-3.5 py-3 transition-shadow focus:outline-none;
     }
 
+    /* Option rows for the four-step agent create flow (AgentNew v4).
+       These rows sit straight on the page canvas — no card, no nested list
+       container — which rules out a border as the separator: a border on a
+       rounded row follows the radius and curls up into the corners. It is an
+       inset hairline between siblings instead, and it is withdrawn on both
+       sides of the selected row so the selection fill is never cut by a line
+       crossing its corner. Selection itself stays the §8.12 static-tier
+       language (active fill + ring + check) — this rule only settles who
+       draws the edge between two rows. */
+    /* Wraps on purpose. Below `sm` the row's trailing attribute ("Can use
+       Claude Pro / Max", "instant · no sign-in needed") is wider than the
+       space left beside the title, so on a phone it takes a line of its own
+       under the detail instead of squeezing the title column to nothing —
+       see OptionRow for the ordering that keeps the check on the first line. */
+    .create-option-row {
+        @apply text-ui relative flex w-full cursor-pointer flex-wrap items-start gap-x-3 gap-y-1 rounded-sm px-3 py-3 text-left transition-colors;
+    }
+
+    .create-option-row + .create-option-row::before {
+        content: '';
+        @apply bg-divider/70 absolute inset-x-3 top-0 h-px;
+    }
+
+    .create-option-row[aria-checked='true']::before,
+    .create-option-row[aria-checked='true'] + .create-option-row::before {
+        @apply bg-transparent;
+    }
+
+    .create-option-row:not([aria-checked='true']):not(:disabled):hover {
+        @apply bg-surface-subtle dark:bg-surface;
+    }
+
+    .create-option-row[aria-checked='true'] {
+        @apply bg-surface-subtle shadow-ring-light dark:bg-surface;
+    }
+
+    .create-option-row:disabled {
+        @apply cursor-not-allowed opacity-55;
+    }
+
+    /* The four-step flow's measure. Narrower than the workspace pages in
+       DESIGN.md §9.1 because this is not a page of data — it is one question
+       and one column of answers, which is form shape, and at workspace width
+       everything that belongs together drifts apart: the four bar cells hold
+       ~70px of text in a 213px column, and a row's trailing cost note ends up
+       642px from the title it qualifies.
+
+       It stops at 768 rather than going down to the form's own ~640, because
+       the bar underneath it has to stay readable: each cell gives its value
+       `cell − 42px` (the side padding plus the pip's gutter), and at 640 that
+       is 119px, which truncates "Manyfold managed", a signed-in email, and
+       the random agent name we generate ourselves. At 768 it is 143px and all
+       three fit. Padding matches the workspace containers so the action bar's
+       negative margins bleed to the same edge. */
+    .create-page {
+        @apply mx-auto w-full max-w-3xl px-5 pt-7 md:px-6 md:pt-8;
+    }
+
+    /* The four-step flow's summary bar (AgentNew v4, wide viewports).
+       One rule, along the bottom, and nothing else: the vertical separators a
+       four-column strip invites are doing the same job as the numbered pip at
+       the head of each cell, and a top rule would only restate the whitespace
+       under the page title. Five hairlines became one, on a page whose option
+       rows and action bar already carry their own.
+
+       No fill and no radius either. Directly below this sits a column of
+       filled, rounded, pressable rows; four filled rounded cells above them
+       would make one shape carry two meanings — "already chosen" and "choose
+       me" — and would outweigh the subject of the page. Hovering a finished
+       cell fills it edge to edge, which reads as a table row rather than a
+       box. */
+    .create-step-bar {
+        @apply border-divider/60 mb-6 hidden border-b md:grid md:grid-cols-4;
+        margin-left: -0.625rem;
+        margin-right: -0.625rem;
+    }
+
+    /* Tight on purpose. On the first screen the bar carries four step names
+       and four empty value lines, and every pixel of its own padding is then
+       pure chrome standing between the page title and the question. The value
+       line keeps its reserved height there rather than collapsing — see
+       StepBar — so the saving has to come from the padding instead. */
+    .create-step-bar-cell {
+        @apply block w-full min-w-0 px-2.5 pb-2 pt-1.5 text-left;
+    }
+
+    .create-step-bar-cell-done {
+        @apply hover:bg-surface-hover cursor-pointer transition-colors;
+    }
+
+    .create-step-bar-cell-done:hover .create-step-bar-value {
+        @apply underline underline-offset-4;
+    }
+
+    /* Busy is not disabled. `workbench-button-primary` dims a disabled button
+       to `opacity-50`, which is right for "you have not met the condition
+       yet" and wrong for "this is working": while a create is in flight the
+       elapsed count inside this button is the only evidence the page is still
+       alive, and rendering that evidence in the dimmest style available is
+       the same dead-control shape this flow keeps having to fix. The button
+       stays unclickable — it is still `disabled` — it just does not pretend
+       to be switched off. */
+    .create-button-busy:disabled {
+        @apply cursor-progress opacity-100;
+    }
+
+    /* The four-step flow's action bar. It sticks to the bottom of the page's
+       scrollport so it never scrolls out from under a nine-row list — the
+       button was previously below the fold on the taller steps, which is what
+       made an extra confirming click feel like a hunt rather than a click.
+       Being permanently on screen also gives the primary button somewhere to
+       say what it will DO, which is why its label changes with the selection
+       instead of always reading "Next".
+
+       `.create-page` carries no bottom padding at all, because a sticky
+       element is held inside its container's padding box and would otherwise
+       float a gap above the viewport edge. */
+    .create-step-actions {
+        @apply border-divider/70 bg-main sticky bottom-0 -mx-5 mt-7 flex flex-wrap items-center gap-3 border-t px-5 py-3.5 md:-mx-6 md:px-6;
+    }
+
+    /* Just the mark — no tile behind it. A fixed box keeps the column of
+       glyphs aligned without adding a second surface to the row. */
+    .create-option-mark {
+        @apply text-subtle mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center;
+    }
+
     .chat-composer-dock {
         /* The composer floats over the chat canvas — no surface band
            below the input. The volume hierarchy (DESIGN.md §2) keeps the
