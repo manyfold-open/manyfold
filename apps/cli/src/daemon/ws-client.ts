@@ -1,4 +1,5 @@
 import WebSocket from 'ws'
+import { randomUUID } from 'node:crypto'
 import {
     DAEMON_CLIENT_FEATURES,
     type DaemonInflightStream,
@@ -29,6 +30,7 @@ export interface WsClientOptions {
     token: string
     daemonUuid: string
     cliVersion: string
+    clientInstanceId?: string
     onWelcome?: (frame: Extract<DaemonWsFrame, { type: 'welcome' }>) => void
     onConnected?: () => void
     onDisconnected?: (reason: string) => void
@@ -43,6 +45,7 @@ const BACKOFF_MAX_MS = 30_000
 // for weeks never reclaimed anything: buffers (each holding a whole turn's
 // output) piled up on the user's disk and every reconnect re-enumerated them.
 const GC_INTERVAL_MS = 60 * 60 * 1000
+const CLIENT_INSTANCE_ID = randomUUID()
 
 export class DaemonWsClient {
     private ws: WebSocket | null = null
@@ -50,13 +53,14 @@ export class DaemonWsClient {
     private reconnectTimer: NodeJS.Timeout | null = null
     private gcTimer: NodeJS.Timeout | null = null
     private backoffMs = BACKOFF_INITIAL_MS
-    private stopped = false
-    private cancelHandlers = new Map<string, () => void>()
+    private stopped = true
 
     constructor(private readonly opts: WsClientOptions) {}
 
     start(): void {
+        if (!this.stopped) return
         this.stopped = false
+        this.backoffMs = BACKOFF_INITIAL_MS
         try {
             recoverCrashedBuffers()
             this.sweepBuffers()
@@ -69,13 +73,17 @@ export class DaemonWsClient {
     }
 
     stop(): void {
+        if (this.stopped) return
         this.stopped = true
         if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
         if (this.gcTimer) {
             clearInterval(this.gcTimer)
             this.gcTimer = null
         }
-        this.cleanupSocket('client stop')
+        const ws = this.ws
+        this.cleanupSocket(ws)
+        if (ws) this.opts.onDisconnected?.('client stop')
     }
 
     // Never let a sweep failure take the daemon down: the buffer is a cache,
@@ -94,14 +102,26 @@ export class DaemonWsClient {
     }
 
     private connect(): void {
+        if (this.stopped || this.ws) return
+        if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+        this.reconnectTimer = null
         const wsUrl = this.opts.apiUrl.replace(/^http/, 'ws')
         const url = `${wsUrl}/daemon/ws`
-        const ws = new WebSocket(url, {
-            headers: { Authorization: `Bearer ${this.opts.token}` }
-        })
+        let ws: WebSocket
+        try {
+            ws = new WebSocket(url, {
+                headers: { Authorization: `Bearer ${this.opts.token}` }
+            })
+        } catch (err) {
+            this.log(`ws connect failed: ${(err as Error).message}`)
+            this.scheduleReconnect()
+            return
+        }
         this.ws = ws
+        const cancelHandlers = new Map<string, () => void>()
 
         ws.on('open', () => {
+            if (this.stopped || this.ws !== ws) return
             this.log('ws connected')
             this.backoffMs = BACKOFF_INITIAL_MS
             // Present-but-empty and absent mean different things to the
@@ -121,6 +141,11 @@ export class DaemonWsClient {
                 type: 'hello',
                 daemonUuid: this.opts.daemonUuid,
                 cliVersion: this.opts.cliVersion,
+                clientProcess: {
+                    instanceId:
+                        this.opts.clientInstanceId ?? CLIENT_INSTANCE_ID,
+                    pid: process.pid
+                },
                 clientFeatures: DAEMON_CLIENT_FEATURES,
                 ...(inflightStreams !== null ? { inflightStreams } : {})
             }
@@ -136,6 +161,7 @@ export class DaemonWsClient {
             this.opts.onConnected?.()
             let lastPingTick = Date.now()
             this.pingTimer = setInterval(() => {
+                if (this.stopped || this.ws !== ws) return
                 const now = Date.now()
                 if (now - lastPingTick > PING_INTERVAL_MS * 2) {
                     this.log(
@@ -155,29 +181,36 @@ export class DaemonWsClient {
         })
 
         ws.on('message', (raw) => {
-            void this.handleFrame(ws, raw).catch((err) =>
+            if (this.stopped || this.ws !== ws) return
+            void this.handleFrame(ws, raw, cancelHandlers).catch((err) =>
                 this.log(`frame error: ${(err as Error).message}`)
             )
         })
 
         ws.on('close', (code, reason) => {
+            if (this.stopped || this.ws !== ws) return
             const why = `code=${code} reason=${reason.toString()}`
             this.log(`ws closed ${why}`)
             if (code === 4400 && reason.toString() === 'missing token')
                 this.log(
                     'daemon header authentication was not accepted; upgrade the API and ensure the proxy forwards Authorization'
                 )
-            this.cleanupSocket(why)
+            this.cleanupSocket(ws)
             this.opts.onDisconnected?.(why)
             this.scheduleReconnect()
         })
 
         ws.on('error', (err) => {
+            if (this.stopped || this.ws !== ws) return
             this.log(`ws error: ${err.message}`)
         })
     }
 
-    private async handleFrame(ws: WebSocket, raw: unknown): Promise<void> {
+    private async handleFrame(
+        ws: WebSocket,
+        raw: unknown,
+        cancelHandlers: Map<string, () => void>
+    ): Promise<void> {
         let frame: DaemonWsFrame
         try {
             const text =
@@ -212,7 +245,11 @@ export class DaemonWsClient {
                     const ctx: RpcContext = {
                         refId: frame.refId,
                         sendEvent: (kind, data, seq) => {
-                            if (ws.readyState !== WebSocket.OPEN)
+                            if (
+                                this.stopped ||
+                                this.ws !== ws ||
+                                ws.readyState !== WebSocket.OPEN
+                            )
                                 throw new Error('ws not open')
                             const ev: DaemonWsFrame = {
                                 type: 'event',
@@ -223,7 +260,7 @@ export class DaemonWsClient {
                             }
                             ws.send(JSON.stringify(ev))
                         },
-                        onCancel: (h) => this.cancelHandlers.set(frame.refId, h)
+                        onCancel: (h) => cancelHandlers.set(frame.refId, h)
                     }
                     try {
                         result = await handler(frame.method, frame.payload, ctx)
@@ -233,7 +270,7 @@ export class DaemonWsClient {
                             error: (err as Error).message
                         }
                     } finally {
-                        this.cancelHandlers.delete(frame.refId)
+                        cancelHandlers.delete(frame.refId)
                     }
                 }
                 const ack: DaemonWsFrame = {
@@ -249,12 +286,12 @@ export class DaemonWsClient {
                 return
             }
             case 'cancel': {
-                const handler = this.cancelHandlers.get(frame.refId)
+                const handler = cancelHandlers.get(frame.refId)
                 if (handler) {
                     try {
                         handler()
                     } catch {}
-                    this.cancelHandlers.delete(frame.refId)
+                    cancelHandlers.delete(frame.refId)
                 }
                 return
             }
@@ -263,24 +300,30 @@ export class DaemonWsClient {
         }
     }
 
-    private cleanupSocket(_reason: string): void {
+    private cleanupSocket(ws: WebSocket | null): void {
+        if (this.ws !== ws) return
+        this.ws = null
         if (this.pingTimer) {
             clearInterval(this.pingTimer)
             this.pingTimer = null
         }
-        if (this.ws) {
+        if (ws) {
             try {
-                this.ws.close()
+                ws.close()
             } catch {}
-            this.ws = null
         }
     }
 
     private scheduleReconnect(): void {
-        if (this.stopped) return
+        if (this.stopped || this.ws || this.reconnectTimer) return
         const delay = Math.min(this.backoffMs, BACKOFF_MAX_MS)
         this.backoffMs = Math.min(this.backoffMs * 2, BACKOFF_MAX_MS)
         this.log(`reconnecting in ${delay}ms`)
-        this.reconnectTimer = setTimeout(() => this.connect(), delay)
+        const timer = setTimeout(() => {
+            if (this.reconnectTimer !== timer) return
+            this.reconnectTimer = null
+            this.connect()
+        }, delay)
+        this.reconnectTimer = timer
     }
 }

@@ -67,6 +67,55 @@ class RegistryDb {
     }
 }
 
+test('connection diagnostics distinguish a reconnect from a different client instance', async (t) => {
+    const registry = makeRegistry([])
+    const logs: string[] = []
+    t.mock.method(
+        (registry as unknown as { log: { log(message: string): void } }).log,
+        'log',
+        (message: string) => logs.push(message)
+    )
+    let replaced = 0
+    const args = {
+        daemonId: 'dh-1',
+        userId: 'user-1',
+        cliVersion: '3.0.1',
+        hostname: 'fixture'
+    }
+    const first = {
+        instanceId: 'a20627b1-3faf-43a3-9609-7facd812e040',
+        pid: 1234
+    }
+    const other = {
+        instanceId: 'b20627b1-3faf-43a3-9609-7facd812e040',
+        pid: 5678
+    }
+    let socket: WsClient
+    for (const clientProcess of [first, first, other, undefined]) {
+        socket = {
+            close: () => {
+                replaced++
+            }
+        } as unknown as WsClient
+        await registry.register({ ...args, socket, clientProcess })
+    }
+    assert.equal(replaced, 3)
+    const connected = logs.filter((message) =>
+        message.startsWith('daemon connected ')
+    )
+    assert.equal(connected.length, 4)
+    for (const [i, kind] of [
+        'none',
+        'same-client',
+        'different-client',
+        'unknown'
+    ].entries())
+        assert.ok(connected[i].includes(`replacementKind=${kind}`))
+    assert.ok(connected[0].includes('clientPid=1234'))
+    assert.ok(connected[2].includes(other.instanceId))
+    await registry.unregister(args.daemonId, socket!)
+})
+
 test('daemon registry forwards rpc to the websocket owner inbox', async () => {
     const published: PublishedBrokerMessage[] = []
     const registry = makeRegistry(published)

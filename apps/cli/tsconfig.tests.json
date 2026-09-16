@@ -12,6 +12,7 @@
     "include": [
         // Ambient module declarations no import can reach.
         "src/agent-help/markdown.d.ts",
+        "src/daemon/native-lock.d.ts",
         "test/**/*"
     ],
     "exclude": ["dist", "node_modules"]

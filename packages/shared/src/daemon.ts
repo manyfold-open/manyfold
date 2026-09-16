@@ -226,11 +226,17 @@ export interface DaemonInflightStream {
     status: DaemonInflightStreamStatus
 }
 
+export interface DaemonClientProcess {
+    instanceId: string
+    pid: number
+}
+
 export type DaemonWsFrame =
     | {
           type: 'hello'
           daemonUuid: string
           cliVersion: string
+          clientProcess?: DaemonClientProcess
           clientFeatures?: string[]
           inflightStreams?: DaemonInflightStream[]
       }

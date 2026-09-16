@@ -14,6 +14,8 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     await fastify.register(websocket)
     const verified: string[] = []
     const registered: string[] = []
+    const clientProcesses: unknown[] = []
+    const helloLogs: string[] = []
     let cliVersion: string | null = '0.34.0'
     const gateway = new DaemonGateway(
         {
@@ -42,13 +44,24 @@ test('daemon websocket requires bearer headers and never verifies query credenti
             touchLastSeen: async () => {}
         } as never,
         {
-            register: async (host: { daemonId: string }) => {
+            register: async (host: {
+                daemonId: string
+                clientProcess?: unknown
+            }) => {
                 registered.push(host.daemonId)
+                clientProcesses.push(host.clientProcess)
             },
             unregister: async () => {},
             recordHelloForSocket: () => null
         } as never,
         {} as never
+    )
+    t.mock.method(
+        (gateway as unknown as { log: { log(message: string): void } }).log,
+        'log',
+        (message: string) => {
+            if (message.startsWith('daemon.ws.hello ')) helloLogs.push(message)
+        }
     )
     gateway.onModuleInit()
     const address = await fastify.listen({ port: 0, host: '127.0.0.1' })
@@ -60,7 +73,9 @@ test('daemon websocket requires bearer headers and never verifies query credenti
     const connect = (
         query: string,
         authorization?: string,
-        processVersion = '0.34.0'
+        processVersion = '0.34.0',
+        clientProcess?: unknown,
+        secondProcess?: unknown
     ): Promise<string | number> =>
         new Promise((resolve, reject) => {
             const client = new WebSocket(
@@ -73,16 +88,27 @@ test('daemon websocket requires bearer headers and never verifies query credenti
                 }
             )
             clients.push(client)
-            client.once('open', () =>
+            client.once('open', () => {
                 client.send(
                     JSON.stringify({
                         type: 'hello',
                         daemonUuid: 'fixture',
                         cliVersion: processVersion,
+                        clientProcess,
                         inflightStreams: []
                     })
                 )
-            )
+                if (secondProcess !== undefined)
+                    client.send(
+                        JSON.stringify({
+                            type: 'hello',
+                            daemonUuid: 'fixture',
+                            cliVersion: processVersion,
+                            clientProcess: secondProcess,
+                            inflightStreams: []
+                        })
+                    )
+            })
             client.once('error', reject)
             client.once('message', (data) => {
                 resolve(JSON.parse(String(data)).type)
@@ -125,4 +151,50 @@ test('daemon websocket requires bearer headers and never verifies query credenti
         2,
         'a downgraded process cannot reuse a newer stored host version'
     )
+    assert.deepEqual(clientProcesses, [undefined, undefined])
+    assert.ok(
+        helloLogs.every(
+            (message) =>
+                message.includes('inflightStreams=0') &&
+                message.includes('clientInstanceId=unknown')
+        )
+    )
+    const firstProcess = {
+        instanceId: 'a20627b1-3faf-43a3-9609-7facd812e040',
+        pid: 1234
+    }
+    const secondProcess = {
+        instanceId: 'b20627b1-3faf-43a3-9609-7facd812e040',
+        pid: 5678
+    }
+    const start = helloLogs.length
+    assert.equal(
+        await connect(
+            '',
+            'Bearer fixture-header',
+            '0.34.0',
+            firstProcess,
+            secondProcess
+        ),
+        'welcome'
+    )
+    assert.deepEqual(clientProcesses.at(-1), firstProcess)
+    assert.ok(
+        helloLogs
+            .slice(start)
+            .every(
+                (message) =>
+                    message.includes(firstProcess.instanceId) &&
+                    !message.includes(secondProcess.instanceId)
+            )
+    )
+    assert.equal(
+        await connect('', 'Bearer fixture-header', '0.34.0', {
+            instanceId: 'bad\nforged=true',
+            pid: -1
+        }),
+        'welcome'
+    )
+    assert.equal(clientProcesses.at(-1), undefined)
+    assert.ok(!helloLogs.some((message) => message.includes('forged')))
 })
