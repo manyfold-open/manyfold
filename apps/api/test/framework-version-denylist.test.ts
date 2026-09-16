@@ -191,6 +191,8 @@ const blockedCatalog = {
 // loadRuntime's db read is the last thing between the policy checks and a real
 // sprite call, so the fake reports whichever CLI the test says is installed.
 const runtimeDb = (frameworkVersion: string) => ({
+    transaction: async (work: (tx: unknown) => Promise<unknown>) =>
+        work({ execute: async () => [{ acquired: true }] }),
     select: () => ({
         from: () => ({
             where: () => ({

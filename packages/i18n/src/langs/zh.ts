@@ -3302,10 +3302,13 @@ const zh: Translations = {
                 running: '更新中',
                 succeeded: '已更新',
                 failed: '失败',
+                deferred: '等待会话结束',
+                deferredDetail: '等待 {{count}} 个活动会话结束。',
                 waiting: '等待限流窗口'
             },
             runningNotice: '更新逐个执行；离开本页后仍会继续。',
             batchSummary: '{{done}} 个已更新 · {{failed}} 个失败',
+            batchSummaryPending: '{{done}} 项已更新 · {{pending}} 项等待完成 · {{failed}} 项失败',
             emptyTitle: '一切都是最新的',
             emptyBody: '你的机器、agent 和 skill 目前没有可用更新。',
             filteredNotice: '仅显示{{kind}}',

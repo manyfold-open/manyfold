@@ -66,6 +66,7 @@ import ProductDialog from '@/components/ProductDialog'
 import RenameDialog from '@/components/RenameDialog'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { useApiClient } from '@/lib/apiClient'
+import { updateRunStore, useIsTargetUpdating } from '@/lib/updateRunStore'
 import {
     GroupByControl,
     type GroupByOption,
@@ -815,6 +816,7 @@ const CliVersionValue: FC<{
                                     onUpgrade(sel || undefined)
                                     setOpen(false)
                                 }}
+                                disabled={busy}
                             >
                                 {t('web.agentRuntimesList.upgrade')}
                             </button>
@@ -835,6 +837,7 @@ const CliVersionValue: FC<{
                                 'web.agentRuntimesList.changeCliVersion'
                             )}
                             value={sel}
+                            disabled={busy}
                             onChange={setSel}
                             options={[
                                 {
@@ -2342,6 +2345,8 @@ const AgentRuntimesList: FC = (): ReactNode => {
         if (!vms || selection?.kind !== 'host') return null
         return vms.find((v) => v.key === selection.key) ?? null
     }, [vms, selection])
+    const queuedHostCli = useIsTargetUpdating(`cli:daemon:${selectedVM?.host?.id}`)
+    const queuedSandboxCli = useIsTargetUpdating(`cli:sandbox:${selectedVM?.sandbox?.id}`)
 
     const handleRefreshSandboxStatus = useCallback(
         async (hostId: string): Promise<void> => {
@@ -2396,6 +2401,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     const handleUpgradeHostCli = useCallback(
         async (hostId: string, targetVersion?: string): Promise<void> => {
+            if (updateRunStore.isTargetUpdating(`cli:daemon:${hostId}`)) return
             setUpgradingCliHostId(hostId)
             setError(null)
             setMessage(null)
@@ -2405,7 +2411,9 @@ const AgentRuntimesList: FC = (): ReactNode => {
                     targetVersion
                 )
                 setMessage(
-                    res.restarting
+                    res.deferred
+                        ? t('web.updates.run.deferredDetail', { count: String(res.activeSessions ?? 0) })
+                        : res.restarting
                         ? t('web.agentRuntimesList.upgradeMessage', {
                               version:
                                   res.toVersion ??
@@ -2429,6 +2437,7 @@ const AgentRuntimesList: FC = (): ReactNode => {
 
     const handleUpgradeSandboxCli = useCallback(
         async (hostId: string, targetVersion?: string): Promise<void> => {
+            if (updateRunStore.isTargetUpdating(`cli:sandbox:${hostId}`)) return
             setUpgradingSandboxCliId(hostId)
             setError(null)
             setMessage(null)
@@ -2614,11 +2623,11 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         cliCatalog={cliCatalog}
                         onUpgradeCli={handleUpgradeHostCli}
                         upgradingCli={
-                            upgradingCliHostId === selectedVM.host?.id
+                            upgradingCliHostId === selectedVM.host?.id || queuedHostCli
                         }
                         onUpgradeSandboxCli={handleUpgradeSandboxCli}
                         upgradingSandboxCli={
-                            upgradingSandboxCliId === selectedVM.sandbox?.id
+                            upgradingSandboxCliId === selectedVM.sandbox?.id || queuedSandboxCli
                         }
                         onDelete={handleDeleteSandbox}
                         onStop={handleStopSandbox}

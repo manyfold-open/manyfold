@@ -47,6 +47,7 @@ import { VersionTag } from '@/components/VersionTag'
 import WorkbenchSelect from '@/components/WorkbenchSelect'
 import { FrameworkLogo, frameworkLabel } from '@/lib/frameworkMeta'
 import { useApiClient } from '@/lib/apiClient'
+import { updateRunStore, useIsTargetUpdating } from '@/lib/updateRunStore'
 import { formatDateTime } from '@/lib/dateFormat'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { openDashboardInPopup } from '@/lib/openDashboard'
@@ -390,6 +391,7 @@ const RuntimeDetailPanel: FC<{
     const [keepAliveError, setKeepAliveError] = useState<string | null>(null)
     const [fwRefreshing, setFwRefreshing] = useState(false)
     const [fwUpgrading, setFwUpgrading] = useState(false)
+    const queuedUpgrade = useIsTargetUpdating(`framework:${runtimeId}`)
     const [fwError, setFwError] = useState<string | null>(null)
     const [fwPickerOpen, setFwPickerOpen] = useState(false)
     const [fwVersions, setFwVersions] = useState<string[] | null>(null)
@@ -568,7 +570,7 @@ const RuntimeDetailPanel: FC<{
 
     const handleUpgradeFramework = async (): Promise<void> => {
         const agent = getPrimaryAgent()
-        if (!agent || !fwTarget || fwUpgrading) return
+        if (!agent || !fwTarget || fwUpgrading || updateRunStore.isTargetUpdating(`framework:${runtimeId}`)) return
         setFwUpgrading(true)
         setFwError(null)
         setFwStep(null)
@@ -1028,6 +1030,7 @@ const RuntimeDetailPanel: FC<{
                                 className='workbench-button-primary'
                                 disabled={
                                     fwUpgrading ||
+                                    queuedUpgrade ||
                                     !fwTarget ||
                                     fwTarget === runtime.frameworkVersion
                                 }

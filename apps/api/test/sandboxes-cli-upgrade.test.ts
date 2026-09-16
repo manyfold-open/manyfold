@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ConflictException } from '@nestjs/common'
 import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
 import type { RunnerRestartOutcome } from '../src/modules/chat/runner/runner-manager.service'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
@@ -49,6 +50,7 @@ const buildHarness = (opts: {
     restartOutcome?: RunnerRestartOutcome
     installExit?: number
     installStdout?: string
+    upgradeInProgress?: boolean
 }) => {
     const host = {
         id: 'sbx_1',
@@ -106,7 +108,10 @@ const buildHarness = (opts: {
         { activeSecondsInPeriodByHost: async () => new Map() } as never,
         {} as never,
         {} as never,
-        {} as never,
+        {
+            transaction: async (work: (tx: unknown) => Promise<unknown>) =>
+                work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
+        } as never,
         runnerManager as never
     )
     svc.execResults.push({
@@ -139,6 +144,14 @@ test('a landed install hands the installed version to the runner restart, over t
     assert.deepEqual(h.svc.execCalls[1].cmd, ['true'])
 
     assert.equal(summary.cliVersion, NEW)
+})
+
+test('a competing CLI upgrade returns 409 before touching the sprite or runner', async () => {
+    const h = buildHarness({ upgradeInProgress: true })
+    await assert.rejects(h.svc.upgradeCli('user_1', 'sbx_1'),
+        (err: unknown) => err instanceof ConflictException && err.getStatus() === 409)
+    assert.equal(h.svc.execCalls.length, 0)
+    assert.equal(h.restartCalls.length, 0)
 })
 
 test('a failed install throws and never touches the runner', async () => {
