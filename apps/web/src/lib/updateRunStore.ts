@@ -2,9 +2,14 @@ import { ApiError, type NcaClient } from '@manyfold/sdk'
 import type { FrameworkUpgradeStep } from '@manyfold/shared'
 import { create } from 'zustand'
 import { apiErrorMessage } from '@/lib/errorMessage'
-import type { BatchStep } from '@/lib/updateCenter'
+import type {
+    BatchStep,
+    UpdateCenterInputs,
+    UpdateRow
+} from '@/lib/updateCenter'
 
-export type RunState = 'pending' | 'running' | 'succeeded' | 'failed'
+export type RunState =
+    'pending' | 'running' | 'succeeded' | 'failed' | 'deferred' | 'installing'
 
 // Structured rather than a string: the page translates and formats these at
 // render time, so a language switch mid-batch re-renders the caption and the
@@ -13,6 +18,8 @@ export type RunDetail =
     | { kind: 'waiting' }
     | { kind: 'phase'; phase: FrameworkUpgradeStep }
     | { kind: 'text'; text: string }
+    | { kind: 'materializing'; revision: string | null; updatedAt: string }
+    | { kind: 'deferred'; activeSessions: number; targetVersion: string | null }
 
 export interface RowRun {
     state: RunState
@@ -24,6 +31,7 @@ export interface UpdateBatch {
     state: 'running' | 'finished'
     succeeded: number
     failed: number
+    awaiting: number
     rowIds: string[]
     startedAt: number
     finishedAt: number | null
@@ -103,17 +111,13 @@ const runSteps = async (
     ): void => {
         if (!stale()) writeRuns(ids, state, detail)
     }
-    let succeeded = 0
-    let failed = 0
     let daemonsThisWindow = 0
     let windowStartedAt = timers.now()
 
     const fail = (ids: string[], err: unknown): void => {
-        failed += ids.length
         setRun(ids, 'failed', { kind: 'text', text: apiErrorMessage(err) })
     }
     const succeed = (ids: string[]): void => {
-        succeeded += ids.length
         setRun(ids, 'succeeded', null)
     }
 
@@ -133,10 +137,17 @@ const runSteps = async (
                             const id = step.rowIds[index]
                             if (id === undefined) return
                             if (item.status === 'installed') {
-                                succeeded += 1
-                                setRun([id], 'succeeded', null)
+                                if (
+                                    item.skill?.materializeStatus ===
+                                    'installing'
+                                )
+                                    setRun([id], 'installing', {
+                                        kind: 'materializing',
+                                        revision: item.skill.installedRevision,
+                                        updatedAt: item.skill.updatedAt
+                                    })
+                                else setRun([id], 'succeeded', null)
                             } else {
-                                failed += 1
                                 setRun(
                                     [id],
                                     'failed',
@@ -173,8 +184,9 @@ const runSteps = async (
                             windowStartedAt = timers.now()
                         daemonsThisWindow += 1
                         const target = step.targetVersion ?? undefined
+                        let response
                         try {
-                            await client.daemons.upgradeHost(
+                            response = await client.daemons.upgradeHost(
                                 step.hostId,
                                 target
                             )
@@ -193,12 +205,18 @@ const runSteps = async (
                             if (stale()) return
                             daemonsThisWindow = 1
                             windowStartedAt = timers.now()
-                            await client.daemons.upgradeHost(
+                            response = await client.daemons.upgradeHost(
                                 step.hostId,
                                 target
                             )
                         }
-                        succeed(ids)
+                        if (response.deferred)
+                            setRun(ids, 'deferred', {
+                                kind: 'deferred',
+                                activeSessions: response.activeSessions ?? 0,
+                                targetVersion: response.toVersion
+                            })
+                        else succeed(ids)
                         break
                     }
                     case 'framework':
@@ -232,16 +250,17 @@ const runSteps = async (
         if (!stale())
             patchBatch({
                 state: 'finished',
-                succeeded,
-                failed,
+                ...batchCounts(
+                    useUpdateRunState.getState().runs,
+                    useUpdateRunState.getState().batch?.rowIds ?? []
+                ),
                 finishedAt: timers.now()
             })
     }
 }
 
-// One batch at a time: the runs map is replaced, not merged, so the summary
-// and the row tags always describe the same run. Returns false when nothing
-// was started.
+// One batch at a time. Keep accepted work awaiting server confirmation across
+// batches; counters describe only the latest batch's rowIds.
 const start = (
     client: NcaClient,
     steps: BatchStep[],
@@ -249,8 +268,18 @@ const start = (
 ): boolean => {
     if (steps.length === 0) return false
     if (useUpdateRunState.getState().batch?.state === 'running') return false
+    if (
+        rowIds.some((id) =>
+            isTargetUpdating(useUpdateRunState.getState().runs, id)
+        )
+    )
+        return false
     batchSeq += 1
-    const runs: Record<string, RowRun> = {}
+    const runs: Record<string, RowRun> = Object.fromEntries(
+        Object.entries(useUpdateRunState.getState().runs).filter(
+            ([, run]) => run.state === 'deferred' || run.state === 'installing'
+        )
+    )
     for (const id of rowIds) runs[id] = { state: 'pending', detail: null }
     useUpdateRunState.setState({
         batch: {
@@ -258,6 +287,7 @@ const start = (
             state: 'running',
             succeeded: 0,
             failed: 0,
+            awaiting: 0,
             rowIds,
             startedAt: timers.now(),
             finishedAt: null
@@ -282,10 +312,118 @@ export const useUpdateBatch = (): UpdateBatch | null =>
 export const useIsUpdateBatchRunning = (): boolean =>
     useUpdateRunState((state) => state.batch?.state === 'running')
 
+export const isTargetUpdating = (
+    runs: Record<string, RowRun>,
+    targetKey: string
+): boolean => {
+    const state = runs[targetKey]?.state
+    return state === 'pending' || state === 'running' || state === 'installing'
+}
+
+export const useIsTargetUpdating = (targetKey: string): boolean =>
+    useUpdateRunState((state) => isTargetUpdating(state.runs, targetKey))
+
+// A live attempt may be retrying an older failure. reconcile() accepts only
+// snapshots for that attempt; server state otherwise outranks stale success.
+export const effectiveUpdateRun = (
+    row: UpdateRow,
+    run?: RowRun
+): RowRun | undefined => {
+    if (
+        run?.state === 'pending' ||
+        run?.state === 'running' ||
+        run?.state === 'installing'
+    )
+        return run
+    if (row.materialization)
+        return {
+            state: row.materialization.status,
+            detail: row.materialization.error
+                ? { kind: 'text', text: row.materialization.error }
+                : null
+        }
+    return run
+}
+
+const batchCounts = (runs: Record<string, RowRun>, rowIds: string[]) => ({
+    succeeded: rowIds.filter((id) => runs[id]?.state === 'succeeded').length,
+    failed: rowIds.filter((id) => runs[id]?.state === 'failed').length,
+    awaiting: rowIds.filter(
+        (id) =>
+            runs[id]?.state === 'deferred' || runs[id]?.state === 'installing'
+    ).length
+})
+
+const reconcile = (
+    inputs: Partial<Pick<UpdateCenterInputs, 'daemonHosts' | 'skillGroups'>>
+): void => {
+    useUpdateRunState.setState((prev) => {
+        const runs = { ...prev.runs }
+        let changed = false
+        for (const host of inputs.daemonHosts ?? []) {
+            const id = `cli:daemon:${host.id}`
+            const run = runs[id]
+            if (
+                run?.state === 'deferred' &&
+                run.detail?.kind === 'deferred' &&
+                run.detail.targetVersion &&
+                host.cliVersion === run.detail.targetVersion
+            ) {
+                runs[id] = { state: 'succeeded', detail: null }
+                changed = true
+            }
+        }
+        for (const group of inputs.skillGroups ?? []) {
+            for (const skill of group.skills) {
+                for (const kind of ['skill', 'cliUsage']) {
+                    const id = `${kind}:${skill.agentId}:${skill.skillId}`
+                    if (
+                        runs[id]?.state !== 'installing' ||
+                        skill.materializeStatus === 'installing'
+                    )
+                        continue
+                    const detail = runs[id].detail
+                    if (
+                        detail?.kind === 'materializing' &&
+                        ((detail.revision &&
+                            detail.revision !== skill.installedRevision) ||
+                            Date.parse(skill.updatedAt) <
+                                Date.parse(detail.updatedAt))
+                    )
+                        continue
+                    runs[id] =
+                        skill.materializeStatus === 'failed'
+                            ? {
+                                  state: 'failed',
+                                  detail: skill.materializeError
+                                      ? {
+                                            kind: 'text',
+                                            text: skill.materializeError
+                                        }
+                                      : null
+                              }
+                            : { state: 'succeeded', detail: null }
+                    changed = true
+                }
+            }
+        }
+        if (!changed) return prev
+        return {
+            runs,
+            batch: prev.batch
+                ? { ...prev.batch, ...batchCounts(runs, prev.batch.rowIds) }
+                : null
+        }
+    })
+}
+
 export const updateRunStore = {
     start,
     clear,
     setTimers,
+    reconcile,
+    isTargetUpdating: (targetKey: string): boolean =>
+        isTargetUpdating(useUpdateRunState.getState().runs, targetKey),
     getState: (): UpdateRunState => useUpdateRunState.getState()
 }
 

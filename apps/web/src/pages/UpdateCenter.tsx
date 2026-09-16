@@ -46,6 +46,8 @@ import {
 } from '@/lib/updateCenter'
 import {
     updateRunStore,
+    effectiveUpdateRun,
+    isTargetUpdating,
     useIsUpdateBatchRunning,
     useUpdateBatch,
     useUpdateRuns,
@@ -146,14 +148,18 @@ const RowStatus: FC<{ row: UpdateRow; run: RowRun | undefined }> = ({
                 ? 'success'
                 : run.state === 'failed'
                   ? 'error'
-                  : run.state === 'running'
-                    ? 'info'
-                    : 'idle'
+                  : run.state === 'deferred'
+                    ? 'warning'
+                    : run.state === 'running' || run.state === 'installing'
+                      ? 'info'
+                      : 'idle'
         return (
             <StatusTag
                 tone={tone}
-                pulse={run.state === 'running'}
-                label={t(`web.updates.run.${run.state}`)}
+                pulse={run.state === 'running' || run.state === 'installing'}
+                label={t(
+                    `web.updates.run.${run.state === 'installing' ? 'running' : run.state}`
+                )}
             />
         )
     }
@@ -177,10 +183,18 @@ const rowDetail = (
 ): { text: string; error: boolean } | null => {
     if (run) {
         if (run.detail === null) return null
+        if (run.detail.kind === 'materializing') return null
         if (run.detail.kind === 'waiting')
             return { text: t('web.updates.run.waiting'), error: false }
         if (run.detail.kind === 'phase')
             return { text: run.detail.phase.replace(/_/g, ' '), error: false }
+        if (run.detail.kind === 'deferred')
+            return {
+                text: t('web.updates.run.deferredDetail', {
+                    count: String(run.detail.activeSessions)
+                }),
+                error: false
+            }
         return { text: run.detail.text, error: run.state === 'failed' }
     }
     // Names the blocked range the INSTALLED version sits inside, which is why
@@ -227,7 +241,7 @@ const RowAction: FC<{
             onClick={() => onRun(row)}
             className='workbench-button-secondary h-8 px-3'
         >
-            {t('web.updates.updateOne')}
+            {t(row.materialization?.status === 'failed' ? 'web.skills.retryAction' : 'web.updates.updateOne')}
         </button>
     )
 }
@@ -305,7 +319,7 @@ const UpdateCenter: FC = (): ReactNode => {
     useEffect(() => {
         setSelected((prev) => {
             if (prev.size === 0) return prev
-            const live = new Set(allRows.map((r) => r.id))
+            const live = new Set(allRows.filter((r) => r.materialization?.status !== 'installing').map((r) => r.id))
             const next = new Set([...prev].filter((id) => live.has(id)))
             return next.size === prev.size ? prev : next
         })
@@ -340,7 +354,8 @@ const UpdateCenter: FC = (): ReactNode => {
         void refresh()
     }, [batch, refresh])
 
-    const selectableRows = rows.filter((row) => row.blocker === null)
+    const selectableRows = rows.filter((row) => row.blocker === null &&
+        row.materialization?.status !== 'installing' && !isTargetUpdating(runs, row.id))
     const selectedRows = allRows.filter((row) => selected.has(row.id))
     const allSelectableSelected =
         selectableRows.length > 0 &&
@@ -396,7 +411,7 @@ const UpdateCenter: FC = (): ReactNode => {
 
     return (
         <div className='workbench-page-wide'>
-            <div className='mb-4 flex items-start justify-between gap-4'>
+            <div className='mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
                 <div>
                     <h1 className='text-h2 text-fg'>{t('web.updates.title')}</h1>
                     <p className='text-caption text-muted mt-1'>
@@ -476,8 +491,9 @@ const UpdateCenter: FC = (): ReactNode => {
                 )}
                 {batch?.state === 'finished' && (
                     <span className='text-caption text-muted'>
-                        {t('web.updates.batchSummary', {
+                        {t(batch.awaiting > 0 ? 'web.updates.batchSummaryPending' : 'web.updates.batchSummary', {
                             done: String(batch.succeeded),
+                            pending: String(batch.awaiting),
                             failed: String(batch.failed)
                         })}
                     </span>
@@ -636,7 +652,8 @@ const UpdateCenter: FC = (): ReactNode => {
                                                         targetIcons[
                                                             row.targetKind
                                                         ]
-                                                    const run = runs[row.id]
+                                                    const run = effectiveUpdateRun(row, runs[row.id])
+                                                    const rowBusy = running || run?.state === 'installing'
                                                     const detail = rowDetail(
                                                         row,
                                                         run,
@@ -658,7 +675,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                                             row.id
                                                                         )}
                                                                         disabled={
-                                                                            running ||
+                                                                            rowBusy ||
                                                                             row.blocker !==
                                                                                 null
                                                                         }
@@ -727,7 +744,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                                             row
                                                                         )}
                                                                         disabled={
-                                                                            running
+                                                                            rowBusy
                                                                         }
                                                                         onPick={(
                                                                             version
@@ -755,7 +772,7 @@ const UpdateCenter: FC = (): ReactNode => {
                                                                             row
                                                                         }
                                                                         busy={
-                                                                            running
+                                                                            rowBusy
                                                                         }
                                                                         onRun={
                                                                             runOne

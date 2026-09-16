@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { ConflictException } from '@nestjs/common'
 import type { ExecOptions, ExecResult, SpritesClient } from '@manyfold/sprites'
 import { SandboxesService } from '../src/modules/sandboxes/sandboxes.service'
 
@@ -44,6 +45,7 @@ const buildHarness = (opts: {
     catalog?: boolean
     installExit?: number
     probed?: string
+    upgradeInProgress?: boolean
 }) => {
     const host = {
         id: 'sbx_1',
@@ -115,7 +117,10 @@ const buildHarness = (opts: {
         { activeSecondsInPeriodByHost: async () => new Map() } as never,
         {} as never,
         {} as never,
-        {} as never,
+        {
+            transaction: async (work: (tx: unknown) => Promise<unknown>) =>
+                work({ execute: async () => [{ acquired: !opts.upgradeInProgress }] })
+        } as never,
         {} as never,
         frameworkVersions as never
     )
@@ -147,6 +152,13 @@ test('installing a framework runs the staged npm shell for the catalog latest, r
         ['claude-code@2.1.300', 'codex@0.60.0']
     )
     assert.equal(h.persisted.cli, '0.34.0')
+})
+
+test('a competing framework install returns 409 before touching the sprite', async () => {
+    const h = buildHarness({ upgradeInProgress: true })
+    await assert.rejects(h.svc.installFramework('user_1', 'sbx_1', 'claude-code'),
+        (err: unknown) => err instanceof ConflictException && err.getStatus() === 409)
+    assert.equal(h.svc.execCalls.length, 0)
 })
 
 test('an explicit target must be in the catalog; a bare "v" prefix is tolerated', async () => {

@@ -34,6 +34,7 @@ import {
     type SpritesClient
 } from '@manyfold/sprites'
 import { DRIZZLE } from '@/db/tokens'
+import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { AgentsService } from '@/modules/agents/agents.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
@@ -131,43 +132,59 @@ export class FrameworkUpgradeService {
             catalog.blocked
         )
 
-        const shell = buildNpmUpgradeShell(descriptor, targetVersion)
-        this.log.log(
-            `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
+        return withRuntimeUpgradeLock(
+            this.db,
+            {
+                accountId: agent.accountId ?? runtime.accountId ?? '',
+                spriteName,
+                component: agent.framework
+            },
+            async () => {
+                const shell = buildNpmUpgradeShell(descriptor, targetVersion)
+                this.log.log(
+                    `upgrading ${agent.framework} on agent ${agent.id} to ${targetVersion}`
+                )
+                const client = await this.spriteClientFor(agent, runtime)
+                const result = await execSprite(client, spriteName, {
+                    cmd: ['bash', '-lc', shell],
+                    stdin: '',
+                    timeoutMs: UPGRADE_TIMEOUT_MS
+                })
+                if (result.exitCode !== 0)
+                    throw new InternalServerErrorException(
+                        `framework upgrade install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
+                    )
+
+                // Daemons run a long-lived service off the upgraded binary; restart it
+                // so the new version takes effect. env is unchanged so a plain restart
+                // is safe (the env-not-propagated caveat only bites on env changes).
+                if (
+                    descriptor.runtimeKind === 'daemon' &&
+                    descriptor.serviceName
+                )
+                    await client.restartService(
+                        spriteName,
+                        descriptor.serviceName
+                    )
+
+                // Re-probe persists the new version. Assert it actually changed —
+                // catches the case where a pre-installed binary still shadows the
+                // freshly npm-installed one (see buildNpmUpgradeShell). Daemons whose
+                // CLI has no `--version` report null; don't hard-fail those (install +
+                // restart already succeeded), but a NON-null mismatch is still a hard
+                // failure for every framework.
+                const installed = await this.probe.probeAndPersist(agent)
+                const verifiedOk =
+                    installed === targetVersion ||
+                    (installed === null && descriptor.runtimeKind === 'daemon')
+                if (!verifiedOk)
+                    throw new InternalServerErrorException(
+                        `framework upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed ?? 'unknown'}`
+                    )
+
+                return this.agents.get(agentId, callerUserId, isAdmin)
+            }
         )
-        const client = await this.spriteClientFor(agent, runtime)
-        const result = await execSprite(client, spriteName, {
-            cmd: ['bash', '-lc', shell],
-            stdin: '',
-            timeoutMs: UPGRADE_TIMEOUT_MS
-        })
-        if (result.exitCode !== 0)
-            throw new InternalServerErrorException(
-                `framework upgrade install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
-            )
-
-        // Daemons run a long-lived service off the upgraded binary; restart it
-        // so the new version takes effect. env is unchanged so a plain restart
-        // is safe (the env-not-propagated caveat only bites on env changes).
-        if (descriptor.runtimeKind === 'daemon' && descriptor.serviceName)
-            await client.restartService(spriteName, descriptor.serviceName)
-
-        // Re-probe persists the new version. Assert it actually changed —
-        // catches the case where a pre-installed binary still shadows the
-        // freshly npm-installed one (see buildNpmUpgradeShell). Daemons whose
-        // CLI has no `--version` report null; don't hard-fail those (install +
-        // restart already succeeded), but a NON-null mismatch is still a hard
-        // failure for every framework.
-        const installed = await this.probe.probeAndPersist(agent)
-        const verifiedOk =
-            installed === targetVersion ||
-            (installed === null && descriptor.runtimeKind === 'daemon')
-        if (!verifiedOk)
-            throw new InternalServerErrorException(
-                `framework upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed ?? 'unknown'}`
-            )
-
-        return this.agents.get(agentId, callerUserId, isAdmin)
     }
 
     // Heavy "rebuild" upgrade (narranexus): stop service → re-clone+build at the
@@ -181,7 +198,6 @@ export class FrameworkUpgradeService {
         isAdmin: boolean,
         emitter: FrameworkUpgradeEmitter
     ): Promise<AgentSummary> {
-        emitter.step('validating')
         const agent = await this.agents.findForCaller(
             agentId,
             callerUserId,
@@ -229,117 +245,128 @@ export class FrameworkUpgradeService {
             catalog.blocked
         )
 
-        const client = await this.spriteClientFor(agent, runtime)
-        // Resolved next to the catalog read above: the whitelist that admitted
-        // `targetVersion` and the repository about to be cloned must be the
-        // same one, or an admin switching source mid-upgrade would clone a tag
-        // that does not exist there.
-        const shells = this.rebuildShellsFor(
-            agent.framework,
-            targetVersion,
-            await this.versions.repoFor(framework)
-        )
-        // Dashboard topology: proxy + dashboard serve out of (and route to)
-        // the checkout the rebuild is about to replace — stop them first and
-        // bring them back after, rebuilding web_dist which vanishes with the
-        // old checkout.
-        const dashboardTopology =
-            framework === 'hermes' && runtime.dashboardEnabled
-
-        emitter.step('stopping_service')
-        if (dashboardTopology) {
-            await client
-                .stopService(spriteName, HERMES_PROXY_SERVICE)
-                .catch(() => undefined)
-            await client
-                .stopService(spriteName, HERMES_DASHBOARD_SERVICE)
-                .catch(() => undefined)
-        }
-        await client
-            .stopService(spriteName, serviceName)
-            .catch(() => undefined)
-
-        emitter.step('rebuilding')
-        const rebuild = await execSprite(client, spriteName, {
-            cmd: ['bash', '-lc', shells.rebuild],
-            stdin: '',
-            timeoutMs: REBUILD_TIMEOUT_MS
-        })
-        if (rebuild.exitCode !== 0) {
-            // roll back to the pre-upgrade checkout, bring the old version back up
-            await execSprite(client, spriteName, {
-                cmd: ['bash', '-lc', shells.restore],
-                stdin: '',
-                timeoutMs: RESTORE_TIMEOUT_MS
-            }).catch(() => undefined)
-            await client
-                .startService(spriteName, serviceName)
-                .catch(() => undefined)
-            if (dashboardTopology) {
-                // Restored checkout still has its web_dist; just restart the
-                // stopped services so chat routing (proxy) comes back.
-                await client
-                    .startService(spriteName, HERMES_DASHBOARD_SERVICE)
-                    .catch(() => undefined)
-                await client
-                    .startService(spriteName, HERMES_PROXY_SERVICE)
-                    .catch(() => undefined)
-            }
-            throw new InternalServerErrorException(
-                `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
-            )
-        }
-
-        emitter.step('starting_service')
-        const state = await client.startService(spriteName, serviceName)
-        if (state.state.status === 'failed')
-            throw new InternalServerErrorException(
-                `${agent.framework} service failed to start after upgrade: ${state.state.error ?? 'unknown'}`
-            )
-        if (dashboardTopology) {
-            // The new checkout ships no web_dist — rebuild it, then bring the
-            // dashboard + proxy back. The proxy is started even if the UI
-            // build failed: it owns the public http_port, so chat routing
-            // must recover regardless; a dist-less dashboard just 404s.
-            const uiBuild = await execSprite(client, spriteName, {
-                cmd: ['bash', '-lc', HERMES_WEB_BUILD_SHELL],
-                stdin: '',
-                timeoutMs: HERMES_WEB_BUILD_TIMEOUT_MS
-            }).catch((err: unknown) => ({
-                exitCode: -1,
-                stderr: (err as Error).message
-            }))
-            await client
-                .startService(spriteName, HERMES_DASHBOARD_SERVICE)
-                .catch(() => undefined)
-            const proxyState = await client.startService(
+        return withRuntimeUpgradeLock(
+            this.db,
+            {
+                accountId: agent.accountId ?? runtime.accountId ?? '',
                 spriteName,
-                HERMES_PROXY_SERVICE
-            )
-            if (proxyState.state.status === 'failed')
-                throw new InternalServerErrorException(
-                    `hermes front proxy failed to start after upgrade: ${proxyState.state.error ?? 'unknown'}`
+                component: agent.framework
+            },
+            async () => {
+                emitter.step('validating')
+                const client = await this.spriteClientFor(agent, runtime)
+                // Resolved next to the catalog read above: the whitelist that admitted
+                // `targetVersion` and the repository about to be cloned must be the
+                // same one, or an admin switching source mid-upgrade would clone a tag
+                // that does not exist there.
+                const shells = this.rebuildShellsFor(
+                    agent.framework,
+                    targetVersion,
+                    await this.versions.repoFor(framework)
                 )
-            if (uiBuild.exitCode !== 0)
-                throw new InternalServerErrorException(
-                    `hermes web UI rebuild failed after upgrade (exit ${uiBuild.exitCode}): ${uiBuild.stderr.slice(0, 512)}`
-                )
-        }
+                // Dashboard topology: proxy + dashboard serve out of (and route to)
+                // the checkout the rebuild is about to replace — stop them first and
+                // bring them back after, rebuilding web_dist which vanishes with the
+                // old checkout.
+                const dashboardTopology =
+                    framework === 'hermes' && runtime.dashboardEnabled
 
-        emitter.step('verifying')
-        const installed = await this.probe.probeAndPersist(agent)
-        // probe reports the git tag (e.g. 1.8.3 / 2026.6.5 / 1.15.1-rc.1); target
-        // may carry a leading v. Precedence-aware, or a rebuild asked for a
-        // prerelease and handed back its stable release would verify clean.
-        if (
-            installed !== null &&
-            compareSemverPrecedence(installed, targetVersion) !== 0
+                emitter.step('stopping_service')
+                if (dashboardTopology) {
+                    await client
+                        .stopService(spriteName, HERMES_PROXY_SERVICE)
+                        .catch(() => undefined)
+                    await client
+                        .stopService(spriteName, HERMES_DASHBOARD_SERVICE)
+                        .catch(() => undefined)
+                }
+                await client
+                    .stopService(spriteName, serviceName)
+                    .catch(() => undefined)
+
+                emitter.step('rebuilding')
+                const rebuild = await execSprite(client, spriteName, {
+                    cmd: ['bash', '-lc', shells.rebuild],
+                    stdin: '',
+                    timeoutMs: REBUILD_TIMEOUT_MS
+                })
+                if (rebuild.exitCode !== 0) {
+                    // roll back to the pre-upgrade checkout, bring the old version back up
+                    await execSprite(client, spriteName, {
+                        cmd: ['bash', '-lc', shells.restore],
+                        stdin: '',
+                        timeoutMs: RESTORE_TIMEOUT_MS
+                    }).catch(() => undefined)
+                    await client
+                        .startService(spriteName, serviceName)
+                        .catch(() => undefined)
+                    if (dashboardTopology) {
+                        // Restored checkout still has its web_dist; just restart the
+                        // stopped services so chat routing (proxy) comes back.
+                        await client
+                            .startService(spriteName, HERMES_DASHBOARD_SERVICE)
+                            .catch(() => undefined)
+                        await client
+                            .startService(spriteName, HERMES_PROXY_SERVICE)
+                            .catch(() => undefined)
+                    }
+                    throw new InternalServerErrorException(
+                        `${agent.framework} rebuild failed (exit ${rebuild.exitCode}): ${rebuild.stderr.slice(0, 512)}`
+                    )
+                }
+
+                emitter.step('starting_service')
+                const state = await client.startService(spriteName, serviceName)
+                if (state.state.status === 'failed')
+                    throw new InternalServerErrorException(
+                        `${agent.framework} service failed to start after upgrade: ${state.state.error ?? 'unknown'}`
+                    )
+                if (dashboardTopology) {
+                    // The new checkout ships no web_dist — rebuild it, then bring the
+                    // dashboard + proxy back. The proxy is started even if the UI
+                    // build failed: it owns the public http_port, so chat routing
+                    // must recover regardless; a dist-less dashboard just 404s.
+                    const uiBuild = await execSprite(client, spriteName, {
+                        cmd: ['bash', '-lc', HERMES_WEB_BUILD_SHELL],
+                        stdin: '',
+                        timeoutMs: HERMES_WEB_BUILD_TIMEOUT_MS
+                    }).catch((err: unknown) => ({
+                        exitCode: -1,
+                        stderr: (err as Error).message
+                    }))
+                    await client
+                        .startService(spriteName, HERMES_DASHBOARD_SERVICE)
+                        .catch(() => undefined)
+                    const proxyState = await client.startService(
+                        spriteName,
+                        HERMES_PROXY_SERVICE
+                    )
+                    if (proxyState.state.status === 'failed')
+                        throw new InternalServerErrorException(
+                            `hermes front proxy failed to start after upgrade: ${proxyState.state.error ?? 'unknown'}`
+                        )
+                    if (uiBuild.exitCode !== 0)
+                        throw new InternalServerErrorException(
+                            `hermes web UI rebuild failed after upgrade (exit ${uiBuild.exitCode}): ${uiBuild.stderr.slice(0, 512)}`
+                        )
+                }
+
+                emitter.step('verifying')
+                const installed = await this.probe.probeAndPersist(agent)
+                // probe reports the git tag (e.g. 1.8.3 / 2026.6.5 / 1.15.1-rc.1); target
+                // may carry a leading v. Precedence-aware, or a rebuild asked for a
+                // prerelease and handed back its stable release would verify clean.
+                if (
+                    installed !== null &&
+                    compareSemverPrecedence(installed, targetVersion) !== 0
+                )
+                    throw new InternalServerErrorException(
+                        `${agent.framework} upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed}`
+                    )
+
+                return this.agents.get(agentId, callerUserId, isAdmin)
+            }
         )
-            throw new InternalServerErrorException(
-                `${agent.framework} upgrade verification mismatch: expected ${targetVersion}, sprite reports ${installed}`
-            )
-
-        return this.agents.get(agentId, callerUserId, isAdmin)
     }
 
     // Per-framework rebuild + rollback shells for the streamed upgrade. Both

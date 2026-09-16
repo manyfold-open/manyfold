@@ -29,6 +29,7 @@ import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcil
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
+import { SkillsService } from '@/modules/skills/skills.service'
 import {
     normalizeWorkspacePathInput,
     workspaceExtras
@@ -69,6 +70,7 @@ export class RuntimeAgentAttachService {
         private readonly adapterRegistry: AgentAdapterRegistry,
         private readonly reconcile: AgentReconcileService,
         private readonly credentialsResolver: CredentialsResolverService,
+        private readonly skills: SkillsService,
         @Optional()
         private readonly modelConfig?: AgentModelConfigService
     ) {}
@@ -245,6 +247,12 @@ export class RuntimeAgentAttachService {
                             .limit(1)
                     )[0] ?? inserted
             }
+            await this.skills.installDefaults({
+                userId: inserted.userId,
+                agentId: inserted.id,
+                framework: inserted.framework,
+                runtime: inserted.runtime
+            })
             return agentRowToSummary(inserted, null, false, {
                 controlUiEnabled: runtime.controlUiEnabled,
                 dashboardEnabled: runtime.dashboardEnabled,

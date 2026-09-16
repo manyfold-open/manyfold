@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom'
 import * as Sentry from '@sentry/react'
 import { useAppAuth } from '@/lib/auth'
+import { browserTelemetry } from '@/lib/axiom'
 import {
     scrubSentryBreadcrumb,
     scrubSentryEvent,
@@ -40,7 +41,8 @@ if (dsn) {
         // server-side would re-parent the API's root spans and reshape the
         // traces the Axiom dashboards are built on.
         tracePropagationTargets: [],
-        beforeSend: scrubSentryEvent,
+        beforeSend: (event, hint) =>
+            browserTelemetry.beforeSend(scrubSentryEvent(event), hint),
         beforeSendTransaction: scrubSentryEvent,
         beforeSendSpan: scrubSentrySpan,
         beforeBreadcrumb: scrubSentryBreadcrumb

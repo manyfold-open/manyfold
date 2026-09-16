@@ -99,6 +99,7 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
     const service = new SkillsService(
         db,
         discovery as never,
+        {} as never,
         {} as never
     )
     const categories = new CatalogCategoriesService(db)

@@ -452,19 +452,41 @@ test('the platform CLI-usage skill is its own kind, other skills are not', () =>
     assert.equal(rows[0].id, `cliUsage:agt_1:${MANYFOLD_CLI_USAGE_SKILL_ID}`)
 })
 
-test('a skill at the same revision, readonly, still installing, or missing a revision is not an update', () => {
+test('a completed skill at the same revision, readonly, or missing a revision is not an update', () => {
     const rows = build({
         skillGroups: [
             skillGroup('agt_1', 'Alpha', [
                 makeSkill({ latestRevision: 'aaaaaaaaaaaa' }),
                 makeSkill({ readonly: true }),
-                makeSkill({ materializeStatus: 'installing' }),
                 makeSkill({ latestRevision: null }),
                 makeSkill({ installedRevision: null })
             ])
         ]
     })
     assert.deepEqual(rows, [])
+})
+
+test('installing and failed materializations stay visible even at the latest revision', () => {
+    for (const status of ['installing', 'failed'] as const) {
+        const rows = build({
+            skillGroups: [
+                skillGroup('agt_1', 'Alpha', [
+                    makeSkill({
+                        materializeStatus: status,
+                        latestRevision: 'aaaaaaaaaaaa',
+                        materializeError:
+                            status === 'failed' ? 'download failed' : null
+                    })
+                ])
+            ]
+        })
+        assert.equal(rows.length, 1)
+        assert.deepEqual(rows[0].materialization, {
+            status,
+            error: status === 'failed' ? 'download failed' : null
+        })
+        assert.equal(planBatch(rows).length, status === 'installing' ? 0 : 1)
+    }
 })
 
 test('a skill compares revisions on both sides, even when it records a version', () => {

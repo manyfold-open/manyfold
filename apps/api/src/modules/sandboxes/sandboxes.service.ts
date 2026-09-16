@@ -58,6 +58,7 @@ import {
 } from '@/modules/agents/agents.service'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { DRIZZLE } from '@/db/tokens'
+import { withRuntimeUpgradeLock } from '@/common/runtime-upgrade-lock'
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
 import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-duration/sandbox-active-duration.service'
 import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprites-provisioner'
@@ -371,49 +372,63 @@ export class SandboxesService {
             channel = (await this.cliVersion.getCachedLatest()).channel
         }
         const spriteName = host.spriteName
-        const client = this.spritesClientFor(account)
-        const exec = (opts: {
-            cmd: string[]
-            stdin?: string
-            timeoutMs: number
-        }): Promise<ExecResult> => this.exec(client, spriteName, opts)
-        const shell = [
-            buildCliInstallScript(channel, targetVersion),
-            'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"'
-        ].join('\n')
-        const result = await exec({
-            cmd: ['bash', '-lc', shell],
-            stdin: '',
-            timeoutMs: CLI_UPGRADE_TIMEOUT_MS
-        }).catch((err: Error) => {
-            throw new ServiceUnavailableException(
-                `mf CLI upgrade failed: ${err.message}`
-            )
-        })
-        const mfLine = `${result.stdout}\n${result.stderr}`
-            .split('\n')
-            .find((l) => l.startsWith('mf-upgraded='))
-        const installed = parseProbedSemver(
-            mfLine ? mfLine.slice('mf-upgraded='.length) : ''
+        return withRuntimeUpgradeLock(
+            this.db,
+            {
+                accountId: host.accountId,
+                spriteName,
+                component: 'mf-cli'
+            },
+            async () => {
+                const client = this.spritesClientFor(account)
+                const exec = (opts: {
+                    cmd: string[]
+                    stdin?: string
+                    timeoutMs: number
+                }): Promise<ExecResult> => this.exec(client, spriteName, opts)
+                const shell = [
+                    buildCliInstallScript(channel, targetVersion),
+                    'echo "mf-upgraded=$("$HOME/.local/bin/mf" --version 2>/dev/null | head -1)"'
+                ].join('\n')
+                const result = await exec({
+                    cmd: ['bash', '-lc', shell],
+                    stdin: '',
+                    timeoutMs: CLI_UPGRADE_TIMEOUT_MS
+                }).catch((err: Error) => {
+                    throw new ServiceUnavailableException(
+                        `mf CLI upgrade failed: ${err.message}`
+                    )
+                })
+                const mfLine = `${result.stdout}\n${result.stderr}`
+                    .split('\n')
+                    .find((l) => l.startsWith('mf-upgraded='))
+                const installed = parseProbedSemver(
+                    mfLine ? mfLine.slice('mf-upgraded='.length) : ''
+                )
+                if (result.exitCode !== 0 || !installed)
+                    throw new ServiceUnavailableException(
+                        `mf CLI upgrade did not complete on ${host.spriteName}`
+                    )
+                await this.runtimes.setSandboxCliVersion(
+                    owner,
+                    hostId,
+                    installed
+                )
+                // The binary is swapped; a runner process that is up still runs the old
+                // one and keeps heartbeating its version and features. Its outcome is
+                // logged, never thrown: the upgrade itself has landed.
+                const runner = await this.runnerManager.restartForInstalledCli({
+                    userId: owner,
+                    spriteName,
+                    exec,
+                    installedVersion: installed
+                })
+                this.log.log(
+                    `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
+                )
+                return this.get(owner, hostId)
+            }
         )
-        if (result.exitCode !== 0 || !installed)
-            throw new ServiceUnavailableException(
-                `mf CLI upgrade did not complete on ${host.spriteName}`
-            )
-        await this.runtimes.setSandboxCliVersion(owner, hostId, installed)
-        // The binary is swapped; a runner process that is up still runs the old
-        // one and keeps heartbeating its version and features. Its outcome is
-        // logged, never thrown: the upgrade itself has landed.
-        const runner = await this.runnerManager.restartForInstalledCli({
-            userId: owner,
-            spriteName,
-            exec,
-            installedVersion: installed
-        })
-        this.log.log(
-            `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
-        )
-        return this.get(owner, hostId)
     }
 
     // Install (or move to a version of) one of the sprite image's coding CLIs
@@ -464,58 +479,68 @@ export class SandboxesService {
             ? buildNpmUpgradeShell(descriptor, target)
             : buildNpmLatestInstallShell(descriptor)
         const spriteName = host.spriteName
-        const client = this.spritesClientFor(account)
-        const result = await this.exec(client, spriteName, {
-            cmd: ['bash', '-lc', shell],
-            stdin: '',
-            timeoutMs: FRAMEWORK_INSTALL_TIMEOUT_MS
-        }).catch((err: Error) => {
-            throw new ServiceUnavailableException(
-                `${framework} install failed: ${err.message}`
-            )
-        })
-        if (result.exitCode !== 0)
-            throw new ServiceUnavailableException(
-                `${framework} install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
-            )
-        // Re-probe over the same seam and persist, as detect-frameworks does.
-        // The version has to be there now: a pre-installed binary still
-        // shadowing the fresh one is exactly what the staged shell guards
-        // against, so a mismatch is a failure, not a note.
-        const probed = await this.exec(client, spriteName, {
-            cmd: ['bash', '-lc', frameworkProbeShell()],
-            stdin: '',
-            timeoutMs: DETECT_TIMEOUT_MS
-        })
-        const probe = parseSpriteFrameworkProbe(
-            `${probed.stdout}\n${probed.stderr}`
+        return withRuntimeUpgradeLock(
+            this.db,
+            {
+                accountId: host.accountId,
+                spriteName,
+                component: framework
+            },
+            async () => {
+                const client = this.spritesClientFor(account)
+                const result = await this.exec(client, spriteName, {
+                    cmd: ['bash', '-lc', shell],
+                    stdin: '',
+                    timeoutMs: FRAMEWORK_INSTALL_TIMEOUT_MS
+                }).catch((err: Error) => {
+                    throw new ServiceUnavailableException(
+                        `${framework} install failed: ${err.message}`
+                    )
+                })
+                if (result.exitCode !== 0)
+                    throw new ServiceUnavailableException(
+                        `${framework} install failed (exit ${result.exitCode}): ${result.stderr.slice(0, 512)}`
+                    )
+                // Re-probe over the same seam and persist, as detect-frameworks does.
+                // The version has to be there now: a pre-installed binary still
+                // shadowing the fresh one is exactly what the staged shell guards
+                // against, so a mismatch is a failure, not a note.
+                const probed = await this.exec(client, spriteName, {
+                    cmd: ['bash', '-lc', frameworkProbeShell()],
+                    stdin: '',
+                    timeoutMs: DETECT_TIMEOUT_MS
+                })
+                const probe = parseSpriteFrameworkProbe(
+                    `${probed.stdout}\n${probed.stderr}`
+                )
+                const installed =
+                    probe.frameworks.find((f) => f.framework === framework)
+                        ?.version ?? null
+                if (!installed || (target && installed !== target))
+                    throw new ServiceUnavailableException(
+                        `${framework} install did not complete on ${spriteName}: sprite reports ${installed ?? 'nothing'}`
+                    )
+                await this.runtimes.setHostDetectedFrameworks(
+                    owner,
+                    hostId,
+                    probe.frameworks
+                )
+                await this.runtimes.applyDetectedVersionsToHostRuntimes(
+                    hostId,
+                    probe.frameworks
+                )
+                if (probe.cliVersion)
+                    await this.runtimes.setSandboxCliVersion(
+                        owner,
+                        hostId,
+                        probe.cliVersion
+                    )
+                this.log.log(
+                    `sandbox framework installed host=${hostId} framework=${framework} version=${installed}`
+                )
+                return this.get(owner, hostId)
+            }
         )
-        const installed =
-            probe.frameworks.find((f) => f.framework === framework)?.version ??
-            null
-        if (!installed || (target && installed !== target))
-            throw new ServiceUnavailableException(
-                `${framework} install did not complete on ${spriteName}: sprite reports ${installed ?? 'nothing'}`
-            )
-        await this.runtimes.setHostDetectedFrameworks(
-            owner,
-            hostId,
-            probe.frameworks
-        )
-        await this.runtimes.applyDetectedVersionsToHostRuntimes(
-            hostId,
-            probe.frameworks
-        )
-        if (probe.cliVersion)
-            await this.runtimes.setSandboxCliVersion(
-                owner,
-                hostId,
-                probe.cliVersion
-            )
-        this.log.log(
-            `sandbox framework installed host=${hostId} framework=${framework} version=${installed}`
-        )
-        return this.get(owner, hostId)
     }
 
     // Bring a framework up on a sandbox that has no agent for it yet, as an

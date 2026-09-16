@@ -77,6 +77,16 @@ just dev         # api :2222, web :3002, admin :3001
 `AGENTS.md` documents the workspace layout and conventions; `justfile` lists
 every task. All checks: `pnpm check && pnpm lint && pnpm knip`.
 
+Browser telemetry regressions run with `pnpm test:browser-telemetry` after
+`pnpm exec playwright install chromium webkit`. They use synthetic events,
+real React DOM nodes and SDK payloads intercepted locally; no service
+credentials are needed. Web and Admin share the error classifier and allow
+one detail per fingerprint per minute, up to 100 distinct fingerprints.
+`browser.error.suppressed` records per-sink suppressed counts, including
+overflow and foreign-extension noise. Web Vitals keep scalar measurements,
+app/environment and normalized document routes. Visibility/pagehide flushes
+are best-effort browser delivery, not an acknowledgement of remote storage.
+
 ## Contributing
 
 This repository is the single source of truth for the Manyfold core — every

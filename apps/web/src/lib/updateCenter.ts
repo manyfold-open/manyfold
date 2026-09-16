@@ -65,6 +65,7 @@ export interface UpdateRow {
     severity: UpdateSeverity
     blockedReason: string | null
     blocker: UpdateBlocker | null
+    materialization?: { status: 'installing' | 'failed'; error: string | null }
     exec: UpdateExec
 }
 
@@ -337,20 +338,35 @@ const frameworkRows = (
     return rows
 }
 
+export const skillUpdateId = (agentId: string, skillId: string): string =>
+    `${skillId === MANYFOLD_CLI_USAGE_SKILL_ID ? 'cliUsage' : 'skill'}:${agentId}:${skillId}`
+
 const skillRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
     const rows: UpdateRow[] = []
     for (const group of inputs.skillGroups)
         for (const skill of group.skills) {
             if (skill.readonly) continue
-            if (skill.materializeStatus === 'installing') continue
-            if (!skill.installedRevision || !skill.latestRevision) continue
-            if (skill.installedRevision === skill.latestRevision) continue
+            const materialization: UpdateRow['materialization'] =
+                skill.materializeStatus === 'installing' ||
+                skill.materializeStatus === 'failed'
+                    ? {
+                          status: skill.materializeStatus,
+                          error: skill.materializeError ?? null
+                      }
+                    : undefined
+            if (
+                !materialization &&
+                (!skill.installedRevision ||
+                    !skill.latestRevision ||
+                    skill.installedRevision === skill.latestRevision)
+            )
+                continue
             const kind: UpdateKind =
                 skill.skillId === MANYFOLD_CLI_USAGE_SKILL_ID
                     ? 'cliUsage'
                     : 'skill'
             rows.push({
-                id: `${kind}:${skill.agentId}:${skill.skillId}`,
+                id: skillUpdateId(skill.agentId, skill.skillId),
                 kind,
                 subjectLabel: skill.name,
                 framework: null,
@@ -361,8 +377,13 @@ const skillRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
                 // version: the catalog only knows the latest as a revision, and
                 // an arrow between "0.3.1" and a commit hash reads as if the
                 // version were being replaced by one.
-                installedVersion: shortRevision(skill.installedRevision),
-                latestVersion: shortRevision(skill.latestRevision),
+                installedVersion: skill.installedRevision
+                    ? shortRevision(skill.installedRevision)
+                    : null,
+                latestVersion: skill.latestRevision
+                    ? shortRevision(skill.latestRevision)
+                    : null,
+                ...(materialization ? { materialization } : {}),
                 // No version catalog for a skill: both sides are the one
                 // revision each side happens to be on, so there is nothing to
                 // choose between.
@@ -561,7 +582,9 @@ export const planBatch = (
     const bySkill = new Map<string, { agentIds: string[]; rowIds: string[] }>()
 
     for (const row of rows) {
-        if (row.blocker !== null) continue
+        if (
+            row.blocker !== null || row.materialization?.status === 'installing'
+        ) continue
         const picked = targets[row.id] ?? null
         switch (row.exec.type) {
             case 'skillInstall': {

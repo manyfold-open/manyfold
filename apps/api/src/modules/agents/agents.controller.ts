@@ -339,14 +339,18 @@ export class AgentsController {
         @Body() dto: UpgradeFrameworkVersionDto,
         @Res() res: FastifyReply
     ): Promise<void> {
-        res.hijack()
-        res.raw.writeHead(200, {
-            ...corsHeadersForOrigin(res.request.headers),
-            'content-type': 'application/x-ndjson',
-            'cache-control': 'no-cache',
-            'x-accel-buffering': 'no'
-        })
+        let started = false
         const write = (ev: FrameworkUpgradeEvent): void => {
+            if (!started) {
+                res.hijack()
+                res.raw.writeHead(200, {
+                    ...corsHeadersForOrigin(res.request.headers),
+                    'content-type': 'application/x-ndjson',
+                    'cache-control': 'no-cache',
+                    'x-accel-buffering': 'no'
+                })
+                started = true
+            }
             res.raw.write(JSON.stringify(ev) + '\n')
         }
         let lastStep: FrameworkUpgradeStep | null = null
@@ -365,9 +369,10 @@ export class AgentsController {
             )
             write({ type: 'complete', agent })
         } catch (err) {
+            if (!started) throw err
             write({ type: 'error', step: lastStep, message: sanitizeMessage(err) })
         } finally {
-            res.raw.end()
+            if (started) res.raw.end()
         }
     }
 

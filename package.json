@@ -24,6 +24,7 @@
         "check": "turbo check",
         "test": "turbo test",
         "test:browser-sentry": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx ../../scripts/verify-browser-sentry.mjs",
+        "test:browser-telemetry": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/browser-telemetry.test.mts",
         "db:generate": "pnpm --filter @manyfold/api db:generate",
         "db:migrate": "pnpm --filter @manyfold/api db:migrate",
         "db:studio": "pnpm --filter @manyfold/api db:studio",

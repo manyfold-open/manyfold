@@ -13,7 +13,8 @@ import { VersionTag } from '@/components/VersionTag'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
-import { shortRevision } from '@/lib/updateCenter'
+import { shortRevision, skillUpdateId } from '@/lib/updateCenter'
+import { isTargetUpdating, updateRunStore, useUpdateRuns } from '@/lib/updateRunStore'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { shouldPromptFirstPartyInstall } from './firstPartySkill'
 
@@ -36,6 +37,9 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
     const [busyId, setBusyId] = useState<string | null>(null)
     const [installingFirstParty, setInstallingFirstParty] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const runs = useUpdateRuns()
+    const queued = (skill: InstalledSkillSummary): boolean =>
+        isTargetUpdating(runs, skillUpdateId(skill.agentId, skill.skillId))
     // §10.8: only the cold load ghosts the panel; a refresh() with data
     // on screen keeps the panel readable (the acting button already
     // carries its own pending state).
@@ -48,6 +52,7 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                 includeRuntime: true
             })
             setGroup(groups[0] ?? null)
+            updateRunStore.reconcile({ skillGroups: groups })
             setError(null)
         } catch (err) {
             setError(apiErrorMessage(err))
@@ -59,6 +64,13 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
     useEffect(() => {
         void refresh()
     }, [client, agentId])
+
+    const pendingSkills = group?.skills.some((skill) => skill.materializeStatus === 'installing' || queued(skill)) ?? false
+    useEffect(() => {
+        if (loading || !pendingSkills) return
+        const timer = window.setTimeout(() => void refresh(), 5_000)
+        return () => window.clearTimeout(timer)
+    }, [loading, pendingSkills, client, agentId])
 
     const updateSkill = (updated: InstalledSkillSummary): void => {
         setGroup((prev) =>
@@ -107,7 +119,8 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
         skill.latestRevision !== skill.installedRevision
 
     const update = async (skill: InstalledSkillSummary): Promise<void> => {
-        if (skill.readonly) return
+        if (skill.readonly || skill.materializeStatus === 'installing' ||
+            updateRunStore.isTargetUpdating(skillUpdateId(skill.agentId, skill.skillId))) return
         setBusyId(skill.id)
         setError(null)
         try {
@@ -241,7 +254,7 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                     </div>
                 )}
 
-            {!loading && !gate.showLoading && group && (
+            {!gate.showLoading && group && (
                 <section
                     className={
                         gate.fadeIn
@@ -418,7 +431,7 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                     <div className='flex shrink-0 flex-wrap items-center gap-2'>
                                         <button
                                             type='button'
-                                            disabled={busyId === skill.id}
+                                            disabled={busyId === skill.id || queued(skill) || skill.materializeStatus === 'installing'}
                                             onClick={() => void toggle(skill)}
                                             className='workbench-button-secondary'
                                         >
@@ -434,7 +447,7 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                             'failed' && (
                                             <button
                                                 type='button'
-                                                disabled={busyId === skill.id}
+                                                disabled={busyId === skill.id || queued(skill)}
                                                 onClick={() =>
                                                     void update(skill)
                                                 }
@@ -445,7 +458,7 @@ const AgentSkillsPanel: FC<Props> = ({ agentId }): ReactNode => {
                                         )}
                                         <button
                                             type='button'
-                                            disabled={busyId === skill.id}
+                                            disabled={busyId === skill.id || queued(skill) || skill.materializeStatus === 'installing'}
                                             onClick={() => void remove(skill)}
                                             className='workbench-button-danger'
                                         >

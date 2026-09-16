@@ -15,7 +15,7 @@ import { AppAuthProvider } from '@/lib/auth'
 import { FontSizeProvider } from '@/lib/fontSize'
 import { I18nProvider, i18nReady } from '@/lib/i18n'
 import { ThemeProvider } from '@/lib/theme'
-import { WebVitals, logger } from '@/lib/axiom'
+import { WebVitals, logger, browserTelemetry } from '@/lib/axiom'
 import { GoogleAnalytics } from '@/lib/googleAnalytics'
 import { DocumentTitle } from '@/lib/pageTitle'
 import { installPreloadErrorRecovery } from '@/lib/lazyChunk'
@@ -34,24 +34,7 @@ chatStreamStore.setTelemetry((event) => {
     else logger.warn(event.name, event)
 })
 
-window.addEventListener('error', (event) => {
-    logger.error('window.error', {
-        message: event.message,
-        filename: event.filename,
-        lineno: event.lineno,
-        colno: event.colno,
-        error: event.error?.stack ?? String(event.error ?? '')
-    })
-})
-window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason
-    logger.error('unhandledrejection', {
-        reason:
-            reason instanceof Error
-                ? (reason.stack ?? reason.message)
-                : String(reason)
-    })
-})
+browserTelemetry.install(window, document)
 
 const renderApp = (): void => {
     document.documentElement.dataset.mfEdition = WEB_EDITION

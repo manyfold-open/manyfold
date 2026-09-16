@@ -1139,3 +1139,10 @@ export type {
 export { chatFailureCauses, isChatFailureCause } from './chat-failure'
 export type { ChatFailureCause } from './chat-failure'
 export { createBrowserSentryScrubber } from './browser-sentry-scrub'
+export {
+    normalizeBrowserError,
+    isForeignBrowserError,
+    createBrowserErrorLimiter,
+    createBrowserTelemetry,
+    reportBrowserWebVital
+} from './browser-telemetry'
