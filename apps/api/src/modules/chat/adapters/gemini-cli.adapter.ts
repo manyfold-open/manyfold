@@ -993,14 +993,20 @@ const extractToolCall = (
 ): EmittedChatEvent | null => {
     const type = stringField(obj, 'type')
     if (type !== 'tool_call' && type !== 'tool_use') return null
-    const id = stringField(obj, 'id') ?? stringField(obj, 'toolCallId')
-    const name = stringField(obj, 'name') ?? stringField(obj, 'toolName')
+    const id =
+        stringField(obj, 'id') ??
+        stringField(obj, 'toolCallId') ??
+        stringField(obj, 'tool_id')
+    const name =
+        stringField(obj, 'name') ??
+        stringField(obj, 'toolName') ??
+        stringField(obj, 'tool_name')
     if (!id || !name) return null
     return {
         type: 'tool_call',
         toolCallId: id,
         toolName: name,
-        args: obj.args ?? obj.input ?? null
+        args: obj.args ?? obj.input ?? obj.parameters ?? null
     }
 }
 
@@ -1016,7 +1022,10 @@ const extractToolResult = (
 ): EmittedChatEvent | null => {
     const type = stringField(obj, 'type')
     if (type !== 'tool_result') return null
-    const id = stringField(obj, 'id') ?? stringField(obj, 'toolCallId')
+    const id =
+        stringField(obj, 'id') ??
+        stringField(obj, 'toolCallId') ??
+        stringField(obj, 'tool_id')
     if (!id) return null
     return {
         type: 'tool_result',
