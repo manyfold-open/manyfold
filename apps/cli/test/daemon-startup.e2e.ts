@@ -33,8 +33,12 @@ const report: {
     cleaned?: boolean
 } = { profile, label, cases: [] }
 const exec = promisify(execFile)
-const wait = async (predicate: () => Promise<boolean>, label: string) => {
-    const until = Date.now() + 15000
+const wait = async (
+    predicate: () => Promise<boolean>,
+    label: string,
+    timeoutMs = 15000
+) => {
+    const until = Date.now() + timeoutMs
     while (!(await predicate())) {
         assert.ok(Date.now() < until, label)
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -49,6 +53,7 @@ const alive = (pid: number): boolean => {
     }
 }
 let connections = 0
+let hellos = 0
 const http = createServer((request, response) => {
     assert.equal(request.headers.authorization, 'Bearer ldt_fixture')
     request.resume()
@@ -61,7 +66,8 @@ wss.on('connection', (socket, request) => {
     connections++
     socket.on('message', (raw) => {
         const message = JSON.parse(String(raw))
-        if (message.type === 'hello')
+        if (message.type === 'hello') {
+            hellos++
             socket.send(
                 JSON.stringify({
                     type: 'welcome',
@@ -70,6 +76,7 @@ wss.on('connection', (socket, request) => {
                     runtimeIds: []
                 })
             )
+        }
         if (message.type === 'ping')
             socket.send(JSON.stringify({ type: 'pong' }))
     })
@@ -132,13 +139,22 @@ try {
     child = spawn(binary, args, { env, stdio: 'ignore' })
     childExited = new Promise((resolve) => child!.on('exit', resolve))
     await wait(
-        async () =>
-            (await queryDaemonHealth(join(paths.daemonDir, 'daemon.sock')))
-                ?.status === 'running',
-        'foreground did not become healthy'
+        async () => {
+            const health = await queryDaemonHealth(
+                join(paths.daemonDir, 'daemon.sock')
+            )
+            return (
+                health?.status === 'running' &&
+                connections === 1 &&
+                hellos === 1
+            )
+        },
+        'foreground did not become healthy and connect upstream',
+        10000
     )
     assert.ok(Date.now() - started < 10000)
     assert.equal(connections, 1)
+    assert.equal(hellos, 1)
     await assert.rejects(
         exec(binary, args, { env, timeout: 5000 }),
         (error: unknown) => {
@@ -150,6 +166,7 @@ try {
         }
     )
     assert.equal(connections, 1)
+    assert.equal(hellos, 1)
     child.kill('SIGTERM')
     await childExited
     assert.equal(child.exitCode, 0)
@@ -183,14 +200,26 @@ try {
     )
     launchdOwned = true
     const launchdStarted = Date.now()
+    const priorConnections = connections
+    const priorHellos = hellos
     await exec('launchctl', ['bootstrap', domain, plist])
     await wait(
-        async () =>
-            (await queryDaemonHealth(join(paths.daemonDir, 'daemon.sock')))
-                ?.status === 'running',
-        'launchd fixture did not become healthy'
+        async () => {
+            const health = await queryDaemonHealth(
+                join(paths.daemonDir, 'daemon.sock')
+            )
+            return (
+                health?.status === 'running' &&
+                connections === priorConnections + 1 &&
+                hellos === priorHellos + 1
+            )
+        },
+        'launchd fixture did not become healthy and connect upstream',
+        10000
     )
     assert.ok(Date.now() - launchdStarted < 10000)
+    assert.equal(connections, priorConnections + 1)
+    assert.equal(hellos, priorHellos + 1)
     const health = await queryDaemonHealth(join(paths.daemonDir, 'daemon.sock'))
     assert.equal(health?.startupMethod, 'launchd-user')
     assert.equal(health?.profile, profile)
