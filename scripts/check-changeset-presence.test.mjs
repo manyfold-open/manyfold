@@ -201,7 +201,10 @@ test('README.md in .changeset is documentation, not a changeset', () => {
 test('a changeset the PR deleted is not coverage', () => {
     const added = readAddedChangesets(
         '/root',
-        ['.changeset/gone.md', '.changeset/here.md'],
+        [
+            { status: 'D', path: '.changeset/gone.md' },
+            { status: 'A', path: '.changeset/here.md' }
+        ],
         (absPath) =>
             absPath.endsWith('gone.md')
                 ? null
@@ -220,7 +223,7 @@ test('a changeset the PR deleted is not coverage', () => {
 // End to end over a real workspace and a real git history, because the gate has
 // to survive @manypkg reading the workspace, @changesets/config expanding
 // `ignore`, and `git diff` naming the files.
-function repo(t, { files, changesets }) {
+function repo(t, { files, changesets, baseChangesets = {}, change }) {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'manyfold-presence-'))
     t.after(() => fs.rmSync(root, { recursive: true, force: true }))
 
@@ -255,6 +258,8 @@ function repo(t, { files, changesets }) {
         })
     )
 
+    for (const [id, body] of Object.entries(baseChangesets))
+        write(`.changeset/${id}.md`, body)
     git('init', '--initial-branch=main')
     git('config', 'user.email', 'fixture@example.com')
     git('config', 'user.name', 'fixture')
@@ -271,6 +276,7 @@ function repo(t, { files, changesets }) {
         write(relPath, contents)
     for (const [id, body] of Object.entries(changesets ?? {}))
         write(`.changeset/${id}.md`, body)
+    change?.({ root, git, write })
     git('add', '.')
     git('commit', '-m', 'change')
 
@@ -331,4 +337,42 @@ test('the executable refuses to run without a base', (t) => {
 
     assert.equal(result.status, 1)
     assert.match(result.stderr, /TURBO_SCM_BASE is not set/)
+})
+
+for (const status of ['modified', 'unchanged', 'deleted', 'renamed']) {
+    test(`a ${status} pre-existing changeset is not PR-owned coverage in real Git history`, (t) => {
+        const note =
+            "---\n'@manyfold/api': patch\n---\n\nAn earlier PR owns this pending release note. Its identity must not be borrowed by a later change.\n"
+        const { root, base } = repo(t, {
+            files: { 'apps/api/src/chat.ts': 'export const changed = true\n' },
+            baseChangesets: {
+                pending:
+                    status === 'modified'
+                        ? note.replace('@manyfold/api', '@manyfold/web')
+                        : note
+            },
+            change: ({ root, git, write }) => {
+                if (status === 'modified') write('.changeset/pending.md', note)
+                if (status === 'deleted')
+                    fs.unlinkSync(path.join(root, '.changeset/pending.md'))
+                if (status === 'renamed')
+                    git('mv', '.changeset/pending.md', '.changeset/renamed.md')
+            }
+        })
+        const result = run(root, { TURBO_SCM_BASE: base })
+        assert.equal(result.status, 1, result.stdout)
+        assert.match(result.stderr, /@manyfold\/api/)
+        assert.match(result.stderr, /no changeset it adds names it/)
+    })
+}
+
+test('an added changeset with a newline in its Git pathname is still covered', (t) => {
+    const { root, base } = repo(t, {
+        files: { 'apps/api/src/chat.ts': 'export const changed = true\n' },
+        changesets: {
+            'new\nnote':
+                "---\n'@manyfold/api': patch\n---\n\nThis PR owns this note.\n"
+        }
+    })
+    assert.equal(run(root, { TURBO_SCM_BASE: base }).status, 0)
 })

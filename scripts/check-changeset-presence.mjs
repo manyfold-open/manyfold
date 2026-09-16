@@ -109,12 +109,16 @@ export function touchedSurfaces(files, surfaces) {
     return touched
 }
 
-// Changesets this PR adds. A changeset the PR DELETES is a consumed one on a
-// version PR, not coverage, so a file that no longer exists is skipped.
+// Only Git Added files belong to this PR. Editing or renaming an earlier
+// pending note does not create a release artifact owned by this change.
 export function readAddedChangesets(rootDir, files, readFile = readChangeset) {
     const added = []
 
-    for (const file of files.filter(isChangesetFile).sort(compare)) {
+    for (const file of files
+        .filter((file) => file.status === 'A')
+        .map((file) => file.path)
+        .filter(isChangesetFile)
+        .sort(compare)) {
         const parsed = readFile(path.join(rootDir, file))
         if (parsed) added.push({ id: file, ...parsed })
     }
@@ -183,18 +187,37 @@ export function formatFailures(touched, { missing, declined, unexplained }) {
 }
 
 export function changedFiles(base, cwd, run = spawnSync) {
-    const result = run('git', ['diff', '--name-only', base, 'HEAD'], {
-        cwd,
-        encoding: 'utf8'
-    })
+    const result = run(
+        'git',
+        ['diff', '--name-status', '-z', '--find-renames', base, 'HEAD', '--'],
+        {
+            cwd,
+            encoding: 'utf8'
+        }
+    )
 
     if (result.error) throw result.error
     if (result.status !== 0)
         throw new Error(
-            `git diff --name-only ${base} HEAD failed:\n${(result.stderr || '').trim()}`
+            `git diff --name-status ${base} HEAD failed:\n${(result.stderr || '').trim()}`
         )
 
-    return result.stdout.split('\n').filter(Boolean)
+    const fields = result.stdout.split('\0')
+    const files = []
+    for (let index = 0; fields[index];) {
+        const status = fields[index++]
+        const first = fields[index++]
+        const renamed = status.startsWith('R') || status.startsWith('C')
+        const file = renamed ? fields[index++] : first
+        if (!first || !file)
+            throw new Error('Incomplete git name-status record')
+        files.push({
+            status,
+            path: file,
+            ...(renamed ? { oldPath: first } : {})
+        })
+    }
+    return files
 }
 
 export async function checkChangesetPresence(cwd, base) {
@@ -207,7 +230,12 @@ export async function checkChangesetPresence(cwd, base) {
         new Set(config.ignore)
     )
     const files = changedFiles(base, rootDir)
-    const touched = touchedSurfaces(files, surfaces)
+    const touched = touchedSurfaces(
+        files.flatMap((file) =>
+            file.oldPath ? [file.oldPath, file.path] : [file.path]
+        ),
+        surfaces
+    )
     const added = readAddedChangesets(rootDir, files)
     const verdict = findPresenceFailures(touched, added)
 
