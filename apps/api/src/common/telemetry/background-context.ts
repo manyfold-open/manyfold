@@ -31,9 +31,17 @@ export const inRequestContinuation = <Result>(
 ): Result => {
     const isolation = getIsolationScope().clone()
     const scope = getCurrentScope().clone()
-    return context.with(ROOT_CONTEXT, () =>
+    let result!: Result
+    context.with(ROOT_CONTEXT, () =>
         withIsolationScope(isolation, () =>
-            withScope(scope, () => startNewTrace(callback))
+            withScope(scope, () =>
+                startNewTrace(() => {
+                    result = callback()
+                })
+            )
         )
     )
+    // Keep the adapter's own promise: Sentry's fallback scope stack wraps
+    // returned promises and would postpone the caller's terminal cleanup.
+    return result
 }
