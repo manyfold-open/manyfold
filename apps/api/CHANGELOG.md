@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 5.1.8
+
+### Patch Changes
+
+- [#412](https://github.com/manyfold-open/manyfold/pull/412) [`2fec6e2`](https://github.com/manyfold-open/manyfold/commit/2fec6e2323ecbe16057ed1f707842f1663551f39) Thanks [@yingca1](https://github.com/yingca1)! - Install configured default skills on runtime-attached agents, including daemon, existing sprites, and Kubernetes agents. Preserve existing skill intents and report installation failures without failing agent creation.
+
+- [#413](https://github.com/manyfold-open/manyfold/pull/413) [`76fabab`](https://github.com/manyfold-open/manyfold/commit/76fababb74b3a9716ffc4c633fe9d0491923db07) Thanks [@yingca1](https://github.com/yingca1)! - Show deferred daemon upgrades and pending or failed skill materialization accurately in the Update Center. Prevent overlapping framework and sandbox CLI upgrades across API instances and disable competing update controls while a queued update owns their target.
+
 ## 5.1.7
 
 ### Patch Changes

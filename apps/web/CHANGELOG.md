@@ -1,5 +1,13 @@
 # @manyfold/web
 
+## 2.1.1
+
+### Patch Changes
+
+- [#414](https://github.com/manyfold-open/manyfold/pull/414) [`ea47a10`](https://github.com/manyfold-open/manyfold/commit/ea47a10fa2713d3bc0139ef402ea2ec3198a2251) Thanks [@yingca1](https://github.com/yingca1)! - Keep browser telemetry working after DOM-bearing Web Vitals, preserve application errors while bounding repeated global-error reports, and flush pending reports when a page is hidden. Dashboard failures now remain readable when a popup loses DOM access, and failed model refreshes show their existing error without a second unhandled rejection.
+
+- [#413](https://github.com/manyfold-open/manyfold/pull/413) [`76fabab`](https://github.com/manyfold-open/manyfold/commit/76fababb74b3a9716ffc4c633fe9d0491923db07) Thanks [@yingca1](https://github.com/yingca1)! - Show deferred daemon upgrades and pending or failed skill materialization accurately in the Update Center. Prevent overlapping framework and sandbox CLI upgrades across API instances and disable competing update controls while a queued update owns their target.
+
 ## 2.1.0
 
 ### Minor Changes
