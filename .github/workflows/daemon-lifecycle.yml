@@ -82,6 +82,8 @@ jobs:
                   node ../../scripts/test-sealed-env.mjs -- node \
                     --import tsx --import ./test/md-text-loader.mjs \
                     --test --test-concurrency=2 \
+                    test/atomic-rename.test.ts \
+                    test/protected-replace.test.ts \
                     test/daemon-pid.test.ts \
                     test/daemon-ownership-process.test.ts \
                     test/daemon-control.test.ts \

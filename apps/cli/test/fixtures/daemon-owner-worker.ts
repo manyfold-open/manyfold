@@ -1,4 +1,23 @@
 import { claimDaemonPid, DaemonAlreadyRunningError } from '../../src/daemon/pid'
+import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
+
+// Report native denial without manufacturing an error or changing its result.
+if (process.argv[3] === 'observe-renames') {
+    const rename = fs.rename
+    fs.rename = async (...args) => {
+        try {
+            await rename(...args)
+        } catch (error) {
+            process.send?.({
+                kind: 'rename-denied',
+                code: (error as NodeJS.ErrnoException).code
+            })
+            throw error
+        }
+    }
+    syncBuiltinESMExports()
+}
 
 const pidPath = process.argv[2]
 if (!pidPath) throw new Error('isolated PID path required')

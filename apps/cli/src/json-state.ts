@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, open, readFile, rename, unlink } from 'node:fs/promises'
+import { chmod, mkdir, open, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { renameWithWindowsRetry } from '@/atomic-rename'
 
 export const readJsonState = async (
     filePath: string
@@ -40,7 +41,7 @@ export const writeProtectedFile = async (
             handle = undefined
         }
         await chmod(tmpPath, 0o600).catch(() => {})
-        await rename(tmpPath, filePath)
+        await renameWithWindowsRetry(tmpPath, filePath)
     } catch (err) {
         await handle?.close().catch(() => {})
         await unlink(tmpPath).catch(() => {})
