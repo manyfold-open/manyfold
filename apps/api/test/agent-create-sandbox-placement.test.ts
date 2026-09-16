@@ -1,8 +1,12 @@
 import type { AgentCreateStep } from '@manyfold/shared'
+import { PLATFORM_DEFAULT_SKILL_IDS } from '@manyfold/shared'
+import type { NewAgent } from '@manyfold/db'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ConflictException } from '@nestjs/common'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
+import { RuntimeAgentAttachService } from '../src/modules/agents/orchestration/runtime-agent-attach.service'
+import { SkillsService } from '../src/modules/skills/skills.service'
 
 // A sandbox holds at most one instance per framework, so creating an agent for a
 // framework the target sandbox already runs must join that instance rather than
@@ -31,7 +35,15 @@ const emptyDb = {
         from: () => ({
             where: () => ({ limit: async () => [] })
         })
-    })
+    }),
+    insert: () => ({
+        values: (row: NewAgent) => ({
+            returning: async () => [
+                { ...row, createdAt: new Date(), updatedAt: new Date() }
+            ]
+        })
+    }),
+    update: () => ({ set: () => ({ where: async () => {} }) })
 }
 
 interface Harness {
@@ -40,6 +52,7 @@ interface Harness {
     provisionCalls: number
     credentialResolveCalls: number
     lookups: Array<{ hostId: string; framework: string }>
+    defaultInstalls: Array<Parameters<SkillsService['install']>[0]>
 }
 
 const makeHarness = (instance: Record<string, unknown> | null): Harness => {
@@ -47,8 +60,44 @@ const makeHarness = (instance: Record<string, unknown> | null): Harness => {
         attachCalls: [] as Array<Record<string, unknown>>,
         provisionCalls: 0,
         credentialResolveCalls: 0,
-        lookups: [] as Array<{ hostId: string; framework: string }>
+        lookups: [] as Array<{ hostId: string; framework: string }>,
+        defaultInstalls: [] as Array<Parameters<SkillsService['install']>[0]>
     }
+    const skills = new SkillsService(
+        {
+            select: () => ({ from: () => ({ where: async () => [] }) })
+        } as never,
+        {} as never,
+        {} as never,
+        {
+            getDefaultAgentSkills: async () => ({
+                skillIds: PLATFORM_DEFAULT_SKILL_IDS
+            })
+        } as never
+    )
+    skills.install = async (input) => {
+        state.defaultInstalls.push(input)
+        return { materializeStatus: 'installed' } as never
+    }
+    const attach = new RuntimeAgentAttachService(
+        emptyDb as never,
+        {
+            get: () => ({
+                addAgent: async (input: {
+                    agentId: string
+                    workspace?: string
+                }) => ({
+                    internalId: input.agentId,
+                    workspace: input.workspace,
+                    model: null,
+                    extras: {}
+                })
+            })
+        } as never,
+        { touchAfterWrite: () => {} } as never,
+        { assertManagedChannelBindable: async () => {} } as never,
+        skills
+    )
     const service = new AgentOrchestratorService(
         emptyDb as never,
         {} as never,
@@ -74,7 +123,7 @@ const makeHarness = (instance: Record<string, unknown> | null): Harness => {
         {
             attach: async (args: Record<string, unknown>) => {
                 state.attachCalls.push(args)
-                return { id: 'agt_new', name: args.name } as never
+                return attach.attach(args as never)
             }
         } as never,
         {
@@ -119,6 +168,9 @@ const makeHarness = (instance: Record<string, unknown> | null): Harness => {
         },
         get lookups() {
             return state.lookups
+        },
+        get defaultInstalls() {
+            return state.defaultInstalls
         }
     } as Harness
 }
@@ -150,7 +202,14 @@ test('AgentOrchestrator create adds an agent to the framework instance already o
         { step: (step) => steps.push(step) }
     )
 
-    assert.equal(result.id, 'agt_new')
+    assert.match(result.id, /^agt_[a-z2-7]{26}$/)
+    assert.deepEqual(h.defaultInstalls, [
+        {
+            userId: 'user-1',
+            agentId: result.id,
+            skillId: PLATFORM_DEFAULT_SKILL_IDS[0]
+        }
+    ])
     assert.deepEqual(h.lookups, [{ hostId: 'sbx_1', framework: 'codex' }])
     assert.equal(h.attachCalls.length, 1)
     assert.equal(h.attachCalls[0].runtime, instance)

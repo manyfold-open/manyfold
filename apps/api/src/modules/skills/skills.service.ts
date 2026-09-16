@@ -65,6 +65,7 @@ import {
     parseOffsetCursor
 } from '@/common/catalog-query'
 import { DRIZZLE } from '@/db/tokens'
+import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     DiscoveryRepo,
     parseSkillMarkdown,
@@ -159,8 +160,63 @@ export class SkillsService {
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly discovery: SkillDiscoveryService,
-        private readonly materializer: SkillMaterializerService
+        private readonly materializer: SkillMaterializerService,
+        private readonly adminSettings: AdminSettingsService
     ) {}
+
+    // Creation is fail-soft. install() persists the intent before materializing;
+    // existing intents (including disabled/failed ones) belong to the user and
+    // are retried through the normal install/reconcile path, not recreated here.
+    async installDefaults(
+        input: Pick<Agent, 'userId' | 'framework' | 'runtime'> & {
+            agentId: string
+        }
+    ): Promise<void> {
+        if (
+            input.runtime === 'external' ||
+            !(SKILL_FRAMEWORKS as readonly string[]).includes(input.framework)
+        )
+            return
+        try {
+            const { skillIds } =
+                await this.adminSettings.getDefaultAgentSkills()
+            if (skillIds.length === 0) return
+            const rows = await this.db
+                .select()
+                .from(userSkills)
+                .where(
+                    and(
+                        eq(userSkills.userId, input.userId),
+                        eq(userSkills.agentId, input.agentId)
+                    )
+                )
+            const existing = new Set(
+                rows.map((row) => row.skillId ?? row.librarySkillId)
+            )
+            for (const skillId of new Set(skillIds)) {
+                if (existing.has(skillId)) continue
+                try {
+                    const result = await this.install({
+                        userId: input.userId,
+                        agentId: input.agentId,
+                        skillId
+                    })
+                    if (result.materializeStatus === 'failed')
+                        this.log.warn(
+                            `default-skill install ${skillId} failed for ${input.agentId}: ${result.materializeError}`
+                        )
+                } catch (err) {
+                    this.log.warn(
+                        `default-skill install ${skillId} failed for ${input.agentId}: ${(err as Error).message}`
+                    )
+                }
+            }
+        } catch (err) {
+            this.log.warn(
+                `default-skill install skipped for ${input.agentId}: ${(err as Error).message}`
+            )
+        }
+    }
 
     // Kick materialization and wait at most installMaterializeCapMs for it,
     // returning its per-skill outcomes if it finished in time (else null — the

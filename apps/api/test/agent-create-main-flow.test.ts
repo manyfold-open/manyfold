@@ -1,6 +1,7 @@
 import {
     AgentCreateStep,
-    auditAction
+    auditAction,
+    PLATFORM_DEFAULT_SKILL_IDS
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -13,15 +14,17 @@ import {
 } from '@manyfold/db'
 import { AgentOrchestratorService } from '../src/modules/agents/orchestration/agent-orchestrator.service'
 import { MANYFOLD_CONTEXT_VERSION } from '../src/modules/agent-self/agent-context-doc.service'
+import { SkillsService } from '../src/modules/skills/skills.service'
 
 const now = new Date('2026-05-22T10:00:00.000Z')
 
-test('AgentOrchestrator create runs the sprites coding-agent happy path', async () => {
+test('AgentOrchestrator create runs the sprites coding-agent happy path', async (t) => {
     const db = new FakeCreateAgentDb()
     const steps: AgentCreateStep[] = []
     let provisionArgs: Record<string, unknown> | null = null
     let finalizedRuntimeId: string | null = null
     let persistedInline = false
+    const defaultInstalls: unknown[] = []
     const modelConfigCalls: Array<{
         method: string
         userId: string
@@ -29,6 +32,28 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
         source?: unknown
     }> = []
     const provisionedRuntime = runtimeRow()
+    const skills = new SkillsService(
+        {
+            select: () => ({ from: () => ({ where: async () => [] }) })
+        } as never,
+        {} as never,
+        {} as never,
+        {
+            getDefaultAgentSkills: async () => ({
+                skillIds: PLATFORM_DEFAULT_SKILL_IDS
+            })
+        } as never
+    )
+    t.mock.method(
+        skills,
+        'install',
+        async (input: Parameters<SkillsService['install']>[0]) => {
+            assert.equal(finalizedRuntimeId, provisionedRuntime.id)
+            assert.equal(db.agentRows[0].status, 'running')
+            defaultInstalls.push(input)
+            return { materializeStatus: 'installed' } as never
+        }
+    )
 
     const service = new AgentOrchestratorService(
         db as never,
@@ -120,8 +145,7 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
             getCachedFrameworkRuntimeDefaults: async () => ({
                 defaults: { hermes: 'sprites', openclaw: 'sprites' }
             }),
-            getCachedFrameworkDefaultVersions: async () => ({ defaults: {} }),
-            getDefaultAgentSkills: async () => ({ skillIds: [] })
+            getCachedFrameworkDefaultVersions: async () => ({ defaults: {} })
         } as never,
         {
             latestForFresh: async () => '2.9.9'
@@ -130,9 +154,12 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
             getFrameworkRuntimeOverrides: async () => ({ overrides: {} })
         } as never,
         {
-            get: () => ({
-                assignFor: async () => null
-            })
+            get: (token: unknown) =>
+                token === SkillsService
+                    ? skills
+                    : {
+                          assignFor: async () => null
+                      }
         } as never,
         { recordFirstAgentCreated: async () => {} } as never,
         {} as never
@@ -207,6 +234,13 @@ test('AgentOrchestrator create runs the sprites coding-agent happy path', async 
     assert.equal(provisionedRuntime.primaryAgentId, result.id)
     assert.equal(finalizedRuntimeId, provisionedRuntime.id)
     assert.equal(persistedInline, true)
+    assert.deepEqual(defaultInstalls, [
+        {
+            userId: 'user-1',
+            agentId: result.id,
+            skillId: PLATFORM_DEFAULT_SKILL_IDS[0]
+        }
+    ])
     assert.deepEqual(modelConfigCalls, [
         {
             method: 'ensure',
@@ -350,7 +384,8 @@ test('AgentOrchestrator creates a credential-less runtime-local sprites agent', 
         } as never,
         {
             get: () => ({
-                assignFor: async () => null
+                assignFor: async () => null,
+                installDefaults: async () => {}
             })
         } as never,
         { recordFirstAgentCreated: async () => {} } as never,

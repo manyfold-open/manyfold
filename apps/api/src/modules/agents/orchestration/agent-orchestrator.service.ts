@@ -65,7 +65,6 @@ import {
     isDaemonOfflineTransportError
 } from '@/modules/chat/chat-adapter'
 import { SkillsService } from '@/modules/skills/skills.service'
-import { SKILL_FRAMEWORKS } from '@/modules/skills/skill-utils'
 import { DRIZZLE } from '@/db/tokens'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { FrameworkVersionsService } from '@/modules/framework-versions/framework-versions.service'
@@ -1595,35 +1594,14 @@ export class AgentOrchestratorService {
         }
     }
 
-    // Best-effort: auto-install the platform's default first-party skill(s) on a
-    // fresh agent. Gated by the `default_agent_skills` admin setting (empty until
-    // the first-party skill is published), and never fails agent creation — the
-    // baked bootstrap hint + `mf help --agent` remain the floor if this is a no-op.
     private async installDefaultSkills(input: {
         userId: string
         agentId: string
         framework: AgentFramework
     }): Promise<void> {
-        if (!(SKILL_FRAMEWORKS as readonly string[]).includes(input.framework))
-            return
         try {
-            const { skillIds } =
-                await this.adminSettings.getDefaultAgentSkills()
-            if (skillIds.length === 0) return
             const skills = this.moduleRef.get(SkillsService, { strict: false })
-            for (const skillId of skillIds) {
-                try {
-                    await skills.install({
-                        userId: input.userId,
-                        skillId,
-                        agentId: input.agentId
-                    })
-                } catch (err) {
-                    this.log.warn(
-                        `default-skill install ${skillId} failed for ${input.agentId}: ${(err as Error).message}`
-                    )
-                }
-            }
+            await skills.installDefaults({ ...input, runtime: 'sprites' })
         } catch (err) {
             this.log.warn(
                 `default-skill install skipped for ${input.agentId}: ${(err as Error).message}`
