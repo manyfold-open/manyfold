@@ -35,7 +35,7 @@ interface Process {
     exited: Promise<void>
 }
 
-const fixture = async () => {
+const fixture = async (shellBody?: string) => {
     const dir = await mkdtemp('/tmp/mf-fg-')
     const bin = join(dir, 'bin')
     const workspace = join(dir, 'workspace')
@@ -50,9 +50,13 @@ const fixture = async () => {
         )
     }
     const shell = join(bin, 'shell')
-    await writeFile(shell, '#!/bin/sh\nprintf "%s" "$MF_FIXTURE_PATH"\n', {
-        mode: 0o755
-    })
+    await writeFile(
+        shell,
+        shellBody ?? '#!/bin/sh\nprintf "%s" "$MF_FIXTURE_PATH"\n',
+        {
+            mode: 0o755
+        }
+    )
     const heartbeats: ServerResponse[] = []
     const http = createServer((req, res) => {
         assert.equal(req.headers.authorization, 'Bearer ldt_fixture')
@@ -126,6 +130,8 @@ const fixture = async () => {
                     PATH: `${bin}:/usr/bin:/bin`,
                     SHELL: shell,
                     MF_FIXTURE_PATH: `${bin}:/usr/bin:/bin`,
+                    MF_FIXTURE_PIDS: join(dir, 'probe.pids'),
+                    MF_FIXTURE_LOG: join(paths.daemonDir, 'daemon.log'),
                     MF_CONFIG_DIR: dir,
                     MF_PROFILE: 'qa',
                     MF_DAEMON_AUTO_UPDATE: '0',
@@ -195,6 +201,63 @@ const fixture = async () => {
         cleanup
     }
 }
+
+test(
+    'foreground logs before a blocked probe and reaches the local API after killing its shell tree',
+    { skip: process.platform === 'win32' },
+    async () => {
+        const h = await fixture(`#!/bin/sh
+IFS= read -r first < "$MF_FIXTURE_LOG"
+case "$first" in *"daemon starting "*) ;; *) exit 12 ;; esac
+trap '' TERM
+echo $$ > "$MF_FIXTURE_PIDS"
+/bin/sh -c 'trap "" TERM; echo $$ >> "$MF_FIXTURE_PIDS"; while :; do /bin/sleep 1; done' &
+wait
+`)
+        try {
+            const started = Date.now()
+            const [owner] = await h.start(1)
+            await until(
+                () =>
+                    h.frames.some((frame) => frame.type === 'hello') &&
+                    h.heartbeats.length > 0
+            )
+            assert.ok(Date.now() - started < 10_000)
+            assert.match(
+                owner.output,
+                /PATH probe timeout; retaining current PATH/
+            )
+            assert.ok(
+                owner.output.indexOf('daemon starting ') <
+                    owner.output.indexOf('PATH probe timeout')
+            )
+            const pids = (await readFile(join(h.dir, 'probe.pids'), 'utf8'))
+                .trim()
+                .split('\n')
+                .map(Number)
+            assert.equal(pids.length, 2)
+            await until(() =>
+                pids.every((pid) => {
+                    try {
+                        process.kill(pid, 0)
+                        return false
+                    } catch {
+                        return true
+                    }
+                })
+            )
+            h.heartbeats[0]
+                .writeHead(200, { 'content-type': 'application/json' })
+                .end('{}')
+            await until(() => owner.output.includes('daemon running pid='))
+            owner.child.kill('SIGTERM')
+            await until(() => owner.done)
+            assert.equal(owner.child.exitCode, 0, owner.error)
+        } finally {
+            await h.cleanup()
+        }
+    }
+)
 
 test(
     'foreground contention preserves one connection and an ongoing RPC, then recovers after SIGKILL',
