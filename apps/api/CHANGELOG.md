@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.7
+
+### Patch Changes
+
+- [#404](https://github.com/manyfold-open/manyfold/pull/404) [`601e052`](https://github.com/manyfold-open/manyfold/commit/601e05234243c4644b8320b941872fb1d37efd9c) Thanks [@yingca1](https://github.com/yingca1)! - Preserve trace recording for detached chat work by creating a real OpenTelemetry root span instead of an unsampled synthetic parent. Retain the initiating identity, correlation attributes and original task completion ordering.
+
 ## 5.1.6
 
 ### Patch Changes
