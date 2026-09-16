@@ -57,7 +57,7 @@ try {
             encoding: 'utf8'
         })
         assert.equal(display.status, 0)
-        signing = display.stderr
+        signing = display.stderr + display.stdout
         const tampered = join(directory, 'tampered')
         const corrupt = Buffer.from(binary)
         corrupt[Math.floor(corrupt.length / 2)] ^= 1
