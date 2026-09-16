@@ -6,6 +6,7 @@ import {
 import { otel, flushSentrySpans, flushOtelLogs } from './otel'
 import { captureApiException, flushSentry } from './sentry'
 import 'reflect-metadata'
+import { performance } from 'node:perf_hooks'
 import { Readable } from 'node:stream'
 import fastifyWebsocket from '@fastify/websocket'
 import fastifyMultipart from '@fastify/multipart'
@@ -32,6 +33,7 @@ import {
     type ProcessExitRecord
 } from './process-lifecycle'
 import { describeFatalError } from './fatal-error'
+import { FLUSH_STAGE_TIMEOUT_MS } from './flush-stage'
 
 const TURN_DRAIN_TIMEOUT_MS = 15_000
 const SHUTDOWN_CLOSE_TIMEOUT_MS = 8_500
@@ -43,6 +45,7 @@ const OTEL_FLUSH_TIMEOUT_MS = 1_000
 // collide with fly's 30s kill_timeout.
 const FATAL_FLUSH_TIMEOUT_MS = 2_500
 const FATAL_HANDOFF_TIMEOUT_MS = 1_000
+const FATAL_EXIT_TIMEOUT_MS = 3_000
 const WS_DRAIN_TIMEOUT_MS = 5_000
 
 let chatService: ChatService | null = null
@@ -54,40 +57,54 @@ const delay = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
 
 // Delivery-importance order (#528): the process.exit record first — one small
-// POST whose socket write lands before span conversion can starve the event
-// loop — then pending Sentry spans, which have to reach the Sentry client
-// before the SDK teardown discards them, then the Sentry transport (the fatal
-// event leaves here), and the bulk OTel teardown last. The caller races the
-// whole chain against its flush budget, so a lost race now only costs the
-// least important tail.
-const flushTelemetry = async (): Promise<void> => {
-    await flushOtelLogs()
-    await flushSentrySpans()
-    await flushSentry(OTEL_FLUSH_TIMEOUT_MS)
+// POST — and the captured Sentry error before synchronous span conversion
+// can starve the event loop. Pending spans must then reach the Sentry client
+// before SDK teardown discards them. Every stage shares the caller's deadline.
+const flushTelemetry = async (deadline: number): Promise<void> => {
+    const remaining = (cap: number): number =>
+        Math.max(0, Math.min(cap, deadline - performance.now()))
+    await flushOtelLogs(remaining(FLUSH_STAGE_TIMEOUT_MS))
+    if (remaining(OTEL_FLUSH_TIMEOUT_MS) <= 0) return
+    await flushSentry(remaining(FLUSH_STAGE_TIMEOUT_MS))
+    if (remaining(FLUSH_STAGE_TIMEOUT_MS) <= 0) return
+    await flushSentrySpans(remaining(FLUSH_STAGE_TIMEOUT_MS))
+    if (remaining(OTEL_FLUSH_TIMEOUT_MS) <= 0) return
+    await flushSentry(remaining(OTEL_FLUSH_TIMEOUT_MS))
+    if (remaining(OTEL_FLUSH_TIMEOUT_MS) <= 0) return
     await otel.shutdown().catch(() => undefined)
 }
 
 const finalizeExit = (
     record: ProcessExitRecord,
-    onCommitted?: () => void
+    onCommitted?: () => void,
+    fatalDeadline?: number
 ): void => {
     if (exitFinalizing) return
     exitFinalizing = true
     exitRecord = record
-    const flushBudgetMs =
+    const stageBudgetMs =
         record.shutdownOutcome === 'fatal'
             ? FATAL_FLUSH_TIMEOUT_MS
             : OTEL_FLUSH_TIMEOUT_MS
+    const hardDeadline =
+        fatalDeadline ?? performance.now() + stageBudgetMs + 250
+    const flushDeadline = Math.min(
+        performance.now() + stageBudgetMs,
+        hardDeadline - 250
+    )
     const hardExit = setTimeout(
         () => process.exit(record.exitCode),
-        flushBudgetMs + 250
+        Math.max(0, hardDeadline - performance.now())
     )
     onCommitted?.()
     try {
         emitProcessExit(record)
     } catch {}
     console.log(processExitLogLine(record))
-    void Promise.race([flushTelemetry(), delay(flushBudgetMs)]).finally(() => {
+    void Promise.race([
+        flushTelemetry(flushDeadline),
+        delay(Math.max(0, flushDeadline - performance.now()))
+    ]).finally(() => {
         clearTimeout(hardExit)
         process.exit(record.exitCode)
     })
@@ -105,10 +122,14 @@ const fatalTurnResult = async (): Promise<TurnShutdownResult | null> => {
 const handleFatal = (reason: ProcessExitReason, error: unknown): void => {
     if (fatalHandling || exitFinalizing) return
     fatalHandling = true
-    const startedAt = Date.now()
+    const startedAt = performance.now()
+    const deadline = startedAt + FATAL_EXIT_TIMEOUT_MS
+    const hardExit = setTimeout(
+        () => process.exit(1),
+        Math.max(0, deadline - performance.now())
+    )
     const detail = describeFatalError(error)
     console.error(`process fatal reason=${reason}`, detail)
-    const hardExit = setTimeout(() => process.exit(1), 3_000)
     void fatalTurnResult()
         .catch(() => null)
         .then((turns) => {
@@ -117,7 +138,7 @@ const handleFatal = (reason: ProcessExitReason, error: unknown): void => {
                     reason,
                     shutdownOutcome: 'fatal',
                     exitCode: 1,
-                    durationMs: Date.now() - startedAt,
+                    durationMs: Math.round(performance.now() - startedAt),
                     errorClass: detail.errorClass,
                     errorMessage: detail.errorMessage,
                     ...(detail.stack ? { stack: detail.stack } : {}),
@@ -131,7 +152,8 @@ const handleFatal = (reason: ProcessExitReason, error: unknown): void => {
                           }
                         : {})
                 },
-                () => clearTimeout(hardExit)
+                () => clearTimeout(hardExit),
+                deadline
             )
         })
 }

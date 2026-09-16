@@ -24,6 +24,9 @@ if (config.enabled) {
         // Axiom keeps receiving 100% of spans; this only enables tracing.
         tracesSampleRate: 1,
         sendDefaultPii: false,
+        // skipOpenTelemetrySetup does not disable SDK auto-instrumentation.
+        // Only the existing OTel instrumentations may create shared spans.
+        defaultIntegrations: Sentry.getDefaultIntegrationsWithoutPerformance(),
         integrations: [
             // spans/tracePropagation stay with the existing OTel
             // instrumentations; Sentry keeps only request isolation.
