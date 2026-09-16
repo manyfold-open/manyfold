@@ -100,6 +100,23 @@ overflow and foreign-extension noise. Web Vitals keep scalar measurements,
 app/environment and normalized document routes. Visibility/pagehide flushes
 are best-effort browser delivery, not an acknowledgement of remote storage.
 
+API telemetry uses the existing OpenTelemetry instrumentations; enabling
+Sentry adds error capture and an export branch without additional performance
+instrumentation. Fatal handoff and telemetry delivery share a three-second
+deadline. Graceful signal shutdown retains its one-second flush budget.
+The default API tests exercise fresh-boot fatal delivery against loopback
+receivers. To also compare real HTTP/Fastify/PostgreSQL span graphs with
+Sentry disabled, enabled, and sampled at zero:
+
+```sh
+pnpm exec turbo build --filter='@manyfold/api^...'
+RUN_TELEMETRY_E2E=1 node apps/api/test/telemetry-pipeline.e2e.mjs /tmp/telemetry-report
+```
+
+The opt-in run creates and removes its own local PostgreSQL container. All
+SDK traffic goes to local fixture receivers; failed/stalled receivers prove
+request-body delivery and bounded exit, not remote persistence.
+
 ## Contributing
 
 This repository is the single source of truth for the Manyfold core — every

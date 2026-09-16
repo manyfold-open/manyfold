@@ -122,9 +122,9 @@ if (sentrySpanProcessor) spanProcessors.push(sentrySpanProcessor)
 // SentrySpanProcessor.shutdown() discards whatever is still pending instead of
 // flushing it, so finished spans have to be pushed to the client before the SDK
 // is torn down or every restart silently loses its last transactions.
-export const flushSentrySpans = async (): Promise<void> => {
+export const flushSentrySpans = async (timeoutMs?: number): Promise<void> => {
     if (!sentrySpanProcessor) return
-    await runFlushStage(() => sentrySpanProcessor.forceFlush())
+    await runFlushStage(() => sentrySpanProcessor.forceFlush(), timeoutMs)
 }
 
 // The process.exit record is one already-emitted log record; flushing the
@@ -132,13 +132,13 @@ export const flushSentrySpans = async (): Promise<void> => {
 // leaving before process.exit (#528). NodeSDK.start() registers its
 // LoggerProvider globally, but the api-logs type omits the SDK provider's
 // forceFlush, hence the narrowing.
-export const flushOtelLogs = async (): Promise<void> => {
+export const flushOtelLogs = async (timeoutMs?: number): Promise<void> => {
     const provider = logs.getLoggerProvider() as {
         forceFlush?: () => Promise<void>
     }
     const forceFlush = provider.forceFlush?.bind(provider)
     if (!forceFlush) return
-    await runFlushStage(forceFlush)
+    await runFlushStage(forceFlush, timeoutMs)
 }
 
 const defaultLogProcessor: LogRecordProcessor | undefined = enabled
