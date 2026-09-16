@@ -2716,7 +2716,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 observer,
                 agent,
                 channelSource
-            ))
+            ), {
+                'nca.user_id': session.userId,
+                'nca.agent_id': session.agentId,
+                'nca.session_id': session.id,
+                'nca.message_id': assistantMessageId,
+                ...(agent?.runtimeId ? { 'nca.runtime_id': agent.runtimeId } : {})
+            })
         } catch (err) {
             this.broadcaster.endStream(assistantMessageId)
             this.untrackRunningAdapter(assistantMessageId, abortController)

@@ -6,7 +6,7 @@ import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
 import { gunzipSync, inflateSync } from 'node:zlib'
 import type { Server } from 'node:http'
-import { context, trace } from '@opentelemetry/api'
+import { context, SpanStatusCode, trace } from '@opentelemetry/api'
 import { NodeSDK } from '@opentelemetry/sdk-node'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 import {
@@ -147,6 +147,19 @@ test(
         )
 
         const tracer = trace.getTracer('privacy-integration')
+        const rejected = new Error('continuation fixture rejection')
+        const rejectedTask = Promise.reject(rejected)
+        assert.equal(
+            inRequestContinuation(() => rejectedTask, { 'qa.case': 'rejected' }),
+            rejectedTask
+        )
+        await assert.rejects(rejectedTask, (error) => error === rejected)
+        const rejectedRoot = exporter
+            .getFinishedSpans()
+            .find((span) => span.attributes['qa.case'] === 'rejected')
+        assert.ok(rejectedRoot)
+        assert.equal(rejectedRoot.status.code, SpanStatusCode.ERROR)
+        assert.equal(rejectedRoot.parentSpanContext, undefined)
         await Sentry.withIsolationScope(async (parent) => {
             parent.setUser({ id: 'parent-request' })
             parent.setTag('owner', 'parent-request')
@@ -227,6 +240,7 @@ test(
         })
         let detachedDone: () => void = () => {}
         let continuationTraceId: string | undefined
+        let continuationTask: Promise<void> | undefined
         const detached = new Promise<void>((resolve) => {
             detachedDone = resolve
         })
@@ -244,19 +258,41 @@ test(
                     const requestTrace = trace
                         .getActiveSpan()
                         ?.spanContext().traceId
-                    void inRequestContinuation(async () => {
-                        const continuationTrace = trace
-                            .getActiveSpan()
-                            ?.spanContext().traceId
-                        continuationTraceId = continuationTrace
-                        assert.ok(requestTrace && continuationTrace)
-                        assert.notEqual(continuationTrace, requestTrace)
-                        await delay(30)
-                        Sentry.captureException(
-                            new Error('privacy-detached-user-a')
-                        )
-                        detachedDone()
-                    }).catch((error) => {
+                    continuationTask = inRequestContinuation(
+                        async () => {
+                            const continuationTrace = trace
+                                .getActiveSpan()
+                                ?.spanContext().traceId
+                            continuationTraceId = continuationTrace
+                            assert.ok(requestTrace && continuationTrace)
+                            assert.notEqual(continuationTrace, requestTrace)
+                            await delay(30)
+                            await tracer.startActiveSpan(
+                                'continuation-work',
+                                async (span) => {
+                                    try {
+                                        assert.equal(
+                                            span.isRecording(),
+                                            true,
+                                            'continuation work must not inherit an unsampled synthetic parent'
+                                        )
+                                        await httpGet(target)
+                                        Sentry.captureException(
+                                            new Error('privacy-detached-user-a')
+                                        )
+                                    } finally {
+                                        span.end()
+                                    }
+                                }
+                            )
+                            detachedDone()
+                        },
+                        {
+                            'nca.user_id': id,
+                            'nca.message_id': 'continuation-fixture'
+                        }
+                    )
+                    void continuationTask.catch((error) => {
                         errors.push(error)
                         detachedDone()
                     })
@@ -275,6 +311,8 @@ test(
             httpGet(`http://127.0.0.1:${appPort}/user-b`)
         ])
         await detached
+        assert.ok(continuationTask)
+        await continuationTask
         await sentryProcessor.forceFlush()
         assert.equal(await Sentry.flush(5000), true)
         assert.deepEqual(errors, [])
@@ -320,7 +358,10 @@ test(
             )
             if (id === 'detached-user-a') {
                 assert.equal(event.transaction, 'request-user-a')
-                assert.equal(event.contexts?.trace?.trace_id, continuationTraceId)
+                assert.equal(
+                    event.contexts?.trace?.trace_id,
+                    continuationTraceId
+                )
             }
         }
         const background = exporter
@@ -328,6 +369,39 @@ test(
             .filter((span) => span.name === 'background-iteration')
         assert.equal(background.length, 3)
         assert.ok(background.every((span) => !span.parentSpanContext))
+        assert.ok(
+            exporter
+                .getFinishedSpans()
+                .some(
+                    (span) =>
+                        span.name === 'continuation-work' &&
+                        span.spanContext().traceId === continuationTraceId
+                ),
+            'continuation work must reach the independent exporter'
+        )
+        const continuationRoot = exporter
+            .getFinishedSpans()
+            .find(
+                (span) =>
+                    span.spanContext().traceId === continuationTraceId &&
+                    !span.parentSpanContext
+            )
+        assert.ok(continuationRoot, 'continuation must export a real root span')
+        assert.equal(continuationRoot.attributes['nca.user_id'], 'user-a')
+        assert.equal(
+            continuationRoot.attributes['nca.message_id'],
+            'continuation-fixture'
+        )
+        const continuationTransaction = received.find(
+            (item) =>
+                item.type === 'transaction' &&
+                item.event.contexts?.trace?.trace_id === continuationTraceId
+        )
+        assert.ok(
+            continuationTransaction,
+            'continuation must reach Sentry performance export'
+        )
+        assert.equal(continuationTransaction.event.user?.id, 'user-a')
         const httpSpans = exporter
             .getFinishedSpans()
             .filter((span) => span.kind === 2)
