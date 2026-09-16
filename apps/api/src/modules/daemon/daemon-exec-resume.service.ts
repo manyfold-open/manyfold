@@ -220,11 +220,15 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         )
             return
         const open = await this.findOpenTurns(daemonId)
-        if (
-            this.destroyed ||
-            !this.registry.isCurrentHelloEvidence(daemonId, evidence)
-        )
+        if (this.destroyed) return
+        if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) {
+            // findOpenTurns retained the newer hello's evidence, but its own
+            // lookup may have failed. Hand these turns to bounded recovery
+            // before this superseded handler gives up responsibility.
+            for (const message of open)
+                this.coverSupersededEvidence(daemonId, message.id)
             return
+        }
         if (open.length === 0) return
         const reported = new Set(streams.map((s) => s.refId))
         const matched = open.filter(

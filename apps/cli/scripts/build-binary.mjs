@@ -12,6 +12,7 @@ import {
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { signDarwinBinary, verifyDarwinBinary } from './darwin-signing.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const pkgDir = resolve(here, '..')
@@ -98,8 +99,11 @@ execFileSync(
     { stdio: 'inherit', cwd: pkgDir }
 )
 if (!existsSync(exePath)) fail(`bun did not produce ${exePath}`)
+// Bun and any byte-writing postprocessing must finish before this signature.
+if (cfg.os === 'darwin') signDarwinBinary(exePath)
 
 const packageAsset = async (binName, assetBase) => {
+    if (cfg.os === 'darwin') verifyDarwinBinary(join(outDir, binName))
     const assetName = `${assetBase}.${cfg.ext}`
     const assetPath = join(outDir, assetName)
 

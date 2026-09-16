@@ -1,0 +1,6 @@
+{"type":"init","timestamp":"2026-09-16T20:44:59.466Z","session_id":"e3b879e6-303b-4bc0-b916-ef62f28e943d","model":"gemini-2.5-flash"}
+{"type":"message","timestamp":"2026-09-16T20:44:59.467Z","role":"user","content":"Use run_shell_command to print the fixture marker, then reply briefly."}
+{"type":"tool_use","timestamp":"2026-09-16T20:44:59.493Z","tool_name":"run_shell_command","tool_id":"run_shell_command__run_shell_command_1789591499480_0","parameters":{"command":"printf gemini-wire-resume","description":"Print a fixture marker"}}
+{"type":"tool_result","timestamp":"2026-09-16T20:44:59.530Z","tool_id":"run_shell_command__run_shell_command_1789591499480_0","status":"success","output":"gemini-wire-resume"}
+{"type":"message","timestamp":"2026-09-16T20:44:59.535Z","role":"assistant","content":"completed-resume","delta":true}
+{"type":"result","timestamp":"2026-09-16T20:44:59.536Z","status":"success","stats":{"total_tokens":30,"input_tokens":20,"output_tokens":10,"cached":0,"input":20,"duration_ms":71,"tool_calls":1,"models":{"gemini-3.5-flash":{"total_tokens":30,"input_tokens":20,"output_tokens":10,"cached":0,"input":20}}}}

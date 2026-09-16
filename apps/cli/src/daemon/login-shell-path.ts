@@ -1,7 +1,7 @@
-import { spawn } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import { basename } from 'node:path'
+import { runShellProbe } from './shell-probe'
 
 // Daemon processes (launchd / systemd) do NOT inherit the user's interactive
 // PATH. `claude --version` working in a terminal is no guarantee that the bare
@@ -14,7 +14,6 @@ import { basename } from 'node:path'
 // different syntax for command substitution, so we skip it (those users' CLIs
 // are usually on the standard PATH anyway).
 const SUPPORTED_SHELLS = new Set(['bash', 'zsh', 'sh', 'dash', 'ksh'])
-const RESOLVE_TIMEOUT_MS = 3000
 
 // $SHELL is the source of truth, but launchd often leaves it unset; fall back to
 // the passwd shell (os.userInfo). Returns null when there is no usable POSIX
@@ -56,37 +55,8 @@ const buildScript = (names: readonly string[]): string =>
     // canonicalise the dir while the shell is alive: fnm/nvm "multishell" dirs
     // vanish on shell exit, so capture the real path now
     'd=$(cd "$(dirname "$p")" 2>/dev/null && pwd -P) || continue; ' +
-    "printf '%s\\t%s/%s\\n' \"$c\" \"$d\" \"$(basename \"$p\")\"; " +
+    'printf \'%s\\t%s/%s\\n\' "$c" "$d" "$(basename "$p")"; ' +
     'done'
-
-const runLoginShell = (shell: string, script: string): Promise<string> =>
-    new Promise((resolve) => {
-        // -i (interactive) + -l (login) so we pick up PATH from BOTH ~/.zshrc /
-        // ~/.bashrc and ~/.zprofile / ~/.bash_profile — real users use both.
-        const child = spawn(shell, ['-ilc', script], {
-            stdio: ['ignore', 'pipe', 'ignore']
-        })
-        const chunks: Buffer[] = []
-        let settled = false
-        const finish = (val: string): void => {
-            if (settled) return
-            settled = true
-            try {
-                child.kill('SIGKILL')
-            } catch {}
-            resolve(val)
-        }
-        const timer = setTimeout(() => finish(''), RESOLVE_TIMEOUT_MS)
-        child.stdout.on('data', (b: Buffer) => chunks.push(b))
-        child.on('close', () => {
-            clearTimeout(timer)
-            finish(Buffer.concat(chunks).toString('utf8'))
-        })
-        child.on('error', () => {
-            clearTimeout(timer)
-            finish('')
-        })
-    })
 
 let cache: Record<string, string> | null = null
 
@@ -104,7 +74,7 @@ export const resolveBinariesViaLoginShell = async (
         if (!shell || safe.length === 0) return {}
         let output: string
         try {
-            output = await runLoginShell(shell, buildScript(safe))
+            output = (await runShellProbe(shell, buildScript(safe))).output
         } catch {
             return {}
         }

@@ -7,6 +7,20 @@ const t = ((key: string) => key) as Parameters<
     typeof resolveChatErrorDisplay
 >[1]
 
+test('provider overload keeps the API diagnostic display', () => {
+    const error = {
+        code: 'codex_provider_overloaded',
+        cause: 'provider_overloaded' as const,
+        retryable: true,
+        message: 'The upstream provider asked for a later retry.'
+    }
+    assert.deepEqual(resolveChatErrorDisplay(error, t), {
+        kind: null,
+        title: error.message,
+        detail: null
+    })
+})
+
 test('renders the API auth cause and keeps the diagnostic detail', () => {
     const display = resolveChatErrorDisplay(
         {

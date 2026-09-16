@@ -106,6 +106,7 @@ interface Harness {
     }
     runningLocally: Set<string>
     resumed: string[]
+    resumedRefs: string[]
     converged: string[]
     cancelled: string[]
     timers: () => Map<string, unknown>
@@ -117,7 +118,7 @@ interface Harness {
 }
 
 const makeHarness = (
-    opts: { ageMs?: number; registerHandler?: boolean } = {}
+    opts: { ageMs?: number; registerHandler?: boolean; refId?: string } = {}
 ): Harness => {
     const db: DbState = {
         open: true,
@@ -140,7 +141,7 @@ const makeHarness = (
         role: 'assistant',
         createdAt: new Date(Date.now() - (opts.ageMs ?? 0)),
         daemonId: DAEMON,
-        daemonExecRef: TURN,
+        daemonExecRef: opts.refId ?? TURN,
         get cancelRequestedAt() {
             return db.cancelled ? new Date(0) : null
         }
@@ -178,7 +179,9 @@ const makeHarness = (
                 return {
                     where: () =>
                         table === chatMessages && db.failOpenQuery
-                            ? Promise.reject(new Error('open query failed'))
+                            ? query([], async () => {
+                                  throw new Error('open query failed')
+                              })
                             : query(
                                   rowsFor(db, row, table),
                                   table === chatMessages
@@ -218,6 +221,7 @@ const makeHarness = (
 
     const runningLocally = new Set<string>()
     const resumed: string[] = []
+    const resumedRefs: string[] = []
     const converged: string[] = []
     const cancelled: string[] = []
     // The ChatService contract, pinned on the real service by
@@ -225,7 +229,7 @@ const makeHarness = (
     // in this process already holds the turn.
     const registerHandler = (): void =>
         service.registerHandler({
-            resumeAssistantTurn: async ({ message }) => {
+            resumeAssistantTurn: async ({ message, refId }) => {
                 if (runningLocally.has(message.id))
                     return 'skipped_running_locally'
                 if (db.failResume) throw new Error('resume attach failed')
@@ -237,6 +241,7 @@ const makeHarness = (
                     return 'skipped_owned_elsewhere'
                 }
                 resumed.push(message.id)
+                resumedRefs.push(refId)
                 if (db.beforeResumeReturn) await db.beforeResumeReturn()
                 if (db.settleOnResume) db.open = false
                 return 'handled'
@@ -262,6 +267,7 @@ const makeHarness = (
         connection,
         runningLocally,
         resumed,
+        resumedRefs,
         converged,
         cancelled,
         timers: () =>
@@ -1454,6 +1460,139 @@ test('a newer matched hello covers an older unmatched lookup that has not found 
         mock.timers.reset()
     }
 })
+
+const overlapFailedMatchedHello = async (h: Harness, refId: string) => {
+    let releaseLookup: () => void = () => {}
+    let lookupStarted: () => void = () => {}
+    const lookupGate = new Promise<void>((resolve) => {
+        releaseLookup = resolve
+    })
+    const atLookup = new Promise<void>((resolve) => {
+        lookupStarted = resolve
+    })
+    h.db.beforeOpenQuery = async () => {
+        lookupStarted()
+        await lookupGate
+    }
+    const olderHello = h.hello([])
+    await atLookup
+    h.db.beforeOpenQuery = null
+    h.db.failOpenQuery = true
+    await assert.rejects(h.hello([refId]), /open query failed/)
+    return {
+        finish: async () => {
+            releaseLookup()
+            await olderHello
+        }
+    }
+}
+
+test('overlapping hellos retain exactly one bounded matched retry after the newer lookup fails', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const refId = 'exec-exact-matched-ref'
+    const h = makeHarness({ ageMs: 2 * 60_000, refId })
+    t.after(() => h.service.onModuleDestroy())
+    const overlap = await overlapFailedMatchedHello(h, refId)
+    await overlap.finish()
+
+    assert.equal(h.timers().size, 1)
+    assert.equal(h.armed(), 1)
+    assert.ok(h.armedDelay(0) > 0 && h.armedDelay(0) < AC_SETTLE_BOUND_MS)
+    assert.deepEqual(h.resumed, [])
+    assert.deepEqual(h.converged, [])
+    assert.equal(
+        (h.service as unknown as { helloSnapshots: Map<string, unknown> })
+            .helloSnapshots.size,
+        0,
+        'full daemon history is released when the last lookup settles'
+    )
+
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.equal(h.timers().size, 1, 'another DB failure keeps one retry')
+    assert.deepEqual(h.converged, [])
+
+    let recoveryReads = 0
+    h.db.failOpenQuery = false
+    h.db.beforeOpenQuery = async () => {
+        recoveryReads += 1
+    }
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.ok(recoveryReads > 0, 'recovery must re-read the open row')
+    assert.deepEqual(h.resumed, [TURN])
+    assert.deepEqual(h.resumedRefs, [refId])
+    assert.deepEqual(h.converged, [])
+    assert.equal(h.timers().size, 0)
+})
+
+test('a newer unmatched hello supersedes the failed matched lookup before the older hello returns', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = makeHarness({ ageMs: 2 * 60_000 })
+    t.after(() => h.service.onModuleDestroy())
+    const overlap = await overlapFailedMatchedHello(h, TURN)
+    await assert.rejects(h.hello([]), /open query failed/)
+    await overlap.finish()
+    assert.equal(h.timers().size, 1)
+
+    h.db.failOpenQuery = false
+    h.runningLocally.add(TURN)
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [])
+    assert.deepEqual(h.converged, [], 'local carrier still vetoes terminal')
+    assert.equal(h.timers().size, 1)
+
+    h.runningLocally.delete(TURN)
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [], 'retired matched evidence cannot replay')
+    assert.deepEqual(h.converged, [TURN])
+    assert.equal(h.timers().size, 0)
+})
+
+test('a successful newer hello consumes the overlapping lookup retry without a duplicate resume', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = makeHarness({ ageMs: 2 * 60_000 })
+    t.after(() => h.service.onModuleDestroy())
+    const overlap = await overlapFailedMatchedHello(h, TURN)
+    await overlap.finish()
+    assert.equal(h.timers().size, 1)
+
+    h.db.failOpenQuery = false
+    h.db.settleOnResume = true
+    await h.hello([TURN])
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [TURN])
+    assert.deepEqual(h.converged, [])
+    assert.equal(h.timers().size, 0)
+})
+
+for (const shutdownBeforeLookupReturns of [true, false]) {
+    test(`shutdown ${shutdownBeforeLookupReturns ? 'before lookup returns' : 'after retry is armed'} clears overlapping hello recovery`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] })
+        const h = makeHarness({ ageMs: 2 * 60_000 })
+        const overlap = await overlapFailedMatchedHello(h, TURN)
+        if (shutdownBeforeLookupReturns) h.service.onModuleDestroy()
+        await overlap.finish()
+        if (!shutdownBeforeLookupReturns) {
+            assert.equal(h.timers().size, 1)
+            h.service.onModuleDestroy()
+        }
+        h.db.failOpenQuery = false
+        t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+        await h.settle()
+        assert.equal(h.timers().size, 0)
+        assert.deepEqual(h.resumed, [])
+        assert.deepEqual(h.converged, [])
+        assert.equal(
+            (h.service as unknown as { helloTurns: Map<string, unknown> })
+                .helloTurns.size,
+            0
+        )
+    })
+}
 
 test('shutdown does not rearm a matched retry after an in-flight busy claim returns', async () => {
     const h = makeHarness({ ageMs: 2 * 60_000 })

@@ -65,7 +65,7 @@ jobs:
 
     build:
         needs: prepare
-        runs-on: ubuntu-24.04
+        runs-on: ${{ matrix.target == 'bun-darwin-x64' && 'macos-15-intel' || matrix.target == 'bun-darwin-arm64' && 'macos-15' || 'ubuntu-24.04' }}
         timeout-minutes: 25
         strategy:
             fail-fast: false
@@ -98,6 +98,8 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - run: pnpm --filter '@manyfold/cli...' build
             - run: node apps/cli/scripts/build-binary.mjs ${{ matrix.target }}
+            - name: Verify packaged bytes and Darwin signature before upload
+              run: pnpm --filter @manyfold/cli exec tsx scripts/verify-binary-artifact.ts ${{ matrix.target }}
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: cli-${{ matrix.target }}

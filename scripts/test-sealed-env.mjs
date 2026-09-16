@@ -90,7 +90,10 @@ const CREDENTIAL_BROKERS = new Set([
 
 export const DOTENV_PATH_VAR = 'DOTENV_CONFIG_PATH'
 
-export function sealedEnv(source, { sentinelDir, logFile, dotenvPath } = {}) {
+export function sealedEnv(
+    source,
+    { sentinelDir, logFile, dotenvPath, dbLogFile, dbGuardUrl } = {}
+) {
     const env = {}
     const stripped = []
     for (const [name, value] of Object.entries(source)) {
@@ -112,6 +115,16 @@ export function sealedEnv(source, { sentinelDir, logFile, dotenvPath } = {}) {
             .filter(Boolean)
             .join(path.delimiter)
     if (logFile) env[LOG_VAR] = logFile
+    if (dbGuardUrl) {
+        env.MF_TEST_DB_MODE =
+            source.RUN_PG_E2E === '1' && source.MF_TEST_DB_MODE !== 'deny'
+                ? 'allow'
+                : 'deny'
+        env.MF_TEST_DB_LOG = dbLogFile
+        env.NODE_OPTIONS = [env.NODE_OPTIONS, `--import=${dbGuardUrl}`]
+            .filter(Boolean)
+            .join(' ')
+    }
 
     return { env, stripped: stripped.sort() }
 }
@@ -152,6 +165,8 @@ if (isCli) {
     const sentinelDir = writeSentinels(path.join(box, 'bin'))
     const logFile = path.join(box, 'agent-cli-invocations.log')
     fs.writeFileSync(logFile, '')
+    const dbLogFile = path.join(box, 'database-invocations.log')
+    fs.writeFileSync(dbLogFile, '')
     // An empty file rather than a missing one: dotenv resolves the path itself
     // and would fall back to ./.env if this pointed at nothing.
     const dotenvPath = path.join(box, 'empty.env')
@@ -160,7 +175,9 @@ if (isCli) {
     const { env, stripped } = sealedEnv(process.env, {
         sentinelDir,
         logFile,
-        dotenvPath
+        dotenvPath,
+        dbLogFile,
+        dbGuardUrl: new URL('./test-db-guard.mjs', import.meta.url).href
     })
     if (stripped.length > 0)
         console.log(`sealed test env: dropped ${stripped.join(', ')}`)
@@ -172,7 +189,16 @@ if (isCli) {
 
     const finish = (code) => {
         const invocations = fs.readFileSync(logFile, 'utf8').trim()
+        const databaseInvocations = fs.readFileSync(dbLogFile, 'utf8').trim()
         fs.rmSync(box, { recursive: true, force: true })
+        if (databaseInvocations) {
+            console.error(
+                'sealed test env: forbidden database or dotenv entry was reached, even if its error was caught:'
+            )
+            for (const line of databaseInvocations.split('\n'))
+                console.error(`- ${line}`)
+            process.exit(1)
+        }
         if (invocations) {
             console.error(
                 'sealed test env: the run reached a real agent CLI, which would have spent real credentials:'

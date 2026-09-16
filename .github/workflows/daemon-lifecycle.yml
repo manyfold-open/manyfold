@@ -8,6 +8,8 @@ on:
             - 'packages/shared/**'
             - 'pnpm-lock.yaml'
             - '.github/workflows/daemon-lifecycle.yml'
+            - '.github/workflows/release-cli.yml'
+            - '.github/workflows/release-cli-dev.yml'
     push:
         branches: [develop, main]
         paths:
@@ -15,6 +17,8 @@ on:
             - 'packages/shared/**'
             - 'pnpm-lock.yaml'
             - '.github/workflows/daemon-lifecycle.yml'
+            - '.github/workflows/release-cli.yml'
+            - '.github/workflows/release-cli-dev.yml'
     workflow_dispatch: {}
 
 permissions:
@@ -31,7 +35,17 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                os: [ubuntu-24.04, macos-latest, windows-latest]
+                include:
+                    - os: ubuntu-24.04
+                      target: bun-linux-x64
+                    - os: macos-15
+                      target: bun-darwin-arm64
+                    - os: macos-15-intel
+                      target: bun-darwin-x64
+                    - os: windows-latest
+                      target: bun-windows-x64
+        env:
+            MF_CLI_CHANNEL: dev
         defaults:
             run:
                 shell: bash
@@ -56,10 +70,15 @@ jobs:
                     --external=fs-native-extensions \
                     --outfile=dist-bin/daemon-owner-worker.exe \
                     test/fixtures/daemon-owner-worker.ts
+                  bun build --compile --minify \
+                    --outfile=dist-bin/shell-probe-worker.exe \
+                    test/fixtures/shell-probe-worker.ts
             - name: Verify Node and standalone Bun ownership
               working-directory: apps/cli
               run: |
-                  export MF_TEST_LOCK_WORKER="$(node -p "require('node:path').resolve('dist-bin/daemon-owner-worker.exe')")"
+                  MF_TEST_LOCK_WORKER="$(node -p "require('node:path').resolve('dist-bin/daemon-owner-worker.exe')")"
+                  MF_TEST_SHELL_WORKER="$(node -p "require('node:path').resolve('dist-bin/shell-probe-worker.exe')")"
+                  export MF_TEST_LOCK_WORKER MF_TEST_SHELL_WORKER
                   node ../../scripts/test-sealed-env.mjs -- node \
                     --import tsx --import ./test/md-text-loader.mjs \
                     --test --test-concurrency=2 \
@@ -67,5 +86,17 @@ jobs:
                     test/daemon-ownership-process.test.ts \
                     test/daemon-control.test.ts \
                     test/daemon-lock-exited-process.test.ts \
+                    test/shell-probe.test.ts \
+                    test/daemon-login-shell-path.test.ts \
                     test/ws-client-lifecycle.test.ts \
                     test/ws-client-hello.test.ts
+            - run: pnpm --filter '@manyfold/cli...' build
+            - name: Build and verify the native release artifact
+              run: |
+                  node apps/cli/scripts/build-binary.mjs ${{ matrix.target }}
+                  pnpm --filter @manyfold/cli exec tsx scripts/verify-binary-artifact.ts ${{ matrix.target }}
+            - name: Verify isolated signed foreground and launchd startup
+              if: runner.os == 'macOS'
+              env:
+                  RUN_DAEMON_STARTUP_E2E: '1'
+              run: pnpm --filter @manyfold/cli test:startup-e2e dist-bin/mf dist-bin/startup-report

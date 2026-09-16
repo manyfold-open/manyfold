@@ -205,7 +205,7 @@ interface Captured {
 const captureHandler = (
     h: Harness,
     opts: {
-        onResumeStart?: (messageId: string) => void
+        onResumeStart?: (messageId: string, refId: string) => void
         onResume?: (messageId: string) => Promise<void>
         claimOwnerId?: string
     } = {}
@@ -270,7 +270,7 @@ const captureHandler = (
                     return 'skipped_owned_elsewhere'
                 if (ownership.outcome !== 'claimed') return 'handled'
             }
-            opts.onResumeStart?.(message.id)
+            opts.onResumeStart?.(message.id, refId)
             captured.resumed.push(message.id)
             resolveWaiters(resumedWaiters, captured.resumed.length)
             if (opts.onResume) await opts.onResume(message.id)
@@ -880,6 +880,131 @@ test(
                 state: 'running'
             })
         } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'overlapping hello lookup failure recovers the exact matched ref and claims a fenced owner',
+    { skip: !RUN },
+    async (t) => {
+        const h = await buildHarness()
+        let releaseLookup: () => void = () => {}
+        let olderHello: Promise<void> | undefined
+        try {
+            const daemonId = h.id('dh_lookup_overlap')
+            const turn = h.id('m_lookup_overlap')
+            const refId = h.id('exec_exact_ref')
+            await insertMessage(h, turn, daemonId, { ageMs: 7 * 60_000 })
+            await h.db
+                .update(chatMessages)
+                .set({ daemonExecRef: refId })
+                .where(eq(chatMessages.id, turn))
+            await insertExec(h, turn, {
+                state: 'handoff',
+                leaseMs: -1_000,
+                runtime: 'daemon'
+            })
+            await h.db
+                .update(chatSessions)
+                .set({ inflightMessageId: turn })
+                .where(eq(chatSessions.id, h.sessionId))
+            const refs: string[] = []
+            const captured = captureHandler(h, {
+                claimOwnerId: 'lookup-recovery-instance',
+                onResumeStart: (_messageId, ref) => refs.push(ref)
+            })
+
+            let lookupStarted: () => void = () => {}
+            const lookupGate = new Promise<void>((resolve) => {
+                releaseLookup = resolve
+            })
+            const atLookup = new Promise<void>((resolve) => {
+                lookupStarted = resolve
+            })
+            const lookupService = h.service as unknown as {
+                findOpenTurns: (daemonId: string) => Promise<unknown[]>
+            }
+            const findOpenTurns = lookupService.findOpenTurns.bind(h.service)
+            // Hold the real SQL response inside the query's await window, so
+            // the production pending-lookup/snapshot bookkeeping still runs.
+            const originalSelect = h.db.select.bind(h.db)
+            let openLookups = 0
+            const selectMock = t.mock.method(h.db, 'select', (...args: Parameters<typeof h.db.select>) => {
+                const builder = originalSelect(...args)
+                const originalFrom = builder.from.bind(builder)
+                builder.from = ((table: typeof chatMessages) => {
+                    const query = originalFrom(table)
+                    if (table !== chatMessages) return query
+                    const originalWhere = query.where.bind(query)
+                    query.where = ((...whereArgs: Parameters<typeof query.where>) => {
+                        const statement = originalWhere(...whereArgs)
+                        const originalThen = statement.then.bind(statement)
+                        statement.then = ((resolve: (rows: unknown) => unknown, reject: (error: unknown) => unknown) => {
+                            const index = ++openLookups
+                            if (index === 2)
+                                return Promise.reject(
+                                    new Error('fixture lookup unavailable')
+                                ).then(resolve, reject)
+                            return originalThen(async (rows: unknown) => {
+                                if (index === 1) {
+                                    lookupStarted()
+                                    await lookupGate
+                                }
+                                return rows
+                            }).then(resolve, reject)
+                        }) as typeof statement.then
+                        return statement
+                    }) as typeof query.where
+                    return query
+                }) as typeof builder.from
+                return builder
+            })
+            t.mock.timers.enable({ apis: ['setTimeout'] })
+            olderHello = hello(h, daemonId, [])
+            await atLookup
+            await assert.rejects(
+                hello(h, daemonId, [refId]),
+                /fixture lookup unavailable/
+            )
+            releaseLookup()
+            await olderHello
+            selectMock.mock.restore()
+            assert.equal(h.timers().size, 1)
+            assert.deepEqual(captured.resumed, [])
+            assert.deepEqual(captured.failed, [])
+
+            t.mock.timers.tick(h.service.recheckDelayMs)
+            await captured.waitForResumed()
+            assert.deepEqual(captured.resumed, [turn])
+            assert.deepEqual(refs, [refId])
+            assert.deepEqual(captured.failed, [])
+            const [claimed] = await h.db
+                .select({
+                    generation: turnExecutions.generation,
+                    ownerId: turnExecutions.ownerId,
+                    state: turnExecutions.state
+                })
+                .from(turnExecutions)
+                .where(eq(turnExecutions.messageId, turn))
+            assert.deepEqual(claimed, {
+                generation: 2,
+                ownerId: 'lookup-recovery-instance',
+                state: 'running'
+            })
+            assert.equal((await findOpenTurns(daemonId)).length, 1)
+            assert.deepEqual(
+                await h.db.select().from(chatStreamEvents)
+                    .where(eq(chatStreamEvents.messageId, turn)),
+                []
+            )
+            assert.equal(h.timers().size, 0)
+        } finally {
+            releaseLookup()
+            await olderHello
+            h.service.onModuleDestroy()
+            t.mock.timers.reset()
             await h.close()
         }
     }

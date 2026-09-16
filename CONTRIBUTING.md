@@ -42,10 +42,36 @@ pnpm -r test
   presence on every pull request: touch a product package and the PR must add
   a changeset naming it, or an empty one (`pnpm changeset --empty`) whose body
   says why no release note is owed. `.changeset/README.md` explains bump
-  levels.
+  levels. Only Git Added changesets count: editing, deleting or renaming a
+  pre-existing note does not make it this PR's release artifact.
 - Tests must encode why the behavior matters, not just what it does. Tests
   here are hermetic: they run against the open-source composition only, with
   no external credentials (CI has zero secrets).
+
+## Test isolation
+
+Sealed test commands require Node 20.6 or later for module loader hooks. Older
+runtimes fail explicitly instead of running without protection. This does not
+change the production runtime or package engine declaration.
+
+Use package test commands and CI runners. Their sealed wrapper intercepts
+PostgreSQL driver factories and dotenv configuration through ESM and CommonJS,
+including tsx and imported helpers. Forbidden calls are recorded and fail the
+run even when a test catches the error. Dormant factories and injected fake
+connections remain valid. Ordinary test children cannot open a database even
+in a run with `RUN_PG_E2E=1`; explicitly opted-in `*.pg.test.*` entries and their
+helper processes receive that access.
+
+This is an entrypoint guard, not an OS or network sandbox. HTTP fixtures,
+native executables and direct filesystem access are not denied. A new database
+driver needs a guard and executable negative coverage before tests may use it.
+
+PostgreSQL runners discover `test/**/*.pg.test.ts` recursively in stable order.
+The required suite runs serially and rejects empty or skipped TAP results.
+`pnpm --filter @manyfold/api test:pg:audit` additionally creates and migrates a
+unique scratch database, runs each file and declared concurrent pairings, then
+force-drops its database on success or failure. It requires `PG_TEST_SCRATCH=1`
+and a loopback `PG_TEST_ADMIN_URL`.
 
 ## Contract surfaces (breaking-change discipline)
 
