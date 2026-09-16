@@ -38,6 +38,7 @@ import {
     type WhatsappAuthSnapshot
 } from './providers/whatsapp-baileys'
 import type { WhatsappProviderState } from './providers/whatsapp.provider'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const MAX_PENDING_PER_USER = 3
 // WhatsApp rotates the QR roughly every 20s and closes the pairing socket
@@ -89,9 +90,9 @@ export class WhatsappRegistrationService
     }
 
     onModuleInit(): void {
-        this.cleanupTimer = setInterval(() => {
+        this.cleanupTimer = setInterval(inBackgroundContext(() => {
             void this.maintenanceTick()
-        }, CLEANUP_INTERVAL_MS)
+        }), CLEANUP_INTERVAL_MS)
         this.cleanupTimer.unref?.()
         void this.maintenanceTick()
     }

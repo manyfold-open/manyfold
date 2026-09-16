@@ -43,6 +43,7 @@ import type {
     ResolvedOpenclawCredentials
 } from '@/modules/agents/credentials/resolved-credentials'
 import { mergeGeneratedCredentials } from '@/modules/agents/credentials/credential-merge'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 // A claim older than this with no terminal write is an interrupted toggle
 // (API restart mid-orchestration); the sweep marks it error so the CAS can
@@ -79,9 +80,9 @@ export class RuntimeDashboardService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.sweepTimer = setInterval(() => {
+        this.sweepTimer = setInterval(inBackgroundContext(() => {
             void this.sweepStaleToggles()
-        }, SWEEP_INTERVAL_MS)
+        }), SWEEP_INTERVAL_MS)
         this.sweepTimer.unref?.()
     }
 

@@ -33,6 +33,7 @@ import {
     pollAppRegistrationOnce,
     type LarkAppRegistrationPollResult
 } from './providers/lark-app-registration'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const MAX_PENDING_PER_USER = 3
 const CREATING_TIMEOUT_MS = 60_000
@@ -64,9 +65,9 @@ export class LarkRegistrationService
     ) {}
 
     onModuleInit(): void {
-        this.cleanupTimer = setInterval(() => {
+        this.cleanupTimer = setInterval(inBackgroundContext(() => {
             void this.maintenanceTick()
-        }, CLEANUP_INTERVAL_MS)
+        }), CLEANUP_INTERVAL_MS)
         this.cleanupTimer.unref?.()
         void this.maintenanceTick()
     }

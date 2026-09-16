@@ -47,6 +47,7 @@ import {
     type A2aTaskScope,
     type A2aTaskState
 } from '@/modules/a2a/a2a-task.repository'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const PROTOCOL_VERSION = '0.3.0'
 const DEFAULT_SKILL_ID = 'general-chat'
@@ -115,9 +116,9 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.sweepTimer = setInterval(() => {
+        this.sweepTimer = setInterval(inBackgroundContext(() => {
             void this.sweepStaleTasks()
-        }, STALE_SWEEP_INTERVAL_MS)
+        }), STALE_SWEEP_INTERVAL_MS)
         this.sweepTimer.unref?.()
     }
 

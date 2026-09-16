@@ -1,4 +1,5 @@
 import { createObjectId } from '@manyfold/shared'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { createHash, randomBytes } from 'node:crypto'
 import { ForbiddenException, Inject, Injectable, Logger } from '@nestjs/common'
 import { Cron, CronExpression } from '@nestjs/schedule'
@@ -155,6 +156,10 @@ export class SessionService {
     // clean 401 rather than vanishing.
     @Cron(CronExpression.EVERY_HOUR, { name: 'user-session-reaper' })
     async reapExpired(): Promise<void> {
+        return inBackgroundContext(() => this.reapExpiredInScope())()
+    }
+
+    private async reapExpiredInScope(): Promise<void> {
         const cutoff = new Date(Date.now() - 86_400_000)
         const deleted = await this.db
             .delete(userSessions)

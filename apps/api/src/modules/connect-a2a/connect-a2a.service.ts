@@ -36,6 +36,7 @@ import { configString } from '@/common/config-alias'
 import { A2aService } from '../a2a/a2a.service'
 import { ApiTokenService } from '../auth/api-token.service'
 import { generateUserCode, hashSecret } from '../auth/cli-auth.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 // Same TTL as CLI logins: the consent link is often opened minutes later.
 const SESSION_TTL_MS = 15 * 60_000
@@ -70,9 +71,9 @@ export class ConnectA2aService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.cleanupTimer = setInterval(() => {
+        this.cleanupTimer = setInterval(inBackgroundContext(() => {
             void this.maintenanceTick()
-        }, CLEANUP_INTERVAL_MS)
+        }), CLEANUP_INTERVAL_MS)
         this.cleanupTimer.unref?.()
         void this.maintenanceTick()
     }

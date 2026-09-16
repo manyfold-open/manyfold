@@ -39,6 +39,7 @@ import {
     BackupOperationsService,
     type BackupOperationClaim
 } from './backup-operations.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 interface ListBackupsOptions {
     callerUserId: string
@@ -69,12 +70,12 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     async onModuleInit(): Promise<void> {
-        await this.recoverInterrupted()
-        this.timer = setInterval(() => {
+        await inBackgroundContext(() => this.recoverInterrupted())()
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.recoverInterrupted().catch((err) => {
                 this.log.warn(`backup recovery failed: ${sanitizeError(err)}`)
             })
-        }, 60_000)
+        }), 60_000)
         this.timer.unref()
     }
 
@@ -297,7 +298,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             throw err
         }
 
-        void this.runBackupJob(backup.id).catch((err) => {
+        void inBackgroundContext(() => this.runBackupJob(backup.id))().catch((err) => {
             this.log.warn(
                 `backup job ${backup.id} failed: ${(err as Error).message}`
             )
@@ -339,7 +340,7 @@ export class BackupsService implements OnModuleInit, OnModuleDestroy {
             isAdmin
         )
         const restore = await this.admitRestore(backup.id, agent)
-        void this.runRestoreJob(restore.id, false).catch((err) => {
+        void inBackgroundContext(() => this.runRestoreJob(restore.id, false))().catch((err) => {
             this.log.warn(
                 `restore job ${restore.id} failed: ${(err as Error).message}`
             )

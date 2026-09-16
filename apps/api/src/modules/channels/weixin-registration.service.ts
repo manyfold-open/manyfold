@@ -31,6 +31,7 @@ import {
     weixinPollQrStatus,
     type WeixinQrStatusResponse
 } from './providers/weixin-ilink'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const MAX_PENDING_PER_USER = 3
 const MAX_QR_REFRESH = 3
@@ -61,9 +62,9 @@ export class WeixinRegistrationService
     ) {}
 
     onModuleInit(): void {
-        this.cleanupTimer = setInterval(() => {
+        this.cleanupTimer = setInterval(inBackgroundContext(() => {
             void this.maintenanceTick()
-        }, CLEANUP_INTERVAL_MS)
+        }), CLEANUP_INTERVAL_MS)
         this.cleanupTimer.unref?.()
         void this.maintenanceTick()
     }

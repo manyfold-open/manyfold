@@ -25,6 +25,7 @@ import { SandboxActiveDurationService } from '@/modules/agents/sandbox-active-du
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { SandboxesService } from './sandboxes.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const TICK_MS = 60_000
 const LEASE_NAME = 'active-hours-enforcement'
@@ -64,13 +65,13 @@ export class ActiveHoursEnforcementService
     ) {}
 
     onModuleInit(): void {
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.tick()
-        }, TICK_MS)
+        }), TICK_MS)
         if (typeof this.timer.unref === 'function') this.timer.unref()
-        setImmediate(() => {
+        setImmediate(inBackgroundContext(() => {
             void this.tick()
-        })
+        }))
     }
 
     onModuleDestroy(): void {

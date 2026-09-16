@@ -48,6 +48,7 @@ import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.se
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const QUOTA_EVAL_INTERVAL_MS = 60_000
 // The quota pass gets its own cadence: candidate discovery is a 4-table UNION
@@ -263,13 +264,13 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.tick()
-        }, WAKEUP_INTERVAL_MS)
+        }), WAKEUP_INTERVAL_MS)
         if (typeof this.timer.unref === 'function') this.timer.unref()
-        setImmediate(() => {
+        setImmediate(inBackgroundContext(() => {
             void this.tick()
-        })
+        }))
     }
 
     onModuleDestroy(): void {
