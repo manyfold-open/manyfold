@@ -2,6 +2,7 @@ export const chatFailureCauses = [
     'balance_exhausted',
     'account_pool_empty',
     'rate_limited',
+    'provider_overloaded',
     'auth_invalid',
     'invalid_request',
     'stale_resume_ref',
