@@ -19,7 +19,7 @@ import type {
 } from '@manyfold/shared'
 import type { FC, ReactNode } from 'react'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { NcaClient, SdkAgent } from '@manyfold/sdk'
 import { t } from '@manyfold/i18n'
@@ -58,7 +58,8 @@ import type { AgentSettingsSectionId } from '@/lib/agentSettingsSections'
 import {
     isAgentSettingsSection,
     sectionLabelKey,
-    sectionPreconditionKey
+    sectionPreconditionKey,
+    supportsSection
 } from '@/lib/agentSettingsSections'
 import { EffectTimingTag } from '@/pages/AgentSettings/SectionHeader'
 import AgentSettingsRail from '@/pages/AgentSettings/AgentSettingsRail'
@@ -269,6 +270,44 @@ const AgentSettingsContent: FC = (): ReactNode => {
     const client = useApiClient()
     const { confirm, confirmDialog } = useProductConfirm()
     const [agent, setAgent] = useState<SdkAgent | null>(null)
+    const currentAgent = agent?.id === id ? agent : null
+    const modelSupported =
+        !!currentAgent && supportsSection(currentAgent, 'model')
+    const storageSupported =
+        !!currentAgent && supportsSection(currentAgent, 'storage')
+    const readModel =
+        modelSupported && (activeTab === 'model' || activeTab === 'overview')
+    const readStorage =
+        storageSupported && (activeTab === 'storage' || activeTab === 'overview')
+    const readBackups = storageSupported && activeTab === 'storage'
+    const overviewAgentId =
+        activeTab === 'overview' ? currentAgent?.id : undefined
+    const readCliSkill =
+        !!overviewAgentId && !!currentAgent && supportsSection(currentAgent, 'skills')
+    const mounted = useRef(true)
+    const requestScope = useRef({
+        model: readModel,
+        storage: readStorage,
+        backups: readBackups
+    })
+    requestScope.current = {
+        model: readModel,
+        storage: readStorage,
+        backups: readBackups
+    }
+    const canRequest = useCallback(
+        (kind: keyof typeof requestScope.current): boolean =>
+            mounted.current && requestScope.current[kind],
+        []
+    )
+    useEffect(() => {
+        mounted.current = true
+        return () => {
+            mounted.current = false
+        }
+    }, [])
+    const storageRequest = useRef(0)
+    const backupsRequest = useRef(0)
     const [credentials, setCredentials] = useState<AgentCredentialsView | null>(
         null
     )
@@ -313,6 +352,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     const [credentialsError, setCredentialsError] = useState<string | null>(
         null
     )
+    const [modelLoading, setModelLoading] = useState(true)
     const [storageError, setStorageError] = useState<string | null>(null)
     const [backupsError, setBackupsError] = useState<string | null>(null)
     const [credentialsDialogOpen, setCredentialsDialogOpen] = useState(false)
@@ -332,16 +372,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
         useState<AgentModelConfigView | null>(null)
     const applyModelConfigView = useCallback(
         (view: AgentModelConfigView): void => {
+            if (!canRequest('model') || view.agentId !== id) return
             setModelConfigView(view)
         },
-        []
+        [canRequest, id]
     )
     const [sourceUpdating, setSourceUpdating] = useState(false)
     const [sourceError, setSourceError] = useState<string | null>(null)
 
     const changeModelSource = useCallback(
         async (next: AgentModelConfigSource): Promise<void> => {
-            if (!id || sourceUpdating) return
+            if (!id || !canRequest('model') || sourceUpdating) return
             if (modelConfigView?.source === next) return
             setSourceUpdating(true)
             setSourceError(null)
@@ -349,15 +390,16 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 const view = await client.agents.updateModelConfig(id, {
                     modelConfigSource: next
                 })
+                if (view.agentId !== id) return
                 writeCachedModelConfigView(view)
-                setModelConfigView(view)
+                applyModelConfigView(view)
             } catch (err) {
-                setSourceError(apiErrorMessage(err))
+                if (canRequest('model')) setSourceError(apiErrorMessage(err))
             } finally {
                 setSourceUpdating(false)
             }
         },
-        [client, id, modelConfigView?.source, sourceUpdating]
+        [applyModelConfigView, canRequest, client, id, modelConfigView?.source, sourceUpdating]
     )
 
     const selectTab = useCallback(
@@ -376,71 +418,49 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }, [id, navigate, section])
 
     const refreshStorage = useCallback(async (): Promise<void> => {
-        if (!id) return
+        if (!id || !readStorage || !canRequest('storage')) return
+        const request = ++storageRequest.current
+        const current = () =>
+            canRequest('storage') && request === storageRequest.current
         setStorageLoading(true)
         setStorageError(null)
         try {
-            setStorage(await client.agents.storageUsage(id))
+            const next = await client.agents.storageUsage(id)
+            if (current()) setStorage(next)
         } catch (err) {
-            setStorageError((err as Error).message)
+            if (current()) setStorageError((err as Error).message)
         } finally {
-            setStorageLoading(false)
+            if (current()) setStorageLoading(false)
         }
-    }, [client, id])
+    }, [canRequest, client, id, readStorage])
 
     const refreshBackups = useCallback(async (): Promise<void> => {
-        if (!id) return
+        if (!id || !readBackups || !canRequest('backups')) return
+        const request = ++backupsRequest.current
+        const current = () =>
+            canRequest('backups') && request === backupsRequest.current
         setBackupsLoading(true)
         setBackupsError(null)
         try {
-            setBackups(await client.backups.list({ agentId: id }))
+            const next = await client.backups.list({ agentId: id })
+            if (current()) setBackups(next)
         } catch (err) {
-            setBackupsError((err as Error).message)
+            if (current()) setBackupsError((err as Error).message)
         } finally {
-            setBackupsLoading(false)
+            if (current()) setBackupsLoading(false)
         }
-    }, [client, id])
+    }, [canRequest, client, id, readBackups])
 
     useEffect(() => {
         if (!id) return
         let cancelled = false
-        const cachedModelConfig = readCachedModelConfigView(id)
-        if (cachedModelConfig) applyModelConfigView(cachedModelConfig)
         setLoading(true)
         setError(null)
-        setCredentialsError(null)
-        Promise.all([
-            client.agents.get(id),
-            client.agents.getModelConfig(id).catch(() => null),
-            client.agents.credentials.get(id).catch((err: Error) => {
-                setCredentialsError(err.message)
-                return null
-            })
-        ])
-            .then(([nextAgent, nextModelConfig, nextCredentials]) => {
+        void client.agents
+            .get(id)
+            .then((nextAgent) => {
                 if (cancelled) return
                 setAgent(nextAgent)
-                const cachedAtResponse =
-                    readCachedModelConfigView(id) ?? cachedModelConfig
-                const nextView = nextModelConfig
-                    ? mergeCachedRuntimeLocalModelConfigView(
-                          nextModelConfig,
-                          cachedAtResponse
-                      )
-                    : cachedAtResponse?.framework === nextAgent.framework &&
-                        frameworkUsesModelConfig(
-                            nextAgent.framework,
-                            nextAgent.runtime
-                        )
-                      ? cachedAtResponse
-                      : null
-                if (nextView) {
-                    writeCachedModelConfigView(nextView)
-                    applyModelConfigView(nextView)
-                } else {
-                    setModelConfigView(null)
-                }
-                setCredentials(nextCredentials)
             })
             .catch((err: Error) => {
                 if (!cancelled) setError(err.message)
@@ -451,7 +471,54 @@ const AgentSettingsContent: FC = (): ReactNode => {
         return () => {
             cancelled = true
         }
-    }, [client, id, applyModelConfigView])
+    }, [client, id])
+
+    const agentFramework = currentAgent?.framework ?? null
+    const agentRuntime = currentAgent?.runtime ?? null
+    useEffect(() => {
+        if (!id || !readModel || !agentFramework || !agentRuntime) return
+        let cancelled = false
+        const cachedModelConfig = readCachedModelConfigView(id)
+        if (cachedModelConfig?.framework === agentFramework)
+            applyModelConfigView(cachedModelConfig)
+        setModelLoading(true)
+        setCredentialsError(null)
+        void Promise.all([
+            client.agents.getModelConfig(id).catch(() => null),
+            client.agents.credentials.get(id).catch((err: Error) => {
+                if (!cancelled) setCredentialsError(err.message)
+                return null
+            })
+        ])
+            .then(([nextModelConfig, nextCredentials]) => {
+                if (cancelled) return
+                const cachedAtResponse =
+                    readCachedModelConfigView(id) ?? cachedModelConfig
+                const nextView = nextModelConfig?.agentId === id
+                    ? mergeCachedRuntimeLocalModelConfigView(
+                          nextModelConfig,
+                          cachedAtResponse
+                      )
+                    : cachedAtResponse?.framework === agentFramework &&
+                        frameworkUsesModelConfig(
+                            agentFramework,
+                            agentRuntime
+                        )
+                      ? cachedAtResponse
+                      : null
+                if (nextView) {
+                    writeCachedModelConfigView(nextView)
+                    applyModelConfigView(nextView)
+                } else {
+                    setModelConfigView(null)
+                }
+                setCredentials(nextCredentials)
+                setModelLoading(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [agentFramework, agentRuntime, applyModelConfigView, client, id, readModel])
 
     useEffect(() => {
         void refreshStorage()
@@ -462,11 +529,12 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }, [refreshBackups])
 
     const createBackup = async (): Promise<void> => {
-        if (!id || backupBusy) return
+        if (!id || !canRequest('backups') || backupBusy) return
         setBackupBusy('create')
         setBackupsError(null)
         try {
             const { backup } = await client.backups.create(id)
+            if (!canRequest('backups')) return
             setBackups((items) => [backup, ...items])
             window.setTimeout(() => {
                 void refreshBackups()
@@ -479,7 +547,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }
 
     const deleteBackup = async (backup: AgentBackupSummary): Promise<void> => {
-        if (backupBusy) return
+        if (!canRequest('backups') || backupBusy) return
         if (
             !(await confirm({
                 title: t('web.agents.detail.storage.deleteTitle'),
@@ -492,6 +560,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
         ) {
             return
         }
+        if (!canRequest('backups')) return
         setBackupBusy(backup.id)
         setBackupsError(null)
         try {
@@ -505,7 +574,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }
 
     const restoreBackup = async (backup: AgentBackupSummary): Promise<void> => {
-        if (!id || backupBusy) return
+        if (!id || !canRequest('backups') || backupBusy) return
         if (
             !(await confirm({
                 title: t('web.agents.detail.storage.restoreTitle'),
@@ -521,6 +590,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
         ) {
             return
         }
+        if (!canRequest('backups')) return
         setBackupBusy(backup.id)
         setBackupsError(null)
         try {
@@ -529,16 +599,18 @@ const AgentSettingsContent: FC = (): ReactNode => {
             // mistake is a backup that happens to predate it, and the state it
             // replaced is gone for good.
             const { backup: safety } = await client.backups.create(id)
-            setBackups((items) => [safety, ...items])
+            if (mounted.current) setBackups((items) => [safety, ...items])
             // `create` only enqueues the archive job, so the snapshot is still
             // being read out of the workspace right now. Waiting for it is the
             // whole safety net: starting the restore here would overwrite the
             // workspace the snapshot is mid-read of, and a snapshot that then
             // fails would leave the restore already under way with nothing to
             // go back to.
+            // Once accepted, finish the same agent's safety sequence even if
+            // navigation unmounts its settings; only UI updates are retired.
             const settled = await waitForSettled(safety, async () => {
                 const items = await client.backups.list({ agentId: id })
-                setBackups(items)
+                if (mounted.current) setBackups(items)
                 return items.find((item) => item.id === safety.id)
             })
             if (settled?.status !== 'succeeded')
@@ -552,10 +624,10 @@ const AgentSettingsContent: FC = (): ReactNode => {
             const restore = await client.backups.restore(id, {
                 backupId: backup.id
             })
-            setLastRestore(restore)
+            if (mounted.current) setLastRestore(restore)
             const finished = await waitForSettled(restore, async () => {
                 const next = await client.backups.getRestore(restore.id)
-                setLastRestore(next)
+                if (mounted.current) setLastRestore(next)
                 return next
             })
             await refreshBackups()
@@ -574,7 +646,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // Both are read-only summaries for Overview; a failure here must not take
     // the page down, so each falls back to "unknown" and simply shows nothing.
     useEffect(() => {
-        if (!id) return
+        if (!overviewAgentId) return
         let active = true
         void client.channels
             .list()
@@ -586,7 +658,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                 if (active) setChannels(null)
             })
         void client.a2a
-            .getExposure(id)
+            .getExposure(overviewAgentId)
             .then((exposure) => {
                 if (active) setA2aEnabled(exposure?.enabled ?? false)
             })
@@ -596,16 +668,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
         return () => {
             active = false
         }
-    }, [client, id])
+    }, [client, overviewAgentId])
 
     // Overview only asks "is the platform skill there", so it reads the
     // recorded installs without the runtime inventory probe the Skills section
     // pays for — that skill is always installed through Manyfold, so the
     // record is the answer.
     const refreshCliSkill = useCallback(async (): Promise<void> => {
-        if (!id) return
+        if (!id || !readCliSkill || !mounted.current) return
         try {
             const groups = await client.skills.installed(id)
+            if (!mounted.current) return
             setCliSkillInstalled(
                 (groups[0]?.skills ?? []).some(
                     (skill) => skill.skillId === MANYFOLD_CLI_USAGE_SKILL_ID
@@ -616,21 +689,17 @@ const AgentSettingsContent: FC = (): ReactNode => {
             // than inviting an install that may already exist.
             setCliSkillInstalled(null)
         }
-    }, [client, id])
+    }, [client, id, readCliSkill])
 
     // Keyed on what the answer depends on, not on the agent object: the status
     // poll replaces that object every few seconds, and the install record does
     // not change under it.
-    const agentFramework = agent?.framework ?? null
-    const agentRuntimeId = agent?.runtimeId ?? null
     useEffect(() => {
-        if (!agentFramework || !agentRuntimeId) return
-        if (!isSkillFramework(agentFramework)) return
         void refreshCliSkill()
-    }, [agentFramework, agentRuntimeId, refreshCliSkill])
+    }, [refreshCliSkill])
 
     const installCliSkill = useCallback(async (): Promise<void> => {
-        if (!id || cliSkillInstalling) return
+        if (!id || !readCliSkill || !mounted.current || cliSkillInstalling) return
         setCliSkillInstalling(true)
         setActionError(null)
         try {
@@ -644,7 +713,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
         } finally {
             setCliSkillInstalling(false)
         }
-    }, [client, cliSkillInstalling, id, refreshCliSkill])
+    }, [client, cliSkillInstalling, id, readCliSkill, refreshCliSkill])
 
     const handleRestart = useCallback(async (): Promise<void> => {
         if (!agent || restarting) return
@@ -674,9 +743,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
 
     const refreshAgentSummary =
         useCallback(async (): Promise<SdkAgent | null> => {
-            if (!id) return null
+            if (!id || !mounted.current) return null
             const nextAgent = await client.agents.get(id)
-            setAgent(nextAgent)
+            if (mounted.current) setAgent(nextAgent)
                         return nextAgent
         }, [client, id])
 
@@ -787,32 +856,34 @@ const AgentSettingsContent: FC = (): ReactNode => {
     }
 
     useEffect(() => {
-        if (!id) return
+        if (!id || !readModel) return
         return subscribeAgentCredentialsUpdates(id, (nextCredentials) => {
             setCredentials(nextCredentials)
             setCredentialsError(null)
             void refreshAgentSummary()
         })
-    }, [id, refreshAgentSummary])
+    }, [id, readModel, refreshAgentSummary])
 
     useEffect(() => {
-        if (!id) return
+        if (!id || !readModel) return
         return subscribeModelConfigViewUpdates(id, (nextView) => {
             if (agent && nextView.framework !== agent.framework) return
             applyModelConfigView(nextView)
         })
-    }, [agent, applyModelConfigView, id])
+    }, [agent, applyModelConfigView, id, readModel])
 
     useEffect(() => {
-        if (searchParams.get('configureModel') !== '1' || !id) return
-        setCredentialsDialogOpen(true)
+        if (searchParams.get('configureModel') !== '1' || !id || !currentAgent)
+            return
+        if (modelSupported) setCredentialsDialogOpen(true)
         const next = new URLSearchParams(searchParams)
         next.delete('configureModel')
         setSearchParams(next, { replace: true })
-        if (activeTab !== 'model') navigate(agentSettingsPath(id, 'model'))
-    }, [activeTab, id, navigate, searchParams, setSearchParams])
+        if (modelSupported && activeTab !== 'model')
+            navigate(agentSettingsPath(id, 'model'))
+    }, [activeTab, currentAgent, id, modelSupported, navigate, searchParams, setSearchParams])
 
-    if (loading && !agent) {
+    if (loading && !currentAgent) {
         return (
             <div className='settings-content' aria-busy='true'>
                 <div className='settings-page'>
@@ -829,7 +900,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
         )
     }
 
-    if (error || !agent) {
+    if (error || !agent || !currentAgent) {
         return (
             <div className='settings-content'>
                 <div className='settings-page'>
@@ -855,8 +926,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
     // Skills materialize into the agent's workspace for the frameworks that
     // discover them (claude-code/codex/gemini-cli/hermes); the API resolves
     // them through the agent's runtime, so a runtime must be attached.
-    const skillsSupported =
-        isSkillFramework(agent.framework) && !!agent.runtimeId
+    const skillsSupported = supportsSection(agent, 'skills')
     // Only a framework that runs a long-lived service has something to restart,
     // and only on a sprite runtime can we do it — the same two preconditions the
     // endpoint enforces. Offering the button anywhere else buys a 400 for the
@@ -2166,7 +2236,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                 {modelValidationMessage}
                             </div>
                         )}
-                        {hasModelProviderSummary && credentials ? (
+                        {modelLoading && !credentials ? (
+                            <Ghost variant='line' className='w-1/2' />
+                        ) : hasModelProviderSummary && credentials ? (
                             <dl className='workbench-panel divide-divider divide-y overflow-hidden'>
                                 <Info
                                     label={t('web.agents.detail.modelProvider.provider')}
@@ -2343,7 +2415,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             }}
                 />
             )}
-            {credentialsDialogOpen && (
+            {credentialsDialogOpen && readModel && (
                 <AgentCredentialsDialog
                     agentId={agent.id}
                     agentName={agent.name}
@@ -2364,6 +2436,9 @@ const AgentSettingsContent: FC = (): ReactNode => {
 // Rendered as a sibling of AppShell: the area replaces the workspace rail with
 // its own, so it cannot read the shell's context. Terminal and session tools
 // stay in the conversation, matching Settings and Customize.
-const AgentSettings: FC = (): ReactNode => <AgentSettingsContent />
+const AgentSettings: FC = (): ReactNode => {
+    const { id } = useParams<{ id: string }>()
+    return <AgentSettingsContent key={id} />
+}
 
 export default AgentSettings
