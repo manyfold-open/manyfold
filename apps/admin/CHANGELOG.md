@@ -1,5 +1,11 @@
 # @manyfold/admin
 
+## 2.0.2
+
+### Patch Changes
+
+- [#408](https://github.com/manyfold-open/manyfold/pull/408) [`06e39f0`](https://github.com/manyfold-open/manyfold/commit/06e39f0751d35fb6c42b8768701359871d771a72) Thanks [@yingca1](https://github.com/yingca1)! - Scrub retained navigation URLs and query/fragment attributes from browser telemetry with a shared Web/Admin policy. Apply it to individual spans and final event/transaction envelopes while retaining routes, attribution-independent query parameters and performance timings.
+
 ## 2.0.1
 
 ### Patch Changes
