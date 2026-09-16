@@ -54,15 +54,16 @@ compose health check probes. Point your own monitoring at the same URL.
 
 ## Data and volumes
 
-Everything durable lives in Postgres (`pgdata` volume). With the default
-`CHAT_UPLOAD_ALLOW_DISK=true`, transient chat-upload bytes may also touch the
-API container's disk; configure the `CHAT_UPLOAD_S3_*` variables to move
-uploads to any S3-compatible bucket instead (required if you ever run more
-than one API container).
+Postgres uses the `pgdata` volume. The default single-node upload storage
+uses `chat_uploads`, mounted at `/tmp/manyfold-chat-uploads` in the API
+container. Recreating or upgrading that container preserves upload bytes
+and metadata. Uploads remain transient: the existing one-hour expiration
+still applies. Configure `CHAT_UPLOAD_S3_*` for shared storage when running
+more than one API container.
 
 ## Backups and restore
 
-Back up two things together:
+Back up the database and encryption key together:
 
 ```sh
 docker compose -f docker-compose.selfhost.yml exec postgres \
@@ -75,6 +76,27 @@ docker compose -f docker-compose.selfhost.yml exec postgres \
 
 Restore into a fresh stack: start only `postgres`, `pg_restore` the dump,
 then bring up the rest with the same `MF_API_CRYPTO_KEY`.
+
+To preserve uploads that are still within their expiration window, also
+copy their bytes and metadata before stopping or replacing the stack:
+
+```sh
+docker compose -f docker-compose.selfhost.yml cp \
+    api:/tmp/manyfold-chat-uploads ./chat-uploads-backup
+```
+
+After the new API is running with its upload volume, restore the directory
+contents (including the `.json` metadata files):
+
+```sh
+docker compose -f docker-compose.selfhost.yml cp \
+    ./chat-uploads-backup/. api:/tmp/manyfold-chat-uploads
+```
+
+This copy is also required on the first upgrade from a release that stored
+uploads only inside the old API container. Do it before recreating that
+container. A normal `docker compose down` retains named volumes;
+`down --volumes` deletes both database and upload storage.
 
 ## Upgrades and downgrades
 
@@ -124,6 +146,10 @@ comes from the plan its `users.plan_id` points at. The compose stack sets
 `MF_DEFAULT_PLAN_ID=self_hosted`, the seeded unlimited tier, so accounts
 created on this stack have no practical limits.
 
+Settings → Usage shows the current plan and effective resource limits,
+including per-user grants, alongside current usage. It has no checkout or
+billing actions. The former Plan & Billing URL redirects to this summary.
+
 `MF_DEFAULT_PLAN_ID` applies **when an account is created** and nowhere else.
 An account created before the deployment set it — the released stack that
 predates the unlimited plan, or a hand-written compose/Kubernetes manifest
@@ -157,10 +183,11 @@ machine it runs on:
 - **Baked URLs.** The web and admin bundles bake the API base URL at build
   time. Set `MF_SELFHOST_API_URL` (plus the `MF_SELFHOST_*_URL` variables) to
   the URLs browsers will use, then rebuild (`up -d --build`).
-- **CORS.** With `CORS_ORIGIN` unset the API reflects any origin (fine on
-  localhost). When exposing the API, set `MF_SELFHOST_CORS_ORIGIN` to the
-  exact web + admin origins, e.g.
-  `https://app.example.com,https://admin.example.com`.
+- **CORS.** The compose default permits only the configured Web and Admin
+  URLs, or `http://localhost:3002,http://localhost:3001` when unset.
+  Use origin-only URLs (scheme, host and port, without a path or trailing
+  slash). Set `MF_SELFHOST_CORS_ORIGIN` explicitly for additional origins,
+  e.g. `https://app.example.com,https://admin.example.com`.
 
 Terminate TLS in your reverse proxy of choice and forward to the three
 ports; the API needs WebSocket forwarding (daemon connections and terminals

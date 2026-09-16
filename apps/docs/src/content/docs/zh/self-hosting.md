@@ -48,10 +48,10 @@ Compose 把契约写死了:`api-migrate` 先把迁移 journal 跑到完成,`api`
 
 ## 数据与卷
 
-所有持久数据都在 Postgres(`pgdata` 卷)。默认
-`CHAT_UPLOAD_ALLOW_DISK=true` 时,聊天上传的临时字节也可能落在 API 容器磁
-盘;配置 `CHAT_UPLOAD_S3_*` 系列变量可以把上传移到任意 S3 兼容存储(一旦运
-行多个 API 容器则必须配置)。
+Postgres 使用 `pgdata` 卷。单节点默认将上传字节和 metadata 放在
+`chat_uploads` 卷，挂载到 API 的 `/tmp/manyfold-chat-uploads`，重建或
+升级容器后仍可读取。上传仍是临时数据，原有的一小时过期策略继续生效。
+多个 API 容器必须配置 `CHAT_UPLOAD_S3_*` 使用共享存储。
 
 ## 备份与恢复
 
@@ -67,6 +67,24 @@ docker compose -f docker-compose.selfhost.yml exec postgres \
 
 恢复到新栈:先只启动 `postgres`,`pg_restore` 导入 dump,再用同一个
 `MF_API_CRYPTO_KEY` 拉起其余服务。
+
+需要保留仍在有效期内的上传时，在停止或替换旧容器前复制字节和 metadata：
+
+```sh
+docker compose -f docker-compose.selfhost.yml cp \
+    api:/tmp/manyfold-chat-uploads ./chat-uploads-backup
+```
+
+新 API 启动并挂载上传卷后，恢复目录内容，包括 `.json` metadata 文件：
+
+```sh
+docker compose -f docker-compose.selfhost.yml cp \
+    ./chat-uploads-backup/. api:/tmp/manyfold-chat-uploads
+```
+
+首次从只使用容器临时磁盘的旧版本升级，也要在重建旧 API 前完成这次复制。
+普通 `docker compose down` 保留 named volumes；
+`down --volumes` 会同时删除数据库和上传存储。
 
 ## 升级与降级
 
@@ -107,6 +125,9 @@ docker compose -f docker-compose.selfhost.yml up -d --build
 栈设置了 `MF_DEFAULT_PLAN_ID=self_hosted`,也就是种子里那个无限档,所以在这套栈
 上创建的账号实际没有限制。
 
+Settings → Usage 显示当前套餐、含用户额外额度的实际资源上限，以及当前用量，
+不提供 checkout 或 billing 操作。旧的 Plan & Billing URL 会跳转到此摘要。
+
 `MF_DEFAULT_PLAN_ID` **只在账号创建的那一刻生效**,别处都不生效。在部署设置它
 之前就建好的账号 —— 早于无限档的旧版本,或者从没传过这个变量的自写
 compose / Kubernetes 清单 —— 会落在云端的 `free` 档并一直留在那里。症状是一条
@@ -137,9 +158,10 @@ docker compose -f docker-compose.selfhost.yml exec postgres \
 - **烘焙 URL。** web 和 admin 的产物在构建期烘入 API 地址。把
   `MF_SELFHOST_API_URL`(以及其余 `MF_SELFHOST_*_URL`)设成浏览器实际使用
   的 URL,然后重建(`up -d --build`)。
-- **CORS。** `CORS_ORIGIN` 未设置时 API 反射任意来源(localhost 下没问
-  题)。对外暴露 API 时,把 `MF_SELFHOST_CORS_ORIGIN` 设为确切的 web +
-  admin 来源,例如
+- **CORS。** compose 默认只允许配置的 Web 和 Admin URL；未配置时使用
+  `http://localhost:3002,http://localhost:3001`。URL 只写 scheme、host 和
+  port，不带路径或结尾斜线。需要额外来源时显式设置
+  `MF_SELFHOST_CORS_ORIGIN`，例如
   `https://app.example.com,https://admin.example.com`。
 
 TLS 在你的反向代理终结,再转发到三个端口;API 需要 WebSocket 转发

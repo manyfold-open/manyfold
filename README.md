@@ -77,6 +77,19 @@ just dev         # api :2222, web :3002, admin :3001
 `AGENTS.md` documents the workspace layout and conventions; `justfile` lists
 every task. All checks: `pnpm check && pnpm lint && pnpm knip`.
 
+The self-host upgrade regression builds the real Compose images in an isolated
+local project, uploads through the API, recreates its container, checks CORS
+and verifies the resource summary in desktop/mobile browsers:
+
+```sh
+pnpm --filter @manyfold/shared build
+pnpm exec playwright install chromium
+RUN_SELFHOST_E2E=1 node apps/api/test/selfhost-compose.e2e.mjs /tmp/selfhost-report
+```
+
+It removes its own containers and volumes after the run. The report and
+screenshots remain in the requested directory.
+
 Browser telemetry regressions run with `pnpm test:browser-telemetry` after
 `pnpm exec playwright install chromium webkit`. They use synthetic events,
 real React DOM nodes and SDK payloads intercepted locally; no service
@@ -86,6 +99,23 @@ one detail per fingerprint per minute, up to 100 distinct fingerprints.
 overflow and foreign-extension noise. Web Vitals keep scalar measurements,
 app/environment and normalized document routes. Visibility/pagehide flushes
 are best-effort browser delivery, not an acknowledgement of remote storage.
+
+API telemetry uses the existing OpenTelemetry instrumentations; enabling
+Sentry adds error capture and an export branch without additional performance
+instrumentation. Fatal handoff and telemetry delivery share a three-second
+deadline. Graceful signal shutdown retains its one-second flush budget.
+The default API tests exercise fresh-boot fatal delivery against loopback
+receivers. To also compare real HTTP/Fastify/PostgreSQL span graphs with
+Sentry disabled, enabled, and sampled at zero:
+
+```sh
+pnpm exec turbo build --filter='@manyfold/api^...'
+RUN_TELEMETRY_E2E=1 node apps/api/test/telemetry-pipeline.e2e.mjs /tmp/telemetry-report
+```
+
+The opt-in run creates and removes its own local PostgreSQL container. All
+SDK traffic goes to local fixture receivers; failed/stalled receivers prove
+request-body delivery and bounded exit, not remote persistence.
 
 ## Contributing
 
