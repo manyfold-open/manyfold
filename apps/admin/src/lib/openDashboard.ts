@@ -1,4 +1,5 @@
 import type { AgentControlUiUrlResponse } from '@manyfold/shared'
+import { captureMessage } from '@sentry/react'
 
 const DASHBOARD_MINT_TIMEOUT_MS = 10_000
 
@@ -29,20 +30,28 @@ const renderPopupError = (
     win: Window,
     title: string,
     message: string
-): void => {
-    const doc = win.document
-    doc.title = title
-    doc.body.replaceChildren()
-    const heading = doc.createElement('h1')
-    heading.textContent = title
-    heading.style.cssText =
-        'font: 600 14px system-ui, sans-serif; margin: 16px 16px 8px;'
-    const pre = doc.createElement('pre')
-    pre.textContent = message
-    pre.style.cssText =
-        'margin: 0 16px 16px; white-space: pre-wrap; font: 12px ui-monospace, monospace;'
-    doc.body.appendChild(heading)
-    doc.body.appendChild(pre)
+): boolean => {
+    try {
+        if (win.closed) return false
+        const doc = win.document
+        if (!doc?.body) return false
+        doc.title = title
+        doc.body.replaceChildren()
+        const heading = doc.createElement('h1')
+        heading.textContent = title
+        heading.style.cssText =
+            'font: 600 14px system-ui, sans-serif; margin: 16px 16px 8px;'
+        const pre = doc.createElement('pre')
+        pre.textContent = message
+        pre.style.cssText =
+            'margin: 0 16px 16px; white-space: pre-wrap; font: 12px ui-monospace, monospace;'
+        doc.body.appendChild(heading)
+        doc.body.appendChild(pre)
+        return true
+    } catch {
+        // WindowProxy can close, navigate or lose DOM access while minting.
+        return false
+    }
 }
 
 // Open a runtime's dashboard / control UI in a new tab. Server-side
@@ -74,19 +83,29 @@ export const openDashboardInPopup = (
         timeoutMs
     )
     void (async () => {
+        let phase: 'mint' | 'navigate' = 'mint'
         try {
             const { url } = await runtimes.getControlUiUrl(
                 opts.runtimeId,
                 opts.agentId,
                 { signal: controller.signal }
             )
+            phase = 'navigate'
             win.location.replace(url)
         } catch (e) {
             const aborted = controller.signal.aborted
             const msg = aborted
                 ? `Request timed out after ${Math.round(timeoutMs / 1000)}s`
-                : (e as Error).message
-            renderPopupError(win, failureTitle, msg)
+                : e instanceof Error
+                  ? e.message
+                  : failureTitle
+            // Error details can contain the freshly minted credential URL.
+            captureMessage('Dashboard could not be opened', {
+                level: 'warning',
+                tags: { operation: 'dashboard.open', phase: aborted ? 'timeout' : phase }
+            })
+            if (!renderPopupError(win, failureTitle, msg))
+                window.alert(`${failureTitle}\n\n${msg}`)
         } finally {
             window.clearTimeout(timeoutId)
         }

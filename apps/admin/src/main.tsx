@@ -8,27 +8,10 @@ import App from '@/App'
 import { ADMIN_EDITION } from '@/edition'
 import AppCrashFallback from '@/components/AppCrashFallback'
 import { AppAuthProvider } from '@/lib/auth'
-import { WebVitals, logger } from '@/lib/axiom'
+import { WebVitals, browserTelemetry } from '@/lib/axiom'
 import '@/styles.css'
 
-window.addEventListener('error', (event) => {
-    logger.error('window.error', {
-        message: event.message,
-        filename: event.filename,
-        lineno: event.lineno,
-        colno: event.colno,
-        error: event.error?.stack ?? String(event.error ?? '')
-    })
-})
-window.addEventListener('unhandledrejection', (event) => {
-    const reason = event.reason
-    logger.error('unhandledrejection', {
-        reason:
-            reason instanceof Error
-                ? (reason.stack ?? reason.message)
-                : String(reason)
-    })
-})
+browserTelemetry.install(window, document)
 
 document.documentElement.dataset.mfEdition = ADMIN_EDITION
 

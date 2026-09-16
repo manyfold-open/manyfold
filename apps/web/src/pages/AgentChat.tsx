@@ -645,7 +645,6 @@ const AgentChat: FC = (): ReactNode => {
                 }
             } catch (err) {
                 setError(apiErrorMessage(err))
-                throw err
             } finally {
                 setModelConfigRefreshing(false)
             }
