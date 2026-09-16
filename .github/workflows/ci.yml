@@ -315,6 +315,7 @@ jobs:
             - run: pnpm exec playwright install --with-deps chromium webkit
             - run: pnpm test:browser-sentry
             - run: pnpm test:browser-telemetry
+            - run: pnpm test:browser-settings
 
     secret-scan:
         needs: prepare

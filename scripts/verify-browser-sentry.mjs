@@ -161,14 +161,24 @@ export const verifyBrowserSentry = async ({
         }, initialStorage)
         const unexpectedRequests = []
         await context.route('**/*', (route) => {
-            if (new URL(route.request().url()).origin === origin)
+            const url = new URL(route.request().url())
+            if (url.origin === origin)
                 return route.continue()
-            unexpectedRequests.push(new URL(route.request().url()).origin)
+            unexpectedRequests.push(url.origin)
             return route.abort()
         })
         const page = await context.newPage()
         const pageErrors = []
         page.on('pageerror', (error) => pageErrors.push(error.message))
+        // Chromium can quantize the first navigation's redirectStart to zero,
+        // which the SDK treats as an absent phase. A real predecessor document
+        // gives the redirect navigation a non-zero start without stubbing timing.
+        await page.setContent(`<script>
+            addEventListener('beforeunload', () => {
+                const deadline = performance.now() + 25
+                while (performance.now() < deadline) {}
+            })
+        </script>`)
         const marker = 'PRIVATE_NAV_' + randomUUID()
         const target = new URL('/__privacy_redirect', origin)
         for (const param of queryParams) target.searchParams.set(param, marker)
@@ -191,6 +201,19 @@ export const verifyBrowserSentry = async ({
             true
         )
         const snapshot = await page.evaluate(() => globalThis.__privacySnapshot)
+        const navigationTiming = await page.evaluate(() => {
+            const entry = globalThis.performance.getEntriesByType('navigation')[0]
+            return {
+                redirectCount: entry.redirectCount,
+                startTime: entry.startTime,
+                redirectStart: entry.redirectStart,
+                redirectEnd: entry.redirectEnd,
+                fetchStart: entry.fetchStart,
+                requestStart: entry.requestStart,
+                responseStart: entry.responseStart,
+                responseEnd: entry.responseEnd
+            }
+        })
         const transaction = payloads.find(
             (item) =>
                 item.type === 'transaction' &&
@@ -219,6 +242,7 @@ export const verifyBrowserSentry = async ({
                 snapshot.location
             ).searchParams.has(queryParams[0]),
             receivedEnvelopes: wire.length,
+            navigationTiming,
             navigationPhases: phases,
             callbacks: snapshot.callbacks,
             wireContainsMarker: wire.some((body) => body.includes(marker)),
@@ -229,6 +253,9 @@ export const verifyBrowserSentry = async ({
         assert.deepEqual(receiverErrors, [])
         assert.deepEqual(pageErrors, [])
         assert.deepEqual(unexpectedRequests, [])
+        assert.equal(navigationTiming.redirectCount, 1)
+        assert.ok(navigationTiming.redirectStart > 0)
+        assert.ok(navigationTiming.redirectEnd > navigationTiming.redirectStart)
         assert.equal(summary.navigationRetainsMarker, true)
         assert.equal(summary.primaryRemovedFromLocation, true)
         assert.ok(transaction, 'no pageload transaction reached the receiver')
