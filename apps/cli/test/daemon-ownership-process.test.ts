@@ -13,6 +13,7 @@ interface Worker {
         pid?: number
         ownerPid?: number | null
         message?: string
+        code?: string
     }>
     exited: Promise<void>
     done: boolean
@@ -39,7 +40,8 @@ const message = async (worker: Worker, kinds: string[]) => {
 const createWorker = (
     pidPath: string,
     workers: Worker[],
-    binary = false
+    binary = false,
+    observeRenames = false
 ): Worker => {
     const child = spawn(
         binary ? process.env.MF_TEST_LOCK_WORKER! : process.execPath,
@@ -54,7 +56,8 @@ const createWorker = (
                           import.meta.url
                       )
                   ),
-                  pidPath
+                  pidPath,
+                  ...(observeRenames ? ['observe-renames'] : [])
               ],
         {
             stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
@@ -65,6 +68,10 @@ const createWorker = (
             }
         }
     )
+    return observeWorker(child, workers)
+}
+
+const observeWorker = (child: ChildProcess, workers: Worker[]): Worker => {
     const worker: Worker = {
         child,
         messages: [],
@@ -103,9 +110,9 @@ const withWorkers = async (
     }
 }
 
-const contend = async (pidPath: string, workers: Worker[]) => {
-    const contenders = Array.from({ length: 8 }, () =>
-        createWorker(pidPath, workers)
+const contend = async (pidPath: string, workers: Worker[], mixed: boolean) => {
+    const contenders = Array.from({ length: 8 }, (_, index) =>
+        createWorker(pidPath, workers, mixed && index % 2 === 1)
     )
     await Promise.all(contenders.map((worker) => message(worker, ['ready'])))
     for (const worker of contenders) worker.child.send('claim')
@@ -131,23 +138,107 @@ const contend = async (pidPath: string, workers: Worker[]) => {
     return winner
 }
 
-test('concurrent processes admit one owner, including after a killed owner', async () => {
-    await withWorkers(async (dir, workers) => {
-        const pidPath = join(dir, 'daemon.pid')
-        const first = await contend(pidPath, workers)
-        first.child.kill('SIGKILL')
-        await first.exited
-        const second = await contend(pidPath, workers)
-        second.child.send('release')
-        await message(second, ['released'])
-        await second.exited
-        assert.deepEqual(
-            await readdir(`${pidPath}.locks`),
-            process.platform === 'win32' ? [] : ['lock']
-        )
-        await assert.rejects(readFile(pidPath), { code: 'ENOENT' })
+for (const mixed of [
+    false,
+    ...(process.env.MF_TEST_LOCK_WORKER ? [true] : [])
+]) {
+    test(`${mixed ? 'Node/Bun' : 'Node'} concurrent processes admit one owner across repeated killed-owner takeovers`, async () => {
+        await withWorkers(async (dir, workers) => {
+            const pidPath = join(dir, 'daemon.pid')
+            let owner = await contend(pidPath, workers, mixed)
+            for (let takeover = 0; takeover < 3; takeover += 1) {
+                owner.child.kill('SIGKILL')
+                await owner.exited
+                owner = await contend(pidPath, workers, mixed)
+            }
+            owner.child.send('release')
+            await message(owner, ['released'])
+            await owner.exited
+            assert.deepEqual(
+                await readdir(`${pidPath}.locks`),
+                process.platform === 'win32' ? [] : ['lock']
+            )
+            await assert.rejects(readFile(pidPath), { code: 'ENOENT' })
+        })
     })
-})
+}
+
+test(
+    'Windows metadata sharing denial keeps the kernel owner until atomic replacement succeeds',
+    { skip: process.platform !== 'win32' },
+    async () => {
+        await withWorkers(async (dir, workers) => {
+            const pidPath = join(dir, 'daemon.pid')
+            const first = createWorker(pidPath, workers)
+            await message(first, ['ready'])
+            first.child.send('claim')
+            await message(first, ['acquired'])
+            first.child.kill('SIGKILL')
+            await first.exited
+
+            const writer = createWorker(pidPath, workers, false, true)
+            const contender = createWorker(pidPath, workers)
+            await Promise.all([
+                message(writer, ['ready']),
+                message(contender, ['ready'])
+            ])
+            const metadata = join(`${pidPath}.locks`, 'owner.json')
+            const reader = observeWorker(
+                spawn(
+                    'powershell.exe',
+                    [
+                        '-NoLogo',
+                        '-NoProfile',
+                        '-NonInteractive',
+                        '-File',
+                        fileURLToPath(
+                            new URL(
+                                './fixtures/hold-windows-file.ps1',
+                                import.meta.url
+                            )
+                        ),
+                        '-Path',
+                        metadata
+                    ],
+                    { stdio: ['pipe', 'pipe', 'pipe'] }
+                ),
+                workers
+            )
+            let output = ''
+            reader.child.stdout?.on('data', (chunk: Buffer) => {
+                output += chunk.toString()
+                const lines = output.split('\n')
+                output = lines.pop() ?? ''
+                for (const line of lines)
+                    if (line.trim()) reader.messages.push(JSON.parse(line))
+            })
+            await message(reader, ['ready'])
+            writer.child.send('claim')
+            const denied = await message(writer, ['rename-denied'])
+            assert.ok(['EPERM', 'EACCES', 'EBUSY'].includes(denied.code ?? ''))
+            contender.child.send('claim')
+            await message(contender, ['busy'])
+            assert.equal(
+                JSON.parse(await readFile(metadata, 'utf8')).pid,
+                first.child.pid
+            )
+            assert.ok(!writer.messages.some((item) => item.kind === 'acquired'))
+
+            reader.child.stdin!.end('\n')
+            await reader.exited
+            await message(writer, ['acquired'])
+            assert.equal(
+                JSON.parse(await readFile(metadata, 'utf8')).pid,
+                writer.child.pid
+            )
+            writer.child.send('release')
+            await message(writer, ['released'])
+            await writer.exited
+            assert.deepEqual(await readdir(`${pidPath}.locks`), [])
+            await assert.rejects(readFile(pidPath), { code: 'ENOENT' })
+        })
+    }
+)
 
 test('independent profiles can own separate daemons concurrently', async () => {
     await withWorkers(async (dir, workers) => {
