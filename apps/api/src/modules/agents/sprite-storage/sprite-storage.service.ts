@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { and, eq, ne } from 'drizzle-orm'
 import {
     agents,
@@ -66,6 +67,10 @@ export class SpriteStorageService {
     // figure. Per-agent workspace and per-framework home du readings ride along
     // as the drill-down.
     async measureHostIfDue(hostId: string): Promise<void> {
+        return inBackgroundContext(() => this.measureHostInScope(hostId))()
+    }
+
+    private async measureHostInScope(hostId: string): Promise<void> {
         const [host] = await this.db
             .select()
             .from(runtimeHosts)

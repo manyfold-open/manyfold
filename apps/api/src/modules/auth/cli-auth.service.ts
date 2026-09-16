@@ -26,6 +26,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { configString } from '@/common/config-alias'
 import { API_TOKEN_SCOPE_FULL, ApiTokenService } from './api-token.service'
 import { CliAuthRateLimitService } from './cli-auth-rate-limit.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 // Browser approval links expire independently of the resulting personal token.
 const LOGIN_TTL_MS = 15 * 60_000
@@ -56,9 +57,9 @@ export class CliAuthService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.cleanupTimer = setInterval(() => {
+        this.cleanupTimer = setInterval(inBackgroundContext(() => {
             void this.maintenanceTick()
-        }, this.cleanupIntervalMs())
+        }), this.cleanupIntervalMs())
         this.cleanupTimer.unref?.()
         void this.maintenanceTick()
     }

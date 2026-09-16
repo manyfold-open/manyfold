@@ -47,6 +47,7 @@ import type {
 } from './narranexus-sync.types'
 import type { NotifySyncDto } from './dto/notify-sync.dto'
 import type { ChannelSendDto } from './dto/channel-send.dto'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const IP_RATE_LIMIT = 60
 const RUNTIME_RATE_LIMIT = 30
@@ -116,9 +117,9 @@ export class NarraNexusSyncService implements OnModuleInit, OnModuleDestroy {
             if (framework !== 'narranexus') return
             this.touchRuntime(runtimeId, { external: true })
         })
-        this.sweepTimer = setInterval(() => {
+        this.sweepTimer = setInterval(inBackgroundContext(() => {
             void this.sweep()
-        }, SWEEP_INTERVAL_MS)
+        }), SWEEP_INTERVAL_MS)
         this.sweepTimer.unref?.()
     }
 
@@ -395,10 +396,10 @@ export class NarraNexusSyncService implements OnModuleInit, OnModuleDestroy {
 
     private scheduleKick(runtimeId: string, delayMs: number): void {
         if (this.pendingKicks.has(runtimeId)) return
-        const timer = setTimeout(() => {
+        const timer = setTimeout(inBackgroundContext(() => {
             this.pendingKicks.delete(runtimeId)
             this.touchRuntime(runtimeId)
-        }, delayMs)
+        }), delayMs)
         timer.unref?.()
         this.pendingKicks.set(runtimeId, timer)
     }
@@ -674,12 +675,12 @@ export class NarraNexusSyncService implements OnModuleInit, OnModuleDestroy {
         const delay = minArmedAt + REARM_GRACE_MS - Date.now()
         if (delay > REARM_MAX_DELAY_MS) return
         const timer = setTimeout(
-            () => {
+            inBackgroundContext(() => {
                 this.rearmTimers.delete(runtimeId)
                 const lastSuccess = this.lastSuccessAt.get(runtimeId) ?? 0
                 if (lastSuccess > minArmedAt) return
                 this.touchRuntime(runtimeId, { external: true })
-            },
+            }),
             Math.max(0, delay)
         )
         timer.unref?.()

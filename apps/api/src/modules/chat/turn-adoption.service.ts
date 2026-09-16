@@ -9,6 +9,7 @@ import {
 import type { TurnExecutionRow } from '@manyfold/db'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 export interface TurnAdoptionHandler {
     // Continue/finish a turn this instance just claimed. Must terminate the
@@ -76,9 +77,9 @@ export class TurnAdoptionService
         this.logger.log(`turn adoption enabled (owner=${this.ownerId})`)
         // Kick once on boot so a deploy's orphans are adopted within seconds,
         // not on the first tick.
-        this.startSweep('bootstrap')
+        inBackgroundContext(() => this.startSweep('bootstrap'))()
         this.timer = setInterval(
-            () => this.startSweep('periodic'),
+            inBackgroundContext(() => this.startSweep('periodic')),
             SWEEP_INTERVAL_MS
         )
         this.timer.unref()

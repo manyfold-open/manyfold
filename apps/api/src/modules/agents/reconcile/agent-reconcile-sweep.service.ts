@@ -17,6 +17,7 @@ import {
 import { DRIZZLE } from '@/db/tokens'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { AgentReconcileService } from './agent-reconcile.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 // Freshness backstop for agent state now that list endpoints are pure reads
 // (#516). Lifecycle writers converge agents rows inline and reports/chat
@@ -61,13 +62,13 @@ export class AgentReconcileSweepService
     ) {}
 
     onModuleInit(): void {
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.tick()
-        }, TICK_INTERVAL_MS)
+        }), TICK_INTERVAL_MS)
         if (typeof this.timer.unref === 'function') this.timer.unref()
-        setImmediate(() => {
+        setImmediate(inBackgroundContext(() => {
             void this.tick()
-        })
+        }))
     }
 
     onModuleDestroy(): void {

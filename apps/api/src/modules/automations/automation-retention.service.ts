@@ -14,6 +14,7 @@ import { DRIZZLE } from '@/db/tokens'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000
 const LEASE_NAME = 'automation-retention-sweep'
@@ -70,19 +71,19 @@ export class AutomationRetentionService
                     DEFAULT_INTERVAL_MS
             )
         )
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.runOnce().catch((err) =>
                 this.log.warn(
                     `automation retention sweep failed: ${(err as Error).message}`
                 )
             )
-        }, intervalMs)
+        }), intervalMs)
         this.timer.unref?.()
         // Staggered from the chat-retention boot sweep (60s) so the two
         // startup sweeps do not compete for the pool at the same instant.
-        setTimeout(() => {
+        setTimeout(inBackgroundContext(() => {
             void this.runOnce().catch(() => {})
-        }, 90_000).unref?.()
+        }), 90_000).unref?.()
     }
 
     onModuleDestroy(): void {

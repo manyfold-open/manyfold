@@ -42,6 +42,7 @@ import { SpritesProvisioner } from '@/modules/agent-runtimes/provisioning/sprite
 import { K8sProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-provisioner'
 import { ChannelsService } from '@/modules/channels/channels.service'
 import { DeletionTokenService } from './deletion-token.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const DEFAULT_GRACE_DAYS = 30
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000
@@ -96,9 +97,9 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
 
     onModuleInit(): void {
         if (process.env.NODE_ENV === 'test') return
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.sweep()
-        }, SWEEP_INTERVAL_MS)
+        }), SWEEP_INTERVAL_MS)
         this.timer.unref?.()
     }
 

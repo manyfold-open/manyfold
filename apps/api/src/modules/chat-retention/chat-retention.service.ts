@@ -46,6 +46,7 @@ import {
     type RawClearCursor
 } from './source-raw-retention'
 import { isRepresentableWindowDays } from './retention-window'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const DEFAULT_INTERVAL_MS = 24 * 60 * 60 * 1000
 const LEASE_NAME = 'chat-retention-sweep'
@@ -132,17 +133,17 @@ export class ChatRetentionService implements OnModuleInit, OnModuleDestroy {
                     DEFAULT_INTERVAL_MS
             )
         )
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.runOnce().catch((err) =>
                 this.log.warn(
                     `chat retention sweep failed: ${(err as Error).message}`
                 )
             )
-        }, intervalMs)
+        }), intervalMs)
         this.timer.unref?.()
-        setTimeout(() => {
+        setTimeout(inBackgroundContext(() => {
             void this.runOnce().catch(() => {})
-        }, 60_000).unref?.()
+        }), 60_000).unref?.()
     }
 
     onModuleDestroy(): void {

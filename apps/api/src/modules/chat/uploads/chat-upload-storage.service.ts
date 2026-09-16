@@ -24,6 +24,7 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 export interface StoredUpload {
     id: string
@@ -67,9 +68,9 @@ export class ChatUploadStorageService implements OnModuleInit, OnModuleDestroy {
         }
         if (cfg.kind !== 'disk') return
         this.sweepTimer = setInterval(
-            () => {
+            inBackgroundContext(() => {
                 void this.sweepExpired(new Date()).catch(() => undefined)
-            },
+            }),
             CHAT_UPLOAD_TTL_MS
         )
         this.sweepTimer.unref()
