@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 5.1.9
+
+### Patch Changes
+
+- [#419](https://github.com/manyfold-open/manyfold/pull/419) [`b1708bf`](https://github.com/manyfold-open/manyfold/commit/b1708bfc8ce44ff1f285bf9edf9cc7f037cea43b) Thanks [@yingca1](https://github.com/yingca1)! - Keep Sentry's default performance instrumentation from adding duplicate Axiom spans, and carry one three-second fatal exit deadline through turn handoff and telemetry delivery. Flush the exit record and captured error before pending span conversion while preserving the graceful signal budget.
+
+- [#418](https://github.com/manyfold-open/manyfold/pull/418) [`08b3b0e`](https://github.com/manyfold-open/manyfold/commit/08b3b0ed5fc09a7af592b071f5e1e53f70e4eedb) Thanks [@yingca1](https://github.com/yingca1)! - Persist self-host chat uploads across API container replacement and restrict the default CORS allowlist to the configured Web and Admin origins. Self-host accounts can inspect their effective resource quotas and usage without cloud billing actions.
+
 ## 5.1.8
 
 ### Patch Changes
