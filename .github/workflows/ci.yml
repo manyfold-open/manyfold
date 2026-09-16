@@ -227,7 +227,7 @@ jobs:
               # parallel-safe as a whole. Every file must release its resources
               # and exit naturally.
               run: |
-                  node ../../scripts/test-sealed-env.mjs -- node --import tsx --test --test-concurrency=1 test/*.pg.test.ts
+                  node ../../scripts/test-sealed-env.mjs -- node --import tsx scripts/run-pg-tests.ts
 
     smoke-boot:
         needs: prepare

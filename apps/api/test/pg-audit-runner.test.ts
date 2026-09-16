@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { parse } from 'yaml'
 
+import { CROSS_SUITE_PAIRINGS } from '../scripts/run-pg-audit'
 import {
-    CROSS_SUITE_PAIRINGS,
     discoverPgTestFiles,
     parseTapSummary,
     testRunnerArgs
-} from '../scripts/run-pg-audit'
+} from '../scripts/pg-test-runner'
+import { runPgTests } from '../scripts/run-pg-tests'
 
 const passingTap = `TAP version 13
 ok 1 - first
@@ -79,9 +82,77 @@ test('PostgreSQL discovery is sorted and excludes deterministic tests', (t) => {
     fs.writeFileSync(path.join(dir, 'z.pg.test.ts'), '')
     fs.writeFileSync(path.join(dir, 'a.pg.test.ts'), '')
     fs.writeFileSync(path.join(dir, 'unit.test.ts'), '')
+    fs.mkdirSync(path.join(dir, 'domain'))
+    fs.writeFileSync(path.join(dir, 'domain', 'nested.pg.test.ts'), '')
 
     assert.deepEqual(
-        discoverPgTestFiles(dir).map((file) => path.basename(file)),
-        ['a.pg.test.ts', 'z.pg.test.ts']
+        discoverPgTestFiles(dir).map((file) => path.relative(dir, file)),
+        ['a.pg.test.ts', 'domain/nested.pg.test.ts', 'z.pg.test.ts']
+    )
+})
+
+test('the required runner executes nested files, rejects skipped files and requires opt-in', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pg-nested-'))
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+    fs.mkdirSync(path.join(dir, 'nested'))
+    const nested = path.join(dir, 'nested', 'witness.pg.test.ts')
+    fs.writeFileSync(
+        nested,
+        "import test from 'node:test'\ntest('nested witness actually executed', () => {})\n"
+    )
+    fs.writeFileSync(
+        path.join(dir, 'unit.test.ts'),
+        "throw new Error('must not execute unit fixture')"
+    )
+    const run = (enabled: boolean) =>
+        spawnSync(
+            process.execPath,
+            ['--import', 'tsx', 'scripts/run-pg-tests.ts', dir],
+            {
+                cwd: process.cwd(),
+                encoding: 'utf8',
+                env: { ...process.env, RUN_PG_E2E: enabled ? '1' : '' }
+            }
+        )
+    assert.equal(typeof runPgTests, 'function')
+    const passed = run(true)
+    assert.equal(passed.status, 0, passed.stderr + passed.stdout)
+    assert.match(passed.stdout, /nested witness actually executed/)
+    assert.equal(parseTapSummary(passed.stdout, 'nested').tests, 1)
+    assert.equal(run(false).status, 1)
+    fs.writeFileSync(
+        nested,
+        "import test from 'node:test'\ntest('dormant', { skip: true }, () => {})\n"
+    )
+    const skipped = run(true)
+    assert.equal(skipped.status, 1)
+    assert.match(skipped.stderr, /incomplete TAP result/)
+    assert.ok(
+        testRunnerArgs([nested, nested], 1).includes('--test-concurrency=1')
+    )
+})
+
+test('the required workflow invokes the recursive runner under the sealed environment wrapper', () => {
+    const workflow = parse(
+        fs.readFileSync(
+            path.join(process.cwd(), '../../.github/workflows/ci.yml'),
+            'utf8'
+        )
+    )
+    const step = workflow.jobs['pg-tests'].steps.find(
+        (step: { name?: string }) => step.name === 'Run pg suites'
+    )
+    assert.ok(step)
+    assert.equal(step.env.RUN_PG_E2E, '1')
+    assert.equal(step.env.PG_TEST_SCRATCH, '1')
+    assert.match(
+        step.run,
+        /test-sealed-env\.mjs -- node --import tsx scripts\/run-pg-tests\.ts/
+    )
+    assert.doesNotMatch(step.run, /test\/\*\.pg\.test/)
+    const manifest = JSON.parse(fs.readFileSync('package.json', 'utf8'))
+    assert.equal(
+        manifest.scripts['test:pg:audit'],
+        'tsx scripts/run-pg-audit.ts'
     )
 })
