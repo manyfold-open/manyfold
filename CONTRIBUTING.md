@@ -33,6 +33,25 @@ pnpm check && pnpm lint && pnpm knip
 pnpm -r test
 ```
 
+API images use the committed workspace lockfile twice: the build installs with
+`--frozen-lockfile`, then a separate production workspace installs with an
+isolated linker and `--prod --frozen-lockfile --offline` inside a Docker
+`RUN --network=none` step. The development workspace stays hoisted. Production
+workspace files come from pnpm pack, with the original manifests retained for
+frozen validation; development-only root lifecycle hooks are removed from that
+temporary workspace. The pruned graph is checked against pnpm's complete lockfile graph,
+including workspace packages and transitive peer contexts; its successful
+readback ships in `runtime-deps.json`. Missing optional dependencies require an
+OS/CPU/libc exclusion in the lockfile and are reported with that reason;
+missing compatible optional packages, missing required edges, version drift and links outside the
+runtime directory fail the image build. Native modules still require a real
+container smoke test.
+
+`pnpm runtime-deps:check` uses a temporary local registry, pre-caches newer
+range-compatible releases, shuts the registry down and proves the old hoisted
+deployment drifts while the frozen production workspace stays locked. This fixes the
+Node production dependency graph, not mutable base images or OS repositories.
+
 ## Pull requests
 
 - Keep PRs focused; match the existing style of the file you are in.

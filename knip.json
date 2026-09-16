@@ -14,10 +14,12 @@
         "apps/api": {
             "entry": [
                 "src/main.ts",
+                "scripts/*.mjs",
                 "test/*.test.ts"
             ],
             "project": [
                 "src/**",
+                "scripts/*.mjs",
                 "test/**"
             ],
             "ignore": [

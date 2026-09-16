@@ -48,12 +48,15 @@ COPY apps/api ./apps/api
 RUN --mount=type=cache,id=turbo,target=/repo/.turbo/cache \
     pnpm turbo run build --filter=@manyfold/api...
 
-# A self-contained production install of the api alone: workspace packages are
-# copied in as real directories, dev dependencies and the other apps stay out.
-# --legacy because inject-workspace-packages is not enabled for this workspace.
+# Preserve the workspace layout so a normal frozen install can use every exact
+# locked resolution, including local packages and their peer contexts.
 FROM build AS pruned
-RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
-    pnpm --filter @manyfold/api --prod deploy --legacy /pruned
+COPY apps/api/scripts/check-runtime-deps.mjs apps/api/scripts/prepare-runtime-workspace.mjs ./scripts/
+RUN pnpm --filter-prod '@manyfold/api...' list --prod --depth Infinity --json --lockfile-only > /locked-runtime-graph.json
+RUN --network=none --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
+    node scripts/prepare-runtime-workspace.mjs /locked-runtime-graph.json @manyfold/api /pruned \
+    && pnpm --dir /pruned --config.node-linker=isolated --filter-prod '@manyfold/api...' install --prod --frozen-lockfile --offline \
+    && node scripts/check-runtime-deps.mjs /locked-runtime-graph.json @manyfold/api /pruned/apps/api /pruned
 
 # Same /app/apps/api layout as before the pruning: otel.ts registers
 # tsconfig-paths at boot, which resolves tsconfig.json + ../../tsconfig.base.json
@@ -63,11 +66,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=2222
 COPY --from=build /repo/tsconfig.base.json ./tsconfig.base.json
-COPY --from=pruned /pruned/package.json ./apps/api/package.json
-COPY --from=pruned /pruned/node_modules ./apps/api/node_modules
+COPY --from=pruned /pruned/ ./
 COPY --from=build /repo/apps/api/tsconfig.json ./apps/api/tsconfig.json
 COPY --from=build /repo/apps/api/dist ./apps/api/dist
 COPY --from=build /repo/apps/api/drizzle ./apps/api/drizzle
 WORKDIR /app/apps/api
+RUN --network=none --mount=type=bind,source=apps/api/scripts/check-runtime-native.mjs,target=/tmp/check-runtime-native.mjs \
+    node /tmp/check-runtime-native.mjs
 EXPOSE 2222
 CMD ["node", "--enable-source-maps", "dist/main.js"]
