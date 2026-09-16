@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.1.2
+
+### Patch Changes
+
+- [#418](https://github.com/manyfold-open/manyfold/pull/418) [`08b3b0e`](https://github.com/manyfold-open/manyfold/commit/08b3b0ed5fc09a7af592b071f5e1e53f70e4eedb) Thanks [@yingca1](https://github.com/yingca1)! - Persist self-host chat uploads across API container replacement and restrict the default CORS allowlist to the configured Web and Admin origins. Self-host accounts can inspect their effective resource quotas and usage without cloud billing actions.
+
 ## 2.1.1
 
 ### Patch Changes
