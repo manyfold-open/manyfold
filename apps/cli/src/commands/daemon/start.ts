@@ -20,7 +20,8 @@ import {
 import {
     daemonChannelWarning,
     daemonPaths,
-    loadDaemonConfigForStart
+    loadDaemonConfigForStart,
+    type DaemonConfig
 } from '@/daemon/config'
 import {
     queryDaemonHealth,
@@ -118,8 +119,9 @@ const runForeground = async (): Promise<void> => {
     const channelWarning = daemonChannelWarning(config)
     if (channelWarning) console.error(kleur.yellow(channelWarning))
 
+    let ownership
     try {
-        await claimDaemonPid(process.pid)
+        ownership = await claimDaemonPid(process.pid)
     } catch (err) {
         if (err instanceof DaemonAlreadyRunningError) {
             console.error(kleur.yellow(err.message))
@@ -129,6 +131,25 @@ const runForeground = async (): Promise<void> => {
         throw err
     }
 
+    try {
+        await runClaimedForeground(
+            config,
+            pathLog,
+            channelWarning,
+            ownership.instanceId
+        )
+    } finally {
+        await ownership.release()
+    }
+    process.exit(0)
+}
+
+const runClaimedForeground = async (
+    config: DaemonConfig,
+    pathLog: string,
+    channelWarning: string | null,
+    clientInstanceId: string
+): Promise<void> => {
     await boundErrSink(daemonPaths.errLogPath)
     const startupMethod = detectStartupMethod()
     const daemonLog = await createDaemonLog(daemonPaths.logPath, {
@@ -139,44 +160,65 @@ const runForeground = async (): Promise<void> => {
         onError: (message) => process.stderr.write(`${message}\n`)
     })
     const log = daemonLog.log
-    await log(pathLog)
-    if (channelWarning) await log(channelWarning)
-
-    // Declared here, FILLED after the WS dial: the five `--version` probes
-    // took ~120s on a freshly-thawed sprite under CPU contention, and nothing
-    // before the first heartbeat needs the result.
-    let detectedFrameworks: Awaited<ReturnType<typeof detectFrameworks>> = []
-    let lastDetectAt = 0
-    await log(`startup method: ${startupMethod}`)
-    const terminalSupport = await checkPtySupport()
-    const terminalPty = !('problem' in terminalSupport)
-    if ('problem' in terminalSupport)
-        await log(`terminal limited: ${terminalSupport.problem}`)
-
-    const startedAt = Date.now()
-    const localState: { status: DaemonLocalHealth['status']; ws: boolean } = {
-        status: 'starting',
-        ws: false
-    }
-    const autoUpdate = resolveAutoUpdateEnabled({
-        envValue: process.env.MF_DAEMON_AUTO_UPDATE,
-        apiUrl: config.apiUrl,
-        channel: CLI_CHANNEL,
-        standalone: isBunStandalone(),
-        startupMethod
-    })
-    await log(
-        `auto-update: ${autoUpdate.enabled ? 'on' : 'off'} (${autoUpdate.reason})`
-    )
-    // The control socket is auxiliary: a bind failure must not take the
-    // daemon down, it only degrades `daemon status`/`daemon start` output.
     let stopControlServer: (() => Promise<void>) | null = null
+    let ws: DaemonWsClient | null = null
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null
+    let autoUpdater: DaemonAutoUpdater | null = null
+    let stopping = false
+    const abort = new AbortController()
+    let resolveStop: (signal: string) => void = () => {}
+    const stopped = new Promise<string>((resolve) => {
+        resolveStop = resolve
+    })
+    const requestStop = (signal: string) => {
+        if (stopping) return
+        stopping = true
+        if (heartbeatTimer) clearInterval(heartbeatTimer)
+        autoUpdater?.stop()
+        ws?.stop()
+        abort.abort()
+        resolveStop(signal)
+    }
+    const onInterrupt = () => requestStop('SIGINT')
+    const onTerminate = () => requestStop('SIGTERM')
     try {
+        await log(pathLog)
+        if (channelWarning) await log(channelWarning)
+
+        // Declared here, FILLED after the WS dial: the five `--version` probes
+        // took ~120s on a freshly-thawed sprite under CPU contention, and nothing
+        // before the first heartbeat needs the result.
+        let detectedFrameworks: Awaited<ReturnType<typeof detectFrameworks>> =
+            []
+        let lastDetectAt = 0
+        await log(`startup method: ${startupMethod}`)
+        const terminalSupport = await checkPtySupport()
+        const terminalPty = !('problem' in terminalSupport)
+        if ('problem' in terminalSupport)
+            await log(`terminal limited: ${terminalSupport.problem}`)
+
+        const startedAt = Date.now()
+        const localState: { status: DaemonLocalHealth['status']; ws: boolean } =
+            {
+                status: 'starting',
+                ws: false
+            }
+        const autoUpdate = resolveAutoUpdateEnabled({
+            envValue: process.env.MF_DAEMON_AUTO_UPDATE,
+            apiUrl: config.apiUrl,
+            channel: CLI_CHANNEL,
+            standalone: isBunStandalone(),
+            startupMethod
+        })
+        await log(
+            `auto-update: ${autoUpdate.enabled ? 'on' : 'off'} (${autoUpdate.reason})`
+        )
         stopControlServer = await startControlServer({
             socketPath: daemonPaths.controlSocketPath,
             getHealth: () => ({
                 status: localState.status,
                 pid: process.pid,
+                clientInstanceId,
                 version: MF_CLI_VERSION,
                 channel: CLI_CHANNEL,
                 profile: resolveProfile(),
@@ -191,123 +233,127 @@ const runForeground = async (): Promise<void> => {
                 logPath: daemonPaths.logPath
             })
         })
-    } catch (err) {
-        await log(`control socket unavailable: ${(err as Error).message}`)
-    }
 
-    const cliFetch = createCliFetch()
-    const heartbeat = async (): Promise<void> => {
-        if (Date.now() - lastDetectAt > DETECT_REFRESH_MS) {
-            detectedFrameworks = await detectFrameworks()
-            lastDetectAt = Date.now()
+        const cliFetch = createCliFetch()
+        const heartbeat = async (): Promise<void> => {
+            if (stopping) return
+            if (Date.now() - lastDetectAt > DETECT_REFRESH_MS) {
+                detectedFrameworks = await detectFrameworks()
+                lastDetectAt = Date.now()
+            }
+            if (stopping) return
+            const body: HeartbeatRequest = {
+                detectedFrameworks,
+                cliVersion: MF_CLI_VERSION,
+                startupMethod,
+                terminalPty,
+                clientFeatures: DAEMON_CLIENT_FEATURES
+            }
+            try {
+                await cliFetch(`${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`, {
+                    method: 'POST',
+                    signal: abort.signal,
+                    headers: {
+                        'content-type': 'application/json',
+                        authorization: `Bearer ${config.token}`
+                    },
+                    body: JSON.stringify(body)
+                })
+            } catch (err) {
+                if (!stopping)
+                    await log(`heartbeat failed: ${(err as Error).message}`)
+            }
         }
-        const body: HeartbeatRequest = {
-            detectedFrameworks,
+
+        ws = new DaemonWsClient({
+            apiUrl: config.apiUrl,
+            token: config.token,
+            daemonUuid: config.daemonUuid,
             cliVersion: MF_CLI_VERSION,
-            startupMethod,
-            terminalPty,
-            clientFeatures: DAEMON_CLIENT_FEATURES
-        }
-        try {
-            await cliFetch(`${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`, {
-                method: 'POST',
-                headers: {
-                    'content-type': 'application/json',
-                    authorization: `Bearer ${config.token}`
-                },
-                body: JSON.stringify(body)
-            })
-        } catch (err) {
-            await log(`heartbeat failed: ${(err as Error).message}`)
-        }
-    }
-
-    const ws = new DaemonWsClient({
-        apiUrl: config.apiUrl,
-        token: config.token,
-        daemonUuid: config.daemonUuid,
-        cliVersion: MF_CLI_VERSION,
-        log: (m) => void log(m),
-        onConnected: () => {
-            localState.ws = true
-        },
-        onDisconnected: () => {
-            localState.ws = false
-        },
-        onWelcome: (frame) =>
-            void log(
-                `welcome daemonId=${frame.daemonId} runtimes=${frame.runtimeIds.length}`
-            ),
-        handleRpc: rpcHandler
-    })
-    ws.start()
-    localState.status = 'running'
-
-    // The WS dial goes FIRST. Framework detection — five `--version` child
-    // processes — used to run before it, and on a freshly-thawed sprite whose
-    // resident services were also booting it took ~120s of CPU contention:
-    // exactly the runner-manager's whole wait-online budget, so the platform
-    // gave up on the runner moments before it dialled (staging 2026-07-29,
-    // chat.runner.resolve fallback at 123.2s, runner log silent for 122s
-    // between boot and `startup method`). Connectivity never queues behind
-    // telemetry; the first heartbeat still carries a FULL detection because an
-    // empty frameworks list would wipe the host row's detected set.
-    detectedFrameworks = await detectFrameworks()
-    lastDetectAt = Date.now()
-    await heartbeat()
-    const heartbeatTimer = setInterval(() => {
-        void heartbeat()
-    }, HEARTBEAT_INTERVAL_MS)
-
-    let autoUpdater: DaemonAutoUpdater | null = null
-    if (autoUpdate.enabled) {
-        // Follow the SAVED update channel, not the baked one: a machine where
-        // someone ran `mf update --channel dev` previously kept auto-updating
-        // along stable, silently undoing their choice on the next tick.
-        const updateChannel = (await loadUpdateChannelPref()) ?? CLI_CHANNEL
-        await log(
-            `auto-update channel: ${updateChannel}${
-                updateChannel === CLI_CHANNEL ? '' : ' (saved preference)'
-            }`
-        )
-        autoUpdater = new DaemonAutoUpdater({
-            channel: updateChannel,
-            currentVersion: MF_CLI_VERSION,
-            currentCommit: MF_CLI_COMMIT || null,
-            fetchLatest: async () => {
-                const manifest = await fetchReleaseManifest(
-                    channelManifestUrl(updateChannel)
-                )
-                return {
-                    version: manifest.version,
-                    commit: manifest.commit
-                }
+            clientInstanceId,
+            log: (m) => void log(m),
+            onConnected: () => {
+                localState.ws = true
             },
-            applyIfIdle: (targetVersion) =>
-                requestDaemonUpdateIfIdle({ targetVersion }),
-            log: (m) => void log(m)
+            onDisconnected: () => {
+                localState.ws = false
+            },
+            onWelcome: (frame) =>
+                void log(
+                    `welcome daemonId=${frame.daemonId} runtimes=${frame.runtimeIds.length}`
+                ),
+            handleRpc: rpcHandler
         })
-        autoUpdater.start()
-    }
+        ws.start()
+        localState.status = 'running'
 
-    const shutdown = async (signal: string): Promise<void> => {
-        await log(`received ${signal}; shutting down`)
-        clearInterval(heartbeatTimer)
+        // The WS dial goes FIRST. Framework detection — five `--version` child
+        // processes — used to run before it, and on a freshly-thawed sprite whose
+        // resident services were also booting it took ~120s of CPU contention:
+        // exactly the runner-manager's whole wait-online budget, so the platform
+        // gave up on the runner moments before it dialled (staging 2026-07-29,
+        // chat.runner.resolve fallback at 123.2s, runner log silent for 122s
+        // between boot and `startup method`). Connectivity never queues behind
+        // telemetry; the first heartbeat still carries a FULL detection because an
+        // empty frameworks list would wipe the host row's detected set.
+        detectedFrameworks = await detectFrameworks()
+        lastDetectAt = Date.now()
+        await heartbeat()
+        heartbeatTimer = setInterval(() => {
+            void heartbeat()
+        }, HEARTBEAT_INTERVAL_MS)
+
+        if (autoUpdate.enabled) {
+            // Follow the SAVED update channel, not the baked one: a machine where
+            // someone ran `mf update --channel dev` previously kept auto-updating
+            // along stable, silently undoing their choice on the next tick.
+            const updateChannel = (await loadUpdateChannelPref()) ?? CLI_CHANNEL
+            await log(
+                `auto-update channel: ${updateChannel}${
+                    updateChannel === CLI_CHANNEL ? '' : ' (saved preference)'
+                }`
+            )
+            autoUpdater = new DaemonAutoUpdater({
+                channel: updateChannel,
+                currentVersion: MF_CLI_VERSION,
+                currentCommit: MF_CLI_COMMIT || null,
+                fetchLatest: async () => {
+                    const manifest = await fetchReleaseManifest(
+                        channelManifestUrl(updateChannel)
+                    )
+                    return {
+                        version: manifest.version,
+                        commit: manifest.commit
+                    }
+                },
+                applyIfIdle: (targetVersion) =>
+                    requestDaemonUpdateIfIdle({ targetVersion }),
+                log: (m) => void log(m)
+            })
+            autoUpdater.start()
+        }
+
+        process.once('SIGINT', onInterrupt)
+        process.once('SIGTERM', onTerminate)
+        await log(
+            `daemon running pid=${process.pid} clientInstanceId=${clientInstanceId} apiUrl=${config.apiUrl} hostname=${os.hostname()}`
+        )
+
+        await log(`received ${await stopped}; shutting down`)
+    } finally {
+        stopping = true
+        abort.abort()
+        process.removeListener('SIGINT', onInterrupt)
+        process.removeListener('SIGTERM', onTerminate)
+        if (heartbeatTimer) clearInterval(heartbeatTimer)
         autoUpdater?.stop()
-        ws.stop()
-        await stopControlServer?.().catch(() => {})
-        await clearDaemonPid(process.pid)
-        await daemonLog.close()
-        process.exit(0)
+        ws?.stop()
+        try {
+            await stopControlServer?.()
+        } finally {
+            await daemonLog.close()
+        }
     }
-    process.on('SIGINT', () => void shutdown('SIGINT'))
-    process.on('SIGTERM', () => void shutdown('SIGTERM'))
-
-    await log(
-        `daemon running pid=${process.pid} apiUrl=${config.apiUrl} hostname=${os.hostname()}`
-    )
-
-    await new Promise(() => {})
 }
 
 const sleep = (ms: number): Promise<void> =>

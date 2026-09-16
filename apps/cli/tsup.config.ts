@@ -23,7 +23,7 @@ export default defineConfig({
     shims: false,
     dts: false,
     noExternal: [/^@manyfold\//, 'undici'],
-    external: ['node-pty'],
+    external: ['node-pty', 'bun:ffi', 'fs-native-extensions'],
     loader: {
         '.md': 'text'
     },

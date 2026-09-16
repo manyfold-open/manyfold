@@ -59,6 +59,12 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
     try {
         const hello = await firstMessage
         assert.equal(hello.type, 'hello')
+        const clientProcess = hello.clientProcess as {
+            instanceId: string
+            pid: number
+        }
+        assert.equal(clientProcess.pid, process.pid)
+        assert.match(clientProcess.instanceId, /^[0-9a-f-]{36}$/)
         assert.equal(
             receivedToken,
             `Bearer ${token}`,
@@ -68,9 +74,7 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
         assert.ok(logs.some((message) => message.startsWith('ws connected')))
         assert.ok(!logs.some((message) => message.includes(token)))
         assert.ok(
-            !logs.some((message) =>
-                message.includes(encodeURIComponent(token))
-            )
+            !logs.some((message) => message.includes(encodeURIComponent(token)))
         )
         assert.deepEqual(
             hello.inflightStreams,

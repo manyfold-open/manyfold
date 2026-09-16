@@ -1,4 +1,5 @@
 import type {
+    DaemonClientProcess,
     DaemonRpcMethod,
     DaemonStreamKind,
     DaemonWsFrame
@@ -23,6 +24,7 @@ import {
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { configString } from '@/common/config-alias'
+import { daemonClientProcessFields } from './daemon-client-process'
 
 export interface StreamRpcCallbacks {
     onEvent?: (kind: DaemonStreamKind, data: string, seq?: number) => void
@@ -49,6 +51,7 @@ interface DaemonConnection {
     userId: string
     cliVersion: string | null
     hostname: string | null
+    clientProcess?: DaemonClientProcess
     socket: WsClient
     pending: Map<string, PendingRpc>
     connectedAt: Date
@@ -202,6 +205,7 @@ export class DaemonRegistryService
         userId: string
         cliVersion: string | null
         hostname: string | null
+        clientProcess?: DaemonClientProcess
         socket: WsClient
     }): Promise<void> {
         const existing = this.conns.get(args.daemonId)
@@ -218,13 +222,22 @@ export class DaemonRegistryService
             userId: args.userId,
             cliVersion: args.cliVersion,
             hostname: args.hostname,
+            clientProcess: args.clientProcess,
             socket: args.socket,
             pending: new Map(),
             connectedAt: new Date()
         })
         await this.markConnected(args.daemonId)
+        const replacementKind = !existing
+            ? 'none'
+            : existing.clientProcess && args.clientProcess
+              ? existing.clientProcess.instanceId ===
+                args.clientProcess.instanceId
+                  ? 'same-client'
+                  : 'different-client'
+              : 'unknown'
         this.log.log(
-            `daemon connected daemonId=${args.daemonId} userId=${args.userId} cliVersion=${args.cliVersion ?? 'unknown'} hostname=${args.hostname ?? 'unknown'}`
+            `daemon connected daemonId=${args.daemonId} userId=${args.userId} cliVersion=${args.cliVersion ?? 'unknown'} hostname=${args.hostname ?? 'unknown'} ${daemonClientProcessFields(args.clientProcess)} localReplacement=${Boolean(existing)} replacementKind=${replacementKind}`
         )
     }
 
@@ -235,7 +248,7 @@ export class DaemonRegistryService
         this.conns.delete(daemonId)
         await this.clearConnectionLease(daemonId)
         this.log.log(
-            `daemon disconnected daemonId=${daemonId} userId=${conn.userId} cliVersion=${conn.cliVersion ?? 'unknown'} hostname=${conn.hostname ?? 'unknown'}`
+            `daemon disconnected daemonId=${daemonId} userId=${conn.userId} cliVersion=${conn.cliVersion ?? 'unknown'} hostname=${conn.hostname ?? 'unknown'} ${daemonClientProcessFields(conn.clientProcess)}`
         )
     }
 
