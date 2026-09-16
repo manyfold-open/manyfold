@@ -3464,10 +3464,13 @@ const en = {
                 running: 'Updating',
                 succeeded: 'Updated',
                 failed: 'Failed',
+                deferred: 'Waiting for sessions',
+                deferredDetail: 'Waiting for {{count}} active sessions to finish.',
                 waiting: 'Waiting for the rate limit window'
             },
             runningNotice: 'Updates run one at a time and keep going if you leave this page.',
             batchSummary: '{{done}} updated · {{failed}} failed',
+            batchSummaryPending: '{{done}} updated · {{pending}} pending · {{failed}} failed',
             emptyTitle: 'Everything is up to date',
             emptyBody: 'No updates are available for your machines, agents or skills.',
             filteredNotice: 'Showing {{kind}} only',

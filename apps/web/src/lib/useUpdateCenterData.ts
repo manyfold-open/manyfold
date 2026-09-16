@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useApiClient } from '@/lib/apiClient'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { updateRunStore, useUpdateRuns } from '@/lib/updateRunStore'
 import {
     emptyUpdateCenterInputs,
     type UpdateCenterInputs
@@ -27,6 +28,8 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const cancelled = useRef(false)
+    const snapshot = useRef(emptyUpdateCenterInputs)
+    const runs = useUpdateRuns()
 
     useEffect(() => {
         cancelled.current = false
@@ -38,12 +41,12 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
     const refresh = useCallback(async (): Promise<void> => {
         setLoading(true)
         let failure: unknown = null
-        const orValue = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+        const orValue = <T>(promise: Promise<T>, fallback: T): Promise<T> =>
             promise.catch((err: unknown) => {
                 failure ??= err
                 return fallback
             })
-        const orEmpty = <T,>(promise: Promise<T[]>): Promise<T[]> =>
+        const orEmpty = <T>(promise: Promise<T[]>): Promise<T[]> =>
             orValue(promise, [])
         const [
             daemonHosts,
@@ -53,22 +56,24 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
             skillGroups,
             cliVersions
         ] = await Promise.all([
-            orEmpty(client.daemons.listHosts()),
+            orValue(client.daemons.listHosts(), snapshot.current.daemonHosts),
             orEmpty(client.sandboxes.list()),
             orEmpty(client.agentRuntimes.list()),
             orEmpty(client.frameworkVersions.list()),
-            orEmpty(client.skills.installed()),
+            orValue(client.skills.installed(), snapshot.current.skillGroups),
             orValue(client.cliVersions.list(), { stable: [], dev: [] })
         ])
         if (cancelled.current) return
-        setInputs({
+        updateRunStore.reconcile({ daemonHosts, skillGroups })
+        snapshot.current = {
             daemonHosts,
             sandboxes,
             runtimes,
             frameworkCatalog,
             skillGroups,
             cliVersions
-        })
+        }
+        setInputs(snapshot.current)
         setError(failure === null ? null : apiErrorMessage(failure))
         setLoaded(true)
         setLoading(false)
@@ -78,6 +83,21 @@ export const useUpdateCenterData = (active: boolean): UpdateCenterData => {
         if (!active) return
         void refresh()
     }, [active, refresh])
+
+    const pending =
+        inputs.skillGroups.some((group) =>
+            group.skills.some(
+                (skill) => skill.materializeStatus === 'installing'
+            )
+        ) ||
+        Object.values(runs).some(
+            (run) => run.state === 'deferred' || run.state === 'installing'
+        )
+    useEffect(() => {
+        if (!active || !loaded || loading || !pending) return
+        const timer = window.setTimeout(() => void refresh(), 5_000)
+        return () => window.clearTimeout(timer)
+    }, [active, loaded, loading, pending, refresh])
 
     return { inputs, loaded, loading, error, refresh }
 }

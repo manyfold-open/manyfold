@@ -37,6 +37,8 @@ const settings = (
 })
 
 const runtimeDb = (installedVersion: string) => ({
+    transaction: async (work: (tx: unknown) => Promise<unknown>) =>
+        work({ execute: async () => [{ acquired: true }] }),
     select: () => ({
         from: () => ({
             where: () => ({

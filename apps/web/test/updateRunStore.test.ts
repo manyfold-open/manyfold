@@ -4,7 +4,11 @@ import { ApiError, type NcaClient } from '@manyfold/sdk'
 import type { FrameworkUpgradeEvent } from '@manyfold/shared'
 import { apiErrorMessage } from '../src/lib/errorMessage'
 import type { BatchStep } from '../src/lib/updateCenter'
-import { updateRunStore, type RowRun } from '../src/lib/updateRunStore'
+import {
+    updateRunStore,
+    effectiveUpdateRun,
+    type RowRun
+} from '../src/lib/updateRunStore'
 
 // Mirrors the store's constant: the pacing window is identified by its delay,
 // so the harness can assert what the loop waited for.
@@ -263,6 +267,7 @@ test('a started batch dispatches every step with no page mounted and no subscrib
         state: 'finished',
         succeeded: 4,
         failed: 0,
+        awaiting: 0,
         rowIds,
         startedAt: 5_000,
         finishedAt: 8_000
@@ -498,6 +503,153 @@ test('clear() empties the store and a loop released afterwards writes nothing', 
     assert.deepEqual(calls.upgradeCli, [
         { id: 'sbx_1', targetVersion: undefined }
     ])
+})
+
+test('deferred daemon upgrades remain pending until a heartbeat confirms the target', async () => {
+    let calls = 0
+    const { client } = fakeClient({
+        upgradeHost: async () => {
+            if (++calls === 1)
+                throw new ApiError({
+                    status: 429,
+                    statusText: 'Too Many Requests',
+                    code: 'rate_limit',
+                    message: 'wait',
+                    body: ''
+                })
+            return {
+                ok: true,
+                deferred: true,
+                activeSessions: 2,
+                toVersion: '3.1.0'
+            }
+        }
+    })
+    updateRunStore.start(client, [daemonStep(1)], ['cli:daemon:dmn_1'])
+    await waitFor(finished)
+    assert.deepEqual(runOf('cli:daemon:dmn_1'), {
+        state: 'deferred',
+        detail: { kind: 'deferred', activeSessions: 2, targetVersion: '3.1.0' }
+    })
+    assert.equal(updateRunStore.getState().batch?.succeeded, 0)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 1)
+    updateRunStore.reconcile({
+        daemonHosts: [{ id: 'dmn_1', cliVersion: '3.0.0' }] as never
+    })
+    assert.equal(runOf('cli:daemon:dmn_1')?.state, 'deferred')
+    updateRunStore.reconcile({
+        daemonHosts: [{ id: 'dmn_1', cliVersion: '3.1.0' }] as never
+    })
+    assert.equal(runOf('cli:daemon:dmn_1')?.state, 'succeeded')
+    assert.equal(updateRunStore.getState().batch?.succeeded, 1)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 0)
+})
+
+test('a capped skill install is not counted as updated and reconciles to a retryable failure', async () => {
+    const { client } = fakeClient({
+        installBatch: async () => ({
+            results: [
+                {
+                    agentId: 'agt_1',
+                    status: 'installed',
+                    skill: {
+                        materializeStatus: 'installing',
+                        installedRevision: 'new-revision',
+                        updatedAt: '2026-09-16T10:00:00Z'
+                    }
+                }
+            ]
+        })
+    })
+    const steps = [skillStep('skl_a', ['agt_1'])]
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    await waitFor(finished)
+    const key = 'skill:agt_1:skl_a'
+    assert.equal(runOf(key)?.state, 'installing')
+    assert.equal(updateRunStore.isTargetUpdating(key), true)
+    assert.equal(updateRunStore.getState().batch?.succeeded, 0)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 1)
+    assert.equal(updateRunStore.start(client, steps, rowIdsOf(steps)), false)
+    for (const stale of [
+        {
+            installedRevision: 'old-revision',
+            updatedAt: '2026-09-16T10:00:00Z'
+        },
+        { installedRevision: 'new-revision', updatedAt: '2026-09-16T09:00:00Z' }
+    ]) {
+        updateRunStore.reconcile({
+            skillGroups: [
+                {
+                    skills: [
+                        {
+                            agentId: 'agt_1',
+                            skillId: 'skl_a',
+                            materializeStatus: 'installed',
+                            ...stale
+                        }
+                    ]
+                }
+            ] as never
+        })
+        assert.equal(runOf(key)?.state, 'installing')
+    }
+    updateRunStore.reconcile({
+        skillGroups: [
+            {
+                skills: [
+                    {
+                        agentId: 'agt_1',
+                        skillId: 'skl_a',
+                        materializeStatus: 'failed',
+                        installedRevision: 'new-revision',
+                        updatedAt: '2026-09-16T10:00:00Z',
+                        materializeError: 'download failed'
+                    }
+                ]
+            }
+        ] as never
+    })
+    assert.deepEqual(runOf(key), {
+        state: 'failed',
+        detail: { kind: 'text', text: 'download failed' }
+    })
+    assert.equal(updateRunStore.getState().batch?.failed, 1)
+    assert.equal(updateRunStore.getState().batch?.awaiting, 0)
+    assert.equal(updateRunStore.isTargetUpdating(key), false)
+})
+
+test('targets are held while queued or running and released after completion', async () => {
+    const gate = deferred<unknown>()
+    const { client } = fakeClient({ upgradeCli: () => gate.promise })
+    const steps = [sandboxStep(1), frameworkStep('npm', 1)]
+    updateRunStore.start(client, steps, rowIdsOf(steps))
+    assert.equal(updateRunStore.isTargetUpdating('cli:sandbox:sbx_1'), true)
+    assert.equal(updateRunStore.isTargetUpdating('framework:art_1'), true)
+    assert.equal(updateRunStore.isTargetUpdating('framework:art_2'), false)
+    gate.resolve({})
+    await waitFor(finished)
+    assert.equal(updateRunStore.isTargetUpdating('framework:art_1'), false)
+    assert.equal(updateRunStore.isTargetUpdating('cli:sandbox:sbx_1'), false)
+})
+
+test('persisted skill state overrides stale success, but a live retry takes precedence', () => {
+    const row = {
+        materialization: { status: 'failed', error: 'offline' }
+    } as never
+    assert.deepEqual(
+        effectiveUpdateRun(row, { state: 'succeeded', detail: null }),
+        {
+            state: 'failed',
+            detail: { kind: 'text', text: 'offline' }
+        }
+    )
+    assert.deepEqual(
+        effectiveUpdateRun(row, { state: 'running', detail: null }),
+        {
+            state: 'running',
+            detail: null
+        }
+    )
 })
 
 test('a picked target version reaches the CLI endpoints', async () => {
