@@ -11,6 +11,7 @@ const AgentNewBInline = lazyChunk(
     () => import('@/pages/AgentNew/v2/AgentNewBInline')
 )
 const AgentNewV3 = lazyChunk(() => import('@/pages/AgentNew/v3/AgentNewV3'))
+const AgentNewV4 = lazyChunk(() => import('@/pages/AgentNew/v4/AgentNewV4'))
 
 const Fallback: FC = (): ReactNode => {
     const gate = useLoadingGate(true)
@@ -34,11 +35,13 @@ const AgentNewRouter: FC = (): ReactNode => {
         AGENT_CREATE_UX_FALLBACK
     )
     const Component =
-        variant === 'v3' || variant === 'c'
-            ? AgentNewV3
-            : variant === 'b' || variant === 'v2-b'
-              ? AgentNewBInline
-              : AgentNewV1
+        variant === 'v4'
+            ? AgentNewV4
+            : variant === 'v3' || variant === 'c'
+              ? AgentNewV3
+              : variant === 'b' || variant === 'v2-b'
+                ? AgentNewBInline
+                : AgentNewV1
     return (
         <Suspense fallback={<Fallback />}>
             <Component />

@@ -38,7 +38,9 @@ import {
     profileDisplayName,
     profileNeedsSignIn,
     profileStatusTag,
-    profileSubline
+    profileSubline,
+    operationSettled,
+    settleRuntimeAuthOperation
 } from '@/lib/runtimeAuth'
 import { updatesPath } from '@/lib/updateCenter'
 import { formatDuration } from '@/lib/usageFormat'
@@ -46,18 +48,6 @@ import { formatDuration } from '@/lib/usageFormat'
 const RuntimeSignInTerminal = lazyChunk(
     () => import('@/components/RuntimeSignInTerminal')
 )
-
-// The account's login/logout/remove all run as operations the host journals;
-// the API settles the ones this surface started when the shell closes, but
-// that settlement races the surface's own reload, so wait for it to leave
-// the running states before reading the list back.
-// Measured on a local daemon [2026-09-09]: the post-close reconcile takes one
-// auth.operation + one auth.inspect round trip, well under a second.
-const SETTLE_POLL_MS = 500
-const SETTLE_POLL_LIMIT = 20
-
-const operationSettled = (op: RuntimeAuthOperationView): boolean =>
-    op.status !== 'pending' && op.status !== 'running'
 
 // Literal class names on purpose: Tailwind only emits utilities it can see
 // verbatim in the source (the Tag.tsx precedent).
@@ -474,20 +464,12 @@ export const RuntimeAccountList: FC<{
 
     const settleOperation = async (
         operationId: string
-    ): Promise<RuntimeAuthOperationView | null> => {
-        let last: RuntimeAuthOperationView | null = null
-        for (let i = 0; i < SETTLE_POLL_LIMIT; i += 1) {
-            try {
-                last = await client.runtimeAuth.operation(operationId)
-            } catch (e) {
-                setError(apiErrorMessage(e))
-                return null
-            }
-            if (operationSettled(last)) return last
-            await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
-        }
-        return last
-    }
+    ): Promise<RuntimeAuthOperationView | null> =>
+        settleRuntimeAuthOperation(
+            (id) => client.runtimeAuth.operation(id),
+            operationId,
+            (e) => setError(apiErrorMessage(e))
+        )
 
     const reportFailure = (op: RuntimeAuthOperationView | null): void => {
         if (!op || op.status !== 'failed') return

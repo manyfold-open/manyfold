@@ -1,10 +1,46 @@
 import type {
     RuntimeAuthListView,
+    RuntimeAuthOperationView,
     RuntimeAuthProfileView
 } from '@manyfold/shared'
 import type { TagTone } from '@/components/Tag'
 import type { TFn } from '@/lib/i18n'
 import { planLabel } from '@/lib/runtimeAccount'
+
+// The account's login/logout/remove all run as operations the host journals.
+// The API settles the ones a surface started when its shell closes, but that
+// settlement races the surface's own reload, so wait for the operation to
+// leave the running states before reading the list back.
+// Measured on a local daemon [2026-09-09]: the post-close reconcile takes one
+// auth.operation + one auth.inspect round trip, well under a second.
+const SETTLE_POLL_MS = 500
+const SETTLE_POLL_LIMIT = 20
+
+export const operationSettled = (op: RuntimeAuthOperationView): boolean =>
+    op.status !== 'pending' && op.status !== 'running'
+
+// Shared by every surface that can start a sign-in — the runtime page and the
+// create flow's third step. Takes the fetch rather than the client so this
+// module stays free of the API layer, and returns the last view it saw: null
+// means the poll itself failed, an unsettled view means it ran out of tries.
+export const settleRuntimeAuthOperation = async (
+    fetchOperation: (id: string) => Promise<RuntimeAuthOperationView>,
+    operationId: string,
+    onError?: (error: unknown) => void
+): Promise<RuntimeAuthOperationView | null> => {
+    let last: RuntimeAuthOperationView | null = null
+    for (let i = 0; i < SETTLE_POLL_LIMIT; i += 1) {
+        try {
+            last = await fetchOperation(operationId)
+        } catch (e) {
+            onError?.(e)
+            return null
+        }
+        if (operationSettled(last)) return last
+        await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS))
+    }
+    return last
+}
 
 // The select value for "no profile": the agent keeps running on whatever the
 // host itself is signed in as (the ambient row on the runtime page).
