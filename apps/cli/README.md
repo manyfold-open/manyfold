@@ -152,6 +152,20 @@ Two channels, two triggers:
 Both write the channel pointer **last**, so a reader never sees a manifest
 naming an artifact that has not finished uploading.
 
+Darwin artifacts are finalized on macOS after Bun finishes writing the binary:
+an ad-hoc signature uses the identifier `ai.manyfold.mf`, and strict signature
+verification must pass before packaging and again after archive extraction.
+The same gate verifies archive checksums, updater byte preservation, and
+rejection of a deliberately tampered copy. Both release channels use this
+gate; no signing credential is required.
+
+This provides a recognizable identifier and valid ad-hoc signature, not a
+Developer ID or notarization. It does not establish a cross-version signing
+requirement or prove that macOS TCC grants survive an update. The daemon logs
+startup before probing the user's shell and bounds each probe to three seconds,
+then forcibly cleans up its process tree and retains the current PATH plus the
+running executable's directory on failure.
+
 1. In any PR that changes user-facing behavior, run `pnpm changeset` and commit the resulting `.changeset/*.md`.
 2. Promote `develop` to `main`. The `version-pr` workflow bumps `apps/cli/package.json`, writes `apps/cli/CHANGELOG.md` and pushes `changeset-release/main`.
 3. Open the Version PR (see the note below), merge it, then merge the `main` → `develop` back-merge PR.
