@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.5
+
+### Patch Changes
+
+- [#396](https://github.com/manyfold-open/manyfold/pull/396) [`415f45a`](https://github.com/manyfold-open/manyfold/commit/415f45ab8f2df2367de27c7dcb26b617a36d8fb3) Thanks [@yingca1](https://github.com/yingca1)! - Keep one daemon process per profile, preserve the current owner's PID and control socket during concurrent starts or cleanup, and recover ownership after a crash. Ignore obsolete WebSocket callbacks, keep reconnect attempts single-flight, and preserve new RPC cancellation handlers when older connections finish. Include optional process identity and complete hello records for diagnosing connection churn. Existing duplicate foreground processes should be stopped before updating and restarting the same profile.
+
 ## 5.1.4
 
 ### Patch Changes
