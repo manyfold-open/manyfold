@@ -1,7 +1,7 @@
-import type { DiscoverableSkillSummary } from '@manyfold/shared'
+import type { AgentFramework, DiscoverableSkillSummary } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { BadRequestException } from '@nestjs/common'
+import { BadRequestException, Logger } from '@nestjs/common'
 import { agents, skillRepos, skills, userSkills } from '@manyfold/db'
 import { SkillsService } from '../src/modules/skills/skills.service'
 import type { SkillOutcome } from '../src/modules/skills/skill-materializer.service'
@@ -133,6 +133,228 @@ const hermesTargetRow = {
         mountPath: '/home/node/.hermes'
     }
 }
+
+for (const runtime of ['sprites', 'daemon', 'k8s'] as const) {
+    test(`default skills persist an intent before materializing on ${runtime} and are idempotent`, async (t) => {
+        const db = new FakeDb()
+        const target = {
+            agent: { ...agentRow, runtime },
+            runtime: { ...runtimeRow, kind: runtime }
+        }
+        db.selectResults.push([], [target], [], [], [])
+        const materializer = new FakeMaterializer()
+        const intentCounts: number[] = []
+        const materialize = t.mock.method(
+            materializer,
+            'materializeAgent',
+            async () => {
+                intentCounts.push(db.insertedUserSkills.length)
+                return [
+                    {
+                        userSkillId: String(db.insertedUserSkills[0].id),
+                        status: 'installed' as const
+                    }
+                ]
+            }
+        )
+        const service = newService(db, materializer, new FakeDiscovery(), [
+            discovered.skillId,
+            discovered.skillId
+        ])
+        const input = {
+            userId: 'user-1',
+            agentId: 'agent-1',
+            framework: 'claude-code' as const,
+            runtime
+        }
+
+        await service.installDefaults(input)
+        db.selectResults.push(db.insertedUserSkills)
+        await service.installDefaults(input)
+
+        assert.equal(db.insertedUserSkills.length, 1)
+        assert.equal(db.insertedUserSkills[0].skillId, discovered.skillId)
+        assert.equal(db.insertedUserSkills[0].agentId, input.agentId)
+        assert.equal(materialize.mock.callCount(), 1)
+        assert.deepEqual(intentCounts, [1])
+    })
+}
+
+test('default skills honor an explicit opt-out without querying installs', async (t) => {
+    const db = new FakeDb()
+    const select = t.mock.method(db, 'select')
+    const service = newService(
+        db,
+        new FakeMaterializer(),
+        new FakeDiscovery(),
+        []
+    )
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'codex',
+        runtime: 'daemon'
+    })
+    assert.equal(select.mock.callCount(), 0)
+})
+
+test('default skills skip unsupported frameworks and external runtimes before reading settings', async (t) => {
+    const getDefaultAgentSkills = t.mock.fn(async () => ({
+        skillIds: [discovered.skillId]
+    }))
+    const service = new SkillsService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+            getDefaultAgentSkills
+        } as never
+    )
+    for (const framework of [
+        'openclaw',
+        'narranexus',
+        'dify',
+        'langflow',
+        'a2a'
+    ] as AgentFramework[])
+        await service.installDefaults({
+            userId: 'user-1',
+            agentId: 'agent-1',
+            framework,
+            runtime: 'k8s'
+        })
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'codex',
+        runtime: 'external'
+    })
+    assert.equal(getDefaultAgentSkills.mock.callCount(), 0)
+})
+
+test('default skills preserve existing GitHub and library intents, including disabled and failed installs', async (t) => {
+    const db = new FakeDb()
+    const librarySkillId = 'lsk_existing'
+    db.selectResults.push([
+        { ...userSkillRow, enabled: false },
+        {
+            ...userSkillRow,
+            skillId: null,
+            librarySkillId,
+            materializeStatus: 'failed'
+        }
+    ])
+    const materializer = new FakeMaterializer()
+    const service = newService(db, materializer, new FakeDiscovery(), [
+        discovered.skillId,
+        librarySkillId
+    ])
+    const install = t.mock.method(service, 'install')
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'claude-code',
+        runtime: 'sprites'
+    })
+    assert.equal(db.insertedUserSkills.length, 0)
+    assert.equal(db.updates.length, 0)
+    assert.deepEqual(materializer.calls, [])
+    assert.equal(install.mock.callCount(), 0)
+})
+
+test('default skill discovery failure warns and does not prevent subsequent installs', async (t) => {
+    const db = new FakeDb()
+    db.selectResults.push([], [targetRow], [], [targetRow], [], [], [])
+    const warning = t.mock.method(Logger.prototype, 'warn', () => {})
+    const service = newService(
+        db,
+        new FakeMaterializer(),
+        new FakeDiscovery(),
+        ['github:missing/repo@main:skill', discovered.skillId]
+    )
+
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'claude-code',
+        runtime: 'sprites'
+    })
+
+    assert.equal(db.insertedUserSkills.length, 1)
+    assert.equal(db.insertedUserSkills[0].skillId, discovered.skillId)
+    assert.equal(warning.mock.callCount(), 1)
+    assert.match(
+        String(warning.mock.calls[0].arguments[0]),
+        /default-skill install github:missing\/repo@main:skill failed for agent-1/
+    )
+})
+
+test('default skill materialization failure retains a retryable intent and warns', async (t) => {
+    const db = new FakeDb()
+    db.selectResults.push([], [targetRow], [], [], [])
+    const materializer = new FakeMaterializer()
+    t.mock.method(materializer, 'materializeAgent', async () => [
+        {
+            userSkillId: String(db.insertedUserSkills[0].id),
+            status: 'failed' as const,
+            error: 'runtime offline'
+        }
+    ])
+    const warning = t.mock.method(Logger.prototype, 'warn', () => {})
+    const service = newService(db, materializer)
+
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'claude-code',
+        runtime: 'sprites'
+    })
+
+    assert.equal(db.insertedUserSkills.length, 1)
+    assert.equal(db.insertedUserSkills[0].enabled, true)
+    assert.match(String(warning.mock.calls[0].arguments[0]), /runtime offline/)
+
+    const intent = db.insertedUserSkills[0]
+    db.selectResults.push([targetRow], [], [intent])
+    db.updateResults.push([intent])
+    t.mock.method(materializer, 'materializeAgent', async () => [
+        {
+            userSkillId: String(intent.id),
+            status: 'installed' as const
+        }
+    ])
+    const retried = await service.install({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        skillId: discovered.skillId
+    })
+    assert.equal(db.insertedUserSkills.length, 1)
+    assert.equal(retried.materializeStatus, 'installed')
+})
+
+test('default skill settings failure is observable and does not reject creation', async (t) => {
+    const warning = t.mock.method(Logger.prototype, 'warn', () => {})
+    const service = new SkillsService(
+        {} as never,
+        {} as never,
+        {} as never,
+        {
+            getDefaultAgentSkills: async () => {
+                throw new Error('settings unavailable')
+            }
+        } as never
+    )
+    await service.installDefaults({
+        userId: 'user-1',
+        agentId: 'agent-1',
+        framework: 'codex',
+        runtime: 'daemon'
+    })
+    assert.match(
+        String(warning.mock.calls[0].arguments[0]),
+        /default-skill install skipped for agent-1: settings unavailable/
+    )
+})
 
 test('SkillsService installs a discovered skill and resolves installDir collisions', async () => {
     const db = new FakeDb()
@@ -784,9 +1006,15 @@ test('SkillsService refreshDiscover skips missing-marking for a truncated scan',
 const newService = (
     db: FakeDb,
     materializer: FakeMaterializer,
-    discovery: FakeDiscovery = new FakeDiscovery()
+    discovery: FakeDiscovery = new FakeDiscovery(),
+    skillIds: string[] = [discovered.skillId]
 ): SkillsService =>
-    new SkillsService(db as never, discovery as never, materializer as never)
+    new SkillsService(
+        db as never,
+        discovery as never,
+        materializer as never,
+        { getDefaultAgentSkills: async () => ({ skillIds }) } as never
+    )
 
 class FakeDiscovery {
     scanCalls: Array<{ repos: Array<{ id: string }> }> = []

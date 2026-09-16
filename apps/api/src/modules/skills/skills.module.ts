@@ -32,6 +32,6 @@ import { SkillsService } from './skills.service'
         LibrarySkillSharesService,
         ShareRateLimitService
     ],
-    exports: [SkillMaterializerService]
+    exports: [SkillMaterializerService, SkillsService]
 })
 export class SkillsModule {}

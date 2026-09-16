@@ -233,7 +233,8 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
         db,
         adapterRegistry as never,
         { touchAfterWrite: (id: string) => (touchedRuntimeId = id) } as never,
-        { assertManagedChannelBindable: async () => undefined } as never
+        { assertManagedChannelBindable: async () => undefined } as never,
+        { installDefaults: async () => {} } as never
     )
     const controller = new RuntimeAgentsController(
         { findById: async () => runtime } as never,

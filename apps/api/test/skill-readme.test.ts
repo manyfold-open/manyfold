@@ -109,7 +109,7 @@ class FakeReadmeDiscovery {
 }
 
 const newService = (db: FakeDb, discovery: FakeReadmeDiscovery): SkillsService =>
-    new SkillsService(db as never, discovery as never, {} as never)
+    new SkillsService(db as never, discovery as never, {} as never, {} as never)
 
 const pushReadmeLookup = (db: FakeDb, row: Record<string, unknown>): void => {
     db.selectResults.push(
