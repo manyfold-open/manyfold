@@ -30,6 +30,7 @@ import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
+import { classifyCodexProviderFailure } from '@/modules/chat/codex-provider-failure'
 import {
     CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
     CODEX_THREAD_BUSY_SIGNATURE
@@ -281,6 +282,7 @@ export class CodexAdapter implements ApiChatAdapter {
         let tFirstToken: number | null = null
         let pendingUsage: ChatUsage | null = null
         let codexStreamError: string | null = null
+        let codexTerminalError: string | null = null
         let sourceSeq = 0
         const pricing = this.pricing
 
@@ -339,6 +341,7 @@ export class CodexAdapter implements ApiChatAdapter {
                 typeof parsed.error.message === 'string'
             ) {
                 codexStreamError = parsed.error.message
+                codexTerminalError = parsed.error.message
                 return
             }
             if (parsed.type === 'error' && typeof parsed.message === 'string') {
@@ -543,8 +546,12 @@ export class CodexAdapter implements ApiChatAdapter {
         }
 
         if (execResult && execResult.exitCode !== 0) {
+            const terminalError = stringValue(codexTerminalError)?.trim() || null
             const failureDetail =
-                execResult.stderr.trim() || codexStreamError || ''
+                execResult.stderr.trim() ||
+                terminalError ||
+                codexStreamError ||
+                ''
             const status = /(?:^|\s)unexpected status 503(?:\s|$)/.test(
                 failureDetail
             )
@@ -554,9 +561,22 @@ export class CodexAdapter implements ApiChatAdapter {
                 status,
                 message: failureDetail
             })
+            // Even an unclassified turn.failed owns the provider verdict;
+            // stale retry diagnostics must not override a permanent terminal.
+            const providerFailure =
+                execResult.exitCode === 1 && !managedChannelFailure
+                    ? terminalError !== null
+                        ? classifyCodexProviderFailure(terminalError)
+                        : (classifyCodexProviderFailure(
+                              codexStreamError ?? ''
+                          ) ?? classifyCodexProviderFailure(execResult.stderr))
+                    : null
+            const terminalDetail = managedChannelFailure
+                ? failureDetail
+                : (providerFailure?.message ?? terminalError ?? failureDetail)
             if (
                 ctx.frameworkSessionRef &&
-                isCodexResumeLoadFailure(failureDetail)
+                isCodexResumeLoadFailure(terminalDetail)
             ) {
                 await this.chatRepo
                     .updateFrameworkSessionRef(
@@ -581,20 +601,21 @@ export class CodexAdapter implements ApiChatAdapter {
             // cursor it had still holds. Any other failure leaves the rollout
             // in a state the stream did not fully mirror, so the next sync
             // must diff content rather than trust a count.
-            if (!isCodexThreadBusy(failureDetail))
+            if (!isCodexThreadBusy(terminalDetail))
                 await this.settleTranscriptCursor(ctx, null)
             yield {
                 type: 'error',
                 ...(managedChannelFailure ? { managedChannelFailure } : {}),
                 error: {
-                    code: 'codex_exec_failed',
-                    message: `codex exited ${execResult.exitCode}: ${failureDetail.slice(0, 512)}`,
+                    code: providerFailure?.code ?? 'codex_exec_failed',
+                    message: `codex exited ${execResult.exitCode}: ${terminalDetail.slice(0, 512)}`,
                     // A held thread is a wait, not a verdict: the same send
                     // succeeds once the holder is done, and the ref it needs
                     // is deliberately still there.
                     retryable:
+                        providerFailure !== null ||
                         execResult.exitCode === 124 ||
-                        isCodexThreadBusy(failureDetail)
+                        isCodexThreadBusy(terminalDetail)
                 }
             }
             return

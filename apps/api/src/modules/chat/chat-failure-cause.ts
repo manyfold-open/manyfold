@@ -12,12 +12,18 @@ import {
     CODEX_RESUME_LOAD_FAILURE_SIGNATURE,
     CODEX_THREAD_BUSY_SIGNATURE
 } from '@/modules/chat/codex-resume-signal'
+import {
+    CODEX_PROVIDER_OVERLOADED_CODE,
+    CODEX_RATE_LIMITED_CODE
+} from '@/modules/chat/codex-provider-failure'
 
 // Durable codes first. The adapters own them, they are already a closed set,
 // and they survive every vendor rewording. A code that names one cause wins;
 // a specific code with no safe mapping stays unclassified. Only the broad
 // legacy codes below carry the actual failure in a message.
 const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
+    [CODEX_PROVIDER_OVERLOADED_CODE]: 'provider_overloaded',
+    [CODEX_RATE_LIMITED_CODE]: 'rate_limited',
     // The breaker refused the turn because the managed pool is already known
     // empty (#660). Same cause as the upstream literal it was opened by, so a
     // fleet-wide exhaustion reads as one incident in Sentry rather than two —

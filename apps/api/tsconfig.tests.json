@@ -13,6 +13,7 @@
         // Loads Fastify multipart/websocket module augmentations used by tests.
         "src/main.ts",
         "test/**/*.test.ts",
+        "test/live/cli-adapter-contracts.e2e.ts",
         "scripts/run-pg-audit.ts"
     ],
     "exclude": ["dist", "node_modules"]
