@@ -216,6 +216,7 @@ import {
     TurnOwnershipUnavailableError,
     type TurnExecutionFence
 } from '@/modules/chat/turn-fence'
+import { inBackgroundContext, inRequestContinuation } from '@/common/telemetry/background-context'
 
 export type ChatTurnObserver = (event: EmittedChatEvent) => void
 
@@ -1168,6 +1169,10 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     }
 
     async onApplicationBootstrap(): Promise<void> {
+        return inBackgroundContext(() => this.bootstrapRecovery())()
+    }
+
+    private async bootstrapRecovery(): Promise<void> {
         this.daemonResume.registerHandler({
             resumeAssistantTurn: (args) => this.resumeAssistantTurn(args),
             // The same map the resume declines on. A turn executing here is
@@ -1279,7 +1284,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             )
         // Keep sweeping periodically: the bootstrap pass + 15min age gate cannot
         // clear a claim that went stale AFTER this boot without another restart.
-        this.staleClaimSweepTimer = setInterval(() => {
+        this.staleClaimSweepTimer = setInterval(inBackgroundContext(() => {
             void this.repo
                 .clearStaleInflightClaims()
                 .then((n) => {
@@ -1293,15 +1298,15 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         `periodic stale-claim sweep failed: ${err.message}`
                     )
                 )
-        }, STALE_INFLIGHT_CLAIM_SWEEP_INTERVAL_MS)
+        }), STALE_INFLIGHT_CLAIM_SWEEP_INTERVAL_MS)
         this.staleClaimSweepTimer.unref()
-        this.cancelConvergenceTimer = setInterval(() => {
+        this.cancelConvergenceTimer = setInterval(inBackgroundContext(() => {
             void this.convergeDurableCancels()
-        }, CANCEL_CONVERGENCE_TICK_MS)
+        }), CANCEL_CONVERGENCE_TICK_MS)
         this.cancelConvergenceTimer.unref()
-        this.concurrencyGaugeTimer = setInterval(() => {
+        this.concurrencyGaugeTimer = setInterval(inBackgroundContext(() => {
             this.emitConcurrencyGauge()
-        }, TURN_CONCURRENCY_GAUGE_MS)
+        }), TURN_CONCURRENCY_GAUGE_MS)
         this.concurrencyGaugeTimer.unref()
     }
 
@@ -2684,7 +2689,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // again.
         let run: Promise<void>
         try {
-            run = this.runAdapter(
+            run = inRequestContinuation(() => this.runAdapter(
                 adapter,
                 session,
                 toApiMessage(userMessageRow),
@@ -2711,7 +2716,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 observer,
                 agent,
                 channelSource
-            )
+            ))
         } catch (err) {
             this.broadcaster.endStream(assistantMessageId)
             this.untrackRunningAdapter(assistantMessageId, abortController)

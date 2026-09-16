@@ -58,6 +58,7 @@ import { ChatService } from '@/modules/chat/chat.service'
 import { AgentModelConfigService } from '@/modules/agents/model-config/agent-model-config.service'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { ForbiddenException } from '@nestjs/common'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 type AutomationWithAgent = {
     automation: AutomationRow
@@ -116,9 +117,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 this.config.get('AUTOMATIONS_SCHEDULER_INTERVAL_MS') ?? 30000
             )
         )
-        this.scheduler = setInterval(() => {
+        this.scheduler = setInterval(inBackgroundContext(() => {
             void this.tick()
-        }, intervalMs)
+        }), intervalMs)
         this.scheduler.unref?.()
     }
 

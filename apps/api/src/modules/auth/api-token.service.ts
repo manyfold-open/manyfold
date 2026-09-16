@@ -1,3 +1,4 @@
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 import {
     A2aGrantSummary,
     A2aOutboundGrantSummary,
@@ -954,6 +955,10 @@ export class ApiTokenService {
     // live session is never cut off here.
     @Cron(CronExpression.EVERY_HOUR, { name: 'ephemeral-token-reaper' })
     async reapEphemeralTokens(): Promise<void> {
+        return inBackgroundContext(() => this.reapEphemeralTokensInScope())()
+    }
+
+    private async reapEphemeralTokensInScope(): Promise<void> {
         const now = new Date()
         const stale = this.db
             .select({ tokenHash: apiTokens.tokenHash })

@@ -38,6 +38,7 @@ import { renderEmail } from '@/modules/email/templates/render-email'
 import { writeUserExportBundle } from './export-collectors'
 import { ExportTokenService } from './export-token.service'
 import { UserExportStorageService } from './export-storage.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const SWEEP_INTERVAL_MS = 15 * 60 * 1000
 const CLAIM_STALE_MS = 30 * 60 * 1000
@@ -84,9 +85,9 @@ export class UserExportService implements OnModuleInit, OnModuleDestroy {
 
     onModuleInit(): void {
         if (process.env.NODE_ENV === 'test') return
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.sweep()
-        }, SWEEP_INTERVAL_MS)
+        }), SWEEP_INTERVAL_MS)
         this.timer.unref?.()
     }
 

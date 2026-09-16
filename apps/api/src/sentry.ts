@@ -1,7 +1,11 @@
 import * as Sentry from '@sentry/node'
 import { resolveSentryConfig } from './sentry-config'
 import { buildTelemetryCaptureOptions } from './sentry-grouping'
-import { scrubSentryBreadcrumb, scrubSentryEvent } from './sentry-scrub'
+import {
+    scrubSentryBreadcrumb,
+    scrubSentryEvent,
+    scrubSentrySpan
+} from './sentry-scrub'
 
 const config = resolveSentryConfig()
 
@@ -24,11 +28,13 @@ if (config.enabled) {
             // spans/tracePropagation stay with the existing OTel
             // instrumentations; Sentry keeps only request isolation.
             Sentry.httpIntegration({
+                breadcrumbs: false,
                 spans: false,
                 tracePropagation: false,
                 maxIncomingRequestBodySize: 'none'
             }),
             Sentry.nativeNodeFetchIntegration({
+                breadcrumbs: false,
                 spans: false,
                 tracePropagation: false
             }),
@@ -40,6 +46,7 @@ if (config.enabled) {
         ],
         beforeSend: scrubSentryEvent,
         beforeSendTransaction: scrubSentryEvent,
+        beforeSendSpan: scrubSentrySpan,
         beforeBreadcrumb: scrubSentryBreadcrumb
     })
     console.log(

@@ -12,6 +12,7 @@ import { ChannelBridgeService } from './channel-bridge.service'
 import { ChannelProviderRegistry } from './channel-provider-registry.service'
 import type { ChannelHandle } from './channel-provider'
 import { ChannelsRepository } from './channels.repository'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const CHANNEL_SWEEP_INTERVAL_MS = 60_000
 const LEASE_TTL_MS = 90_000
@@ -109,22 +110,22 @@ export class ChannelManagerService implements OnModuleInit, OnModuleDestroy {
         // here would block Nest bootstrap before app.listen(), so a single slow
         // provider takes the whole API down. Start in the background instead and
         // let per-channel status/retry surface failures.
-        void this.bootstrapChannels().catch((err) => {
+        void inBackgroundContext(() => this.bootstrapChannels())().catch((err) => {
             this.logger.error(
                 `channel bootstrap failed: ${(err as Error).message}`
             )
         })
-        this.sweepTimer = setInterval(() => {
+        this.sweepTimer = setInterval(inBackgroundContext(() => {
             void this.runSweep()
-        }, CHANNEL_SWEEP_INTERVAL_MS)
+        }), CHANNEL_SWEEP_INTERVAL_MS)
         this.sweepTimer.unref?.()
-        this.leaseTimer = setInterval(() => {
+        this.leaseTimer = setInterval(inBackgroundContext(() => {
             void this.leaseTick().catch((err) => {
                 this.logger.warn(
                     `lease tick failed: ${(err as Error).message}`
                 )
             })
-        }, LEASE_TICK_MS)
+        }), LEASE_TICK_MS)
         this.leaseTimer.unref?.()
     }
 
@@ -369,18 +370,18 @@ export class ChannelManagerService implements OnModuleInit, OnModuleDestroy {
         try {
             const provider = this.providers.get(channel.provider)
             const ctx = this.bridge.buildContext(channel)
-            handle = await provider.start(
+            handle = await inBackgroundContext(() => provider.start(
                 ctx,
-                async (event) => {
+                inBackgroundContext(async (event) => {
                     await this.bridge.handleInbound(channel, event)
-                },
-                (status, detail) => {
+                }),
+                inBackgroundContext((status, detail) => {
                     void this.applyStatus(channel.id, status, detail?.message)
-                },
-                async (action) => {
+                }),
+                inBackgroundContext(async (action) => {
                     await this.bridge.handleInboundAction(channel, action)
-                }
-            )
+                })
+            ))()
         } catch (err) {
             // Persisting the failure sets next_reconnect_at, so the lease tick
             // retries this channel after the backoff — on whichever instance

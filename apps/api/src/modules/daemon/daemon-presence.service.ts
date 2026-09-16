@@ -9,6 +9,7 @@ import { and, eq, lt } from 'drizzle-orm'
 import { agents, agentRuntimes, runtimeHosts, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonRateLimitService } from './daemon-rate-limit.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const SWEEP_INTERVAL_MS = 15_000
 const OFFLINE_THRESHOLD_MS = 45_000
@@ -24,14 +25,14 @@ export class DaemonPresenceService implements OnModuleInit, OnModuleDestroy {
     ) {}
 
     onModuleInit(): void {
-        this.timer = setInterval(() => {
+        this.timer = setInterval(inBackgroundContext(() => {
             void this.sweep().catch((err) =>
                 this.log.warn(
                     `presence sweep failed: ${(err as Error).message}`
                 )
             )
             this.rateLimit.sweep()
-        }, SWEEP_INTERVAL_MS)
+        }), SWEEP_INTERVAL_MS)
     }
 
     onModuleDestroy(): void {
