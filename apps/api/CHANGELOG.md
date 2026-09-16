@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 5.1.6
+
+### Patch Changes
+
+- [#400](https://github.com/manyfold-open/manyfold/pull/400) [`7950001`](https://github.com/manyfold-open/manyfold/commit/795000137d4d9ccbbf4b087876a9ff30cf55928f) Thanks [@yingca1](https://github.com/yingca1)! - Isolate background telemetry scopes, stop collecting automatic HTTP breadcrumbs, and strip query and fragment data from Sentry requests, breadcrumbs and transaction spans before sending.
+
 ## 5.1.5
 
 ### Patch Changes
