@@ -19,6 +19,7 @@ export const CLOUD_TABLE_CONTRACT = [
     { table: 'acquisition_campaigns', dbExport: 'acquisitionCampaigns' },
     { table: 'acquisition_channels', dbExport: 'acquisitionChannels' },
     { table: 'acquisition_conversions', dbExport: 'acquisitionConversions' },
+    { table: 'acquisition_activation_candidates', dbExport: 'acquisitionActivationCandidates' },
     {
         table: 'acquisition_link_daily_stats',
         dbExport: 'acquisitionLinkDailyStats'

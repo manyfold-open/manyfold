@@ -1,9 +1,5 @@
-import zh from './langs/zh'
-import { registerNestedLanguage } from './runtime'
-
-// Node, Admin and static rendering keep their synchronous bilingual contract.
-registerNestedLanguage('zh', zh)
-
+// This entry shares the same singleton as index.ts; only catalog loading
+// differs. English is immediate, and loadLanguage resolves other languages.
 export {
     defaultLanguage,
     languageOptions,

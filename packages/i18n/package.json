@@ -10,6 +10,11 @@
             "types": "./dist/index.d.ts",
             "development": "./src/index.ts",
             "default": "./dist/index.js"
+        },
+        "./browser": {
+            "types": "./dist/browser.d.ts",
+            "development": "./src/browser.ts",
+            "default": "./dist/browser.js"
         }
     },
     "files": [
