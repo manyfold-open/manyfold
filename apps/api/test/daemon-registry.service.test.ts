@@ -246,6 +246,90 @@ test('a local socket replacement gets a distinct ownership token', async () => {
     assert.ok(registry.isCurrentHelloEvidence('dh-1', secondHello))
 })
 
+test('connection retirement covers replacement, unregister, forced disconnect and shutdown despite a failed observer', async (t) => {
+    const registry = new DaemonRegistryService(
+        new RegistryDb(host()) as unknown as Database,
+        { get: () => undefined } as unknown as ConfigService
+    )
+    const warnings: unknown[] = []
+    t.mock.method(
+        (registry as unknown as { log: { warn(message: unknown): void } }).log,
+        'warn',
+        (message: unknown) => warnings.push(message)
+    )
+    const retired: string[] = []
+    registry.onConnectionRetired(() => {
+        throw new Error('fixture observer failure')
+    })
+    registry.onConnectionRetired((daemonId, token) => {
+        assert.equal(daemonId, 'dh-1')
+        retired.push(token)
+    })
+    let unsubscribedCalls = 0
+    registry.onConnectionRetired(() => {
+        unsubscribedCalls++
+    })()
+    const args = {
+        daemonId: 'dh-1',
+        userId: 'user-1',
+        cliVersion: null,
+        hostname: null
+    }
+    const register = async () => {
+        const socket = { close: () => {} } as unknown as WsClient
+        await registry.register({ ...args, socket })
+        const evidence = registry.recordHelloForSocket('dh-1', socket)
+        assert.ok(evidence)
+        return { socket, token: evidence.connectionToken }
+    }
+    const first = await register()
+    const second = await register()
+    assert.deepEqual(retired, [first.token])
+    await registry.unregister('dh-1', first.socket)
+    assert.deepEqual(
+        retired,
+        [first.token],
+        'a late close cannot retire the replacement'
+    )
+    registry.disconnect('dh-1')
+    assert.deepEqual(retired, [first.token, second.token])
+    assert.equal(registry.isOnline('dh-1'), false)
+    const third = await register()
+    await registry.unregister('dh-1', third.socket)
+    const fourth = await register()
+    let unlistened = false
+    let ended = false
+    const internal = registry as unknown as {
+        brokerUnlisten: () => Promise<void>
+        brokerSql: { end(): Promise<void> }
+    }
+    internal.brokerUnlisten = async () => {
+        unlistened = true
+    }
+    internal.brokerSql = {
+        end: async () => {
+            ended = true
+        }
+    }
+    await registry.onModuleDestroy()
+    assert.deepEqual(retired, [
+        first.token,
+        second.token,
+        third.token,
+        fourth.token
+    ])
+    assert.equal(warnings.length, 4)
+    assert.equal(unsubscribedCalls, 0)
+    assert.equal(unlistened, true)
+    assert.equal(ended, true)
+    await registry.unregister('dh-1', fourth.socket)
+    assert.equal(
+        retired.length,
+        4,
+        'retirement is idempotent for the same connection'
+    )
+})
+
 const makeRegistry = (
     published: PublishedBrokerMessage[],
     row = host()

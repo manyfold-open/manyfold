@@ -152,6 +152,10 @@ export class DaemonRegistryService
     private readonly inbox: string
     private brokerSql: ReturnType<typeof postgres> | null = null
     private brokerUnlisten: (() => Promise<void>) | null = null
+    private readonly connectionRetirementListeners = new Set<
+        (daemonId: string, connectionToken: string) => void
+    >()
+    private readonly retiredConnections = new WeakSet<DaemonConnection>()
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
@@ -188,6 +192,9 @@ export class DaemonRegistryService
     }
 
     async onModuleDestroy(): Promise<void> {
+        for (const conn of this.conns.values())
+            this.notifyConnectionRetired(conn)
+        this.connectionRetirementListeners.clear()
         for (const [requestId, pending] of this.remotePending) {
             clearTimeout(pending.timer)
             pending.reject(new Error('daemon rpc broker shutting down'))
@@ -210,6 +217,7 @@ export class DaemonRegistryService
     }): Promise<void> {
         const existing = this.conns.get(args.daemonId)
         if (existing) {
+            this.notifyConnectionRetired(existing)
             try {
                 existing.socket.close(4000, 'replaced by new connection')
             } catch {}
@@ -246,6 +254,7 @@ export class DaemonRegistryService
         if (!conn || conn.socket !== socket) return
         this.failPending(conn, 'connection closed')
         this.conns.delete(daemonId)
+        this.notifyConnectionRetired(conn)
         await this.clearConnectionLease(daemonId)
         this.log.log(
             `daemon disconnected daemonId=${daemonId} userId=${conn.userId} cliVersion=${conn.cliVersion ?? 'unknown'} hostname=${conn.hostname ?? 'unknown'} ${daemonClientProcessFields(conn.clientProcess)}`
@@ -339,6 +348,7 @@ export class DaemonRegistryService
         if (!conn) return
         this.failPending(conn, reason)
         this.conns.delete(daemonId)
+        this.notifyConnectionRetired(conn)
         try {
             conn.socket.close(4001, reason.slice(0, 120))
         } catch {}
@@ -347,6 +357,29 @@ export class DaemonRegistryService
 
     isOnline(daemonId: string): boolean {
         return this.conns.has(daemonId)
+    }
+
+    onConnectionRetired(
+        listener: (daemonId: string, connectionToken: string) => void
+    ): () => void {
+        this.connectionRetirementListeners.add(listener)
+        return () => {
+            this.connectionRetirementListeners.delete(listener)
+        }
+    }
+
+    private notifyConnectionRetired(conn: DaemonConnection): void {
+        if (this.retiredConnections.has(conn)) return
+        this.retiredConnections.add(conn)
+        for (const listener of this.connectionRetirementListeners) {
+            try {
+                listener(conn.daemonId, conn.token)
+            } catch (error) {
+                this.log.warn(
+                    `daemon connection retirement listener failed: ${(error as Error).message}`
+                )
+            }
+        }
     }
 
     recordHelloForSocket(

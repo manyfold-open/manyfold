@@ -108,6 +108,20 @@ interface TrackedHelloTurn {
 interface DaemonHelloSnapshot {
     evidence: DaemonHelloEvidence
     streamsByRef: Map<string, DaemonInflightStream>
+    streamCount: number
+    openRefs: Set<string | null> | null
+}
+
+interface OpenLookupScope {
+    connectionToken: string | null
+    pending: number
+    latestHelloOrder: number | null
+    latestHelloPending: number
+}
+
+interface HelloLookupRetry {
+    evidence: DaemonHelloEvidence
+    timer: NodeJS.Timeout
 }
 
 interface ActiveRecheck {
@@ -145,17 +159,28 @@ export class DaemonExecResumeService implements OnModuleDestroy {
     private readonly resuming = new Set<string>()
     private readonly matched = new Map<string, ActiveMatchedResume>()
     private readonly helloTurns = new Map<string, TrackedHelloTurn>()
-    private readonly pendingOpenLookups = new Map<string, number>()
+    private readonly pendingOpenLookups = new Map<string, OpenLookupScope>()
     private readonly helloSnapshots = new Map<string, DaemonHelloSnapshot>()
+    private readonly helloLookupTimers = new Map<string, HelloLookupRetry>()
+    private readonly stopObservingRetirement: (() => void) | undefined
     private destroyed = false
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly registry: DaemonRegistryService
-    ) {}
+    ) {
+        this.stopObservingRetirement = this.registry.onConnectionRetired?.(
+            (daemonId, connectionToken) =>
+                this.retireHelloLookup(daemonId, connectionToken)
+        )
+    }
 
     onModuleDestroy(): void {
         this.destroyed = true
+        this.stopObservingRetirement?.()
+        for (const retry of this.helloLookupTimers.values())
+            clearTimeout(retry.timer)
+        this.helloLookupTimers.clear()
         for (const timer of this.recheckTimers.values()) clearTimeout(timer)
         this.recheckTimers.clear()
         this.helloTurns.clear()
@@ -167,23 +192,27 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         this.handler = handler
     }
 
-    async handleInflightStreams(
+    handleInflightStreams(
         daemonId: string,
         streams: DaemonInflightStream[],
         evidence: DaemonHelloEvidence
     ): Promise<void> {
-        if (this.destroyed) return
-        if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) return
-        // An older lookup may not know which message owns a reported ref yet.
-        // Keep the full list only for that await window; its result will reduce
-        // the snapshot to entries for the affected turns.
-        if ((this.pendingOpenLookups.get(daemonId) ?? 0) > 0)
-            this.helloSnapshots.set(daemonId, {
-                evidence,
-                streamsByRef: new Map(
-                    streams.map((stream) => [stream.refId, stream])
-                )
-            })
+        if (
+            this.destroyed ||
+            !this.registry.isCurrentHelloEvidence(daemonId, evidence)
+        )
+            return Promise.resolve()
+        this.clearHelloLookupRetry(daemonId)
+        const streamsByRef = new Map<string, DaemonInflightStream>()
+        for (const stream of streams)
+            if (!streamsByRef.has(stream.refId))
+                streamsByRef.set(stream.refId, stream)
+        this.helloSnapshots.set(daemonId, {
+            evidence,
+            streamsByRef,
+            streamCount: streams.length,
+            openRefs: null
+        })
         // Refresh only turns already under this coordinator before the first
         // await: a rejected lookup must not erase the new hello's meaning, and
         // retaining the daemon's full historical buffer would be unbounded.
@@ -211,30 +240,71 @@ export class DaemonExecResumeService implements OnModuleDestroy {
                 })
             }
         }
-        await this.repairRuntimeStatus(daemonId)
+        // A non-async intake releases the caller's full array immediately.
+        // Pending handlers carry only evidence, never an old inventory map.
+        return this.reconcileHelloEvidence(daemonId, evidence)
+    }
+
+    private async reconcileHelloEvidence(
+        daemonId: string,
+        evidence: DaemonHelloEvidence
+    ): Promise<void> {
         if (
             this.destroyed ||
             !this.registry.isCurrentHelloEvidence(daemonId, evidence)
         )
             return
-        const open = await this.findOpenTurns(daemonId)
-        if (this.destroyed) return
-        if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) {
-            // findOpenTurns retained the newer hello's evidence, but its own
-            // lookup may have failed. Hand these turns to bounded recovery
-            // before this superseded handler gives up responsibility.
-            for (const message of open)
-                this.coverSupersededEvidence(daemonId, message.id)
-            return
+        const scope = this.beginOpenLookup(
+            daemonId,
+            evidence.connectionToken,
+            evidence.helloOrder
+        )
+        let open: DbChatMessage[]
+        let relevant: {
+            streams: DaemonInflightStream[]
+            streamCount: number
+        } | null
+        try {
+            await this.repairRuntimeStatus(daemonId)
+            if (
+                !this.isLookupScopeCurrent(daemonId, scope) ||
+                !this.registry.isCurrentHelloEvidence(daemonId, evidence)
+            )
+                return
+            open = await this.findOpenTurns(daemonId, evidence.connectionToken)
+            if (!this.isLookupScopeCurrent(daemonId, scope)) return
+            if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) {
+                for (const message of open)
+                    this.coverSupersededEvidence(daemonId, message.id)
+                return
+            }
+            relevant = this.relevantHelloStreams(daemonId, evidence, open)
+            this.clearHelloLookupRetry(daemonId)
+            const openIds = new Set(open.map((message) => message.id))
+            for (const [messageId, turn] of this.helloTurns)
+                if (turn.daemonId === daemonId && !openIds.has(messageId)) {
+                    this.clearRecheck(messageId)
+                    this.forgetHelloTurn(messageId)
+                }
+        } catch (error) {
+            if (
+                this.isLookupScopeCurrent(daemonId, scope) &&
+                this.registry.isCurrentHelloEvidence(daemonId, evidence)
+            )
+                this.scheduleHelloLookupRetry(daemonId, evidence)
+            throw error
+        } finally {
+            this.endOpenLookup(daemonId, scope, evidence.helloOrder)
         }
-        if (open.length === 0) return
+        if (!relevant || open.length === 0) return
+        const { streams, streamCount } = relevant
         const reported = new Set(streams.map((s) => s.refId))
         const matched = open.filter(
             (m) => m.daemonExecRef && reported.has(m.daemonExecRef)
         )
         if (matched.length > 0)
             this.log.log(
-                `daemon.resume daemonId=${daemonId} matched ${matched.length}/${streams.length} orphans`
+                `daemon.resume daemonId=${daemonId} matched ${matched.length}/${streamCount} orphans`
             )
         const byRefId = new Map(matched.map((m) => [m.daemonExecRef ?? '', m]))
         // Launch every matched resume NOW, without awaiting any of them: a
@@ -297,7 +367,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
                 continue
             }
             this.log.log(
-                `daemon.resume daemonId=${daemonId} messageId=${message.id} absent from hello (${streams.length} streams); reconciling`
+                `daemon.resume daemonId=${daemonId} messageId=${message.id} absent from hello (${streamCount} streams); reconciling`
             )
             // Awaited, so this promise still means "the hello is fully
             // reconciled" for every ref it decided inline.
@@ -718,6 +788,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         evidence: DaemonHelloEvidence
     ): void {
         if (this.destroyed) return
+        if (this.lookupOwnsCurrentHello(daemonId)) return
         if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) {
             if (this.registry.isOnline(daemonId)) {
                 const current = this.registry.currentHelloEvidence(daemonId)
@@ -768,6 +839,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         evidence: DaemonHelloEvidence
     ): void {
         if (this.destroyed) return
+        if (this.lookupOwnsCurrentHello(daemonId)) return
         if (!this.registry.isCurrentHelloEvidence(daemonId, evidence)) {
             if (this.registry.isOnline(daemonId)) {
                 const current = this.registry.currentHelloEvidence(daemonId)
@@ -880,6 +952,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         delayMs: number
     ): void {
         if (this.destroyed) return
+        if (this.lookupOwnsCurrentHello(daemonId)) return
         this.clearRecheck(messageId)
         const timer = setTimeout(() => {
             this.recheckTimers.delete(messageId)
@@ -1216,6 +1289,8 @@ export class DaemonExecResumeService implements OnModuleDestroy {
     }
 
     private coverSupersededEvidence(daemonId: string, messageId: string): void {
+        if (this.lookupOwnsCurrentHello(daemonId)) return
+        if (this.helloTurns.get(messageId)?.daemonId !== daemonId) return
         if (!this.registry.isOnline(daemonId)) return
         const current = this.registry.currentHelloEvidence(daemonId)
         if (current)
@@ -1239,6 +1314,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         delayMs: number
     ): void {
         if (this.destroyed) return
+        if (this.lookupOwnsCurrentHello(daemonId)) return
         if (!this.registry.isCurrentHelloEvidence(daemonId, matched.evidence))
             return
         this.trackHelloTurn(
@@ -1273,6 +1349,171 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             left.connectionToken === right.connectionToken &&
             left.helloOrder === right.helloOrder
         )
+    }
+
+    private beginOpenLookup(
+        daemonId: string,
+        connectionToken: string | null,
+        helloOrder?: number
+    ): OpenLookupScope {
+        let scope = this.pendingOpenLookups.get(daemonId)
+        if (!scope || scope.connectionToken !== connectionToken) {
+            scope = {
+                connectionToken,
+                pending: 0,
+                latestHelloOrder: null,
+                latestHelloPending: 0
+            }
+            this.pendingOpenLookups.set(daemonId, scope)
+        }
+        scope.pending++
+        if (helloOrder !== undefined) {
+            if (scope.latestHelloOrder !== helloOrder) {
+                scope.latestHelloOrder = helloOrder
+                scope.latestHelloPending = 0
+            }
+            scope.latestHelloPending++
+        }
+        return scope
+    }
+
+    private isLookupScopeCurrent(
+        daemonId: string,
+        scope: OpenLookupScope
+    ): boolean {
+        return (
+            !this.destroyed && this.pendingOpenLookups.get(daemonId) === scope
+        )
+    }
+
+    private endOpenLookup(
+        daemonId: string,
+        scope: OpenLookupScope,
+        helloOrder?: number
+    ): void {
+        // A retired connection's finally must not consume its replacement's
+        // scope, even while both SQL operations are still completing.
+        if (!this.isLookupScopeCurrent(daemonId, scope)) return
+        scope.pending--
+        if (helloOrder !== undefined && scope.latestHelloOrder === helloOrder)
+            scope.latestHelloPending--
+        if (scope.pending > 0) return
+        this.pendingOpenLookups.delete(daemonId)
+        if (!this.helloLookupTimers.has(daemonId))
+            this.helloSnapshots.delete(daemonId)
+    }
+
+    private relevantHelloStreams(
+        daemonId: string,
+        evidence: DaemonHelloEvidence,
+        open: DbChatMessage[]
+    ): { streams: DaemonInflightStream[]; streamCount: number } | null {
+        const snapshot = this.helloSnapshots.get(daemonId)
+        if (!snapshot || !this.sameEvidence(snapshot.evidence, evidence))
+            return null
+        const refs = new Set(open.map((message) => message.daemonExecRef))
+        snapshot.openRefs = refs
+        const streams: DaemonInflightStream[] = []
+        for (const [refId, stream] of snapshot.streamsByRef) {
+            if (refs.has(refId)) streams.push(stream)
+            else snapshot.streamsByRef.delete(refId)
+        }
+        return { streams, streamCount: snapshot.streamCount }
+    }
+
+    private lookupOwnsCurrentHello(daemonId: string): boolean {
+        const current = this.registry.currentHelloEvidence(daemonId)
+        if (
+            !current ||
+            !this.registry.isCurrentHelloEvidence(daemonId, current)
+        )
+            return false
+        const retry = this.helloLookupTimers.get(daemonId)
+        if (retry && this.sameEvidence(retry.evidence, current)) return true
+        const scope = this.pendingOpenLookups.get(daemonId)
+        return (
+            scope?.connectionToken === current.connectionToken &&
+            scope.latestHelloOrder === current.helloOrder &&
+            scope.latestHelloPending > 0
+        )
+    }
+
+    private clearHelloLookupRetry(daemonId: string): void {
+        const retry = this.helloLookupTimers.get(daemonId)
+        if (!retry) return
+        clearTimeout(retry.timer)
+        this.helloLookupTimers.delete(daemonId)
+    }
+
+    private scheduleHelloLookupRetry(
+        daemonId: string,
+        evidence: DaemonHelloEvidence
+    ): void {
+        if (
+            this.destroyed ||
+            !this.registry.isCurrentHelloEvidence(daemonId, evidence)
+        )
+            return
+        if (!this.helloSnapshots.has(daemonId)) return
+        if (this.helloLookupTimers.has(daemonId)) return
+        // Until the batch read succeeds, this one owner covers known turns as
+        // well as refs whose message identity is not known yet.
+        for (const [messageId, turn] of this.helloTurns)
+            if (turn.daemonId === daemonId) this.clearRecheck(messageId)
+        const retry: HelloLookupRetry = {
+            evidence,
+            timer: setTimeout(() => {
+                if (this.helloLookupTimers.get(daemonId) !== retry) return
+                this.helloLookupTimers.delete(daemonId)
+                if (
+                    this.destroyed ||
+                    !this.registry.isCurrentHelloEvidence(daemonId, evidence)
+                ) {
+                    const snapshot = this.helloSnapshots.get(daemonId)
+                    if (
+                        snapshot &&
+                        this.sameEvidence(snapshot.evidence, evidence)
+                    )
+                        this.helloSnapshots.delete(daemonId)
+                    return
+                }
+                void this.reconcileHelloEvidence(daemonId, evidence).catch(
+                    (error) => {
+                        this.log.warn(
+                            `hello lookup recovery failed daemonId=${daemonId}: ${(error as Error).message}`
+                        )
+                    }
+                )
+            }, this.recheckDelay(UNMATCHED_DEFER_RECHECK_MS))
+        }
+        retry.timer.unref?.()
+        this.helloLookupTimers.set(daemonId, retry)
+    }
+
+    private retireHelloLookup(daemonId: string, connectionToken: string): void {
+        for (const [messageId, turn] of this.helloTurns)
+            if (
+                turn.daemonId === daemonId &&
+                turn.evidence.connectionToken === connectionToken
+            ) {
+                this.clearRecheck(messageId)
+                this.forgetHelloTurnIfUncovered(messageId)
+            }
+        if (
+            this.helloLookupTimers.get(daemonId)?.evidence.connectionToken ===
+            connectionToken
+        )
+            this.clearHelloLookupRetry(daemonId)
+        if (
+            this.helloSnapshots.get(daemonId)?.evidence.connectionToken ===
+            connectionToken
+        )
+            this.helloSnapshots.delete(daemonId)
+        if (
+            this.pendingOpenLookups.get(daemonId)?.connectionToken ===
+            connectionToken
+        )
+            this.pendingOpenLookups.delete(daemonId)
     }
 
     private async repairRuntimeStatus(daemonId: string): Promise<void> {
@@ -1320,11 +1561,12 @@ export class DaemonExecResumeService implements OnModuleDestroy {
     //
     // The flipped query is bounded by open turns instead of buffer size and
     // rides the existing partial index on (daemon_id, daemon_exec_ref).
-    private async findOpenTurns(daemonId: string): Promise<DbChatMessage[]> {
-        this.pendingOpenLookups.set(
-            daemonId,
-            (this.pendingOpenLookups.get(daemonId) ?? 0) + 1
-        )
+    private async findOpenTurns(
+        daemonId: string,
+        connectionToken = this.registry.currentHelloEvidence(daemonId)
+            ?.connectionToken ?? null
+    ): Promise<DbChatMessage[]> {
+        const scope = this.beginOpenLookup(daemonId, connectionToken)
         try {
             const rows = await this.db
                 .select()
@@ -1343,6 +1585,8 @@ export class DaemonExecResumeService implements OnModuleDestroy {
             const snapshot = this.helloSnapshots.get(daemonId)
             if (
                 snapshot &&
+                this.isLookupScopeCurrent(daemonId, scope) &&
+                snapshot.evidence.connectionToken === connectionToken &&
                 this.registry.isCurrentHelloEvidence(
                     daemonId,
                     snapshot.evidence
@@ -1351,6 +1595,11 @@ export class DaemonExecResumeService implements OnModuleDestroy {
                 for (const message of rows) {
                     const refId = message.daemonExecRef
                     if (!refId) continue
+                    // A newer successful lookup has released historical refs.
+                    // Missing from that reduced set is unknown, not absence
+                    // from the original authoritative hello.
+                    if (snapshot.openRefs && !snapshot.openRefs.has(refId))
+                        continue
                     this.trackHelloTurn(
                         daemonId,
                         message,
@@ -1360,12 +1609,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
                 }
             return rows
         } finally {
-            const pending = (this.pendingOpenLookups.get(daemonId) ?? 1) - 1
-            if (pending > 0) this.pendingOpenLookups.set(daemonId, pending)
-            else {
-                this.pendingOpenLookups.delete(daemonId)
-                this.helloSnapshots.delete(daemonId)
-            }
+            this.endOpenLookup(daemonId, scope)
         }
     }
 
