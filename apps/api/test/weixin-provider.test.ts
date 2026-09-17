@@ -1,4 +1,5 @@
 import type { WeixinChannelConfig } from '@manyfold/shared'
+import { Logger } from '@nestjs/common'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ChannelProviderStateRow, ChannelRow } from '@manyfold/db'
@@ -8,6 +9,10 @@ import type {
     ChannelContext
 } from '../src/modules/channels/channel-provider'
 import { WeixinChannelProvider } from '../src/modules/channels/providers/weixin.provider'
+import {
+    weixinGetUpdates,
+    weixinSendMessage
+} from '../src/modules/channels/providers/weixin-ilink'
 
 const makeChannel = (overrides: Partial<ChannelRow> = {}): ChannelRow => ({
     id: 'chn-weixin-1',
@@ -385,6 +390,331 @@ test('weixin start pauses on -14 and reports error status', async (t) => {
     await handle.stop()
     const err = statuses.find((s) => s.status === 'error')
     assert.match(err?.message ?? '', /session expired/)
+})
+
+const flushPoll = async (): Promise<void> => {
+    for (let i = 0; i < 6; i++)
+        await new Promise<void>((resolve) => setImmediate(resolve))
+}
+
+for (const initialCursor of ['', 'saved-cursor']) {
+    test(`weixin 524 boundaries preserve ${initialCursor || 'empty'} cursor until a real response`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+        t.mock.method(Math, 'random', () => 0.5)
+        const repo = new FakeWeixinRepo()
+        repo.stateJson = { syncBuf: initialCursor, contextTokens: {} }
+        const provider = providerFor(repo)
+        const warnings = t.mock.method(Logger.prototype, 'warn', () => {})
+        const cursors: string[] = []
+        const statuses: string[] = []
+        const events: NormalizedInboundEvent[] = []
+        let stops = 0
+        t.mock.method(
+            globalThis,
+            'fetch',
+            async (input: RequestInfo | URL, init?: RequestInit) => {
+                const url = new URL(String(input))
+                assert.equal(url.origin, 'https://ilinkai.wechat.com')
+                if (url.pathname.endsWith('/notifystop')) {
+                    stops++
+                    return jsonResponse({ ret: 0 })
+                }
+                assert.ok(url.pathname.endsWith('/getupdates'))
+                cursors.push(JSON.parse(String(init?.body)).get_updates_buf)
+                if (cursors.length <= 2)
+                    return new Response('edge timeout', { status: 524 })
+                if (cursors.length === 3)
+                    return jsonResponse({
+                        ret: 0,
+                        get_updates_buf: 'real-cursor',
+                        msgs: [textMessage('peer', 'first real batch')]
+                    })
+                if (cursors.length === 4)
+                    return jsonResponse({
+                        ret: 0,
+                        get_updates_buf: 'next-cursor',
+                        msgs: [
+                            textMessage('peer', 'new message', {
+                                message_id: 201
+                            })
+                        ]
+                    })
+                return abortingResponse(init?.signal)
+            }
+        )
+        const handle = await provider.start(
+            {
+                ...ctxFor(),
+                credentials: {
+                    ...credentials,
+                    baseUrl: 'https://ilinkai.wechat.com'
+                }
+            },
+            async (event) => {
+                events.push(event)
+            },
+            (status) => {
+                statuses.push(status)
+            }
+        )
+        t.after(() => handle.stop())
+        await flushPoll()
+        assert.deepEqual(
+            statuses,
+            [],
+            'a boundary is neither an error nor a successful initial sync'
+        )
+        assert.equal(repo.upserts, 0)
+        t.mock.timers.tick(1499)
+        await flushPoll()
+        assert.equal(cursors.length, 1, 'fast 524 must not form a tight loop')
+        t.mock.timers.tick(1)
+        await flushPoll()
+        assert.deepEqual(cursors, [initialCursor, initialCursor])
+        assert.equal(repo.upserts, 0)
+        assert.deepEqual(statuses, [])
+        t.mock.timers.tick(1500)
+        await flushPoll()
+        assert.deepEqual(cursors, [
+            initialCursor,
+            initialCursor,
+            initialCursor,
+            'real-cursor',
+            'next-cursor'
+        ])
+        assert.deepEqual(
+            events.map((event) => event.text),
+            initialCursor
+                ? ['first real batch', 'new message']
+                : ['new message']
+        )
+        assert.deepEqual(statuses, ['connected'])
+        assert.equal(repo.upserts, 2, 'only real responses persist state')
+        assert.equal(
+            (repo.stateJson as { syncBuf: string }).syncBuf,
+            'next-cursor'
+        )
+        assert.equal(warnings.mock.callCount(), 0)
+        assert.equal(stops, 0, '524 must not stop/reconnect the provider')
+    })
+}
+
+test('weixin a normal 15-second 524 repolls without an extra delay', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    let polls = 0
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async (input: RequestInfo | URL, init?: RequestInit) => {
+            if (String(input).endsWith('/notifystop'))
+                return jsonResponse({ ret: 0 })
+            if (++polls === 1) {
+                await new Promise<void>((resolve) =>
+                    setTimeout(resolve, 15_000)
+                )
+                return new Response(null, { status: 524 })
+            }
+            return abortingResponse(init?.signal)
+        }
+    )
+    const statuses: string[] = []
+    const handle = await providerFor().start(
+        ctxFor(),
+        async () => {},
+        (status) => {
+            statuses.push(status)
+        }
+    )
+    t.after(() => handle.stop())
+    await flushPoll()
+    t.mock.timers.tick(15_000)
+    await flushPoll()
+    assert.equal(polls, 2)
+    assert.deepEqual(statuses, [])
+})
+
+test('weixin stopping during the 524 floor cancels the next poll', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    let polls = 0
+    t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/notifystop'))
+            return jsonResponse({ ret: 0 })
+        polls++
+        return new Response(null, { status: 524 })
+    })
+    const statuses: string[] = []
+    const handle = await providerFor().start(
+        ctxFor(),
+        async () => {},
+        (status) => {
+            statuses.push(status)
+        }
+    )
+    await flushPoll()
+    await handle.stop()
+    t.mock.timers.tick(60_000)
+    await flushPoll()
+    assert.equal(polls, 1)
+    assert.deepEqual(statuses, [])
+})
+
+for (const status of [401, 500, 522]) {
+    test(`weixin HTTP ${status} still ends polling with an error`, async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+        let polls = 0
+        t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+            if (String(input).endsWith('/notifystop'))
+                return jsonResponse({ ret: 0 })
+            polls++
+            return new Response('HTTP 524 in body is not a status', { status })
+        })
+        const statuses: string[] = []
+        const handle = await providerFor().start(
+            ctxFor(),
+            async () => {},
+            (value) => {
+                statuses.push(value)
+            }
+        )
+        t.after(() => handle.stop())
+        await flushPoll()
+        t.mock.timers.tick(600_000)
+        await flushPoll()
+        assert.equal(polls, 1)
+        assert.deepEqual(statuses, ['error'])
+    })
+}
+
+test('weixin network errors retain the existing retry budget then report error', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    let polls = 0
+    t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/notifystop'))
+            return jsonResponse({ ret: 0 })
+        polls++
+        throw new Error('HTTP 524 is only network error text')
+    })
+    const statuses: string[] = []
+    const handle = await providerFor().start(
+        ctxFor(),
+        async () => {},
+        (status) => {
+            statuses.push(status)
+        }
+    )
+    t.after(() => handle.stop())
+    await flushPoll()
+    t.mock.timers.tick(500)
+    await flushPoll()
+    t.mock.timers.tick(2000)
+    await flushPoll()
+    assert.equal(polls, 3)
+    assert.deepEqual(statuses, ['error'])
+})
+
+test('weixin -14 keeps the full one-hour pause across reconnects', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'] })
+    let polls = 0
+    t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+        if (String(input).endsWith('/notifystop'))
+            return jsonResponse({ ret: 0 })
+        polls++
+        return jsonResponse({ errcode: -14 })
+    })
+    const provider = providerFor()
+    const statuses: string[] = []
+    const onStatus = (status: string): void => {
+        statuses.push(status)
+    }
+    const first = await provider.start(ctxFor(), async () => {}, onStatus)
+    await flushPoll()
+    await first.stop()
+    const second = await provider.start(ctxFor(), async () => {}, onStatus)
+    t.after(() => second.stop())
+    await flushPoll()
+    t.mock.timers.tick(60 * 60_000 - 1)
+    await flushPoll()
+    assert.equal(polls, 1)
+    t.mock.timers.tick(1)
+    await flushPoll()
+    assert.equal(polls, 2)
+    assert.deepEqual(statuses, ['error', 'error', 'error'])
+})
+
+test('weixin HTTP 524 on sendMessage remains a hard failure', async (t) => {
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async () => new Response('edge timeout', { status: 524 })
+    )
+    await assert.rejects(
+        weixinSendMessage(
+            {
+                baseUrl: 'https://ilinkai.wechat.com',
+                token: credentials.botToken
+            },
+            { to: 'peer', text: 'hello' }
+        ),
+        /sendMessage HTTP 524/
+    )
+})
+
+test('weixin a stop abort is not an empty getupdates result', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await assert.rejects(
+        weixinGetUpdates(
+            {
+                baseUrl: 'https://ilinkai.wechat.com',
+                token: credentials.botToken,
+                signal: controller.signal
+            },
+            'saved-cursor'
+        ),
+        /request aborted/
+    )
+})
+
+test('weixin getupdates preserves the cursor in its local 524 boundary result', async (t) => {
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async () => new Response('edge timeout', { status: 524 })
+    )
+    for (const cursor of ['', 'saved-cursor'])
+        assert.deepEqual(
+            await weixinGetUpdates(
+                {
+                    baseUrl: 'https://ilinkai.wechat.com',
+                    token: credentials.botToken
+                },
+                cursor
+            ),
+            { kind: 'poll-boundary', msgs: [], get_updates_buf: cursor }
+        )
+})
+
+test('weixin client timeout retains the existing empty successful envelope', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    t.mock.method(
+        globalThis,
+        'fetch',
+        async (_input: RequestInfo | URL, init?: RequestInit) =>
+            abortingResponse(init?.signal)
+    )
+    const pending = weixinGetUpdates(
+        {
+            baseUrl: 'https://ilinkai.wechat.com',
+            token: credentials.botToken,
+            timeoutMs: 100
+        },
+        'saved-cursor'
+    )
+    t.mock.timers.tick(100)
+    assert.deepEqual(await pending, {
+        kind: 'updates',
+        response: { ret: 0, msgs: [], get_updates_buf: 'saved-cursor' }
+    })
 })
 
 test('weixin sendText chunk 1 failure throws (safe for full retry)', async (t) => {

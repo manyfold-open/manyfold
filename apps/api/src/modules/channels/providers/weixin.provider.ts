@@ -352,9 +352,10 @@ export class WeixinChannelProvider implements ChannelProvider {
             this.pausedUntil.delete(channelId)
 
             while (!stopped) {
-                let resp
+                const pollStartedAt = Date.now()
+                let result
                 try {
-                    resp = await weixinGetUpdates(
+                    result = await weixinGetUpdates(
                         { ...apiOpts, signal: abort.signal, timeoutMs: pollTimeoutMs },
                         syncBuf
                     )
@@ -368,6 +369,16 @@ export class WeixinChannelProvider implements ChannelProvider {
                     return
                 }
                 if (stopped) return
+                if (result.kind === 'poll-boundary') {
+                    // Fast edge responses must not spin; an ordinary long poll
+                    // has already spent this 1-2s floor and re-polls immediately.
+                    const delay =
+                        1000 + Math.floor(Math.random() * 1000) -
+                        (Date.now() - pollStartedAt)
+                    if (delay > 0) await sleep(delay, abort.signal)
+                    continue
+                }
+                const resp = result.response
                 if (
                     typeof resp.longpolling_timeout_ms === 'number' &&
                     resp.longpolling_timeout_ms > 0
