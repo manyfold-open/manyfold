@@ -43,7 +43,8 @@ export const skills = pgTable(
         // dead sourcePath; a later scan that finds the skill again clears it.
         missingSince: timestamp('missing_since', { withTimezone: true }),
         // Records the last successful discovery scan that touched this row,
-        // regardless of whether content changed. Drives the 6h scan TTL.
+        // regardless of whether content changed. Repo freshness is tracked by
+        // skill_repo_scans, including complete repositories with zero skills.
         // Decoupled from updatedAt so a no-change scan still refreshes the
         // TTL without misleading the user-facing "Updated" timestamp.
         scannedAt: timestamp('scanned_at', { withTimezone: true }).defaultNow(),

@@ -1,6 +1,8 @@
 import * as Sentry from '@sentry/node'
 import { resolveSentryConfig } from './sentry-config'
 import { buildTelemetryCaptureOptions } from './sentry-grouping'
+import { GitHubRequestError } from './common/github-request-error'
+import { inBackgroundContext } from './common/telemetry/background-context'
 import {
     scrubSentryBreadcrumb,
     scrubSentryEvent,
@@ -67,6 +69,33 @@ export const captureApiException = (
     exception: unknown,
     extra?: Record<string, unknown>
 ): void => {
+    if (sentryEnabled && exception instanceof GitHubRequestError) {
+        // Arbitrary-source errors expose only their low-cardinality diagnosis.
+        // SDK stack context/local-variable enrichment can otherwise recover
+        // source inputs even after the error message has been sanitized.
+        inBackgroundContext(() =>
+            Sentry.captureEvent({
+                level: 'error',
+                exception: {
+                    values: [{
+                        type: 'GitHubRequestError',
+                        value: exception.message,
+                        mechanism: { type: 'generic', handled: true }
+                    }]
+                },
+                tags: {
+                    classification: exception.classification,
+                    reason: exception.reason
+                },
+                fingerprint: [
+                    'github_source_unavailable',
+                    exception.reason,
+                    exception.classification
+                ]
+            })
+        )()
+        return
+    }
     if (sentryEnabled)
         Sentry.captureException(exception, extra ? { extra } : undefined)
 }

@@ -10,6 +10,7 @@ import {
     catalogCategories,
     createDb,
     skills,
+    skillRepoScans,
     users,
     type Database
 } from '@manyfold/db'
@@ -29,6 +30,15 @@ const RUN = process.env.RUN_PG_E2E === '1'
 class StubDiscovery {
     scanResult: ScannedSkillSummary[] = []
     scanCallCount = 0
+
+    async resolveRepoRevision(): Promise<string> {
+        return this.scanResult[0]?.latestRevision ?? 'fixture-empty'
+    }
+
+    async scanRevision() {
+        const result = await this.scanRepos()
+        return result.rows.map((row) => ({ sourcePath: row.sourcePath, name: row.name, description: row.description, version: row.version }))
+    }
 
     constructor(private readonly repo: {
         owner: string
@@ -96,6 +106,13 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
         name: 'repo',
         branch: 'main'
     })
+    // Catalog-query fixtures insert skill rows directly. Declare the matching
+    // repo freshness so their empty network stub cannot delete those rows.
+    await db.insert(skillRepoScans).values({
+        key: JSON.stringify([repoOwner, 'repo', 'main']),
+        scannedAt: new Date(),
+        publishedAliases: [{ owner: repoOwner, name: 'repo' }]
+    })
     const service = new SkillsService(
         db,
         discovery as never,
@@ -114,6 +131,7 @@ const buildHarness = async (t: TestContext): Promise<Harness> => {
         skillId: (slug: string) =>
             `github:${repoOwner}/repo@main:skills/${slug}`,
         close: async (): Promise<void> => {
+            await db.delete(skillRepoScans).where(eq(skillRepoScans.key, JSON.stringify([repoOwner, 'repo', 'main'])))
             await db.delete(skills).where(eq(skills.repoOwner, repoOwner))
             await db
                 .delete(catalogCategories)
@@ -442,7 +460,7 @@ test('upsert does not crash on real PG and respects scan TTL when revision uncha
         h.discovery.scanResult = [scanRow('rev-A')] // same revision
         h.discovery.scanCallCount = 0
         await h.service.refreshDiscover({ userId: h.userId })
-        assert.equal(h.discovery.scanCallCount, 1, 'second refresh should scan (forced)')
+        assert.equal(h.discovery.scanCallCount, 0, 'unchanged forced refresh checks only the revision')
 
         const [afterSecond] = await h.db
             .select()

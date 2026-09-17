@@ -17,10 +17,10 @@ export const GLOBAL_MODEL_PRICE_SOURCES: readonly ModelPriceSource[] = [
 ]
 
 // Which configuration level a resolved price came from. 'provider' = the user's
-// own row, 'built_in' = an admin default for that built-in provider, 'global' =
-// the managed catalog's platform-wide override/pin, 'auto' = the ranked table
-// match found it with no configuration at all.
-export type ModelPriceScope = 'provider' | 'built_in' | 'global' | 'auto'
+// own row, 'built_in' = an admin default for that built-in provider, 'managed' =
+// the served managed channel's catalog, 'global' = explicit global engine
+// configuration, 'auto' = a ranked table match without configuration.
+export type ModelPriceScope = 'provider' | 'built_in' | 'managed' | 'global' | 'auto'
 
 // One entry of a pricing table, in LiteLLM's per-token field names. Both tables
 // are normalized to this shape on the way in (models.dev publishes per-million

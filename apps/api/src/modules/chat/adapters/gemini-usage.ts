@@ -49,7 +49,8 @@ export const extractGeminiUsage = (
             cacheReadTokens: tokens.cached,
             cacheCreationTokens: 0,
             modelProviderId: scope?.modelProviderId ?? null,
-            modelProviderBuiltInId: scope?.modelProviderBuiltInId ?? null
+            modelProviderBuiltInId: scope?.modelProviderBuiltInId ?? null,
+            modelProviderManagedBrand: scope?.modelProviderManagedBrand ?? null
         })
         out.push({
             model: usageModel,

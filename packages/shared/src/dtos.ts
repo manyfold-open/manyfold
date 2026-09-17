@@ -1512,6 +1512,7 @@ export type LibrarySkillOriginType =
 export interface LibrarySkillOriginRef {
     type: LibrarySkillOriginType
     url?: string
+    revision?: string
     catalogSkillId?: string
     filename?: string
     shareId?: string

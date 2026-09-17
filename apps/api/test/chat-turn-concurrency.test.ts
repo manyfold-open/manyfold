@@ -998,7 +998,7 @@ const makeHarness = (
         getSession: async (sessionId: string) => sessionRow(sessionId),
         getSessionById: async (sessionId: string) => sessionRow(sessionId),
         getMessageById: async (messageId: string) => {
-            if (gateMessageRead) {
+            if (gateMessageRead && messageId === 'msg-contended') {
                 gateMessageRead = false
                 messageReadStartedResolve()
                 await messageReadGate

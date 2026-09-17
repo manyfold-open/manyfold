@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { DaemonAuthContextRef } from '@manyfold/shared'
+import { DAEMON_FEATURE_AUTH_CONTEXT } from '@manyfold/shared'
+import { agentCredentials, runtimeHosts, userModelProviders, type Agent } from '@manyfold/db'
+import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
 import {
     SpritesExecDriver,
@@ -13,6 +16,29 @@ const ref: DaemonAuthContextRef = {
     profileId: 'rap_' + 'a'.repeat(26),
     bindingVersion: 4
 }
+
+test('per-turn auth selection controls the actual driver, and local/profile operations never decrypt the bound provider', async () => {
+    let providerReads = 0
+    const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
+        if (table === userModelProviders) { providerReads++; throw new Error('stale provider cannot be decrypted') }
+        if (table === agentCredentials) return []
+        if (table === runtimeHosts) return [{ clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
+        return []
+    } }) }) }) }
+    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never,
+        {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+        { resolveAgentEnv: async () => ({}) } as never)
+    const agent = { id: 'agent', userId: 'user', framework: 'codex', runtime: 'daemon', runtimeId: 'runtime',
+        daemonId: 'daemon', modelProviderId: 'old-provider', runtimeAuthProfileId: ref.profileId, runtimeAuthBindingVersion: 4,
+        extras: { modelConfig: { source: 'runtime-local' } } } as unknown as Agent
+    const local = await factory.forAgent(agent.id, agent, 'runtime-local')
+    assert.equal(local.authContext?.profileId, ref.profileId)
+    const platform = await factory.forAgent(agent.id, agent, 'platform')
+    assert.equal(platform.authContext, null, 'one platform turn does not inherit the saved profile selection')
+    assert.equal(providerReads, 0, 'factory reads credentials once but validates a provider only on requested platform dispatch')
+    await assert.rejects(platform.resolvePriceScope!(), /stale provider/)
+    assert.equal(providerReads, 1)
+})
 
 const registryCapturing = () => {
     const payloads: Record<string, unknown>[] = []

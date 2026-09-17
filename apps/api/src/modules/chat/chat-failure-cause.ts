@@ -42,6 +42,7 @@ const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
     claude_resume_unsupported: 'unsupported_capability',
     codex_resume_unsupported: 'unsupported_capability',
     gemini_resume_unsupported: 'unsupported_capability',
+    gemini_platform_exec_unsupported: 'unsupported_capability',
     hermes_resume_unsupported: 'unsupported_capability',
     // A daemon whose mf CLI predates turn.hermes: the fix is an upgrade on
     // the daemon host, not a retry here.

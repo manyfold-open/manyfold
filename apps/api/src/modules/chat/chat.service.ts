@@ -103,6 +103,7 @@ import type {
     ManagedChannelFailureSignal
 } from '@/modules/chat/chat-adapter'
 import { UsageService } from '@/modules/usage/usage.service'
+import { priceScopeFromMetadata, type ServedPriceScope } from '@/modules/usage/served-price-scope'
 import {
     FilesContextBuilder,
     resolveSafePath
@@ -2927,6 +2928,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 generation: claimed.generation
             }
             this.setTurnFence(fence)
+            // A hello can carry a row read before the dispatch stamped its
+            // credential route. The successful claim is the read barrier.
+            const priceScope = priceScopeFromMetadata(
+                (await this.repo.getMessageById(message.id))?.capabilityEventsJson
+            )
             const adapter = this.adapters.get(agentCtx.framework)
             if (!adapter.resumeMessage) {
                 // A sprite turn already has a better answer waiting: the
@@ -3025,8 +3031,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     runtimeKind: agentCtx.runtime,
                     model: agentCtx.model,
                     modelOverride: null,
-                    modelProviderId: agentCtx.modelProviderId,
-                    modelProviderBuiltInId: agentCtx.modelProviderBuiltInId,
+                    ...priceScope,
                     modelConfig: null,
                     claudeCodePermissionMode: null,
                     codexPermissionMode: null,
@@ -3046,6 +3051,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 abortController.signal,
                 {
                     startedAt: message.createdAt.getTime(),
+                    priceScope,
                     via: 'resume',
                     fence,
                     // Replaying from 0 re-derives every block, so seeding would
@@ -3563,6 +3569,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                     abortController.signal,
                     {
                         startedAt: message.createdAt.getTime(),
+                        priceScope: priceScopeFromMetadata(message.capabilityEventsJson),
                         via: 'adoption',
                         fence,
                         initialEvents: streamEvents,
@@ -3674,6 +3681,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 abortController.signal,
                 {
                     startedAt: message.createdAt.getTime(),
+                    priceScope: priceScopeFromMetadata(message.capabilityEventsJson),
                     via: 'adoption',
                     fence,
                     // The convergence emits `replace`, which supersedes every
@@ -4829,6 +4837,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // start: a resumed turn's latency is what the user waited for,
             // which includes the suspension gap.
             startedAt: number
+            priceScope: ServedPriceScope
             via: 'resume' | 'adoption'
             // The durable stream-event log of what this turn already
             // delivered, handed over whole rather than pre-folded into blocks:
@@ -5063,7 +5072,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                             messageId: assistantMessageId,
                             framework: agentCtx.framework,
                             runtimeKind: agentCtx.runtime,
-                            modelProviderId: agentCtx.modelProviderId,
+                            modelProviderId: opts.priceScope.modelProviderId,
                             usage: event.usage,
                             fence: opts.fence
                         })
@@ -5555,6 +5564,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 )
             }
         }
+        const servedPricing: { scope: ServedPriceScope | null } = { scope: null }
         const agentCtx =
             agent && agent.id === session.agentId
                 ? {
@@ -5900,6 +5910,12 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         runtimeLocalTuning,
                         modelProviderId: agentCtx.modelProviderId,
                         modelProviderBuiltInId: agentCtx.modelProviderBuiltInId,
+                        onServedPriceScope: async (scope) => {
+                            await this.repo.stampTurnPriceScope(
+                                assistantMessageId, session.id, scope, turnFence ?? undefined
+                            )
+                            servedPricing.scope = scope
+                        },
                         modelConfig,
                         claudeCodePermissionMode,
                         codexPermissionMode,
@@ -6010,7 +6026,9 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                         messageId: assistantMessageId,
                         framework: agentCtx.framework,
                         runtimeKind: agentCtx.runtime,
-                        modelProviderId: agentCtx.modelProviderId,
+                        modelProviderId: servedPricing.scope
+                            ? servedPricing.scope.modelProviderId
+                            : agentCtx.modelProviderId,
                         usage: event.usage,
                         ...(turnFence ? { fence: turnFence } : {})
                     })
