@@ -1,5 +1,11 @@
 # @manyfold/admin
 
+## 2.0.4
+
+### Patch Changes
+
+- [#435](https://github.com/manyfold-open/manyfold/pull/435) [`8fa222c`](https://github.com/manyfold-open/manyfold/commit/8fa222c576053f0c65c83fdd00a2d75a0b63aa8e) Thanks [@yingca1](https://github.com/yingca1)! - Record user-cancelled chat turns as a terminal cancelled outcome and show them neutrally in Admin session summaries, turn tables, and transcripts. Keep genuine historical failures in the Has errors filter while preserving raw cancellation events for inspection.
+
 ## 2.0.3
 
 ### Patch Changes

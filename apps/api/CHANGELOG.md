@@ -1,5 +1,13 @@
 # @manyfold/api
 
+## 5.1.11
+
+### Patch Changes
+
+- [#438](https://github.com/manyfold-open/manyfold/pull/438) [`1d02ace`](https://github.com/manyfold-open/manyfold/commit/1d02ace01988ae8063004d71a9f41041fe9598ad) Thanks [@yingca1](https://github.com/yingca1)! - Admit git framework versions and their source repositories together before agent creation, sandbox preparation and upgrades. Reject unavailable repository pins and prevent installation failures from retrying an unadmitted git default, while preserving npm and image fallback behavior.
+
+- [#435](https://github.com/manyfold-open/manyfold/pull/435) [`8fa222c`](https://github.com/manyfold-open/manyfold/commit/8fa222c576053f0c65c83fdd00a2d75a0b63aa8e) Thanks [@yingca1](https://github.com/yingca1)! - Record user-cancelled chat turns as a terminal cancelled outcome and show them neutrally in Admin session summaries, turn tables, and transcripts. Keep genuine historical failures in the Has errors filter while preserving raw cancellation events for inspection.
+
 ## 5.1.10
 
 ### Patch Changes
