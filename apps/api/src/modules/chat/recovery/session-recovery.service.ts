@@ -1058,16 +1058,29 @@ export class SessionRecoveryService {
             }
         }
         const cleared = await this.repo.clearImportPending(sessionId, observed)
-        if (!cleared)
+        if (!cleared) {
+            // The release path and the turn gate's retry can settle the same
+            // stamp concurrently; the loser of the clear must not report a
+            // pending import the winner just finished. Only a re-stamp (a
+            // newer release) keeps it pending.
+            const now = await this.repo.sessionHolderState(sessionId)
+            if (now?.importPendingSince)
+                return {
+                    state: 'pending',
+                    appended: result.appended,
+                    transcript: result.transcript,
+                    warnings: [
+                        ...result.warnings,
+                        'a newer terminal release re-stamped the import'
+                    ]
+                }
             return {
-                state: 'pending',
+                state: 'done',
                 appended: result.appended,
                 transcript: result.transcript,
-                warnings: [
-                    ...result.warnings,
-                    'a newer terminal release re-stamped the import'
-                ]
+                warnings: result.warnings
             }
+        }
         this.statusBroadcaster?.emitSessionsChanged(userId, {
             type: 'chat-sessions-changed',
             agentId,

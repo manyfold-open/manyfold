@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, eq, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import {
     terminalSessions,
     type Database,
@@ -106,6 +106,28 @@ export class TerminalSessionsRepository {
             .where(eq(terminalSessions.id, id))
             .limit(1)
         return row ?? null
+    }
+
+    // Ended rows are history the audit log already keeps; only the latest
+    // holder of a session is ever read back (for the import's identity
+    // check), so rows past the retention window are pruned in bounded
+    // batches.
+    async deleteEndedBefore(cutoff: Date, limit: number): Promise<number> {
+        const rows = await this.db
+            .delete(terminalSessions)
+            .where(
+                inArray(
+                    terminalSessions.id,
+                    this.db
+                        .select({ id: terminalSessions.id })
+                        .from(terminalSessions)
+                        .where(lt(terminalSessions.endedAt, cutoff))
+                        .orderBy(asc(terminalSessions.endedAt))
+                        .limit(limit)
+                )
+            )
+            .returning({ id: terminalSessions.id })
+        return rows.length
     }
 
     async listExpiredLive(limit: number): Promise<TerminalSessionRow[]> {

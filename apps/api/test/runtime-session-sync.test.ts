@@ -164,6 +164,13 @@ const makeHarness = (
             return true
         },
         getSession: async (id: string) => (id === session.id ? session : null),
+        sessionHolderState: async () => ({
+            inflightMessageId: session.inflightMessageId,
+            holderTerminalId: session.holderTerminalId,
+            holderAcquiredAt: session.holderAcquiredAt,
+            importPendingSince: session.importPendingSince,
+            frameworkSessionRef: session.frameworkSessionRef
+        }),
         clearImportPending: async (_sessionId: string, observed: Date) => {
             if (
                 session.importPendingSince === null ||
@@ -832,4 +839,50 @@ test('abandoning an import is audited and idempotent', async () => {
         ),
         { abandoned: false }
     )
+})
+
+// The release path and the turn gate's retry may settle the same stamp at
+// once; the one that loses the clear must see the import as done, not
+// report the pending state the winner just ended.
+test('a settle that loses the clear to a concurrent settle still reports done', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        localMessages: localSuperset
+    })
+    const repo = h.service['repo'] as {
+        clearImportPending: (...args: unknown[]) => Promise<boolean>
+    }
+    repo.clearImportPending = async () => {
+        // The other settle got there first.
+        h.session.importPendingSince = null
+        return false
+    }
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'done')
+    assert.equal(res.appended, 2)
+})
+
+test('a settle that loses the clear to a newer release stays pending', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        localMessages: localSuperset
+    })
+    const repo = h.service['repo'] as {
+        clearImportPending: (...args: unknown[]) => Promise<boolean>
+    }
+    repo.clearImportPending = async () => {
+        h.session.importPendingSince = new Date('2026-05-10T10:20:00Z')
+        return false
+    }
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'pending')
+    assert.ok(res.warnings.some((w) => w.includes('re-stamped')))
 })

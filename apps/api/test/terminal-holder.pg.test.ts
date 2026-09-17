@@ -384,3 +384,41 @@ test(
         }
     }
 )
+
+test(
+    'ended rows past the retention window are pruned in bounded batches',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const live = await newTerminal(h)
+            const recent = await newTerminal(h)
+            const old1 = await newTerminal(h)
+            const old2 = await newTerminal(h)
+            await h.terminals.end(recent.id, 'closed')
+            for (const row of [old1, old2]) {
+                await h.terminals.end(row.id, 'closed')
+                await h.db
+                    .update(terminalSessions)
+                    .set({
+                        endedAt: new Date(Date.now() - 40 * 24 * 60 * 60 * 1000)
+                    })
+                    .where(eq(terminalSessions.id, row.id))
+            }
+            const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+            assert.equal(await h.terminals.deleteEndedBefore(cutoff, 1), 1)
+            assert.equal(await h.terminals.deleteEndedBefore(cutoff, 10), 1)
+            assert.equal(await h.terminals.deleteEndedBefore(cutoff, 10), 0)
+            assert.ok(
+                await h.terminals.findById(live.id),
+                'a live row is never pruned'
+            )
+            assert.ok(
+                await h.terminals.findById(recent.id),
+                'a recently ended row is kept'
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
