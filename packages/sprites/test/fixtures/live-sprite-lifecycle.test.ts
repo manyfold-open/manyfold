@@ -58,12 +58,19 @@ test(
         await once(server, 'listening')
         const address = server.address()
         assert.ok(address && typeof address === 'object')
-        const client = createClient({
+        const clientOptions = {
             token: 'local-fixture',
             baseUrl: `http://127.0.0.1:${address.port}`,
-            wsBaseUrl: `ws://127.0.0.1:${address.port}`,
-            requestTimeoutMs: mode === 'delete-timeout' ? 50 : 1000
+            wsBaseUrl: `ws://127.0.0.1:${address.port}`
+        }
+        const client = createClient({
+            ...clientOptions,
+            requestTimeoutMs: 1000
         })
+        const cleanupClient =
+            mode === 'delete-timeout'
+                ? createClient({ ...clientOptions, requestTimeoutMs: 50 })
+                : client
         if (mode === 'timeout')
             client.createSprite = async () => {
                 counts.create++
@@ -71,7 +78,10 @@ test(
             }
         const lifecycle = withLiveSprite(
             t,
-            client,
+            {
+                createSprite: (input) => client.createSprite(input),
+                deleteSprite: (target) => cleanupClient.deleteSprite(target)
+            },
             name,
             async (signal) => {
                 counts.body++
