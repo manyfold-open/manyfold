@@ -128,6 +128,8 @@ export const auditAction = {
     DAEMON_REVOKED: 'daemon.revoked',
     DAEMON_DELETED: 'daemon.deleted',
     DAEMON_UPGRADE_REQUESTED: 'daemon.upgrade.requested',
+    DAEMON_EXEC_RECOVERED: 'daemon.exec.recovered',
+    DAEMON_UPGRADE_ROLLED_BACK: 'daemon.upgrade.rolled_back',
     GRANT_MINTED: 'grant.minted',
     GRANT_REVOKED: 'grant.revoked',
     GRANT_REAUTHORIZED: 'grant.reauthorized',

@@ -1077,3 +1077,43 @@ test('the systemd user unit keeps detached execs alive across a restart; the sys
     assert.match(buildUnit(ctx('user')), /^KillMode=process$/m)
     assert.doesNotMatch(buildUnit(ctx('system')), /KillMode/)
 })
+
+// ---- ADR-0029 §5: a manual-install update hands running execs over ------
+
+const { detachAllFileExecs } = await import('../src/daemon/exec-files')
+
+test(
+    'detaching leaves the exec running and its buffer live for a successor to adopt',
+    { skip: !posix },
+    async () => {
+        const run = startExec('detach', [
+            '/bin/sh',
+            '-c',
+            'echo before; sleep 0.8; echo after; exit 4'
+        ])
+        await sleep(300)
+        assert.equal(detachAllFileExecs(), 1)
+        assert.equal(fileExecRegistry.get(run.refId), undefined)
+        assert.equal(readMeta(run.refId)?.status, 'running')
+        assert.equal(run.stream.status, 'running')
+        const pid = (
+            readMeta(run.refId) as unknown as { owner: { pid: number } }
+        ).owner.pid
+        assert.doesNotThrow(() => process.kill(pid, 0), 'the exec kept running')
+        // The successor (here: the same process, fresh state) adopts it.
+        execStreams.delete(run.refId)
+        const outcome = recoverFileExecs(() => {})
+        assert.equal(outcome.adopted, 1)
+        const final = await fileExecRegistry.get(run.refId)!.done
+        assert.deepEqual(final, { ok: true, payload: { exitCode: 4 } })
+        const out = readEventsFrom(run.refId, 0)
+            .filter((e) => e.kind === 'stdout')
+            .map((e) => e.data)
+            .join('')
+        assert.equal(
+            out,
+            'before\nafter\n',
+            'nothing was lost or doubled across the handoff'
+        )
+    }
+)

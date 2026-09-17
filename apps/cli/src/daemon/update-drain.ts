@@ -28,7 +28,7 @@ export const UPDATE_PENDING_ERROR =
 export interface UpdateDrainDeps {
     activeSessions: () => number
     applyUpdate: (spec: DaemonUpdateSpec) => Promise<SelfUpdateResult>
-    restart: () => void
+    restart: (result: SelfUpdateResult) => void
     log: (msg: string) => void
     drainTimeoutMs?: number
 }
@@ -118,7 +118,7 @@ export class UpdateDrainCoordinator {
         try {
             const result = await this.deps.applyUpdate(spec)
             if (result.changed) {
-                this.deps.restart()
+                this.deps.restart(result)
                 return result
             }
             this.applying = false

@@ -2,8 +2,10 @@ import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
     DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_FEATURE_MANUAL_UPDATE,
     RUNNER_PROFILE,
     DAEMON_MIN_CLI_VERSION,
+    type MfCliChannel,
     isCliVersionTooOld,
     podRunnerHostName,
     profilePaths,
@@ -92,6 +94,8 @@ const DEFAULT_INSPECT_TIMEOUT_MS = 60_000
 // catches up a little later. A fresh register+start reconnects at ~60-75s (see
 // DEFAULT_WAIT_ONLINE_MS); a restart skips the register.
 const RESTART_WAIT_MS = 45_000
+// The daemon downloads and prechecks the binary inside this window.
+const RUNNER_UPGRADE_RPC_TIMEOUT_MS = 180_000
 const STATUS_PROBE_TIMEOUT_MS = 30_000
 // After a wake exec thawed a registered runner whose socket the API had already
 // dropped, how long its own reconnect gets before the process is restarted.
@@ -1143,6 +1147,56 @@ export class RunnerManagerService {
                     `runner token cleanup failed sprite=${args.spriteName} class=${errorClass(err)}`
                 )
             )
+    }
+
+    // A runner that can update itself (ADR-0029 §5: a manual start that
+    // advertises daemon.update.manual) is upgraded through daemon.update —
+    // it downloads, prechecks, swaps, hands its execs to a successor and
+    // rolls back on its own — instead of the platform installing over it and
+    // restarting it. `not-capable` sends the caller down the install path.
+    async upgradeViaDaemon(args: {
+        userId: string
+        spriteName: string
+        targetVersion?: string
+        channel?: MfCliChannel
+    }): Promise<
+        | { kind: 'not-capable' }
+        | { kind: 'dispatched'; toVersion: string | null; deferred: boolean }
+        | { kind: 'failed'; error: string }
+    > {
+        const existing = await this.findRunnerHost({
+            userId: args.userId,
+            hostName: runnerHostName(args.spriteName)
+        })
+        if (
+            !existing?.online ||
+            !existing.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
+        )
+            return { kind: 'not-capable' }
+        const payload: Record<string, unknown> = {}
+        if (args.targetVersion) payload.targetVersion = args.targetVersion
+        if (args.channel) payload.channel = args.channel
+        try {
+            const ack = await this.registry.rpc({
+                daemonId: existing.id,
+                method: 'daemon.update',
+                payload,
+                timeoutMs: RUNNER_UPGRADE_RPC_TIMEOUT_MS
+            })
+            const toVersion =
+                typeof ack?.toVersion === 'string' ? ack.toVersion : null
+            const deferred = ack?.deferred === true
+            this.logger.log(
+                `runner upgrade via daemon.update sprite=${args.spriteName} to=${toVersion ?? 'latest'} deferred=${deferred}`
+            )
+            return { kind: 'dispatched', toVersion, deferred }
+        } catch (err) {
+            const error = (err as Error).message
+            this.logger.warn(
+                `runner upgrade via daemon.update failed sprite=${args.spriteName}: ${error}`
+            )
+            return { kind: 'failed', error }
+        }
     }
 
     private async start(

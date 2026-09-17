@@ -231,6 +231,24 @@ export interface DaemonClientProcess {
     pid: number
 }
 
+// What a restarted daemon made of the execs the previous one left running
+// (ADR-0029 §4): sent once, in its first hello.
+export interface DaemonExecRecoveryReport {
+    adopted: number
+    completed: number
+    crashed: number
+}
+
+// Why a self-update on a manual install was undone (ADR-0029 §5): the
+// daemon that runs after the rollback is the old binary again, and it
+// carries this once so the platform learns what happened.
+export interface DaemonUpdateRollbackReport {
+    fromVersion: string
+    toVersion: string
+    reason: string
+    at: string
+}
+
 export type DaemonWsFrame =
     | {
           type: 'hello'
@@ -239,6 +257,8 @@ export type DaemonWsFrame =
           clientProcess?: DaemonClientProcess
           clientFeatures?: string[]
           inflightStreams?: DaemonInflightStream[]
+          recovery?: DaemonExecRecoveryReport
+          rollback?: DaemonUpdateRollbackReport
       }
     | {
           type: 'welcome'
@@ -448,6 +468,12 @@ export const DAEMON_FEATURE_EXEC_RESOURCES = 'exec.resources.v1'
 // restart adopts what the previous daemon left running. The platform's
 // runner bring-up passes --keep-execs only to a daemon that says so.
 export const DAEMON_FEATURE_EXEC_FILES = 'exec.files.v1'
+// A daemon nobody supervises (`manual` startup) can still take
+// daemon.update: it swaps the binary itself, hands its execs to a
+// successor it starts, and rolls back if that successor never comes up
+// (ADR-0029 §5). Computed at runtime — a standalone POSIX binary that is
+// not the pod runner — so it is NOT in DAEMON_CLIENT_FEATURES.
+export const DAEMON_FEATURE_MANUAL_UPDATE = 'daemon.update.manual'
 export const DAEMON_FEATURE_DAEMON_UPDATE = 'daemon.update'
 // The protocol baseline honours stable/dev channel overrides for updates.
 export const DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL = 'daemon.update.channel'

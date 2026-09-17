@@ -74,8 +74,9 @@ import {
     startFileExec
 } from './exec-files'
 import { normalizeWireChannel } from '@/channel'
-import { performSelfUpdate } from '@/commands/update'
+import { performSelfUpdate, type SelfUpdateResult } from '@/commands/update'
 import { detectStartupMethod } from './startup-method'
+import { precheckBinary, readUpdateLatch } from './manual-update'
 import {
     UPDATE_PENDING_ERROR,
     UpdateDrainCoordinator,
@@ -886,6 +887,20 @@ export const drainSessionCount = (counts: {
     counts.ptys +
     counts.turns
 
+// Installed by the daemon start when this daemon can update itself without
+// a supervisor (ADR-0029 §5): it drives the handoff to a successor and never
+// returns to serving. Absent, an update restarts through the init unit.
+let manualUpdateHandoff: ((result: SelfUpdateResult) => Promise<void>) | null =
+    null
+
+export const setManualUpdateHandoff = (
+    handoff: ((result: SelfUpdateResult) => Promise<void>) | null
+): void => {
+    manualUpdateHandoff = handoff
+}
+
+export const manualUpdateCapable = (): boolean => manualUpdateHandoff !== null
+
 const updateCoordinator = new UpdateDrainCoordinator({
     activeSessions: () =>
         drainSessionCount({
@@ -895,12 +910,39 @@ const updateCoordinator = new UpdateDrainCoordinator({
             turns: turnSessions.size,
             fileExecsAdoptable
         }),
-    applyUpdate: (spec) => performSelfUpdate(spec),
-    // Exit non-zero so launchd (KeepAlive SuccessfulExit=false) / systemd
-    // (Restart=on-failure) respawn the freshly-installed binary. Delay the
-    // exit so any pending ack frame flushes to the API before the socket
-    // closes.
-    restart: () => setTimeout(() => process.exit(1), 2000),
+    applyUpdate: (spec) =>
+        performSelfUpdate({
+            ...spec,
+            // The old binary stays reachable for the rollback only when this
+            // process is the one that would perform it.
+            keepPrevious: manualUpdateHandoff !== null,
+            precheck: async (binary, targetVersion) => {
+                // A target that already failed to come up here is not tried
+                // again until something else is asked for.
+                const latch = await readUpdateLatch(daemonPaths.updateLatchPath)
+                if (latch?.version === targetVersion)
+                    throw new Error(
+                        `update to ${targetVersion} was rolled back at ${latch.at} (${latch.reason}); pick another version`
+                    )
+                await precheckBinary(binary, targetVersion)
+            }
+        }),
+    // With a supervisor: exit non-zero so launchd (KeepAlive
+    // SuccessfulExit=false) / systemd (Restart=on-failure) respawn the
+    // freshly-installed binary, after a delay that lets any pending ack
+    // frame flush. Without one: hand off to a successor this process starts.
+    restart: (result) => {
+        if (manualUpdateHandoff) {
+            const handoff = manualUpdateHandoff
+            setTimeout(() => {
+                void handoff(result).catch((err: Error) =>
+                    console.error(`manual update handoff failed: ${err.message}`)
+                )
+            }, 2000)
+            return
+        }
+        setTimeout(() => process.exit(1), 2000)
+    },
     log: (msg) => console.error(msg)
 })
 
@@ -1596,7 +1638,7 @@ const handlers: Partial<
         }
     },
     'daemon.update': async (payload) => {
-        if (detectStartupMethod() === 'manual')
+        if (detectStartupMethod() === 'manual' && !manualUpdateCapable())
             return {
                 ok: false,
                 error: 'daemon is not managed by an init unit (launchd/systemd); run `mf update` then restart it manually'
