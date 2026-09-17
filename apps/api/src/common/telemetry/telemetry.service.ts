@@ -7,6 +7,7 @@ import {
 import { SpanStatusCode, trace } from '@opentelemetry/api'
 import { otelEventsLogger } from '@/otel'
 import { captureTelemetryError } from '@/sentry'
+import { StorageMeasurementError } from './storage-measurement-error'
 
 type EventAttrs = Record<string, string | number | boolean | null | undefined>
 
@@ -61,7 +62,7 @@ export class TelemetryService {
         })
         const span = trace.getActiveSpan()
         if (span && span.isRecording()) {
-            span.recordException(err)
+            span.recordException(err instanceof StorageMeasurementError ? { name: err.name, message: err.message } : err)
             span.setStatus({ code: SpanStatusCode.ERROR })
         }
         captureTelemetryError(name, err, sanitize(attrs))

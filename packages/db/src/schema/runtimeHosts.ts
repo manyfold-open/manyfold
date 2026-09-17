@@ -1,12 +1,15 @@
 import {
     bigint,
     boolean,
+    check,
+    integer,
     jsonb,
     pgTable,
     text,
     timestamp,
     uniqueIndex
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { users } from './users'
 import { spritesAccounts } from './spritesAccounts'
 
@@ -21,9 +24,11 @@ import { spritesAccounts } from './spritesAccounts'
 // 'stale' is the parser's "nothing came back" verdict and is never persisted —
 // a failed measurement leaves the previous row untouched.
 export interface SandboxStorageBreakdown {
+    formatVersion?: 1
     vmUsedBytes: number
-    homes: { framework: string; bytes: number }[]
-    workspaces: { agentId: string; bytes: number }[]
+    homes: { framework: string; bytes: number; path?: string; agentIds?: string[]; attributedBytes?: number | null }[]
+    workspaces: { agentId: string; bytes: number; attributedBytes?: number | null }[]
+    attributionComplete?: boolean
     measuredVia: 'df' | 'du' | 'stale'
 }
 
@@ -170,6 +175,10 @@ export const runtimeHosts = pgTable(
         }),
         storageBreakdown: jsonb('storage_breakdown')
             .$type<SandboxStorageBreakdown>(),
+        storageAttemptId: text('storage_attempt_id'),
+        storageLeaseUntil: timestamp('storage_lease_until', { withTimezone: true }),
+        storageRetryAt: timestamp('storage_retry_at', { withTimezone: true }),
+        storageFailureCount: integer('storage_failure_count').notNull().default(0),
         // The platform created and owns this host — it is not a machine the
         // user registered. Phase 3 sprite runners are daemon hosts we bring up
         // inside the user's own sprite, and `daemon register` additionally
@@ -186,6 +195,8 @@ export const runtimeHosts = pgTable(
             .defaultNow()
     },
     (table) => ({
+        storageAttemptLease: check('runtime_hosts_storage_attempt_lease', sql`(${table.storageAttemptId} is null) = (${table.storageLeaseUntil} is null)`),
+        storageFailuresNonnegative: check('runtime_hosts_storage_failures_nonnegative', sql`${table.storageFailureCount} >= 0`),
         userUuidUnique: uniqueIndex('runtime_hosts_user_uuid_unique').on(
             table.userId,
             table.daemonUuid

@@ -840,6 +840,9 @@ const storageHarness = (unavailable: boolean) => {
         storageMeasuredAt: null
     }
     const db = {
+        transaction: async (work: (tx: unknown) => Promise<unknown>) => work(db),
+        execute: async () => [],
+        update: () => ({ set: () => ({ where: () => ({ returning: async () => [hostRow] }) }) }),
         select: () => ({
             from: (table: Parameters<typeof getTableName>[0]) => {
                 const list =
@@ -848,8 +851,10 @@ const storageHarness = (unavailable: boolean) => {
                 // awaits the where() directly, so it has to be both.
                 const result = Promise.resolve(list) as Promise<unknown[]> & {
                     limit: () => Promise<unknown[]>
+                    orderBy: () => Promise<unknown[]>
                 }
                 result.limit = async () => list
+                result.orderBy = async () => list
                 return { where: () => result }
             }
         })

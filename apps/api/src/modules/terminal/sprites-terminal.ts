@@ -189,7 +189,7 @@ export class SpritesTerminal {
                 if (client.readyState === client.OPEN)
                     client.close(code, reason)
             } catch {}
-            if (agentId) void this.spriteStorage.measureIfDue(agentId)
+            if (agentId) void this.spriteStorage.measureIfDue(agentId, 'terminal')
             void this.apiTokens
                 .hardDelete({ tokenId: terminalToken.tokenId, userId })
                 .catch(() => {})

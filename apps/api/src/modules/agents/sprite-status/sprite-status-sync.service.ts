@@ -888,7 +888,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             const next = byName.get(row.spriteName) ?? null
             if (next === row.spriteStatus) continue
             if (row.spriteStatus === 'running' && next === 'warm') {
-                await this.spriteStorage.measureIfDue(row.id)
+                await this.spriteStorage.measureIfDue(row.id, 'status_sync')
             }
             await this.db
                 .update(agents)
@@ -1038,7 +1038,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
             // rootfs) gets measured too; agent-bearing hosts dedupe against the
             // agent-loop trigger via storage_measured_at.
             if (host.spriteStatus === 'running' && next === 'warm')
-                await this.spriteStorage.measureHostIfDue(host.id)
+                await this.spriteStorage.measureHostIfDue(host.id, 'status_sync')
             await this.db
                 .update(runtimeHosts)
                 .set({ spriteStatus: next, updatedAt: now })
