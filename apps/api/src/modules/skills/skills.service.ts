@@ -37,7 +37,6 @@ import {
     ilike,
     inArray,
     isNull,
-    notInArray,
     or,
     sql,
     type SQL
@@ -65,13 +64,16 @@ import {
     parseOffsetCursor
 } from '@/common/catalog-query'
 import { DRIZZLE } from '@/db/tokens'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
+import { GitHubRequestError } from '@/common/github-request-error'
+import { mapSkillRequests } from './github-skill-source'
+import { refreshSkillRepo, staleSkillRepos, type PublishedSkillRow } from './skill-catalog-scan'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     DiscoveryRepo,
     parseSkillMarkdown,
     readmeContent,
     repoToSummary,
-    ScannedSkillSummary,
     SkillDiscoveryService
 } from './skill-discovery.service'
 import { SkillMaterializerService } from './skill-materializer.service'
@@ -145,10 +147,10 @@ export class SkillsService {
     private readonly runtimeInventoryTimeoutMs = 3_000
     private readonly discoveryRefreshInFlight = new Map<
         string,
-        Promise<ScannedSkillSummary[]>
+        Promise<PublishedSkillRow[]>
     >()
-    private readonly discoveryCacheTtlMs = 6 * 60 * 60 * 1000
     private readonly readmeCache = new Map<string, ReadmeCacheEntry>()
+    private readonly readmeCacheTtlMs = 6 * 60 * 60 * 1000
     private readonly readmeCacheMax = 500
     // Cap how long install/update block on materialization before returning the
     // durable state. Small/library skills finish well under this and return
@@ -379,9 +381,9 @@ export class SkillsService {
         const installed = target
             ? await this.installedMap(target.agent.id)
             : new Map<string, InstalledSkillState>()
-        void this.refreshStaleDiscoverRepos(repos).catch((err: unknown) => {
+        void inBackgroundContext(() => this.refreshStaleDiscoverRepos(repos))().catch((err: unknown) => {
             this.log.warn(
-                `background skill discovery refresh failed: ${(err as Error).message}`
+                `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
             )
         })
         const rows = await this.discoverRows({ repos, q: input.q })
@@ -413,9 +415,9 @@ export class SkillsService {
         const installed = target
             ? await this.installedMap(target.agent.id)
             : new Map<string, InstalledSkillState>()
-        void this.refreshStaleDiscoverRepos(repos).catch((err: unknown) => {
+        void inBackgroundContext(() => this.refreshStaleDiscoverRepos(repos))().catch((err: unknown) => {
             this.log.warn(
-                `background skill discovery refresh failed: ${(err as Error).message}`
+                `background skill discovery refresh failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
             )
         })
         const limit = clampPageLimit(
@@ -565,7 +567,7 @@ export class SkillsService {
             revision: row.latestRevision,
             documents,
             meta,
-            expiresAt: now + this.discoveryCacheTtlMs
+            expiresAt: now + this.readmeCacheTtlMs
         }
         this.readmeCache.set(skillId, entry)
         return this.readmeResponse(skillId, entry)
@@ -671,19 +673,16 @@ export class SkillsService {
             return this.installLibrarySkill(input, target)
         const framework = target.framework
         const repos = await this.discoveryRepos(input.userId)
-        let discovered: ScannedSkillSummary | null = null
+        let skill: PublishedSkillRow | undefined
         try {
-            discovered = await this.discovery.discoverOne(repos, input.skillId)
+            const parsed = parseSkillId(input.skillId)
+            const repo = repos.find((entry) => entry.enabled && entry.owner === parsed.owner && entry.name === parsed.repo && entry.branch === parsed.branch)
+            if (repo) skill = (await this.refreshDiscoverRepo(repo)).find((row) => row.id === input.skillId)
         } catch (err) {
             throwBadRequestForUnsafeInput(err)
         }
-        if (!discovered)
+        if (!skill)
             throw new NotFoundException(`discoverable skill ${input.skillId}`)
-
-        // Same upsert as discovery refresh — discoverOne just live-verified the
-        // skill, so this also clears a stale missingSince flag and keeps the
-        // description-coalesce guard in one place.
-        const [skill] = await this.upsertDiscoveredSkills([discovered])
 
         const existing = await this.findUserSkillBySkill(
             input.userId,
@@ -697,8 +696,8 @@ export class SkillsService {
                     enabled: true,
                     materializeStatus: 'installing',
                     materializeError: null,
-                    installedRevision: discovered.latestRevision,
-                    installedVersion: discovered.version,
+                    installedRevision: skill.latestRevision,
+                    installedVersion: skill.version,
                     updatedAt: new Date()
                 })
                 .where(eq(userSkills.id, existing.id))
@@ -713,7 +712,7 @@ export class SkillsService {
 
         const installDir = await this.nextInstallDir(input.userId, {
             agentId: target.agent.id,
-            base: discovered.installDir,
+            base: skill.installDir,
             seed: input.skillId
         })
         const [row] = await this.db
@@ -727,8 +726,8 @@ export class SkillsService {
                 framework,
                 enabled: true,
                 installDir,
-                installedRevision: discovered.latestRevision,
-                installedVersion: discovered.version
+                installedRevision: skill.latestRevision,
+                installedVersion: skill.version
             })
             .returning()
         const outcomes = await this.materializeWithCap(target.agent.id)
@@ -1211,158 +1210,31 @@ export class SkillsService {
         repos: DiscoveryRepo[]
     ): Promise<void> {
         if (repos.length === 0) return
-        const freshness = await this.repoFreshness(repos)
-        const now = Date.now()
-        const staleRepos = repos.filter((repo) => {
-            const newest = freshness.get(discoveryRepoKey(repo))
-            return (
-                newest === undefined ||
-                now - newest > this.discoveryCacheTtlMs
-            )
-        })
+        const staleRepos = await staleSkillRepos(this.db, repos)
         if (staleRepos.length === 0) return
         await this.refreshDiscoverRepos(staleRepos)
     }
 
-    private async repoFreshness(
-        repos: DiscoveryRepo[]
-    ): Promise<Map<string, number>> {
-        const rows = await this.db
-            .select({
-                repoOwner: skills.repoOwner,
-                repoName: skills.repoName,
-                repoBranch: skills.repoBranch,
-                newest: sql<Date | string>`max(${skills.scannedAt})`
-            })
-            .from(skills)
-            .where(or(...repos.map(repoCond)))
-            .groupBy(skills.repoOwner, skills.repoName, skills.repoBranch)
-        return new Map(
-            rows.map((row) => [
-                `${row.repoOwner}/${row.repoName}@${row.repoBranch}`,
-                new Date(row.newest).getTime()
-            ])
-        )
-    }
-
     private async refreshDiscoverRepos(
         repos: DiscoveryRepo[]
-    ): Promise<ScannedSkillSummary[]> {
-        const nested = await Promise.all(
-            repos.map((repo) => this.refreshDiscoverRepo(repo))
-        )
+    ): Promise<PublishedSkillRow[]> {
+        const nested = await mapSkillRequests(repos, (repo) => this.refreshDiscoverRepo(repo))
         return nested.flat()
     }
 
     private refreshDiscoverRepo(
         repo: DiscoveryRepo
-    ): Promise<ScannedSkillSummary[]> {
+    ): Promise<PublishedSkillRow[]> {
         const key = discoveryRepoKey(repo)
         const pending = this.discoveryRefreshInFlight.get(key)
         if (pending) return pending
 
-        const promise = this.discovery
-            .scanRepos({ repos: [repo] })
-            .then(async ({ rows, truncatedRepoIds }) => {
-                await this.upsertDiscoveredSkills(rows)
-                if (truncatedRepoIds.length === 0) {
-                    await this.markMissingSkills(
-                        repo,
-                        rows.map((row) => row.skillId)
-                    )
-                } else {
-                    this.log.warn(
-                        `skipping missing-skill marking for truncated scan of ${key}`
-                    )
-                }
-                return rows
-            })
+        const promise = refreshSkillRepo(this.db, this.discovery, repo)
             .finally(() => {
                 this.discoveryRefreshInFlight.delete(key)
             })
         this.discoveryRefreshInFlight.set(key, promise)
         return promise
-    }
-
-    private async upsertDiscoveredSkills(
-        rows: ScannedSkillSummary[]
-    ): Promise<SkillRow[]> {
-        const nowIso = new Date().toISOString()
-        const upserted: SkillRow[] = []
-        for (const row of rows) {
-            const [saved] = await this.db
-                .insert(skills)
-                .values({
-                    id: row.skillId,
-                    name: row.name,
-                    description: row.description,
-                    repoOwner: row.repoOwner,
-                    repoName: row.repoName,
-                    repoBranch: row.repoBranch,
-                    sourcePath: row.sourcePath,
-                    latestRevision: row.latestRevision,
-                    readmeUrl: row.readmeUrl,
-                    missingSince: null
-                })
-                .onConflictDoUpdate({
-                    target: skills.id,
-                    set: {
-                        // Curation columns (categoryId/tags/featured/hidden)
-                        // are admin-owned and must never be listed in this
-                        // set — re-discovery would otherwise wipe them.
-                        //
-                        // description falls back to the stored value when the
-                        // fresh scan couldn't read it: a rate-limited or failed
-                        // SKILL.md fetch yields description=null, and a plain
-                        // assignment would clobber a previously-good description
-                        // with null on every degraded re-scan.
-                        name: row.name,
-                        description: sql`coalesce(${row.description}, ${skills.description})`,
-                        repoOwner: row.repoOwner,
-                        repoName: row.repoName,
-                        repoBranch: row.repoBranch,
-                        sourcePath: row.sourcePath,
-                        latestRevision: row.latestRevision,
-                        readmeUrl: row.readmeUrl,
-                        missingSince: null,
-                        // Always record that a successful scan touched this
-                        // row, so the 6h TTL is refreshed even when content
-                        // hasn't changed.
-                        scannedAt: sql`${nowIso}::timestamptz`,
-                        // Bump updatedAt only when the upstream revision moved,
-                        // so the user-facing "Updated {date}" reflects a real
-                        // content change instead of the last catalog re-scan.
-                        // Uses ISO string + cast to avoid ERR_INVALID_ARG_TYPE
-                        // from postgres-js trying to Buffer.byteLength(Date).
-                        updatedAt: sql`case when ${skills.latestRevision} is distinct from ${row.latestRevision} then ${nowIso}::timestamptz else ${skills.updatedAt} end`
-                    }
-                })
-                .returning()
-            if (saved) upserted.push(saved)
-        }
-        return upserted
-    }
-
-    // After a successful scan, flag repo rows the scan didn't return as
-    // missing. The skill list comes from the git tree, so it is authoritative
-    // even when individual SKILL.md fetches fail — but only for complete
-    // scans: the caller skips this for truncated trees, and an empty list is
-    // rejected here so a malformed tree response can't blank out a whole repo.
-    private async markMissingSkills(
-        repo: DiscoveryRepo,
-        presentSkillIds: string[]
-    ): Promise<void> {
-        if (presentSkillIds.length === 0) return
-        await this.db
-            .update(skills)
-            .set({ missingSince: new Date() })
-            .where(
-                and(
-                    repoCond(repo),
-                    isNull(skills.missingSince),
-                    notInArray(skills.id, presentSkillIds)
-                )
-            )
     }
 
     private async listTargets(userId: string): Promise<SkillTarget[]> {

@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { SkillDiscoveryService } from '../src/modules/skills/skill-discovery.service'
 import { SkillsService } from '../src/modules/skills/skills.service'
+import { GitHubRequestError } from '../src/common/github-request-error'
 
 const now = new Date('2026-04-25T12:00:00.000Z')
 
@@ -308,6 +309,6 @@ test('SkillDiscoveryService fetchRepoFile surfaces other failures as 503', async
         })
     await assert.rejects(
         discoveryWithFetch().fetchRepoFile(repo, 'README.md'),
-        /rate limit/
+        (error: unknown) => error instanceof GitHubRequestError && error.classification === 'rate_limited' && error.getStatus() === 503
     )
 })
