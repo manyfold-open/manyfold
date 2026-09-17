@@ -1,5 +1,17 @@
 # @manyfold/api
 
+## 5.1.13
+
+### Patch Changes
+
+- [#453](https://github.com/manyfold-open/manyfold/pull/453) [`a79482f`](https://github.com/manyfold-open/manyfold/commit/a79482fbaebc604d9a2dc7d061650ba28f08b3e9) Thanks [@yingca1](https://github.com/yingca1)! - Resume quota-blocked automation schedules when allowance returns, using the actual usage period and the next future occurrence without replaying missed runs.
+
+- [#446](https://github.com/manyfold-open/manyfold/pull/446) [`5653efb`](https://github.com/manyfold-open/manyfold/commit/5653efb06acb4602599ad62f27d8ab26e4d8aa4b) Thanks [@yingca1](https://github.com/yingca1)! - Send Lark OPUS and MP4 attachments as audio and video messages, and stop retrying permanent file/message type mismatches without resending successful text.
+
+- [#453](https://github.com/manyfold-open/manyfold/pull/453) [`a79482f`](https://github.com/manyfold-open/manyfold/commit/a79482fbaebc604d9a2dc7d061650ba28f08b3e9) Thanks [@yingca1](https://github.com/yingca1)! - Keep quota warnings pending until a connected client acknowledges them, revalidate current allowance before confirmation, and preserve delivery across API instances and reconnects.
+
+- [#452](https://github.com/manyfold-open/manyfold/pull/452) [`3ac88d8`](https://github.com/manyfold-open/manyfold/commit/3ac88d8c869831c543d3092c7d6435d5063a7b65) Thanks [@yingca1](https://github.com/yingca1)! - Keep newly provisioned Kubernetes containers pending until their first agent and configuration are complete. Failed creates now remove only their owned resources, or retain a visible failed container for a safe Delete retry when cleanup cannot finish. Fence concurrent attachment, chat, runner registration, and deletion during this operation.
+
 ## 5.1.12
 
 ### Patch Changes
