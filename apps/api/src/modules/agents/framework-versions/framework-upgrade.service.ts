@@ -9,6 +9,7 @@ import {
     compareSemverPrecedence,
     findBlockedVersionRange,
     frameworkPrereleaseAllowed,
+    frameworkRepoCandidates,
     frameworkUpgradeMode,
     isPrereleaseVersion,
     isVersionedFramework
@@ -19,7 +20,8 @@ import {
     Injectable,
     InternalServerErrorException,
     Logger,
-    NotFoundException
+    NotFoundException,
+    ServiceUnavailableException
 } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
 import {
@@ -228,6 +230,7 @@ export class FrameworkUpgradeService {
                 `${framework} descriptor missing serviceName`
             )
         const catalog = await this.versions.getForFramework(framework)
+        const sourceRepo = catalog.sourceRepo
         // Blocked before "not in catalog": the denylist already removed the
         // release from `versions`, so without this the caller would be told the
         // version does not exist instead of why it is refused.
@@ -236,6 +239,14 @@ export class FrameworkUpgradeService {
         if (!catalog.versions.includes(targetVersion))
             throw new BadRequestException(
                 `version "${targetVersion}" is not in the ${agent.framework} catalog`
+            )
+        if (
+            !frameworkRepoCandidates(framework).some(
+                (entry) => entry.repo === sourceRepo
+            )
+        )
+            throw new ServiceUnavailableException(
+                `${framework} version catalog has no admitted repository; refresh it before upgrading`
             )
         await this.assertVersionPolicy(
             agent.framework,
@@ -255,14 +266,12 @@ export class FrameworkUpgradeService {
             async () => {
                 emitter.step('validating')
                 const client = await this.spriteClientFor(agent, runtime)
-                // Resolved next to the catalog read above: the whitelist that admitted
-                // `targetVersion` and the repository about to be cloned must be the
-                // same one, or an admin switching source mid-upgrade would clone a tag
-                // that does not exist there.
+                // Carry the admitted snapshot through the lock/client awaits;
+                // re-reading settings here could pair this tag with another repo.
                 const shells = this.rebuildShellsFor(
                     agent.framework,
                     targetVersion,
-                    await this.versions.repoFor(framework)
+                    sourceRepo
                 )
                 // Dashboard topology: proxy + dashboard serve out of (and route to)
                 // the checkout the rebuild is about to replace — stop them first and

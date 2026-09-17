@@ -51,6 +51,7 @@ import {
     type BootstrapContext
 } from '@/modules/agents/bootstrap/framework-bootstrap'
 import { installFrameworkVersion } from '@/modules/agents/bootstrap/framework-version-install'
+import { frameworkVersionDescriptor } from '@/modules/framework-versions/framework-version-registry'
 import type {
     SpriteServiceBootstrap,
     SpriteServiceBootstrapResult
@@ -185,9 +186,9 @@ export class SpritesProvisioner {
     // release. Unlike a coding agent — where the sprite image already ships a
     // working CLI to fall back on — a daemon has nothing installed, so the only
     // way to honour "keep creating agents even when the newest release is
-    // broken" is to re-run the bootstrap unpinned (openclaw dist-tag / hermes
-    // main / narranexus NARRANEXUS_VERSION). An asked-for version (user dto /
-    // admin pin) still fails loud.
+    // broken" is to re-run an npm bootstrap unpinned (openclaw dist-tag).
+    // Git defaults have no catalog admission, so git failures and asked-for
+    // versions (user dto / admin pin) fail loud instead.
     //
     // The retry is deliberately narrowed to the `<framework>-install` step, which
     // is the FIRST thing every daemon bootstrap does — before it writes config or
@@ -212,6 +213,8 @@ export class SpritesProvisioner {
             }
         } catch (err) {
             const retryable =
+                frameworkVersionDescriptor(bootstrap.framework).source
+                    .kind === 'npm' &&
                 requested !== null &&
                 ctx.frameworkVersionSource === 'latest' &&
                 err instanceof BootstrapError &&

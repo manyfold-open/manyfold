@@ -7,6 +7,7 @@ import {
     isServiceFrameworkName,
     parseProbedSemver,
     isVersionedFramework,
+    resolveFrameworkRepo,
     supportsRuntime
 } from '@manyfold/shared'
 import type {
@@ -591,6 +592,10 @@ export class SandboxesService {
         const detected = (host.detectedFrameworks ?? []).some(
             (f) => f.framework === framework
         )
+        if (!this.frameworkVersions && resolveFrameworkRepo(framework))
+            throw new ServiceUnavailableException(
+                `${framework} cannot be prepared without its version catalog`
+            )
         const version =
             coding && detected
                 ? null
