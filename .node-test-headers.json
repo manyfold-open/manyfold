@@ -1,0 +1,8 @@
+{
+    "version": "24.18.1",
+    "sha256": "bee7344a7fc6e3252c4822ca916a50cd6ddda9bb39374d6140a8046d9238fded",
+    "windowsLibraries": {
+        "arm64": "7da03c5111815b69bbe63ffd2e51b28cd69eec9f545b7ccb8756efffdbb88dc2",
+        "x64": "589684168a73547ca47cd22d76a4e465ef561abe89fb1b2b23fe35bbe857d505"
+    }
+}
