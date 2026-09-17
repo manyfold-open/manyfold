@@ -1,6 +1,7 @@
 import { DEFAULT_API_BASE_URL } from '@/common/brand'
 import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import {
+    DAEMON_FEATURE_EXEC_FILES,
     RUNNER_PROFILE,
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
@@ -236,6 +237,10 @@ export type RunnerProcessState =
           kind: 'running'
           version: string | null
           activeExecs: number
+          // Of activeExecs, the ones a restart keeps: file execs on an
+          // installation the daemon verified (ADR-0029 §4). Absent from an
+          // older daemon's status, so zero.
+          adoptableExecs: number
           activePtys: number
       }
 
@@ -492,9 +497,14 @@ export class RunnerManagerService {
             if (state.kind === 'not-running') return 'not-running'
             if (state.kind === 'running') {
                 if (state.version === args.installedVersion) return 'current'
-                if (state.activeExecs > 0 || state.activePtys > 0) {
+                // Execs the next daemon adopts do not hold the restart back:
+                // the stop passes --keep-execs to a daemon that reports them.
+                if (
+                    state.activeExecs - state.adoptableExecs > 0 ||
+                    state.activePtys > 0
+                ) {
                     this.logger.warn(
-                        `runner busy, keeping ${state.version ?? 'unknown'} sprite=${args.spriteName} execs=${state.activeExecs} ptys=${state.activePtys}`
+                        `runner busy, keeping ${state.version ?? 'unknown'} sprite=${args.spriteName} execs=${state.activeExecs} adoptable=${state.adoptableExecs} ptys=${state.activePtys}`
                     )
                     return 'busy'
                 }
@@ -603,10 +613,11 @@ export class RunnerManagerService {
                     return { handle: reconnected, outcome: 'reconnected' }
                 if (
                     process.kind === 'running' &&
-                    (process.activeExecs > 0 || process.activePtys > 0)
+                    (process.activeExecs - process.adoptableExecs > 0 ||
+                        process.activePtys > 0)
                 ) {
                     this.logger.warn(
-                        `runner silent but busy, not restarting sprite=${args.spriteName} execs=${process.activeExecs} ptys=${process.activePtys}`
+                        `runner silent but busy, not restarting sprite=${args.spriteName} execs=${process.activeExecs} adoptable=${process.adoptableExecs} ptys=${process.activePtys}`
                     )
                     return { handle: null, outcome: 'busy' }
                 }
@@ -1135,22 +1146,35 @@ export class RunnerManagerService {
     }
 
     private async start(
-        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName'>
+        args: Pick<EnsureRunnerArgs, 'exec' | 'spriteName' | 'userId'>
     ): Promise<void> {
         // `daemon stop` first: we only get here because the runner is NOT online,
         // and a runner frozen by sprite suspension leaves its pid/lock behind, so
         // `daemon start` refuses and nothing ever connects. Stopping is a no-op
         // when there is nothing to stop.
         //
+        // A daemon that runs execs as files (ADR-0029 §4) is stopped with
+        // --keep-execs: whatever turn it was carrying stays alive for the
+        // daemon started right after to adopt. Only a daemon that advertised
+        // the capability gets the flag — an older CLI would refuse the
+        // unknown option and never stop.
+        //
         // setsid: no supervisor exists in a sprite, so the runner has to outlive
         // the exec session that starts it.
+        const existing = await this.findRunnerHost({
+            userId: args.userId,
+            hostName: runnerHostName(args.spriteName)
+        })
+        const keepExecs = (existing?.clientFeatures ?? []).includes(
+            DAEMON_FEATURE_EXEC_FILES
+        )
         const mf = `"$HOME/.local/bin/mf" --api-url ${this.apiUrl()}`
         const res = await args.exec({
             cmd: [
                 'bash',
                 '-lc',
                 `export MF_PROFILE=${RUNNER_PROFILE}; ` +
-                    `${mf} daemon stop >/dev/null 2>&1 || true; ` +
+                    `${mf} daemon stop${keepExecs ? ' --keep-execs' : ''} >/dev/null 2>&1 || true; ` +
                     `setsid nohup ${mf} daemon start --foreground ` +
                     `>> "$HOME/.manyfold/runner.log" 2>&1 < /dev/null & disown; sleep 2; ` +
                     // Match the process NAME, not the command line: `pgrep -f`
@@ -1394,6 +1418,7 @@ export const parseRunnerStatus = (stdout: string): RunnerProcessState => {
         local?: {
             version?: unknown
             activeExecs?: unknown
+            adoptableExecs?: unknown
             activePtys?: unknown
         } | null
     }
@@ -1412,6 +1437,10 @@ export const parseRunnerStatus = (stdout: string): RunnerProcessState => {
             version: typeof local.version === 'string' ? local.version : null,
             activeExecs:
                 typeof local.activeExecs === 'number' ? local.activeExecs : 0,
+            adoptableExecs:
+                typeof local.adoptableExecs === 'number'
+                    ? local.adoptableExecs
+                    : 0,
             activePtys:
                 typeof local.activePtys === 'number' ? local.activePtys : 0
         }

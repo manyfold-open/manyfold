@@ -350,6 +350,15 @@ export const recoverCrashedBuffers = (
     }
 }
 
+export const listBufferRefIds = (): string[] => {
+    ensureExecRoot()
+    try {
+        return readdirSync(daemonPaths.execDir)
+    } catch {
+        return []
+    }
+}
+
 export const gcStaleBuffers = (now = Date.now()): number => {
     ensureExecRoot()
     let entries: string[]

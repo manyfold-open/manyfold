@@ -862,14 +862,39 @@ const execChildren = new Map<string, ExecChildEntry>()
 // a spawn). Counted so daemon.update drains around them like any session.
 const turnSessions = new Set<string>()
 
+// Whether this installation lets a detached exec outlive a daemon restart
+// (decided once at start from launchd / systemd KillMode; ADR-0029 §4). Only
+// then does the update drain leave file execs out of its count — the next
+// daemon adopts them — and admit new ones while an update waits.
+let fileExecsAdoptable = false
+
+export const setFileExecsAdoptable = (adoptable: boolean): void => {
+    fileExecsAdoptable = adoptable
+}
+
+// The sessions an update has to wait for: everything that dies with this
+// process. A file exec on an installation that keeps it alive is not one.
+export const drainSessionCount = (counts: {
+    pipeExecs: number
+    fileExecs: number
+    ptys: number
+    turns: number
+    fileExecsAdoptable: boolean
+}): number =>
+    counts.pipeExecs +
+    (counts.fileExecsAdoptable ? 0 : counts.fileExecs) +
+    counts.ptys +
+    counts.turns
+
 const updateCoordinator = new UpdateDrainCoordinator({
-    // File execs (ADR-0029 §4) still count as sessions here: until the drain
-    // contract of the B3 slice lands, an update waits for them like any other.
     activeSessions: () =>
-        execChildren.size +
-        fileExecRegistry.size() +
-        ptySessions.size +
-        turnSessions.size,
+        drainSessionCount({
+            pipeExecs: execChildren.size,
+            fileExecs: fileExecRegistry.size(),
+            ptys: ptySessions.size,
+            turns: turnSessions.size,
+            fileExecsAdoptable
+        }),
     applyUpdate: (spec) => performSelfUpdate(spec),
     // Exit non-zero so launchd (KeepAlive SuccessfulExit=false) / systemd
     // (Restart=on-failure) respawn the freshly-installed binary. Delay the
@@ -889,10 +914,12 @@ const releasePtySession = (refId: string): void => {
 
 export const daemonActivitySnapshot = (): {
     activeExecs: number
+    adoptableExecs: number
     activePtys: number
     updatePending: boolean
 } => ({
     activeExecs: execChildren.size + fileExecRegistry.size(),
+    adoptableExecs: fileExecsAdoptable ? fileExecRegistry.size() : 0,
     activePtys: ptySessions.size,
     updatePending: updateCoordinator.blocksNewSessions()
 })
@@ -1647,7 +1674,11 @@ const handlers: Partial<
         return { ok: true }
     },
     'exec.start': async (payload, ctx) => {
-        if (updateCoordinator.blocksNewSessions())
+        // A pending update refuses work that would die with this process; an
+        // exec the next daemon adopts is not that, so it is admitted.
+        const adoptable =
+            fileExecEnabled() && fileExecsAdoptable && !payload.keepStdinOpen
+        if (updateCoordinator.blocksNewSessions() && !adoptable)
             return { ok: false, error: UPDATE_PENDING_ERROR }
         return execStart(payload as unknown as ExecPayload, ctx)
     },

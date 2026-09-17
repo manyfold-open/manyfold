@@ -443,6 +443,11 @@ export const DAEMON_FEATURE_EXEC_STDIN = 'exec.stdin'
 // The exec owner creates private temporary settings and cleans its owned process
 // tree/resources before completing, including forced cancellation on Windows.
 export const DAEMON_FEATURE_EXEC_RESOURCES = 'exec.resources.v1'
+// The daemon can run execs without pipes and keep them across its own
+// restart (ADR-0029 §4): `mf daemon stop --keep-execs` exists, and a
+// restart adopts what the previous daemon left running. The platform's
+// runner bring-up passes --keep-execs only to a daemon that says so.
+export const DAEMON_FEATURE_EXEC_FILES = 'exec.files.v1'
 export const DAEMON_FEATURE_DAEMON_UPDATE = 'daemon.update'
 // The protocol baseline honours stable/dev channel overrides for updates.
 export const DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL = 'daemon.update.channel'
@@ -551,6 +556,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
     DAEMON_FEATURE_EXEC_RESOURCES,
+    DAEMON_FEATURE_EXEC_FILES,
     DAEMON_FEATURE_DAEMON_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_FS_WRITE_BINARY,

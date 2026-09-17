@@ -94,7 +94,8 @@ Claude Code、Codex 和 Gemini CLI Agent 的 daemon 重连后，Manyfold 会重�
 mf daemon status              # 进程 + 心跳状态，以及自启单元状态
 mf daemon logs                # tail 本地日志
 mf daemon start               # 安装自启单元并启动（默认登录级）
-mf daemon stop                # 停止 daemon 并移除自启单元
+mf daemon stop                # 停止 daemon（连同它拥有的 exec）并移除自启单元
+mf daemon stop --keep-execs   # 只停 daemon，留下正在跑的 exec 给下一个 daemon 接管
 mf daemon doctor              # 诊断注册 / 框架检测问题
 mf daemon hooks status        # claude / codex 的 session hook（见下）
 ```
@@ -208,6 +209,8 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 ### 预览：让 exec 活过 daemon 重启
 
 默认情况下，一次 chat turn 的进程是 daemon 的子进程，daemon 重启（崩溃或更新）就会把它带走。在 macOS 和 Linux 上，给 daemon 环境设置 `MF_DAEMON_EXEC_FILES=1`，普通 exec 会改为 detached 启动，输入输出都落在 daemon exec 目录下的文件里：重启后的 daemon 会把还在跑的进程接回来，turn 继续。这个开关在逐个框架验证完之前默认关闭；`mf daemon start` 的日志会显示它是否开启。走 runtime auth profile 的 exec 重启后同样保留 profile 租约：新 daemon 会在重连之前先把租约接过来，中间不会有别的东西跑到这个 profile 上。
+
+exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd 从不碰它；`mf daemon start` 写的 systemd **user** unit 现在带 `KillMode=process`，效果一样（旧 unit 用 `mf daemon stop && mf daemon start` 重装）；system unit 归运维管，`mf daemon doctor` 会报告它的行为。`mf daemon start` 会记 `exec survival: yes|no`，更新只等那些会随 daemon 一起死的 session。普通的 `mf daemon stop` 会把 daemon 拥有的 exec 一起结束；`--keep-execs` 则留给下一个 daemon 接管。
 
 ## 排错
 

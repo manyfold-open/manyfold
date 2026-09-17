@@ -11,6 +11,7 @@ import {
     uninstallInitUnit,
     type Scope
 } from '@/daemon/init-unit'
+import { stopOwnedFileExecs } from '@/daemon/exec-files'
 
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
@@ -36,7 +37,16 @@ export const registerDaemonStop = (program: Command): void => {
             '--user',
             'target user scope (per-login unit; default as non-root)'
         )
-        .action(async (options: { system?: boolean; user?: boolean }) => {
+        .option(
+            '--keep-execs',
+            'leave running execs alone for the next daemon to adopt (default: stop the process groups this daemon owns)'
+        )
+        .action(
+            async (options: {
+                system?: boolean
+                user?: boolean
+                keepExecs?: boolean
+            }) => {
             const scope: Scope = resolveScope(options)
             const before = await getInitUnitStatus(scope)
 
@@ -67,27 +77,44 @@ export const registerDaemonStop = (program: Command): void => {
             }
 
             const pid = await runningDaemonPid()
-            if (pid === null) {
-                console.log(kleur.gray('daemon not running'))
+            if (pid !== null) {
+                try {
+                    process.kill(pid, 'SIGTERM')
+                } catch {}
+                const exited = await waitForExit(pid, 5_000)
+                if (!exited) {
+                    try {
+                        process.kill(pid, 'SIGKILL')
+                    } catch {}
+                    console.log(
+                        kleur.yellow(`force-killed daemon pid=${pid} after 5s`)
+                    )
+                } else {
+                    console.log(
+                        `${kleur.green('✓')} daemon stopped (was pid=${pid})`
+                    )
+                }
+                await clearDaemonPid(pid)
+            } else console.log(kleur.gray('daemon not running'))
+
+            // Stopping the daemon means stopping what it owns (ADR-0029 §4):
+            // a detached exec outlives the daemon by design, so it is ended
+            // here by identity unless the caller wants the next daemon to
+            // adopt it. Decided from the exec files, after the daemon is gone.
+            if (options.keepExecs) {
+                console.log(kleur.gray('running execs left for the next daemon (--keep-execs)'))
                 return
             }
-
-            try {
-                process.kill(pid, 'SIGTERM')
-            } catch {}
-            const exited = await waitForExit(pid, 5_000)
-            if (!exited) {
-                try {
-                    process.kill(pid, 'SIGKILL')
-                } catch {}
+            const execs = await stopOwnedFileExecs({
+                log: (message) => console.error(kleur.yellow(message))
+            })
+            if (execs.stopped > 0)
                 console.log(
-                    kleur.yellow(`force-killed daemon pid=${pid} after 5s`)
+                    `${kleur.green('✓')} stopped ${execs.stopped} exec${execs.stopped === 1 ? '' : 's'} the daemon owned`
                 )
-            } else {
+            if (execs.kept > 0)
                 console.log(
-                    `${kleur.green('✓')} daemon stopped (was pid=${pid})`
+                    kleur.gray(`${execs.kept} exec${execs.kept === 1 ? '' : 's'} not owned by this daemon left alone`)
                 )
-            }
-            await clearDaemonPid(pid)
         })
 }

@@ -114,7 +114,11 @@ export const registerDaemonStatus = (program: Command): void => {
                         }`
                     )
                     console.log(
-                        `sessions:    ${local.activeExecs} exec, ${local.activePtys} pty`
+                        `sessions:    ${local.activeExecs} exec${
+                            local.adoptableExecs
+                                ? ` (${local.adoptableExecs} would survive a restart)`
+                                : ''
+                        }, ${local.activePtys} pty`
                     )
                     console.log(
                         `auto-update: ${local.autoUpdate ? kleur.green('on') : kleur.gray('off')}`

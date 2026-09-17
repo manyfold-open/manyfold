@@ -35,7 +35,8 @@ import {
     daemonActivitySnapshot,
     requestDaemonUpdateIfIdle,
     rpcHandler,
-    setDeclaredWorkspaceRoot
+    setDeclaredWorkspaceRoot,
+    setFileExecsAdoptable
 } from '@/daemon/rpc'
 import { isBunStandalone } from '@/standalone'
 import {
@@ -46,6 +47,7 @@ import {
     runningDaemonPid
 } from '@/daemon/pid'
 import {
+    execsSurviveRestart,
     getInitUnitStatus,
     installInitUnit,
     isLikelyDevBinary,
@@ -150,6 +152,13 @@ const runClaimedForeground = async (
             []
         let lastDetectAt = 0
         await log(`startup method: ${startupMethod}`)
+        // Whether this installation keeps a detached exec alive across a
+        // restart decides what an update has to wait for (ADR-0029 §4).
+        const survival = await execsSurviveRestart(startupMethod)
+        setFileExecsAdoptable(survival.survive)
+        await log(
+            `exec survival: ${survival.survive ? 'yes' : 'no'} (${survival.reason})`
+        )
         const terminalSupport = await checkPtySupport()
         const terminalPty = !('problem' in terminalSupport)
         if ('problem' in terminalSupport)
@@ -197,6 +206,7 @@ const runClaimedForeground = async (
                 uptimeMs: Date.now() - startedAt,
                 wsConnected: localState.ws,
                 ...daemonActivitySnapshot(),
+                execsSurviveRestart: survival.survive,
                 autoUpdate: autoUpdate.enabled,
                 startupMethod,
                 logPath: daemonPaths.logPath
