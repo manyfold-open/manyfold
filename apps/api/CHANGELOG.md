@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 5.1.12
+
+### Patch Changes
+
+- [#441](https://github.com/manyfold-open/manyfold/pull/441) [`3178178`](https://github.com/manyfold-open/manyfold/commit/3178178023a0a1a2f07da45d43fe56f309d8825d) Thanks [@yingca1](https://github.com/yingca1)! - Resolve managed model prices and pins within the served channel, preserve the verified provider scope across interrupted coding turns, and keep provider-specific prices isolated from other channels. Platform Gemini machine turns preserve native configuration and system policy through isolated temporary settings.
+
+- [#443](https://github.com/manyfold-open/manyfold/pull/443) [`7493519`](https://github.com/manyfold-open/manyfold/commit/74935192b76073a5077600961057ea17c1d5a5df) Thanks [@yingca1](https://github.com/yingca1)! - Read public GitHub Skill sources anonymously at an immutable revision, with shared request and size budgets. Reuse unchanged repository snapshots, fence concurrent scans across API instances, and publish complete catalog updates atomically without replacing curation. Report source failures with sanitized diagnostics and preserve imported source revisions.
+
+- [#444](https://github.com/manyfold-open/manyfold/pull/444) [`a7077b8`](https://github.com/manyfold-open/manyfold/commit/a7077b8ad57df2024af50f2c6d3ea1c4ae1910e5) Thanks [@yingca1](https://github.com/yingca1)! - Keep WeChat inbound polling active when getupdates returns HTTP 524, preserving the cursor and initial-sync baseline. Fast edge timeouts use a short cancellable delay; other HTTP, network and expired-session failures retain their existing behavior.
+
 ## 5.1.11
 
 ### Patch Changes

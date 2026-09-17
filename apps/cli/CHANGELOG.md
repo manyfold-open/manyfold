@@ -1,5 +1,11 @@
 # @manyfold/cli
 
+## 3.0.3
+
+### Patch Changes
+
+- [#441](https://github.com/manyfold-open/manyfold/pull/441) [`3178178`](https://github.com/manyfold-open/manyfold/commit/3178178023a0a1a2f07da45d43fe56f309d8825d) Thanks [@yingca1](https://github.com/yingca1)! - Own temporary per-exec settings and terminate their isolated process tree before completing cancellation, cleaning resources before the final execution acknowledgment on every supported platform.
+
 ## 3.0.2
 
 ### Patch Changes
