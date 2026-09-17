@@ -207,7 +207,7 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 
 ### 预览：让 exec 活过 daemon 重启
 
-默认情况下，一次 chat turn 的进程是 daemon 的子进程，daemon 重启（崩溃或更新）就会把它带走。在 macOS 和 Linux 上，给 daemon 环境设置 `MF_DAEMON_EXEC_FILES=1`，普通 exec 会改为 detached 启动，输入输出都落在 daemon exec 目录下的文件里：重启后的 daemon 会把还在跑的进程接回来，turn 继续。这个开关在逐个框架验证完之前默认关闭；`mf daemon start` 的日志会显示它是否开启。走 runtime auth profile 的 exec 暂时保持原有行为。
+默认情况下，一次 chat turn 的进程是 daemon 的子进程，daemon 重启（崩溃或更新）就会把它带走。在 macOS 和 Linux 上，给 daemon 环境设置 `MF_DAEMON_EXEC_FILES=1`，普通 exec 会改为 detached 启动，输入输出都落在 daemon exec 目录下的文件里：重启后的 daemon 会把还在跑的进程接回来，turn 继续。这个开关在逐个框架验证完之前默认关闭；`mf daemon start` 的日志会显示它是否开启。走 runtime auth profile 的 exec 重启后同样保留 profile 租约：新 daemon 会在重连之前先把租约接过来，中间不会有别的东西跑到这个 profile 上。
 
 ## 排错
 

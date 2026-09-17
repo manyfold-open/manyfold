@@ -59,6 +59,9 @@ export class DaemonWsClient {
         if (!this.stopped) return
         this.stopped = false
         this.backoffMs = BACKOFF_INITIAL_MS
+        // Recovery completes BEFORE the first dial, synchronously: an adopted
+        // exec's profile lease is re-stamped in there, and nothing may be
+        // dispatched onto that profile until it is (ADR-0029 §4).
         try {
             const recovered = recoverFileExecs((message) => this.log(message))
             if (recovered.adopted + recovered.completed + recovered.crashed > 0)
@@ -246,7 +249,10 @@ export class DaemonWsClient {
                 else {
                     const ctx: RpcContext = {
                         refId: frame.refId,
-                        isCurrentConnection: () => !this.stopped && this.ws === ws && ws.readyState === WebSocket.OPEN,
+                        isCurrentConnection: () =>
+                            !this.stopped &&
+                            this.ws === ws &&
+                            ws.readyState === WebSocket.OPEN,
                         sendEvent: (kind, data, seq) => {
                             if (
                                 this.stopped ||

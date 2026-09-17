@@ -6,6 +6,7 @@ import {
     mkdirSync,
     mkdtempSync,
     readFileSync,
+    rmSync,
     writeFileSync
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -337,7 +338,7 @@ test(
 test(
     "a live pid that is not the exec's own process is never adopted nor signalled",
     { skip: !posix },
-    () => {
+    async () => {
         const refId = nextRef('recycled')
         const dir = join(daemonPaths.execDir, refId)
         mkdirSync(dir, { recursive: true })
@@ -371,7 +372,7 @@ test(
     }
 )
 
-test('a pipe exec left running by a dead daemon is still marked crashed', () => {
+test('a pipe exec left running by a dead daemon is still marked crashed', async () => {
     const refId = nextRef('pipe-crash')
     const dir = join(daemonPaths.execDir, refId)
     mkdirSync(dir, { recursive: true })
@@ -563,6 +564,335 @@ test(
             if (prior === undefined) delete process.env.MF_DAEMON_EXEC_FILES
             else process.env.MF_DAEMON_EXEC_FILES = prior
             setDeclaredWorkspaceRoot(null)
+        }
+    }
+)
+
+// ---- ADR-0029 §4, B2: a profile lease and temporary settings ride along ----
+
+const { execResourcesAt } = await import('../src/daemon/exec-resources')
+const { restampProfileLock } = await import('../src/daemon/runtime-auth/lock')
+
+const makeLock = (
+    label: string,
+    pid: number
+): { lockDir: string; ownerPath: string } => {
+    const lockDir = join(home, `lock-${label}-${++counter}`)
+    mkdirSync(lockDir, { recursive: true, mode: 0o700 })
+    const ownerPath = join(lockDir, 'owner.json')
+    writeFileSync(
+        ownerPath,
+        JSON.stringify({ pid, label, acquiredAt: new Date().toISOString() })
+    )
+    return { lockDir, ownerPath }
+}
+
+test(
+    'a fresh exec under a lease records the lock path, never the env, and releases the lock after draining',
+    { skip: !posix },
+    async () => {
+        const lock = makeLock('fresh', process.pid)
+        let released = 0
+        const refId = nextRef('lease')
+        const stream = new ExecStream({
+            refId,
+            method: 'exec.start',
+            payload: {}
+        })
+        execStreams.set(refId, stream)
+        const events: string[] = []
+        const logs: string[] = []
+        stream.subscribe((kind, data) => events.push(`${kind}:${data}`), 0)
+        const handle = startFileExec({
+            refId,
+            cmd: ['/bin/sh', '-c', 'echo under-lease'],
+            cwd: home,
+            env: { ...process.env, SECRET_VENDOR_KEY: 'sk-do-not-persist' },
+            stdin: '',
+            stream,
+            log: (message) => logs.push(message),
+            auth: {
+                lockDir: lock.lockDir,
+                label: `exec:${refId}`,
+                release: async () => {
+                    released += 1
+                    assert.ok(
+                        events.join('').includes('under-lease'),
+                        `the output is drained before the lease goes: ${JSON.stringify(events)}`
+                    )
+                    rmSync(lock.lockDir, { recursive: true, force: true })
+                }
+            }
+        })
+        const final = await handle.done
+        assert.deepEqual(
+            final,
+            { ok: true, payload: { exitCode: 0 } },
+            logs.join('\n')
+        )
+        assert.equal(released, 1)
+        assert.equal(existsSync(lock.lockDir), false)
+        const metaRaw = readFileSync(
+            join(daemonPaths.execDir, refId, 'meta.json'),
+            'utf8'
+        )
+        assert.ok(!metaRaw.includes('sk-do-not-persist'))
+        assert.deepEqual(
+            (readMeta(refId) as unknown as { auth: unknown }).auth,
+            { lockDir: lock.lockDir, label: `exec:${refId}` }
+        )
+    }
+)
+
+test(
+    'a lease release that fails turns the outcome into a crash, like the pipe path',
+    { skip: !posix },
+    async () => {
+        const refId = nextRef('lease-fail')
+        const stream = new ExecStream({
+            refId,
+            method: 'exec.start',
+            payload: {}
+        })
+        execStreams.set(refId, stream)
+        const handle = startFileExec({
+            refId,
+            cmd: ['/bin/sh', '-c', 'exit 0'],
+            cwd: home,
+            env: process.env,
+            stdin: '',
+            stream,
+            log: () => {},
+            auth: {
+                lockDir: join(home, 'nowhere'),
+                label: 'x',
+                release: async () => {
+                    throw new Error('disk gone')
+                }
+            }
+        })
+        const final = await handle.done
+        assert.equal(final.error, 'auth_context_release_failed')
+        assert.equal(stream.status, 'crashed')
+    }
+)
+
+test(
+    'temporary settings: the directory is drained and removed at completion, fresh or adopted',
+    { skip: !posix },
+    async () => {
+        const fresh = join(home, `res-${++counter}`)
+        mkdirSync(fresh, { recursive: true, mode: 0o700 })
+        const refId = nextRef('resources')
+        const stream = new ExecStream({
+            refId,
+            method: 'exec.start',
+            payload: {}
+        })
+        execStreams.set(refId, stream)
+        const handle = startFileExec({
+            refId,
+            cmd: [
+                '/bin/sh',
+                '-c',
+                'echo x > "$MF_EXEC_TEMP_DIR/settings.json"; sleep 30 & exit 0'
+            ],
+            cwd: home,
+            env: { ...process.env, MF_EXEC_TEMP_DIR: fresh },
+            stdin: '',
+            stream,
+            log: () => {},
+            resources: execResourcesAt(fresh)
+        })
+        const final = await handle.done
+        assert.deepEqual(final, { ok: true, payload: { exitCode: 0 } })
+        assert.equal(
+            existsSync(fresh),
+            false,
+            'the directory is gone with its group'
+        )
+        assert.deepEqual(
+            (readMeta(refId) as unknown as { resources: unknown }).resources,
+            { directory: fresh }
+        )
+
+        // Adopted after the exit line landed: the directory still goes.
+        const adoptedDir = join(home, `res-${++counter}`)
+        mkdirSync(adoptedDir, { recursive: true, mode: 0o700 })
+        const late = nextRef('resources-late')
+        const dir = join(daemonPaths.execDir, late)
+        mkdirSync(dir, { recursive: true })
+        writeFileSync(
+            join(dir, 'meta.json'),
+            JSON.stringify({
+                refId: late,
+                method: 'exec.start',
+                payload: {},
+                startedAt: new Date().toISOString(),
+                status: 'running',
+                format: 2,
+                cwd: home,
+                owner: { pid: 2 ** 22 - 2, startTime: 'gone', bootId: 'gone' },
+                resources: { directory: adoptedDir }
+            })
+        )
+        for (const [name, body] of [
+            ['events.ndjson', ''],
+            ['stdin', ''],
+            ['stdout.log', 'late\n'],
+            ['stderr.log', ''],
+            ['exit', '0\n']
+        ])
+            writeFileSync(join(dir, name), body)
+        const outcome = recoverFileExecs(() => {})
+        assert.equal(outcome.completed, 1)
+        await fileExecRegistry.get(late)?.done
+        assert.equal(existsSync(adoptedDir), false)
+    }
+)
+
+test(
+    'adoption re-stamps a lease whose holder died and releases it at the end',
+    { skip: !posix },
+    async () => {
+        const refId = nextRef('adopt-lease')
+        const lockDir = join(home, `lock-adopt-${++counter}`)
+        const cmd = ['/bin/sh', '-c', 'echo one; sleep 1.2; echo two']
+        const fixture = fileURLToPath(
+            new URL('./fixtures/exec-files-spawner.ts', import.meta.url)
+        )
+        const runner =
+            typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+                ? [fixture]
+                : ['--import', 'tsx', fixture]
+        const spawner = spawn(
+            process.execPath,
+            [
+                ...runner,
+                refId,
+                JSON.stringify(cmd),
+                '400',
+                JSON.stringify({ lockDir })
+            ],
+            {
+                cwd: fileURLToPath(new URL('..', import.meta.url)),
+                env: { ...process.env },
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        )
+        let out = ''
+        spawner.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()))
+        await new Promise<void>((resolve) =>
+            spawner.once('exit', () => resolve())
+        )
+        assert.match(out, /"refId"/)
+        const before = JSON.parse(
+            readFileSync(join(lockDir, 'owner.json'), 'utf8')
+        ) as { pid: number }
+        assert.equal(
+            before.pid,
+            spawner.pid,
+            'the dead daemon still names itself'
+        )
+        const outcome = recoverFileExecs(() => {})
+        assert.equal(outcome.adopted, 1)
+        const after = JSON.parse(
+            readFileSync(join(lockDir, 'owner.json'), 'utf8')
+        ) as { pid: number; label: string }
+        assert.equal(
+            after.pid,
+            process.pid,
+            're-stamped with the adopting daemon before anything else runs'
+        )
+        assert.equal(after.label, `exec:${refId}`)
+        // Nobody else can take the profile while the adopted exec runs.
+        assert.equal(
+            restampProfileLock(lockDir, 'intruder') ? 'stamped' : 'refused',
+            'stamped',
+            'the same pid may re-stamp'
+        )
+        const final = await fileExecRegistry.get(refId)!.done
+        assert.deepEqual(final, { ok: true, payload: { exitCode: 0 } })
+        assert.equal(
+            existsSync(lockDir),
+            false,
+            'the lease is released with the exec'
+        )
+    }
+)
+
+test(
+    'adoption refuses a lease that another live process holds and stops the exec instead',
+    { skip: !posix },
+    async () => {
+        const refId = nextRef('adopt-lost-lease')
+        const lockDir = join(home, `lock-lost-${++counter}`)
+        const cmd = ['/bin/sh', '-c', 'sleep 30']
+        const fixture = fileURLToPath(
+            new URL('./fixtures/exec-files-spawner.ts', import.meta.url)
+        )
+        const runner =
+            typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined'
+                ? [fixture]
+                : ['--import', 'tsx', fixture]
+        const spawner = spawn(
+            process.execPath,
+            [
+                ...runner,
+                refId,
+                JSON.stringify(cmd),
+                '300',
+                JSON.stringify({ lockDir })
+            ],
+            {
+                cwd: fileURLToPath(new URL('..', import.meta.url)),
+                env: { ...process.env },
+                stdio: ['ignore', 'pipe', 'pipe']
+            }
+        )
+        await new Promise<void>((resolve) =>
+            spawner.once('exit', () => resolve())
+        )
+        // Meanwhile someone alive took the profile.
+        const intruder = spawn('/bin/sh', ['-c', 'sleep 30'], {
+            stdio: 'ignore'
+        })
+        writeFileSync(
+            join(lockDir, 'owner.json'),
+            JSON.stringify({
+                pid: intruder.pid,
+                label: 'login',
+                acquiredAt: new Date().toISOString()
+            })
+        )
+        const execPid = (
+            readMeta(refId) as unknown as { owner: { pid: number } }
+        ).owner.pid
+        try {
+            const outcome = recoverFileExecs(() => {})
+            assert.equal(outcome.crashed, 1)
+            assert.equal(readFinal(refId)?.error, 'auth_lease_lost')
+            await sleep(300)
+            assert.throws(
+                () => process.kill(execPid, 0),
+                /ESRCH/,
+                'our exec was stopped rather than left to collide'
+            )
+            assert.doesNotThrow(
+                () => process.kill(intruder.pid!, 0),
+                'the holder was never signalled'
+            )
+            assert.equal(
+                (
+                    JSON.parse(
+                        readFileSync(join(lockDir, 'owner.json'), 'utf8')
+                    ) as { pid: number }
+                ).pid,
+                intruder.pid,
+                'the lease was left with its holder'
+            )
+        } finally {
+            intruder.kill('SIGKILL')
         }
     }
 )

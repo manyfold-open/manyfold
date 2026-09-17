@@ -1,3 +1,4 @@
+import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -99,4 +100,37 @@ const tryAcquire = async (
         }
     }
     throw new ProfileBusyError(null)
+}
+
+// A daemon that adopts an exec it did not start (ADR-0029 §4) inherits the
+// profile lease that exec was running under: the record still names the
+// dead daemon, which any newcomer may treat as stale, so it is re-stamped
+// with this process before anything else can run on the profile. Null when
+// the lease is already gone or held by a live process that is not us — the
+// adopted exec then has no exclusive claim and must not go on. Synchronous
+// on purpose: it runs inside daemon start, before the first dial.
+export const restampProfileLock = (
+    lockDir: string,
+    label: string
+): ProfileLock | null => {
+    const ownerPath = join(lockDir, 'owner.json')
+    let holder: LockOwner | null = null
+    try {
+        holder = JSON.parse(readFileSync(ownerPath, 'utf8')) as LockOwner
+    } catch {
+        return null
+    }
+    if (holder && holder.pid !== process.pid && pidAlive(holder.pid))
+        return null
+    const owner: LockOwner = {
+        pid: process.pid,
+        label,
+        acquiredAt: new Date().toISOString()
+    }
+    writeFileSync(ownerPath, JSON.stringify(owner), { mode: 0o600 })
+    return {
+        release: async () => {
+            await rm(lockDir, { recursive: true, force: true })
+        }
+    }
 }
