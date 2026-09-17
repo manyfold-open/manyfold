@@ -4,7 +4,8 @@ import {
     type CancelAttempt,
     useStreamSnapshot,
     type ReplayCheckpoint,
-    type StreamSnapshot
+    type StreamSnapshot,
+    type StartStreamParams
 } from '@/lib/chatStreamStore'
 
 export type { StreamStatus, StreamSnapshot } from '@/lib/chatStreamStore'
@@ -15,7 +16,7 @@ interface UseChatStreamParams {
     enabled: boolean
     baseUrl: string
     getToken: () => Promise<string>
-    onFallback?: () => void
+    onFallback?: StartStreamParams['onFallback']
     replayMessageId?: string | null
     replayCheckpoint?: ReplayCheckpoint | null
     initialLastEventId?: string | null
@@ -24,6 +25,7 @@ interface UseChatStreamParams {
 export interface UseChatStreamResult extends StreamSnapshot {
     stop: () => CancelAttempt | null
     beginAssistantTurn: (messageId: string) => void
+    reconnect: () => void
 }
 
 export const useChatStream = ({
@@ -53,6 +55,11 @@ export const useChatStream = ({
             replayCheckpoint,
             initialLastEventId
         })
+        return () =>
+            chatStreamStore.detachFallback(
+                chatStreamStore.keyOf(agentId, sessionId),
+                onFallback
+            )
     }, [
         enabled,
         agentId,
@@ -85,6 +92,9 @@ export const useChatStream = ({
     return {
         ...snapshot,
         stop,
-        beginAssistantTurn
+        beginAssistantTurn,
+        reconnect: () => {
+            if (key) chatStreamStore.reconnect(key)
+        }
     }
 }

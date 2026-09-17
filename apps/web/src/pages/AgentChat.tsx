@@ -51,6 +51,7 @@ import { navigateWithRailTransition } from '@/lib/railTransition'
 import EmptyState from '@/components/EmptyState'
 import ShareChatSessionDialog from '@/components/chat/ShareChatSessionDialog'
 import { RuntimeLocalSignInCard } from '@/components/chat/RuntimeLocalSignInCard'
+import { ChatStreamRecoveryNotice } from '@/components/chat/ChatStreamRecoveryNotice'
 import { shouldShowRuntimeSignIn } from '@/lib/runtimeSignIn'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { Ghost } from '@/components/Loading'
@@ -770,7 +771,7 @@ const AgentChat: FC = (): ReactNode => {
         scrollScopeKey
     ])
 
-    const refreshMessagesFromServer = useCallback(async (): Promise<void> => {
+    const refreshMessagesFromServer = useCallback(async (signal?: AbortSignal): Promise<void> => {
         if (!agentId || !activeSessionId) return
         const requestAgentId = agentId
         const requestSessionId = activeSessionId
@@ -778,10 +779,10 @@ const AgentChat: FC = (): ReactNode => {
             const page = await client.chat.listMessagePage(
                 requestAgentId,
                 requestSessionId,
-                { limit: CHAT_MESSAGES_PAGE_SIZE }
+                { limit: CHAT_MESSAGES_PAGE_SIZE, signal }
             )
             if (
-                agentIdRef.current !== requestAgentId ||
+                signal?.aborted || agentIdRef.current !== requestAgentId ||
                 activeSessionIdRef.current !== requestSessionId
             )
                 return
@@ -803,24 +804,12 @@ const AgentChat: FC = (): ReactNode => {
                 requestAgentId,
                 requestSessionId
             )
-            const snapshot = chatStreamStore.getSnapshot(streamKey)
-            const persistedStreamingMessageId = snapshot.streamingAssistantId
-            if (
-                persistedStreamingMessageId &&
-                page.inflightAssistantMessageId !==
-                    persistedStreamingMessageId &&
-                page.messages.some(
-                    (message) => message.id === persistedStreamingMessageId
-                )
-            )
-                chatStreamStore.acknowledgePersistedMessage(
-                    streamKey,
-                    persistedStreamingMessageId
-                )
+            chatStreamStore.acknowledgeMessagePage(streamKey, page)
             setInflightAssistantMessageId(page.inflightAssistantMessageId)
             setInflightCheckpoint(checkpointFromPage(page))
             setStreamCursorEventId(page.streamCursorEventId)
         } catch (err) {
+            if (signal?.aborted) return
             setError(apiErrorMessage(err))
         }
     }, [activeSessionId, agentId, client])
@@ -2085,6 +2074,7 @@ const AgentChat: FC = (): ReactNode => {
         !chatAvailability.ready ||
         softLimitHit ||
         Boolean(error) ||
+        stream.reconnectRequired ||
         runtimeSignInVisible
     const paneOptions: SidePaneOption[] = [
         ...(workspaceToolsAvailable
@@ -2261,6 +2251,12 @@ const AgentChat: FC = (): ReactNode => {
                     {showTopNotices && (
                         <div className='mx-auto w-full max-w-3xl shrink-0 px-5 pt-3 md:px-6'>
                             <div className='flex flex-col gap-3'>
+                                {stream.reconnectRequired && (
+                                    <ChatStreamRecoveryNotice
+                                        onReconnect={stream.reconnect}
+                                        onReload={() => window.location.reload()}
+                                    />
+                                )}
                                 {!chatAvailability.ready &&
                                     chatAvailability.reason && (
                                         <div className='workbench-alert-error'>

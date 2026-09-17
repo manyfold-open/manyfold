@@ -28,6 +28,7 @@
         "test:browser-sentry": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx ../../scripts/verify-browser-sentry.mjs",
         "test:browser-telemetry": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/browser-telemetry.test.mts",
         "test:browser-settings": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/agent-settings-requests.test.mts",
+        "test:browser-chat-sse": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/web exec tsx --test test/chat-sse-convergence.test.mts",
         "test:browser-admin-outcome": "node scripts/test-sealed-env.mjs -- pnpm --filter @manyfold/admin exec tsx --test test/chat-session-outcome.test.mts",
         "db:generate": "pnpm --filter @manyfold/api db:generate",
         "db:migrate": "pnpm --filter @manyfold/api db:migrate",

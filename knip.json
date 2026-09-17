@@ -58,6 +58,7 @@
             "entry": [
                 "test/*.test.ts",
                 "test/agent-settings-fixture.tsx",
+                "test/chat-sse-fixture.tsx",
                 "scripts/*.ts",
                 "scripts/og/canonical.ts",
                 "scripts/og/render.ts",

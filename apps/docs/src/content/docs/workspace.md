@@ -16,6 +16,12 @@ Use chat for tasks, review, and follow-up instructions. Good prompts include:
 
 For long tasks, ask for progress updates and verification steps.
 
+### Interrupted connections
+
+Chat reconnects automatically after a connection drops. If it cannot restore the connection within five minutes, it stops retrying and shows **Reconnect** and **Reload page**. The latest turn may still be running; this notice does not mean the task failed or finished.
+
+**Reconnect** refreshes the saved conversation and reconnects its updates without sending your prompt again. **Reload page** reloads the workspace. A connected agent can remain quiet while a long tool runs; silence alone does not stop the connection.
+
 ## Files
 
 Use the file browser to inspect the agent workspace. Coding agents can read and change files in their workspace during a session.

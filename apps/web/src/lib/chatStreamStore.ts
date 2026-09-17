@@ -1,5 +1,6 @@
 import {
     ChatContentBlock,
+    ChatMessagesPage,
     ChatStreamEvent,
     ChatTurnStatusPhase,
     apiPaths
@@ -33,6 +34,7 @@ export interface StreamSnapshot {
     streamStartedAt: number | null
     suspendedReason: string | null
     stalled: boolean
+    reconnectRequired: boolean
     // #674. A hint, not a status: the server said it is rebuilding this turn.
     // Deliberately outside StreamStatus so the resume ladder, the stall watch
     // and isResumableTurn keep reading exactly the states they always did —
@@ -64,7 +66,7 @@ export interface StartStreamParams {
     sessionId: string
     baseUrl: string
     getToken: () => Promise<string>
-    onFallback?: () => void
+    onFallback?: (signal?: AbortSignal) => void | Promise<void>
     replayMessageId?: string | null
     replayCheckpoint?: ReplayCheckpoint | null
     initialLastEventId?: string | null
@@ -76,12 +78,14 @@ interface RuntimeEntry {
     sessionId: string
     baseUrl: string
     getToken: () => Promise<string>
-    onFallback?: () => void
+    onFallback?: StartStreamParams['onFallback']
     lastEventId: string | null
     replayMessageId: string | null
     replayCheckpoint: ReplayCheckpoint | null
     controller: AbortController | null
     readerActive: boolean
+    readerGeneration: number
+    correlation: { trace_id: string; span_id: string } | null
     lastActivityAt: number
     // Drives the stall clock, unlike lastActivityAt which drives LRU eviction
     // and is bumped by a bare attach. Written only by refreshStallWatch — see
@@ -95,12 +99,15 @@ interface RuntimeEntry {
     // adoptReplayTarget reads it, to refuse re-seeding a turn that is over.
     completedMessageIds: Set<string>
     gcTimer: ReturnType<typeof setTimeout> | null
-    // Telemetry-only bookkeeping for the current outage, kept separate from
+    // Bookkeeping for the current outage, kept separate from
     // reconnectAttempt because that counter is reset by markReconnectFailed
     // while the outage — and the operator's "how long has this tab been
     // stuck" question — continues across the slow-retry ladder.
     disconnectedAt: number | null
     disconnectAttempts: number
+    outageDeadline: number | null
+    outageTimer: ReturnType<typeof setTimeout> | null
+    fallback: { cancel: () => void } | null
     // Stop becomes retryable while an earlier POST may still be in flight. A
     // set preserves every unresolved attempt so one stale failure cannot undo
     // another request that is still pending or has already been accepted.
@@ -114,6 +121,8 @@ type ChatStreamTelemetryContext = {
     agentId: string
     sessionId: string
     messageId: string | null
+    trace_id?: string
+    span_id?: string
 }
 
 type ChatStreamTelemetryBody =
@@ -124,8 +133,18 @@ type ChatStreamTelemetryBody =
           resuming: boolean
           attempt: number
       }
-    | { name: 'chat.sse.reconnected'; attempts: number; elapsedMs: number }
-    | { name: 'chat.sse.reconnect_failed'; attempts: number; elapsedMs: number }
+    | {
+          name: 'chat.sse.reconnected'
+          attempts: number
+          elapsedMs: number
+          reason?: 'event' | 'keepalive'
+      }
+    | {
+          name: 'chat.sse.reconnect_failed'
+          attempts: number
+          elapsedMs: number
+          reason?: 'outage_budget'
+      }
     | { name: 'chat.sse.stalled'; silentMs: number }
 
 // Mirrors the server-side `chat.sse.*` namespace so a frozen tab (#640) can be
@@ -144,12 +163,14 @@ interface ChatStreamState {
 const TERMINAL_GC_MS = 10 * 60 * 1000
 const MAX_CONCURRENT = 4
 // The fast ladder must survive a rolling API deploy (~30-60s of bounced
-// connections); after it is exhausted we refetch and keep retrying slowly
-// instead of dead-ending the stream.
+// connections); slower retries share the same overall outage deadline.
 const MAX_RECONNECT_ATTEMPTS = 8
 const RECONNECT_BASE_MS = 500
 const RECONNECT_MAX_MS = 15_000
 const SLOW_RETRY_MS = 30_000
+const OUTAGE_BUDGET_MS = 5 * 60_000
+const HEALTHY_CONNECTION_MS = 30_000
+const FALLBACK_TIMEOUT_MS = 10_000
 // A live turn can legitimately be silent for minutes while a tool runs, and the
 // server's keepalive comments carry no data, so they cannot vouch for progress
 // either. Hint only once the silence is longer than any plausible tool call.
@@ -165,6 +186,7 @@ const EMPTY_SNAPSHOT: StreamSnapshot = Object.freeze({
     streamStartedAt: null,
     suspendedReason: null,
     stalled: false,
+    reconnectRequired: false,
     recoveryPhase: null
 }) as StreamSnapshot
 
@@ -194,7 +216,8 @@ const emitTelemetry = (
             ...body,
             agentId: entry.agentId,
             sessionId: entry.sessionId,
-            messageId: readSnapshot(entry.key).streamingAssistantId
+            messageId: readSnapshot(entry.key).streamingAssistantId,
+            ...entry.correlation
         })
     } catch {
         // Observation must never break the ladder it observes.
@@ -202,8 +225,21 @@ const emitTelemetry = (
 }
 
 const resetDisconnectWindow = (entry: RuntimeEntry): void => {
+    if (entry.outageTimer) clearTimeout(entry.outageTimer)
+    entry.outageTimer = null
+    entry.outageDeadline = null
+    entry.fallback?.cancel()
     entry.disconnectedAt = null
     entry.disconnectAttempts = 0
+}
+
+const beginDisconnectWindow = (entry: RuntimeEntry): void => {
+    entry.disconnectedAt = Date.now()
+    entry.outageDeadline = performance.now() + OUTAGE_BUDGET_MS
+    entry.outageTimer = setTimeout(
+        () => stopAutomaticReconnect(entry),
+        OUTAGE_BUDGET_MS
+    )
 }
 
 const recordDisconnect = (
@@ -211,7 +247,7 @@ const recordDisconnect = (
     reason: ChatStreamDisconnectReason,
     status: number | null
 ): void => {
-    if (entry.disconnectedAt === null) entry.disconnectedAt = Date.now()
+    if (entry.disconnectedAt === null) beginDisconnectWindow(entry)
     entry.disconnectAttempts += 1
     emitTelemetry(entry, {
         name: 'chat.sse.disconnected',
@@ -222,6 +258,94 @@ const recordDisconnect = (
         resuming: entry.lastEventId !== null,
         attempt: entry.disconnectAttempts
     })
+}
+
+const refetchMessages = (entry: RuntimeEntry): void => {
+    if (!entry.onFallback || entry.fallback) return
+    const controller = new AbortController()
+    const current = {
+        cancel: (): void => {
+            controller.abort()
+            finish()
+        }
+    }
+    const finish = (): void => {
+        clearTimeout(timer)
+        if (entry.fallback === current) entry.fallback = null
+    }
+    const timer = setTimeout(current.cancel, FALLBACK_TIMEOUT_MS)
+    entry.fallback = current
+    try {
+        void Promise.resolve(entry.onFallback(controller.signal))
+            .catch(() => {})
+            .finally(finish)
+    } catch {
+        finish()
+    }
+}
+
+const retireReader = (entry: RuntimeEntry): void => {
+    entry.readerGeneration++
+    entry.controller?.abort()
+    entry.controller = null
+    entry.readerActive = false
+}
+
+const stopAutomaticReconnect = (entry: RuntimeEntry): void => {
+    if (
+        readSnapshot(entry.key).reconnectRequired ||
+        entry.disconnectedAt === null
+    )
+        return
+    clearReconnectTimer(entry)
+    clearStallTimer(entry)
+    if (entry.outageTimer) clearTimeout(entry.outageTimer)
+    entry.outageTimer = null
+    retireReader(entry)
+    // Transport uncertainty is not a terminal turn outcome. Stop work before
+    // the final bounded refetch so even a consumer that never settles cannot
+    // prolong automatic retries or overwrite a later recovery.
+    patchSnapshot(entry.key, { reconnectRequired: true, stalled: true })
+    emitTelemetry(entry, {
+        name: 'chat.sse.reconnect_failed',
+        reason: 'outage_budget',
+        attempts: entry.disconnectAttempts,
+        elapsedMs: Date.now() - entry.disconnectedAt
+    })
+    entry.fallback?.cancel()
+    refetchMessages(entry)
+}
+
+const automaticReconnectAllowed = (entry: RuntimeEntry): boolean => {
+    if (readSnapshot(entry.key).reconnectRequired) return false
+    if (
+        entry.outageDeadline !== null &&
+        performance.now() >= entry.outageDeadline
+    ) {
+        stopAutomaticReconnect(entry)
+        return false
+    }
+    if (entry.outageDeadline !== null && !entry.outageTimer)
+        entry.outageTimer = setTimeout(
+            () => stopAutomaticReconnect(entry),
+            Math.max(0, entry.outageDeadline - performance.now())
+        )
+    return true
+}
+
+const transportRecovered = (
+    entry: RuntimeEntry,
+    reason: 'event' | 'keepalive'
+): void => {
+    if (entry.disconnectedAt === null) return
+    emitTelemetry(entry, {
+        name: 'chat.sse.reconnected',
+        reason,
+        attempts: entry.disconnectAttempts,
+        elapsedMs: Date.now() - entry.disconnectedAt
+    })
+    resetDisconnectWindow(entry)
+    entry.reconnectAttempt = 0
 }
 
 const keyOf = (agentId: string, sessionId: string): string =>
@@ -336,6 +460,8 @@ const ensureRuntime = (
             replayCheckpoint: params.replayCheckpoint ?? null,
             controller: null,
             readerActive: false,
+            readerGeneration: 0,
+            correlation: null,
             lastActivityAt: Date.now(),
             lastDataAt: Date.now(),
             stallTimer: null,
@@ -346,6 +472,9 @@ const ensureRuntime = (
             gcTimer: null,
             disconnectedAt: null,
             disconnectAttempts: 0,
+            outageDeadline: null,
+            outageTimer: null,
+            fallback: null,
             cancelAttempts: new Set(),
             cancelAccepted: false
         }
@@ -497,6 +626,7 @@ const getOrStart = (params: StartStreamParams): void => {
     }
     if (entry.readerActive) return
     if (entry.reconnectTimer) return
+    if (!automaticReconnectAllowed(entry)) return
     const status = readSnapshot(key).status
     if (status === 'error' || status === 'cancelled') return
     hydrateInflightIndicator(key, entry)
@@ -506,7 +636,10 @@ const getOrStart = (params: StartStreamParams): void => {
 
 const runReader = async (entry: RuntimeEntry): Promise<void> => {
     if (entry.readerActive) return
+    if (!automaticReconnectAllowed(entry)) return
     entry.readerActive = true
+    const generation = ++entry.readerGeneration
+    entry.correlation = null
     // One-shot: only the first cold-load connection forces a replay; once any
     // event sets lastEventId, reconnects resume from it instead.
     const replayMessageId = entry.lastEventId ? null : entry.replayMessageId
@@ -520,6 +653,8 @@ const runReader = async (entry: RuntimeEntry): Promise<void> => {
     entry.controller = controller
     try {
         const token = await entry.getToken()
+        if (controller.signal.aborted || generation !== entry.readerGeneration)
+            return
         const url = new URL(
             entry.baseUrl +
                 apiPaths.AGENT_SESSION_STREAM(entry.agentId, entry.sessionId),
@@ -541,6 +676,13 @@ const runReader = async (entry: RuntimeEntry): Promise<void> => {
             headers,
             signal: controller.signal
         })
+        if (
+            controller.signal.aborted ||
+            generation !== entry.readerGeneration
+        ) {
+            void res.body?.cancel().catch(() => {})
+            return
+        }
         if (!res.ok || !res.body) {
             handleStreamFailure(
                 entry,
@@ -552,18 +694,56 @@ const runReader = async (entry: RuntimeEntry): Promise<void> => {
         }
         const reader = res.body.getReader()
         const decoder = new TextDecoder()
+        const connectedAt = performance.now()
+        let keepalives = 0
         let buffer = ''
-        while (!controller.signal.aborted) {
-            const { value, done } = await reader.read()
-            if (done) break
-            buffer += decoder.decode(value, { stream: true })
-            let boundary = buffer.indexOf('\n\n')
-            while (boundary !== -1) {
-                const frame = buffer.slice(0, boundary)
-                buffer = buffer.slice(boundary + 2)
-                ingestFrame(entry, frame)
-                boundary = buffer.indexOf('\n\n')
+        try {
+            while (
+                !controller.signal.aborted &&
+                generation === entry.readerGeneration
+            ) {
+                const { value, done } = await reader.read()
+                if (done) break
+                if (
+                    controller.signal.aborted ||
+                    generation !== entry.readerGeneration
+                )
+                    break
+                buffer += decoder.decode(value, { stream: true })
+                let boundary = buffer.indexOf('\n\n')
+                while (
+                    boundary !== -1 &&
+                    !controller.signal.aborted &&
+                    generation === entry.readerGeneration
+                ) {
+                    const frame = buffer.slice(0, boundary)
+                    buffer = buffer.slice(boundary + 2)
+                    const correlation =
+                        /^: trace ([0-9a-f]{32}) ([0-9a-f]{16})$/.exec(frame)
+                    if (
+                        correlation &&
+                        !/^0+$/.test(correlation[1]) &&
+                        !/^0+$/.test(correlation[2])
+                    )
+                        entry.correlation = {
+                            trace_id: correlation[1],
+                            span_id: correlation[2]
+                        }
+                    if (/^: keepalive \d+$/.test(frame)) {
+                        keepalives++
+                        if (
+                            keepalives >= 2 &&
+                            performance.now() - connectedAt >=
+                                HEALTHY_CONNECTION_MS
+                        )
+                            transportRecovered(entry, 'keepalive')
+                    }
+                    ingestFrame(entry, frame)
+                    boundary = buffer.indexOf('\n\n')
+                }
             }
+        } finally {
+            reader.releaseLock()
         }
         if (!controller.signal.aborted) {
             handleNonTerminalEof(entry)
@@ -573,7 +753,7 @@ const runReader = async (entry: RuntimeEntry): Promise<void> => {
         if ((err as Error).name === 'AbortError') return
         handleStreamFailure(entry, (err as Error).message, true, null)
     } finally {
-        entry.readerActive = false
+        if (generation === entry.readerGeneration) entry.readerActive = false
         if (entry.controller === controller) entry.controller = null
     }
 }
@@ -585,21 +765,16 @@ const ingestFrame = (entry: RuntimeEntry, frame: string): void => {
     entry.lastActivityAt = Date.now()
     // Any frame after a drop — including the terminal one — proves the turn
     // reached this tab again, which is the outcome #640 could not observe.
-    if (entry.disconnectedAt !== null) {
-        emitTelemetry(entry, {
-            name: 'chat.sse.reconnected',
-            attempts: entry.disconnectAttempts,
-            elapsedMs: Date.now() - entry.disconnectedAt
-        })
-        resetDisconnectWindow(entry)
-    }
+    transportRecovered(entry, 'event')
     const isTerminal = event.type === 'done' || event.type === 'error'
     if (isTerminal) {
+        resetDisconnectWindow(entry)
         resetCancelState(entry)
         entry.lastEventId = null
         entry.reconnectAttempt = 0
         entry.terminalSeenForTurn = true
         rememberCompletedTurn(entry, event.messageId)
+        clearReconnectTimer(entry)
     } else {
         entry.lastEventId = event.eventId
         entry.reconnectAttempt = 0
@@ -634,6 +809,7 @@ const ingestFrame = (entry: RuntimeEntry, frame: string): void => {
         entry.gcTimer = null
     }
     refreshStallWatch(entry)
+    if (isTerminal) patchSnapshot(entry.key, { reconnectRequired: false })
     if (next.status === 'error') scheduleTerminalGc(entry)
 }
 
@@ -710,10 +886,11 @@ const handleStreamFailure = (
         return
     }
     smoothers.get(entry.key)?.flush()
+    resetDisconnectWindow(entry)
     resetCancelState(entry)
     patchSnapshot(entry.key, { status: 'error', error: message })
     scheduleTerminalGc(entry)
-    entry.onFallback?.()
+    refetchMessages(entry)
 }
 
 // Auth, routing and payload rejections describe the request, not the transport;
@@ -729,9 +906,12 @@ const reconnectDelayMs = (attempt: number): number =>
 // offline — and the resumed stream starts after the suspended event, so that
 // state would never be re-sent. Both outlive the reconnect.
 const reconnectingStatus = (status: StreamStatus): StreamStatus =>
-    status === 'cancelling' || status === 'suspended' ? status : 'connecting'
+    status === 'cancelling' || status === 'suspended' || status === 'idle'
+        ? status
+        : 'connecting'
 
 const scheduleReconnect = (entry: RuntimeEntry): void => {
+    if (!automaticReconnectAllowed(entry)) return
     if (entry.reconnectTimer) return
     if (entry.reconnectAttempt >= MAX_RECONNECT_ATTEMPTS) {
         markReconnectFailed(entry)
@@ -746,6 +926,7 @@ const scheduleReconnect = (entry: RuntimeEntry): void => {
     })
     entry.reconnectTimer = setTimeout(() => {
         entry.reconnectTimer = null
+        if (!isResumableTurn(entry)) return
         const snapshot = readSnapshot(entry.key)
         if (snapshot.status === 'error' || snapshot.status === 'cancelled')
             return
@@ -756,9 +937,10 @@ const scheduleReconnect = (entry: RuntimeEntry): void => {
 }
 
 const markReconnectFailed = (entry: RuntimeEntry): void => {
+    if (!automaticReconnectAllowed(entry)) return
     clearReconnectTimer(entry)
-    // The outage window deliberately survives this transition: the slow retry
-    // keeps running, so a second reconnect_failed reports cumulative elapsed
+    // The outage window survives this transition: a second reconnect_failed
+    // reports cumulative elapsed
     // rather than restarting the clock on a tab that is still stuck.
     if (entry.disconnectedAt !== null)
         emitTelemetry(entry, {
@@ -770,7 +952,9 @@ const markReconnectFailed = (entry: RuntimeEntry): void => {
     // were disconnected, so refetch from the server (a completed turn resolves
     // via acknowledgePersistedMessage, which also cancels the retry below) and
     // keep retrying slowly instead of dead-ending the stream in an error state.
-    entry.onFallback?.()
+    const outage = entry.disconnectedAt
+    refetchMessages(entry)
+    if (entry.disconnectedAt !== outage || !isResumableTurn(entry)) return
     entry.reconnectAttempt = 0
     const current = readSnapshot(entry.key)
     if (current.status === 'error' || current.status === 'cancelled') return
@@ -780,6 +964,7 @@ const markReconnectFailed = (entry: RuntimeEntry): void => {
     })
     entry.reconnectTimer = setTimeout(() => {
         entry.reconnectTimer = null
+        if (!isResumableTurn(entry)) return
         const snapshot = readSnapshot(entry.key)
         if (snapshot.status === 'error' || snapshot.status === 'cancelled')
             return
@@ -957,6 +1142,7 @@ const applyEventToSnapshot = (
             streamingAssistantId: null,
             streamingBlocks: [],
             status: 'idle',
+            streamStartedAt: null,
             suspendedReason: null,
             recoveryPhase: null
         }
@@ -1005,7 +1191,8 @@ const cancel = (key: string): CancelAttempt | null => {
     }
     patchSnapshot(key, {
         status: 'cancelling',
-        error: null
+        error: null,
+        reconnectRequired: false
     })
     refreshStallWatch(entry)
     if (!entry.readerActive) {
@@ -1040,6 +1227,7 @@ const markTurnPending = (key: string, params: StartStreamParams): void => {
     patchSnapshot(key, {
         status: 'connecting',
         error: null,
+        reconnectRequired: false,
         streamStartedAt: Date.now(),
         suspendedReason: null,
         recoveryPhase: null
@@ -1082,6 +1270,7 @@ const beginAssistantTurn = (
         streamErrors: [],
         status: 'connecting',
         error: null,
+        reconnectRequired: false,
         streamStartedAt:
             turnActive && current.streamStartedAt != null
                 ? current.streamStartedAt
@@ -1104,14 +1293,20 @@ const acknowledgePersistedMessage = (key: string, messageId: string): void => {
         streamingAssistantId: null,
         streamingBlocks: [],
         status: 'idle',
+        streamStartedAt: null,
         error: null,
         suspendedReason: null,
         recoveryPhase: null,
-        stalled: false
+        stalled: false,
+        reconnectRequired: false
     })
     disposeSmoother(key)
     const entry = runtimes.get(key)
     if (!entry) return
+    rememberCompletedTurn(entry, messageId)
+    entry.terminalSeenForTurn = true
+    entry.lastEventId = null
+    retireReader(entry)
     resetCancelState(entry)
     clearStallTimer(entry)
     // The refetch converged the turn, so the outage is over even though no
@@ -1134,7 +1329,8 @@ const abandonPendingTurn = (key: string): void => {
         streamStartedAt: null,
         suspendedReason: null,
         recoveryPhase: null,
-        stalled: false
+        stalled: false,
+        reconnectRequired: false
     })
     resetSmoother(key)
     const entry = runtimes.get(key)
@@ -1144,6 +1340,71 @@ const abandonPendingTurn = (key: string): void => {
     clearReconnectTimer(entry)
     entry.reconnectAttempt = 0
     resetDisconnectWindow(entry)
+}
+
+const acknowledgeIdleSession = (key: string): void => {
+    const snapshot = readSnapshot(key)
+    // A cursor-only idle listener has no admitted local turn. A pending POST
+    // must still wait for its own result; a page snapshot cannot complete it.
+    if (
+        snapshot.streamingAssistantId !== null ||
+        snapshot.streamStartedAt !== null
+    )
+        return
+    const entry = runtimes.get(key)
+    if (!entry || entry.disconnectedAt === null) return
+    retireReader(entry)
+    clearReconnectTimer(entry)
+    resetDisconnectWindow(entry)
+    entry.lastEventId = null
+    entry.terminalSeenForTurn = true
+    patchSnapshot(key, {
+        status: 'idle',
+        error: null,
+        stalled: false,
+        reconnectRequired: false
+    })
+    scheduleTerminalGc(entry)
+}
+
+const acknowledgeMessagePage = (
+    key: string,
+    page: Pick<ChatMessagesPage, 'messages' | 'inflightAssistantMessageId'>
+): void => {
+    const messageId = readSnapshot(key).streamingAssistantId
+    if (
+        messageId &&
+        page.inflightAssistantMessageId !== messageId &&
+        page.messages.some((message) => message.id === messageId)
+    )
+        acknowledgePersistedMessage(key, messageId)
+    else if (!page.inflightAssistantMessageId) acknowledgeIdleSession(key)
+}
+
+const reconnect = (key: string): void => {
+    const entry = runtimes.get(key)
+    if (!entry || !readSnapshot(key).reconnectRequired) return
+    resetDisconnectWindow(entry)
+    beginDisconnectWindow(entry)
+    clearReconnectTimer(entry)
+    entry.reconnectAttempt = 0
+    patchSnapshot(key, { reconnectRequired: false, stalled: false })
+    refreshStallWatch(entry)
+    const generation = entry.readerGeneration
+    refetchMessages(entry)
+    if (entry.readerGeneration !== generation) return
+    evictLruIfOver(key)
+    void runReader(entry)
+}
+
+const detachFallback = (
+    key: string,
+    fallback: StartStreamParams['onFallback']
+): void => {
+    const entry = runtimes.get(key)
+    if (!entry || entry.onFallback !== fallback) return
+    entry.onFallback = undefined
+    entry.fallback?.cancel()
 }
 
 // A non-null suspendedReason is an exact record of the turn being suspended:
@@ -1217,15 +1478,19 @@ const evictLruIfOver = (incomingKey: string): void => {
         if (!oldest || e.lastActivityAt < oldest.lastActivityAt) oldest = e
     }
     if (!oldest) return
-    oldest.controller?.abort()
-    oldest.controller = null
-    oldest.readerActive = false
+    retireReader(oldest)
+    clearReconnectTimer(oldest)
+    clearStallTimer(oldest)
+    if (oldest.outageTimer) clearTimeout(oldest.outageTimer)
+    oldest.outageTimer = null
+    oldest.fallback?.cancel()
     resetSmoother(oldest.key)
 }
 
 const clear = (): void => {
     for (const entry of runtimes.values()) {
-        entry.controller?.abort()
+        retireReader(entry)
+        resetDisconnectWindow(entry)
         clearReconnectTimer(entry)
         clearStallTimer(entry)
         if (entry.gcTimer) clearTimeout(entry.gcTimer)
@@ -1252,6 +1517,9 @@ export const chatStreamStore = {
     cancelRequestFailed,
     abandonPendingTurn,
     acknowledgePersistedMessage,
+    acknowledgeMessagePage,
+    reconnect,
+    detachFallback,
     markTurnPending,
     beginAssistantTurn,
     clear,
@@ -1261,7 +1529,8 @@ export const chatStreamStore = {
 if (import.meta.hot) {
     import.meta.hot.dispose(() => {
         for (const entry of runtimes.values()) {
-            entry.controller?.abort()
+            retireReader(entry)
+            resetDisconnectWindow(entry)
             clearReconnectTimer(entry)
             clearStallTimer(entry)
             if (entry.gcTimer) clearTimeout(entry.gcTimer)

@@ -20,6 +20,9 @@ import {
     UseGuards
 } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { isSpanContextValid, trace } from '@opentelemetry/api'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
+import { inBackgroundContext } from '@/common/telemetry/background-context'
 import { corsHeadersForOrigin } from '@/common/cors-headers'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
@@ -44,7 +47,8 @@ import { AnswerPermissionDto } from '@/modules/chat/dto/answer-permission.dto'
 export class ChatController {
     constructor(
         private readonly chat: ChatService,
-        private readonly broadcaster: ChatSseBroadcaster
+        private readonly broadcaster: ChatSseBroadcaster,
+        private readonly telemetry: TelemetryService
     ) {}
 
     @Get('sessions')
@@ -253,6 +257,58 @@ export class ChatController {
         const lastEventId = lastEventIdQuery ?? headerLastEventId ?? null
         const replayMessageId = replayMessageIdQuery ?? null
 
+        const spanContext = trace.getActiveSpan()?.spanContext()
+        const correlation =
+            spanContext && isSpanContextValid(spanContext)
+                ? { trace_id: spanContext.traceId, span_id: spanContext.spanId }
+                : {}
+        const startedAt = performance.now()
+        // Retain identifiers only. A socket callback must not inherit the
+        // request's Sentry identity, headers or breadcrumbs for correlation.
+        const observe = inBackgroundContext(
+            (name: string, reason?: string): void => {
+                try {
+                    this.telemetry.event(name, {
+                        ...correlation,
+                        reason,
+                        elapsedMs: Math.round(performance.now() - startedAt),
+                        resuming: Boolean(lastEventId || replayMessageId)
+                    })
+                } catch {
+                    /* Observation cannot prevent transport cleanup. */
+                }
+            }
+        )
+        let unsubscribe: (() => void) | null = null
+        let keepalive: ReturnType<typeof setInterval> | null = null
+        let closed = false
+        const cleanup = (
+            reason:
+                | 'peer_close'
+                | 'request_error'
+                | 'server_shutdown'
+                | 'backpressure'
+                | 'write_error'
+                | 'setup_error'
+        ): void => {
+            if (closed) return
+            closed = true
+            if (keepalive) clearInterval(keepalive)
+            req.raw.off('close', peerClosed)
+            req.raw.off('error', requestError)
+            res.raw.off('close', peerClosed)
+            unsubscribe?.()
+            unsubscribe = null
+            observe('chat.sse.closed', reason)
+            try {
+                res.raw.end()
+            } catch {
+                /* Socket already gone. */
+            }
+        }
+        const peerClosed = (): void => cleanup('peer_close')
+        const requestError = (): void => cleanup('request_error')
+
         res.hijack()
         res.raw.socket?.setNoDelay(true)
         res.raw.writeHead(200, {
@@ -264,66 +320,73 @@ export class ChatController {
         })
 
         const writeEvent = (event: ChatStreamEvent): void => {
+            if (closed) throw new Error('sse connection closed')
             // A client that stopped reading lets unflushed data pile up in the
             // socket without bound. Disconnect it instead — the browser
             // reconnects with Last-Event-ID and the DB log replays the gap.
             if (res.raw.writableLength > SSE_MAX_BUFFERED_BYTES) {
-                cleanup()
+                cleanup('backpressure')
                 throw new Error(
                     `sse client too slow (${res.raw.writableLength} buffered bytes)`
                 )
             }
             // One write per frame: the socket is setNoDelay(true), so a write
             // per line can leave as its own syscall and its own TCP segment.
-            res.raw.write(
-                `id: ${event.eventId}\n` +
-                    `event: ${event.type}\n` +
-                    `data: ${JSON.stringify(event)}\n\n`
-            )
+            try {
+                res.raw.write(
+                    `id: ${event.eventId}\n` +
+                        `event: ${event.type}\n` +
+                        `data: ${JSON.stringify(event)}\n\n`
+                )
+            } catch (error) {
+                cleanup('write_error')
+                throw error
+            }
         }
 
         const subscriber = {
             send: writeEvent,
-            close: (): void => {
+            close: (
+                reason: 'server_shutdown' | 'write_error' = 'write_error'
+            ): void => cleanup(reason)
+        }
+
+        keepalive = setInterval(
+            inBackgroundContext(() => {
                 try {
-                    res.raw.end()
+                    res.raw.write(`: keepalive ${Date.now()}\n\n`)
                 } catch {
-                    /* ignore */
+                    cleanup('write_error')
                 }
-            }
-        }
-
-        let unsubscribe: (() => void) | null = null
-        const keepalive = setInterval(() => {
-            try {
-                res.raw.write(`: keepalive ${Date.now()}\n\n`)
-            } catch {
-                /* socket already gone; cleanup will run */
-            }
-        }, 15000)
-
-        const cleanup = (): void => {
-            clearInterval(keepalive)
-            unsubscribe?.()
-            try {
-                res.raw.end()
-            } catch {
-                /* ignore */
-            }
-        }
-        req.raw.on('close', cleanup)
-        req.raw.on('error', cleanup)
-        if (req.raw.destroyed) {
-            cleanup()
+            }),
+            15000
+        )
+        req.raw.on('close', peerClosed)
+        req.raw.on('error', requestError)
+        res.raw.on('close', peerClosed)
+        if (req.raw.destroyed || res.raw.destroyed) {
+            cleanup('peer_close')
             return
         }
-
-        unsubscribe = await this.broadcaster.subscribe(
-            session.id,
-            subscriber,
-            lastEventId,
-            replayMessageId
-        )
-        if (req.raw.destroyed) cleanup()
+        try {
+            if (correlation.trace_id)
+                res.raw.write(
+                    `: trace ${correlation.trace_id} ${correlation.span_id}\n\n`
+                )
+            observe('chat.sse.opened')
+            unsubscribe = await this.broadcaster.subscribe(
+                session.id,
+                subscriber,
+                lastEventId,
+                replayMessageId
+            )
+            if (closed) {
+                unsubscribe()
+                unsubscribe = null
+            }
+        } catch (error) {
+            cleanup('setup_error')
+            throw error
+        }
     }
 }

@@ -43,7 +43,7 @@ export interface EmittedStreamEvent {
 
 export interface BroadcastSubscriber {
     send: (event: ChatStreamEvent) => void
-    close: () => void
+    close: (reason?: 'server_shutdown' | 'write_error') => void
 }
 
 interface PendingTokenBuffer {
@@ -318,7 +318,7 @@ export class ChatSseBroadcaster
         for (const pump of this.pumps.values()) {
             for (const sub of pump.subs) {
                 try {
-                    sub.subscriber.close()
+                    sub.subscriber.close('server_shutdown')
                 } catch {}
             }
             pump.subs.clear()
@@ -963,7 +963,7 @@ export class ChatSseBroadcaster
                             )
                             pump.subs.delete(sub)
                             try {
-                                sub.subscriber.close()
+                                sub.subscriber.close('write_error')
                             } catch {
                                 /* ignore */
                             }
