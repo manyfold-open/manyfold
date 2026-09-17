@@ -255,7 +255,7 @@ const titleSize = (title: string): number =>
 // One line, top right: where this page lives. It replaces the footer the first
 // card carried — X stamps its own title over the lower-left 800x110 of every
 // large-image card, so nothing readable belongs down there. 58 characters of
-// Geist Mono at 21px is 731px, which still clears the wordmark; anything
+// Geist Mono at 22px is 766px, which still clears the wordmark; anything
 // longer drops the path rather than shrinking the line.
 const sourceLine = (path?: string): string => {
     const full = path ? `${SITE}${path}` : SITE
@@ -369,7 +369,10 @@ const card = (
                 {
                     style: {
                         fontFamily: 'Geist Mono',
-                        fontSize: 21,
+                        // The floor: X renders this card about 504px wide, and
+                        // 0.42x turns 22px into 9px. Nothing on the card goes
+                        // under it.
+                        fontSize: 22,
                         color: SUBTLE
                     }
                 },
@@ -411,7 +414,7 @@ const card = (
                     {
                         style: {
                             fontFamily: 'Geist Mono',
-                            fontSize: 21,
+                            fontSize: 22,
                             fontWeight: 500,
                             color: MUTED
                         }
