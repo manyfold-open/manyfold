@@ -47,6 +47,18 @@ const duration = meter.createHistogram('skill.discovery.duration', {
     unit: 'ms'
 })
 const requests = meter.createHistogram('skill.discovery.requests')
+type ScanTransaction = Parameters<Parameters<Database['transaction']>[0]>[0]
+
+const inScanTransaction = <T>(
+    db: Database,
+    work: (tx: ScanTransaction) => Promise<T>
+): Promise<T> =>
+    db.transaction(async (tx) => {
+        await tx.execute(
+            sql`select set_config('statement_timeout', '15000', true), set_config('lock_timeout', '5000', true)`
+        )
+        return work(tx)
+    })
 
 export const canonicalSkillRepoKey = (repo: DiscoveryRepo): string =>
     JSON.stringify([
@@ -173,27 +185,29 @@ const scanAndPublish = async (
     let count = 0
     let classification = 'none'
     try {
-        const [claim] = await db
-            .insert(skillRepoScans)
-            .values({
-                key,
-                holderId,
-                expiresAt: sql`clock_timestamp() + ${SKILL_SCAN_LEASE_MS} * interval '1 millisecond'`
-            })
-            .onConflictDoUpdate({
-                target: skillRepoScans.key,
-                set: {
+        const [claim] = await inScanTransaction(db, async (tx) =>
+            tx
+                .insert(skillRepoScans)
+                .values({
+                    key,
                     holderId,
-                    generation: sql`${skillRepoScans.generation} + 1`,
-                    expiresAt: sql`clock_timestamp() + ${SKILL_SCAN_LEASE_MS} * interval '1 millisecond'`,
-                    updatedAt: sql`clock_timestamp()`
-                },
-                setWhere: or(
-                    isNull(skillRepoScans.holderId),
-                    sql`${skillRepoScans.expiresAt} <= clock_timestamp()`
-                )
-            })
-            .returning()
+                    expiresAt: sql`clock_timestamp() + ${SKILL_SCAN_LEASE_MS} * interval '1 millisecond'`
+                })
+                .onConflictDoUpdate({
+                    target: skillRepoScans.key,
+                    set: {
+                        holderId,
+                        generation: sql`${skillRepoScans.generation} + 1`,
+                        expiresAt: sql`clock_timestamp() + ${SKILL_SCAN_LEASE_MS} * interval '1 millisecond'`,
+                        updatedAt: sql`clock_timestamp()`
+                    },
+                    setWhere: or(
+                        isNull(skillRepoScans.holderId),
+                        sql`${skillRepoScans.expiresAt} <= clock_timestamp()`
+                    )
+                })
+                .returning()
+        )
         // No wait or freshness write: later requests can publish an alias
         // after the canonical owner's successful result is available.
         if (!claim) {
@@ -214,7 +228,8 @@ const scanAndPublish = async (
                     ? claim.snapshot!
                     : await discovery.scanRevision(canonical, revision)
                 const rows = snapshotRows(repo, revision, snapshot)
-                const saved = await db.transaction(async (tx) => {
+                budget.signal.throwIfAborted()
+                const saved = await inScanTransaction(db, async (tx) => {
                     // The row update both fences and locks publication. Takeover
                     // cannot race any part of the following catalog transaction.
                     const [owned] = await tx
@@ -232,8 +247,10 @@ const scanAndPublish = async (
                         )
                         .returning()
                     if (!owned) return null
+                    budget.signal.throwIfAborted()
                     const output: SkillRow[] = []
                     for (let index = 0; index < rows.length; index += 250) {
+                        budget.signal.throwIfAborted()
                         const batch = rows.slice(index, index + 250)
                         output.push(
                             ...(await tx
@@ -267,6 +284,7 @@ const scanAndPublish = async (
                                 .returning())
                         )
                     }
+                    budget.signal.throwIfAborted()
                     await tx
                         .update(skills)
                         .set({
@@ -296,6 +314,7 @@ const scanAndPublish = async (
                         ) > SKILL_SCAN_LIMITS.snapshotBytes
                     )
                         throw new GitHubRequestError()
+                    budget.signal.throwIfAborted()
                     const completed = await tx
                         .update(skillRepoScans)
                         .set({
@@ -360,19 +379,23 @@ const scanAndPublish = async (
         )
     } finally {
         try {
-            await db
-                .update(skillRepoScans)
-                .set({
-                    holderId: null,
-                    expiresAt: null
-                })
-                .where(
-                    and(
-                        eq(skillRepoScans.key, key),
-                        eq(skillRepoScans.holderId, holderId)
+            await inScanTransaction(db, async (tx) => {
+                await tx
+                    .update(skillRepoScans)
+                    .set({
+                        holderId: null,
+                        expiresAt: null
+                    })
+                    .where(
+                        and(
+                            eq(skillRepoScans.key, key),
+                            eq(skillRepoScans.holderId, holderId)
+                        )
                     )
-                )
-        } catch {}
+            })
+        } catch {
+            span.setAttribute('scan.release_failed', true)
+        }
         span.setAttributes({
             'scan.outcome': outcome,
             'scan.classification': classification

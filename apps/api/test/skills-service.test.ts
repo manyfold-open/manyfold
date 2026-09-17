@@ -1116,6 +1116,7 @@ class FakeDb {
     conflictSets: Array<{ table: unknown; set: Record<string, unknown> }> = []
 
     async transaction<T>(work: (tx: FakeDb) => Promise<T>): Promise<T> { return work(this) }
+    async execute(): Promise<unknown[]> { return [] }
 
     select(): FakeQuery {
         return new FakeQuery(this, 'select')

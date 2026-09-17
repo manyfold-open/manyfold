@@ -33,6 +33,78 @@ import {
 const RUN = process.env.RUN_PG_E2E === '1'
 
 test(
+    'a locked claim row times out without fetching or advancing the successful snapshot',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        let release!: () => void
+        t.after(() => release?.())
+        const h = await harness(t)
+        await refreshSkillRepo(h.db, h.discovery, h.repo)
+        const previous = await h.stateRow()
+        let entered!: () => void
+        const reached = new Promise<void>((resolve) => {
+            entered = resolve
+        })
+        const barrier = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        const blocker = h.db.transaction(async (tx) => {
+            await tx
+                .select()
+                .from(skillRepoScans)
+                .where(eq(skillRepoScans.key, canonicalSkillRepoKey(h.repo)))
+                .for('update')
+            entered()
+            await barrier
+        })
+        try {
+            await reached
+            const before = h.requests.length
+            await assert.rejects(
+                refreshSkillRepo(h.db2, h.discovery, h.repo),
+                /GitHub source unavailable/
+            )
+            assert.equal(h.requests.length, before)
+        } finally {
+            release()
+            await blocker
+        }
+        assert.deepEqual(await h.stateRow(), previous)
+    }
+)
+
+test(
+    'cancellation before publication leaves the prior snapshot intact and releases the owned lease',
+    { skip: !RUN, timeout: 10_000 },
+    async (t) => {
+        const h = await harness(t)
+        await refreshSkillRepo(h.db, h.discovery, h.repo)
+        const previous = await h.stateRow()
+        h.state.revision = REVISION_B
+        const controller = new AbortController()
+        const scan = h.discovery.scanRevision.bind(h.discovery)
+        t.mock.method(
+            h.discovery,
+            'scanRevision',
+            async (...args: Parameters<typeof scan>) => {
+                const result = await scan(...args)
+                controller.abort()
+                return result
+            }
+        )
+        await assert.rejects(
+            refreshSkillRepo(h.db, h.discovery, h.repo, controller.signal),
+            /GitHub source unavailable/
+        )
+        const after = await h.stateRow()
+        assert.equal(after.revision, previous.revision)
+        assert.deepEqual(after.scannedAt, previous.scannedAt)
+        assert.equal(after.holderId, null)
+        assert.equal((await h.rows())[0].latestRevision, REVISION_A)
+    }
+)
+
+test(
     'a foreground install reports retryable busy during another instance scan and later publishes its case alias',
     { skip: !RUN, timeout: 10_000 },
     async (t) => {
@@ -47,27 +119,23 @@ test(
         h.cleanups.push(async () =>
             h.db.delete(users).where(eq(users.id, userId))
         )
-        await h.db
-            .insert(agentRuntimes)
-            .values({
-                id: runtimeId,
-                userId,
-                name: 'fixture',
-                framework: 'codex',
-                kind: 'daemon',
-                status: 'ready'
-            })
-        await h.db
-            .insert(agents)
-            .values({
-                id: agentId,
-                userId,
-                name: 'fixture',
-                framework: 'codex',
-                runtime: 'daemon',
-                runtimeId,
-                internalId: 'fixture'
-            })
+        await h.db.insert(agentRuntimes).values({
+            id: runtimeId,
+            userId,
+            name: 'fixture',
+            framework: 'codex',
+            kind: 'daemon',
+            status: 'ready'
+        })
+        await h.db.insert(agents).values({
+            id: agentId,
+            userId,
+            name: 'fixture',
+            framework: 'codex',
+            runtime: 'daemon',
+            runtimeId,
+            internalId: 'fixture'
+        })
         const first = new SkillsService(
             h.db,
             h.discovery,
