@@ -7,6 +7,7 @@ export interface ExecStreamRequest {
     keepAliveMs?: number
     livenessTimeoutMs?: number
     execHandle?: string
+    temporarySettings?: 'gemini-platform'
     // Codex per-agent skills: run the final exec with HOME set to this dir (the
     // agent's workspace) so codex's USER skill scope `$HOME/.agents/skills`
     // resolves per-agent, while CODEX_HOME stays the real `~/.codex`

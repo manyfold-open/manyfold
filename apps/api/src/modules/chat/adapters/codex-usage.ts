@@ -35,7 +35,8 @@ export const extractCodexUsage = (
         cacheReadTokens: cacheRead,
         cacheCreationTokens: cacheCreation,
         modelProviderId: opts.scope?.modelProviderId ?? null,
-        modelProviderBuiltInId: opts.scope?.modelProviderBuiltInId ?? null
+        modelProviderBuiltInId: opts.scope?.modelProviderBuiltInId ?? null,
+        modelProviderManagedBrand: opts.scope?.modelProviderManagedBrand ?? null
     })
     return {
         model,

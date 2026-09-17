@@ -26,6 +26,7 @@ import type { ExecStreamHandle } from '@/modules/chat/adapters/exec-driver'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { extractCodexUsage } from './codex-usage'
+import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
 import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -95,10 +96,12 @@ export class CodexAdapter implements ApiChatAdapter {
             driver: spriteDriver,
             agent,
             creds,
+            resolvePriceScope,
             runtime,
             baseEnv,
             authContext
-        } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
+        } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
+            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined)
         // Only the TRANSPORT changes for a runner turn — `runtime`
         // stays 'sprites', so credentials, workspace cwd and the codex HOME
         // relocation keep their sprite meaning. See claude-code.adapter,
@@ -156,7 +159,7 @@ export class CodexAdapter implements ApiChatAdapter {
             cmd.push('-c', `model_reasoning_effort="${intelligence}"`)
         if (speed === 'fast') cmd.push('-c', 'service_tier="fast"')
         const env =
-            runtime === 'daemon' && modelConfig && codexCreds
+            modelConfig && codexCreds && !authContext
                 ? platformCodexEnvAndArgs(cmd, codexCreds)
                 : undefined
         if (ctx.model) cmd.push('--model', ctx.model)
@@ -171,6 +174,10 @@ export class CodexAdapter implements ApiChatAdapter {
             ctx.timings.setupMs = Date.now() - tAdapterStart
             ctx.timings.execDispatchedAt = Date.now()
         }
+        const servedScope = env ? await resolvePriceScope?.() ?? UNKNOWN_PRICE_SCOPE : UNKNOWN_PRICE_SCOPE
+        await ctx.onServedPriceScope?.(servedScope)
+        ctx.abortSignal?.throwIfAborted()
+        ctx = { ...ctx, ...servedScope }
         const handle = driver.stream({
             cmd,
             env,
@@ -324,7 +331,8 @@ export class CodexAdapter implements ApiChatAdapter {
                         fallbackModelIsAssumed: usageFallbackModelIsAssumed,
                         scope: {
                             modelProviderId: ctx.modelProviderId,
-                            modelProviderBuiltInId: ctx.modelProviderBuiltInId
+                            modelProviderBuiltInId: ctx.modelProviderBuiltInId,
+                            modelProviderManagedBrand: ctx.modelProviderManagedBrand
                         }
                     }
                 )

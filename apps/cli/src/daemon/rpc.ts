@@ -87,6 +87,7 @@ import {
     type FrameworkConfigDirs
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
+import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
 
 interface TerminalSession {
     write(data: string): void
@@ -314,6 +315,7 @@ interface ExecPayload {
     dir?: string
     timeoutMs?: number
     authSelection?: unknown
+    temporarySettings?: 'gemini-platform'
 }
 
 // A profile-bound execution (DAEMON_FEATURE_AUTH_CONTEXT): resolve the
@@ -843,6 +845,7 @@ interface ExecChildEntry {
     child: ChildProcess
     stream: ExecStream
     cancelled: boolean
+    stop?: () => void
 }
 
 const execChildren = new Map<string, ExecChildEntry>()
@@ -932,6 +935,8 @@ const execStart = async (
     const cmd = payload.cmd
     if (!Array.isArray(cmd) || cmd.length === 0)
         return { ok: false, payload: { exitCode: -1 }, error: 'cmd required' }
+    if (payload.temporarySettings !== undefined && payload.temporarySettings !== 'gemini-platform')
+        return { ok: false, payload: { exitCode: -1 }, error: 'unsupported temporary settings' }
     const cwd = payload.dir
         ? ensureUnderAllowedRoot(payload.dir)
         : process.cwd()
@@ -962,21 +967,34 @@ const execStart = async (
     let failure: Completion | null = null
     let outputFailed = false
     let settleCompletion: ((final: ExecBufferFinal) => void) | undefined
+    let resources: Awaited<ReturnType<typeof createExecResources>> | undefined
+    let resourcesCleanupFailed = false
     const finish = async ({
         final,
         status
     }: Completion): Promise<ExecBufferFinal> => {
-        const pending = authContext
-        authContext = null
         try {
-            await pending?.release()
-        } catch {
-            final = {
-                ok: false,
-                payload: final.payload,
-                error: 'auth_context_release_failed'
+            const outcome = await resources?.release(child)
+            if (outcome?.setupFailed) {
+                final = { ok: false, payload: { exitCode: -1 }, error: 'exec_spawn_setup_failed' }
+                status = 'crashed'
             }
+        } catch {
+            resourcesCleanupFailed = true
+            final = { ok: false, payload: final.payload, error: 'exec_resources_release_failed' }
             status = 'crashed'
+        }
+        // An unproven process tree still owns its profile lease and update-drain
+        // registration. Never admit another profile execution over that tree.
+        if (!resourcesCleanupFailed) {
+            const pending = authContext
+            authContext = null
+            try {
+                await pending?.release()
+            } catch {
+                final = { ok: false, payload: final.payload, error: 'auth_context_release_failed' }
+                status = 'crashed'
+            }
         }
         stream?.complete(final, status)
         settleCompletion?.(final)
@@ -995,12 +1013,19 @@ const execStart = async (
             }
         })
         execStreams.set(ctx.refId, stream)
+        setupStage = 'resources'
+        if (payload.temporarySettings) resources = await createExecResources(cmd, cwd)
         setupStage = 'spawn'
-        child = spawn(cmd[0], cmd.slice(1), {
+        const childEnv = authContext
+            ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
+            : { ...process.env, ...(payload.env ?? {}) }
+        delete childEnv[EXEC_TEMP_DIRECTORY_ENV]
+        if (resources) childEnv[EXEC_TEMP_DIRECTORY_ENV] = resources.directory
+        const command = resources?.command ?? cmd
+        child = spawn(command[0], command.slice(1), {
             cwd,
-            env: authContext
-                ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
-                : { ...process.env, ...(payload.env ?? {}) },
+            env: childEnv,
+            detached: Boolean(resources) && process.platform !== 'win32',
             stdio: ['pipe', 'pipe', 'pipe']
         })
     } catch {
@@ -1014,7 +1039,11 @@ const execStart = async (
         })
     }
     const activeStream = stream
-    const entry: ExecChildEntry = { child, stream, cancelled: false }
+    const stop = (): void => {
+        if (resources) resources.stop(child)
+        else { try { child.kill('SIGTERM') } catch {} }
+    }
+    const entry: ExecChildEntry = { child, stream, cancelled: false, ...(resources ? { stop } : {}) }
     execChildren.set(ctx.refId, entry)
     if (child.stdin) {
         child.stdin.on('error', () => {})
@@ -1024,18 +1053,15 @@ const execStart = async (
     }
     ctx.onCancel(() => {
         entry.cancelled = true
-        try {
-            child.kill('SIGTERM')
-        } catch {}
+        stop()
     })
     const safePublish = (kind: 'stdout' | 'stderr', chunk: string): void => {
         if (outputFailed) return
         try {
             activeStream.publish(kind, chunk)
         } catch (err) {
-            try {
-                child.kill('SIGKILL')
-            } catch {}
+            if (resources) resources.stop(child)
+            else { try { child.kill('SIGKILL') } catch {} }
             console.error(
                 `exec-buffer publish failed for ${ctx.refId}: ${(err as Error).message}`
             )
@@ -1048,9 +1074,7 @@ const execStart = async (
 
     const timer = payload.timeoutMs
         ? setTimeout(() => {
-              try {
-                  child.kill('SIGTERM')
-              } catch {}
+              stop()
           }, payload.timeoutMs)
         : null
 
@@ -1059,7 +1083,7 @@ const execStart = async (
         const settle = (final: ExecBufferFinal): void => {
             if (acknowledged) return
             acknowledged = true
-            releaseExecChild(ctx.refId)
+            if (!resourcesCleanupFailed) releaseExecChild(ctx.refId)
             resolveAck({
                 ok: final.ok,
                 payload: final.payload,
@@ -1084,9 +1108,8 @@ const execStart = async (
             }
             safePublish('stderr', `[spawn error] ${err.message}\n`)
             if (child.pid) {
-                try {
-                    child.kill('SIGKILL')
-                } catch {}
+                if (resources) resources.stop(child)
+                else { try { child.kill('SIGKILL') } catch {} }
             }
         })
         child.once('close', (code) => {
@@ -1178,6 +1201,10 @@ const execAbort = async (
     }
     if (entry.cancelled) return { ok: true }
     entry.cancelled = true
+    if (entry.stop) {
+        entry.stop()
+        return { ok: true }
+    }
     try {
         entry.child.kill('SIGTERM')
     } catch {}

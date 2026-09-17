@@ -34,7 +34,7 @@ import {
     type UserModelProviderRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
-import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
+import { UsagePricingService, type ModelPriceScopeContext } from '@/modules/usage/usage-pricing.service'
 
 // One (scope, model) row's desired state, after validation. PUT is
 // full-replace: absent price fields clear, and the pin is all-or-nothing.
@@ -62,7 +62,7 @@ const rowAmounts = (row: ScopedModelPriceRow | undefined): ModelPriceAmounts => 
     )
 })
 
-// Prices for the two scopes in front of the global managed catalog: an admin's
+// Prices for the two scopes in front of the managed channel catalog: an admin's
 // per-built-in defaults and a user's own per-provider row. The managed catalog
 // keeps its own service; this one owns the scoped_model_prices table.
 @Injectable()
@@ -330,17 +330,11 @@ export class ScopedModelPricesService {
         )
     }
 
-    // The scope a provider row's models resolve under. A managed row must keep
-    // resolving exactly as the managed catalog dictates: its built_in_id is null
-    // and no provider-scope row can be written for it, so both scope keys are
-    // no-ops there by construction.
-    private providerScope(provider: UserModelProviderRow): {
-        modelProviderId: string
-        modelProviderBuiltInId: string | null
-    } {
+    private providerScope(provider: UserModelProviderRow): ModelPriceScopeContext {
         return {
             modelProviderId: provider.id,
-            modelProviderBuiltInId: provider.builtInId ?? null
+            modelProviderBuiltInId: provider.builtInId ?? null,
+            modelProviderManagedBrand: provider.source === 'managed' ? provider.managedBrand : null
         }
     }
 
@@ -474,10 +468,7 @@ export class ScopedModelPricesService {
     private entryView(
         modelId: string,
         row: ScopedModelPriceRow | undefined,
-        scope: {
-            modelProviderId?: string | null
-            modelProviderBuiltInId?: string | null
-        },
+        scope: ModelPriceScopeContext,
         editable: boolean
     ): ModelPriceEntryView {
         const resolved = this.pricing.resolvePricing(modelId, scope)
@@ -512,10 +503,7 @@ export class ScopedModelPricesService {
     private sourcesView(
         modelId: string,
         row: ScopedModelPriceRow | undefined,
-        scope: {
-            modelProviderId?: string | null
-            modelProviderBuiltInId?: string | null
-        },
+        scope: ModelPriceScopeContext,
         query?: string
     ): ModelPriceSourcesView {
         const candidates: ModelPriceCandidate[] = this.pricing

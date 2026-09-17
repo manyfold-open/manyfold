@@ -78,6 +78,8 @@ export const noManagedModelsPort: ManagedModelsPort = {
 export const MANAGED_PRICING_PORT = Symbol('MANAGED_PRICING_PORT')
 
 export interface ManagedPriceRow {
+    // Opaque channel identity supplied by the edition, never inferred from a model.
+    brand: string
     modelId: string
     inputCostPerToken: string | null
     outputCostPerToken: string | null
@@ -88,8 +90,7 @@ export interface ManagedPriceRow {
 }
 
 export interface ManagedPricingPort {
-    // Platform-wide price rows for managed models; merged with the core
-    // scoped-model prices when the pricing engine (re)loads its config.
+    // Catalog rows keep their channel identity when loaded into the pricing index.
     loadManagedPriceRows(db: Database): Promise<ManagedPriceRow[]>
 }
 

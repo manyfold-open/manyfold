@@ -148,6 +148,7 @@ export class DaemonExecDriver implements ExecDriver {
             stdin: req.stdin ?? '',
             dir: req.dir,
             timeoutMs: req.timeoutMs,
+            ...(req.temporarySettings ? { temporarySettings: req.temporarySettings } : {}),
             ...(this.authContext
                 ? { authSelection: { mode: 'profile', ...this.authContext } }
                 : {})
