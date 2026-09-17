@@ -17,11 +17,16 @@ import { and, eq, isNull } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
+    runtimeHosts,
     type AgentRuntimeRow,
     type Database,
     type NewAgent
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import {
+    K8S_CREATE_CLEANUP_PENDING,
+    K8S_CREATE_INITIAL_AGENT
+} from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { NotSupportedError } from '@/modules/agents/adapters/agent-adapter'
 import { agentRowToSummary } from '@/modules/agents/agents.service'
@@ -59,6 +64,9 @@ export interface AttachAgentInput {
     // which used to land every joiner on the runtime's inherited source.
     modelConfigSource?: AgentModelConfigSource
     runtimeAuthProfileId?: string | null
+    // Server-only: the pending runtime belongs to this fresh create request.
+    agentCreateId?: string
+    assertAgentCreateActive?: () => Promise<void>
 }
 
 @Injectable()
@@ -76,7 +84,54 @@ export class RuntimeAgentAttachService {
     ) {}
 
     async attach(input: AttachAgentInput): Promise<AgentSummary> {
-        const { runtime } = input
+        let { runtime } = input
+        if (runtime.kind === 'daemon' && runtime.daemonId) {
+            const [host] = await this.db
+                .select({ managed: runtimeHosts.managed })
+                .from(runtimeHosts)
+                .where(
+                    and(
+                        eq(runtimeHosts.id, runtime.daemonId),
+                        eq(runtimeHosts.userId, runtime.userId)
+                    )
+                )
+                .limit(1)
+            if (host?.managed)
+                throw new ConflictException({
+                    code: 'MANAGED_RUNNER_RUNTIME',
+                    message:
+                        'managed runner runtimes are transport-only; attach agents to their parent runtime'
+                })
+        }
+        if (runtime.kind === 'k8s') {
+            const [current] = await this.db
+                .select()
+                .from(agentRuntimes)
+                .where(
+                    and(
+                        eq(agentRuntimes.id, runtime.id),
+                        eq(agentRuntimes.userId, runtime.userId)
+                    )
+                )
+                .limit(1)
+            const ownedPending =
+                current?.status === 'pending' &&
+                current.currentPhase === K8S_CREATE_INITIAL_AGENT &&
+                current.primaryAgentId === null &&
+                !!input.agentCreateId
+            if (
+                !current ||
+                (input.agentCreateId
+                    ? !ownedPending
+                    : current.currentPhase === K8S_CREATE_INITIAL_AGENT ||
+                      current.currentPhase === K8S_CREATE_CLEANUP_PENDING)
+            )
+                throw new ConflictException({
+                    code: 'CONTAINER_NOT_READY',
+                    message: 'container is not ready for another agent'
+                })
+            runtime = current
+        }
         if (!SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS.has(runtime.framework))
             throw new ConflictException(
                 `framework ${runtime.framework} does not support add-agent`
@@ -99,7 +154,7 @@ export class RuntimeAgentAttachService {
                 'workspace is not supported for hermes runtimes'
             )
         const displayName = normalizeAgentName(input.name)
-        const agentId = createObjectId('agent')
+        const agentId = input.agentCreateId ?? createObjectId('agent')
         const internalId = isCodingAgentRuntime
             ? agentId
             : frameworkInternalIdForAgentId(agentId)
@@ -120,6 +175,7 @@ export class RuntimeAgentAttachService {
         )
         const adapter = this.adapterRegistry.get(runtime.framework)
         try {
+            await input.assertAgentCreateActive?.()
             const res = await adapter.addAgent({
                 runtime,
                 primaryAgentId: runtime.primaryAgentId ?? null,
@@ -140,7 +196,7 @@ export class RuntimeAgentAttachService {
                 runtime: runtime.kind,
                 name: displayName,
                 internalId: res.internalId,
-                status: 'running',
+                status: input.agentCreateId ? 'pending' : 'running',
                 model: res.model,
                 modelProviderId: inheritedProviderId,
                 extras: workspace
@@ -175,6 +231,7 @@ export class RuntimeAgentAttachService {
             }
             let inserted
             try {
+                await input.assertAgentCreateActive?.()
                 const [insertedRow] = await this.db
                     .insert(agents)
                     .values(newAgent)
@@ -182,6 +239,7 @@ export class RuntimeAgentAttachService {
                 inserted = insertedRow
             } catch (insertErr) {
                 try {
+                    await input.assertAgentCreateActive?.()
                     if (isCodingAgentRuntime) {
                         await adapter.removeAgent({
                             runtime,
@@ -202,6 +260,7 @@ export class RuntimeAgentAttachService {
             }
             // Promote to primary if the runtime has no primary yet. Conditional
             // update keeps this race-safe under concurrent first-agent inserts.
+            await input.assertAgentCreateActive?.()
             await this.db
                 .update(agentRuntimes)
                 .set({ primaryAgentId: agentId, updatedAt: new Date() })
@@ -220,13 +279,15 @@ export class RuntimeAgentAttachService {
                 (input.modelConfigSource === 'runtime-local' ||
                     input.runtimeAuthProfileId)
             ) {
+                await input.assertAgentCreateActive?.()
                 let bound = await this.modelConfig.updateForAgent(
                     runtime.userId,
                     inserted.id,
                     { modelConfigSource: 'runtime-local' },
                     true
                 )
-                if (input.runtimeAuthProfileId)
+                if (input.runtimeAuthProfileId) {
+                    await input.assertAgentCreateActive?.()
                     bound = await this.modelConfig.applyRuntimeAuth(
                         runtime.userId,
                         inserted.id,
@@ -237,6 +298,7 @@ export class RuntimeAgentAttachService {
                             modelConfigSource: 'runtime-local'
                         }
                     )
+                }
                 void bound
                 inserted =
                     (
@@ -247,6 +309,7 @@ export class RuntimeAgentAttachService {
                             .limit(1)
                     )[0] ?? inserted
             }
+            await input.assertAgentCreateActive?.()
             await this.skills.installDefaults({
                 userId: inserted.userId,
                 agentId: inserted.id,

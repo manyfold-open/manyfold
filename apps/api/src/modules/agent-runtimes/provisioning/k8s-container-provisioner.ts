@@ -14,6 +14,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import {
     agentCredentials,
     agentRuntimes,
+    agents,
+    serviceLeases,
     k8sClusters,
     type AgentRuntimeRow,
     type Database,
@@ -53,6 +55,16 @@ import {
     type K8sResourceSpec
 } from '@/modules/agents/orchestration/k8s-resource-builder'
 import { teardownAgent } from '@/modules/agents/orchestration/k8s-teardown'
+import {
+    describeK8sCreateError,
+    K8S_CREATE_INITIAL_AGENT,
+    K8sCreateCleanupService
+} from './k8s-create-cleanup.service'
+import {
+    insertK8sCreateLease,
+    K8sCreateOwnership,
+    k8sCreateLeaseName
+} from './k8s-create-ownership'
 
 const DEFAULT_READINESS_TIMEOUT_MS = 180_000
 const POLL_INTERVAL_MS = 2_000
@@ -70,10 +82,20 @@ export interface ProvisionContainerInput {
     // Self-serve (BYO) creates name their cluster; purchased SKUs pick by
     // region. Ignored when null/undefined.
     clusterId?: string | null
+    // Internal capability: a self-serve create owns this fresh runtime until
+    // its one preallocated agent and runtime-local config have committed.
+    agentCreateId?: string
 }
 
 export interface ProvisionContainerResult {
     runtime: AgentRuntimeRow
+}
+
+export interface ProvisionAgentContainerResult extends ProvisionContainerResult {
+    assertAgentCreateActive(): Promise<void>
+    runAgentCreate<T>(work: () => Promise<T>): Promise<T>
+    completeAgentCreate(): Promise<void>
+    rollbackAgentCreate(error: unknown): Promise<void>
 }
 
 // Cluster choice for a container: an explicit cluster (BYO self-serve) must
@@ -138,12 +160,19 @@ export class K8sContainerProvisioner {
         private readonly codexK8s: CodexK8sBootstrap,
         private readonly geminiCliK8s: GeminiCliK8sBootstrap,
         private readonly narraNexusK8s: NarraNexusK8sBootstrap,
-        private readonly podRunner: PodRunnerProvisioner
+        private readonly podRunner: PodRunnerProvisioner,
+        private readonly createCleanup: K8sCreateCleanupService
     ) {}
 
     async provision(
+        input: ProvisionContainerInput & { agentCreateId: string }
+    ): Promise<ProvisionAgentContainerResult>
+    async provision(
         input: ProvisionContainerInput
-    ): Promise<ProvisionContainerResult> {
+    ): Promise<ProvisionContainerResult>
+    async provision(
+        input: ProvisionContainerInput
+    ): Promise<ProvisionContainerResult | ProvisionAgentContainerResult> {
         const { userId, sku, name, credentials } = input
         const framework = sku.framework as K8sFramework
 
@@ -152,6 +181,8 @@ export class K8sContainerProvisioner {
             clusterId: input.clusterId ?? null,
             region: sku.region
         })
+        if (input.agentCreateId)
+            await this.createCleanup.assertClusterAvailable(userId, cluster.id)
 
         const runtimeId = createObjectId('agentRuntime')
         const client = await this.k8s.getClient(cluster.id)
@@ -187,16 +218,17 @@ export class K8sContainerProvisioner {
         // 2. Insert agentRuntimes row WITHOUT going through reserveRuntime
         // (subscription replaces plan-quota gating for purchased containers).
         const now = new Date()
-        await this.db
-            .insert(agentRuntimes)
-            .values({
+        await this.db.transaction(async (tx) => {
+            await tx.insert(agentRuntimes).values({
                 id: runtimeId,
                 userId,
                 name,
                 framework,
                 kind: 'k8s',
                 status: 'pending',
-                currentPhase: 'preparing_namespace',
+                currentPhase: input.agentCreateId
+                    ? K8S_CREATE_INITIAL_AGENT
+                    : 'preparing_namespace',
                 clusterId: cluster.id,
                 namespace,
                 ingressHost: host,
@@ -207,138 +239,320 @@ export class K8sContainerProvisioner {
                 region: sku.region,
                 purchasedAt: now
             })
+            if (input.agentCreateId)
+                await insertK8sCreateLease(tx, runtimeId, input.agentCreateId)
+        })
+
+        const ownership = input.agentCreateId
+            ? new K8sCreateOwnership(this.db, runtimeId, input.agentCreateId)
+            : undefined
+        const requestOptions = ownership?.requestOptions
 
         const envSecretName = `${resourceName(runtimeId)}-env`
         let spec!: K8sResourceSpec
         // Declared out here, assigned inside the try: the catch needs it to
         // discard a token the pod never bound, and the mint itself has to be
         // inside so a failure there rolls the runtime row back like any other.
-        let podRunner: PodRunnerProvision | null = null
+        const provisionState: { podRunner: PodRunnerProvision | null } = {
+            podRunner: null
+        }
 
         try {
-            // Credential for the daemon inside the image. It is Secret data, so
-            // it is minted before the Secret is built and after the runtime row
-            // exists — the window on either side is what the catch covers.
-            podRunner = await this.podRunner.mint({
-                userId,
-                runtimeId,
-                framework,
-                homeRoot: plan.pvcMountPath
-            })
-            const secretData = {
-                ...plan.envSecretData,
-                ...(podRunner?.env ?? {})
-            }
-            spec = {
-                agentId: runtimeId,
-                runtimeId,
-                userId,
-                namespace,
-                framework,
-                image,
-                port: plan.port,
-                host,
-                storageClass:
-                    this.config.get<string>('K8S_STORAGE_CLASS') ??
-                    DEFAULT_STORAGE_CLASS,
-                storageSize: `${sku.diskGb}Gi`,
-                pvcMountPath: plan.pvcMountPath,
-                envSecretName,
-                envSecretKeys: Object.keys(secretData),
-                readinessProbe: plan.readinessProbe,
-                resources: {
-                    requests: {
-                        cpu: `${sku.cpuMillicores}m`,
-                        memory: `${sku.memoryMb}Mi`
-                    },
-                    limits: {
-                        cpu: `${sku.cpuMillicores}m`,
-                        memory: `${sku.memoryMb}Mi`
-                    }
-                },
-                sidecars: plan.sidecars
-            }
-
-            await this.setPhase(runtimeId, 'creating_secret')
-            await apis.core.createNamespacedSecret({
-                namespace,
-                body: buildSecret(spec, secretData)
-            })
-            await this.setPhase(runtimeId, 'creating_storage')
-            await apis.core.createNamespacedPersistentVolumeClaim({
-                namespace,
-                body: buildPvc(spec)
-            })
-            await this.setPhase(runtimeId, 'creating_deployment')
-            await apis.apps.createNamespacedDeployment({
-                namespace,
-                body: buildDeployment(spec)
-            })
-            await this.setPhase(runtimeId, 'creating_service')
-            await apis.core.createNamespacedService({
-                namespace,
-                body: buildService(spec)
-            })
-            await this.setPhase(runtimeId, 'creating_ingress')
-            await apis.networking.createNamespacedIngress({
-                namespace,
-                body: buildIngress(spec)
-            })
-            for (const sidecar of plan.sidecars ?? []) {
-                if (!sidecar.ingressPath) continue
-                await apis.networking.createNamespacedIngress({
+            await ownership?.start()
+            const provision = async (): Promise<
+                ProvisionContainerResult | ProvisionAgentContainerResult
+            > => {
+                // Credential for the daemon inside the image. It is Secret data, so
+                // it is minted before the Secret is built and after the runtime row
+                // exists — the window on either side is what the catch covers.
+                const runnerInput = {
+                    userId,
+                    runtimeId,
+                    framework,
+                    homeRoot: plan.pvcMountPath
+                }
+                const podRunner = ownership
+                    ? await ownership.mutate((tx) =>
+                          this.podRunner.mint(runnerInput, tx)
+                      )
+                    : await this.podRunner.mint(runnerInput)
+                provisionState.podRunner = podRunner
+                const secretData = {
+                    ...plan.envSecretData,
+                    ...(podRunner?.env ?? {})
+                }
+                spec = {
+                    agentId: runtimeId,
+                    runtimeId,
+                    userId,
                     namespace,
-                    body: buildSidecarIngress(spec, sidecar)
+                    framework,
+                    image,
+                    port: plan.port,
+                    host,
+                    storageClass:
+                        this.config.get<string>('K8S_STORAGE_CLASS') ??
+                        DEFAULT_STORAGE_CLASS,
+                    storageSize: `${sku.diskGb}Gi`,
+                    pvcMountPath: plan.pvcMountPath,
+                    envSecretName,
+                    envSecretKeys: Object.keys(secretData),
+                    readinessProbe: plan.readinessProbe,
+                    resources: {
+                        requests: {
+                            cpu: `${sku.cpuMillicores}m`,
+                            memory: `${sku.memoryMb}Mi`
+                        },
+                        limits: {
+                            cpu: `${sku.cpuMillicores}m`,
+                            memory: `${sku.memoryMb}Mi`
+                        }
+                    },
+                    sidecars: plan.sidecars
+                }
+
+                await this.setPhase(runtimeId, 'creating_secret', ownership)
+                await apis.core.createNamespacedSecret(
+                    {
+                        namespace,
+                        body: buildSecret(spec, secretData)
+                    },
+                    requestOptions
+                )
+                await this.setPhase(runtimeId, 'creating_storage', ownership)
+                await apis.core.createNamespacedPersistentVolumeClaim(
+                    {
+                        namespace,
+                        body: buildPvc(spec)
+                    },
+                    requestOptions
+                )
+                await this.setPhase(runtimeId, 'creating_deployment', ownership)
+                await apis.apps.createNamespacedDeployment(
+                    {
+                        namespace,
+                        body: buildDeployment(spec)
+                    },
+                    requestOptions
+                )
+                await this.setPhase(runtimeId, 'creating_service', ownership)
+                await apis.core.createNamespacedService(
+                    {
+                        namespace,
+                        body: buildService(spec)
+                    },
+                    requestOptions
+                )
+                await this.setPhase(runtimeId, 'creating_ingress', ownership)
+                await apis.networking.createNamespacedIngress(
+                    {
+                        namespace,
+                        body: buildIngress(spec)
+                    },
+                    requestOptions
+                )
+                for (const sidecar of plan.sidecars ?? []) {
+                    if (!sidecar.ingressPath) continue
+                    await apis.networking.createNamespacedIngress(
+                        {
+                            namespace,
+                            body: buildSidecarIngress(spec, sidecar)
+                        },
+                        requestOptions
+                    )
+                }
+
+                await this.setPhase(runtimeId, 'waiting_for_ready', ownership)
+                const timeoutMs =
+                    Number(
+                        this.config.get<string>(
+                            'K8S_CONTAINER_PROVISION_TIMEOUT_MS'
+                        )
+                    ) || DEFAULT_READINESS_TIMEOUT_MS
+                await this.waitForReadiness({
+                    ownership,
+                    apis,
+                    namespace,
+                    resourceId: runtimeId,
+                    host,
+                    httpReadinessPath: plan.httpReadinessPath,
+                    deadline: Date.now() + timeoutMs
                 })
+
+                // Persist the container's credential record: the RESOLVED
+                // credentials merged with whatever secrets the bootstrap minted.
+                // The chat adapters load this by runtimeId and need both halves —
+                // openclaw reads primaryModelName/provider from the resolved part
+                // and its generated gatewayToken; storing the generated half
+                // alone broke first chat with 'credentials missing
+                // primaryModelName'. Seen on a kind BYO cluster [2026-08-20].
+                if (plan.generatedCredentials || credentials) {
+                    const payload = {
+                        ...((credentials as Record<string, unknown> | null) ??
+                            {}),
+                        ...(plan.generatedCredentials ?? {})
+                    }
+                    if (ownership)
+                        await ownership.mutate((tx) =>
+                            this.persistRuntimeCredentials(
+                                runtimeId,
+                                framework,
+                                payload,
+                                tx
+                            )
+                        )
+                    else
+                        await this.persistRuntimeCredentials(
+                            runtimeId,
+                            framework,
+                            payload
+                        )
+                }
+
+                await ownership?.assertActive()
+                const readyAt = new Date()
+                const updateReady = (db: Pick<Database, 'update'>) =>
+                    db
+                        .update(agentRuntimes)
+                        .set({
+                            status: input.agentCreateId ? 'pending' : 'ready',
+                            currentPhase: input.agentCreateId
+                                ? K8S_CREATE_INITIAL_AGENT
+                                : null,
+                            failureReason: null,
+                            startedAt: readyAt,
+                            lastBootstrappedAt: readyAt,
+                            updatedAt: readyAt
+                        })
+                        .where(
+                            and(
+                                eq(agentRuntimes.id, runtimeId),
+                                input.agentCreateId
+                                    ? eq(agentRuntimes.status, 'pending')
+                                    : undefined,
+                                input.agentCreateId
+                                    ? eq(
+                                          agentRuntimes.currentPhase,
+                                          K8S_CREATE_INITIAL_AGENT
+                                      )
+                                    : undefined
+                            )
+                        )
+                        .returning()
+                const [updated] = ownership
+                    ? await ownership.mutate(updateReady)
+                    : await updateReady(this.db)
+                if (!updated)
+                    throw new Error('container provisioning ownership changed')
+                const agentId = input.agentCreateId
+                if (agentId)
+                    return {
+                        runtime: updated,
+                        assertAgentCreateActive: () =>
+                            ownership!.assertActive(),
+                        runAgentCreate: (work) => ownership!.run(work),
+                        completeAgentCreate: async () => {
+                            await this.db.transaction(async (tx) => {
+                                await ownership!.assertInTx(tx)
+                                const rows = await tx
+                                    .update(agentRuntimes)
+                                    .set({
+                                        status: 'ready',
+                                        currentPhase: null,
+                                        failureReason: null,
+                                        updatedAt: new Date()
+                                    })
+                                    .where(
+                                        and(
+                                            eq(agentRuntimes.id, runtimeId),
+                                            eq(agentRuntimes.userId, userId),
+                                            eq(agentRuntimes.status, 'pending'),
+                                            eq(
+                                                agentRuntimes.currentPhase,
+                                                K8S_CREATE_INITIAL_AGENT
+                                            ),
+                                            eq(
+                                                agentRuntimes.primaryAgentId,
+                                                agentId
+                                            )
+                                        )
+                                    )
+                                    .returning({ id: agentRuntimes.id })
+                                if (rows.length !== 1)
+                                    throw new Error(
+                                        'fresh container creation ownership changed'
+                                    )
+                                const published = await tx
+                                    .update(agents)
+                                    .set({
+                                        status: 'running',
+                                        updatedAt: new Date()
+                                    })
+                                    .where(
+                                        and(
+                                            eq(agents.id, agentId),
+                                            eq(agents.runtimeId, runtimeId),
+                                            eq(agents.userId, userId),
+                                            eq(agents.status, 'pending')
+                                        )
+                                    )
+                                    .returning({ id: agents.id })
+                                if (published.length !== 1)
+                                    throw new Error(
+                                        'fresh agent creation ownership changed'
+                                    )
+                                await tx
+                                    .delete(serviceLeases)
+                                    .where(
+                                        eq(
+                                            serviceLeases.name,
+                                            k8sCreateLeaseName(runtimeId)
+                                        )
+                                    )
+                            })
+                            await ownership!.stop()
+                        },
+                        rollbackAgentCreate: async (error) =>
+                            this.createCleanup.rollback({
+                                requestsSettled: await ownership!.stop(),
+                                runtimeId,
+                                userId,
+                                agentId,
+                                error,
+                                apis,
+                                clusterId: cluster.id,
+                                namespace
+                            })
+                    }
+                return { runtime: updated }
             }
-
-            await this.setPhase(runtimeId, 'waiting_for_ready')
-            const timeoutMs =
-                Number(
-                    this.config.get<string>('K8S_CONTAINER_PROVISION_TIMEOUT_MS')
-                ) || DEFAULT_READINESS_TIMEOUT_MS
-            await this.waitForReadiness({
-                apis,
-                namespace,
-                resourceId: runtimeId,
-                host,
-                httpReadinessPath: plan.httpReadinessPath,
-                deadline: Date.now() + timeoutMs
-            })
-
-            // Persist the container's credential record: the RESOLVED
-            // credentials merged with whatever secrets the bootstrap minted.
-            // The chat adapters load this by runtimeId and need both halves —
-            // openclaw reads primaryModelName/provider from the resolved part
-            // and its generated gatewayToken; storing the generated half
-            // alone broke first chat with 'credentials missing
-            // primaryModelName'. Seen on a kind BYO cluster [2026-08-20].
-            if (plan.generatedCredentials || credentials) {
-                await this.persistRuntimeCredentials(runtimeId, framework, {
-                    ...((credentials as Record<string, unknown> | null) ?? {}),
-                    ...(plan.generatedCredentials ?? {})
-                })
-            }
-
-            const readyAt = new Date()
-            const [updated] = await this.db
-                .update(agentRuntimes)
-                .set({
-                    status: 'ready',
-                    currentPhase: null,
-                    failureReason: null,
-                    startedAt: readyAt,
-                    lastBootstrappedAt: readyAt,
-                    updatedAt: readyAt
-                })
-                .where(eq(agentRuntimes.id, runtimeId))
-                .returning()
-            return { runtime: updated }
+            return ownership
+                ? await ownership.run(provision)
+                : await provision()
         } catch (err) {
-            const reason = sanitizeReason(err)
+            const reason = input.agentCreateId
+                ? describeK8sCreateError(err)
+                : sanitizeReason(err)
             this.log.warn(
                 `container provision failed runtimeId=${runtimeId} framework=${framework}: ${reason}`
             )
+            if (input.agentCreateId) {
+                await this.createCleanup.rollback({
+                    requestsSettled: await ownership!.stop(),
+                    runtimeId,
+                    userId,
+                    agentId: input.agentCreateId,
+                    error: err,
+                    apis,
+                    clusterId: cluster.id,
+                    namespace
+                })
+                if (err instanceof GatewayTimeoutException) throw err
+                throw new InternalServerErrorException({
+                    message: 'container provisioning failed',
+                    reason
+                })
+            }
             await this.rollback({
                 apis,
                 namespace,
@@ -353,6 +567,7 @@ export class K8sContainerProvisioner {
             // delete or replace the provisioning error the caller gets.
             try {
                 await deletePodRunnerHostForRuntime(this.db, userId, runtimeId)
+                const podRunner = provisionState.podRunner
                 if (podRunner)
                     await this.podRunner.discardUnbound(
                         userId,
@@ -457,10 +672,11 @@ export class K8sContainerProvisioner {
     private async persistRuntimeCredentials(
         runtimeId: string,
         framework: K8sFramework,
-        payload: Record<string, unknown>
+        payload: Record<string, unknown>,
+        db: Pick<Database, 'insert'> = this.db
     ): Promise<void> {
         const enc = this.crypto.encrypt(JSON.stringify(payload))
-        await this.db.insert(agentCredentials).values({
+        await db.insert(agentCredentials).values({
             id: createObjectId('agentCredential'),
             runtimeId,
             framework,
@@ -469,7 +685,37 @@ export class K8sContainerProvisioner {
         })
     }
 
-    private async setPhase(runtimeId: string, phase: string): Promise<void> {
+    private async setPhase(
+        runtimeId: string,
+        phase: string,
+        ownership?: K8sCreateOwnership
+    ): Promise<void> {
+        if (ownership) {
+            const rows = await ownership.mutate(async (tx) =>
+                tx
+                    .update(agentRuntimes)
+                    .set({ updatedAt: new Date() })
+                    .where(
+                        and(
+                            eq(agentRuntimes.id, runtimeId),
+                            eq(agentRuntimes.status, 'pending'),
+                            eq(
+                                agentRuntimes.currentPhase,
+                                K8S_CREATE_INITIAL_AGENT
+                            )
+                        )
+                    )
+                    .returning({ id: agentRuntimes.id })
+            )
+            if (rows.length !== 1)
+                throw new Error(
+                    'fresh container provisioning ownership changed'
+                )
+            this.log.debug(
+                `container provision phase runtimeId=${runtimeId} phase=${phase}`
+            )
+            return
+        }
         try {
             await this.db
                 .update(agentRuntimes)
@@ -483,6 +729,7 @@ export class K8sContainerProvisioner {
     }
 
     private async waitForReadiness(args: {
+        ownership?: K8sCreateOwnership
         apis: K8sApis
         namespace: string
         resourceId: string
@@ -492,16 +739,23 @@ export class K8sContainerProvisioner {
     }): Promise<void> {
         const name = resourceName(args.resourceId)
         while (Date.now() < args.deadline) {
+            await args.ownership?.assertActive()
             try {
-                const dep = await args.apis.apps.readNamespacedDeployment({
-                    name,
-                    namespace: args.namespace
-                })
+                const dep = await args.apis.apps.readNamespacedDeployment(
+                    {
+                        name,
+                        namespace: args.namespace
+                    },
+                    args.ownership?.requestOptions
+                )
                 const avail = dep.status?.availableReplicas ?? 0
-                const ing = await args.apis.networking.readNamespacedIngress({
-                    name,
-                    namespace: args.namespace
-                })
+                const ing = await args.apis.networking.readNamespacedIngress(
+                    {
+                        name,
+                        namespace: args.namespace
+                    },
+                    args.ownership?.requestOptions
+                )
                 const addresses = ing.status?.loadBalancer?.ingress ?? []
                 const ingressAdmitted = addresses.length > 0
                 if (avail >= 1 && ingressAdmitted) {

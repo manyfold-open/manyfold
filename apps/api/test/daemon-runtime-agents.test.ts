@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import type { AgentRuntimeRow, Database, NewAgent } from '@manyfold/db'
+import { agentRuntimes } from '@manyfold/db'
 import { PLATFORM_DEFAULT_SKILL_IDS } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import { RuntimeAgentsController } from '../src/modules/agents/runtime-agents.controller'
@@ -50,6 +51,16 @@ for (const { kind, failInstall } of [
         const defaultInstalls: unknown[] = []
         const now = new Date()
         const db = {
+            select: () => ({
+                from: (table: unknown) => ({
+                    where: () => ({
+                        limit: async () =>
+                            table === agentRuntimes
+                                ? [runtime({ kind })]
+                                : [{ managed: false }]
+                    })
+                })
+            }),
             insert: () => ({
                 values: (row: NewAgent) => {
                     inserted = row

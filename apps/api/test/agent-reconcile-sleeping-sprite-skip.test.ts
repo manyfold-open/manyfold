@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { agentRuntimes } from '@manyfold/db'
 import { AgentReconcileService } from '../src/modules/agents/reconcile/agent-reconcile.service'
 
 const WS = '/home/sprite/.nca/workspaces/agent-1'
@@ -67,8 +68,18 @@ const makeDb = (rows: ReturnType<typeof fakeDbAgent>[]) => {
         inserts,
         updates,
         select: () => ({
-            from: () => ({
-                where: async () => rows
+            from: (table: unknown) => ({
+                where: () =>
+                    table === agentRuntimes
+                        ? {
+                              limit: async () => [
+                                  fakeRuntime({
+                                      kind: 'k8s',
+                                      namespace: 'nca-dev'
+                                  })
+                              ]
+                          }
+                        : Promise.resolve(rows)
             })
         }),
         update: () => ({

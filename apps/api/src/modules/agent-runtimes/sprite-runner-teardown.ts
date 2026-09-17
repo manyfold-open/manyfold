@@ -2,6 +2,8 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { agentRuntimes, runtimeHosts, type Database } from '@manyfold/db'
 import { podRunnerHostName, runnerHostName } from '@manyfold/shared'
 
+type CleanupDatabase = Pick<Database, 'select' | 'delete'>
+
 // A managed runner is an `mf daemon` the platform puts inside execution capacity
 // it owns, so a turn can ride the daemon protocol instead of that capacity's own
 // exec transport. There are two: the sprite-runner we install into a sandbox VM,
@@ -21,7 +23,7 @@ import { podRunnerHostName, runnerHostName } from '@manyfold/shared'
 // CASCADE) and deleting the host cascades its `daemon_tokens` — the same shape
 // DaemonHostService.deleteRevoked relies on.
 const deleteManagedRunnerHostByName = async (
-    db: Database,
+    db: CleanupDatabase,
     userId: string,
     hostName: string
 ): Promise<void> => {
@@ -45,7 +47,7 @@ const deleteManagedRunnerHostByName = async (
 }
 
 export const deleteSpriteRunnerHostForSprite = async (
-    db: Database,
+    db: CleanupDatabase,
     userId: string,
     spriteName: string
 ): Promise<void> =>
@@ -55,7 +57,7 @@ export const deleteSpriteRunnerHostForSprite = async (
 // created before any agent exists and is addressed by its runtime row
 // throughout — see podRunnerHostName.
 export const deletePodRunnerHostForRuntime = async (
-    db: Database,
+    db: CleanupDatabase,
     userId: string,
     runtimeId: string
 ): Promise<void> =>
