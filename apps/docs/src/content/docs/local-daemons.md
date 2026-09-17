@@ -230,8 +230,9 @@ in the daemon environment starts plain execs detached instead, with their
 input and output in files under the daemon's exec directory: a restarted
 daemon picks the running process back up and the turn continues. The switch
 is off by default while it is verified per framework; `mf daemon start` logs
-whether it is on. Execs that run under a runtime auth profile keep the old
-behaviour for now.
+whether it is on. An exec that runs under a runtime auth profile keeps its
+profile lease across the restart too: the new daemon takes the lease over
+before it reconnects, so nothing else can run on that profile in between.
 
 ## Troubleshooting
 

@@ -25,6 +25,16 @@ export async function createExecResources(cmd: string[], cwd: string) {
         await rm(directory, { recursive: true, force: true })
         throw error
     }
+    return { ...resourcesHandle(directory, cancel, receipt), command }
+}
+
+// The same handle for a directory that already exists: a file exec adopted
+// after a daemon restart (ADR-0029 §4) recorded only the path, and its
+// completion must still drain the group and remove the directory.
+export const execResourcesAt = (directory: string) =>
+    resourcesHandle(directory, join(directory, 'cancel'), join(directory, 'drained'))
+
+const resourcesHandle = (directory: string, cancel: string, receipt: string) => {
     let stopping: Promise<void> | null = null
     let watchdog: ReturnType<typeof setTimeout> | undefined
     const killOwned = async (child: ChildProcess): Promise<void> => {
@@ -59,12 +69,12 @@ export async function createExecResources(cmd: string[], cwd: string) {
     }
     return {
         directory,
-        command,
-        stop(child: ChildProcess): void {
-            stopping ??= killOwned(child)
+        // Only the pid matters on POSIX: a file exec passes its group leader.
+        stop(child: Pick<ChildProcess, 'pid'>): void {
+            stopping ??= killOwned(child as ChildProcess)
             void stopping.catch(() => {})
         },
-        async release(child?: ChildProcess): Promise<{ setupFailed: boolean }> {
+        async release(child?: Pick<ChildProcess, 'pid'>): Promise<{ setupFailed: boolean }> {
             if (stopping) await stopping
             if (watchdog) clearTimeout(watchdog)
             let setupFailed = false
@@ -76,7 +86,7 @@ export async function createExecResources(cmd: string[], cwd: string) {
                 setupFailed = outcome.setupFailed
             }
             // A detached exec owns its group even after the group leader exits.
-            if (child && process.platform !== 'win32') await killOwned(child)
+            if (child && process.platform !== 'win32') await killOwned(child as ChildProcess)
             await rm(directory, { recursive: true, force: true })
             return { setupFailed }
         }

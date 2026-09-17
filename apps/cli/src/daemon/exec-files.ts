@@ -26,6 +26,8 @@ import {
     type ExecBufferFinal,
     type ExecBufferMeta
 } from './exec-buffer'
+import { execResourcesAt } from './exec-resources'
+import { restampProfileLock } from './runtime-auth/lock'
 
 // Exec without pipes (ADR-0029 §4, the B1 slice). The child is started
 // detached through a fixed /bin/sh wrapper; its stdin comes from a file
@@ -36,10 +38,12 @@ import {
 // the exit code as one newline-terminated line in `exit`; the daemon only
 // ever observes files.
 //
-// Gray release: off unless MF_DAEMON_EXEC_FILES says so, POSIX only, and
-// (this slice) only for an exec that carries no auth lease, no temporary
-// settings and no interactive stdin — those keep the pipe path until the
-// next slices move them.
+// Gray release: off unless MF_DAEMON_EXEC_FILES says so, POSIX only. An exec
+// with interactive stdin (`keepStdinOpen`) keeps the pipe path; nothing in
+// production sets it. A profile lease and temporary settings ride along as
+// paths in the meta (never the env): the lease is re-stamped by the adopting
+// daemon before it connects, the temporary directory is drained and removed
+// at completion whichever daemon gets there.
 
 export const EXEC_FILES_FORMAT = 2
 export const EXEC_FILES_ENV = 'MF_DAEMON_EXEC_FILES'
@@ -101,6 +105,13 @@ export interface FileExecMeta extends ExecBufferMeta {
     abortRequestedAt?: string
     timedOutAt?: string
     killedAt?: string
+    // The profile lease the exec runs under: the lock directory and the
+    // label it was taken with. Paths only — the composed env holds the
+    // profile's credentials and is never written.
+    auth?: { lockDir: string; label: string }
+    // The temporary-settings directory (exec-resources.ts) the child was
+    // given, removed at completion after its group is drained.
+    resources?: { directory: string }
 }
 
 export const isFileExecMeta = (meta: ExecBufferMeta): meta is FileExecMeta =>
@@ -331,6 +342,15 @@ export interface FileExecHandle {
     done: Promise<ExecBufferFinal>
 }
 
+export interface FileExecLease {
+    release: () => Promise<void>
+}
+
+export interface FileExecResources {
+    directory: string
+    release: (leader: { pid: number }) => Promise<unknown>
+}
+
 const fileExecs = new Map<string, FileExecHandle>()
 
 export const fileExecRegistry = {
@@ -348,8 +368,8 @@ interface OwnArgs {
     offsets: { stdout: number; stderr: number }
     meta: FileExecMeta
     log: (message: string) => void
-    // How the stream ends when the group is gone without an exit line and
-    // the daemon never killed it (the wrapper itself died): a crash.
+    auth?: FileExecLease
+    resources?: FileExecResources
 }
 
 // Own a file exec — freshly spawned or adopted — until its exit line lands:
@@ -401,6 +421,61 @@ const ownFileExec = (args: OwnArgs): FileExecHandle => {
         pollTimer = deadlineTimer = escalateTimer = null
     }
 
+    type Outcome = [ExecBufferFinal, 'completed' | 'aborted' | 'crashed']
+
+    // What the exec still owns once its process is done: the temporary
+    // directory (its group drained first — a detached exec owns its group
+    // even after the leader exits) and the profile lease. Released in that
+    // order, before the terminal publication, exactly as the pipe path does;
+    // a failure turns the outcome into a crash so the exec is never admitted
+    // as clean over an unproven tree or a lease still held.
+    const releaseOwned = async (
+        final: ExecBufferFinal,
+        status: Outcome[1]
+    ): Promise<Outcome> => {
+        if (args.resources)
+            try {
+                await args.resources.release({ pid: pgid })
+            } catch (err) {
+                log(
+                    `exec-files resources release failed for ${refId}: ${(err as Error).message}`
+                )
+                return [
+                    {
+                        ok: false,
+                        payload: final.payload,
+                        error: 'exec_resources_release_failed'
+                    },
+                    'crashed'
+                ]
+            }
+        if (args.auth)
+            try {
+                await args.auth.release()
+            } catch (err) {
+                log(
+                    `exec-files lease release failed for ${refId}: ${(err as Error).message}`
+                )
+                return [
+                    {
+                        ok: false,
+                        payload: final.payload,
+                        error: 'auth_context_release_failed'
+                    },
+                    'crashed'
+                ]
+            }
+        return [final, status]
+    }
+
+    const settle = (final: ExecBufferFinal, status: Outcome[1]): void => {
+        void releaseOwned(final, status).then(([outcome, outcomeStatus]) => {
+            stream.complete(outcome, outcomeStatus)
+            fileExecs.delete(refId)
+            resolveDone(outcome)
+        })
+    }
+
     const finish = (
         exitCode: number,
         status: 'completed' | 'aborted'
@@ -421,9 +496,7 @@ const ownFileExec = (args: OwnArgs): FileExecHandle => {
                       exitCode: timedOut ? EXIT_CODE_TIMEOUT : exitCode
                   }
               }
-        stream.complete(final, cancelled ? 'aborted' : status)
-        fileExecs.delete(refId)
-        resolveDone(final)
+        settle(final, cancelled ? 'aborted' : status)
     }
 
     const crash = (reason: string): void => {
@@ -431,14 +504,10 @@ const ownFileExec = (args: OwnArgs): FileExecHandle => {
         finished = true
         clearTimers()
         publishAll(true)
-        const final: ExecBufferFinal = {
-            ok: false,
-            payload: { exitCode: -1 },
-            error: reason
-        }
-        stream.complete(final, 'crashed')
-        fileExecs.delete(refId)
-        resolveDone(final)
+        settle(
+            { ok: false, payload: { exitCode: -1 }, error: reason },
+            'crashed'
+        )
     }
 
     const killGroup = (): void => {
@@ -542,30 +611,52 @@ export interface StartFileExecArgs {
     timeoutMs?: number
     stream: ExecStream
     log: (message: string) => void
+    auth?: FileExecLease & { lockDir: string; label: string }
+    resources?: FileExecResources
 }
 
 export const startFileExec = (args: StartFileExecArgs): FileExecHandle => {
     const { refId, stream, log } = args
     const dir = bufferDir(refId)
+    // Nothing was spawned: give back what the caller took for the exec and
+    // end the stream the way a spawn error on the pipe path would.
+    const failBeforeSpawn = (final: ExecBufferFinal): FileExecHandle => {
+        const done = (async () => {
+            try {
+                await args.resources?.release({ pid: 0 })
+            } catch (err) {
+                log(
+                    `exec-files resources release failed for ${refId}: ${(err as Error).message}`
+                )
+            }
+            try {
+                await args.auth?.release()
+            } catch (err) {
+                log(
+                    `exec-files lease release failed for ${refId}: ${(err as Error).message}`
+                )
+            }
+            stream.complete(
+                final,
+                final.error === 'exec_spawn_setup_failed'
+                    ? 'crashed'
+                    : 'completed'
+            )
+            return final
+        })()
+        return { refId, stream, cancelled: false, abort: () => {}, done }
+    }
     const executable = resolveExecutable(args.cmd[0], args.env, args.cwd)
     if (!executable) {
         const message = `spawn ${args.cmd[0]} ENOENT`
         try {
             stream.publish('stderr', `[spawn error] ${message}\n`)
         } catch {}
-        const final: ExecBufferFinal = {
+        return failBeforeSpawn({
             ok: false,
             payload: { exitCode: -1 },
             error: message
-        }
-        stream.complete(final, 'completed')
-        return {
-            refId,
-            stream,
-            cancelled: false,
-            abort: () => {},
-            done: Promise.resolve(final)
-        }
+        })
     }
     writeFileSync(join(dir, STDIN_FILE), args.stdin, { mode: 0o600 })
     for (const name of [STDOUT_FILE, STDERR_FILE])
@@ -593,21 +684,12 @@ export const startFileExec = (args: StartFileExecArgs): FileExecHandle => {
     child.on('error', () => {})
     child.unref()
     const pid = child.pid
-    if (!pid) {
-        const final: ExecBufferFinal = {
+    if (!pid)
+        return failBeforeSpawn({
             ok: false,
             payload: { exitCode: -1 },
             error: 'exec_spawn_setup_failed'
-        }
-        stream.complete(final, 'crashed')
-        return {
-            refId,
-            stream,
-            cancelled: false,
-            abort: () => {},
-            done: Promise.resolve(final)
-        }
-    }
+        })
     const owner: ExecOwnerIdentity = {
         pid,
         startTime: processStartTime(pid),
@@ -617,7 +699,13 @@ export const startFileExec = (args: StartFileExecArgs): FileExecHandle => {
         format: EXEC_FILES_FORMAT,
         owner,
         cwd: args.cwd,
-        ...(deadlineAt ? { deadlineAt } : {})
+        ...(deadlineAt ? { deadlineAt } : {}),
+        ...(args.auth
+            ? { auth: { lockDir: args.auth.lockDir, label: args.auth.label } }
+            : {}),
+        ...(args.resources
+            ? { resources: { directory: args.resources.directory } }
+            : {})
     }
     updateMeta(refId, meta)
     return ownFileExec({
@@ -627,7 +715,9 @@ export const startFileExec = (args: StartFileExecArgs): FileExecHandle => {
         pgid: pid,
         offsets: { stdout: 0, stderr: 0 },
         meta: { ...(readMeta(refId) as FileExecMeta), ...meta } as FileExecMeta,
-        log
+        log,
+        auth: args.auth,
+        resources: args.resources
     })
 }
 
@@ -665,6 +755,15 @@ export const adoptFileExec = (
         adopt: { seq: lastSeq(refId) }
     })
     execStreams.set(refId, stream)
+    const resources = meta.resources
+        ? execResourcesAt(meta.resources.directory)
+        : undefined
+    // The lease the exec ran under names the dead daemon; re-stamp it with
+    // this one before anything can treat it as stale. Null means it is
+    // gone or someone else's already.
+    const lease = meta.auth
+        ? restampProfileLock(meta.auth.lockDir, meta.auth.label)
+        : null
     const own = (): FileExecHandle =>
         ownFileExec({
             refId,
@@ -673,7 +772,9 @@ export const adoptFileExec = (
             pgid: meta.owner.pid,
             offsets: tailOffsets(refId),
             meta,
-            log
+            log,
+            auth: lease ?? undefined,
+            resources
         })
     // The raw logs go at completion; their absence with no final means the
     // previous daemon died between the drain and the final write.
@@ -705,6 +806,33 @@ export const adoptFileExec = (
         )
         return 'crashed'
     }
+    // Running, ours, but its profile lease is no longer ours to hold: it
+    // would write the profile alongside whoever holds it now. It is our
+    // process, so it is stopped rather than left to collide.
+    if (meta.auth && !lease) {
+        log(
+            `exec-files ${refId}: profile lease lost while the daemon was down; stopping the exec`
+        )
+        try {
+            signalGroup(meta.owner.pid, 'SIGKILL')
+        } catch (err) {
+            log(
+                `exec-files SIGKILL failed for ${refId}: ${(err as Error).message}`
+            )
+        }
+        void resources
+            ?.release({ pid: meta.owner.pid })
+            .catch((err: Error) =>
+                log(
+                    `exec-files resources release failed for ${refId}: ${err.message}`
+                )
+            )
+        stream.complete(
+            { ok: false, payload: { exitCode: -1 }, error: 'auth_lease_lost' },
+            'crashed'
+        )
+        return 'crashed'
+    }
     own()
     return 'adopted'
 }
@@ -713,8 +841,17 @@ export const recoverFileExecs = (
     log: (message: string) => void
 ): { adopted: number; completed: number; crashed: number } => {
     const summary = { adopted: 0, completed: 0, crashed: 0 }
-    const adoptable = (refId: string, meta: ExecBufferMeta): boolean => {
-        if (!isFileExecMeta(meta)) return false
+    const pending: Array<{ refId: string; meta: FileExecMeta }> = []
+    // recoverCrashedBuffers walks the directory and marks the pipe execs; the
+    // file execs are collected here and decided below, one at a time.
+    recoverCrashedBuffers({
+        adoptable: (refId, meta) => {
+            if (!isFileExecMeta(meta)) return false
+            pending.push({ refId, meta })
+            return true
+        }
+    })
+    for (const { refId, meta } of pending) {
         try {
             const outcome = adoptFileExec(refId, meta, log)
             summary[outcome] += 1
@@ -727,10 +864,6 @@ export const recoverFileExecs = (
             markCrashed(refId)
             summary.crashed += 1
         }
-        return true
     }
-    // recoverCrashedBuffers walks the directory and marks the pipe execs; the
-    // file execs are decided here through the hook.
-    recoverCrashedBuffers({ adoptable })
     return summary
 }

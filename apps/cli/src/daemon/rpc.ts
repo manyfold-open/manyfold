@@ -340,6 +340,7 @@ const resolveAuthContext = async (
 ): Promise<{
     env: Record<string, string>
     dirs: FrameworkConfigDirs
+    lockDir: string
     release: () => Promise<void>
 } | null> => {
     if (!selection || typeof selection !== 'object') return null
@@ -987,17 +988,39 @@ const execStart = async (
             error: authError(err).error
         }
     }
-    // The file path (ADR-0029 §4, B1): a plain exec — no auth lease, no
-    // temporary settings, no interactive stdin — runs detached with its IO
-    // in files the daemon tails, so it survives this daemon. The rest keep
-    // the pipes until the next slices move them.
-    if (
-        fileExecEnabled() &&
-        !authContext &&
-        !payload.temporarySettings &&
-        !payload.keepStdinOpen
-    )
-        return execStartFiles(payload, ctx, cwd, metaPayload)
+    // The file path (ADR-0029 §4): the exec runs detached with its IO in
+    // files the daemon tails, so it survives this daemon. Its profile lease
+    // and temporary settings go with it as paths in the meta. Only an exec
+    // that keeps stdin open stays on the pipes.
+    if (fileExecEnabled() && !payload.keepStdinOpen) {
+        let resources: Awaited<ReturnType<typeof createExecResources>> | undefined
+        if (payload.temporarySettings)
+            try {
+                resources = await createExecResources(cmd, cwd)
+            } catch {
+                const pending = authContext
+                authContext = null
+                await pending?.release().catch(() => {})
+                return {
+                    ok: false,
+                    payload: { exitCode: -1 },
+                    error: 'exec_resources_setup_failed'
+                }
+            }
+        return execStartFiles(payload, ctx, cwd, metaPayload, {
+            auth: authContext
+                ? {
+                      lockDir: authContext.lockDir,
+                      label: `exec:${ctx.refId}`,
+                      release: authContext.release
+                  }
+                : undefined,
+            env: authContext
+                ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
+                : { ...process.env, ...(payload.env ?? {}) },
+            resources
+        })
+    }
     type Completion = {
         final: ExecBufferFinal
         status: 'completed' | 'aborted' | 'crashed'
@@ -1176,11 +1199,16 @@ const execStart = async (
     })
 }
 
-const execStartFiles = (
+const execStartFiles = async (
     payload: ExecPayload,
     ctx: RpcContext,
     cwd: string,
-    metaPayload: Record<string, unknown>
+    metaPayload: Record<string, unknown>,
+    owned: {
+        auth?: { lockDir: string; label: string; release: () => Promise<void> }
+        env: Record<string, string | undefined>
+        resources?: Awaited<ReturnType<typeof createExecResources>>
+    }
 ): Promise<{
     ok: boolean
     payload?: Record<string, unknown>
@@ -1195,28 +1223,36 @@ const execStartFiles = (
         })
         execStreams.set(ctx.refId, stream)
     } catch {
-        return Promise.resolve({
+        await owned.resources?.release().catch(() => {})
+        await owned.auth?.release().catch(() => {})
+        return {
             ok: false,
             payload: { exitCode: -1 },
             error: 'exec_buffer_setup_failed'
-        })
+        }
     }
     const childEnv: Record<string, string> = {}
-    for (const [key, value] of Object.entries({
-        ...process.env,
-        ...(payload.env ?? {})
-    }))
+    for (const [key, value] of Object.entries(owned.env))
         if (typeof value === 'string') childEnv[key] = value
     delete childEnv[EXEC_TEMP_DIRECTORY_ENV]
+    if (owned.resources)
+        childEnv[EXEC_TEMP_DIRECTORY_ENV] = owned.resources.directory
     const handle = startFileExec({
         refId: ctx.refId,
-        cmd: payload.cmd,
+        cmd: owned.resources?.command ?? payload.cmd,
         cwd,
         env: childEnv,
         stdin: typeof payload.stdin === 'string' ? payload.stdin : '',
         timeoutMs: payload.timeoutMs,
         stream,
-        log: (message) => console.error(message)
+        log: (message) => console.error(message),
+        auth: owned.auth,
+        resources: owned.resources
+            ? {
+                  directory: owned.resources.directory,
+                  release: (leader) => owned.resources!.release(leader)
+              }
+            : undefined
     })
     ctx.onCancel(() => handle.abort())
     return new Promise((resolveAck) => {
