@@ -17,7 +17,6 @@ import {
     type SeoPageEntry
 } from '@/seo/pages'
 import { snapshotFor, type SeoSnapshotBodies } from '@/seo/snapshots'
-import { inlineEntryStyles } from '@/seo/inlineEntryStyles'
 import {
     StaticMarketingHeader,
     StaticMarketingFooter
@@ -108,11 +107,9 @@ export const renderStaticPages = async (
         buildSitemapXml(edition.pages)
     )
 
-    const marketingShell = await inlineEntryStyles(shell, distDir)
-
     for (const entry of seoPageEntries(edition.pages)) {
         setLanguage(entry.language)
-        const html = buildPageHtml(marketingShell, {
+        const html = buildPageHtml(shell, {
             entry,
             bodyHtml: renderMarketingBody(
                 entry,
