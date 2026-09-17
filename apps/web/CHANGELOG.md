@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.1.4
+
+### Patch Changes
+
+- [#441](https://github.com/manyfold-open/manyfold/pull/441) [`3178178`](https://github.com/manyfold-open/manyfold/commit/3178178023a0a1a2f07da45d43fe56f309d8825d) Thanks [@yingca1](https://github.com/yingca1)! - Resolve managed model prices and pins within the served channel, preserve the verified provider scope across interrupted coding turns, and keep provider-specific prices isolated from other channels. Platform Gemini machine turns preserve native configuration and system policy through isolated temporary settings.
+
 ## 2.1.3
 
 ### Patch Changes
