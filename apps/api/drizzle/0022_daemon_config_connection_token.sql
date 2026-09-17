@@ -1,0 +1,1 @@
+ALTER TABLE "runtime_hosts" ADD COLUMN "rpc_connection_token" text;

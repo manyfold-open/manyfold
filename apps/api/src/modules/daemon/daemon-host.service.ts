@@ -37,6 +37,7 @@ import {
     daemonTokens,
     isManagedDaemonTokenPurpose,
     runtimeHosts,
+    serviceLeases,
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
@@ -359,6 +360,7 @@ export class DaemonHostService {
                 throw new ConflictException(
                     'daemon host must be revoked before deletion'
                 )
+            await tx.delete(serviceLeases).where(eq(serviceLeases.name, `daemon-config:${args.id}`))
             return deletedRuntimes.length
         })
         await this.audit(args.actorId, auditAction.DAEMON_DELETED, args.id, {

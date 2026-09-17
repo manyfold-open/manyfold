@@ -155,6 +155,13 @@
       "when": 1789627377739,
       "tag": "0021_sandbox_storage_measurement",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1789647380484,
+      "tag": "0022_daemon_config_connection_token",
+      "breakpoints": true
     }
   ]
 }

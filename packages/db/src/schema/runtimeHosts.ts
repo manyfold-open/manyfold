@@ -100,6 +100,8 @@ export const runtimeHosts = pgTable(
         terminalPty: boolean('terminal_pty'),
         lastSeenAt: timestamp('last_seen_at', { withTimezone: true }),
         rpcInstanceId: text('rpc_instance_id'),
+        // Issuer instance + opaque connection UUID. Timestamps are not identities.
+        rpcConnectionToken: text('rpc_connection_token'),
         rpcInbox: text('rpc_inbox'),
         rpcConnectedAt: timestamp('rpc_connected_at', { withTimezone: true }),
         rpcLastSeenAt: timestamp('rpc_last_seen_at', { withTimezone: true }),

@@ -149,13 +149,17 @@ export class AgentContextDocService {
         run: ContextDocRunner
         targetLabel: string
         timeoutMs?: number
-    }): Promise<void> {
+        connections?: AgentConnectionInfo[]
+        generatedAt?: string
+        record?: boolean
+        safeErrors?: boolean
+    }): Promise<boolean> {
         const instructionFile = INSTRUCTION_FILE[input.framework]
-        if (!instructionFile) return
+        if (!instructionFile) return false
         try {
-            const generatedAt = new Date().toISOString()
+            const generatedAt = input.generatedAt ?? new Date().toISOString()
             const connections =
-                await this.connections.resolveAgentConnectionsById(
+                input.connections ?? await this.connections.resolveAgentConnectionsById(
                     input.agentId
                 )
             const script = buildContextScript({
@@ -170,12 +174,14 @@ export class AgentContextDocService {
             })
             const result = await input.run(script, input.timeoutMs ?? 30_000)
             if (result.exitCode !== 0 || !result.stdout.includes('MF_CTX_OK')) {
+                if (input.safeErrors) { this.log.warn('daemon configuration context write failed'); return false }
                 this.log.warn(
                     `context doc write failed on ${input.targetLabel}: ` +
                         `exit=${result.exitCode} stderr=${result.stderr.slice(0, 256)}`
                 )
-                return
+                return false
             }
+            if (input.record === false) return true
             // Record the installed version so the agent-detail card reports state
             // straight from the DB — no need to wake a cold runtime to read it.
             await this.db
@@ -189,10 +195,13 @@ export class AgentContextDocService {
                     })
                 })
                 .where(eq(agents.id, input.agentId))
+            return true
         } catch (err) {
+            if (input.safeErrors) { this.log.warn('daemon configuration context write failed'); return false }
             this.log.warn(
                 `context doc write errored for ${input.agentId}: ${(err as Error).message}`
             )
+            return false
         }
     }
 }

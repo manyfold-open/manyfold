@@ -486,6 +486,13 @@ export const DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG = 'fs.claude-user-config'
 // after the write. MCP materialization always requests 0600 so plaintext
 // configuration keys never land world-readable (#781).
 export const DAEMON_FEATURE_FS_WRITE_MODE = 'fs.write.mode'
+export const DAEMON_FEATURE_FS_CONFIG_COMMIT = 'fs.write.config-commit'
+
+export interface DaemonConfigCommit {
+    generation: string
+    revision: string
+    expectedSha256: string | null
+}
 // The turn runners parse the split budgets (idleTimeoutMs / headersTimeoutMs /
 // maxDurationMs) on DaemonTurnStartPayload. The single timeoutMs field is
 // retired; this advertisement remains useful for fleet inspection.
@@ -553,6 +560,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
+    DAEMON_FEATURE_FS_CONFIG_COMMIT,
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,

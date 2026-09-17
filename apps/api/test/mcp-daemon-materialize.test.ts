@@ -3,6 +3,7 @@ import test from 'node:test'
 import { agentRuntimes, agents, runtimeHosts } from '@manyfold/db'
 import { McpConfigMaterializer } from '../src/modules/agent-runtimes/mcp/mcp-config-materializer.service'
 import { readJsonbMergePatch } from './jsonb-merge'
+import { legacyConfigDelivery } from './helpers/legacy-config-delivery'
 
 // Daemon delivery for the MCP materializer (#781): scopes go over the daemon
 // fs RPCs, the claude-code user scope is gated on the CLI's advertised
@@ -68,7 +69,7 @@ const fakeRegistry = (opts: {
     files?: Record<string, string>
 }) => {
     const calls: RpcCall[] = []
-    return {
+    const registry = {
         calls,
         rpc: async (args: RpcCall & { daemonId: string }) => {
             if (opts.offline)
@@ -83,6 +84,7 @@ const fakeRegistry = (opts: {
             return {}
         }
     }
+    return { ...registry, streamRpc: (args: RpcCall & { daemonId: string }) => ({ refId: 'fixture', result: registry.rpc(args), cancel() {} }) }
 }
 
 const build = (
@@ -93,7 +95,8 @@ const build = (
         db as never,
         {} as never,
         {} as never,
-        registry as never
+        registry as never,
+        legacyConfigDelivery(db as never) as never
     )
 
 test('a new-CLI daemon gets every scope written with mode 600', async () => {
@@ -164,7 +167,7 @@ test('an offline daemon persists failed outcomes instead of a log line', async (
         string,
         { status: string; message?: string }
     >
-    assert.match(delivery.user.message ?? '', /not connected/)
+    assert.match(delivery.user.message ?? '', /delivery failed/)
 })
 
 test('an unchanged scope persists as delivered and writes nothing', async () => {

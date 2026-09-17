@@ -490,6 +490,21 @@ export class AgentsService {
             }
             extrasPatch.mcp = body.mcp
         }
+        if (
+            existing.runtime === 'daemon' &&
+            ('mcp' in extrasPatch || 'composioConnectionId' in extrasPatch)
+        ) {
+            extrasPatch.mcpDelivery = Object.fromEntries(
+                (frameworkMcpSupport(existing.framework)?.scopes ?? []).map(
+                    (scope) => [scope.id, {
+                        status: 'failed',
+                        message: 'Configuration saved; delivery is pending.',
+                        at: new Date().toISOString()
+                    }]
+                )
+            )
+            extrasPatch.mcpDeliveryRevision = null
+        }
         if (Object.keys(extrasPatch).length > 0)
             extrasMerge = jsonbMerge(agents.extras, extrasPatch)
         if (Object.keys(patch).length === 0 && !extrasMerge) {

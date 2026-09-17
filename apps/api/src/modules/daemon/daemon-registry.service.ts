@@ -15,11 +15,12 @@ import {
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import postgres from 'postgres'
-import { and, eq, gt } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
     runtimeHosts,
+    type RuntimeHostRow,
     type Database
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -47,6 +48,7 @@ interface PendingRpc {
 interface DaemonConnection {
     token: string
     helloOrder: number
+    clientFeatures?: string[]
     daemonId: string
     userId: string
     cliVersion: string | null
@@ -60,6 +62,17 @@ interface DaemonConnection {
 export interface DaemonHelloEvidence {
     connectionToken: string
     helloOrder: number
+}
+
+export const storedConfigConnectionToken = (
+    host: Pick<RuntimeHostRow, 'rpcInstanceId' | 'rpcConnectionToken'>
+): string | undefined => {
+    const token = host.rpcConnectionToken
+    if (!token || !host.rpcInstanceId) return undefined
+    const separator = token.lastIndexOf(':')
+    return token.slice(0, separator) === host.rpcInstanceId &&
+        /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(token.slice(separator + 1))
+        ? token : undefined
 }
 
 interface RemotePendingRpc {
@@ -93,7 +106,7 @@ interface BrokerEnvelope {
 
 type BrokerMessage =
     | {
-          type: 'request'
+          type: 'request' | 'config-request'
           requestId: string
           replyInbox: string
           daemonId: string
@@ -102,6 +115,7 @@ type BrokerMessage =
           timeoutMs?: number
           stream: boolean
           refIdOverride?: string
+          expectedConnection?: string
       }
     | {
           type: 'response'
@@ -156,6 +170,11 @@ export class DaemonRegistryService
         (daemonId: string, connectionToken: string) => void
     >()
     private readonly retiredConnections = new WeakSet<DaemonConnection>()
+    private readonly helloListeners = new Set<
+        (daemonId: string, userId: string, evidence: DaemonHelloEvidence) => void
+    >()
+    private readonly connectionMutations = new Map<string, Promise<void>>()
+    private stopping = false
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
@@ -192,9 +211,11 @@ export class DaemonRegistryService
     }
 
     async onModuleDestroy(): Promise<void> {
+        this.stopping = true
         for (const conn of this.conns.values())
             this.notifyConnectionRetired(conn)
         this.connectionRetirementListeners.clear()
+        this.helloListeners.clear()
         for (const [requestId, pending] of this.remotePending) {
             clearTimeout(pending.timer)
             pending.reject(new Error('daemon rpc broker shutting down'))
@@ -202,6 +223,8 @@ export class DaemonRegistryService
         }
         for (const [, buffer] of this.brokerChunks) clearTimeout(buffer.timer)
         this.brokerChunks.clear()
+        while (this.connectionMutations.size)
+            await Promise.allSettled([...this.connectionMutations.values()])
         if (this.brokerUnlisten) await this.brokerUnlisten().catch(() => {})
         if (this.brokerSql)
             await this.brokerSql.end({ timeout: 5 }).catch(() => {})
@@ -213,8 +236,10 @@ export class DaemonRegistryService
         cliVersion: string | null
         hostname: string | null
         clientProcess?: DaemonClientProcess
+        clientFeatures?: string[]
         socket: WsClient
     }): Promise<void> {
+        if (this.stopping) throw new Error('daemon registry shutting down')
         const existing = this.conns.get(args.daemonId)
         if (existing) {
             this.notifyConnectionRetired(existing)
@@ -226,6 +251,7 @@ export class DaemonRegistryService
         this.conns.set(args.daemonId, {
             token: randomUUID(),
             helloOrder: 0,
+            clientFeatures: args.clientFeatures,
             daemonId: args.daemonId,
             userId: args.userId,
             cliVersion: args.cliVersion,
@@ -235,7 +261,17 @@ export class DaemonRegistryService
             pending: new Map(),
             connectedAt: new Date()
         })
-        await this.markConnected(args.daemonId)
+        const connection = this.conns.get(args.daemonId)!
+        await this.mutateConnection(args.daemonId, async () => {
+            if (this.stopping || this.conns.get(args.daemonId) !== connection)
+                return
+            await this.markConnected(
+                args.daemonId,
+                connection.connectedAt,
+                args.clientFeatures,
+                connection.token
+            )
+        })
         const replacementKind = !existing
             ? 'none'
             : existing.clientProcess && args.clientProcess
@@ -255,7 +291,7 @@ export class DaemonRegistryService
         this.failPending(conn, 'connection closed')
         this.conns.delete(daemonId)
         this.notifyConnectionRetired(conn)
-        await this.clearConnectionLease(daemonId)
+        await this.clearConnectionLease(daemonId, conn.token)
         this.log.log(
             `daemon disconnected daemonId=${daemonId} userId=${conn.userId} cliVersion=${conn.cliVersion ?? 'unknown'} hostname=${conn.hostname ?? 'unknown'} ${daemonClientProcessFields(conn.clientProcess)}`
         )
@@ -316,15 +352,18 @@ export class DaemonRegistryService
     }
 
     private async releaseOwnRpcLease(daemonId: string): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set(RELEASED_RPC_LEASE())
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
+        await this.mutateConnection(daemonId, async () => {
+            if (this.conns.has(daemonId)) return
+            await this.db
+                .update(runtimeHosts)
+                .set(RELEASED_RPC_LEASE())
+                .where(
+                    and(
+                        eq(runtimeHosts.id, daemonId),
+                        eq(runtimeHosts.rpcInstanceId, this.instanceId)
+                    )
                 )
-            )
+        })
     }
 
     private async disconnectAsync(
@@ -337,7 +376,7 @@ export class DaemonRegistryService
             return
         }
         this.disconnectLocal(daemonId, reason)
-        await this.clearConnectionLease(daemonId)
+        await this.clearConnectionLease(daemonId, conn.token)
     }
 
     private disconnectLocal(
@@ -384,15 +423,34 @@ export class DaemonRegistryService
 
     recordHelloForSocket(
         daemonId: string,
-        socket: WsClient
+        socket: WsClient,
+        clientFeatures?: string[]
     ): DaemonHelloEvidence | null {
         const conn = this.conns.get(daemonId)
         if (!conn || conn.socket !== socket) return null
         conn.helloOrder += 1
-        return {
+        const evidence = {
             connectionToken: conn.token,
             helloOrder: conn.helloOrder
         }
+        if (clientFeatures) {
+            conn.clientFeatures = clientFeatures
+            for (const listener of this.helloListeners) {
+                try { listener(daemonId, conn.userId, evidence) }
+                catch { this.log.warn('daemon configuration hello listener failed') }
+            }
+        }
+        return evidence
+    }
+
+    onHelloAccepted(listener: (daemonId: string, userId: string, evidence: DaemonHelloEvidence) => void): () => void {
+        this.helloListeners.add(listener)
+        return () => { this.helloListeners.delete(listener) }
+    }
+
+    currentHelloFeatures(daemonId: string, evidence?: DaemonHelloEvidence): string[] | null {
+        if (evidence && !this.isCurrentHelloEvidence(daemonId, evidence)) return null
+        return this.conns.get(daemonId)?.clientFeatures ?? null
     }
 
     currentHelloEvidence(daemonId: string): DaemonHelloEvidence | null {
@@ -433,6 +491,11 @@ export class DaemonRegistryService
     localConnectionGeneration(daemonId: string): string | null {
         const conn = this.conns.get(daemonId)
         return conn ? `${this.instanceId}:${conn.connectedAt.getTime()}` : null
+    }
+
+    localConfigConnectionToken(daemonId: string): string | undefined {
+        const conn = this.conns.get(daemonId)
+        return conn ? `${this.instanceId}:${conn.token}` : undefined
     }
 
     handleAck(
@@ -487,6 +550,7 @@ export class DaemonRegistryService
         timeoutMs?: number
         onEvent: StreamRpcCallbacks['onEvent']
         refIdOverride?: string
+        expectedConnection?: string
     }): {
         refId: string
         result: Promise<Record<string, unknown> | undefined>
@@ -503,6 +567,7 @@ export class DaemonRegistryService
         timeoutMs?: number
         onEvent: StreamRpcCallbacks['onEvent']
         refIdOverride?: string
+        expectedConnection?: string
     }): {
         refId: string
         result: Promise<Record<string, unknown> | undefined>
@@ -510,6 +575,10 @@ export class DaemonRegistryService
     } {
         const conn = this.conns.get(args.daemonId)
         if (!conn) throw new Error(`daemon ${args.daemonId} is not connected`)
+        if (
+            args.expectedConnection &&
+            args.expectedConnection !== this.localConfigConnectionToken(args.daemonId)
+        ) throw new Error('daemon configuration superseded')
         const refId = args.refIdOverride ?? randomUUID()
         const frame: DaemonWsFrame = {
             type: 'push',
@@ -550,6 +619,7 @@ export class DaemonRegistryService
         method: DaemonRpcMethod
         payload: Record<string, unknown>
         timeoutMs?: number
+        expectedConnection?: string
     }): Promise<Record<string, unknown> | undefined> {
         if (!this.conns.has(args.daemonId)) return this.remoteRpc(args)
         return this.rpcLocal(args)
@@ -560,9 +630,14 @@ export class DaemonRegistryService
         method: DaemonRpcMethod
         payload: Record<string, unknown>
         timeoutMs?: number
+        expectedConnection?: string
     }): Promise<Record<string, unknown> | undefined> {
         const conn = this.conns.get(args.daemonId)
         if (!conn) throw new Error(`daemon ${args.daemonId} is not connected`)
+        if (
+            args.expectedConnection &&
+            args.expectedConnection !== this.localConfigConnectionToken(args.daemonId)
+        ) throw new Error('daemon configuration superseded')
         const refId = randomUUID()
         const frame: DaemonWsFrame = {
             type: 'push',
@@ -591,6 +666,7 @@ export class DaemonRegistryService
         method: DaemonRpcMethod
         payload: Record<string, unknown>
         timeoutMs?: number
+        expectedConnection?: string
     }): Promise<Record<string, unknown> | undefined> {
         const stream = this.remoteStreamRpc({
             ...args,
@@ -606,6 +682,7 @@ export class DaemonRegistryService
         timeoutMs?: number
         onEvent: StreamRpcCallbacks['onEvent']
         refIdOverride?: string
+        expectedConnection?: string
     }): {
         refId: string
         result: Promise<Record<string, unknown> | undefined>
@@ -640,14 +717,15 @@ export class DaemonRegistryService
                         if (!pending) return
                         pending.ownerInbox = inbox
                         return this.publishBrokerMessage(inbox, {
-                            type: 'request',
+                            type: args.expectedConnection ? 'config-request' : 'request',
                             requestId,
                             replyInbox: this.inbox,
                             daemonId: args.daemonId,
                             method: args.method,
                             payload: args.payload,
                             timeoutMs,
-                            stream: !!args.onEvent,
+                            stream: !!args.onEvent || !!args.expectedConnection,
+                            expectedConnection: args.expectedConnection,
                             ...(args.refIdOverride
                                 ? { refIdOverride: args.refIdOverride }
                                 : {})
@@ -703,14 +781,15 @@ export class DaemonRegistryService
         return host.rpcInbox
     }
 
-    private async markConnected(daemonId: string): Promise<void> {
-        const now = new Date()
+    private async markConnected(daemonId: string, now = new Date(), clientFeatures?: string[], token?: string): Promise<void> {
         await this.db
             .update(runtimeHosts)
             .set({
                 rpcInstanceId: this.instanceId,
+                rpcConnectionToken: token ? `${this.instanceId}:${token}` : null,
                 rpcInbox: this.inbox,
                 rpcConnectedAt: now,
+                ...(clientFeatures ? { clientFeatures } : {}),
                 rpcLastSeenAt: now,
                 lastSeenAt: now,
                 status: 'active',
@@ -719,48 +798,63 @@ export class DaemonRegistryService
             .where(eq(runtimeHosts.id, daemonId))
     }
 
-    private async clearConnectionLease(daemonId: string): Promise<void> {
-        const [host] = await this.db
-            .select({ status: runtimeHosts.status })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
-                )
-            )
-            .limit(1)
-        if (!host) return
+    private async mutateConnection(
+        daemonId: string,
+        work: () => Promise<void>
+    ): Promise<void> {
+        // A newer connection must wait for already-issued identity writes;
+        // checking the local token cannot cancel SQL queued in PostgreSQL.
+        const pending = (this.connectionMutations.get(daemonId) ?? Promise.resolve())
+            .catch(() => {})
+            .then(work)
+        this.connectionMutations.set(daemonId, pending)
+        try {
+            await pending
+        } finally {
+            if (this.connectionMutations.get(daemonId) === pending)
+                this.connectionMutations.delete(daemonId)
+        }
+    }
 
-        const now = new Date()
-        await this.db
-            .update(runtimeHosts)
-            .set({
-                rpcInstanceId: null,
-                rpcInbox: null,
-                rpcConnectedAt: null,
-                rpcLastSeenAt: null,
-                status: host.status === 'active' ? 'offline' : host.status,
-                updatedAt: now
+    private async clearConnectionLease(daemonId: string, token?: string): Promise<void> {
+        await this.mutateConnection(daemonId, async () => {
+            if (this.conns.has(daemonId)) return
+            await this.db.transaction(async (tx) => {
+                const now = new Date()
+                const [host] = await tx
+                    .update(runtimeHosts)
+                    .set({
+                        ...RELEASED_RPC_LEASE(),
+                        status: sql`case when ${runtimeHosts.status} = 'active' then 'offline' else ${runtimeHosts.status} end`,
+                        updatedAt: now
+                    })
+                    .where(
+                        and(
+                            eq(runtimeHosts.id, daemonId),
+                            eq(runtimeHosts.rpcInstanceId, this.instanceId),
+                            token
+                                ? eq(runtimeHosts.rpcConnectionToken, `${this.instanceId}:${token}`)
+                                : undefined
+                        )
+                    )
+                    .returning({ id: runtimeHosts.id })
+                if (!host) return
+                // Keep the host row locked until its dependent status writes
+                // finish, so another API cannot take over between them.
+                await tx
+                    .update(agentRuntimes)
+                    .set({ status: 'stopped', updatedAt: now })
+                    .where(eq(agentRuntimes.daemonId, daemonId))
+                await tx
+                    .update(agents)
+                    .set({
+                        status: 'stopped',
+                        failureReason: 'daemon disconnected',
+                        updatedAt: now
+                    })
+                    .where(eq(agents.daemonId, daemonId))
             })
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
-                )
-            )
-        await this.db
-            .update(agentRuntimes)
-            .set({ status: 'stopped', updatedAt: now })
-            .where(eq(agentRuntimes.daemonId, daemonId))
-        await this.db
-            .update(agents)
-            .set({
-                status: 'stopped',
-                failureReason: 'daemon disconnected',
-                updatedAt: now
-            })
-            .where(eq(agents.daemonId, daemonId))
+        })
     }
 
     private async publishRemoteDisconnect(
@@ -807,6 +901,7 @@ export class DaemonRegistryService
     private async handleBrokerMessage(message: BrokerMessage): Promise<void> {
         switch (message.type) {
             case 'request':
+            case 'config-request':
                 await this.handleBrokerRequest(message)
                 return
             case 'response':
@@ -820,17 +915,23 @@ export class DaemonRegistryService
             case 'cancel':
                 this.forwardedStreams.get(message.requestId)?.cancel()
                 return
-            case 'disconnect':
+            case 'disconnect': {
+                const token = this.conns.get(message.daemonId)?.token
                 this.disconnectLocal(message.daemonId, message.reason)
-                await this.clearConnectionLease(message.daemonId)
+                await this.clearConnectionLease(message.daemonId, token)
                 return
+            }
         }
     }
 
     private async handleBrokerRequest(
-        message: Extract<BrokerMessage, { type: 'request' }>
+        message: Extract<BrokerMessage, { type: 'request' | 'config-request' }>
     ): Promise<void> {
         try {
+            if (
+                message.type === 'config-request' &&
+                (typeof message.expectedConnection !== 'string' || !message.expectedConnection)
+            ) throw new Error('daemon configuration unsupported')
             if (message.stream) {
                 const stream = this.streamRpcLocal({
                     daemonId: message.daemonId,
@@ -841,6 +942,7 @@ export class DaemonRegistryService
                     ),
                     timeoutMs: message.timeoutMs,
                     refIdOverride: message.refIdOverride,
+                    expectedConnection: message.expectedConnection,
                     onEvent: (kind, data, seq) => {
                         const forwarded = this.forwardedStreams.get(
                             message.requestId
@@ -888,7 +990,8 @@ export class DaemonRegistryService
                     message.method,
                     message.payload
                 ),
-                timeoutMs: message.timeoutMs
+                timeoutMs: message.timeoutMs,
+                expectedConnection: message.expectedConnection
             })
             await this.publishBrokerMessage(message.replyInbox, {
                 type: 'response',
@@ -988,12 +1091,14 @@ export class DaemonRegistryService
 
 const RELEASED_RPC_LEASE = (): {
     rpcInstanceId: null
+    rpcConnectionToken: null
     rpcInbox: null
     rpcConnectedAt: null
     rpcLastSeenAt: null
     updatedAt: Date
 } => ({
     rpcInstanceId: null,
+    rpcConnectionToken: null,
     rpcInbox: null,
     rpcConnectedAt: null,
     rpcLastSeenAt: null,

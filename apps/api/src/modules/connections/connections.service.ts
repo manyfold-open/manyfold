@@ -80,7 +80,7 @@ const connectionUsageHint = (row: UserConnectionRow): string => {
     return 'Composio Connect is linked; its tools are exposed through the managed "composio" MCP server — list them with tools/list.'
 }
 
-const toAgentConnectionInfo = (row: UserConnectionRow): AgentConnectionInfo => ({
+export const toAgentConnectionInfo = (row: UserConnectionRow): AgentConnectionInfo => ({
     provider: row.provider,
     displayName: row.displayName,
     account: connectionAccount(row),

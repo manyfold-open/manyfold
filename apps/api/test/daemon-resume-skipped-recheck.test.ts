@@ -1826,7 +1826,16 @@ test('actual registry retirement releases a known turn handed from its timer to 
     t.mock.timers.enable({ apis: ['setTimeout'] })
     const registry = new DaemonRegistryService(
         {
-            update: () => ({ set: () => ({ where: async () => undefined }) }),
+            update: () => ({
+                set: () => ({
+                    where: () => Object.assign(Promise.resolve(undefined), {
+                        returning: async () => []
+                    })
+                })
+            }),
+            transaction(work: (tx: unknown) => Promise<unknown>) {
+                return work(this)
+            },
             select: () => ({
                 from: () => ({ where: () => ({ limit: async () => [] }) })
             })

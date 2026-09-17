@@ -82,6 +82,12 @@ mf daemon logs
 
 也可以打开 **New agent**，选好框架后，把 runtime 选成 **Self-owned computer**。
 
+## 已保存的 MCP 与平台上下文
+
+Claude Code、Codex 和 Gemini CLI Agent 的 daemon 重连后，Manyfold 会重试已保存的 MCP 配置和平台上下文。电脑离线期间保存的修改会保持待交付状态，直到写入成功。连接账号变更也会刷新上下文，不要求模板版本先升级。
+
+自动交付需要当前 CLI。较旧 daemon 会显示升级提示；请更新并重启，或在 Agent 设置中显式推送。写入失败会保留可见状态，之后可以重试。Manyfold 保留托管引用块之外的自定义指令。
+
 ## 管理 daemon
 
 ```sh

@@ -15,8 +15,6 @@ import {
 } from '@manyfold/sprites'
 import {
     agentRuntimes,
-    agents,
-    jsonbMerge,
     type Agent,
     type Database
 } from '@manyfold/db'
@@ -25,9 +23,11 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
-    daemonReadTextFile,
-    daemonWriteTextFile
+    daemonConfigRead,
+    daemonConfigWrite,
+    daemonConfigRpc
 } from '@/modules/daemon/daemon-fs'
+import { DaemonConfigDeliveryService, DaemonConfigDeliveryError, type DaemonConfigSnapshot, type DaemonConfigDeliveryOptions } from '@/modules/daemon/daemon-config-delivery.service'
 import { decryptComposioKey } from '@/modules/connections/composio-key'
 import { COMPOSIO_MCP_SERVER_NAME } from '@/modules/connections/composio.service'
 import {
@@ -46,6 +46,7 @@ import {
 export interface ScopeFileIo {
     read(absPath: string): Promise<string | null>
     write(absPath: string, text: string): Promise<void>
+    commit?(absPath: string, text: string | null, previous: string | null): Promise<'delivered' | 'unchanged'>
 }
 
 export interface MaterializeMcpArgs {
@@ -60,6 +61,8 @@ export interface MaterializeMcpArgs {
     // injected as a managed `composio` server into the framework's home-dir scope.
     userId: string
     composioConnectionId?: string | null
+    composioKey?: string | null
+    safeErrors?: boolean
 }
 
 export const spriteScopeIo = (
@@ -84,21 +87,6 @@ export const spriteScopeIo = (
     }
 })
 
-export const daemonScopeIo = (
-    registry: DaemonRegistryService,
-    daemonId: string
-): ScopeFileIo => ({
-    read: (absPath) => daemonReadTextFile(registry, daemonId, absPath),
-    write: (absPath, text) =>
-        daemonWriteTextFile(
-            registry,
-            daemonId,
-            absPath,
-            text,
-            '600'
-        )
-})
-
 // Writes per-scope MCP config into a coding agent's runtime. DB (agent.extras.mcp)
 // is the source of truth; this projects it onto each framework's real config
 // file via read-modify-write (no jq on the target, no heredoc). Every write is
@@ -112,7 +100,8 @@ export class McpConfigMaterializer {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly accounts: SpritesAccountsService,
         private readonly crypto: CryptoService,
-        private readonly daemonRegistry: DaemonRegistryService
+        private readonly daemonRegistry: DaemonRegistryService,
+        private readonly delivery: DaemonConfigDeliveryService
     ) {}
 
     async materialize(
@@ -127,13 +116,14 @@ export class McpConfigMaterializer {
         // skips only the injection, never the user's own MCP scopes.
         let composioKey: string | null = null
         try {
-            composioKey = await decryptComposioKey(
+            composioKey = args.composioKey !== undefined ? args.composioKey : await decryptComposioKey(
                 this.db,
                 this.crypto,
                 args.userId,
                 args.composioConnectionId
             )
         } catch (err) {
+            if (args.safeErrors) throw new DaemonConfigDeliveryError('failed')
             this.log.warn(
                 `composio key resolve failed on ${args.targetLabel}: ${(err as Error).message}`
             )
@@ -159,6 +149,11 @@ export class McpConfigMaterializer {
                     )
                 })
             } catch (err) {
+                if (args.safeErrors) {
+                    this.log.warn(`daemon configuration mcp scope ${target.scopeId} failed`)
+                    results.push({ scopeId: target.scopeId, status: 'failed', message: 'Configuration delivery failed; reconnect or retry the push.' })
+                    continue
+                }
                 this.log.warn(
                     `mcp materialize ${args.framework}/${target.scopeId} on ${args.targetLabel} failed: ${(err as Error).message}`
                 )
@@ -178,7 +173,8 @@ export class McpConfigMaterializer {
     // extras.mcpDelivery — a daemon has no bootstrap to re-materialize at, so
     // an offline save must leave a durable stale marker (#781).
     async materializeForAgent(
-        agent: Agent
+        agent: Agent,
+        options: DaemonConfigDeliveryOptions = {}
     ): Promise<AgentMcpDeliveryScopeResult[]> {
         if (!frameworkMcpSupport(agent.framework))
             throw new Error(
@@ -186,7 +182,7 @@ export class McpConfigMaterializer {
             )
         if (agent.runtime === 'sprites')
             return this.materializeSprite(agent)
-        if (agent.runtime === 'daemon') return this.materializeDaemon(agent)
+        if (agent.runtime === 'daemon') return this.materializeDaemon(agent, options)
         throw new Error(
             `MCP config cannot be pushed to a ${agent.runtime} runtime`
         )
@@ -202,6 +198,7 @@ export class McpConfigMaterializer {
             if (!frameworkMcpSupport(agent.framework)) return
             await this.materializeForAgent(agent)
         } catch (err) {
+            if (agent.runtime === 'daemon') { this.log.warn('daemon configuration mcp refresh deferred'); return }
             this.log.warn(
                 `mcp refresh failed for ${agent.id}: ${(err as Error).message}`
             )
@@ -242,51 +239,141 @@ export class McpConfigMaterializer {
     }
 
     private async materializeDaemon(
-        agent: Agent
+        agent: Agent,
+        options: DaemonConfigDeliveryOptions
     ): Promise<AgentMcpDeliveryScopeResult[]> {
-        if (!agent.daemonId || !agent.runtimeId)
-            throw new Error(`agent ${agent.id} is missing its daemon identity`)
-        const daemonId = agent.daemonId
-        const homeDir = await this.runtimeHomeDir(agent.runtimeId)
-        if (!homeDir)
-            throw new Error(`runtime home dir unknown for ${agent.id}`)
-        const results = await this.materialize({
-            io: daemonScopeIo(this.daemonRegistry, daemonId),
-            targetLabel: daemonId,
-            framework: agent.framework,
-            homeDir,
-            workspacePath: agent.workspacePath ?? agent.mountPath,
-            mcp: mcpConfigFromExtras(agent.extras),
-            userId: agent.userId,
-            composioConnectionId: composioConnectionIdOf(agent)
-        })
-        await this.persistDelivery(agent.id, results)
-        return results
+        return this.delivery.deliver(
+            agent,
+            async (snapshot, attempt) => {
+                const current = snapshot.agent
+                const daemonId = current.daemonId!
+                const revision = snapshot.revision('mcp')
+                if (options.automatic && this.delivered(snapshot)) return []
+                const support = frameworkMcpSupport(current.framework)
+                if (!support) return []
+                let results: AgentMcpDeliveryScopeResult[]
+                if (options.automatic && !attempt.protectedWrites)
+                    results = support.scopes.map((scope) => ({
+                        scopeId: scope.id,
+                        status: 'skipped',
+                        message:
+                            'Upgrade the daemon CLI for automatic configuration delivery.'
+                    }))
+                else if (!snapshot.runtime.homeDir)
+                    results = support.scopes.map((scope) => ({
+                        scopeId: scope.id,
+                        status: 'failed',
+                        message: 'Runtime home directory is unavailable.'
+                    }))
+                else {
+                    try {
+                        const key = snapshot.connections.find(
+                            (row) =>
+                                row.id ===
+                                    current.extras.composioConnectionId &&
+                                row.provider === 'composio' &&
+                                !row.revokedAt
+                        )
+                        let composioKey: string | null = null
+                        if (key?.secretCiphertext)
+                            composioKey = this.crypto.decrypt({
+                                ciphertext: key.secretCiphertext,
+                                keyVersion: key.keyVersion
+                            })
+                        results = await this.materialize({
+                            io: {
+                                read: (path) =>
+                                    daemonConfigRead(
+                                        this.daemonRegistry,
+                                        daemonId,
+                                        path,
+                                        attempt
+                                    ),
+                                write: async (path, text) => {
+                                    await daemonConfigRpc(
+                                        this.daemonRegistry,
+                                        daemonId,
+                                        'fs.write',
+                                        { path, content: text, mode: '600' },
+                                        attempt
+                                    )
+                                },
+                                ...(attempt.protectedWrites
+                                    ? {
+                                          commit: (
+                                              path: string,
+                                              text: string | null,
+                                              previous: string | null
+                                          ) =>
+                                              daemonConfigWrite(
+                                                  this.daemonRegistry,
+                                                  daemonId,
+                                                  path,
+                                                  text,
+                                                  previous,
+                                                  revision,
+                                                  attempt
+                                              )
+                                      }
+                                    : {})
+                            },
+                            targetLabel: 'daemon configuration',
+                            framework: current.framework,
+                            homeDir: snapshot.runtime.homeDir,
+                            workspacePath:
+                                current.workspacePath ?? current.mountPath,
+                            mcp: mcpConfigFromExtras(current.extras),
+                            userId: current.userId,
+                            composioKey,
+                            safeErrors: true
+                        })
+                    } catch {
+                        results = support.scopes.map((scope) => ({
+                            scopeId: scope.id,
+                            status: 'failed',
+                            message:
+                                'Configuration delivery failed; reconnect or retry the push.'
+                        }))
+                    }
+                }
+                const record = Object.fromEntries(
+                    results.map((result) => [
+                        result.scopeId,
+                        {
+                            status:
+                                result.status === 'unchanged'
+                                    ? 'delivered'
+                                    : result.status,
+                            ...(result.message
+                                ? { message: result.message }
+                                : {}),
+                            at: new Date().toISOString()
+                        }
+                    ])
+                )
+                const published = await attempt.publish(snapshot, 'mcp', {
+                    mcpDelivery: record,
+                    mcpDeliveryRevision: revision
+                })
+                if (!published) throw new DaemonConfigDeliveryError('changed')
+                return results
+            },
+            options
+        )
     }
 
-    private async persistDelivery(
-        agentId: string,
-        results: AgentMcpDeliveryScopeResult[]
-    ): Promise<void> {
-        const at = new Date().toISOString()
-        const record: Record<string, unknown> = {}
-        for (const result of results)
-            record[result.scopeId] = {
-                status:
-                    result.status === 'unchanged' ? 'delivered' : result.status,
-                ...(result.message ? { message: result.message } : {}),
-                at
-            }
-        try {
-            await this.db
-                .update(agents)
-                .set({ extras: jsonbMerge(agents.extras, { mcpDelivery: record }) })
-                .where(eq(agents.id, agentId))
-        } catch (err) {
-            this.log.warn(
-                `mcp delivery record write failed for ${agentId}: ${(err as Error).message}`
+    delivered(snapshot: DaemonConfigSnapshot): boolean {
+        const support = frameworkMcpSupport(snapshot.agent.framework)
+        const record = snapshot.agent.extras.mcpDelivery as
+            Record<string, { status?: string }> | undefined
+        return (
+            !!support &&
+            snapshot.agent.extras.mcpDeliveryRevision ===
+                snapshot.revision('mcp') &&
+            support.scopes.every(
+                (scope) => record?.[scope.id]?.status === 'delivered'
             )
-        }
+        )
     }
 
     private async runtimeHomeDir(runtimeId: string): Promise<string | null> {
@@ -306,6 +393,7 @@ export class McpConfigMaterializer {
     ): Promise<'delivered' | 'unchanged'> {
         const current = await io.read(target.absPath)
         const desired = computeDesired(target, current, text, injection)
+        if (io.commit) return io.commit(target.absPath, desired ?? current, current)
         if (desired === null || desired === current) return 'unchanged'
         await io.write(target.absPath, desired)
         return 'delivered'
