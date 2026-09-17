@@ -216,6 +216,10 @@ import {
     TurnOwnershipUnavailableError,
     type TurnExecutionFence
 } from '@/modules/chat/turn-fence'
+import {
+    CANCELLED_BY_USER_CODE,
+    isTerminalTurnExecutionState
+} from './turn-outcome'
 import { inBackgroundContext, inRequestContinuation } from '@/common/telemetry/background-context'
 
 export type ChatTurnObserver = (event: EmittedChatEvent) => void
@@ -244,7 +248,6 @@ export interface TurnShutdownResult {
         | 'failed'
 }
 
-const CANCELLED_BY_USER_CODE = 'cancelled_by_user'
 const CANCELLED_BY_USER_MESSAGE = 'cancelled by user'
 const OPENCLAW_REPLAY_FRAMEWORKS = new Set<AgentFramework>([
     'openclaw',
@@ -1213,8 +1216,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 )
                 if (
                     execution &&
-                    execution.state !== 'done' &&
-                    execution.state !== 'failed' &&
+                    !isTerminalTurnExecutionState(execution.state) &&
                     (execution.runtime === 'sprites' ||
                         execution.runtime === 'external') &&
                     this.turnAdoption?.enabled
@@ -2242,7 +2244,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // the terminalize path — nudge the sweep and leave the turn alone so a
         // deploy-orphaned turn is recovered instead of killed.
         const exec = await this.repo.getTurnExecution(dead.messageId)
-        if (exec && exec.state !== 'done' && exec.state !== 'failed') {
+        if (exec && !isTerminalTurnExecutionState(exec.state)) {
             if (
                 (exec.runtime === 'sprites' || exec.runtime === 'external') &&
                 this.turnAdoption?.enabled
@@ -2306,7 +2308,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // execution record belongs to the adoption sweep — an A2A resubscribe
         // mid-gap must not kill a turn adoption would recover.
         const exec = await this.repo.getTurnExecution(dead.messageId)
-        if (exec && exec.state !== 'done' && exec.state !== 'failed') {
+        if (exec && !isTerminalTurnExecutionState(exec.state)) {
             if (
                 (exec.runtime === 'sprites' || exec.runtime === 'external') &&
                 this.turnAdoption?.enabled
@@ -3189,7 +3191,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
     ): Promise<TurnExecutionFence | null> {
         const execution = await this.repo.getTurnExecution(messageId)
         if (!execution) return null
-        if (execution.state === 'done' || execution.state === 'failed')
+        if (isTerminalTurnExecutionState(execution.state))
             return null
         const ownerId = this.turnAdoption?.ownerId
         if (!ownerId) throw new TurnFenceLostError(messageId)

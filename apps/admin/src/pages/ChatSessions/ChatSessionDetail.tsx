@@ -475,13 +475,19 @@ const ChatSessionDetail: FC = (): ReactNode => {
                                                 ).toLocaleString(getLocale())}
                                             </td>
                                             <td>
-                                                {turn.execution ? (
+                                                {turn.outcome ||
+                                                turn.execution ? (
                                                     <Badge
                                                         tone={turnStateTone(
-                                                            turn.execution.state
+                                                            turn.outcome ??
+                                                                turn.execution
+                                                                    ?.state ??
+                                                                null
                                                         )}
                                                     >
-                                                        {turn.execution.state}
+                                                        {turn.outcome ??
+                                                            turn.execution
+                                                                ?.state}
                                                     </Badge>
                                                 ) : (
                                                     '—'

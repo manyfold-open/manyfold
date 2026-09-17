@@ -207,6 +207,358 @@ const fakeContext = (userId: string): ExecutionContext =>
         })
     }) as unknown as ExecutionContext
 
+const cancellation = {
+    error: { code: 'cancelled_by_user', message: 'Cancelled', retryable: false }
+}
+
+test(
+    'cancellation atomically persists a terminal outcome and releases its claim',
+    {
+        skip: !RUN && 'RUN_PG_E2E!=1'
+    },
+    async (t) => {
+        const h = await buildHarness(t)
+        try {
+            const sessionId = await createSession(h, {
+                userId: h.memberId,
+                agentId: h.memberAgentId
+            })
+            const messageId = await addAssistantMessage(h, sessionId)
+            await h.db
+                .update(chatSessions)
+                .set({ inflightMessageId: messageId })
+                .where(eq(chatSessions.id, sessionId))
+            await h.db.insert(turnExecutions).values({
+                messageId,
+                sessionId,
+                agentId: h.memberAgentId,
+                runtime: 'sprites',
+                ownerId: 'api-test',
+                leaseExpiresAt: tick(),
+                state: 'running'
+            })
+            const result = await h.repo.insertStreamEvent(
+                {
+                    sessionId,
+                    messageId,
+                    seq: 1,
+                    eventType: 'error',
+                    payloadJson: cancellation
+                },
+                undefined,
+                { messageId, ownerId: 'api-test', generation: 1 }
+            )
+            assert.ok(result.id)
+            assert.equal(result.fenceLost, false)
+            assert.equal(
+                (await h.repo.getTurnExecution(messageId))?.state,
+                'cancelled'
+            )
+            assert.equal(
+                (await h.repo.getSessionById(sessionId))?.inflightMessageId,
+                null
+            )
+            const detail = await h.service.get(sessionId)
+            assert.equal(detail.session.status, 'idle')
+            assert.equal(detail.session.lastTurnState, 'cancelled')
+            assert.equal(detail.session.lastError, null)
+            assert.equal(detail.turns[0]?.outcome, 'cancelled')
+            assert.equal(detail.turns[0]?.execution?.state, 'cancelled')
+            assert.equal(detail.turns[0]?.error, null)
+            assert.equal(
+                detail.eventCounts.error,
+                1,
+                'raw wire counts stay inspectable'
+            )
+            const events = await h.service.listEvents(sessionId, {
+                limit: 10,
+                afterId: null,
+                order: 'asc',
+                types: null,
+                messageId
+            })
+            assert.deepEqual(events.items[0]?.payloadJson, cancellation)
+            assert.equal(events.items[0]?.eventType, 'error')
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+for (const execution of ['legacy-failed', 'absent'] as const) {
+    test(
+        `typed cancellation has a neutral outcome with ${execution} execution`,
+        {
+            skip: !RUN && 'RUN_PG_E2E!=1'
+        },
+        async (t) => {
+            const h = await buildHarness(t)
+            try {
+                const sessionId = await createSession(h, {
+                    userId: h.memberId,
+                    agentId: h.memberAgentId
+                })
+                const messageId = await addAssistantMessage(h, sessionId)
+                if (execution === 'legacy-failed') {
+                    await h.db.insert(turnExecutions).values({
+                        messageId,
+                        sessionId,
+                        agentId: h.memberAgentId,
+                        runtime: 'sprites',
+                        ownerId: 'historical-owner',
+                        leaseExpiresAt: tick(),
+                        state: 'failed'
+                    })
+                }
+                await addEvent(
+                    h,
+                    sessionId,
+                    messageId,
+                    1,
+                    'error',
+                    cancellation
+                )
+                const detail = await h.service.get(sessionId)
+                assert.equal(detail.session.status, 'idle')
+                assert.equal(detail.session.lastTurnState, 'cancelled')
+                assert.equal(detail.session.lastError, null)
+                assert.equal(detail.turns[0]?.outcome, 'cancelled')
+                assert.equal(detail.turns[0]?.error, null)
+                if (execution === 'legacy-failed') {
+                    assert.equal(detail.turns[0]?.execution?.state, 'cancelled')
+                    assert.equal(
+                        detail.turns[0]?.execution?.ownerId,
+                        'historical-owner'
+                    )
+                    assert.equal(
+                        (await h.repo.getTurnExecution(messageId))?.state,
+                        'failed',
+                        'historical rows are projected, not rewritten'
+                    )
+                } else {
+                    assert.equal(detail.turns[0]?.execution, null)
+                }
+                const transcript = await h.service.listTurns(sessionId, {
+                    limit: 10,
+                    before: null
+                })
+                assert.equal(transcript.items[0]?.turn.outcome, 'cancelled')
+                assert.equal(transcript.items[0]?.turn.error, null)
+                const errors = await h.service.list({
+                    limit: 50,
+                    cursor: null,
+                    agentId: null,
+                    userId: h.memberId,
+                    running: false,
+                    hasError: true,
+                    q: null
+                })
+                assert.deepEqual(errors.items, [])
+            } finally {
+                await h.close()
+            }
+        }
+    )
+}
+
+test(
+    'latest cancellation does not inherit an older execution failure, which remains searchable',
+    {
+        skip: !RUN && 'RUN_PG_E2E!=1'
+    },
+    async (t) => {
+        const h = await buildHarness(t)
+        try {
+            const sessionId = await createSession(h, {
+                userId: h.memberId,
+                agentId: h.memberAgentId
+            })
+            const failedId = await addAssistantMessage(h, sessionId)
+            await h.db.insert(turnExecutions).values({
+                messageId: failedId,
+                sessionId,
+                agentId: h.memberAgentId,
+                runtime: 'sprites',
+                ownerId: 'historical-owner',
+                leaseExpiresAt: tick(),
+                state: 'failed'
+            })
+            await addEvent(h, sessionId, failedId, 1, 'error', {
+                error: {
+                    code: 'runtime_unavailable',
+                    message: 'Runtime unavailable'
+                }
+            })
+            const cancelledId = await addAssistantMessage(h, sessionId)
+            await addEvent(h, sessionId, cancelledId, 1, 'error', cancellation)
+            const detail = await h.service.get(sessionId)
+            assert.equal(detail.session.status, 'idle')
+            assert.equal(detail.session.lastTurnState, 'cancelled')
+            assert.equal(detail.session.lastError, null)
+            const turns = new Map(
+                detail.turns.map((turn) => [turn.messageId, turn])
+            )
+            assert.equal(turns.get(cancelledId)?.outcome, 'cancelled')
+            assert.equal(turns.get(cancelledId)?.execution, null)
+            assert.equal(turns.get(cancelledId)?.error, null)
+            assert.equal(turns.get(failedId)?.outcome, 'failed')
+            assert.equal(
+                turns.get(failedId)?.error?.code,
+                'runtime_unavailable'
+            )
+            const errors = await h.service.list({
+                limit: 50,
+                cursor: null,
+                agentId: null,
+                userId: h.memberId,
+                running: false,
+                hasError: true,
+                q: null
+            })
+            assert.deepEqual(
+                errors.items.map((row) => row.id),
+                [sessionId]
+            )
+            assert.equal(errors.items[0]?.status, 'idle')
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'Has errors excludes only the exact typed cancellation code',
+    {
+        skip: !RUN && 'RUN_PG_E2E!=1'
+    },
+    async (t) => {
+        const h = await buildHarness(t)
+        try {
+            const genuine: string[] = []
+            for (const payload of [
+                {},
+                { error: null },
+                { error: {} },
+                { error: { code: null } },
+                { error: { code: 'unknown_failure' } },
+                { error: { message: 'cancelled_by_user' } }
+            ]) {
+                const sessionId = await createSession(h, {
+                    userId: h.memberId,
+                    agentId: h.memberAgentId
+                })
+                const messageId = await addAssistantMessage(h, sessionId)
+                await addEvent(h, sessionId, messageId, 1, 'error', payload)
+                genuine.push(sessionId)
+                const detail = await h.service.get(sessionId)
+                assert.equal(detail.session.status, 'failed')
+                assert.equal(detail.turns[0]?.outcome, 'failed')
+                assert.notEqual(detail.turns[0]?.error, null)
+            }
+            const cancelled = await createSession(h, {
+                userId: h.memberId,
+                agentId: h.memberAgentId
+            })
+            await addEvent(
+                h,
+                cancelled,
+                await addAssistantMessage(h, cancelled),
+                1,
+                'error',
+                cancellation
+            )
+            const errors = await h.service.list({
+                limit: 50,
+                cursor: null,
+                agentId: null,
+                userId: h.memberId,
+                running: false,
+                hasError: true,
+                q: null
+            })
+            assert.deepEqual(
+                new Set(errors.items.map((row) => row.id)),
+                new Set(genuine)
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'a cancelled durable execution cannot be resumed, adopted, or reconciled',
+    {
+        skip: !RUN && 'RUN_PG_E2E!=1'
+    },
+    async (t) => {
+        const h = await buildHarness(t)
+        try {
+            for (const runtime of ['daemon', 'sprites'] as const) {
+                const sessionId = await createSession(h, {
+                    userId: h.memberId,
+                    agentId: h.memberAgentId
+                })
+                const messageId = await addAssistantMessage(h, sessionId)
+                await h.db
+                    .update(chatSessions)
+                    .set({ inflightMessageId: messageId })
+                    .where(eq(chatSessions.id, sessionId))
+                await h.db
+                    .update(chatMessages)
+                    .set({
+                        daemonId: 'owned-fixture',
+                        daemonExecRef: messageId
+                    })
+                    .where(eq(chatMessages.id, messageId))
+                await h.db.insert(turnExecutions).values({
+                    messageId,
+                    sessionId,
+                    agentId: h.memberAgentId,
+                    runtime,
+                    ownerId: 'original-owner',
+                    leaseExpiresAt: new Date(0),
+                    state: 'cancelled'
+                })
+                // No stream event: the durable state itself must fence recovery.
+                assert.equal(
+                    await h.repo.claimTurnForAdoption(
+                        messageId,
+                        'new-owner',
+                        30
+                    ),
+                    null
+                )
+                assert.equal(
+                    await h.repo.claimTurnForReconciliation(
+                        messageId,
+                        'new-owner',
+                        30
+                    ),
+                    null
+                )
+                assert.deepEqual(
+                    await h.repo.claimTurnForResume({
+                        messageId,
+                        sessionId,
+                        daemonId: 'owned-fixture',
+                        daemonExecRef: messageId,
+                        ownerId: 'new-owner',
+                        leaseSeconds: 30
+                    }),
+                    { outcome: 'terminal' }
+                )
+                const row = await h.repo.getTurnExecution(messageId)
+                assert.equal(row?.state, 'cancelled')
+                assert.equal(row?.ownerId, 'original-owner')
+                assert.equal(row?.generation, 1)
+            }
+        } finally {
+            await h.close()
+        }
+    }
+)
+
 test('admin sees every user’s sessions, newest activity first', {
     skip: !RUN && 'RUN_PG_E2E!=1'
 }, async (t) => {
@@ -528,6 +880,11 @@ test('status derives from the turn lock and the last turn outcome', {
         assert.equal(byId.get(failed)?.costUsd, 0.001234)
         assert.equal(byId.get(running)?.status, 'running')
         assert.equal(byId.get(idle)?.status, 'idle')
+        assert.equal(byId.get(idle)?.lastTurnState, 'done')
+        const idleDetail = await h.service.get(idle)
+        assert.equal(idleDetail.turns[0]?.outcome, 'done')
+        assert.equal(idleDetail.turns[0]?.execution, null)
+        assert.equal(idleDetail.turns[0]?.error, null)
         assert.equal(byId.get(recovered)?.status, 'idle')
 
         const exact = await h.service.list({

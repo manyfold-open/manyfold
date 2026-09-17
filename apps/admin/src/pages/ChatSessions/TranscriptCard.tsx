@@ -136,6 +136,7 @@ const TurnEntry: FC<{
 }> = ({ entry, streaming, locked, onTraceTurn }): ReactNode => {
     const [showExtras, setShowExtras] = useState(false)
     const turn = entry.turn
+    const state = turn.outcome ?? turn.execution?.state
     const folded = foldBlocks(entry.result.contentBlocks)
     const extrasLabel = foldedExtrasLabel(folded)
     return (
@@ -149,11 +150,7 @@ const TurnEntry: FC<{
                 <span className='tnum whitespace-nowrap'>
                     {new Date(turn.createdAt).toLocaleString(getLocale())}
                 </span>
-                {turn.execution && (
-                    <Badge tone={turnStateTone(turn.execution.state)}>
-                        {turn.execution.state}
-                    </Badge>
-                )}
+                {state && <Badge tone={turnStateTone(state)}>{state}</Badge>}
                 {turn.execution && turn.execution.adoptCount > 0 && (
                     <Badge tone='warning'>
                         adopted ×{turn.execution.adoptCount}

@@ -61,6 +61,9 @@ export interface AdminChatSessionTurn {
     costUsd: number | null
     firstTokenMs: number | null
     totalMs: number | null
+    // Normalized terminal outcome, including runtimes without an execution row.
+    // Null means neither a terminal event nor a terminal execution is available.
+    outcome: 'done' | 'failed' | 'cancelled' | null
     execution: AdminChatSessionTurnExecution | null
     error: AdminChatSessionError | null
     // Stream-log compaction evidence for this turn. Admin reads the live
