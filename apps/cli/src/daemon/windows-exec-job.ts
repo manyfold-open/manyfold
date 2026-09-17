@@ -91,9 +91,12 @@ public static class ManyfoldExecJob {
             File.WriteAllText(receipt, "drained");
             return unchecked((int)result);
         } finally {
-            if (!assigned && child.Process != IntPtr.Zero) { TerminateProcess(child.Process, 1); WaitForSingleObject(child.Process, 2000); }
+            bool unassignedExited = true;
+            if (!assigned && child.Process != IntPtr.Zero) {
+                unassignedExited = TerminateProcess(child.Process, 1) && WaitForSingleObject(child.Process, 2000) == 0;
+            }
             // Setup failure before ResumeThread must also prove the job empty.
-            if (!File.Exists(receipt) && TerminateJobObject(job, 1)) {
+            if (unassignedExited && !File.Exists(receipt) && TerminateJobObject(job, 1)) {
                 var cleanup = Stopwatch.StartNew();
                 while (cleanup.ElapsedMilliseconds < 2000) {
                     Accounting accounting;
