@@ -136,7 +136,9 @@ try {
 
     const require = createRequire(path.join(installRoot, 'package.json'))
     for (const name of ['better-sqlite3', 'node-pty']) {
-        const packageRoot = path.dirname(require.resolve(`${name}/package.json`))
+        const packageRoot = path.dirname(
+            require.resolve(`${name}/package.json`)
+        )
         const buildConfig = fs.readFileSync(
             path.join(packageRoot, 'build', 'config.gypi'),
             'utf8'
@@ -190,21 +192,37 @@ try {
             env: process.env
         })
         let output = ''
-        const timeout = setTimeout(() => {
-            child.kill()
-            reject(new Error('node-pty native probe timed out'))
-        }, 10_000)
-        child.onData((chunk) => {
+        let settled = false
+        let exitSubscription
+        const dataSubscription = child.onData((chunk) => {
             output += chunk
         })
-        child.onExit(({ exitCode }) => {
+        const finish = (error) => {
+            if (settled) return
+            settled = true
             clearTimeout(timeout)
+            dataSubscription.dispose()
+            exitSubscription?.dispose()
+            try {
+                // On Windows, an exited ConPTY keeps its worker thread alive
+                // until kill() releases the remaining native handles.
+                child.kill()
+            } catch (cleanupError) {
+                error ??= cleanupError
+            }
+            if (error) reject(error)
+            else resolve()
+        }
+        const timeout = setTimeout(() => {
+            finish(new Error('node-pty native probe timed out'))
+        }, 10_000)
+        exitSubscription = child.onExit(({ exitCode }) => {
             try {
                 assert.equal(exitCode, 0)
                 assert.match(output, /native-pty-ok/)
-                resolve()
+                finish()
             } catch (error) {
-                reject(error)
+                finish(error)
             }
         })
     })
