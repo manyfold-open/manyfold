@@ -2025,6 +2025,8 @@ export interface QuotaWarningEvent {
     limit: number
     planName: string
     at: string
+    // Present for durable per-user warnings. Not an authorization token.
+    receiptId?: string
 }
 
 export type ChatSessionListChangeReason = 'created' | 'titled'

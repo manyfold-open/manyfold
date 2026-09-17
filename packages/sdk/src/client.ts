@@ -1,7 +1,8 @@
 import {
     ACCOUNT_SCOPE_HEADER,
     CHAT_MESSAGE_SOFT_LIMIT,
-    apiPaths
+    apiPaths,
+    isObjectId
 } from '@manyfold/shared'
 import { buildApiError } from './errors.js'
 import type {
@@ -1041,6 +1042,7 @@ export interface NcaClient {
     runtimeAccess: {
         summary: () => Promise<RuntimeAccessSummary>
         sandboxUsage: () => Promise<SandboxUsageBreakdown>
+        acknowledgeQuotaWarning: (receiptId: string) => Promise<{ acknowledged: boolean }>
     }
     agents: AgentsClient
     agentRuntimes: AgentRuntimesClient
@@ -1628,6 +1630,7 @@ interface SpriteStatusStreamDeps {
     baseUrl: string
     tokenOption?: string | (() => string | Promise<string>)
     signal: AbortSignal
+    acknowledgeQuotaWarning: (receiptId: string, signal: AbortSignal) => Promise<unknown>
 }
 
 const runSpriteStatusStream = async (
@@ -1652,24 +1655,85 @@ const runSpriteStatusStream = async (
     handlers.onOpen?.()
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
-    let buffer = ''
-    while (!signal.aborted) {
-        const { value, done } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        let boundary = buffer.indexOf('\n\n')
-        while (boundary !== -1) {
-            dispatchSpriteStatusFrame(buffer.slice(0, boundary), handlers)
-            buffer = buffer.slice(boundary + 2)
-            boundary = buffer.indexOf('\n\n')
+    const quotaAcks = new Map<string, { cancel: () => void }>()
+    const stopQuotaAcks = (): void => {
+        for (const ack of quotaAcks.values()) ack.cancel()
+    }
+    signal.addEventListener('abort', stopQuotaAcks, { once: true })
+    const consumeQuotaWarning = (event: QuotaWarningEvent): void => {
+        const consumer = handlers.onQuotaWarning
+        if (!consumer || signal.aborted) return
+        const receiptId =
+            event.receiptId &&
+            isObjectId(event.receiptId, 'quotaWarningReceipt')
+                ? event.receiptId
+                : null
+        if (receiptId && quotaAcks.has(receiptId)) return
+        if (!receiptId || quotaAcks.size >= 4) {
+            try {
+                void Promise.resolve(consumer(event)).catch(() => {})
+            } catch {}
+            return
         }
+        // Pending server receipts are sent again on a later cadence. Keep the
+        // reader independent of slow consumers/network ACKs and coalesce IDs.
+        const ackController = new AbortController()
+        const entry = {
+            cancel: (): void => {
+                ackController.abort()
+                finish()
+            }
+        }
+        const finish = (): void => {
+            clearTimeout(timer)
+            if (quotaAcks.get(receiptId) === entry) quotaAcks.delete(receiptId)
+        }
+        quotaAcks.set(receiptId, entry)
+        const timer = setTimeout(entry.cancel, 10_000)
+        try {
+            void Promise.resolve(consumer(event))
+                .then(() => {
+                    if (!ackController.signal.aborted)
+                        return deps.acknowledgeQuotaWarning(
+                            receiptId,
+                            ackController.signal
+                        )
+                })
+                .catch(() => {})
+                .finally(finish)
+        } catch {
+            finish()
+        }
+    }
+    let buffer = ''
+    try {
+        while (!signal.aborted) {
+            const { value, done } = await reader.read()
+            if (done) break
+            buffer += decoder.decode(value, { stream: true })
+            let boundary = buffer.indexOf('\n\n')
+            while (boundary !== -1 && !signal.aborted) {
+                dispatchSpriteStatusFrame(
+                    buffer.slice(0, boundary),
+                    handlers,
+                    consumeQuotaWarning
+                )
+                buffer = buffer.slice(boundary + 2)
+                boundary = buffer.indexOf('\n\n')
+            }
+        }
+    } finally {
+        signal.removeEventListener('abort', stopQuotaAcks)
+        stopQuotaAcks()
+        reader.releaseLock()
     }
     handlers.onClose?.()
 }
 
 const dispatchSpriteStatusFrame = (
     frame: string,
-    handlers: SpriteStatusStreamHandlers
+    handlers: SpriteStatusStreamHandlers,
+    consumeQuotaWarning: (event: QuotaWarningEvent) => void
 ): void => {
     const dataLines: string[] = []
     for (const rawLine of frame.split('\n')) {
@@ -1696,7 +1760,7 @@ const dispatchSpriteStatusFrame = (
         const { type: _t, ...update } = parsed
         handlers.onHostUpdate?.(update)
     } else if (parsed.type === 'quota-warning') {
-        handlers.onQuotaWarning?.(parsed)
+        consumeQuotaWarning(parsed)
     } else if (parsed.type === 'chat-sessions-changed') {
         handlers.onSessionsChanged?.(parsed)
     }
@@ -1903,7 +1967,11 @@ const buildAgentsClient = (
                     fetchImpl,
                     baseUrl,
                     tokenOption,
-                    signal: controller.signal
+                    signal: controller.signal,
+                    acknowledgeQuotaWarning: (receiptId, signal) => request(
+                        apiPaths.ME_RUNTIME_ACCESS_QUOTA_WARNING_ACK,
+                        { method: 'POST', body: JSON.stringify({ receiptId }), signal }
+                    )
                 },
                 handlers
             ).catch((err) => {
@@ -2491,7 +2559,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
             sandboxUsage: () =>
                 request<SandboxUsageBreakdown>(
                     apiPaths.ME_RUNTIME_ACCESS_SANDBOX_USAGE
-                )
+                ),
+            acknowledgeQuotaWarning: (receiptId) => request(
+                apiPaths.ME_RUNTIME_ACCESS_QUOTA_WARNING_ACK,
+                { method: 'POST', body: JSON.stringify({ receiptId }) }
+            )
         },
         agents: buildAgentsClient(userAgentPaths, deps),
         agentRuntimes,

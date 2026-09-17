@@ -149,10 +149,11 @@ export class SandboxActiveDurationService {
 
     async userActiveSecondsInPeriod(
         userId: string,
-        period: UsagePeriod
+        period: UsagePeriod,
+        db = this.db
     ): Promise<number> {
         const { startDay, endDay } = periodDayWindow(period)
-        const [row] = await this.db
+        const [row] = await db
             .select({
                 value: sql<number>`coalesce(sum(${sandboxActiveDurationDays.activeSeconds}), 0)::bigint`
             })

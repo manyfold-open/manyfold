@@ -2,7 +2,7 @@ import type {
     RuntimeAccessSummary,
     SandboxUsageBreakdown
 } from '@manyfold/shared'
-import { Controller, Get, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
 import { AuthService } from '@/modules/auth/auth.service'
@@ -32,6 +32,17 @@ export class RuntimeAccessController {
     ): Promise<SandboxUsageBreakdown> {
         await this.ensureLocalUser(user.userId)
         return this.runtimeAccess.sandboxUsage(user.userId)
+    }
+
+    @Post('runtime-access/quota-warning-ack')
+    @HttpCode(200)
+    async acknowledgeQuotaWarning(
+        @CurrentUser() user: AuthPrincipal,
+        @Body('receiptId') receiptId: unknown
+    ): Promise<{ acknowledged: boolean }> {
+        if (typeof receiptId !== 'string')
+            throw new BadRequestException('receiptId is required')
+        return { acknowledged: await this.runtimeAccess.acknowledgeQuotaWarning(user.userId, receiptId) }
     }
 
     private async ensureLocalUser(userId: string): Promise<void> {

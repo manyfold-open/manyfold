@@ -7,6 +7,7 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { Param, StringChunk } from 'drizzle-orm'
+import { createObjectId } from '@manyfold/shared'
 import {
     agentRuntimes,
     agents,
@@ -14,6 +15,7 @@ import {
     automationRuns,
     automations,
     channels,
+    plans,
     runtimeHosts,
     userApiUsageDays,
     users,
@@ -81,6 +83,24 @@ const makeService = (
         } as never
     )
 }
+
+test('quota receipt contention exhausts after three attempts without confirming or hiding other errors', async () => {
+    const db = new FakeRuntimeAccessDb()
+    const service = makeService(db)
+    let attempts = 0
+    db.transaction = async () => {
+        attempts++
+        throw Object.assign(new Error('fixture serialization conflict'), { code: '40001' })
+    }
+    assert.equal(await service.acknowledgeQuotaWarning('user-1', createObjectId('quotaWarningReceipt')), false)
+    assert.equal(attempts, 3)
+    attempts = 0
+    assert.deepEqual(await service.evaluateQuotaThresholds('user-1'), [])
+    assert.equal(attempts, 3)
+    const permanent = new Error('fixture permanent database error')
+    db.transaction = async () => { throw permanent }
+    await assert.rejects(() => service.acknowledgeQuotaWarning('user-1', createObjectId('quotaWarningReceipt')), (error) => error === permanent)
+})
 
 test('RuntimeAccessService reserves pending sprites runtime under the user limit', async () => {
     const db = new FakeRuntimeAccessDb()
@@ -1411,7 +1431,7 @@ test('RuntimeAccessService.summary exposes activeHoursLimit including the per-us
     assert.equal(summary.activeHoursBonus, 2)
 })
 
-test('RuntimeAccessService.evaluateQuotaThresholds warns active_hours at 80% and stamps the dedup map', async () => {
+test('RuntimeAccessService warns active_hours at 80% and stamps only after ACK', async () => {
     const db = new FakeRuntimeAccessDb()
     db.users.push(userRow({ planId: 'free' }))
     const service = makeService(db, { activeSeconds: 4 * 3600 })
@@ -1422,6 +1442,8 @@ test('RuntimeAccessService.evaluateQuotaThresholds warns active_hours at 80% and
     assert.ok(hours, 'active_hours should be due at 80% of 5h')
     assert.equal(hours?.usage, 4)
     assert.equal(hours?.limit, 5)
+    assert.deepEqual(db.users[0].lastQuotaWarningsAt, {})
+    assert.equal(await service.acknowledgeQuotaWarning('user-1', hours.receiptId), true)
     assert.ok(
         (db.users[0].lastQuotaWarningsAt as Record<string, string>).active_hours
     )
@@ -1429,12 +1451,10 @@ test('RuntimeAccessService.evaluateQuotaThresholds warns active_hours at 80% and
 
 test('RuntimeAccessService.evaluateQuotaThresholds dedups active_hours within 24h and re-emits after', async () => {
     const db = new FakeRuntimeAccessDb()
-    // The production select aliases lastQuotaWarningsAt to `last`; the fake
-    // returns raw rows, so seed the alias key directly.
     db.users.push(
         userRow({
             planId: 'free',
-            last: {
+            lastQuotaWarningsAt: {
                 active_hours: new Date(
                     Date.now() - 60 * 60 * 1000
                 ).toISOString()
@@ -1450,7 +1470,7 @@ test('RuntimeAccessService.evaluateQuotaThresholds dedups active_hours within 24
         'warned an hour ago — deduped'
     )
 
-    db.users[0].last = {
+    db.users[0].lastQuotaWarningsAt = {
         active_hours: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
     }
     const stale = await service.evaluateQuotaThresholds('user-1')
@@ -1585,6 +1605,8 @@ const userRow = (
     alwaysOnlineRuntimeBonus: 0,
     activeHoursBonus: 0,
     planId: 'free',
+    lastQuotaWarningsAt: {},
+    pendingQuotaWarnings: {},
     createdAt: now,
     updatedAt: now,
     ...overrides
@@ -1875,6 +1897,10 @@ class FakeRuntimeAccessDb {
         limited = false,
         fields?: Record<string, unknown>
     ): Record<string, unknown>[] {
+        if (table === plans) {
+            const ids = sqlParamsOf(condition)
+            return this.plans.filter((plan) => ids.includes(plan.id))
+        }
         if (table === users) {
             if (joined) {
                 return this.users.map((user) => {
@@ -2133,6 +2159,10 @@ class FakeQuery implements PromiseLike<unknown[]> {
 
     limit(): this {
         this.limited = true
+        return this
+    }
+
+    for(): this {
         return this
     }
 

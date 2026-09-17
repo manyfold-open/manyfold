@@ -7,6 +7,7 @@ import {
     RuntimeAccessSummary,
     SandboxUsageBreakdown,
     createObjectId,
+    isObjectId,
     frameworkCapabilities,
     frameworkCapability,
     runtimeKindLabel
@@ -42,10 +43,17 @@ import {
     type AgentRuntimeRow,
     type Database,
     type NewAgentRuntimeRow,
+    type PendingQuotaWarnings,
     type RuntimeHostRow,
     type User
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import { isDeepStrictEqual } from 'node:util'
+import {
+    QUOTA_WARNING_CODES, QUOTA_WARNING_DEDUPE_MS,
+    quotaWarningCandidates, quotaWarningPolicyKey, quotaWarningWasDelivered,
+    type QuotaWarningSnapshot
+} from './quota-warning-receipts'
 import {
     CLOUD_COMPUTER_PORT,
     type CloudComputerPort
@@ -227,8 +235,11 @@ export class RuntimeAccessService {
         )
     }
 
-    private async channelCountFor(userId: string): Promise<number> {
-        const [row] = await this.db
+    private async channelCountFor(
+        userId: string,
+        db = this.db
+    ): Promise<number> {
+        const [row] = await db
             .select({ value: count() })
             .from(channels)
             .where(eq(channels.userId, userId))
@@ -239,8 +250,11 @@ export class RuntimeAccessService {
     // below deliberately keep counting a deleted automation's runs — the
     // usage happened, and refunding it on delete would let a user cycle
     // delete/create to evade the monthly quota (#588).
-    private async automationCountFor(userId: string): Promise<number> {
-        const [row] = await this.db
+    private async automationCountFor(
+        userId: string,
+        db = this.db
+    ): Promise<number> {
+        const [row] = await db
             .select({ value: count() })
             .from(automations)
             .where(
@@ -256,9 +270,10 @@ export class RuntimeAccessService {
     // exact (no day-bucket boundary fuzz).
     private async automationRunCountInPeriod(
         userId: string,
-        period: UsagePeriod
+        period: UsagePeriod,
+        db = this.db
     ): Promise<number> {
-        const [row] = await this.db
+        const [row] = await db
             .select({ value: count() })
             .from(automationRuns)
             .where(
@@ -273,10 +288,11 @@ export class RuntimeAccessService {
 
     private async apiRequestsInPeriod(
         userId: string,
-        period: UsagePeriod
+        period: UsagePeriod,
+        db = this.db
     ): Promise<number> {
         const { startDay, endDay } = periodDayWindow(period)
-        const [row] = await this.db
+        const [row] = await db
             .select({
                 value: sql<number>`coalesce(sum(${userApiUsageDays.requestCount}), 0)::bigint`
             })
@@ -291,12 +307,14 @@ export class RuntimeAccessService {
         return Number(row?.value ?? 0)
     }
 
-
     // Host-grained: sprites.dev bills each VM's rootfs once, so the meter sums
     // one whole-VM reading per sandbox host (not per agent — co-resident
     // agents share the VM and must not multiply-count it).
-    private async storageBytesTotalFor(userId: string): Promise<number> {
-        const [row] = await this.db
+    private async storageBytesTotalFor(
+        userId: string,
+        db = this.db
+    ): Promise<number> {
+        const [row] = await db
             .select({ value: sum(runtimeHosts.storageBytes) })
             .from(runtimeHosts)
             .where(
@@ -469,116 +487,217 @@ export class RuntimeAccessService {
             usage: number
             limit: number
             planName: string
+            receiptId: string
         }>
     > {
-        const summary = await this.summary(userId)
-        const plan = summary.plan
-        const candidates: Array<{
-            code: QuotaWarningCode
-            usage: number
-            limit: number
-            due: boolean
-        }> = []
-
-        // A null limit is "unlimited" on this plan, and a zero limit means the
-        // feature is off — neither has a threshold worth warning about.
-        const meter = (
-            code: QuotaWarningCode,
-            usage: number,
-            limit: number | null,
-            threshold: number
-        ): void => {
-            if (limit === null || limit <= 0) return
-            candidates.push({ code, usage, limit, due: usage / limit >= threshold })
-        }
-
-        // Count caps also warn with one slot left. A pure ratio is useless when
-        // the cap is small: 0.9 of Free's 2 channels is 1.8, so the banner would
-        // first appear at 2/2 — the moment the user is already blocked, which is
-        // not a warning. NOTE: `provisioned` deliberately stays ratio-only below
-        // so this change doesn't move an existing banner's timing; unifying the
-        // two is a follow-up, not something to quietly fold in here.
-        const countCap = (
-            code: QuotaWarningCode,
-            usage: number,
-            limit: number | null,
-            threshold: number
-        ): void => {
-            if (limit === null || limit <= 0) return
-            candidates.push({
-                code,
-                usage,
-                limit,
-                due: usage / limit >= threshold || limit - usage <= 1
-            })
-        }
-
-        meter(
-            'storage',
-            summary.storageBytesTotal,
-            plan.maxStorageGb * 1_000_000_000,
-            0.95
-        )
-        meter(
-            'provisioned',
-            summary.statefulSandboxUsage,
-            summary.statefulSandboxLimit,
-            0.9
-        )
-        meter(
-            'active_hours',
-            summary.activeHoursThisPeriod ?? 0,
-            summary.activeHoursLimit,
-            0.8
-        )
-        countCap('channels', summary.channelsUsed, plan.maxChannels, 0.9)
-        countCap('automations', summary.automationsUsed, plan.maxAutomations, 0.9)
-        meter(
-            'automation_runs',
-            summary.automationRunsThisPeriod,
-            plan.maxAutomationRunsMonthly,
-            0.8
-        )
-        meter(
-            'api_requests',
-            summary.apiRequestsThisPeriod,
-            plan.monthlyApiRequestLimit,
-            0.8
-        )
-        // `concurrent` and `wholesale_soft` have no candidate here on purpose:
-        // Free sits at 1/1 whenever any agent runs, and the wholesale banner is
-        // emitted by the status-sync loop against org-wide state, not per user.
-
-        const dueNow = new Date()
-        const cutoff = new Date(dueNow.getTime() - 24 * 60 * 60 * 1000)
-        const [userRow] = await this.db
-            .select({ last: users.lastQuotaWarningsAt })
-            .from(users)
-            .where(eq(users.id, userId))
-            .limit(1)
-        const last: Partial<Record<QuotaWarningCode, string>> =
-            userRow?.last ?? {}
-        const due = candidates.filter((c) => {
-            if (!c.due) return false
-            const lastAt = last[c.code]
-            if (!lastAt) return true
-            return new Date(lastAt) < cutoff
+        return this.quotaWarningTransaction([], async (db, now) => {
+            const user = await this.lockQuotaWarningUser(db, userId)
+            if (!user) return []
+            const snapshot = await this.quotaWarningSnapshot(db, user, now)
+            const previous = this.validPendingWarnings(user, now)
+            const pending: PendingQuotaWarnings = {}
+            const due = []
+            for (const candidate of quotaWarningCandidates(snapshot)) {
+                if (
+                    quotaWarningWasDelivered(
+                        user.lastQuotaWarningsAt[candidate.code],
+                        now
+                    )
+                )
+                    continue
+                const policyKey = quotaWarningPolicyKey(
+                    snapshot,
+                    candidate.limit
+                )
+                const old = previous[candidate.code]
+                const receipt =
+                    old?.policyKey === policyKey
+                        ? old
+                        : {
+                              receiptId: createObjectId('quotaWarningReceipt'),
+                              policyKey,
+                              createdAt: now.toISOString()
+                          }
+                pending[candidate.code] = receipt
+                due.push({
+                    ...candidate,
+                    planName: snapshot.plan.name,
+                    receiptId: receipt.receiptId
+                })
+            }
+            if (!isDeepStrictEqual(user.pendingQuotaWarnings, pending))
+                await db
+                    .update(users)
+                    .set({ pendingQuotaWarnings: pending, updatedAt: now })
+                    .where(eq(users.id, userId))
+            return due
         })
-        if (due.length === 0) return []
+    }
 
-        const merged: Record<string, string> = { ...last }
-        for (const c of due) merged[c.code] = dueNow.toISOString()
-        await this.db
-            .update(users)
-            .set({ lastQuotaWarningsAt: merged, updatedAt: dueNow })
-            .where(eq(users.id, userId))
+    async acknowledgeQuotaWarning(
+        userId: string,
+        receiptId: string
+    ): Promise<boolean> {
+        if (!isObjectId(receiptId, 'quotaWarningReceipt')) return false
+        return this.quotaWarningTransaction(false, async (db, now) => {
+            const user = await this.lockQuotaWarningUser(db, userId)
+            if (!user) return false
+            const pending = this.validPendingWarnings(user, now)
+            const code = QUOTA_WARNING_CODES.find(
+                (key) => pending[key]?.receiptId === receiptId
+            )
+            if (!code) return false
+            const receipt = pending[code]!
+            const snapshot = await this.quotaWarningSnapshot(db, user, now)
+            const candidate = quotaWarningCandidates(snapshot).find(
+                (item) => item.code === code
+            )
+            const current =
+                candidate !== undefined &&
+                receipt.policyKey ===
+                    quotaWarningPolicyKey(snapshot, candidate.limit) &&
+                !quotaWarningWasDelivered(user.lastQuotaWarningsAt[code], now)
+            delete pending[code]
+            const changed = await db
+                .update(users)
+                .set({
+                    pendingQuotaWarnings: pending,
+                    ...(current
+                        ? {
+                              lastQuotaWarningsAt: {
+                                  ...user.lastQuotaWarningsAt,
+                                  [code]: now.toISOString()
+                              }
+                          }
+                        : {}),
+                    updatedAt: now
+                })
+                .where(
+                    and(
+                        eq(users.id, userId),
+                        sql`(${users.pendingQuotaWarnings} -> ${code}::text ->> 'receiptId') = ${receiptId}`
+                    )
+                )
+                .returning({ id: users.id })
+            return current && changed.length > 0
+        })
+    }
 
-        return due.map((c) => ({
-            code: c.code,
-            usage: c.usage,
-            limit: c.limit,
-            planName: plan.name
-        }))
+    private validPendingWarnings(user: User, now: Date): PendingQuotaWarnings {
+        const valid: PendingQuotaWarnings = {}
+        for (const code of QUOTA_WARNING_CODES) {
+            const receipt = user.pendingQuotaWarnings?.[code]
+            if (
+                !receipt ||
+                !isObjectId(receipt.receiptId, 'quotaWarningReceipt') ||
+                typeof receipt.policyKey !== 'string'
+            )
+                continue
+            const created = Date.parse(receipt.createdAt)
+            if (
+                Number.isFinite(created) &&
+                created <= now.getTime() &&
+                now.getTime() - created < QUOTA_WARNING_DEDUPE_MS
+            )
+                valid[code] = receipt
+        }
+        return valid
+    }
+
+    private async lockQuotaWarningUser(
+        db: Database,
+        userId: string
+    ): Promise<User | undefined> {
+        const [user] = await db
+            .select()
+            .from(users)
+            .where(and(eq(users.id, userId), isNull(users.deactivatedAt)))
+            .limit(1)
+            .for('update')
+        return user
+    }
+
+    private async quotaWarningSnapshot(
+        db: Database,
+        user: User,
+        now: Date
+    ): Promise<QuotaWarningSnapshot> {
+        const [row] = await db
+            .select()
+            .from(plans)
+            .where(eq(plans.id, user.planId))
+            .limit(1)
+        if (!row) throw new NotFoundException('plan not found')
+        const plan = planFromRow(row)
+        const period = await this.usagePeriods.resolve(db, user.id, now)
+        const [
+            usage,
+            storageBytesTotal,
+            activeSeconds,
+            channelsUsed,
+            automationsUsed,
+            automationRunsThisPeriod,
+            apiRequestsThisPeriod
+        ] = await Promise.all([
+            computeUsageCountsForUsers(db, [user.id]),
+            this.storageBytesTotalFor(user.id, db),
+            this.activeDuration.userActiveSecondsInPeriod(user.id, period, db),
+            this.channelCountFor(user.id, db),
+            this.automationCountFor(user.id, db),
+            this.automationRunCountInPeriod(user.id, period, db),
+            this.apiRequestsInPeriod(user.id, period, db)
+        ])
+        return {
+            plan,
+            usagePeriod: {
+                start: period.start.toISOString(),
+                end: period.end.toISOString(),
+                source: period.source
+            },
+            storageBytesTotal,
+            statefulSandboxUsage: usage.get(user.id)?.statefulSandboxUsage ?? 0,
+            statefulSandboxLimit: effectiveStatefulSandboxLimit(
+                user.statefulSandboxLimit,
+                plan.maxAgentsProvisioned
+            ),
+            activeHoursThisPeriod: activeSeconds / 3600,
+            activeHoursLimit:
+                plan.monthlyActiveHoursIncluded === null
+                    ? null
+                    : plan.monthlyActiveHoursIncluded + user.activeHoursBonus,
+            channelsUsed,
+            automationsUsed,
+            automationRunsThisPeriod,
+            apiRequestsThisPeriod
+        }
+    }
+
+    private async quotaWarningTransaction<T>(
+        exhausted: T,
+        body: (db: Database, now: Date) => Promise<T>
+    ): Promise<T> {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                return await this.db.transaction(
+                    (tx) => body(tx as unknown as Database, new Date()),
+                    { isolationLevel: 'repeatable read' }
+                )
+            } catch (error) {
+                const failure = error as {
+                    code?: string
+                    cause?: { code?: string }
+                } | null
+                // Concurrent ACKs share one JSON row. A lost snapshot retries
+                // with current state; exhaustion leaves the receipt unconfirmed.
+                if (
+                    failure?.code === '40001' ||
+                    failure?.cause?.code === '40001'
+                )
+                    continue
+                throw error
+            }
+        }
+        return exhausted
     }
 
     private async activeSandboxUsageFor(userId: string): Promise<number> {
