@@ -1,5 +1,15 @@
 # @manyfold/api
 
+## 5.1.10
+
+### Patch Changes
+
+- [#424](https://github.com/manyfold-open/manyfold/pull/424) [`9d69bf0`](https://github.com/manyfold-open/manyfold/commit/9d69bf0bff642180f246a4079047ce062d31d74b) Thanks [@yingca1](https://github.com/yingca1)! - Preserve Gemini CLI snake-case tool call IDs, names, parameters and correlated results during dispatch and replay. Classify explicit Codex overload and HTTP 429 retry-limit exits as retryable provider failures, with distinct bounded causes and no automatic replay.
+
+- [#426](https://github.com/manyfold-open/manyfold/pull/426) [`1d4b66e`](https://github.com/manyfold-open/manyfold/commit/1d4b66eb7cd87b374e638563eb05c830f9a87532) Thanks [@yingca1](https://github.com/yingca1)! - Keep a bounded reconciliation retry when an overlapping daemon hello reports a resumable Chat stream but its open-turn lookup fails. Recovery re-reads the open turn and uses the latest hello's exact ref without requiring another reconnect.
+
+- [#430](https://github.com/manyfold-open/manyfold/pull/430) [`b5270ff`](https://github.com/manyfold-open/manyfold/commit/b5270ff448ee08fa0c97b2180a40d1b3ef2bde07) Thanks [@yingca1](https://github.com/yingca1)! - Assemble the API runtime offline from locked dependencies and verify the complete production dependency graph before publishing its image.
+
 ## 5.1.9
 
 ### Patch Changes

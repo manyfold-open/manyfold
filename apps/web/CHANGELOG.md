@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.1.3
+
+### Patch Changes
+
+- [#429](https://github.com/manyfold-open/manyfold/pull/429) [`bdae389`](https://github.com/manyfold-open/manyfold/commit/bdae38948184f2766256f261fed7b7af058ad1d5) Thanks [@yingca1](https://github.com/yingca1)! - Wait for the current agent's capabilities before loading Settings data or opening model credentials. Unsupported deep links and legacy aliases no longer start model, storage, or backup requests. Keep agent navigation and delayed responses isolated while preserving accepted backup restore sequencing.
+
 ## 2.1.2
 
 ### Patch Changes
