@@ -36,13 +36,48 @@ test('required and ownership jobs select the exact test runtime and probe before
             }
         }
         assert.ok(selected > 0, `${file} lost the runtime selection`)
-        if (file === 'daemon-lifecycle.yml')
+        if (file === 'daemon-lifecycle.yml') {
+            const native = workflow.jobs.ownership
+            const windows = native.strategy.matrix.include.find(
+                (entry: { target: string }) => entry.target === 'bun-windows-x64'
+            )
+            assert.equal(windows.os, 'windows-2022')
+            const pythonIndex = native.steps.findIndex(
+                (step: { name?: string }) =>
+                    step.name === 'Select Python for Windows native builds'
+            )
+            const installIndex = native.steps.findIndex(
+                (step: Step) => step.run === 'pnpm install --frozen-lockfile'
+            )
+            assert.ok(pythonIndex >= 0 && pythonIndex < installIndex)
+            assert.equal(native.steps[pythonIndex].if, "runner.os == 'Windows'")
+            assert.equal(native.steps[pythonIndex].shell, 'pwsh')
+            assert.match(native.steps[pythonIndex].run, /py -3\.13/)
+            assert.match(native.steps[pythonIndex].run, /NODE_GYP_FORCE_PYTHON=/)
+            assert.match(native.steps[pythonIndex].run, /LASTEXITCODE.*throw/)
+            const sqlite = native.steps[installIndex + 1]
+            assert.equal(sqlite.name, 'Verify Windows SQLite addon')
+            assert.equal(sqlite.if, "runner.os == 'Windows'")
+            assert.match(sqlite.run, /require\('better-sqlite3'\)/)
+            assert.match(sqlite.run, /select 1 as value/)
+            for (const name of [
+                'Compile the standalone ownership worker',
+                'Verify Node and standalone Bun ownership',
+                'Build and verify the native release artifact'
+            ]) {
+                const step = native.steps.find(
+                    (entry: { name?: string }) => entry.name === name
+                )
+                assert.ok(step, `${name} must stay in the native matrix`)
+                assert.equal(step.if, undefined)
+            }
             for (const event of ['push', 'pull_request'])
                 for (const input of [
                     '.node-test-version',
                     'scripts/check-test-runtime.mjs'
                 ])
                     assert.ok(workflow.on[event].paths.includes(input))
+        }
     }
 })
 

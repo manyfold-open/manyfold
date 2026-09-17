@@ -81,6 +81,11 @@ with pnpm running under the selected Node, rather than reusing an old ABI.
 The test pin is a CI selection/cache input. Production images and package
 engine declarations retain their existing Node contracts.
 
+The Windows native test job uses `windows-2022` (VS2022) and its installed
+Python 3.13. The node-gyp 11.5 bundled with pnpm 10.29.3 does not recognize
+VS2026; its own Windows Node 24 matrix excludes Python 3.14. These selections
+keep native dependencies compiling from source when no prebuilt addon exists.
+
 Sealed test commands require Node 20.6 or later for module loader hooks. Older
 runtimes fail explicitly instead of running without protection. This does not
 change the production runtime or package engine declaration.
