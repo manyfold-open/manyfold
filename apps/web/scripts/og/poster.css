@@ -1,31 +1,46 @@
 /* Source of truth for the exported social card (og:image / twitter:image).
    Rendered head-less at exactly 1200x630 by render.ts.
 
-   Every value here is traced to apps/web/src/styles.css — the landing page is
-   the design, this file is a still of it. When the landing changes, change it
-   here and re-export; nothing reads this at runtime.
+   Every value here is traced to apps/web/src/styles.css and DESIGN.landing.md:
+   the landing register is the design, this file is a still of it. Not a
+   pixel-copy of the hero — the card carries a Fieldwork subject the hero does
+   not mount yet, and its type is sized for a 504px thumbnail rather than for a
+   viewport. When the register changes, change it here and re-export; nothing
+   reads this at runtime.
+
+   Dark, where v5 was near-white. The card's whole job is to hold its own edge
+   in someone else's timeline, and X, Slack and LinkedIn all unfurl onto white:
+   a #f4f4f6 card dissolves into that, while a #0a0a0c one is its own boundary.
+   The generated docs cards stay on paper, which is the same two-register split
+   the landing already has — dark for what we push, paper for what someone else
+   expands.
 
    The @font-face rules are not here: fonts.ts inlines the pinned faces ahead
    of this file, so the card cannot pick up a host face. Copy is not here
-   either — poster.ts composes it from the landing hero keys.
+   either — poster.ts composes it from the landing hero keys, and the field
+   from the same engine the landing components use.
 
    Layout contract, asserted by render.ts against the live layout:
-   - Content ends above the groove at y=520, because X stamps the card title as
-     a dark pill over the lower-left of the image (~800x110 at this scale). The
-     groove marks the top of that band so it reads as a machined section rather
-     than leftover space.
+   - .p-body ends above y=520, because X stamps the card title as a dark pill
+     over the lower-left of the image (~800x110 at this scale). Nothing
+     readable belongs in that band, so the card puts nothing there at all.
    - Nothing below 22px: at the 504px width X renders the card, 0.42x turns
-     22px into 9px. */
+     22px into 9px. The field is exempt — it is an image made of glyphs, not
+     type to be read. */
 
 :root {
-    --lp-bg: #f4f4f6;
-    --lp-ink: #101013;
-    --lp-ink-soft: #2a2b30;
-    --lp-muted: #5c5e66;
-    --lp-subtle: #8d8f97;
-    --lp-line: rgba(16, 16, 22, 0.12);
-    --lp-info: #3560eb;
-    --lp-info-strong: #1842d8;
+    /* Ash, dark end (DESIGN.landing.md §1.2) */
+    --lp-bg: #0a0a0c;
+    --lp-ink: #ededef;
+    --lp-ink-soft: #c6c7cb;
+    --lp-muted: #8c8e96;
+    --lp-subtle: #62646b;
+    --lp-line: rgba(232, 232, 238, 0.13);
+    /* Iris, dark aliases: the ramp values do not change, the semantic names
+       move up one step (§1.3) */
+    --lp-info: #5d80f4;
+    --lp-field: 93 128 244;
+    --lp-field-deep: 140 165 249;
 }
 
 * {
@@ -53,149 +68,67 @@ body {
        hosts bake different glyphs into the same card, so the CJK face is
        pinned and embedded instead. */
     font-family: 'Geist', 'Noto Sans SC';
-    display: flex;
-    flex-direction: column;
-    justify-content: flex-start;
-    padding: 72px;
+    padding: 72px 64px 64px;
 }
 
-/* Page-level brushed-aluminium grain — .landing-root::before */
-.poster::before {
-    content: '';
+/* --- The field ----------------------------------------------------------
+   Three ink plates overprinted like press separations (§3.3). Together with
+   Geist Mono's 0.6em advance, the 0.92 line-height and 0.06em tracking make a
+   cell 1.36x taller than it is wide, which every shape corrects for — change
+   either and the ripple stops being round. */
+.p-field {
     position: absolute;
-    inset: 0;
+    top: 30px;
+    right: -220px;
     z-index: 0;
-    background-image:
-        repeating-linear-gradient(
-            90deg,
-            rgba(16, 16, 22, 0) 0,
-            rgba(16, 16, 22, 0) 1px,
-            rgba(16, 16, 22, 0.026) 1px,
-            rgba(16, 16, 22, 0.026) 2px
-        ),
-        url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.08 0 0 0 0 0.08 0 0 0 0 0.1 0 0 0 0.05 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
-    mix-blend-mode: multiply;
-    opacity: 0.85;
+    display: grid;
+    font-family: 'Geist Mono';
+    font-size: 16px;
+    line-height: 0.92;
+    letter-spacing: 0.06em;
+    -webkit-font-smoothing: antialiased;
+    /* Three masks intersected, because the field is laid out larger than the
+       part of it that shows: the radial gives it an edge that dissolves, the
+       horizontal one takes it off the text side entirely (§3.4 L5 — body copy
+       never sits on a cell above 0.06), and the vertical one keeps it clear of
+       the identity band. */
+    -webkit-mask-image:
+        radial-gradient(ellipse 46% 62% at 50% 50%, #000 40%, transparent 100%),
+        linear-gradient(to right, transparent 36%, #000 56%),
+        linear-gradient(to bottom, transparent 10%, #000 22%);
+    mask-image:
+        radial-gradient(ellipse 46% 62% at 50% 50%, #000 40%, transparent 100%),
+        linear-gradient(to right, transparent 36%, #000 56%),
+        linear-gradient(to bottom, transparent 10%, #000 22%);
+    -webkit-mask-composite: source-in;
+    mask-composite: intersect;
 }
 
-/* Directional sheen, lit from the top-left. Low-frequency on purpose: this is
-   the layer that survives the thumbnail, unlike the grain. */
-.poster::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    background-image:
-        radial-gradient(
-            120% 80% at 0% 0%,
-            rgba(255, 255, 255, 0.34) 0%,
-            rgba(255, 255, 255, 0.06) 22%,
-            rgba(255, 255, 255, 0) 52%
-        ),
-        radial-gradient(
-            80% 60% at 100% 100%,
-            rgba(16, 16, 22, 0.09) 0%,
-            rgba(16, 16, 22, 0) 46%
-        );
+.p-field pre {
+    grid-area: 1 / 1;
+    margin: 0;
+    padding: 0;
+    white-space: pre;
+    font: inherit;
+    letter-spacing: inherit;
 }
 
-/* Milled chamfer on all four edges plus the 1px --lp-line ring every landing
-   surface carries. */
-.p-chassis {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    box-shadow:
-        inset 0 2px 0 rgba(255, 255, 255, 0.55),
-        inset 2px 0 0 rgba(255, 255, 255, 0.2),
-        inset -2px 0 0 rgba(16, 16, 22, 0.1),
-        inset 0 0 0 1px var(--lp-line);
+/* The landing prints these at .30 / .66 / 1.0 on paper. On the dark end the
+   same alpha buys far less contrast — the light plate all but vanishes and the
+   thumbnail keeps only the deep one — so the two thin plates step up. */
+.p-field pre[data-ink='1'] {
+    color: rgb(var(--lp-field) / 0.42);
+}
+.p-field pre[data-ink='2'] {
+    color: rgb(var(--lp-field) / 0.76);
+}
+.p-field pre[data-ink='3'] {
+    color: rgb(var(--lp-field-deep));
 }
 
-/* The bottom edge gets thickness rather than a line: the surface turns away
-   into shade, then a bright lip catches light on the very edge. */
-.p-lip {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 34px;
-    z-index: 0;
-    background-image: linear-gradient(
-        to bottom,
-        rgba(16, 16, 22, 0) 0%,
-        rgba(16, 16, 22, 0.05) 55%,
-        rgba(16, 16, 22, 0.11) 88%,
-        rgba(255, 255, 255, 0.5) 94%,
-        rgba(255, 255, 255, 0.62) 100%
-    );
-}
-
-.p-groove {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 520px;
-    height: 2px;
-    z-index: 0;
-    background-image: linear-gradient(
-        to bottom,
-        rgba(16, 16, 22, 0.14) 0,
-        rgba(16, 16, 22, 0.14) 1px,
-        rgba(255, 255, 255, 0.55) 1px,
-        rgba(255, 255, 255, 0.55) 2px
-    );
-}
-
-/* Precision screws — the §7.3 recipe at poster density (1.5/2.2/3px becomes
-   3/4.4/6px). background-size must match each dot or `at center` resolves
-   against the full 1200x630 box and all four pile up in the middle. */
-.p-screws {
-    position: absolute;
-    inset: 0;
-    z-index: 0;
-    background-image:
-        radial-gradient(
-            circle at center,
-            rgba(16, 16, 22, 0.5) 0,
-            rgba(16, 16, 22, 0.5) 3px,
-            rgba(255, 255, 255, 0.7) 3px,
-            rgba(255, 255, 255, 0.7) 4.4px,
-            rgba(255, 255, 255, 0) 6px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(16, 16, 22, 0.5) 0,
-            rgba(16, 16, 22, 0.5) 3px,
-            rgba(255, 255, 255, 0.7) 3px,
-            rgba(255, 255, 255, 0.7) 4.4px,
-            rgba(255, 255, 255, 0) 6px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(16, 16, 22, 0.5) 0,
-            rgba(16, 16, 22, 0.5) 3px,
-            rgba(255, 255, 255, 0.7) 3px,
-            rgba(255, 255, 255, 0.7) 4.4px,
-            rgba(255, 255, 255, 0) 6px
-        ),
-        radial-gradient(
-            circle at center,
-            rgba(16, 16, 22, 0.5) 0,
-            rgba(16, 16, 22, 0.5) 3px,
-            rgba(255, 255, 255, 0.7) 3px,
-            rgba(255, 255, 255, 0.7) 4.4px,
-            rgba(255, 255, 255, 0) 6px
-        );
-    background-repeat: no-repeat;
-    background-size: 12px 12px;
-    background-position:
-        24px 24px,
-        calc(100% - 24px) 24px,
-        24px calc(100% - 24px),
-        calc(100% - 24px) calc(100% - 24px);
-}
-
+/* --- The identity band --------------------------------------------------
+   Same place on every card in the system, which at 504px is the only thing a
+   reader can lock onto before the type resolves. */
 .p-row {
     position: relative;
     z-index: 1;
@@ -209,43 +142,53 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 9px;
-    font-size: 35px;
+    font-size: 33px;
     font-weight: 500;
     letter-spacing: -0.015em;
     color: var(--lp-ink);
 }
 
 .p-brand svg {
-    height: 50px;
+    height: 46px;
     width: auto;
     display: block;
 }
 
+/* 22px, not the 21px the rest of the system's micro-labels use: that is the
+   floor render.ts asserts, and this is the smallest type on the card. */
 .p-domain {
-    font: 400 23px/1 'Geist Mono';
+    font: 400 22px/1 'Geist Mono';
     color: var(--lp-subtle);
 }
 
+/* --- The body -----------------------------------------------------------
+   Placed rather than stretched: the contract measures .p-body's own bottom
+   edge against y=520, so it has to be a block of its natural height sitting at
+   a known offset, not a flex child filling what is left. 76px puts the two
+   lines of title and two of lead centred on the card. */
 .p-body {
     position: relative;
     z-index: 1;
-    margin-top: 48px;
+    margin-top: 76px;
 }
 
-/* Matches .lp-h1 (styles.css:2752): weight 500, line-height 0.92,
-   letter-spacing -0.05em. The -0.055em in the earlier .lp-h1/.lp-h2 rule is
-   overridden by that later one, so it is not the live value. */
+/* .lp-h1's register at poster scale: Fraunces 300, SOFT 50, WONK 0
+   (DESIGN.landing.md §2.3). Smaller than v5's 108px because the measure now
+   stops at 700px to leave the field its side of the card — and because 108px
+   was sized for a headline with nothing beside it. */
 .p-h1 {
     margin: 0;
-    font-size: 108px;
-    /* The landing's display register, verbatim (DESIGN.landing.md §2.2): the
-       card reproduces its hero, so a reader who clicks through must not meet a
-       different face. Only the CJK fallback is shorter — the render pins Noto
-       Serif SC and nothing before it. */
+    max-width: 700px;
+    font-size: 76px;
+    /* Only the CJK fallback is shorter than the landing's stack — the render
+       pins Noto Serif SC and nothing before it. */
     font-family: 'Fraunces Variable', 'Noto Serif SC';
     font-weight: 300;
-    font-variation-settings: 'SOFT' 50, 'WONK' 0;
-    line-height: 1;
+    font-variation-settings:
+        'SOFT' 50,
+        'WONK' 0;
+    font-optical-sizing: auto;
+    line-height: 1.04;
     letter-spacing: -0.018em;
     color: var(--lp-ink);
 }
@@ -258,33 +201,28 @@ body {
 }
 
 .p-sub {
-    margin: 34px 0 0;
-    font-size: 33px;
+    margin: 26px 0 0;
+    max-width: 700px;
+    font-size: 27px;
     font-weight: 400;
-    line-height: 1.32;
+    line-height: 1.34;
     letter-spacing: -0.01em;
     color: var(--lp-muted);
 }
 
-/* CJK is full-width: there are no latin sidebearings to reclaim, so -0.05em
+/* CJK is full-width: there are no latin sidebearings to reclaim, so -0.018em
    reads as cramped, and a smaller face carries the same optical size.
 
-   line-height matters more than any of that. CJK glyphs fill the em box, so the
-   landing's 0.92 makes consecutive lines collide — the landing never shows it
-   because .lp-h1 there is a single line. Two lines need room. */
+   line-height matters more than any of that. CJK glyphs fill the em box, so a
+   tight ratio makes consecutive lines collide (§2.6 T6). */
 html[lang^='zh'] .p-h1 {
-    font-size: 96px;
+    font-size: 68px;
     line-height: 1.16;
-    letter-spacing: -0.02em;
-}
-
-/* Taller CJK lines push the block down, so it starts higher to keep the same
-   clearance above the y=520 groove that the en card has. */
-html[lang^='zh'] .p-body {
-    margin-top: 32px;
+    letter-spacing: 0;
 }
 
 html[lang^='zh'] .p-sub {
-    font-size: 31px;
+    font-size: 25px;
+    line-height: 1.5;
     letter-spacing: 0;
 }
