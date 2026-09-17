@@ -16,7 +16,8 @@ export const GET: APIRoute = async ({ props }) => {
             await renderOgCard(
                 `${endpoint.method} ${endpoint.path}`,
                 endpoint.title,
-                endpoint.description
+                endpoint.description,
+                `/api-reference/${endpoint.id}`
             )
         ),
         { headers: { 'content-type': 'image/png' } }

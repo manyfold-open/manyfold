@@ -9,7 +9,12 @@ export const GET: APIRoute = async () => {
     const ref = apiReferenceFor('en')
     return new Response(
         new Uint8Array(
-            await renderOgCard(ref.eyebrow, ref.title, ref.description)
+            await renderOgCard(
+                ref.eyebrow,
+                ref.title,
+                ref.description,
+                '/api-reference'
+            )
         ),
         { headers: { 'content-type': 'image/png' } }
     )
