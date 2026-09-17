@@ -60,6 +60,7 @@ import { assertOperationId, assertProfileId, authRoot } from './runtime-auth/pat
 import { ProfileBusyError } from './runtime-auth/lock'
 import {
     ExecStream,
+    type ExecBufferFinal,
     execStreams,
     readEventsFrom,
     readFinal,
@@ -953,24 +954,66 @@ const execStart = async (
             error: authError(err).error
         }
     }
-    const stream = new ExecStream({
-        refId: ctx.refId,
-        method: 'exec.start',
-        payload: metaPayload as unknown as Record<string, unknown>
-    })
-    execStreams.set(ctx.refId, stream)
-    const child = spawn(cmd[0], cmd.slice(1), {
-        cwd,
-        env: authContext
-            ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
-            : { ...process.env, ...(payload.env ?? {}) },
-        stdio: ['pipe', 'pipe', 'pipe']
-    })
-    const releaseAuth = (): void => {
+    type Completion = {
+        final: ExecBufferFinal
+        status: 'completed' | 'aborted' | 'crashed'
+    }
+    let stream: ExecStream | undefined
+    let failure: Completion | null = null
+    let outputFailed = false
+    let settleCompletion: ((final: ExecBufferFinal) => void) | undefined
+    const finish = async ({
+        final,
+        status
+    }: Completion): Promise<ExecBufferFinal> => {
         const pending = authContext
         authContext = null
-        void pending?.release()
+        try {
+            await pending?.release()
+        } catch {
+            final = {
+                ok: false,
+                payload: final.payload,
+                error: 'auth_context_release_failed'
+            }
+            status = 'crashed'
+        }
+        stream?.complete(final, status)
+        settleCompletion?.(final)
+        return final
     }
+    let child: ChildProcessWithoutNullStreams
+    let setupStage = 'buffer'
+    try {
+        stream = new ExecStream({
+            refId: ctx.refId,
+            method: 'exec.start',
+            payload: metaPayload as unknown as Record<string, unknown>,
+            onPublishFailure: (final) => {
+                outputFailed = true
+                failure ??= { final, status: 'crashed' }
+            }
+        })
+        execStreams.set(ctx.refId, stream)
+        setupStage = 'spawn'
+        child = spawn(cmd[0], cmd.slice(1), {
+            cwd,
+            env: authContext
+                ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
+                : { ...process.env, ...(payload.env ?? {}) },
+            stdio: ['pipe', 'pipe', 'pipe']
+        })
+    } catch {
+        return finish({
+            final: {
+                ok: false,
+                payload: { exitCode: -1 },
+                error: `exec_${setupStage}_setup_failed`
+            },
+            status: 'crashed'
+        })
+    }
+    const activeStream = stream
     const entry: ExecChildEntry = { child, stream, cancelled: false }
     execChildren.set(ctx.refId, entry)
     if (child.stdin) {
@@ -986,8 +1029,9 @@ const execStart = async (
         } catch {}
     })
     const safePublish = (kind: 'stdout' | 'stderr', chunk: string): void => {
+        if (outputFailed) return
         try {
-            stream.publish(kind, chunk)
+            activeStream.publish(kind, chunk)
         } catch (err) {
             try {
                 child.kill('SIGKILL')
@@ -1011,11 +1055,10 @@ const execStart = async (
         : null
 
     return new Promise((resolveAck) => {
-        const settle = (final: {
-            ok: boolean
-            error?: string
-            payload?: Record<string, unknown>
-        }): void => {
+        let acknowledged = false
+        const settle = (final: ExecBufferFinal): void => {
+            if (acknowledged) return
+            acknowledged = true
             releaseExecChild(ctx.refId)
             resolveAck({
                 ok: final.ok,
@@ -1023,35 +1066,50 @@ const execStart = async (
                 error: final.error
             })
         }
+        // Transport subscribers can detach after a failed send. The exec owner
+        // still settles its ACK and drain registration after auth cleanup.
+        settleCompletion = settle
 
-        subscribeCtxToStream(stream, ctx, 0, settle)
+        subscribeCtxToStream(activeStream, ctx, 0, settle)
 
         child.on('error', (err) => {
-            releaseAuth()
-            stream.publish('stderr', `[spawn error] ${err.message}\n`)
-            stream.complete(
-                { ok: false, payload: { exitCode: -1 }, error: err.message },
-                'completed'
-            )
+            if (failure) return
+            failure = {
+                final: {
+                    ok: false,
+                    payload: { exitCode: -1 },
+                    error: err.message
+                },
+                status: 'completed'
+            }
+            safePublish('stderr', `[spawn error] ${err.message}\n`)
+            if (child.pid) {
+                try {
+                    child.kill('SIGKILL')
+                } catch {}
+            }
         })
-        child.on('close', (code) => {
-            releaseAuth()
+        child.once('close', (code) => {
             if (timer) clearTimeout(timer)
             const exitCode = code ?? 0
-            if (entry.cancelled)
-                stream.complete(
-                    {
-                        ok: false,
-                        payload: { exitCode },
-                        error: 'cancelled'
-                    },
-                    'aborted'
-                )
-            else
-                stream.complete(
-                    { ok: true, payload: { exitCode } },
-                    'completed'
-                )
+            const completion =
+                failure ??
+                (entry.cancelled
+                    ? {
+                          final: {
+                              ok: false,
+                              payload: { exitCode },
+                              error: 'cancelled'
+                          },
+                          status: 'aborted' as const
+                      }
+                    : {
+                          final: { ok: true, payload: { exitCode } },
+                          status: 'completed' as const
+                      })
+            // close follows both normal exit and spawn error. Keep the exec
+            // registered and resumable until its auth lease has been released.
+            void finish(completion)
         })
     })
 }

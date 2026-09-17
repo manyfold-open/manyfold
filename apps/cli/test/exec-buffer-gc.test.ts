@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -30,7 +30,8 @@ const {
     ExecStream,
     execStreams,
     gcStaleBuffers,
-    enumerateInflightForHello
+    enumerateInflightForHello,
+    readFinal
 } = await import('../src/daemon/exec-buffer')
 const { rpcHandler } = await import('../src/daemon/rpc')
 const { daemonPaths } = await import('../src/daemon/config')
@@ -53,6 +54,23 @@ const startStream = (refId: string): InstanceType<typeof ExecStream> => {
 
 const refIds = (list: Array<{ refId: string }>): string[] =>
     list.map((s) => s.refId).sort()
+
+test('stream owners without deferred cleanup still finish immediately on buffer failure', (t) => {
+    const refId = 'default-publish-failure'
+    const stream = new ExecStream({ refId, method: 'turn.start', payload: {} })
+    const directory = join(daemonPaths.execDir, refId)
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    let completed = 0
+    stream.subscribe((kind) => {
+        if (kind === '__done__') completed++
+    }, 0)
+    rmSync(join(directory, 'events.ndjson'))
+    mkdirSync(join(directory, 'events.ndjson'))
+    assert.throws(() => stream.publish('stdout', 'not persisted'))
+    assert.equal(stream.status, 'crashed')
+    assert.equal(completed, 1)
+    assert.equal(readFinal(refId)?.ok, false)
+})
 
 test('a finished turn stops being advertised once its grace passes', () => {
     const done = startStream('finished-1')

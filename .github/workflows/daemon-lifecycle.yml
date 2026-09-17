@@ -92,6 +92,15 @@ jobs:
                     test/daemon-login-shell-path.test.ts \
                     test/ws-client-lifecycle.test.ts \
                     test/ws-client-hello.test.ts
+            - name: Verify Bun exec auth cleanup ordering
+              # These auth fixtures use POSIX vendor shell stubs. Windows keeps
+              # the Node/standalone ownership and native-artifact gates above.
+              if: runner.os != 'Windows'
+              working-directory: apps/cli
+              run: |
+                  node ../../scripts/test-sealed-env.mjs -- bun test \
+                    test/daemon-runtime-auth.test.ts \
+                    --test-name-pattern 'exec completion|exec .* owns one'
             - run: pnpm --filter '@manyfold/cli...' build
             - name: Build and verify the native release artifact
               run: |

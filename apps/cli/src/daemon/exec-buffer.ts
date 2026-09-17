@@ -62,6 +62,7 @@ interface ExecStreamArgs {
     refId: string
     method: DaemonRpcMethod
     payload: Record<string, unknown>
+    onPublishFailure?: (final: ExecBufferFinal) => void
 }
 
 const ensureExecRoot = (): void => {
@@ -143,10 +144,12 @@ export class ExecStream {
     status: DaemonInflightStreamStatus = 'running'
     seq = 0
     completedAt: number | null = null
+    private readonly onPublishFailure?: (final: ExecBufferFinal) => void
 
     constructor(args: ExecStreamArgs) {
         this.refId = args.refId
         this.method = args.method
+        this.onPublishFailure = args.onPublishFailure
         ensureExecRoot()
         mkdirSync(bufferDir(args.refId), { recursive: true, mode: 0o700 })
         writeMeta({
@@ -171,13 +174,14 @@ export class ExecStream {
         try {
             appendEventSync(this.refId, { seq, kind, data })
         } catch (err) {
-            this.complete(
-                {
-                    ok: false,
-                    error: `buffer append failed: ${(err as Error).message}`
-                },
-                'crashed'
-            )
+            const final = {
+                ok: false,
+                error: `buffer append failed: ${(err as Error).message}`
+            }
+            // Owners with asynchronous resources complete after their child
+            // and cleanup finish. Other stream owners retain eager failure.
+            if (this.onPublishFailure) this.onPublishFailure(final)
+            else this.complete(final, 'crashed')
             throw err
         }
         for (const sub of this.subscribers) {
