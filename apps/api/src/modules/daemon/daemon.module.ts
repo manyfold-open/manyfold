@@ -18,6 +18,7 @@ import { DaemonCliVersionService } from './daemon-cli-version.service'
 import { CliVersionCatalogService } from './cli-version-catalog.service'
 import { CliVersionsController } from './cli-versions.controller'
 import { DaemonExecResumeService } from './daemon-exec-resume.service'
+import { DaemonConfigDeliveryService } from './daemon-config-delivery.service'
 
 @Module({
     imports: [AuthModule, AdminSettingsModule, RuntimeAccessModule],
@@ -38,7 +39,8 @@ import { DaemonExecResumeService } from './daemon-exec-resume.service'
         DaemonRateLimitService,
         DaemonCliVersionService,
         CliVersionCatalogService,
-        DaemonExecResumeService
+        DaemonExecResumeService,
+        DaemonConfigDeliveryService
     ],
     exports: [
         DaemonRegistryService,
@@ -47,7 +49,8 @@ import { DaemonExecResumeService } from './daemon-exec-resume.service'
         DaemonRuntimeSyncService,
         DaemonExecResumeService,
         DaemonCliVersionService,
-        CliVersionCatalogService
+        CliVersionCatalogService,
+        DaemonConfigDeliveryService
     ]
 })
 export class DaemonModule {

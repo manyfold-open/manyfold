@@ -33,6 +33,7 @@ export const objectIdPrefixes = Object.freeze({
     chatSessionShare: 'css',
     chatUpload: 'cup',
     daemonHost: 'dh',
+    daemonConfigAttempt: 'dca',
     emailVerification: 'evf',
     frameworkEnumCatalogEntry: 'fec',
     frameworkModelCatalogEntry: 'fmc',

@@ -88,6 +88,7 @@ import {
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
+import { commitConfigFile } from './config-commit'
 
 interface TerminalSession {
     write(data: string): void
@@ -1662,8 +1663,19 @@ const handlers: Partial<
             payload: { size: st.size, chunked: true }
         }
     },
-    'fs.write': async (payload) => {
+    'fs.write': async (payload, ctx) => {
         const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        if (payload.configCommit !== undefined) {
+            if (payload.encoding !== undefined || payload.mode !== '600') return { ok: false, error: 'config_commit_invalid' }
+            try {
+                if (payload.content !== null && typeof payload.content !== 'string') return { ok: false, error: 'config_commit_invalid' }
+                const status = await commitConfigFile({ path: abs, content: payload.content as string | null, commit: payload.configCommit, ctx, validatePath: () => ensureUnderAllowedRoot(abs) })
+                return { ok: true, payload: { status } }
+            } catch (error) {
+                const message = (error as Error).message
+                return { ok: false, error: /^config_commit_[a-z_]+$/.test(message) ? message : 'config_commit_io_failed' }
+            }
+        }
         await mkdir(join(abs, '..'), { recursive: true })
         const raw = String(payload.content ?? '')
         // base64 keeps binary attachments (images, PDFs) intact; the legacy

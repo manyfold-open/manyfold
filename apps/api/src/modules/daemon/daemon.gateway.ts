@@ -3,7 +3,6 @@ import {
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
     DaemonClientProcess,
-    DaemonInflightStream,
     DaemonWsFrame
 } from '@manyfold/shared'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
@@ -149,7 +148,8 @@ export class DaemonGateway implements OnModuleInit {
         let registered = false
         let helloSeen = false
         let clientProcess: DaemonClientProcess | undefined
-        let bufferedInflight: DaemonInflightStream[] | null = null
+        let bufferedHello: HelloFrame | null = null
+        let acceptedClientFeatures: string[] = []
         let acceptHello!: (accepted: boolean) => void
         const helloReady = new Promise<boolean>((resolve) => {
             acceptHello = resolve
@@ -179,17 +179,23 @@ export class DaemonGateway implements OnModuleInit {
             return { accepted, clientProcess }
         }
 
-        const handleInflightWhenReady = (
-            streams: DaemonInflightStream[]
-        ): void => {
+        const handleHelloWhenReady = (frame: HelloFrame): void => {
+            acceptedClientFeatures = Array.isArray(frame.clientFeatures)
+                ? frame.clientFeatures.filter((feature) =>
+                    typeof feature === 'string' && /^[-a-z0-9._:]{1,80}$/i.test(feature)
+                ).slice(0, 64)
+                : []
             if (!registered) {
-                bufferedInflight = streams
+                bufferedHello = frame
                 return
             }
-            const evidence = this.registry.recordHelloForSocket(host.id, socket)
+            const evidence = this.registry.recordHelloForSocket(
+                host.id, socket, acceptedClientFeatures
+            )
             if (!evidence) return
+            if (frame.inflightStreams === undefined) return
             void this.resumeService
-                .handleInflightStreams(host.id, streams, evidence)
+                .handleInflightStreams(host.id, frame.inflightStreams, evidence)
                 .catch((err) =>
                     this.log.warn(
                         `daemon.ws.resume_failed daemonId=${host.id} ${(err as Error).message}`
@@ -203,7 +209,7 @@ export class DaemonGateway implements OnModuleInit {
                 socket,
                 raw,
                 armPongDeadline,
-                handleInflightWhenReady,
+                handleHelloWhenReady,
                 handleHelloVersion
             ).catch((err: unknown) => {
                 this.log.warn(
@@ -244,6 +250,7 @@ export class DaemonGateway implements OnModuleInit {
             cliVersion: host.cliVersion,
             hostname: host.hostname,
             clientProcess,
+            clientFeatures: acceptedClientFeatures,
             socket
         })
         registered = true
@@ -259,10 +266,10 @@ export class DaemonGateway implements OnModuleInit {
 
         await this.hosts.touchLastSeen(host.id)
 
-        if (bufferedInflight) {
-            const pending = bufferedInflight
-            bufferedInflight = null
-            handleInflightWhenReady(pending)
+        if (bufferedHello) {
+            const pending = bufferedHello
+            bufferedHello = null
+            handleHelloWhenReady(pending)
         }
 
         armPongDeadline()
@@ -279,7 +286,7 @@ export class DaemonGateway implements OnModuleInit {
         socket: WsClient,
         raw: unknown,
         armPongDeadline: () => void,
-        handleInflightStreams: (streams: DaemonInflightStream[]) => void,
+        handleAcceptedHello: (frame: HelloFrame) => void,
         handleHelloVersion: (frame: HelloFrame) => HelloDecision
     ): Promise<void> {
         let frame: DaemonWsFrame
@@ -298,6 +305,7 @@ export class DaemonGateway implements OnModuleInit {
             case 'hello': {
                 const hello = handleHelloVersion(frame)
                 if (!hello.accepted) return
+                handleAcceptedHello(frame)
                 const features = Array.isArray(frame.clientFeatures)
                     ? frame.clientFeatures
                           .filter(
@@ -325,7 +333,6 @@ export class DaemonGateway implements OnModuleInit {
                     )
                     return
                 }
-                handleInflightStreams(frame.inflightStreams)
                 return
             }
             case 'ping': {

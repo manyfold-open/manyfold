@@ -12,7 +12,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import { ModuleRef } from '@nestjs/core'
 import { randomUUID } from 'node:crypto'
-import { and, desc, eq, gt, isNull, lte, or } from 'drizzle-orm'
+import { and, desc, eq, gt, inArray, isNull, lte, or, sql } from 'drizzle-orm'
 import { auditAction, createObjectId } from '@manyfold/shared'
 import {
     agentRuntimes,
@@ -22,6 +22,8 @@ import {
     userDeletions,
     userSessions,
     users,
+    runtimeHosts,
+    serviceLeases,
     type Database,
     type UserDeletionRow
 } from '@manyfold/db'
@@ -523,6 +525,7 @@ export class UserDeletionService implements OnModuleInit, OnModuleDestroy {
             await this.lifecycle.beforeUserHardDelete(row.userId)
             step = 'delete'
             await this.db.transaction(async (tx) => {
+                await tx.delete(serviceLeases).where(inArray(serviceLeases.name, tx.select({ name: sql<string>`'daemon-config:' || ${runtimeHosts.id}` }).from(runtimeHosts).where(and(eq(runtimeHosts.userId, row.userId), eq(runtimeHosts.kind, 'daemon')))))
                 await tx.delete(users).where(eq(users.id, row.userId))
                 await tx
                     .update(userDeletions)

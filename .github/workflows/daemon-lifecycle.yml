@@ -112,6 +112,7 @@ jobs:
                     --test --test-concurrency=2 \
                     test/atomic-rename.test.ts \
                     test/protected-replace.test.ts \
+                    test/config-commit.test.ts \
                     test/daemon-pid.test.ts \
                     test/daemon-ownership-process.test.ts \
                     test/daemon-control.test.ts \
@@ -124,6 +125,9 @@ jobs:
             - name: Verify Bun owned exec resources
               working-directory: apps/cli
               run: node ../../scripts/test-sealed-env.mjs -- bun test test/exec-resources.test.ts
+            - name: Verify Bun configuration commit ownership
+              working-directory: apps/cli
+              run: node ../../scripts/test-sealed-env.mjs -- bun test test/config-commit.test.ts
             - name: Verify Bun exec auth cleanup ordering
               # These auth fixtures use POSIX vendor shell stubs. Windows keeps
               # the Node/standalone ownership and native-artifact gates above.

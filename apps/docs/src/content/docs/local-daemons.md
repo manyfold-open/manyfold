@@ -83,6 +83,19 @@ From the **Connected machines** list, click **+ Create agent →** next to an on
 
 You can also open **New agent**, pick a framework, and choose **Self-owned computer** as the runtime.
 
+## Saved MCP and platform context
+
+For Claude Code, Codex and Gemini CLI agents, Manyfold retries saved MCP
+configuration and platform context after the daemon reconnects. Changes saved
+while the computer is offline stay pending until delivery succeeds. Context
+also refreshes when linked accounts change, even when its template version
+stays the same.
+
+Automatic delivery requires a current CLI. An older daemon shows an upgrade
+message; update and restart it, or use the explicit push in agent settings.
+Failed writes remain visible and can be retried. Manyfold preserves custom
+instructions outside its managed reference block.
+
 ## Manage the daemon
 
 ```sh

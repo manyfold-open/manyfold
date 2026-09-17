@@ -17,6 +17,7 @@ export interface RpcContext {
     refId: string
     sendEvent: (kind: DaemonStreamKind, data: string, seq?: number) => void
     onCancel: (handler: () => void) => void
+    isCurrentConnection?: () => boolean
 }
 
 export type RpcHandler = (
@@ -244,6 +245,7 @@ export class DaemonWsClient {
                 else {
                     const ctx: RpcContext = {
                         refId: frame.refId,
+                        isCurrentConnection: () => !this.stopped && this.ws === ws && ws.readyState === WebSocket.OPEN,
                         sendEvent: (kind, data, seq) => {
                             if (
                                 this.stopped ||

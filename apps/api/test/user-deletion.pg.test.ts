@@ -231,6 +231,8 @@ test(
             const db = createDb(dbUrl, { max: 1 })
             try {
                 await client`insert into users (id, email, plan_id) values ('user_rt', 'rt@pgtest.local', 'free')`
+                await client`insert into runtime_hosts (id, user_id, name, kind) values ('dh_deletion_fixture', 'user_rt', 'owned fixture', 'daemon')`
+                await client`insert into service_leases (name, holder_id, acquired_at, expires_at, updated_at) values ('daemon-config:dh_deletion_fixture', 'fixture', now(), now(), now())`
                 let calls = 0
                 const flaky = {
                     ...noopUserLifecyclePort,
@@ -262,6 +264,7 @@ test(
                 assert.equal(st?.lastError, null)
                 const gone = await client`select 1 from users where id = 'user_rt'`
                 assert.equal(gone.length, 0)
+                assert.equal((await client`select 1 from service_leases where name = 'daemon-config:dh_deletion_fixture'`).length, 0)
                 assert.equal(calls, 2)
             } finally {
                 const raw = (
