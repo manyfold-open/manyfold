@@ -39,6 +39,8 @@ mf channels send <channelId> --chat-id <provider_chat_id> --text "本周数据" 
 
 平台会在发送时读取文件，重试时重新读取。文本和文件使用两条独立的 durable delivery，因此文件上传失败只会重试文件，不会重新发送已经成功的文本。
 
+飞书和 Lark 会将 `.opus` 文件作为音频发送，将 `.mp4` 文件作为视频发送。图片保持原生图片形式，文档及其他文件作为文件附件发送。
+
 ## 理解返回结果
 
 只发文本或只发文件时，顶层字段表示本次 delivery：
@@ -67,6 +69,8 @@ mf channels send <channelId> --chat-id <provider_chat_id> --text "本周数据" 
 ```
 
 `sent` 表示 provider 已接受投递。`queued` 表示首次尝试失败，Manyfold 会按 backoff 重试；不要立即重复发送。如需关联对方回复或之后原生回复该消息，请保留 `providerMessageId`。
+
+`failed` 表示该投递无法自动重试，例如飞书的文件上传类型与消息类型不匹配。修正文件或请求后再发送；若文本已经成功，只需补发失败的文件。
 
 ## 限制与恢复
 

@@ -45,6 +45,7 @@ import {
     parseResetOnIdleMins
 } from '../config-helpers'
 import { chunkText } from '../text-chunk'
+import { ChannelSendError } from '../channel-send-error'
 
 const LARK_MAX_TEXT_LEN = 4000
 const LARK_DOWNLOAD_TIMEOUT_MS = 15_000
@@ -789,7 +790,7 @@ export class LarkChannelProvider implements ChannelProvider {
                 config,
                 headers,
                 target,
-                isImage ? 'image' : 'file',
+                isImage ? 'image' : larkFileTypesFor(file.name).messageType,
                 content
             )
             messageId =
@@ -856,7 +857,9 @@ export class LarkChannelProvider implements ChannelProvider {
                 config,
                 token,
                 scopeKey,
-                file.contentType.startsWith('image/') ? 'image' : 'file',
+                file.contentType.startsWith('image/')
+                    ? 'image'
+                    : larkFileTypesFor(file.name).messageType,
                 content
             )
             messageId =
@@ -894,7 +897,7 @@ export class LarkChannelProvider implements ChannelProvider {
         file: OutboundAttachment
     ): Promise<string> {
         const form = new FormData()
-        form.append('file_type', larkFileTypeFor(file.name))
+        form.append('file_type', larkFileTypesFor(file.name).uploadFileType)
         form.append('file_name', file.name)
         form.append('file', new Blob([new Uint8Array(file.bytes)]), file.name)
         const res = await this.fetchJson(
@@ -1614,7 +1617,7 @@ export class LarkChannelProvider implements ChannelProvider {
         config: LarkChannelConfig,
         token: string,
         scopeKey: string,
-        msgType: 'text' | 'interactive' | 'image' | 'file',
+        msgType: 'text' | 'interactive' | 'image' | 'file' | 'audio' | 'media',
         content: string,
         replyToMessageId: string | null = null
     ): Promise<Record<string, unknown>> {
@@ -1725,11 +1728,16 @@ export class LarkChannelProvider implements ChannelProvider {
             retryBackoffMs
         })
         const json = res.json ?? {}
+        const code = (json as { code?: number }).code
+        if (code === 230055)
+            throw new ChannelSendError(
+                'bad_format',
+                'lark api code=230055: uploaded file type does not match message type'
+            )
         if (!res.ok)
             throw new Error(
                 `lark api ${res.status} ${url}: ${res.text.slice(0, 500)}`
             )
-        const code = (json as { code?: number }).code
         if (typeof code === 'number' && code !== 0)
             throw new Error(
                 `lark api code=${code} msg=${(json as { msg?: string }).msg ?? 'unknown'}`
@@ -2253,16 +2261,22 @@ const stringList = (value: unknown): string[] =>
           )
         : []
 
-const larkFileTypeFor = (name: string): string => {
+const larkFileTypesFor = (name: string): {
+    uploadFileType: 'opus' | 'mp4' | 'pdf' | 'doc' | 'xls' | 'ppt' | 'stream'
+    messageType: 'audio' | 'media' | 'file'
+} => {
     const dot = name.lastIndexOf('.')
     const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : ''
-    if (ext === 'opus') return 'opus'
-    if (ext === 'mp4') return 'mp4'
-    if (ext === 'pdf') return 'pdf'
-    if (ext === 'doc' || ext === 'docx') return 'doc'
-    if (ext === 'xls' || ext === 'xlsx') return 'xls'
-    if (ext === 'ppt' || ext === 'pptx') return 'ppt'
-    return 'stream'
+    if (ext === 'opus') return { uploadFileType: 'opus', messageType: 'audio' }
+    if (ext === 'mp4') return { uploadFileType: 'mp4', messageType: 'media' }
+    if (ext === 'pdf') return { uploadFileType: 'pdf', messageType: 'file' }
+    if (ext === 'doc' || ext === 'docx')
+        return { uploadFileType: 'doc', messageType: 'file' }
+    if (ext === 'xls' || ext === 'xlsx')
+        return { uploadFileType: 'xls', messageType: 'file' }
+    if (ext === 'ppt' || ext === 'pptx')
+        return { uploadFileType: 'ppt', messageType: 'file' }
+    return { uploadFileType: 'stream', messageType: 'file' }
 }
 
 const larkImageAttachment = (
