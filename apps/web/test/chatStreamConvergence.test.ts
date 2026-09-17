@@ -135,7 +135,11 @@ test('outage budget stops cursor-only retries and bounds an unsettled final refe
     for (let i = 0; i < 10; i++) await h.tick(30_000)
     assert.equal(h.snapshot().reconnectRequired, true)
     assert.equal(h.snapshot().stalled, true)
-    assert.equal(h.snapshot().status, 'idle', 'a cursor-only listener does not invent an active turn')
+    assert.equal(
+        h.snapshot().status,
+        'idle',
+        'a cursor-only listener does not invent an active turn'
+    )
     assert.equal(h.snapshot().streamingAssistantId, null)
     const count = h.requests.length
     chatStreamStore.getOrStart(h.params)
@@ -272,16 +276,50 @@ test('thawing a delayed retry checks the deadline before attaching', async (t) =
     assert.equal(h.snapshot().reconnectRequired, true)
 })
 
-test('LRU retirement releases timers but a revisit cannot reset the expired outage', async t => {
+test('a retired outage timer cannot expire a newer turn or its newer outage', async (t) => {
+    const h = fixture(t)
+    const timers: Array<() => void> = []
+    const schedule = globalThis.setTimeout
+    t.mock.method(
+        globalThis,
+        'setTimeout',
+        (...args: Parameters<typeof setTimeout>) => {
+            if (args[1] === 300_000) timers.push(() => args[0]())
+            return schedule(...args)
+        }
+    )
+    await h.start('old')
+    await h.disconnect(false)
+    const oldTimer = timers[0]
+    assert.ok(oldTimer)
+    chatStreamStore.beginAssistantTurn(key, h.params, 'new')
+    await flush()
+    await h.push(event('token', 'new'))
+    oldTimer()
+    assert.equal(h.snapshot().reconnectRequired, false)
+    await h.disconnect(false)
+    oldTimer()
+    assert.equal(h.snapshot().reconnectRequired, false)
+    await h.tick(300_000)
+    assert.equal(h.snapshot().reconnectRequired, true)
+})
+
+test('LRU retirement releases timers but a revisit cannot reset the expired outage', async (t) => {
     let fallbacks = 0
-    const h = fixture(t, () => { fallbacks++ })
+    const h = fixture(t, () => {
+        fallbacks++
+    })
     await h.start('message')
     await h.disconnect(false)
     await h.tick(500)
     const retired = h.streams.at(-1)!
     for (let i = 0; i < 4; i++) {
         const sessionId = `other-${i}`
-        chatStreamStore.beginAssistantTurn(chatStreamStore.keyOf('agent', sessionId), { ...h.params, sessionId, onFallback: undefined }, `message-${i}`)
+        chatStreamStore.beginAssistantTurn(
+            chatStreamStore.keyOf('agent', sessionId),
+            { ...h.params, sessionId, onFallback: undefined },
+            `message-${i}`
+        )
         await flush()
     }
     assert.equal(retired.signal.aborted, true)

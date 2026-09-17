@@ -111,7 +111,7 @@ for (const [mode, width, theme] of [
     test(
         `real browser bounds ${mode} reconnects with only an idle cursor (${width}/${theme})`,
         { timeout: 30_000 },
-        async () => {
+        async (t) => {
             let requests = 0,
                 active = 0,
                 peak = 0
@@ -206,6 +206,12 @@ for (const [mode, width, theme] of [
             const address = server.address()
             assert.ok(address && typeof address !== 'string')
             const origin = `http://127.0.0.1:${address.port}`
+            t.after(async () => {
+                server.closeAllConnections()
+                api.closeAllConnections()
+                await new Promise<void>(resolve => server.close(() => resolve()))
+                await new Promise<void>(resolve => api.close(() => resolve()))
+            })
             const browser = await chromium.launch({ headless: true })
             try {
                 const context = await browser.newContext({

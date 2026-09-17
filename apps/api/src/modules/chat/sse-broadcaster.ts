@@ -826,13 +826,16 @@ export class ChatSseBroadcaster
         sessionId: string,
         subscriber: BroadcastSubscriber,
         lastEventId: string | null,
-        replayMessageId: string | null = null
+        replayMessageId: string | null = null,
+        signal?: AbortSignal
     ): Promise<() => void> {
+        if (signal?.aborted) return () => {}
         const cursor = await this.initialCursor(
             sessionId,
             lastEventId,
             replayMessageId
         )
+        if (signal?.aborted) return () => {}
         let pump = this.pumps.get(sessionId)
         if (!pump) {
             pump = {
@@ -847,14 +850,17 @@ export class ChatSseBroadcaster
         }
         const entry: PumpSubscriber = { subscriber, cursor }
         pump.subs.add(entry)
-        this.kick(sessionId)
-        return (): void => {
+        const unsubscribe = (): void => {
+            signal?.removeEventListener('abort', unsubscribe)
             const current = this.pumps.get(sessionId)
             if (!current) return
             current.subs.delete(entry)
             if (current.subs.size === 0 && !current.running)
                 this.pumps.delete(sessionId)
         }
+        signal?.addEventListener('abort', unsubscribe, { once: true })
+        this.kick(sessionId)
+        return unsubscribe
     }
 
     private async initialCursor(

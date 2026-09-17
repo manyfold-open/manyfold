@@ -271,8 +271,7 @@ export class ChatController {
                     this.telemetry.event(name, {
                         ...correlation,
                         reason,
-                        elapsedMs: Math.round(performance.now() - startedAt),
-                        resuming: Boolean(lastEventId || replayMessageId)
+                        durationMs: Math.round(performance.now() - startedAt)
                     })
                 } catch {
                     /* Observation cannot prevent transport cleanup. */
@@ -282,6 +281,7 @@ export class ChatController {
         let unsubscribe: (() => void) | null = null
         let keepalive: ReturnType<typeof setInterval> | null = null
         let closed = false
+        const attachment = new AbortController()
         const cleanup = (
             reason:
                 | 'peer_close'
@@ -293,6 +293,7 @@ export class ChatController {
         ): void => {
             if (closed) return
             closed = true
+            attachment.abort()
             if (keepalive) clearInterval(keepalive)
             req.raw.off('close', peerClosed)
             req.raw.off('error', requestError)
@@ -378,7 +379,8 @@ export class ChatController {
                 session.id,
                 subscriber,
                 lastEventId,
-                replayMessageId
+                replayMessageId,
+                attachment.signal
             )
             if (closed) {
                 unsubscribe()

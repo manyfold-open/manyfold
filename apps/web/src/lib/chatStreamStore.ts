@@ -107,6 +107,7 @@ interface RuntimeEntry {
     disconnectAttempts: number
     outageDeadline: number | null
     outageTimer: ReturnType<typeof setTimeout> | null
+    outageTimerVersion: number
     fallback: { cancel: () => void } | null
     // Stop becomes retryable while an earlier POST may still be in flight. A
     // set preserves every unresolved attempt so one stale failure cannot undo
@@ -224,9 +225,25 @@ const emitTelemetry = (
     }
 }
 
-const resetDisconnectWindow = (entry: RuntimeEntry): void => {
+const clearOutageTimer = (entry: RuntimeEntry): void => {
+    entry.outageTimerVersion++
     if (entry.outageTimer) clearTimeout(entry.outageTimer)
     entry.outageTimer = null
+}
+
+const armOutageTimer = (entry: RuntimeEntry): void => {
+    const version = ++entry.outageTimerVersion
+    entry.outageTimer = setTimeout(
+        () => {
+            if (entry.outageTimerVersion === version)
+                stopAutomaticReconnect(entry)
+        },
+        Math.max(0, entry.outageDeadline! - performance.now())
+    )
+}
+
+const resetDisconnectWindow = (entry: RuntimeEntry): void => {
+    clearOutageTimer(entry)
     entry.outageDeadline = null
     entry.fallback?.cancel()
     entry.disconnectedAt = null
@@ -236,10 +253,7 @@ const resetDisconnectWindow = (entry: RuntimeEntry): void => {
 const beginDisconnectWindow = (entry: RuntimeEntry): void => {
     entry.disconnectedAt = Date.now()
     entry.outageDeadline = performance.now() + OUTAGE_BUDGET_MS
-    entry.outageTimer = setTimeout(
-        () => stopAutomaticReconnect(entry),
-        OUTAGE_BUDGET_MS
-    )
+    armOutageTimer(entry)
 }
 
 const recordDisconnect = (
@@ -299,8 +313,7 @@ const stopAutomaticReconnect = (entry: RuntimeEntry): void => {
         return
     clearReconnectTimer(entry)
     clearStallTimer(entry)
-    if (entry.outageTimer) clearTimeout(entry.outageTimer)
-    entry.outageTimer = null
+    clearOutageTimer(entry)
     retireReader(entry)
     // Transport uncertainty is not a terminal turn outcome. Stop work before
     // the final bounded refetch so even a consumer that never settles cannot
@@ -326,10 +339,7 @@ const automaticReconnectAllowed = (entry: RuntimeEntry): boolean => {
         return false
     }
     if (entry.outageDeadline !== null && !entry.outageTimer)
-        entry.outageTimer = setTimeout(
-            () => stopAutomaticReconnect(entry),
-            Math.max(0, entry.outageDeadline - performance.now())
-        )
+        armOutageTimer(entry)
     return true
 }
 
@@ -474,6 +484,7 @@ const ensureRuntime = (
             disconnectAttempts: 0,
             outageDeadline: null,
             outageTimer: null,
+            outageTimerVersion: 0,
             fallback: null,
             cancelAttempts: new Set(),
             cancelAccepted: false
@@ -1481,8 +1492,7 @@ const evictLruIfOver = (incomingKey: string): void => {
     retireReader(oldest)
     clearReconnectTimer(oldest)
     clearStallTimer(oldest)
-    if (oldest.outageTimer) clearTimeout(oldest.outageTimer)
-    oldest.outageTimer = null
+    clearOutageTimer(oldest)
     oldest.fallback?.cancel()
     resetSmoother(oldest.key)
 }

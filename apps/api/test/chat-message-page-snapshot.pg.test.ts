@@ -241,6 +241,48 @@ for (const outcome of ['done', 'error'] as const) {
     })
 }
 
+test('a connection cancelled after its real replay cursor read starts no tail query', { skip: !RUN, timeout: 10_000 }, async () => {
+    const h = await buildHarness()
+    let entered!: () => void, release!: () => void
+    const reading = new Promise<void>(resolve => { entered = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const repo = Object.create(h.repo) as ChatRepository
+    repo.streamReplayCursor = async (...args) => {
+        const cursor = await h.repo.streamReplayCursor(...args)
+        entered()
+        await held
+        return cursor
+    }
+    let tailReads = 0
+    repo.listSessionStreamEventsSince = async (...args) => {
+        tailReads++
+        return h.repo.listSessionStreamEventsSince(...args)
+    }
+    const broadcaster = new ChatSseBroadcaster(repo, { onMessage() {}, onListenEstablished() {} } as unknown as ChatStreamBus)
+    const controller = new AbortController()
+    let pending: Promise<() => void> | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+        pending = broadcaster.subscribe(h.sessionId, { send() { assert.fail('closed stream received replay') }, close() {} }, null, h.assistantId, controller.signal)
+        await Promise.race([
+            reading,
+            pending.then(() => { throw new Error('subscribe finished before cursor barrier') }),
+            new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('cursor barrier timed out')), 5000) })
+        ])
+        controller.abort()
+        release()
+        const unsubscribe = await pending
+        assert.equal(tailReads, 0)
+        unsubscribe()
+    } finally {
+        clearTimeout(timeout)
+        release()
+        if (pending) await pending.then(unsubscribe => unsubscribe(), () => {})
+        broadcaster.onModuleDestroy()
+        await h.close()
+    }
+})
+
 interface TransactionSettings {
     isolation: string
     read_only: string

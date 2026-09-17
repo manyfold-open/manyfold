@@ -14,38 +14,121 @@ import {
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import * as Sentry from '@sentry/node'
 import { ChatController } from '../src/modules/chat/chat.controller'
-import type { BroadcastSubscriber } from '../src/modules/chat/sse-broadcaster'
+import {
+    ChatSseBroadcaster,
+    type BroadcastSubscriber
+} from '../src/modules/chat/sse-broadcaster'
 import { TelemetryService } from '../src/common/telemetry/telemetry.service'
 
+test('a cancelled cursor lookup never registers a subscriber or starts tail replay', async () => {
+    let release!: (value: bigint) => void
+    let reads = 0
+    const cursor = new Promise<bigint>((resolve) => {
+        release = resolve
+    })
+    const broadcaster = new ChatSseBroadcaster(
+        {
+            streamReplayCursor: () => cursor,
+            listSessionStreamEventsSince: async () => {
+                reads++
+                return []
+            }
+        } as never,
+        { onMessage() {}, onListenEstablished() {} } as never
+    )
+    const controller = new AbortController()
+    try {
+        const subscribing = broadcaster.subscribe(
+            'session',
+            {
+                send() {
+                    assert.fail('retired subscriber received an event')
+                },
+                close() {}
+            },
+            null,
+            'message',
+            controller.signal
+        )
+        controller.abort()
+        release(0n)
+        const unsubscribe = await subscribing
+        await Promise.resolve()
+        assert.equal(reads, 0)
+        unsubscribe()
+    } finally {
+        broadcaster.onModuleDestroy()
+    }
+})
+
 for (const reason of ['setup_error', 'request_error', 'write_error'] as const) {
-    test(`SSE ${reason} releases listeners and timers once, without inventing trace correlation`, async t => {
+    test(`SSE ${reason} releases listeners and timers once, without inventing trace correlation`, async (t) => {
         t.mock.timers.enable({ apis: ['setInterval'] })
-        let writes = 0, ends = 0, releases = 0, failWrite = false
+        let writes = 0,
+            ends = 0,
+            releases = 0,
+            failWrite = false
         let subscriber!: BroadcastSubscriber
-        const records: Array<{ name: string; attrs: Record<string, unknown> }> = []
+        const records: Array<{ name: string; attrs: Record<string, unknown> }> =
+            []
         const request = Object.assign(new EventEmitter(), { destroyed: false })
         const response = Object.assign(new EventEmitter(), {
-            destroyed: false, writableLength: 0, socket: { setNoDelay() {} },
-            writeHead() {}, end() { ends++ },
-            write() { if (failWrite) throw new Error('PRIVATE_FIXTURE_WRITE'); writes++; return true }
+            destroyed: false,
+            writableLength: 0,
+            socket: { setNoDelay() {} },
+            writeHead() {},
+            end() {
+                ends++
+            },
+            write() {
+                if (failWrite) throw new Error('PRIVATE_FIXTURE_WRITE')
+                writes++
+                return true
+            }
         })
-        const controller = new ChatController({ subscribeStream: async () => ({ id: 'session' }) } as never,
-            { subscribe: async (_id: string, value: BroadcastSubscriber) => {
-                if (reason === 'setup_error') throw new Error('PRIVATE_FIXTURE_SETUP')
-                subscriber = value
-                return () => { releases++ }
-            } } as never,
-            { event: (name: string, attrs: Record<string, unknown>) => records.push({ name, attrs }) } as never)
+        const controller = new ChatController(
+            { subscribeStream: async () => ({ id: 'session' }) } as never,
+            {
+                subscribe: async (_id: string, value: BroadcastSubscriber) => {
+                    if (reason === 'setup_error')
+                        throw new Error('PRIVATE_FIXTURE_SETUP')
+                    subscriber = value
+                    return () => {
+                        releases++
+                    }
+                }
+            } as never,
+            {
+                event: (name: string, attrs: Record<string, unknown>) =>
+                    records.push({ name, attrs })
+            } as never
+        )
         t.after(() => request.emit('close'))
-        const opening = controller.stream({ userId: 'private' } as never, 'agent', 'session', undefined, undefined,
-            { raw: request, headers: {} } as never, { raw: response, hijack() {} } as never)
-        if (reason === 'setup_error') await assert.rejects(opening, /PRIVATE_FIXTURE_SETUP/)
+        const opening = controller.stream(
+            { userId: 'private' } as never,
+            'agent',
+            'session',
+            undefined,
+            undefined,
+            { raw: request, headers: {} } as never,
+            { raw: response, hijack() {} } as never
+        )
+        if (reason === 'setup_error')
+            await assert.rejects(opening, /PRIVATE_FIXTURE_SETUP/)
         else {
             await opening
-            if (reason === 'request_error') request.emit('error', new Error('PRIVATE_FIXTURE_REQUEST'))
+            if (reason === 'request_error')
+                request.emit('error', new Error('PRIVATE_FIXTURE_REQUEST'))
             else {
                 failWrite = true
-                assert.throws(() => subscriber.send({ eventId: '1', type: 'token' } as never), /PRIVATE_FIXTURE_WRITE/)
+                assert.throws(
+                    () =>
+                        subscriber.send({
+                            eventId: '1',
+                            type: 'token'
+                        } as never),
+                    /PRIVATE_FIXTURE_WRITE/
+                )
             }
             subscriber.close('server_shutdown')
         }
@@ -57,7 +140,9 @@ for (const reason of ['setup_error', 'request_error', 'write_error'] as const) {
         assert.equal(request.listenerCount('close'), 0)
         assert.equal(request.listenerCount('error'), 0)
         assert.equal(response.listenerCount('close'), 0)
-        const closed = records.filter(record => record.name === 'chat.sse.closed')
+        const closed = records.filter(
+            (record) => record.name === 'chat.sse.closed'
+        )
         assert.equal(closed.length, 1)
         assert.equal(closed[0].attrs.reason, reason)
         assert.equal('trace_id' in closed[0].attrs, false)
@@ -69,7 +154,7 @@ for (const reason of ['setup_error', 'request_error', 'write_error'] as const) {
 test(
     'real HTTP streams correlate closes without retaining request scope or duplicate subscriptions',
     { timeout: 15_000 },
-    async () => {
+    async (t) => {
         const received: string[] = []
         const receiver = createServer((req, res) => {
             let body = ''
@@ -191,6 +276,18 @@ test(
             reader: ReadableStreamDefaultReader<Uint8Array>
             abort: AbortController
         }> = []
+        let cleaning: Promise<void> | undefined
+        const cleanup = (): Promise<void> => cleaning ??= (async () => {
+            releaseAttach?.()
+            for (const item of responses) item.abort.abort()
+            server.closeAllConnections()
+            await new Promise<void>(resolve => server.close(() => resolve()))
+            await logger.shutdown()
+            await sdk.shutdown()
+            receiver.closeAllConnections()
+            await new Promise<void>(resolve => receiver.close(() => resolve()))
+        })()
+        t.after(cleanup)
         const open = async () => {
             const abort = new AbortController()
             const response = await fetch(url, { signal: abort.signal })
@@ -245,8 +342,8 @@ test(
             assert.equal(active, 0)
             assert.equal(released, 3)
             assert.ok(
-                peak <= 2,
-                'only the explicitly pending attach can overlap teardown'
+                peak <= 1,
+                'each old subscriber is released before reconnect'
             )
             for (const item of observed) {
                 assert.deepEqual(item.user, {})
@@ -257,8 +354,7 @@ test(
                             'trace_id',
                             'span_id',
                             'reason',
-                            'elapsedMs',
-                            'resuming'
+                            'durationMs'
                         ].includes(key)
                     )
                 )
@@ -274,16 +370,7 @@ test(
             ])
                 assert.equal(payload.includes(forbidden), false)
         } finally {
-            releaseAttach?.()
-            for (const item of responses) item.abort.abort()
-            server.closeAllConnections()
-            await new Promise<void>((resolve) => server.close(() => resolve()))
-            await logger.shutdown()
-            await sdk.shutdown()
-            receiver.closeAllConnections()
-            await new Promise<void>((resolve) =>
-                receiver.close(() => resolve())
-            )
+            await cleanup()
         }
     }
 )
