@@ -11,7 +11,8 @@ export const GET: APIRoute = async () => {
             await renderOgCard(
                 copy.brandShort,
                 copy.changelogTitle,
-                copy.changelogDescription
+                copy.changelogDescription,
+                '/changelog'
             )
         ),
         { headers: { 'content-type': 'image/png' } }
