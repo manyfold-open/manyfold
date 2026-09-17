@@ -4,7 +4,9 @@
     "concurrency": "20",
     "globalDependencies": [
         ".github/workflows/ci.yml",
+        ".node-test-headers.json",
         ".node-test-version",
+        "scripts/rebuild-test-native.mjs",
         "scripts/check-test-runtime.mjs"
     ],
     "tasks": {
