@@ -5,6 +5,11 @@ import type { K8sApis } from '@/modules/k8s/kubernetes.service'
 import { teardownAgent } from '@/modules/agents/orchestration/k8s-teardown'
 import { resourceName } from '@/modules/agents/orchestration/k8s-resource-builder'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
+import {
+    K8S_CREATE_CLEANUP_PENDING,
+    K8S_CREATE_INITIAL_AGENT,
+    K8sCreateCleanupService
+} from './k8s-create-cleanup.service'
 
 @Injectable()
 export class K8sProvisioner {
@@ -12,7 +17,8 @@ export class K8sProvisioner {
 
     constructor(
         private readonly k8s: KubernetesService,
-        private readonly runtimes: AgentRuntimesService
+        private readonly runtimes: AgentRuntimesService,
+        private readonly createCleanup: K8sCreateCleanupService
     ) {}
 
     async teardownRuntime(
@@ -23,6 +29,13 @@ export class K8sProvisioner {
             throw new Error(
                 `K8sProvisioner.teardownRuntime called for kind=${runtime.kind}`
             )
+        if (
+            runtime.currentPhase === K8S_CREATE_CLEANUP_PENDING ||
+            runtime.currentPhase === K8S_CREATE_INITIAL_AGENT
+        ) {
+            await this.createCleanup.retry(runtime)
+            return
+        }
         if (!runtime.namespace)
             throw new Error('k8s runtime has no namespace recorded')
 

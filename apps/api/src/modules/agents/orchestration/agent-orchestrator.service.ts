@@ -85,7 +85,10 @@ import {
     openCloudComputerPort,
     type CloudComputerPort
 } from '@/common/ports/cloud-computer.ports'
-import { K8sContainerProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
+import {
+    K8sContainerProvisioner,
+    type ProvisionAgentContainerResult
+} from '@/modules/agent-runtimes/provisioning/k8s-container-provisioner'
 import { K8sAgentOrchestrator } from '@/modules/agents/orchestration/k8s-agent-orchestrator'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
@@ -580,6 +583,8 @@ export class AgentOrchestratorService {
         const { userId, dto, isAdmin } = ctx
         emitter.step('validating')
         let runtimeRow: AgentRuntimeRow
+        let fresh: ProvisionAgentContainerResult | undefined
+        let agentCreateId: string | undefined
         if (dto.runtimeId) {
             const existing = await this.runtimes.findById(dto.runtimeId)
             if (!existing || (existing.userId !== userId && !isAdmin))
@@ -644,8 +649,10 @@ export class AgentOrchestratorService {
                 })
             const resolved = await this.credentialsResolver.resolve(userId, dto)
             emitter.step('creating_deployment')
-            const provisioned = await this.k8sProvisioner.provision({
+            agentCreateId = createObjectId('agent')
+            fresh = await this.k8sProvisioner.provision({
                 userId,
+                agentCreateId,
                 sku: {
                     id: null,
                     framework: dto.framework,
@@ -659,31 +666,47 @@ export class AgentOrchestratorService {
                 modelConfigSource: dto.modelConfigSource ?? null,
                 clusterId: dto.clusterId ?? null
             })
-            runtimeRow = provisioned.runtime
+            runtimeRow = fresh.runtime
         }
-        emitter.step('inserting_agent')
-        const summary = await this.attach.attach({
-            runtime: runtimeRow,
-            name: dto.name,
-            workspace: dto.workspace,
-            model: undefined,
-            cloneFrom: undefined
-        })
-        // Scoped to runtime-local: persisting a platform modelConfig here
-        // could throw after the container is provisioned (provider fetch),
-        // and unlike the sprites path this one has no teardown wrapper. The
-        // platform-config silent drop on k8s predates this feature.
-        if (dto.modelConfigSource === 'runtime-local')
-            await this.modelConfig.updateForAgent(
-                userId,
-                summary.id,
-                {
-                    modelConfigSource: dto.modelConfigSource,
-                    modelConfig: dto.modelConfig
-                },
-                true
-            )
-        return summary
+        try {
+            const attachAndConfigure = async () => {
+                emitter.step('inserting_agent')
+                const summary = await this.attach.attach({
+                    runtime: runtimeRow,
+                    name: dto.name,
+                    workspace: dto.workspace,
+                    model: undefined,
+                    cloneFrom: undefined,
+                    agentCreateId,
+                    assertAgentCreateActive: fresh
+                        ? () => fresh.assertAgentCreateActive()
+                        : undefined
+                })
+                // The existing platform-config contract is unchanged; the fresh
+                // runtime's ownership includes the runtime-local write below.
+                if (dto.modelConfigSource === 'runtime-local') {
+                    await fresh?.assertAgentCreateActive()
+                    await this.modelConfig.updateForAgent(
+                        userId,
+                        summary.id,
+                        {
+                            modelConfigSource: dto.modelConfigSource,
+                            modelConfig: dto.modelConfig
+                        },
+                        true
+                    )
+                }
+                return summary
+            }
+            const summary = fresh
+                ? await fresh.runAgentCreate(attachAndConfigure)
+                : await attachAndConfigure()
+            await fresh?.completeAgentCreate()
+            return fresh ? { ...summary, status: 'running' } : summary
+        } catch (error) {
+            await fresh?.rollbackAgentCreate(error)
+            throw error
+        }
     }
 
     // Best-effort: the sign-in card's "Open terminal" should not detour

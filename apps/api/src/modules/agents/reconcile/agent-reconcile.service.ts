@@ -1,7 +1,7 @@
 import { createObjectId } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, inArray, ne } from 'drizzle-orm'
+import { and, eq, inArray, ne, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -12,6 +12,10 @@ import {
     type NewAgent
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import {
+    K8S_CREATE_CLEANUP_PENDING,
+    K8S_CREATE_INITIAL_AGENT
+} from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { ServiceLeaseService } from '@/common/leases/service-lease.service'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
@@ -171,6 +175,20 @@ export class AgentReconcileService {
         runtime: AgentRuntimeRow,
         opts?: { verifiedByReport?: boolean }
     ): Promise<void> {
+        if (runtime.kind === 'k8s' && !isCodingFramework(runtime)) {
+            const [current] = await this.db
+                .select()
+                .from(agentRuntimes)
+                .where(eq(agentRuntimes.id, runtime.id))
+                .limit(1)
+            if (
+                !current ||
+                current.currentPhase === K8S_CREATE_INITIAL_AGENT ||
+                current.currentPhase === K8S_CREATE_CLEANUP_PENDING
+            )
+                return
+            runtime = current
+        }
         if (runtime.status === 'stopped') {
             this.pendingOrphans.delete(runtime.id)
             const now = new Date()
@@ -184,7 +202,10 @@ export class AgentReconcileService {
                 .where(
                     and(
                         eq(agents.runtimeId, runtime.id),
-                        ne(agents.status, 'stopped')
+                        ne(agents.status, 'stopped'),
+                        runtime.kind === 'k8s'
+                            ? sql`exists (select 1 from ${agentRuntimes} where ${agentRuntimes.id} = ${runtime.id} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_INITIAL_AGENT} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_CLEANUP_PENDING})`
+                            : undefined
                     )
                 )
             return
@@ -214,7 +235,10 @@ export class AgentReconcileService {
                     and(
                         eq(agents.runtimeId, runtime.id),
                         eq(agents.status, 'stopped'),
-                        eq(agents.internalId, agents.id)
+                        eq(agents.internalId, agents.id),
+                        runtime.kind === 'k8s'
+                            ? sql`exists (select 1 from ${agentRuntimes} where ${agentRuntimes.id} = ${runtime.id} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_INITIAL_AGENT} and ${agentRuntimes.currentPhase} is distinct from ${K8S_CREATE_CLEANUP_PENDING})`
+                            : undefined
                     )
                 )
             return

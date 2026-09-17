@@ -64,6 +64,7 @@ import { eq } from 'drizzle-orm'
 import { Inject } from '@nestjs/common'
 import {
     agents,
+    agentRuntimes,
     chatMessages as chatMessagesTable,
     userModelProviders,
     type Agent,
@@ -74,6 +75,10 @@ import {
     type TurnExecutionRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
+import {
+    K8S_CREATE_CLEANUP_PENDING,
+    K8S_CREATE_INITIAL_AGENT
+} from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
 import { runtimeAuthSelectionFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import {
     decodeMessageCursor,
@@ -6572,6 +6577,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!agent) throw new NotFoundException('agent not found')
         if (agent.userId !== userId)
             throw new NotFoundException('agent not found')
+        await this.assertK8sCreatePublished(agent)
     }
 
     private async assertSessionAccess(
@@ -6685,7 +6691,29 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             .limit(1)
         const row = rows[0]
         if (!row) throw new NotFoundException('agent not found')
+        await this.assertK8sCreatePublished(row)
         return row
+    }
+
+    private async assertK8sCreatePublished(agent: Agent): Promise<void> {
+        if (agent.runtime !== 'k8s' || !agent.runtimeId) return
+        const [runtime] = await this.db
+            .select({
+                phase: agentRuntimes.currentPhase
+            })
+            .from(agentRuntimes)
+            .where(eq(agentRuntimes.id, agent.runtimeId))
+            .limit(1)
+        if (!runtime) throw new NotFoundException('agent runtime not found')
+        if (
+            runtime.phase === K8S_CREATE_INITIAL_AGENT ||
+            runtime.phase === K8S_CREATE_CLEANUP_PENDING
+        )
+            throw new ConflictException({
+                code: 'AGENT_NOT_READY',
+                message:
+                    'agent creation has not completed; the container is not ready for chat'
+            })
     }
 
     // Report what a turn actually proved about its managed channel, from the

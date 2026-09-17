@@ -37,13 +37,16 @@ export interface MintedToken {
 export class DaemonTokenService {
     constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
-    async mint(args: {
-        userId: string
-        name: string
-        expiresInDays?: number
-        // Callers that take the name from a request must leave this alone.
-        purpose?: DaemonTokenPurpose
-    }): Promise<MintedToken> {
+    async mint(
+        args: {
+            userId: string
+            name: string
+            expiresInDays?: number
+            // Callers that take the name from a request must leave this alone.
+            purpose?: DaemonTokenPurpose
+        },
+        db: Pick<Database, 'insert'> = this.db
+    ): Promise<MintedToken> {
         const raw = randomBytes(TOKEN_BYTES)
             .toString('base64')
             .replace(/\+/g, '-')
@@ -57,7 +60,7 @@ export class DaemonTokenService {
             ? new Date(now.getTime() + args.expiresInDays * 86_400_000)
             : null
 
-        await this.db.insert(daemonTokens).values({
+        await db.insert(daemonTokens).values({
             id: tokenId,
             userId: args.userId,
             daemonId: null,

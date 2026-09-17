@@ -9,6 +9,7 @@ import test from 'node:test'
 import { plainToInstance } from 'class-transformer'
 import { validate } from 'class-validator'
 import type { AgentRuntimeRow, Database, NewAgent } from '@manyfold/db'
+import { agentRuntimes } from '@manyfold/db'
 import { CreateAgentDto } from '../src/modules/agents/dto/create-agent.dto'
 import { UpdateAgentDto } from '../src/modules/agents/dto/update-agent.dto'
 import { AddRuntimeAgentDto } from '../src/modules/agents/dto/add-runtime-agent.dto'
@@ -188,9 +189,10 @@ test('OpenClaw runtime agents use generated ASCII internal ids and Unicode displ
     const runtime = runtimeRow()
     const db = {
         select: () => ({
-            from: () => ({
+            from: (table: unknown) => ({
                 where: () => ({
-                    limit: async () => []
+                    limit: async () =>
+                        table === agentRuntimes ? [runtime] : []
                 })
             })
         }),
