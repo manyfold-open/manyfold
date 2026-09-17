@@ -141,6 +141,13 @@
       "when": 1789610545525,
       "tag": "0019_skill_repo_scan_state",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1789619268924,
+      "tag": "0020_quota_recovery_receipts",
+      "breakpoints": true
     }
   ]
 }

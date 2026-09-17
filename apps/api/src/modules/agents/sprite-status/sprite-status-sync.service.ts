@@ -52,17 +52,14 @@ import { inBackgroundContext } from '@/common/telemetry/background-context'
 
 const QUOTA_EVAL_INTERVAL_MS = 60_000
 // The quota pass gets its own cadence: candidate discovery is a 4-table UNION
-// and every eligible user costs the full runtime-access summary chain (~14
-// queries), so riding the 1.5s wakeup multiplied idle DB load ~40x for a
+// and every eligible user needs metering reads, so riding the 1.5s wakeup
+// multiplied idle DB load ~40x for a
 // signal that only needs minute resolution (#615). Also covers the wholesale
 // soft-cap COUNT at the tail of the same pass.
 const QUOTA_TICK_INTERVAL_MS = 60_000
-// Quota warnings are SSE-only and never persisted: emitting to a user with no
-// live session delivers nothing AND burns the 24h lastQuotaWarningsAt stamp,
-// suppressing the copy they would actually see after returning. Only users
-// with a session used inside this window are evaluated; sliding session
-// renewal touches last_used_at on every authenticated request, so returning
-// users are picked up within a tick or two (#615).
+// Keep candidate discovery bounded to recent authenticated activity. This is
+// only an evaluation filter: receipt ACKs, not session presence or local SSE
+// subscriber counts, determine the 24h delivered-warning stamp.
 const QUOTA_PRESENCE_WINDOW_MS = 15 * 60_000
 const SNAPSHOT_INTERVAL_MS = 3_600_000
 const KEEPALIVE_RECONCILE_INTERVAL_MS = 60_000
@@ -572,6 +569,7 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
                         usage: ev.usage,
                         limit: ev.limit,
                         planName: ev.planName,
+                        receiptId: ev.receiptId,
                         at: new Date().toISOString()
                     })
                 }
@@ -719,10 +717,8 @@ export class SpriteStatusSyncService implements OnModuleInit, OnModuleDestroy {
     // sandbox at all, and gating on `agents.runtime = 'sprites'` would silently
     // never fire for them — a warning that cannot reach its audience is worse
     // than none, because it reads as covered.
-    // The same logic bounds the other side: delivery is SSE-only with no
-    // persistence, so a user without a recently-used live session cannot
-    // receive anything — evaluating them only burns their 24h dedupe stamp
-    // (see QUOTA_PRESENCE_WINDOW_MS).
+    // Recent authenticated activity bounds evaluation work; it is not proof
+    // of an SSE subscriber. Pending receipts are stamped only by a client ACK.
     private async usersForQuotaEvaluation(): Promise<string[]> {
         const rows = (await this.db.execute(sql`
             select user_id from (

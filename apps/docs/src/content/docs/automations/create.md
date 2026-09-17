@@ -64,6 +64,12 @@ Once you have more than one task, use the Automations overview to see which ones
 
 Give each automation a clear, searchable name and review its previous runs regularly so stale tasks do not keep running unnoticed.
 
+## Run quotas
+
+When the run allowance for your current usage period is exhausted, scheduled runs wait. Manyfold periodically checks for available allowance and then schedules the next future occurrence. Increasing the allowance or reaching the usage-period reset does not require editing the automation. Missed occurrences are not replayed, and manually paused automations stay paused.
+
+For schedules blocked by quota on an older installation, confirm the quota skip before saving the schedule again. A far-future next-run time alone does not identify a quota block.
+
 ## Frequently asked questions
 
 - **How are automations different from agents?**

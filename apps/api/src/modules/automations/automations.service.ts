@@ -77,6 +77,9 @@ export interface ManagedAutomationSpec {
 }
 
 const MANAGED_RRULE = 'RRULE:FREQ=DAILY;COUNT=1'
+const QUOTA_RECHECK_MS = 60_000
+// Native epoch numerics retain microseconds and ignore session TimeZone/DateStyle.
+const quotaScheduleVersion = sql<string>`row(extract(epoch from ${automations.updatedAt}), extract(epoch from ${automations.dtstart}), extract(epoch from ${automations.nextRunAt}), extract(epoch from ${automations.quotaRetryAt}))::text`
 
 const schedulePresets: AutomationSchedulePreset[] = [
     'hourly',
@@ -117,9 +120,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 this.config.get('AUTOMATIONS_SCHEDULER_INTERVAL_MS') ?? 30000
             )
         )
-        this.scheduler = setInterval(inBackgroundContext(() => {
-            void this.tick()
-        }), intervalMs)
+        this.scheduler = setInterval(
+            inBackgroundContext(() => {
+                void this.tick()
+            }),
+            intervalMs
+        )
         this.scheduler.unref?.()
     }
 
@@ -135,10 +141,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                   eq(automations.agentId, agentId),
                   isNull(automations.deletedAt)
               )
-            : and(
-                  eq(automations.userId, userId),
-                  isNull(automations.deletedAt)
-              )
+            : and(eq(automations.userId, userId), isNull(automations.deletedAt))
         const rows = await this.db
             .select({
                 automation: automations,
@@ -278,6 +281,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 deliveryChannelId: delivery.deliveryChannelId,
                 deliveryTarget: delivery.deliveryTarget,
                 nextRunAt: schedule.nextRunAt,
+                quotaRetryAt: null,
                 updatedAt: now
             })
             .where(eq(automations.id, id))
@@ -303,7 +307,12 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         const now = new Date()
         await this.db
             .update(automations)
-            .set({ deletedAt: now, nextRunAt: null, updatedAt: now })
+            .set({
+                deletedAt: now,
+                nextRunAt: null,
+                quotaRetryAt: null,
+                updatedAt: now
+            })
             .where(and(eq(automations.id, id), isNull(automations.deletedAt)))
     }
 
@@ -313,14 +322,20 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         try {
             await this.reconcileRunning()
             const now = new Date()
+            await this.reconcileQuotaParked(now)
             const due = await this.db
-                .select({ automation: automations, agent: agents })
+                .select({
+                    automation: automations,
+                    agent: agents,
+                    quotaRevision: quotaScheduleVersion
+                })
                 .from(automations)
                 .innerJoin(agents, eq(automations.agentId, agents.id))
                 .innerJoin(users, eq(automations.userId, users.id))
                 .where(
                     and(
                         eq(automations.status, 'active'),
+                        isNull(automations.quotaRetryAt),
                         lte(automations.nextRunAt, now),
                         isNull(automations.deletedAt),
                         // ADR-0023: deletion-pending owners schedule nothing
@@ -343,10 +358,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                     ) {
                         await this.deferAutomationAfterQuotaSkip(
                             row.automation,
-                            now
-                        )
-                        this.log.warn(
-                            `scheduled automation ${row.automation.id} skipped: monthly run quota reached for user ${row.automation.userId}`
+                            now,
+                            err,
+                            row.quotaRevision
                         )
                         continue
                     }
@@ -381,9 +395,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         // Managed mirrors are throttled by their source framework's own
         // quota machine, not the user's plan.
         if (!row.automation.origin)
-            await this.runtimeAccess.reserveAutomationRun(
-                row.automation.userId
-            )
+            await this.runtimeAccess.reserveAutomationRun(row.automation.userId)
 
         const startedAt = new Date()
         const [run] = await this.db
@@ -490,6 +502,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
             .set({
                 lastRunAt: ranAt,
                 nextRunAt,
+                quotaRetryAt: null,
                 updatedAt: new Date()
             })
             .where(
@@ -499,24 +512,101 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
 
     private async deferAutomationAfterQuotaSkip(
         row: AutomationRow,
-        skippedAt: Date
+        skippedAt: Date,
+        error: ForbiddenException,
+        revision: string
     ): Promise<void> {
-        const quotaResetAt = startOfNextUtcMonth(skippedAt)
+        const { resetAt } = error.getResponse() as { resetAt?: string }
+        const quotaResetAt = new Date(resetAt ?? '')
+        if (
+            !Number.isFinite(quotaResetAt.getTime()) ||
+            quotaResetAt <= skippedAt
+        ) {
+            this.log.warn(
+                `automation quota skip has no current reset window: ${row.id}`
+            )
+            return
+        }
         const nextRunAt = nextOccurrence({
             rrule: row.rrule,
             timezone: row.timezone,
             dtstart: row.dtstart,
             after: new Date(quotaResetAt.getTime() - 1)
         })
-        await this.db
+        const changed = await this.db
             .update(automations)
             .set({
                 nextRunAt,
+                quotaRetryAt: new Date(
+                    Math.min(
+                        skippedAt.getTime() + QUOTA_RECHECK_MS,
+                        quotaResetAt.getTime()
+                    )
+                ),
                 updatedAt: new Date()
             })
-            .where(
-                and(eq(automations.id, row.id), isNull(automations.deletedAt))
+            .where(quotaScheduleRevision(row, revision))
+            .returning({ id: automations.id })
+        if (changed.length > 0 && !row.quotaRetryAt)
+            this.log.warn(
+                `scheduled automation ${row.id} parked: run quota reached for user ${row.userId}`
             )
+    }
+
+    private async reconcileQuotaParked(now: Date): Promise<void> {
+        const parked = await this.db
+            .select({
+                automation: automations,
+                quotaRevision: quotaScheduleVersion
+            })
+            .from(automations)
+            .innerJoin(users, eq(automations.userId, users.id))
+            .where(
+                and(
+                    eq(automations.status, 'active'),
+                    isNull(automations.deletedAt),
+                    isNull(automations.origin),
+                    isNull(users.deactivatedAt),
+                    lte(automations.quotaRetryAt, now)
+                )
+            )
+            .orderBy(automations.quotaRetryAt)
+            .limit(10)
+        for (const { automation: row, quotaRevision } of parked) {
+            try {
+                const nextRunAt = nextOccurrence({
+                    rrule: row.rrule,
+                    timezone: row.timezone,
+                    dtstart: row.dtstart,
+                    after: now
+                })
+                // reserveAutomationRun only checks the ledger. No run row is
+                // inserted on this recovery path, even after headroom returns.
+                if (nextRunAt)
+                    await this.runtimeAccess.reserveAutomationRun(row.userId)
+                await this.db
+                    .update(automations)
+                    .set({ nextRunAt, quotaRetryAt: null, updatedAt: now })
+                    .where(quotaScheduleRevision(row, quotaRevision))
+            } catch (error) {
+                if (
+                    error instanceof ForbiddenException &&
+                    (error.getResponse() as { code?: string }).code ===
+                        'AUTOMATION_RUN_QUOTA_REACHED'
+                ) {
+                    await this.deferAutomationAfterQuotaSkip(
+                        row,
+                        now,
+                        error,
+                        quotaRevision
+                    )
+                } else {
+                    this.log.warn(
+                        `quota recovery failed for automation ${row.id}: ${(error as Error).message}`
+                    )
+                }
+            }
+        }
     }
 
     private async reconcileRunning(userId?: string): Promise<void> {
@@ -718,12 +808,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         const [channel] = await this.db
             .select()
             .from(channels)
-            .where(
-                and(eq(channels.id, channelId), eq(channels.userId, userId))
-            )
+            .where(and(eq(channels.id, channelId), eq(channels.userId, userId)))
             .limit(1)
-        if (!channel)
-            throw new NotFoundException('delivery channel not found')
+        if (!channel) throw new NotFoundException('delivery channel not found')
         if (channel.agentId !== agentId)
             throw new BadRequestException(
                 'delivery channel must be bound to the automation agent'
@@ -819,6 +906,7 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
                 dtstart: spec.nextRunAt ?? new Date(),
                 origin: spec.origin,
                 nextRunAt: spec.nextRunAt,
+                quotaRetryAt: null,
                 updatedAt: new Date()
             })
             .where(
@@ -984,17 +1072,16 @@ const parseDate = (value?: string): Date => {
     return date
 }
 
-const startOfNextUtcMonth = (date: Date): Date =>
-    new Date(
-        Date.UTC(
-            date.getUTCFullYear(),
-            date.getUTCMonth() + 1,
-            1,
-            0,
-            0,
-            0,
-            0
-        )
+// A parked-row scan can race a user edit or another instance's recovery.
+// Match the observed schedule and marker before replacing either timestamp.
+const quotaScheduleRevision = (row: AutomationRow, revision: string) =>
+    and(
+        eq(automations.id, row.id),
+        eq(automations.status, 'active'),
+        isNull(automations.deletedAt),
+        sql`${quotaScheduleVersion} = ${revision}`,
+        eq(automations.rrule, row.rrule),
+        eq(automations.timezone, row.timezone)
     )
 
 const nextOccurrence = (input: {

@@ -11,8 +11,7 @@ import {
     agentRuntimes,
     agents,
     apiTokens,
-    createDb,
-    users
+    createDb
 } from '@manyfold/db'
 import { withScratchDatabase } from '../scripts/scratch-db'
 import {
@@ -56,9 +55,8 @@ const withDatabase = (
                             await sql.unsafe(statement)
                     }
                 })
-                await db
-                    .insert(users)
-                    .values({ id: 'owner', email: 'contract@example.test' })
+                // Seed the historical contract without current ORM defaults.
+                await db.$client`insert into users (id, email) values ('owner', 'contract@example.test')`
                 await db
                     .insert(agentRuntimes)
                     .values({

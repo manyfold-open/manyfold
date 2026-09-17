@@ -10,8 +10,7 @@ import {
     agentRuntimes,
     agents,
     apiTokens,
-    createDb,
-    users
+    createDb
 } from '@manyfold/db'
 import { withScratchDatabase } from '../scripts/scratch-db'
 import {
@@ -59,9 +58,8 @@ const withHarness = (body: (h: Harness) => Promise<void>): Promise<void> =>
                         await db.$client.unsafe(statement)
                 }
                 for (const id of ['owner', 'other']) {
-                    await db
-                        .insert(users)
-                        .values({ id, email: `${id}@example.test` })
+                    // This fixture intentionally stops before later user columns.
+                    await db.$client`insert into users (id, email) values (${id}, ${`${id}@example.test`})`
                     await db.insert(agentRuntimes).values({
                         id: `art_${id}`,
                         userId: id,
