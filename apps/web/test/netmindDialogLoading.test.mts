@@ -234,10 +234,11 @@ test(
                     String(Date.now())
                 )
             )
+            let failForm = true
             await broken.route('**/*', async (route) => {
                 const url = new URL(route.request().url())
                 if (url.origin !== origin) return route.abort()
-                if (url.pathname === '/' + form.fileName)
+                if (failForm && url.pathname === '/' + form.fileName)
                     return route.abort('failed')
                 return route.continue()
             })
@@ -247,10 +248,21 @@ test(
                 .getByRole('button', { name: 'Open sign in' })
                 .click()
             await failedPage.getByRole('dialog').getByRole('alert').waitFor()
+            failForm = false
+            await Promise.all([
+                failedPage.waitForEvent('load'),
+                failedPage
+                    .getByRole('button', { name: 'Reload page', exact: true })
+                    .click()
+            ])
             await failedPage
-                .getByRole('button', { name: 'Retry', exact: true })
+                .getByRole('button', { name: 'Open sign in' })
                 .click()
-            await failedPage.getByRole('dialog').getByRole('alert').waitFor()
+            await failedPage
+                .getByRole('dialog')
+                .getByRole('textbox')
+                .first()
+                .waitFor()
             assert.equal(
                 await failedPage
                     .getByRole('heading', { name: 'Owned page' })

@@ -1,14 +1,13 @@
-import { Suspense, useState, type FC } from 'react'
+import { Suspense, type FC } from 'react'
 import { ErrorBoundary } from '@sentry/react'
 import ProductDialog from '@/components/ProductDialog'
 import { useI18n } from '@/lib/i18n'
 import { lazyChunk } from '@/lib/lazyChunk'
 
-const signInForm = () =>
-    lazyChunk(async () => {
-        const module = await import('@/components/NetmindSignIn')
-        return { default: module.NetmindSignIn }
-    })
+const SignIn = lazyChunk(async () => {
+    const module = await import('@/components/NetmindSignIn')
+    return { default: module.NetmindSignIn }
+})
 
 interface NetmindSignInDialogProps {
     title: string
@@ -31,7 +30,6 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
     onClose
 }) => {
     const { t } = useI18n()
-    const [SignIn, setSignIn] = useState(signInForm)
     return (
         <ProductDialog
             title={title}
@@ -41,7 +39,7 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
             bodyClassName='pb-5'
         >
             <ErrorBoundary
-                fallback={({ resetError }) => (
+                fallback={() => (
                     <div role='alert' className='space-y-3'>
                         <p className='text-ui text-fg'>
                             {t('errors.appCrash.title')}
@@ -49,12 +47,9 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
                         <button
                             type='button'
                             className='workbench-button-secondary'
-                            onClick={() => {
-                                setSignIn(signInForm)
-                                resetError()
-                            }}
+                            onClick={() => window.location.reload()}
                         >
-                            {t('common.retry')}
+                            {t('errors.appCrash.reload')}
                         </button>
                     </div>
                 )}

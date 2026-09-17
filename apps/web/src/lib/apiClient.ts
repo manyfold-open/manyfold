@@ -15,14 +15,10 @@ export const apiBaseUrl = (): string => {
     return absolute.replace(/\/+$/, '')
 }
 
+export const createApiClient = (token: () => Promise<string>): NcaClient =>
+    createClient({ baseUrl: apiBaseUrl(), token })
+
 export const useApiClient = (): NcaClient => {
     const { getToken } = useAppAuth()
-    return useMemo(
-        () =>
-            createClient({
-                baseUrl: apiBaseUrl(),
-                token: getToken
-            }),
-        [getToken]
-    )
+    return useMemo(() => createApiClient(getToken), [getToken])
 }
