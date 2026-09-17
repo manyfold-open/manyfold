@@ -48,6 +48,9 @@ public static class ManyfoldExecJob {
     [DllImport("kernel32.dll")] static extern IntPtr GetStdHandle(int kind);
     [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
     static void Check(bool ok) { if (!ok) throw new Win32Exception(Marshal.GetLastWin32Error()); }
+    static void Receipt(string path, bool setupFailed) {
+        File.WriteAllText(path, "{\"drained\":true,\"setupFailed\":" + (setupFailed ? "true" : "false") + "}");
+    }
     static string Quote(string arg) {
         var result = new StringBuilder("\""); int slashes = 0;
         foreach (char c in arg) {
@@ -60,18 +63,21 @@ public static class ManyfoldExecJob {
     public static int Run(string[] args, string cwd, string cancel, string receipt) {
         IntPtr job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-        ProcessInfo child = new ProcessInfo(); bool assigned = false;
+        ProcessInfo child = new ProcessInfo(); bool assigned = false, resumed = false;
         try {
             var limits = new ExtendedLimits(); limits.Basic.Flags = 0x2000;
             Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits)));
-            if (File.Exists(cancel)) { File.WriteAllText(receipt, "drained"); return 143; }
+            if (File.Exists(cancel)) { Receipt(receipt, false); return 143; }
             var command = new StringBuilder();
             foreach (string arg in args) { if (command.Length > 0) command.Append(' '); command.Append(Quote(arg)); }
             var startup = new StartupInfo(); startup.Size = (uint)Marshal.SizeOf(startup);
             startup.Flags = 0x100; startup.Input = GetStdHandle(-10); startup.Output = GetStdHandle(-11); startup.Error = GetStdHandle(-12);
             Check(CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, 4, IntPtr.Zero, cwd, ref startup, out child));
             Check(AssignProcessToJobObject(job, child.Process)); assigned = true;
-            if (!File.Exists(cancel) && ResumeThread(child.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!File.Exists(cancel)) {
+                if (ResumeThread(child.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
+                resumed = true;
+            }
             CloseHandle(child.Thread); child.Thread = IntPtr.Zero;
             uint result = 0;
             while (true) {
@@ -89,7 +95,7 @@ public static class ManyfoldExecJob {
                 if (elapsed.ElapsedMilliseconds >= 2000) throw new InvalidOperationException("owned job did not drain");
                 System.Threading.Thread.Sleep(10);
             }
-            File.WriteAllText(receipt, "drained");
+            Receipt(receipt, false);
             return unchecked((int)result);
         } finally {
             bool unassignedExited = true;
@@ -102,7 +108,7 @@ public static class ManyfoldExecJob {
                 while (cleanup.ElapsedMilliseconds < 2000) {
                     Accounting accounting;
                     if (!QueryInformationJobObject(job, 1, out accounting, (uint)Marshal.SizeOf(typeof(Accounting)), IntPtr.Zero)) break;
-                    if (accounting.ActiveProcesses == 0) { File.WriteAllText(receipt, "drained"); break; }
+                    if (accounting.ActiveProcesses == 0) { Receipt(receipt, !resumed && !File.Exists(cancel)); break; }
                     System.Threading.Thread.Sleep(10);
                 }
             }

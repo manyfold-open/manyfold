@@ -974,7 +974,11 @@ const execStart = async (
         status
     }: Completion): Promise<ExecBufferFinal> => {
         try {
-            await resources?.release(child)
+            const outcome = await resources?.release(child)
+            if (outcome?.setupFailed) {
+                final = { ok: false, payload: { exitCode: -1 }, error: 'exec_spawn_setup_failed' }
+                status = 'crashed'
+            }
         } catch {
             resourcesCleanupFailed = true
             final = { ok: false, payload: final.payload, error: 'exec_resources_release_failed' }

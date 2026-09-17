@@ -60,17 +60,21 @@ export async function createExecResources(cmd: string[], cwd: string) {
             stopping ??= killOwned(child)
             void stopping.catch(() => {})
         },
-        async release(child?: ChildProcess): Promise<void> {
+        async release(child?: ChildProcess): Promise<{ setupFailed: boolean }> {
             if (stopping) await stopping
             if (watchdog) clearTimeout(watchdog)
-            let cleanupError: unknown
-            if (child?.pid && process.platform === 'win32' &&
-                await readFile(receipt, 'utf8').catch(() => null) !== 'drained')
-                cleanupError = new Error('Windows exec did not prove its owned job drained')
+            let setupFailed = false
+            if (child?.pid && process.platform === 'win32') {
+                const raw = await readFile(receipt, 'utf8').catch(() => null)
+                const outcome = raw ? JSON.parse(raw) as { drained?: unknown; setupFailed?: unknown } : null
+                if (outcome?.drained !== true || typeof outcome.setupFailed !== 'boolean')
+                    throw new Error('Windows exec did not prove its owned job drained')
+                setupFailed = outcome.setupFailed
+            }
             // A detached exec owns its group even after the group leader exits.
             if (child && process.platform !== 'win32') await killOwned(child)
             await rm(directory, { recursive: true, force: true })
-            if (cleanupError) throw cleanupError
+            return { setupFailed }
         }
     }
 }
