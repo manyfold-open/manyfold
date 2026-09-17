@@ -9,6 +9,7 @@ export interface SandboxStorageRow {
     label: string
     framework: AgentFramework | null
     bytes: number | null
+    measuredBytes: number | null
     pct: number
 }
 
@@ -42,28 +43,31 @@ export const hostStorageRows = (
         kind: 'workspace',
         label: agent.name,
         framework: agent.framework,
-        bytes: agent.workspaceBytes,
-        pct: sharePct(agent.workspaceBytes ?? 0, total)
+        bytes: agent.attributedBytes,
+        measuredBytes: agent.workspaceBytes,
+        pct: sharePct(agent.attributedBytes ?? 0, total)
     }))
-    for (const home of host.homes)
+    for (const [index, home] of host.homes.entries())
         rows.push({
-            key: `home-${home.framework}`,
+            key: `home-${home.framework}-${index}`,
             kind: 'home',
-            label: home.framework,
+            label: home.path ?? home.framework,
             framework: home.framework,
             bytes: home.bytes,
-            pct: sharePct(home.bytes, total)
+            measuredBytes: home.measuredBytes,
+            pct: sharePct(home.bytes ?? 0, total)
         })
-    if (host.storageBytes !== null && host.storageMeasured) {
+    if (host.storageBytes !== null && host.storageMeasured && host.attributionComplete) {
         const accounted = rows.reduce((acc, row) => acc + (row.bytes ?? 0), 0)
-        const other = Math.max(0, host.storageBytes - accounted)
+        const other = accounted > host.storageBytes ? null : host.storageBytes - accounted
         rows.push({
             key: 'other',
             kind: 'other',
             label: '',
             framework: null,
             bytes: other,
-            pct: sharePct(other, total)
+            measuredBytes: null,
+            pct: sharePct(other ?? 0, total)
         })
     }
     return rows

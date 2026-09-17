@@ -55,8 +55,8 @@ export interface SdkAgent {
     model: string | null
     extras: Record<string, unknown>
     workspacePath: string | null
-    storageBytes: number | null
-    storageMeasuredAt: string | null
+    workspaceBytes: number | null
+    workspaceMeasuredAt: string | null
     startedAt: string | null
     lastActiveAt: string | null
     lastMessageAt: string | null

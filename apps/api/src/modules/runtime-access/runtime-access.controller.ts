@@ -2,9 +2,11 @@ import type {
     RuntimeAccessSummary,
     SandboxUsageBreakdown
 } from '@manyfold/shared'
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common'
 import { AuthGuard, type AuthPrincipal } from '@/common/guards/auth.guard'
 import { CurrentUser } from '@/common/decorators/current-user.decorator'
+import { RequireApiTokenScope } from '@/common/decorators/require-api-token-scope.decorator'
+import { DenyBoundToken, SubjectAgentFromPath } from '@/common/decorators/subject-agent.decorator'
 import { AuthService } from '@/modules/auth/auth.service'
 import { BearerAuthService } from '@/modules/auth/bearer-auth.service'
 import { RuntimeAccessService } from './runtime-access.service'
@@ -27,11 +29,21 @@ export class RuntimeAccessController {
     }
 
     @Get('runtime-access/sandbox-usage')
+    @RequireApiTokenScope('agents:read')
+    @DenyBoundToken()
     async sandboxUsage(
         @CurrentUser() user: AuthPrincipal
     ): Promise<SandboxUsageBreakdown> {
         await this.ensureLocalUser(user.userId)
         return this.runtimeAccess.sandboxUsage(user.userId)
+    }
+
+    @Get('runtime-access/sandbox-usage/agent/:agentId')
+    @RequireApiTokenScope('agents:read')
+    @SubjectAgentFromPath('agentId')
+    async agentSandboxUsage(@CurrentUser() user: AuthPrincipal, @Param('agentId') agentId: string): Promise<SandboxUsageBreakdown> {
+        await this.ensureLocalUser(user.userId)
+        return this.runtimeAccess.sandboxUsage(user.userId, agentId)
     }
 
     @Post('runtime-access/quota-warning-ack')

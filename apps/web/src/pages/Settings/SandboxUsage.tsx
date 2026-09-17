@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from 'react'
 import EmptyState from '@/components/EmptyState'
 import { Ghost } from '@/components/Loading'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
+import SandboxStorageFreshness from '@/components/SandboxStorageFreshness'
 import { useApiClient } from '@/lib/apiClient'
 import { useI18n, type TFn } from '@/lib/i18n'
 import { frameworkLabel, FrameworkLogo } from '@/lib/frameworkMeta'
@@ -37,7 +38,8 @@ const StatCard: FC<{
     label: string
     value: string | null
     loading: boolean
-}> = ({ label, value, loading }) => (
+    note?: ReactNode
+}> = ({ label, value, loading, note }) => (
     <div className='settings-stat-card'>
         <div className='settings-stat-label'>{label}</div>
         {loading && value === null ? (
@@ -45,6 +47,7 @@ const StatCard: FC<{
         ) : (
             <div className='settings-stat-value'>{value ?? '—'}</div>
         )}
+        {note}
     </div>
 )
 
@@ -66,11 +69,11 @@ const StorageRow: FC<{ row: SandboxStorageRow }> = ({ row }) => {
     return (
         <tr className='text-ui border-divider/60 border-t'>
             <td className='px-4 py-3'>
-                <div className='flex items-center gap-2'>
+                <div className='flex flex-wrap items-center gap-2'>
                     {row.framework && (
                         <FrameworkLogo framework={row.framework} size={16} />
                     )}
-                    <span className={row.kind === 'other' ? 'text-muted' : ''}>
+                    <span className={`min-w-0 break-words ${row.kind === 'other' ? 'text-muted' : ''}`}>
                         {rowLabel(row, t)}
                     </span>
                     {row.kind === 'workspace' && (
@@ -84,12 +87,14 @@ const StorageRow: FC<{ row: SandboxStorageRow }> = ({ row }) => {
                         </span>
                     )}
                 </div>
+                {row.kind === 'home' && <div className='text-caption text-subtle mt-1 break-all font-mono'>{row.label}</div>}
             </td>
             <td className='text-muted px-4 py-3 text-right font-mono tabular-nums'>
-                {formatBytesDecimal(row.bytes)}
+                {formatBytesDecimal(row.kind === 'other' ? row.bytes : row.measuredBytes)}
+                {row.kind !== 'other' && row.bytes !== row.measuredBytes && <div className='text-caption text-subtle'>{row.bytes === null ? t('web.sandboxUsage.attributionUnknown') : t('web.sandboxUsage.attributedValue', { value: formatBytesDecimal(row.bytes) })}</div>}
             </td>
-            <td className='w-32 px-4 py-3'>
-                <ShareBar pct={row.pct} />
+            <td className='hidden w-32 px-4 py-3 sm:table-cell'>
+                {row.bytes === null ? <span className='text-caption text-subtle'>{t('web.sandboxUsage.attributionUnknown')}</span> : <ShareBar pct={row.pct} />}
             </td>
         </tr>
     )
@@ -124,7 +129,7 @@ const HostStorageCard: FC<{ host: SandboxUsageHost }> = ({ host }) => {
                 </div>
             </div>
             {measured ? (
-                <table className='w-full min-w-[28rem] text-left'>
+                <table className='w-full table-fixed text-left sm:min-w-[28rem] sm:table-auto'>
                     <tbody>
                         {rows.map((row) => (
                             <StorageRow key={row.key} row={row} />
@@ -222,6 +227,7 @@ const SandboxUsage: FC = (): ReactNode => {
                 <div className='settings-stat-grid'>
                     <StatCard
                         label={t('web.sandboxUsage.statStorage')}
+                        note={data ? <SandboxStorageFreshness report={data} /> : undefined}
                         value={
                             data ? storageGbLabel(data.storageBytesTotal) : null
                         }

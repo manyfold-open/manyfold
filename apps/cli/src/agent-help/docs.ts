@@ -11,6 +11,7 @@ import modelConfig from './model-config.md'
 import skills from './skills.md'
 import connections from './connections.md'
 import runtime from './runtime.md'
+import sandbox from './sandbox.md'
 import agent from './agent.md'
 import backups from './backups.md'
 import usage from './usage.md'
@@ -29,6 +30,7 @@ export const agentHelpDocs: Record<AgentHelpTopic, string> = {
     skills,
     connections,
     runtime,
+    sandbox,
     agent,
     backups,
     usage,

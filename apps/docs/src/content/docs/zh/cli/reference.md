@@ -25,6 +25,7 @@ order: 12
 | [`mf connections`](/zh/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/zh/docs/cli/reference/model-config/) | Read/update agent model configuration |
 | [`mf runtime`](/zh/docs/cli/reference/runtime/) | Manage agent runtimes (the sprite/pod shell) |
+| [`mf sandbox`](/zh/docs/cli/reference/sandbox/) | Inspect sandbox storage |
 | [`mf skills`](/zh/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/zh/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/zh/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |

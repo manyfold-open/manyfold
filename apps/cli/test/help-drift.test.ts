@@ -23,6 +23,7 @@ const TOPIC_COMMANDS: Record<AgentHelpTopic, string[]> = {
     connections: ['connections'],
     runtime: ['runtime', 'agent-runtimes'],
     agent: ['agent', 'agents'],
+    sandbox: ['sandbox'],
     backups: ['backups'],
     usage: ['usage'],
     a2a: ['a2a']

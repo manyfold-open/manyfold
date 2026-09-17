@@ -47,6 +47,13 @@ const agents: SandboxUsageAgentInput[] = [
     { id: 'agt-x', name: 'orphan', framework: 'codex', hostId: null }
 ]
 
+test('a historical failed measurement cannot claim fresh storage', () => {
+    const host = { ...hostA, storageMeasuredAt: new Date(), storageBreakdown: { vmUsedBytes: 0, measuredVia: 'stale' as const, workspaces: [], homes: [] } }
+    const result = buildSandboxUsageBreakdown(JUNE, [host], [], new Map())
+    assert.equal(result.hosts[0].storageFreshness, 'unknown')
+    assert.equal(result.storageFreshness.oldestMeasuredAt, null)
+})
+
 test('buildSandboxUsageBreakdown groups agents under hosts with workspace bytes from the host breakdown', () => {
     const result = buildSandboxUsageBreakdown(
         JUNE,
@@ -72,7 +79,7 @@ test('buildSandboxUsageBreakdown groups agents under hosts with workspace bytes 
         ]
     )
     assert.deepEqual(alpha.homes, [
-        { framework: 'claude-code', bytes: 400_000_000 }
+        { framework: 'claude-code', path: null, agentIds: [], measuredBytes: 400_000_000, bytes: null }
     ])
     assert.equal(alpha.activeSecondsThisPeriod, 3600)
     assert.equal(alpha.storageMeasuredAt, '2026-06-15T10:00:00.000Z')

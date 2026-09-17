@@ -14,6 +14,7 @@ export const HUMAN_HELP_GROUPS: readonly HumanHelpGroup[] = [
             'whoami',
             'agent',
             'runtime',
+            'sandbox',
             'model-config'
         ]
     },

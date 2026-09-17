@@ -3,6 +3,7 @@ import { resolveSentryConfig } from './sentry-config'
 import { buildTelemetryCaptureOptions } from './sentry-grouping'
 import { GitHubRequestError } from './common/github-request-error'
 import { inBackgroundContext } from './common/telemetry/background-context'
+import { StorageMeasurementError } from './common/telemetry/storage-measurement-error'
 import {
     scrubSentryBreadcrumb,
     scrubSentryEvent,
@@ -106,6 +107,17 @@ export const captureTelemetryError = (
     attrs: Record<string, unknown>
 ): void => {
     if (!sentryEnabled) return
+    if (err instanceof StorageMeasurementError) {
+        // Async stack enrichment can recover the foreground caller even after
+        // its scope is cleared. Measurement failures carry only safe diagnosis.
+        Sentry.captureEvent({
+            ...buildTelemetryCaptureOptions(name, attrs),
+            level: 'error',
+            exception: { values: [{ type: err.name, value: err.message, mechanism: { type: 'generic', handled: true } }] },
+            fingerprint: ['sprite_storage_measurement', err.failureClass]
+        })
+        return
+    }
     Sentry.captureException(err, buildTelemetryCaptureOptions(name, attrs))
 }
 

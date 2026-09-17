@@ -20,6 +20,7 @@ const hostRow = (over: Record<string, unknown> = {}): RuntimeHostRow =>
         accountId: 'acc-1',
         spriteName: 'nca-user-abc-main',
         spriteStatus: 'running',
+        status: 'active',
         storageBytes: null,
         storageMeasuredAt: null,
         storageBreakdown: null,
@@ -37,15 +38,17 @@ const agentRow = (over: Record<string, unknown> = {}): Agent =>
 
 const makeDb = (host: RuntimeHostRow | null, hostAgents: Agent[] = []) => {
     const updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
-    return {
+    const db = {
         updates,
+        execute: async () => [],
         select: () => ({
             from: (table: unknown) => ({
                 where: () => {
                     const rows =
                         table === runtimeHosts ? (host ? [host] : []) : hostAgents
                     return Object.assign(Promise.resolve(rows), {
-                        limit: async () => rows
+                        limit: async () => rows,
+                        orderBy: async () => rows
                     })
                 }
             })
@@ -54,11 +57,14 @@ const makeDb = (host: RuntimeHostRow | null, hostAgents: Agent[] = []) => {
             set: (s: Record<string, unknown>) => ({
                 where: () => {
                     updates.push({ table, set: s })
-                    return Promise.resolve(undefined)
+                    return Object.assign(Promise.resolve(undefined), {
+                        returning: async () => [{ ...host, ...s, measuredAt: new Date(), failures: 1 }]
+                    })
                 }
             })
         })
     }
+    return Object.assign(db, { transaction: async (work: (tx: typeof db) => Promise<unknown>) => work(db) })
 }
 
 const makeService = (
@@ -72,7 +78,7 @@ const makeService = (
         {} as never,
         {
             event: (name: string, attrs: Record<string, unknown>) => {
-                events.push({ name, attrs })
+                if (name === 'sprite_storage_measured') events.push({ name, attrs })
             },
             error: (name: string, err: Error) => {
                 errors.push({ name, message: err.message })
@@ -95,20 +101,20 @@ const STALE: SandboxStorageBreakdown = {
 }
 
 const hostUpdates = (db: ReturnType<typeof makeDb>) =>
-    db.updates.filter((u) => u.table === runtimeHosts)
+    db.updates.filter((u) => u.table === runtimeHosts && 'storageBytes' in u.set)
 const agentUpdates = (db: ReturnType<typeof makeDb>) =>
     db.updates.filter((u) => u.table === agents)
 
 // WHY: this is the defect. A measurement that read nothing used to be written
 // as storage_bytes = 0 with a fresh storage_measured_at, which the meter, the
 // quota check and the drill-down all read as a confidently empty sandbox.
-test('a stale measurement writes nothing and is reported as a failure', async () => {
+test('a stale measurement replaces no reading and is reported as a failure', async () => {
     const db = makeDb(hostRow(), [agentRow()])
     const { svc, events, errors } = makeService(db, STALE)
 
     await svc.measureHostIfDue('sbx-1')
 
-    assert.equal(db.updates.length, 0, 'no row may be written')
+    assert.equal(hostUpdates(db).length + agentUpdates(db).length, 0, 'no measurement reading may be replaced')
     assert.deepEqual(
         events.map((e) => e.name),
         [],
@@ -157,7 +163,7 @@ test('a real df measurement writes the host meter and the per-agent drill-down',
     assert.equal(errors.length, 0)
     assert.equal(hostUpdates(db).length, 1)
     assert.equal(hostUpdates(db)[0].set.storageBytes, 7_000_000_000)
-    assert.ok(hostUpdates(db)[0].set.storageMeasuredAt instanceof Date)
+    assert.ok(hostUpdates(db)[0].set.storageMeasuredAt, 'publication stamps the database measurement time')
     assert.equal(agentUpdates(db).length, 1)
     assert.equal(agentUpdates(db)[0].set.storageBytes, 1_200_000_000)
     assert.deepEqual(

@@ -293,13 +293,26 @@ export interface SandboxUsageAgentRow {
     framework: AgentFramework
     // du of this agent's own workspace dir; null until first measured.
     workspaceBytes: number | null
+    workspaceMeasuredAt: string | null
+    attributedBytes: number | null
 }
 
-// A framework's config/home dir (~/.claude …) on the VM — shared by every
-// agent of that framework on the host, so listed per host, not per agent.
+export interface SandboxUsageRuntimeRow {
+    runtimeId: string
+    name: string
+    framework: AgentFramework
+}
+
+export type StorageFreshness = 'fresh' | 'stale' | 'unknown'
+
+// One actual configuration path; agents of the same framework may use
+// different paths. Raw measurement and non-overlapping attribution differ.
 export interface SandboxUsageHomeRow {
     framework: AgentFramework
-    bytes: number
+    path: string | null
+    agentIds: string[]
+    measuredBytes: number | null
+    bytes: number | null
 }
 
 export interface SandboxUsageHost {
@@ -317,8 +330,13 @@ export interface SandboxUsageHost {
     // migration, which has no drill-down to render. Not derivable from the rows
     // below: a bare sandbox is fully measured and still has none.
     storageMeasured: boolean
+    storageMeasuredVia: 'df' | 'du' | null
+    storageFreshness: StorageFreshness
+    asleep: boolean
+    attributionComplete: boolean
     homes: SandboxUsageHomeRow[]
     agents: SandboxUsageAgentRow[]
+    runtimes: SandboxUsageRuntimeRow[]
 }
 
 // Ledger rows whose host row is gone: their seconds still count toward the
@@ -329,8 +347,20 @@ export interface SandboxUsageDeletedHost {
 }
 
 export interface SandboxUsageBreakdown {
+    scope: 'account' | 'sandbox'
+    attributionScope: 'account' | 'agent'
+    unit: 'bytes'
+    attributionUnit: 'apparent-bytes'
+    asOf: string
+    storageFreshness: {
+        state: StorageFreshness | 'partial'
+        oldestMeasuredAt: string | null
+        staleHosts: number
+        unmeasuredHosts: number
+    }
     usagePeriod: UsagePeriodSummary
-    // == RuntimeAccessSummary.storageBytesTotal (same host filter + sum).
+    // Sum of this response's hosts. Account scope uses the quota meter's
+    // host filter; independently requested summaries may be a later snapshot.
     storageBytesTotal: number
     // Raw seconds behind RuntimeAccessSummary.activeHoursThisPeriod.
     activeSecondsTotal: number
@@ -2104,8 +2134,9 @@ export interface AgentSummary {
     model: string | null
     extras: Record<string, unknown>
     workspacePath: string | null
-    storageBytes: number | null
-    storageMeasuredAt: string | null
+    // Agent-owned workspace du only, never whole-sandbox/account storage.
+    workspaceBytes: number | null
+    workspaceMeasuredAt: string | null
     startedAt: string | null
     lastActiveAt: string | null
     lastMessageAt: string | null
@@ -2137,16 +2168,20 @@ export interface AgentStorageUsageItem {
     label: string
     path: string | null
     exists: boolean
-    bytes: number
+    bytes: number | null
     status: AgentProbeStatus
     message: string
 }
 
 export interface AgentStorageUsageResponse {
+    scope: 'agent-paths'
+    unit: 'bytes'
     agentId: string
     checkedAt: string
+    asleep: boolean
     items: AgentStorageUsageItem[]
-    totalBytes: number
+    totalBytes: number | null
+    cachedSandbox: (Pick<SandboxUsageHost, 'hostId' | 'storageBytes' | 'storageMeasuredAt' | 'storageFreshness' | 'asleep'> & { scope: 'sandbox'; unit: 'bytes' }) | null
 }
 
 // Per-scope outcome of importing runtime MCP config files back into

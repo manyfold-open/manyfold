@@ -28,9 +28,10 @@ export interface FileRoot {
 }
 
 export interface AgentStorageBreakdown {
+    formatVersion?: 1
     workspaceBytes: number
-    homeBytes: number
-    totalBytes: number
+    homeBytes: number | null
+    totalBytes: number | null
     measuredVia: 'df' | 'du' | 'stale'
 }
 

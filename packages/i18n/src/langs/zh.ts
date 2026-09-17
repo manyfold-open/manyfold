@@ -442,8 +442,10 @@ const zh: Translations = {
                     unavailableExternal:
                         '外部 Agent 在 Manyfold 上没有工作区，因此这里没有可备份的内容。',
                     starting: '启动中...',
-                    title: '存储',
-                    total: '总计'
+                    title: 'Agent 路径用量',
+                    total: 'Agent 路径合计',
+                    cachedSandbox: '沙箱文件系统缓存：{{value}} · 测量于 {{date}}',
+                    asleep: '沙箱休眠中'
                 },
                 updated: '更新时间',
                 updating: '更新中…',
@@ -1161,6 +1163,14 @@ const zh: Translations = {
             subscribeCancel: '已取消结账，套餐未变更。'
         },
         sandboxUsage: {
+            attributedValue: '已归属：{{value}}',
+            attributionUnknown: '归属未知',
+            freshnessFresh: '近期读数',
+            freshnessStale: '缓存读数',
+            freshnessPartial: '{{count}} 个沙箱尚未测量',
+            freshnessUnknown: '暂无测量数据',
+            oldestMeasured: '最早测量于 {{time}}',
+            storageEmpty: '当前没有沙箱',
             title: '沙箱用量',
             subtitle: '本账期每个沙箱的存储与活跃时长消耗明细。',
             statStorage: '沙箱存储',
@@ -1168,11 +1178,11 @@ const zh: Translations = {
             statSandboxes: '沙箱数',
             storageSectionTitle: '按沙箱的存储明细',
             storageSectionBody:
-                '每台沙箱 VM 按整机计费。下方各行展示机内构成——每个 Agent 的 workspace 与共享的框架 home 目录，取沙箱最近一次运行时的测量值。',
+                '每台沙箱 VM 只计算一次。下方展示每个 Agent 的 workspace 与配置目录，取沙箱最近一次运行时的测量值。',
             vmDiskUsed: 'VM 磁盘占用：{{value}}',
             measuredAt: '测量于 {{time}}',
             tagWorkspace: 'workspace',
-            tagHomeShared: 'home · 共享',
+            tagHomeShared: '配置 / 状态',
             systemOther: '系统与其他',
             notMeasured:
                 '尚未测量——沙箱运行时才会在机内测量，至多每 5 分钟一次。',

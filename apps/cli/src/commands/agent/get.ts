@@ -1,6 +1,7 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
 import { buildClient } from '@/client'
+import { assertAgentStorageContract } from '@/storage-contract'
 
 interface GetOptions {
     json?: boolean
@@ -14,6 +15,7 @@ export const registerAgentGet = (cmd: Command, program: Command): void => {
             const global = program.opts<{ apiUrl?: string; token?: string }>()
             const { client } = await buildClient(global)
             const agent = await client.agents.get(agentId)
+            assertAgentStorageContract(agent)
             if (opts.json) {
                 console.log(JSON.stringify(agent, null, 2))
                 return

@@ -184,54 +184,146 @@ export class RuntimeAccessService {
         )
     }
 
-    // Meter drill-down: the same rows the two usage meters aggregate, grouped
-    // per sandbox host. Totals equal the summary's storageBytesTotal /
-    // activeHoursThisPeriod by construction (identical filters + windows).
-    async sandboxUsage(userId: string): Promise<SandboxUsageBreakdown> {
+    // Account storage uses the quota meter's host filter, but owns one snapshot
+    // for both values and freshness. Self scope removes co-resident identities.
+    async sandboxUsage(
+        userId: string,
+        agentId?: string
+    ): Promise<SandboxUsageBreakdown> {
         const usagePeriod = await this.usagePeriods.resolve(this.db, userId)
-        const [hostRows, agentRows, secondsByHost] = await Promise.all([
-            this.db
-                .select({
-                    id: runtimeHosts.id,
-                    name: runtimeHosts.name,
-                    spriteStatus: runtimeHosts.spriteStatus,
-                    storageBytes: runtimeHosts.storageBytes,
-                    storageMeasuredAt: runtimeHosts.storageMeasuredAt,
-                    storageBreakdown: runtimeHosts.storageBreakdown
-                })
-                .from(runtimeHosts)
-                .where(
-                    and(
-                        eq(runtimeHosts.userId, userId),
-                        eq(runtimeHosts.kind, 'sandbox'),
-                        eq(runtimeHosts.status, 'active')
-                    )
-                ),
-            this.db
-                .select({
-                    id: agents.id,
-                    name: agents.name,
-                    framework: agents.framework,
-                    hostId: agents.hostId
-                })
-                .from(agents)
-                .where(
-                    and(
-                        eq(agents.userId, userId),
-                        eq(agents.runtime, 'sprites'),
-                        ne(agents.status, 'failed')
-                    )
-                ),
-            this.activeDuration.userActiveSecondsInPeriodByHost(
+        const secondsByHost =
+            await this.activeDuration.userActiveSecondsInPeriodByHost(
                 userId,
                 usagePeriod
             )
-        ])
-        return buildSandboxUsageBreakdown(
-            usagePeriod,
-            hostRows,
-            agentRows,
-            secondsByHost
+        return this.db.transaction(
+            async (tx) => {
+                const [clock] = await tx.execute(
+                    sql`select extract(epoch from transaction_timestamp()) * 1000 as milliseconds`
+                )
+                const [ownAgent] = agentId
+                    ? await tx
+                          .select()
+                          .from(agents)
+                          .where(
+                              and(
+                                  eq(agents.id, agentId),
+                                  eq(agents.userId, userId)
+                              )
+                          )
+                          .limit(1)
+                    : []
+                if (
+                    agentId &&
+                    (!ownAgent ||
+                        ownAgent.runtime !== 'sprites' ||
+                        !ownAgent.hostId)
+                )
+                    throw new NotFoundException(
+                        'agent has no accessible sandbox'
+                    )
+                const [hostRows, agentRows, runtimeRows] = await Promise.all([
+                    tx
+                        .select({
+                            id: runtimeHosts.id,
+                            name: runtimeHosts.name,
+                            spriteStatus: runtimeHosts.spriteStatus,
+                            storageBytes: runtimeHosts.storageBytes,
+                            storageMeasuredAt: runtimeHosts.storageMeasuredAt,
+                            storageBreakdown: runtimeHosts.storageBreakdown
+                        })
+                        .from(runtimeHosts)
+                        .where(
+                            and(
+                                eq(runtimeHosts.userId, userId),
+                                eq(runtimeHosts.kind, 'sandbox'),
+                                eq(runtimeHosts.status, 'active'),
+                                ownAgent
+                                    ? eq(runtimeHosts.id, ownAgent.hostId!)
+                                    : undefined
+                            )
+                        ),
+                    tx
+                        .select({
+                            id: agents.id,
+                            name: agents.name,
+                            framework: agents.framework,
+                            hostId: agents.hostId
+                        })
+                        .from(agents)
+                        .where(
+                            and(
+                                eq(agents.userId, userId),
+                                eq(agents.runtime, 'sprites'),
+                                ne(agents.status, 'failed'),
+                                ownAgent
+                                    ? eq(agents.id, ownAgent.id)
+                                    : undefined
+                            )
+                        ),
+                    tx
+                        .select({
+                            id: agentRuntimes.id,
+                            name: agentRuntimes.name,
+                            framework: agentRuntimes.framework,
+                            hostId: agentRuntimes.hostId
+                        })
+                        .from(agentRuntimes)
+                        .where(
+                            and(
+                                eq(agentRuntimes.userId, userId),
+                                eq(agentRuntimes.kind, 'sprites'),
+                                ownAgent
+                                    ? eq(
+                                          agentRuntimes.id,
+                                          ownAgent.runtimeId ?? ''
+                                      )
+                                    : undefined
+                            )
+                        )
+                ])
+                if (ownAgent && hostRows.length === 0)
+                    throw new NotFoundException(
+                        'agent has no accessible sandbox'
+                    )
+                const visibleHosts = ownAgent
+                    ? hostRows.map((host) => ({
+                          ...host,
+                          storageBreakdown: host.storageBreakdown
+                              ? {
+                                    ...host.storageBreakdown,
+                                    homes: host.storageBreakdown.homes
+                                        .filter((home) =>
+                                            home.agentIds?.includes(ownAgent.id)
+                                        )
+                                        .map((home) => ({
+                                            ...home,
+                                            agentIds: [ownAgent.id]
+                                        }))
+                                }
+                              : null
+                      }))
+                    : hostRows
+                return buildSandboxUsageBreakdown(
+                    usagePeriod,
+                    visibleHosts,
+                    agentRows,
+                    ownAgent
+                        ? new Map([
+                              [
+                                  ownAgent.hostId!,
+                                  secondsByHost.get(ownAgent.hostId!) ?? 0
+                              ]
+                          ])
+                        : secondsByHost,
+                    {
+                        scope: ownAgent ? 'sandbox' : 'account',
+                        asOf: new Date(Number(clock.milliseconds)),
+                        runtimes: runtimeRows
+                    }
+                )
+            },
+            { isolationLevel: 'repeatable read', accessMode: 'read only' }
         )
     }
 
