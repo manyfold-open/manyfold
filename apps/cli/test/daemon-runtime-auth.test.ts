@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { createObjectId } from '@manyfold/shared'
 import { daemonActivitySnapshot, rpcHandler } from '../src/daemon/rpc'
-import { execStreams, readFinal } from '../src/daemon/exec-buffer'
+import { execStreams, readFinal, readMeta } from '../src/daemon/exec-buffer'
 import { daemonPaths } from '../src/daemon/config'
 import type { RpcContext } from '../src/daemon/ws-client'
 import { RuntimeAuthManager } from '../src/daemon/runtime-auth/manager'
@@ -1435,3 +1435,123 @@ test('an api-key profile stores its key in the view and injects it as the vendor
         delete process.env.OPENAI_API_KEY
     })
 })
+
+// ADR-0029 §4 (B2): with the file exec switch on, a profile-bound exec runs
+// detached through files, still holds the profile lease for its lifetime,
+// records only the lease's path in its meta, and gives the lease back once
+// its output is drained — the same contract as the pipe path, minus the
+// pipes.
+test(
+    'a profile-bound exec on the file path holds the lease, records its path and releases it',
+    { skip: process.platform === 'win32' },
+    async () => {
+        await withSandbox(async (sb) => {
+            const prior = process.env.MF_DAEMON_EXEC_FILES
+            process.env.MF_DAEMON_EXEC_FILES = '1'
+            const profileId = createObjectId('runtimeAuthProfile')
+            try {
+                await rpcHandler(
+                    'auth.create',
+                    {
+                        framework: 'codex',
+                        runtimeId: sb.runtimeId,
+                        profileId,
+                        authMethod: 'subscription'
+                    },
+                    ctx('c')
+                )
+                const profileDir = join(
+                    sb.configDir,
+                    'runtime-auth',
+                    sb.daemonId,
+                    sb.runtimeId,
+                    'profiles',
+                    profileId
+                )
+                await writeFile(
+                    join(profileDir, 'view', 'auth.json'),
+                    '{"auth_mode":"chatgpt"}',
+                    { mode: 0o600 }
+                )
+                const manager = new RuntimeAuthManager(
+                    { daemonId: sb.daemonId, runtimeId: sb.runtimeId },
+                    {
+                        credentialFacts: async () => null,
+                        cliVersion: async () => null,
+                        fetch: async () => {
+                            throw new Error('no vendor call')
+                        },
+                        now: Date.now,
+                        platform: 'linux',
+                        env: process.env
+                    }
+                )
+                const ready = barrier()
+                let output = ''
+                const refId = 'exec-files-lease'
+                const running = rpcHandler(
+                    'exec.start',
+                    {
+                        cmd: ['/bin/sh', '-c', 'echo exec-ready; sleep 30'],
+                        env: { SECRET_VENDOR_KEY: 'sk-never-on-disk' },
+                        authSelection: profileSelection(sb, 'codex', profileId)
+                    },
+                    {
+                        ...ctx(refId),
+                        sendEvent: (kind, data) => {
+                            if (kind === 'stdout') output += data
+                            if (output.includes('exec-ready')) ready.open()
+                        }
+                    }
+                )
+                await within(ready.reached, 'file exec ready under the profile')
+                const meta = readMeta(refId) as unknown as {
+                    format: number
+                    auth?: { lockDir: string; label: string }
+                    payload: Record<string, unknown>
+                }
+                assert.equal(meta.format, 2, 'the exec went through files')
+                assert.deepEqual(meta.auth, {
+                    lockDir: join(profileDir, 'lock'),
+                    label: `exec:${refId}`
+                })
+                assert.equal('env' in meta.payload, false)
+                assert.ok(
+                    !(
+                        await readFile(
+                            join(daemonPaths.execDir, refId, 'meta.json'),
+                            'utf8'
+                        )
+                    ).includes('sk-never-on-disk')
+                )
+                await assert.rejects(
+                    manager.executionContext('codex', profileId, 'probe', {
+                        waitMs: 0
+                    }),
+                    (err: unknown) => err instanceof ProfileBusyError,
+                    'the lease is held while the exec runs'
+                )
+                assert.equal(daemonActivitySnapshot().activeExecs, 1)
+                await rpcHandler('exec.abort', { refId }, ctx('abort-files'))
+                const result = await within(running, 'file exec completion')
+                assert.equal(result.error, 'cancelled')
+                assert.deepEqual(readFinal(refId), {
+                    ok: false,
+                    payload: result.payload,
+                    error: 'cancelled'
+                })
+                const after = await manager.executionContext(
+                    'codex',
+                    profileId,
+                    'probe',
+                    { waitMs: 0 }
+                )
+                await after.release()
+                assert.equal(daemonActivitySnapshot().activeExecs, 0)
+            } finally {
+                if (prior === undefined) delete process.env.MF_DAEMON_EXEC_FILES
+                else process.env.MF_DAEMON_EXEC_FILES = prior
+            }
+        })
+    }
+)
