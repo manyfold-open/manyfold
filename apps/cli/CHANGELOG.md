@@ -1,5 +1,15 @@
 # @manyfold/cli
 
+## 3.0.2
+
+### Patch Changes
+
+- [#422](https://github.com/manyfold-open/manyfold/pull/422) [`faf8b50`](https://github.com/manyfold-open/manyfold/commit/faf8b50cf4f2f49f2a716e8dcc5917c35513c6b0) Thanks [@yingca1](https://github.com/yingca1)! - Log daemon startup before bounded shell PATH probes, forcibly reap timed-out probe process trees and retain the original PATH fallback. Sign completed Darwin binaries with identifier ai.manyfold.mf and strictly verify signatures, archive contents and updater byte preservation before release upload. Ad-hoc signatures do not guarantee that macOS TCC permissions survive upgrades.
+
+- [#433](https://github.com/manyfold-open/manyfold/pull/433) [`f8c2287`](https://github.com/manyfold-open/manyfold/commit/f8c22872c5032f66a5063213a7b82d8e2987152d) Thanks [@yingca1](https://github.com/yingca1)! - Wait for runtime-auth profile cleanup before completing executions, so immediate same-profile work can acquire the released lock. Report cleanup failures without exposing credentials and retain execution ownership until cleanup finishes.
+
+- [#431](https://github.com/manyfold-open/manyfold/pull/431) [`cbd9d94`](https://github.com/manyfold-open/manyfold/commit/cbd9d946f34be473a4567f6142f6b18e5e960017) Thanks [@yingca1](https://github.com/yingca1)! - Retry temporary Windows file-replacement denial when publishing protected state and daemon ownership metadata. Keep the original target intact, retain the kernel lock during publication, and bound retries so persistent permission errors still fail startup cleanly.
+
 ## 3.0.1
 
 ### Patch Changes
