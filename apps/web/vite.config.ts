@@ -78,6 +78,10 @@ export default defineConfig(({ mode }) => {
             exclude: ['@manyfold/shared', '@manyfold/sdk', '@manyfold/i18n']
         },
         build: {
+            // Inlining small font subsets forces every language's bytes into
+            // the render-blocking stylesheet instead of honoring unicode-range.
+            assetsInlineLimit: (filePath) =>
+                /\.(?:woff2?|ttf|otf)$/i.test(filePath) ? false : undefined,
             // 'hidden' emits maps for the Sentry upload without leaving a
             // sourceMappingURL in the served bundles.
             sourcemap: 'hidden' as const,

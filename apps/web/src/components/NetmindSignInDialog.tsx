@@ -1,7 +1,14 @@
-import type { FC } from 'react'
+import { Suspense, useState, type FC } from 'react'
+import { ErrorBoundary } from '@sentry/react'
 import ProductDialog from '@/components/ProductDialog'
-import { NetmindSignIn } from '@/components/NetmindSignIn'
 import { useI18n } from '@/lib/i18n'
+import { lazyChunk } from '@/lib/lazyChunk'
+
+const signInForm = () =>
+    lazyChunk(async () => {
+        const module = await import('@/components/NetmindSignIn')
+        return { default: module.NetmindSignIn }
+    })
 
 interface NetmindSignInDialogProps {
     title: string
@@ -24,6 +31,7 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
     onClose
 }) => {
     const { t } = useI18n()
+    const [SignIn, setSignIn] = useState(signInForm)
     return (
         <ProductDialog
             title={title}
@@ -32,7 +40,35 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
             onClose={onClose}
             bodyClassName='pb-5'
         >
-            <NetmindSignIn onToken={onToken} submitLabel={submitLabel} />
+            <ErrorBoundary
+                fallback={({ resetError }) => (
+                    <div role='alert' className='space-y-3'>
+                        <p className='text-ui text-fg'>
+                            {t('errors.appCrash.title')}
+                        </p>
+                        <button
+                            type='button'
+                            className='workbench-button-secondary'
+                            onClick={() => {
+                                setSignIn(signInForm)
+                                resetError()
+                            }}
+                        >
+                            {t('common.retry')}
+                        </button>
+                    </div>
+                )}
+            >
+                <Suspense
+                    fallback={
+                        <p role='status' className='text-ui text-muted'>
+                            {t('common.loading')}
+                        </p>
+                    }
+                >
+                    <SignIn onToken={onToken} submitLabel={submitLabel} />
+                </Suspense>
+            </ErrorBoundary>
         </ProductDialog>
     )
 }
