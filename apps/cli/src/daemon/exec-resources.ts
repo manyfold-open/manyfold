@@ -41,7 +41,11 @@ export async function createExecResources(cmd: string[], cwd: string) {
                 try { process.kill(-child.pid, 0) }
                 catch (error) {
                     if ((error as NodeJS.ErrnoException).code === 'ESRCH') break
-                    throw error
+                    // Darwin can briefly return EPERM while a killed group's
+                    // remaining processes are being reaped. Only ESRCH proves
+                    // drainage; permission denial consumes the same deadline.
+                    if ((error as NodeJS.ErrnoException).code !== 'EPERM')
+                        throw error
                 }
                 if (performance.now() >= deadline)
                     throw new Error('owned exec process group did not drain')

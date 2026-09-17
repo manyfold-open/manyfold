@@ -9,6 +9,8 @@ import {
     setDeclaredWorkspaceRoot
 } from '../src/daemon/rpc'
 import type { RpcContext } from '../src/daemon/ws-client'
+import type { ChildProcess } from 'node:child_process'
+import { createExecResources } from '../src/daemon/exec-resources'
 
 const within = <T>(promise: Promise<T>, milliseconds = 10000): Promise<T> => {
     let timer: ReturnType<typeof setTimeout>
@@ -21,6 +23,44 @@ const within = <T>(promise: Promise<T>, milliseconds = 10000): Promise<T> => {
             )
         })
     ]).finally(() => clearTimeout(timer))
+}
+
+for (const persistent of [false, true]) {
+    test(`POSIX group permission probe ${persistent ? 'must not imply drainage' : 'waits for confirmed drainage'}`, {
+        skip: process.platform === 'win32'
+    }, async () => {
+        const resource = await createExecResources(['unused'], tmpdir())
+        const child = { pid: process.pid + 1 } as ChildProcess
+        const originalKill = process.kill, originalNow = performance.now
+        let probes = 0, elapsed = 0
+        const signals: (number | NodeJS.Signals | undefined)[] = []
+        try {
+            process.kill = (pid: number, signal?: number | NodeJS.Signals) => {
+                assert.equal(pid, -child.pid!)
+                signals.push(signal)
+                if (signal === 0) {
+                    probes++
+                    throw Object.assign(new Error('fixture permission probe'), {
+                        code: persistent || probes === 1 ? 'EPERM' : 'ESRCH'
+                    })
+                }
+                return true
+            }
+            if (persistent) performance.now = () => elapsed += 2001
+            if (persistent) {
+                await assert.rejects(resource.release(child), /process group did not drain/)
+                assert.equal((await stat(resource.directory)).isDirectory(), true)
+            } else {
+                await resource.release(child)
+                assert.deepEqual(signals, ['SIGKILL', 0, 0])
+                await assert.rejects(stat(resource.directory), { code: 'ENOENT' })
+            }
+        } finally {
+            process.kill = originalKill
+            performance.now = originalNow
+            await rm(resource.directory, { recursive: true, force: true })
+        }
+    })
 }
 
 for (const scenario of [
