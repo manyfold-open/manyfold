@@ -7,10 +7,10 @@ import type {
 import {
     BadRequestException,
     Injectable,
-    Logger,
-    ServiceUnavailableException
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { GitHubRequestError } from '@/common/github-request-error'
+import { fetchSkillSource, mapSkillRequests, SKILL_SCAN_LIMITS, withSkillRequestBudget } from './github-skill-source'
 import { parse as parseYaml } from 'yaml'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
@@ -82,12 +82,17 @@ export interface ScanReposResult {
     truncatedRepoIds: string[]
 }
 
+export interface SkillSnapshotEntry {
+    sourcePath: string
+    name: string
+    description: string | null
+    version: string | null
+}
+
 @Injectable()
 export class SkillDiscoveryService {
-    private readonly log = new Logger(SkillDiscoveryService.name)
-
     constructor(
-        private readonly config: ConfigService,
+        _config: ConfigService,
         private readonly adminSettings: AdminSettingsService
     ) {}
 
@@ -144,9 +149,7 @@ export class SkillDiscoveryService {
         if (input.repoId && repos.length === 0)
             throw new BadRequestException(`unknown repoId: ${input.repoId}`)
 
-        const nested = await Promise.all(
-            repos.map((repo) => this.scanRepo(repo))
-        )
+        const nested = await mapSkillRequests(repos, (repo) => this.scanRepo(repo))
         const truncatedRepoIds = repos
             .filter((_, i) => nested[i].truncated)
             .map((repo) => repo.id)
@@ -178,50 +181,38 @@ export class SkillDiscoveryService {
         return rows.find((row) => row.skillId === skillId) ?? null
     }
 
-    private async scanRepo(
+    async scanRepo(
         repo: DiscoveryRepo
     ): Promise<{ rows: ScannedSkillSummary[]; truncated: boolean }> {
-        const commit = await this.fetchJson<GitHubCommitResponse>(
-            `https://api.github.com/repos/${repo.owner}/${repo.name}/commits/${encodeURIComponent(
-                repo.branch
-            )}`
-        )
-        const revision = commit.sha ?? repo.branch
-        const tree = await this.fetchJson<GitHubTreeResponse>(
-            `https://api.github.com/repos/${repo.owner}/${repo.name}/git/trees/${encodeURIComponent(
-                revision
-            )}?recursive=1`
-        )
-        if (!Array.isArray(tree.tree)) return { rows: [], truncated: false }
-        if (tree.truncated)
-            this.log.warn(
-                `GitHub tree truncated for ${repo.owner}/${repo.name}@${repo.branch}`
-            )
-        const skillFiles = tree.tree
-            .filter((entry) => entry.type === 'blob' && entry.path)
-            .map((entry) => entry.path as string)
-            .filter((path) => path === 'SKILL.md' || path.endsWith('/SKILL.md'))
+        return withSkillRequestBudget(async () => {
+            const revision = await this.resolveRepoRevision(repo)
+            const snapshot = await this.scanRevision(repo, revision)
+            return { rows: snapshotRows(repo, revision, snapshot), truncated: false }
+        })
+    }
 
-        const rows = await Promise.all(
-            skillFiles.map(async (skillPath) => {
+    async resolveRepoRevision(repo: { owner: string; name: string; branch: string }): Promise<string> {
+        const commit = await this.fetchJson<GitHubCommitResponse>(
+            `https://api.github.com/repos/${repo.owner}/${repo.name}/commits/${encodeURIComponent(repo.branch)}`
+        )
+        if (typeof commit.sha !== 'string' || !/^[0-9a-f]{40}$/.test(commit.sha))
+            throw new GitHubRequestError()
+        return commit.sha
+    }
+
+    async scanRevision(repo: DiscoveryRepo, revision: string): Promise<SkillSnapshotEntry[]> {
+        const entries = await this.treeAtRevision(repo, revision)
+        const skillFiles = entries.filter((entry) => entry.path === 'SKILL.md' || entry.path.endsWith('/SKILL.md'))
+        if (skillFiles.length > SKILL_SCAN_LIMITS.files) throw new GitHubRequestError()
+        const snapshot = await mapSkillRequests(skillFiles, async ({ path: skillPath, size }) => {
+                if (size > SKILL_SCAN_LIMITS.fileBytes) throw new GitHubRequestError()
                 const sourcePath =
                     skillPath === 'SKILL.md'
                         ? '.'
                         : skillPath.replace(/\/SKILL\.md$/, '')
-                const id = skillIdFor({
-                    owner: repo.owner,
-                    repo: repo.name,
-                    branch: repo.branch,
-                    sourcePath
-                })
-                const md = await this.fetchSkillMd(repo, skillPath).catch(
-                    (err: unknown) => {
-                        this.log.warn(
-                            `failed to fetch ${repo.owner}/${repo.name}/${skillPath}: ${(err as Error).message}`
-                        )
-                        return ''
-                    }
-                )
+                const raw = await this.fetchRepoFileRaw({ ...repo, branch: revision }, skillPath)
+                if (!raw || raw.length === 0) throw new GitHubRequestError()
+                const md = raw.toString('utf8')
                 const parsed = parseSkillMarkdown(md)
                 const fallbackName =
                     sourcePath === '.'
@@ -230,29 +221,14 @@ export class SkillDiscoveryService {
                           repo.name)
                 const name = parsed.name ?? fallbackName
                 return {
-                    skillId: id,
                     name,
                     description: parsed.description,
-                    repoOwner: repo.owner,
-                    repoName: repo.name,
-                    repoBranch: repo.branch,
                     sourcePath,
-                    latestRevision: revision,
-                    version: parsed.version,
-                    readmeUrl: `https://github.com/${repo.owner}/${repo.name}/tree/${repo.branch}/${sourcePath === '.' ? '' : sourcePath}`,
-                    installDir: installDirBase(name),
-                    installed: false,
-                    enabled: false,
-                    userSkillId: null,
-                    repoId: repo.id,
-                    repoReadonly: repo.readonly,
-                    category: null,
-                    tags: [],
-                    featured: false
-                } satisfies ScannedSkillSummary
-            })
-        )
-        return { rows, truncated: tree.truncated === true }
+                    version: parsed.version
+                }
+        })
+        if (Buffer.byteLength(JSON.stringify(snapshot)) > SKILL_SCAN_LIMITS.snapshotBytes) throw new GitHubRequestError()
+        return snapshot
     }
 
     async fetchRepoFile(
@@ -270,25 +246,25 @@ export class SkillDiscoveryService {
         repo: { owner: string; name: string; branch: string },
         path: string
     ): Promise<Buffer | null> {
-        const res = await fetch(
-            `https://api.github.com/repos/${repo.owner}/${repo.name}/contents/${encodePath(
-                path
-            )}?ref=${encodeURIComponent(repo.branch)}`,
-            { headers: this.githubHeaders() }
+        if (/^[0-9a-f]{40}$/.test(repo.branch))
+            return fetchSkillSource(`https://raw.githubusercontent.com/${repo.owner}/${repo.name}/${repo.branch}/${encodePath(path)}`, SKILL_SCAN_LIMITS.fileBytes, true)
+        const content = await this.fetchJson<GitHubContentResponse>(
+            `https://api.github.com/repos/${repo.owner}/${repo.name}/contents/${encodePath(path)}?ref=${encodeURIComponent(repo.branch)}`,
+            true
         )
-        if (res.status === 404) return null
-        if (!res.ok) throw await githubRequestError(res)
-        const content = (await res.json()) as GitHubContentResponse
-        if (content.encoding !== 'base64' || !content.content)
-            return Buffer.alloc(0)
-        return Buffer.from(content.content.replace(/\s/g, ''), 'base64')
+        if (content === null) return null
+        if (content.encoding !== 'base64' || typeof content.content !== 'string') throw new GitHubRequestError()
+        const bytes = Buffer.from(content.content.replace(/\s/g, ''), 'base64')
+        if (bytes.length > SKILL_SCAN_LIMITS.fileBytes) throw new GitHubRequestError()
+        return bytes
     }
 
     async fetchDefaultBranch(owner: string, name: string): Promise<string> {
         const info = await this.fetchJson<{ default_branch?: string }>(
             `https://api.github.com/repos/${owner}/${name}`
         )
-        return info.default_branch ?? 'main'
+        if (typeof info.default_branch !== 'string' || !info.default_branch) throw new GitHubRequestError()
+        return info.default_branch
     }
 
     // Resolve a ref to its commit sha and list every blob (path + size) at
@@ -302,63 +278,54 @@ export class SkillDiscoveryService {
         revision: string
         entries: { path: string; size: number }[]
     }> {
-        const commit = await this.fetchJson<GitHubCommitResponse>(
-            `https://api.github.com/repos/${input.owner}/${input.name}/commits/${encodeURIComponent(
-                input.ref
-            )}`
-        )
-        const revision = commit.sha ?? input.ref
-        const tree = await this.fetchJson<GitHubTreeResponse>(
-            `https://api.github.com/repos/${input.owner}/${input.name}/git/trees/${encodeURIComponent(
-                revision
-            )}?recursive=1`
-        )
-        const entries = (tree.tree ?? [])
-            .filter((entry) => entry.type === 'blob' && entry.path)
-            .map((entry) => ({
-                path: entry.path as string,
-                size: entry.size ?? 0
-            }))
-        return { revision, entries }
+        return withSkillRequestBudget(async () => {
+            const revision = await this.resolveRepoRevision({ ...input, branch: input.ref })
+            return { revision, entries: await this.treeAtRevision(input, revision) }
+        })
     }
 
-    private async fetchSkillMd(
-        repo: DiscoveryRepo,
-        path: string
-    ): Promise<string> {
-        return (await this.fetchRepoFile(repo, path)) ?? ''
-    }
-
-    private async fetchJson<T>(url: string): Promise<T> {
-        const res = await fetch(url, { headers: this.githubHeaders() })
-        if (!res.ok) throw await githubRequestError(res)
-        return (await res.json()) as T
-    }
-
-    private githubHeaders(): Record<string, string> {
-        const headers: Record<string, string> = {
-            Accept: 'application/vnd.github+json',
-            'User-Agent': 'netmind-cloud-agents'
+    private async treeAtRevision(repo: { owner: string; name: string }, revision: string): Promise<{ path: string; size: number }[]> {
+        if (!/^[0-9a-f]{40}$/.test(revision)) throw new GitHubRequestError()
+        const tree = await this.fetchJson<GitHubTreeResponse>(`https://api.github.com/repos/${repo.owner}/${repo.name}/git/trees/${revision}?recursive=1`)
+        if (!Array.isArray(tree.tree) || tree.truncated !== false) throw new GitHubRequestError()
+        const entries: { path: string; size: number }[] = []
+        const seen = new Set<string>()
+        for (const item of tree.tree) {
+            if (!item || typeof item.path !== 'string' || !['blob', 'tree', 'commit'].includes(item.type ?? '') || item.path.startsWith('/') || item.path.split('/').some((segment) => !segment || segment === '..' || segment === '.') || seen.has(item.path))
+                throw new GitHubRequestError()
+            seen.add(item.path)
+            if (item.type !== 'blob') continue
+            if (!Number.isSafeInteger(item.size) || item.size! < 0) throw new GitHubRequestError()
+            entries.push({ path: item.path, size: item.size! })
         }
-        const token = this.config.get<string>('GITHUB_TOKEN')?.trim()
-        if (token) headers.Authorization = `Bearer ${token}`
-        return headers
+        return entries
+    }
+
+    private async fetchJson<T>(url: string, allowMissing?: false): Promise<T>
+    private async fetchJson<T>(url: string, allowMissing: true): Promise<T | null>
+    private async fetchJson<T>(url: string, allowMissing = false): Promise<T | null> {
+        const bytes = await fetchSkillSource(url, SKILL_SCAN_LIMITS.treeBytes, allowMissing)
+        if (bytes === null) return null
+        try {
+            const value = JSON.parse(bytes.toString('utf8'))
+            if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('shape')
+            return value as T
+        } catch {
+            throw new GitHubRequestError()
+        }
     }
 }
 
-const githubRequestError = async (
-    res: Response
-): Promise<ServiceUnavailableException> => {
-    const body = await res.text().catch(() => '')
-    const rateRemaining = res.headers.get('x-ratelimit-remaining')
-    if (res.status === 403 && rateRemaining === '0')
-        return new ServiceUnavailableException(
-            'GitHub rate limit exceeded; configure GITHUB_TOKEN'
-        )
-    return new ServiceUnavailableException(
-        `GitHub request failed ${res.status}: ${body.slice(0, 240)}`
-    )
-}
+export const snapshotRows = (repo: DiscoveryRepo, revision: string, snapshot: SkillSnapshotEntry[]): ScannedSkillSummary[] => snapshot.map((item) => ({
+    ...item,
+    skillId: skillIdFor({ owner: repo.owner, repo: repo.name, branch: repo.branch, sourcePath: item.sourcePath }),
+    repoOwner: repo.owner, repoName: repo.name, repoBranch: repo.branch,
+    latestRevision: revision,
+    readmeUrl: `https://github.com/${repo.owner}/${repo.name}/tree/${repo.branch}/${item.sourcePath === '.' ? '' : item.sourcePath}`,
+    installDir: installDirBase(item.name), installed: false, enabled: false,
+    userSkillId: null, repoId: repo.id, repoReadonly: repo.readonly,
+    category: null, tags: [], featured: false
+}))
 
 export const repoToSummary = (repo: DiscoveryRepo): SkillRepoSummary => ({
     id: repo.id,

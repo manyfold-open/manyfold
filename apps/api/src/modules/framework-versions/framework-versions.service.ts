@@ -15,6 +15,7 @@ import {
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { GitHubRequestError, githubResponseError } from '@/common/github-request-error'
 import { eq } from 'drizzle-orm'
 import { appSettings, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
@@ -443,13 +444,15 @@ export class FrameworkVersionsService implements OnModuleInit {
                 `https://api.github.com/repos/${repo}/tags?per_page=100`,
                 { headers, signal: controller.signal }
             )
-            if (!res.ok) throw new Error(`github responded ${res.status}`)
+            if (!res.ok) throw await githubResponseError(res)
             const body = (await res.json()) as Array<{ name?: string }>
             return this.partitionVersions(
                 body
                     .map((tag) => tag.name)
                     .filter((name): name is string => typeof name === 'string')
             )
+        } catch (error) {
+            throw error instanceof GitHubRequestError ? error : new GitHubRequestError()
         } finally {
             clearTimeout(timer)
         }

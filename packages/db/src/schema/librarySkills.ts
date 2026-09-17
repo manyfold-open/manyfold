@@ -10,6 +10,7 @@ import { users } from './users'
 export interface LibrarySkillOrigin {
     type: 'manual' | 'github' | 'archive' | 'catalog' | 'share'
     url?: string
+    revision?: string
     catalogSkillId?: string
     filename?: string
     shareId?: string

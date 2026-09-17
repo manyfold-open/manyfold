@@ -11,6 +11,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { CLI_RELEASE_REPO } from '@/common/brand'
+import { GitHubRequestError, githubResponseError } from '@/common/github-request-error'
 import {
     cliChannelManifestUrl,
     cliDevAllowedForDeployEnv,
@@ -102,7 +103,7 @@ export class CliVersionCatalogService {
                 `https://api.github.com/repos/${CLI_RELEASE_REPO}/releases?per_page=100`,
                 { headers, signal: controller.signal }
             )
-            if (!res.ok) throw new Error(`github responded ${res.status}`)
+            if (!res.ok) throw await githubResponseError(res)
             const body = (await res.json()) as Array<{ tag_name?: string }>
             return body
                 .map((r) => r.tag_name)
@@ -116,7 +117,7 @@ export class CliVersionCatalogService {
                 .slice(0, MAX_VERSIONS)
         } catch (err) {
             this.log.warn(
-                `cli stable list fetch failed: ${(err as Error).message}`
+                `cli stable list fetch failed: ${err instanceof GitHubRequestError ? err.classification : 'upstream'}`
             )
             return this.latestFallback('stable')
         } finally {

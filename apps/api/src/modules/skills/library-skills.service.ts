@@ -42,6 +42,8 @@ import {
     SkillDiscoveryService
 } from './skill-discovery.service'
 import { SkillMaterializerService } from './skill-materializer.service'
+import { withSkillRequestBudget } from './github-skill-source'
+import { GitHubRequestError } from '@/common/github-request-error'
 import {
     assertSafeGitHubOwner,
     assertSafeGitHubRepo,
@@ -330,14 +332,24 @@ export class LibrarySkillsService {
         const source = body.catalogSkillId
             ? catalogSource(body.catalogSkillId)
             : parseImportUrl(body.url as string)
-        const bundle = await this.fetchGitHubBundle(source, {
-            type: body.catalogSkillId ? 'catalog' : 'github',
-            url: source.url,
-            ...(body.catalogSkillId
-                ? { catalogSkillId: body.catalogSkillId }
-                : {})
-        })
-        return this.persistImported(userId, bundle, onConflict)
+        const bundle = await withSkillRequestBudget(() =>
+            this.fetchGitHubBundle(source, {
+                type: body.catalogSkillId ? 'catalog' : 'github',
+                url: source.url,
+                ...(body.catalogSkillId
+                    ? { catalogSkillId: body.catalogSkillId }
+                    : {})
+            })
+        )
+        try {
+            return await this.persistImported(userId, bundle, onConflict)
+        } catch (error) {
+            // DB/driver errors may contain the origin URL in bound parameters.
+            // Keep deliberate validation/conflict responses, sanitize failures.
+            if (error instanceof BadRequestException || error instanceof ConflictException || error instanceof PayloadTooLargeException)
+                throw error
+            throw new GitHubRequestError('upstream', 'import')
+        }
     }
 
     private async importFromShare(
@@ -481,7 +493,7 @@ export class LibrarySkillsService {
         const root = shallowestSkillMdRoot(relative.map((entry) => entry.path))
         if (root === null)
             throw new BadRequestException(
-                `no ${SKILL_CONTENT_FILENAME} found under ${owner}/${repo}@${ref}:${path}`
+                `no ${SKILL_CONTENT_FILENAME} found in the selected source`
             )
         const rootPrefix = root === '' ? '' : `${root}/`
         const selected = relative
@@ -523,12 +535,16 @@ export class LibrarySkillsService {
             )
             for (const { entry, raw } of results) {
                 if (raw === null || raw.length === 0) {
+                    if (raw === null) throw new GitHubRequestError()
                     if (entry.path === SKILL_CONTENT_FILENAME)
                         throw new BadRequestException(
-                            `failed to fetch ${SKILL_CONTENT_FILENAME} from GitHub`
+                            `empty ${SKILL_CONTENT_FILENAME} from GitHub`
                         )
-                    continue
                 }
+                if (raw.length > MAX_LIBRARY_SKILL_FILE_BYTES)
+                    throw new PayloadTooLargeException(
+                        `skill file exceeds ${MAX_LIBRARY_SKILL_FILE_BYTES} bytes`
+                    )
                 if (looksBinary(raw)) {
                     if (entry.path === SKILL_CONTENT_FILENAME)
                         throw new BadRequestException(
@@ -552,7 +568,7 @@ export class LibrarySkillsService {
         )
         if (!skillMd)
             throw new BadRequestException(
-                `no ${SKILL_CONTENT_FILENAME} found under ${owner}/${repo}@${ref}:${path}`
+                `no ${SKILL_CONTENT_FILENAME} found in the selected source`
             )
         const parsed = parseSkillMarkdown(skillMd.content)
         const fallbackName =
@@ -577,7 +593,7 @@ export class LibrarySkillsService {
                 parsed.description
             ),
             files,
-            origin
+            origin: { ...origin, revision: tree.revision }
         }
     }
 

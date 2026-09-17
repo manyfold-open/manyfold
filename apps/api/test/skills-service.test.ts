@@ -2,7 +2,8 @@ import type { AgentFramework, DiscoverableSkillSummary } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException, Logger } from '@nestjs/common'
-import { agents, skillRepos, skills, userSkills } from '@manyfold/db'
+import { agents, skillRepos, skillRepoScans, skills, userSkills } from '@manyfold/db'
+import { GitHubRequestError } from '../src/common/github-request-error'
 import { SkillsService } from '../src/modules/skills/skills.service'
 import type { SkillOutcome } from '../src/modules/skills/skill-materializer.service'
 
@@ -62,10 +63,9 @@ const joinedRow = (
 const freshnessRow = (
     newest: Date
 ): Record<string, unknown> => ({
-    repoOwner: skillRow.repoOwner,
-    repoName: skillRow.repoName,
-    repoBranch: skillRow.repoBranch,
-    newest
+    key: JSON.stringify([skillRow.repoOwner, skillRow.repoName, skillRow.repoBranch]),
+    publishedAliases: [{ owner: skillRow.repoOwner, name: skillRow.repoName }],
+    scannedAt: newest
 })
 
 const userSkillRow = {
@@ -547,7 +547,7 @@ test('SkillsService surfaces a failed materialization instead of reporting insta
     assert.equal(result.materializeError, 'materialization timed out')
     // enabling first records the pending intent so the row is never a silent
     // stale "installed" while the reconcile is still in flight.
-    assert.equal(db.updates[0].set.materializeStatus, 'installing')
+    assert.equal(db.updates.find((update) => update.table === userSkills)?.set.materializeStatus, 'installing')
 })
 
 test('SkillsService reports installed once materialization succeeds', async () => {
@@ -592,7 +592,7 @@ test('SkillsService install reconciles an already-installed skill in place (retr
 
     // retry must reuse the same row, never insert a duplicate
     assert.equal(db.insertedUserSkills.length, 0)
-    assert.equal(db.updates[0].set.materializeStatus, 'installing')
+    assert.equal(db.updates.find((update) => update.table === userSkills)?.set.materializeStatus, 'installing')
     assert.equal(result.id, 'user-skill-1')
     assert.equal(result.materializeStatus, 'installed')
 })
@@ -637,9 +637,8 @@ test('SkillsService discover triggers stale cache refresh without blocking', asy
     const db = new FakeDb()
     db.selectResults.push([targetRow], [], [], [], [])
     const discovery = new FakeDiscovery()
-    discovery.scanPromise = new Promise<DiscoverableSkillSummary[]>(
-        () => undefined
-    )
+    let finish!: (value: DiscoverableSkillSummary[]) => void
+    discovery.scanPromise = new Promise<DiscoverableSkillSummary[]>((resolve) => { finish = resolve })
     const service = newService(db, new FakeMaterializer(), discovery)
 
     const result = await service.discover({
@@ -648,8 +647,11 @@ test('SkillsService discover triggers stale cache refresh without blocking', asy
     })
 
     assert.deepEqual(result, [])
+    await new Promise((resolve) => setImmediate(resolve))
     assert.equal(discovery.scanCalls.length, 1)
     assert.equal(discovery.scanCalls[0].repos[0].id, discovered.repoId)
+    finish([])
+    await new Promise((resolve) => setImmediate(resolve))
 })
 
 test('SkillsService discover without agentId returns catalog with installed=false', async () => {
@@ -980,7 +982,7 @@ test('SkillsService refreshDiscover flags skills the scan omitted as missing', a
     assert.ok(missingUpdate, 'expected a markMissing update after a full scan')
 })
 
-test('SkillsService refreshDiscover skips missing-marking for a truncated scan', async () => {
+test('SkillsService refreshDiscover rejects a truncated scan without marking missing', async () => {
     const db = new FakeDb()
     db.selectResults.push(
         [], // customRepos()
@@ -991,7 +993,7 @@ test('SkillsService refreshDiscover skips missing-marking for a truncated scan',
     discovery.truncatedRepoIds = [discovered.repoId]
     const service = newService(db, new FakeMaterializer(), discovery)
 
-    await service.refreshDiscover({ userId: 'user-1' })
+    await assert.rejects(service.refreshDiscover({ userId: 'user-1' }), GitHubRequestError)
 
     const missingUpdate = db.updates.find(
         (u) => 'missingSince' in u.set && u.set.missingSince !== null
@@ -1021,6 +1023,16 @@ class FakeDiscovery {
     scanResult: DiscoverableSkillSummary[] = [discovered]
     scanPromise: Promise<DiscoverableSkillSummary[]> | null = null
     truncatedRepoIds: string[] = []
+
+    async resolveRepoRevision(): Promise<string> {
+        return this.scanResult[0]?.latestRevision ?? 'fixture-revision'
+    }
+
+    async scanRevision(repo: { id: string }) {
+        const result = await this.scanRepos({ repos: [repo] })
+        if (result.truncatedRepoIds.length) throw new GitHubRequestError()
+        return result.rows.map((row) => ({ sourcePath: row.sourcePath, name: row.name, description: row.description, version: row.version }))
+    }
 
     async builtinRepos(): Promise<
         Array<{
@@ -1093,6 +1105,7 @@ class FakeMaterializer {
 }
 
 class FakeDb {
+    scanState: Record<string, unknown> = { generation: 1, snapshot: null, revision: null, publishedAliases: [] }
     selectResults: unknown[][] = []
     tableSelectResults = new Map<unknown, unknown[][]>()
     updateResults: unknown[][] = []
@@ -1101,6 +1114,8 @@ class FakeDb {
     updates: Array<{ table: unknown; set: Record<string, unknown> }> = []
     deletes: Array<{ table: unknown }> = []
     conflictSets: Array<{ table: unknown; set: Record<string, unknown> }> = []
+
+    async transaction<T>(work: (tx: FakeDb) => Promise<T>): Promise<T> { return work(this) }
 
     select(): FakeQuery {
         return new FakeQuery(this, 'select')
@@ -1133,7 +1148,7 @@ class FakeDb {
 }
 
 class FakeQuery implements PromiseLike<unknown[]> {
-    private rowValues: Record<string, unknown> = {}
+    private rowValues: Record<string, unknown> | Array<Record<string, unknown>> = {}
     private fromTable?: unknown
 
     constructor(
@@ -1175,22 +1190,29 @@ class FakeQuery implements PromiseLike<unknown[]> {
         return this
     }
 
-    values(values: Record<string, unknown>): this {
+    values(values: Record<string, unknown> | Array<Record<string, unknown>>): this {
         this.rowValues = values
         return this
     }
 
     onConflictDoUpdate(config: { set: Record<string, unknown> }): this {
-        this.db.conflictSets.push({ table: this.table, set: config.set })
+        if (this.table !== skillRepoScans) this.db.conflictSets.push({ table: this.table, set: config.set })
         return this
     }
 
     set(patch: Record<string, unknown>): this {
-        this.db.updates.push({ table: this.table, set: patch })
+        if (this.table === skillRepoScans) Object.assign(this.db.scanState, patch)
+        else this.db.updates.push({ table: this.table, set: patch })
         return this
     }
 
     returning(): Promise<unknown[]> {
+        if (this.table === skillRepoScans) {
+            if (this.kind === 'insert') Object.assign(this.db.scanState, this.rowValues)
+            return Promise.resolve([{ ...this.db.scanState }])
+        }
+        if (this.kind === 'insert' && Array.isArray(this.rowValues))
+            return Promise.resolve(this.rowValues.map((row) => this.insertedRow(row)))
         if (this.kind === 'insert') return Promise.resolve([this.insertedRow()])
         if (this.kind === 'update') return Promise.resolve(this.db.nextUpdate())
         return Promise.resolve([])
@@ -1213,9 +1235,9 @@ class FakeQuery implements PromiseLike<unknown[]> {
         return Promise.resolve(value).then(onfulfilled, onrejected)
     }
 
-    private insertedRow(): Record<string, unknown> {
+    private insertedRow(values = this.rowValues): Record<string, unknown> {
         if (this.table === skills) {
-            const row = { ...this.rowValues, createdAt: now, updatedAt: now }
+            const row = { ...values, createdAt: now, updatedAt: now }
             this.db.insertedSkills.push(row)
             return row
         }
