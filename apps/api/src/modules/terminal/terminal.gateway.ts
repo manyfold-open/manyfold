@@ -422,6 +422,7 @@ export class TerminalGateway implements OnModuleInit {
                     extras: agent.extras,
                     ...(extraEnv ? { extraEnv } : {}),
                     agentId: agent.id,
+                    terminalId,
                     cols,
                     cwd: terminalCwd,
                     rows,
@@ -434,6 +435,7 @@ export class TerminalGateway implements OnModuleInit {
             } else if (agent.runtime === 'daemon') {
                 await this.daemon.tunnel({
                     agent: agent as Agent,
+                    terminalId,
                     cols,
                     cwd: terminalCwd,
                     rows,

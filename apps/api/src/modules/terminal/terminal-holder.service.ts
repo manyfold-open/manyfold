@@ -26,6 +26,7 @@ import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-s
 import { SpritesTerminal } from '@/modules/terminal/sprites-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
+import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
 import type { TerminalResumeOutcome } from '@/modules/terminal/terminal-resume.service'
 
 // Why a terminal stopped, as its driver saw it. Everything but `daemon-lost`
@@ -55,7 +56,10 @@ export class TerminalHolderService {
         private readonly sprites: SpritesTerminal,
         private readonly daemon: DaemonTerminal,
         @Optional()
-        private readonly statusBroadcaster?: SpriteStatusBroadcaster
+        private readonly statusBroadcaster?: SpriteStatusBroadcaster,
+        // Same rule; absent, a terminal's end settles no hook-reported refs.
+        @Optional()
+        private readonly refs?: TerminalSessionRefsRepository
     ) {}
 
     // The hold is one compare-and-set against no live turn, no other holder
@@ -100,6 +104,7 @@ export class TerminalHolderService {
         )
         if (!row) return
         await this.releaseAndImport(row)
+        this.settleRefsDetached(row)
     }
 
     // A reconnecting tab names the terminal it replaces: the old process is
@@ -113,6 +118,7 @@ export class TerminalHolderService {
         if (!row) return
         await this.killByHandle(row)
         await this.releaseAndImport(row)
+        this.settleRefsDetached(row)
     }
 
     async releaseByUser(
@@ -133,7 +139,23 @@ export class TerminalHolderService {
             return { released: false, terminalId: session.holderTerminalId }
         await this.killByHandle(row)
         const released = await this.releaseAndImport(row)
+        this.settleRefsDetached(row)
         return { released, terminalId: row.id }
+    }
+
+    // The CLI's own SessionEnd hook, for the session this terminal holds
+    // (ADR-0029 §3): the TUI is over but the shell lives on, so the hold is
+    // given back without ending the terminal — the same release and import
+    // the terminal's close would have run.
+    async releaseHeldByHook(
+        row: TerminalSessionRow,
+        sessionId: string
+    ): Promise<boolean> {
+        return this.releaseAndImport(
+            { ...row, heldSessionId: sessionId },
+            undefined,
+            'hook-end'
+        )
     }
 
     // Expired leases: the owning tunnel is gone (instance died without its
@@ -151,6 +173,7 @@ export class TerminalHolderService {
             const released = await this.releaseAndImport(row, {
                 kind: 'holder-reclaimed'
             })
+            this.settleRefsDetached(row)
             this.log.warn(
                 `terminal.lease.reclaimed terminal=${row.id} agent=${row.agentId} released=${released}`
             )
@@ -179,7 +202,8 @@ export class TerminalHolderService {
 
     private async releaseAndImport(
         row: TerminalSessionRow,
-        detail?: ChatSessionChangeDetail
+        detail?: ChatSessionChangeDetail,
+        reason: string | null = row.endedReason
     ): Promise<boolean> {
         if (!row.heldSessionId) return false
         const { released } = await this.chatRepo.releaseSessionHolder(
@@ -188,7 +212,7 @@ export class TerminalHolderService {
         )
         if (!released) return false
         this.log.log(
-            `terminal.holder.released terminal=${row.id} session=${row.heldSessionId} reason=${row.endedReason}`
+            `terminal.holder.released terminal=${row.id} session=${row.heldSessionId} reason=${reason}`
         )
         this.emit(
             row.userId,
@@ -208,6 +232,35 @@ export class TerminalHolderService {
                 )
             )
         return true
+    }
+
+    // Sessions the framework's TUI started fresh in this terminal, as its
+    // SessionStart hooks reported them (ADR-0029 §3): now that the terminal
+    // is over, each non-empty transcript becomes a chat session of its own.
+    // Detached like the import — the socket's close does not wait on
+    // runtime reads — and every outcome is recorded against the ref.
+    private settleRefsDetached(row: TerminalSessionRow): void {
+        void this.settleTerminalRefs(row).catch((err: Error) =>
+            this.log.warn(
+                `terminal.refs.settle_failed terminal=${row.id}: ${err.message}`
+            )
+        )
+    }
+
+    private async settleTerminalRefs(row: TerminalSessionRow): Promise<void> {
+        if (!this.refs) return
+        const pending = await this.refs.listUnboundUnsettled(row.id)
+        for (const ref of pending) {
+            const result = await this.recovery.createSessionFromTerminalRef(
+                row.userId,
+                row.agentId,
+                ref.sessionRef
+            )
+            await this.refs.settle(ref.id, result.outcome, result.sessionId)
+            this.log.log(
+                `terminal.refs.settled terminal=${row.id} ref=${ref.sessionRef} outcome=${result.outcome}${result.sessionId ? ` session=${result.sessionId}` : ''}`
+            )
+        }
     }
 
     // Best effort by design: the row is already ended, so a kill that fails

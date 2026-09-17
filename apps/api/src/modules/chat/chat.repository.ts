@@ -950,7 +950,12 @@ export class ChatRepository {
     async appendRecoveredMessages(
         sessionId: string,
         rows: NewChatMessage[],
-        sources: NewChatMessageSource[]
+        sources: NewChatMessageSource[],
+        // The one holder allowed to append under its own hold: the terminal
+        // whose CLI just moved the session to a new ref imports the old
+        // ref's tail before the move (ADR-0029 §3). Every other append waits
+        // for the release.
+        opts?: { holderTerminalId?: string }
     ): Promise<{
         appended: number
         conflicted: boolean
@@ -968,11 +973,11 @@ export class ChatRepository {
                 .where(eq(chatSessions.id, sessionId))
                 .limit(1)
                 .for('update')
-            if (
-                !session ||
-                session.inflightMessageId !== null ||
-                session.holderTerminalId !== null
-            )
+            const holderAllowed =
+                session?.holderTerminalId === null ||
+                (opts?.holderTerminalId !== undefined &&
+                    session?.holderTerminalId === opts.holderTerminalId)
+            if (!session || session.inflightMessageId !== null || !holderAllowed)
                 return { appended: 0, conflicted: true, upsertedSources: 0 }
 
             // Idempotency: message rows carry random ids, so only the stable
@@ -2150,6 +2155,32 @@ export class ChatRepository {
                     isNull(chatSessions.inflightMessageId),
                     isNull(chatSessions.holderTerminalId),
                     eq(chatSessions.frameworkSessionRef, expectedRef)
+                )
+            )
+            .returning({ id: chatSessions.id })
+        return rows.length > 0
+    }
+
+    // The CLI in the holding terminal renamed the session (a resume that got
+    // a new id, a compaction): the chat session follows it, fenced on the
+    // hold so a terminal that lost the session cannot redirect it. A moved
+    // ref names a new transcript file, so the covered prefix starts over.
+    async moveHeldSessionRef(
+        sessionId: string,
+        terminalId: string,
+        ref: string
+    ): Promise<boolean> {
+        const rows = await this.db
+            .update(chatSessions)
+            .set({
+                frameworkSessionRef: ref,
+                runtimeSyncCursor: null,
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    eq(chatSessions.holderTerminalId, terminalId)
                 )
             )
             .returning({ id: chatSessions.id })

@@ -211,6 +211,9 @@ export const apiPaths = {
     AGENT_RUNTIME_AUTH: (agentId: string) => `/agents/${agentId}/runtime-auth`,
     SANDBOXES: '/sandboxes',
     SANDBOX_BY_ID: (id: string) => `/sandboxes/${id}`,
+    // Where a CLI's own SessionStart / SessionEnd hook reports from a terminal
+    // Manyfold opened (ADR-0029 §3).
+    TERMINAL_SESSION_HOOKS: '/terminal/session-hooks',
     SANDBOX_TERMINAL: (id: string) => `/sandboxes/${id}/terminal`,
     SANDBOX_TERMINAL_MODEL_CREDENTIALS: (id: string) =>
         `/sandboxes/${id}/terminal-model-credentials`,

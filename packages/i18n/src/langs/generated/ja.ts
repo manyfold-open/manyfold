@@ -1653,6 +1653,8 @@ const ja: Record<string, string> = {
     'web.sessionHolder.importedNone': 'ターミナルで新しいやり取りはありませんでした。',
     'web.sessionHolder.importAbandoned': 'ターミナルの取り込みを中止しました。この会話は再び開いています。',
     'web.sessionHolder.reclaimed': 'この会話を開いていたターミナルが応答しなくなったため、会話を解放しました。',
+    'web.sessionHolder.attachRefusedTurn': 'ターミナルが、現在ターンを実行中の会話を開きました。引き継ぎは行われません。ターンが終わるまで待ってからターミナルで続けてください。',
+    'web.sessionHolder.attachRefusedHeld': 'ターミナルが、別のターミナルで既に開かれている会話を開きました。引き継ぎは行われません。',
     'web.sessionHolder.dismiss': '閉じる',
     'web.sessionHolder.composerHeld': 'ターミナルで開いています。ここで続けるには「Web に戻る」を選んでください。',
     'web.sessionHolder.composerImporting': 'ターミナルでのやり取りを取り込んでいます…',

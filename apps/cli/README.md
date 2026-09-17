@@ -43,6 +43,7 @@ mf agent list
 mf agent get <agent-id>
 mf runtime list
 mf daemon status              # local rpc daemon
+mf daemon hooks status        # claude / codex session hooks (act only inside Manyfold terminals)
 ```
 
 Set the API endpoint and token via flags or env:

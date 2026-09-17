@@ -169,6 +169,13 @@
       "when": 1789667712335,
       "tag": "0023_terminal_sessions_holder",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1789675696428,
+      "tag": "0024_terminal_session_refs",
+      "breakpoints": true
     }
   ]
 }

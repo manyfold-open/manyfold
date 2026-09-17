@@ -1662,6 +1662,8 @@ const ru: Record<string, string> = {
     'web.sessionHolder.importedNone': 'В терминале не было сказано ничего нового.',
     'web.sessionHolder.importAbandoned': 'Импорт из терминала отменён; разговор снова открыт.',
     'web.sessionHolder.reclaimed': 'Терминал, в котором был открыт этот разговор, перестал отвечать, поэтому разговор освобождён.',
+    'web.sessionHolder.attachRefusedTurn': 'Терминал открыл разговор, в котором прямо сейчас выполняется ход. Он не был перехвачен; дождитесь окончания хода, прежде чем продолжать в терминале.',
+    'web.sessionHolder.attachRefusedHeld': 'Терминал открыл разговор, который уже открыт в другом терминале. Он не был перехвачен.',
     'web.sessionHolder.dismiss': 'Закрыть',
     'web.sessionHolder.composerHeld': 'Открыт в терминале — выберите «Вернуться в веб», чтобы продолжить здесь.',
     'web.sessionHolder.composerImporting': 'Импорт сказанного в терминале…',

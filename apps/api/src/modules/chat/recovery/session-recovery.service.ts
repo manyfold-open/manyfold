@@ -1,9 +1,14 @@
-import { auditAction, createObjectId } from '@manyfold/shared'
+import {
+    auditAction,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    createObjectId
+} from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntime,
     ChatContentBlock,
     ChatMessage,
+    ChatSessionOrigin,
     ChatSessionSummary,
     AgentSessionListItem,
     AgentSessionListResponse,
@@ -14,6 +19,7 @@ import type {
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
     RuntimeSessionViewResponse,
+    RuntimeTranscriptOutcome,
     SessionImportAbandonResponse,
     SessionImportRetryResponse
 } from '@manyfold/shared'
@@ -29,10 +35,11 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { desc, eq } from 'drizzle-orm'
+import { desc, eq, or } from 'drizzle-orm'
 import {
     agents,
     auditLogs,
+    terminalSessionRefs,
     terminalSessions,
     type Agent,
     type ChatMessage as DbChatMessage,
@@ -544,6 +551,71 @@ export class SessionRecoveryService {
                 message: 'sessionRef is required'
             })
         const agent = await this.loadAgentContext(userId, agentId)
+        const restored = await this.restoreFromRef(userId, agent, ref, null)
+        if (!restored)
+            throw new BadRequestException({
+                code: 'runtime_session_empty',
+                message:
+                    'no messages could be restored from runtime session file'
+            })
+        return restored
+    }
+
+    // A session the framework's TUI started fresh inside a Manyfold-opened
+    // terminal (ADR-0029 §3): when the terminal ends, a non-empty transcript
+    // becomes a chat session of its own, marked as coming from the terminal.
+    // Never throws for the terminal's sake — the outcome is what gets
+    // recorded against the ref, and a runtime that cannot be read leaves the
+    // transcript where the runtime-sessions panel can still find it.
+    async createSessionFromTerminalRef(
+        userId: string,
+        agentId: string,
+        sessionRef: string
+    ): Promise<{
+        outcome: 'created' | 'empty' | 'duplicate' | 'unreadable'
+        sessionId: string | null
+    }> {
+        const agent = await this.loadAgentContext(userId, agentId)
+        // Only one chat session may point at a ref; a sibling would make the
+        // TUI's next resume ambiguous and the import land twice.
+        const existing = await this.repo.findSessionByFrameworkSessionRef(
+            userId,
+            agentId,
+            sessionRef
+        )
+        if (existing) return { outcome: 'duplicate', sessionId: existing.id }
+        if (!this.readers.get(agent.framework))
+            return { outcome: 'unreadable', sessionId: null }
+        try {
+            const restored = await this.restoreFromRef(
+                userId,
+                agent,
+                sessionRef,
+                'terminal'
+            )
+            return restored
+                ? { outcome: 'created', sessionId: restored.session.id }
+                : { outcome: 'empty', sessionId: null }
+        } catch (err) {
+            this.log.warn(
+                `terminal session import failed agent=${agentId} ref=${sessionRef}: ${(err as Error).message}`
+            )
+            this.telemetry?.event('chat.terminal_session.unreadable', {
+                agentId,
+                framework: agent.framework
+            })
+            return { outcome: 'unreadable', sessionId: null }
+        }
+    }
+
+    // Read a ref's transcript and create the chat session for it. Null when
+    // the transcript holds no messages (or no file exists for the ref yet).
+    private async restoreFromRef(
+        userId: string,
+        agent: Agent,
+        ref: string,
+        origin: ChatSessionOrigin | null
+    ): Promise<RuntimeSessionRestoreResponse | null> {
         const reader = this.requireReader(agent.framework)
         const handle = await this.recoveryFsOrUnavailable(agent.id)
         const openclawRpc =
@@ -567,12 +639,7 @@ export class SessionRecoveryService {
         } finally {
             openclawRpc?.disconnect()
         }
-        if (result.messages.length === 0)
-            throw new BadRequestException({
-                code: 'runtime_session_empty',
-                message:
-                    'no messages could be restored from runtime session file'
-            })
+        if (result.messages.length === 0) return null
 
         const now = new Date()
         const sessionId = createObjectId('chatSession')
@@ -609,11 +676,12 @@ export class SessionRecoveryService {
                 session: {
                     id: sessionId,
                     userId,
-                    agentId,
+                    agentId: agent.id,
                     title: sanitizeForJsonb(
                         titleFromRecoveredMessages(result.messages)
                     ),
                     frameworkSessionRef: ref,
+                    origin,
                     createdAt: now,
                     updatedAt: now
                 },
@@ -622,7 +690,7 @@ export class SessionRecoveryService {
             })
         this.statusBroadcaster?.emitSessionsChanged(userId, {
             type: 'chat-sessions-changed',
-            agentId,
+            agentId: agent.id,
             sessionId,
             reason: 'created',
             at: new Date().toISOString()
@@ -963,6 +1031,126 @@ export class SessionRecoveryService {
         }
     }
 
+    // The holding terminal's CLI moved the session to a new ref (ADR-0029
+    // §3): what the TUI wrote under the old ref is imported first, under the
+    // hold, or it would be unreachable once the session points elsewhere. No
+    // cursor is advanced — the ref move resets it — and a transcript that
+    // cannot be read keeps the session where it is (the caller does not
+    // move it), so nothing is lost on the way.
+    async importHeldSessionTail(
+        userId: string,
+        agentId: string,
+        sessionId: string,
+        terminalId: string
+    ): Promise<{
+        appended: number
+        transcript: RuntimeTranscriptOutcome | null
+        warnings: string[]
+    }> {
+        const { session, agent } = await this.loadContext(
+            userId,
+            agentId,
+            sessionId
+        )
+        const ref = session.frameworkSessionRef?.trim()
+        const reader = ref ? this.readers.get(agent.framework) : null
+        if (!ref || !reader)
+            return { appended: 0, transcript: null, warnings: [] }
+        if (session.holderTerminalId !== terminalId)
+            throw new ConflictException({
+                code: CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+                message: 'the session is not held by this terminal'
+            })
+        const existingRows = await this.repo.listMessages(session.id)
+        const handle = await this.recoveryFsOrUnavailable(agent.id)
+        const result = await this.runReader(() =>
+            reader.readMessages({
+                fs: handle.fs,
+                agentId: agent.id,
+                frameworkSessionRef: ref
+            })
+        )
+        const warnings = [...result.warnings]
+        const cursor =
+            typeof session.runtimeSyncCursor === 'number'
+                ? session.runtimeSyncCursor
+                : null
+        const settledEnd = settledTranscriptEnd(result)
+        let candidates: RecoveredMessage[]
+        if (cursor !== null && settledEnd !== null) {
+            candidates = result.messages.filter((msg) =>
+                messageStartsAfter(msg, cursor)
+            )
+        } else {
+            const comparison = compareRecoveryMessages(
+                result.messages,
+                existingRows.map(toApiMessage),
+                session.id
+            )
+            candidates = comparison.missingRecoveredMessages
+            if (comparison.degraded)
+                warnings.push(
+                    'session too large for an exact diff; some terminal messages may not have synced'
+                )
+        }
+        const missing = candidates.filter(
+            (msg) =>
+                messageEndsBy(msg, settledEnd) &&
+                collapseTextBlocks(msg.contentBlocks).length > 0
+        )
+        if (missing.length === 0)
+            return { appended: 0, transcript: result.transcript, warnings }
+        const lastExistingMs = existingRows.reduce(
+            (max, row) => Math.max(max, row.createdAt.getTime()),
+            0
+        )
+        const fallback = new Date(Math.max(Date.now(), lastExistingMs + 1))
+        const messageCreatedAts = orderedRecoveredMessageDates(missing, fallback)
+        const messageRows = missing.map(
+            (msg, index): NewChatMessage => ({
+                id: randomUUID(),
+                sessionId: session.id,
+                role: msg.role,
+                contentBlocksJson: collapseTextBlocks(msg.contentBlocks),
+                capabilityEventsJson: recoveredMessageMetadata({
+                    sourceRef: ref,
+                    sourceFile: result.sourceFile,
+                    externalId: msg.externalId,
+                    model: msg.model ?? null
+                }),
+                createdAt: messageCreatedAts[index]
+            })
+        )
+        const sourceRows = buildRecoverySourceRowsForMessages({
+            recoveredMessages: missing,
+            messageRows,
+            sessionId: session.id,
+            framework: agent.framework,
+            runtime: agent.runtime,
+            sourceRef: ref,
+            sourceFile: result.sourceFile
+        })
+        const appendResult = await this.repo.appendRecoveredMessages(
+            session.id,
+            messageRows,
+            sourceRows,
+            { holderTerminalId: terminalId }
+        )
+        if (appendResult.conflicted)
+            throw new ConflictException({
+                code: CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+                message: 'the session changed hands during the import'
+            })
+        this.log.log(
+            `imported held session tail session=${session.id} terminal=${terminalId} appended=${appendResult.appended} from=${result.sourceFile}`
+        )
+        return {
+            appended: appendResult.appended,
+            transcript: result.transcript,
+            warnings
+        }
+    }
+
     // The import a release leaves pending is settled here — from the release
     // itself, from the turn gate's single retry, and from the user's manual
     // retry. Done means the transcript was actually read (or there is nothing
@@ -992,13 +1180,26 @@ export class SessionRecoveryService {
                 warnings: ['the session is open in a terminal']
             }
         const agent = await this.loadAgentContext(userId, agentId)
+        // The terminal that wrote the transcript: the last one to hold the
+        // session, or one whose CLI hooks bound the session to it (a
+        // terminal that held several sessions in turn keeps only the last
+        // on its own row).
         const [holder] = await this.db
             .select({
                 hostId: terminalSessions.hostId,
                 runtimeId: terminalSessions.runtimeId
             })
             .from(terminalSessions)
-            .where(eq(terminalSessions.heldSessionId, sessionId))
+            .leftJoin(
+                terminalSessionRefs,
+                eq(terminalSessionRefs.terminalId, terminalSessions.id)
+            )
+            .where(
+                or(
+                    eq(terminalSessions.heldSessionId, sessionId),
+                    eq(terminalSessionRefs.chatSessionId, sessionId)
+                )
+            )
             .orderBy(desc(terminalSessions.createdAt))
             .limit(1)
         if (
@@ -1726,6 +1927,7 @@ const toApiSession = (row: DbChatSession): ChatSessionSummary => ({
     holderTerminalId: row.holderTerminalId,
     holderAcquiredAt: row.holderAcquiredAt?.toISOString() ?? null,
     importPendingSince: row.importPendingSince?.toISOString() ?? null,
+    origin: row.origin,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
 })

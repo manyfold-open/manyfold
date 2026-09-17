@@ -20,6 +20,10 @@ import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions
 import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
 import { TerminalHolderController } from '@/modules/terminal/terminal-holder.controller'
 import { TerminalLeaseReaper } from '@/modules/terminal/terminal-lease.reaper'
+import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
+import { TerminalHookService } from '@/modules/terminal/terminal-hook.service'
+import { TerminalHookController } from '@/modules/terminal/terminal-hook.controller'
+import { ShareRateLimitService } from '@/common/share-rate-limit.service'
 
 @Module({
     imports: [
@@ -36,7 +40,7 @@ import { TerminalLeaseReaper } from '@/modules/terminal/terminal-lease.reaper'
         SecretsModule,
         ChatModule
     ],
-    controllers: [TerminalHolderController],
+    controllers: [TerminalHolderController, TerminalHookController],
     providers: [
         TerminalGateway,
         SpritesTerminal,
@@ -44,8 +48,12 @@ import { TerminalLeaseReaper } from '@/modules/terminal/terminal-lease.reaper'
         DaemonTerminal,
         TerminalResumeService,
         TerminalSessionsRepository,
+        TerminalSessionRefsRepository,
         TerminalHolderService,
-        TerminalLeaseReaper
+        TerminalHookService,
+        TerminalLeaseReaper,
+        // Module-local buckets for the hook endpoint's per-terminal limit.
+        ShareRateLimitService
     ]
 })
 export class TerminalModule {}

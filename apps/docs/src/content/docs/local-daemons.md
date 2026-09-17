@@ -104,6 +104,7 @@ mf daemon logs                # tail the local log file
 mf daemon start               # install autostart unit and start (default: login scope)
 mf daemon stop                # stop the daemon and remove its autostart unit
 mf daemon doctor              # diagnose registration / framework detection issues
+mf daemon hooks status        # claude / codex session hooks (see below)
 ```
 
 The daemon log lives at
@@ -125,6 +126,20 @@ is supported on macOS and Linux; Windows requires a foreground process or your
 own service manager.
 
 After updating the CLI with `mf update`, run `mf daemon stop` then `mf daemon start` so the autostart unit is rewritten with the new binary path. Launchd / systemd otherwise keeps using the previous path until you restart the unit explicitly.
+
+### Session hooks
+
+When you open a conversation's terminal from the web (the TUI resume), Manyfold needs to know which conversation the `claude` or `codex` process in that terminal is on: whether it renamed the session, cleared it, or started a new one. The CLIs' own `SessionStart` / `SessionEnd` hooks carry that, so `mf daemon register` asks once whether to install them (or `-y` says yes, `--no-hooks` says no). They are written as one script plus one entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, marked as Manyfold's, next to any hooks you already have.
+
+The hooks act only inside a terminal Manyfold opened (the shell carries `MF_TERMINAL_ID`) and never print anything, so your own shells and the model's context are untouched. Codex runs a newly installed hook only after you approve it once with `/hooks` in its TUI.
+
+```sh
+mf daemon hooks install       # install for the frameworks on this machine, keep current on daemon start
+mf daemon hooks status        # what is installed, per framework
+mf daemon hooks uninstall     # remove only what Manyfold added
+```
+
+Without the hooks the terminal still works: a conversation opened from the web is handed back when you close the terminal or click **Back to web**; only what happens inside the TUI (a `/clear`, a new session) is not tracked.
 
 ### One daemon per profile
 

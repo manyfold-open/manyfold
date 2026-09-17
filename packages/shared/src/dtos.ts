@@ -2067,6 +2067,9 @@ export type ChatSessionListChangeReason =
     | 'held'
     | 'released'
     | 'import-settled'
+    // A CLI session hook named a session the terminal could not take: the
+    // list is unchanged, the tab only gets the warning in `detail`.
+    | 'terminal-refused'
 
 // What an online tab may tell the user about a transition, beyond refetching.
 // Deliberately not a persisted system message: that would enter shares and
@@ -2075,6 +2078,13 @@ export type ChatSessionChangeDetail =
     | { kind: 'holder-reclaimed' }
     | { kind: 'import-done'; appended: number }
     | { kind: 'import-abandoned'; reason: 'user' | 'runtime-changed' }
+    // The framework's own TUI in a terminal opened a session a turn is running
+    // on, or another terminal holds (ADR-0029 §3): the hook cannot stop a TUI
+    // that has already started, so the user is told rather than protected.
+    | {
+          kind: 'terminal-attach-refused'
+          reason: 'turn-in-flight' | 'held-elsewhere'
+      }
 
 // Signal only. At emit time the session's channel link is not inserted yet and
 // its title may not be derived, so a carried row would be wrong on arrival —

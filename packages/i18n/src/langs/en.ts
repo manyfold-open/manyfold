@@ -3062,6 +3062,8 @@ const en = {
             importedNone: 'Nothing new was said in the terminal.',
             importAbandoned: 'The terminal import was abandoned; this conversation is open again.',
             reclaimed: 'The terminal that had this conversation open stopped responding, so the conversation was released.',
+            attachRefusedTurn: 'The terminal opened a conversation that is running a turn right now. It was not taken over; wait for the turn to finish before continuing there.',
+            attachRefusedHeld: 'The terminal opened a conversation that another terminal already has open. It was not taken over.',
             dismiss: 'Dismiss',
             composerHeld: 'Open in a terminal — use “Back to web” to continue here.',
             composerImporting: 'Importing what was said in the terminal…'

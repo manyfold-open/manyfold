@@ -1652,6 +1652,8 @@ const ko: Record<string, string> = {
     "web.sessionHolder.importedNone": "터미널에서 새로 나눈 내용이 없습니다.",
     "web.sessionHolder.importAbandoned": "터미널 가져오기를 포기했습니다. 이 대화가 다시 열렸습니다.",
     "web.sessionHolder.reclaimed": "이 대화를 열어 두었던 터미널이 응답을 멈춰 대화가 해제되었습니다.",
+    "web.sessionHolder.attachRefusedTurn": "터미널이 지금 턴을 실행 중인 대화를 열었습니다. 인계되지 않았으니 턴이 끝난 뒤 터미널에서 계속하세요.",
+    "web.sessionHolder.attachRefusedHeld": "터미널이 다른 터미널에서 이미 열어 둔 대화를 열었습니다. 인계되지 않았습니다.",
     "web.sessionHolder.dismiss": "닫기",
     "web.sessionHolder.composerHeld": "터미널에서 열려 있습니다. 여기서 계속하려면 “웹으로 돌아가기”를 누르세요.",
     "web.sessionHolder.composerImporting": "터미널에서 나눈 내용을 가져오는 중…",

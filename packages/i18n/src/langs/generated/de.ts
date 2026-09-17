@@ -1661,6 +1661,8 @@ const de: Record<string, string> = {
     'web.sessionHolder.importedNone': 'Im Terminal wurde nichts Neues gesagt.',
     'web.sessionHolder.importAbandoned': 'Der Terminal-Import wurde verworfen; diese Unterhaltung ist wieder offen.',
     'web.sessionHolder.reclaimed': 'Das Terminal, das diese Unterhaltung geöffnet hatte, antwortet nicht mehr; die Unterhaltung wurde freigegeben.',
+    'web.sessionHolder.attachRefusedTurn': 'Das Terminal hat eine Unterhaltung geöffnet, in der gerade ein Turn läuft. Sie wurde nicht übernommen; warte, bis der Turn beendet ist, bevor du dort weitermachst.',
+    'web.sessionHolder.attachRefusedHeld': 'Das Terminal hat eine Unterhaltung geöffnet, die bereits in einem anderen Terminal offen ist. Sie wurde nicht übernommen.',
     'web.sessionHolder.dismiss': 'Schließen',
     'web.sessionHolder.composerHeld': 'In einem Terminal geöffnet – wähle „Zurück zum Web“, um hier weiterzumachen.',
     'web.sessionHolder.composerImporting': 'Das im Terminal Gesagte wird importiert…',

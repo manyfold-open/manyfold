@@ -783,6 +783,13 @@ export type {
     SessionHolderReleaseResponse,
     SessionImportRetryResponse,
     SessionImportAbandonResponse,
+    ChatSessionOrigin,
+    TerminalHookFramework,
+    TerminalHookEvent,
+    TerminalHookSource,
+    TerminalSessionHookRequest,
+    TerminalSessionHookOutcome,
+    TerminalSessionHookResponse,
     ShareChatSessionResult,
     GetChatSessionShareResult,
     SharedChatMessage,
@@ -816,7 +823,10 @@ export {
     isOpenclawPermissionMode,
     agentSessionListLimits,
     CHAT_SESSION_HELD_BY_TERMINAL_CODE,
-    CHAT_SESSION_IMPORT_PENDING_CODE
+    CHAT_SESSION_IMPORT_PENDING_CODE,
+    TERMINAL_HOOK_FRAMEWORKS,
+    TERMINAL_HOOK_EVENTS,
+    TERMINAL_HOOK_SOURCES
 } from './chat'
 export type {
     ConversationListEnvelope,
@@ -1069,6 +1079,7 @@ export {
     MF_ENV_API_TOKEN,
     MF_ENV_API_URL,
     MF_ENV_DEPLOY_ENV,
+    MF_ENV_TERMINAL_ID,
     MF_RUNTIME_IDENTITY_ENV_KEYS,
     PATH_PREPEND_LOCAL_BIN
 } from './exec-env'

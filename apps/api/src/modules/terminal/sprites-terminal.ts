@@ -2,7 +2,13 @@ import {
     envTextFromExtras,
     envTextToRecord
 } from '@manyfold/shared'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+    Injectable,
+    Logger,
+    NotFoundException,
+    Optional
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import { WebSocket as UpstreamWs } from 'ws'
 import { createClient } from '@manyfold/sprites'
@@ -18,6 +24,7 @@ import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-s
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
+import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
 
 export interface SpritesTerminalRequest {
     // Either an agent terminal or a bare-sandbox terminal. sessionKey is the
@@ -31,6 +38,9 @@ export interface SpritesTerminalRequest {
     mountPath: string
     extras: Record<string, unknown>
     agentId?: string
+    // The terminal's durable identity (ADR-0029 §1), injected as
+    // MF_TERMINAL_ID so the CLI session hooks report from this shell.
+    terminalId?: string | null
     cols: number
     cwd?: string
     rows: number
@@ -93,7 +103,10 @@ export class SpritesTerminal {
         private readonly sessionRegistry: SpritesSessionRegistry,
         private readonly apiTokens: ApiTokenService,
         private readonly spriteStatusSync: SpriteStatusSyncService,
-        private readonly connections: ConnectionsService
+        private readonly connections: ConnectionsService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, the identity env carries no API URL.
+        @Optional() private readonly config?: ConfigService
     ) {}
 
     async tunnel(req: SpritesTerminalRequest): Promise<void> {
@@ -155,10 +168,18 @@ export class SpritesTerminal {
                 env: {
                     ...envTextToRecord(envTextFromExtras(extras)),
                     ...connectionEnv,
-                    ...(agentId ? { MF_AGENT_ID: agentId } : {}),
                     ...(resume?.env ?? {}),
                     ...(req.extraEnv ?? {}),
-                    MF_API_TOKEN: terminalToken.plaintext,
+                    // A bare-sandbox terminal has no agent: it carries the
+                    // token only, like before.
+                    ...(agentId
+                        ? terminalIdentityEnv({
+                              config: this.config,
+                              agentId,
+                              terminalId: req.terminalId,
+                              tokenPlaintext: terminalToken.plaintext
+                          })
+                        : { MF_API_TOKEN: terminalToken.plaintext }),
                     TERM: 'xterm-256color',
                     LANG: 'C.UTF-8',
                     COLORTERM: 'truecolor'

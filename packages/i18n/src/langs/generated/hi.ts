@@ -1659,6 +1659,8 @@ const hi: Record<string, string> = {
     'web.sessionHolder.importedNone': 'टर्मिनल में कुछ नया नहीं कहा गया।',
     'web.sessionHolder.importAbandoned': 'टर्मिनल आयात छोड़ दिया गया; यह बातचीत फिर से खुली है।',
     'web.sessionHolder.reclaimed': 'जिस टर्मिनल में यह बातचीत खुली थी उसने जवाब देना बंद कर दिया, इसलिए बातचीत छोड़ दी गई।',
+    'web.sessionHolder.attachRefusedTurn': 'टर्मिनल ने ऐसी बातचीत खोली जिसमें अभी एक टर्न चल रहा है। इसे अपने नियंत्रण में नहीं लिया गया; वहाँ जारी रखने से पहले टर्न पूरा होने का इंतज़ार करें।',
+    'web.sessionHolder.attachRefusedHeld': 'टर्मिनल ने ऐसी बातचीत खोली जो पहले से किसी दूसरे टर्मिनल में खुली है। इसे अपने नियंत्रण में नहीं लिया गया।',
     'web.sessionHolder.dismiss': 'बंद करें',
     'web.sessionHolder.composerHeld': 'टर्मिनल में खुली है — यहाँ जारी रखने के लिए “वेब पर वापस जाएँ” चुनें।',
     'web.sessionHolder.composerImporting': 'टर्मिनल में कही गई बातें आयात की जा रही हैं…',

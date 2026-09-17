@@ -5,6 +5,7 @@ import { registerDaemonStatus } from './status'
 import { registerDaemonStop } from './stop'
 import { registerDaemonLogs } from './logs'
 import { registerDaemonDoctor } from './doctor'
+import { registerDaemonHooks } from './hooks'
 
 export const registerDaemon = (program: Command): void => {
     const daemon = program
@@ -18,4 +19,5 @@ export const registerDaemon = (program: Command): void => {
     registerDaemonStop(daemon)
     registerDaemonLogs(daemon)
     registerDaemonDoctor(daemon)
+    registerDaemonHooks(daemon)
 }

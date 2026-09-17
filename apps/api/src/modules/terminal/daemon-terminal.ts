@@ -4,7 +4,13 @@ import {
     envTextFromExtras,
     envTextToRecord
 } from '@manyfold/shared'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+    Injectable,
+    Logger,
+    NotFoundException,
+    Optional
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import type { Agent } from '@manyfold/db'
 import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
@@ -20,9 +26,13 @@ import {
 
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
 import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
+import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
 
 export interface DaemonTerminalRequest {
     agent: Agent
+    // The terminal's durable identity (ADR-0029 §1), injected as
+    // MF_TERMINAL_ID so the CLI session hooks report from this shell.
+    terminalId?: string | null
     cols: number
     cwd?: string
     rows: number
@@ -68,7 +78,10 @@ export class DaemonTerminal {
     constructor(
         private readonly registry: DaemonRegistryService,
         private readonly connections: ConnectionsService,
-        private readonly apiTokens: ApiTokenService
+        private readonly apiTokens: ApiTokenService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, the identity env carries no API URL.
+        @Optional() private readonly config?: ConfigService
     ) {}
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
@@ -109,8 +122,12 @@ export class DaemonTerminal {
                 // Resume credentials sit under the platform's own vars: a
                 // session must not be able to rebind MF_API_TOKEN or TERM.
                 ...(resume?.env ?? {}),
-                MF_AGENT_ID: agent.id,
-                MF_API_TOKEN: terminalToken.plaintext,
+                ...terminalIdentityEnv({
+                    config: this.config,
+                    agentId: agent.id,
+                    terminalId: req.terminalId,
+                    tokenPlaintext: terminalToken.plaintext
+                }),
                 ...TERMINAL_BASE_ENV
             },
             ...(resume?.command.length ? { command: resume.command } : {}),

@@ -2305,6 +2305,8 @@ const ar: Record<string, string> = {
     'web.sessionHolder.importedNone': 'لم يُقل شيء جديد في الطرفية.',
     'web.sessionHolder.importAbandoned': 'تم التخلي عن استيراد الطرفية؛ هذه المحادثة مفتوحة مجددًا.',
     'web.sessionHolder.reclaimed': 'توقفت الطرفية التي فتحت هذه المحادثة عن الاستجابة، فتم تحرير المحادثة.',
+    'web.sessionHolder.attachRefusedTurn': 'فتح الطرفية محادثة يجري فيها دور الآن. لم يتم الاستحواذ عليها؛ انتظر انتهاء الدور قبل المتابعة هناك.',
+    'web.sessionHolder.attachRefusedHeld': 'فتح الطرفية محادثة مفتوحة بالفعل في طرفية أخرى. لم يتم الاستحواذ عليها.',
     'web.sessionHolder.dismiss': 'إغلاق',
     'web.sessionHolder.composerHeld': 'مفتوحة في طرفية — استخدم «العودة إلى الويب» للمتابعة هنا.',
     'web.sessionHolder.composerImporting': 'جارٍ استيراد ما قيل في الطرفية…',

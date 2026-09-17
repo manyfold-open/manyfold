@@ -33,6 +33,7 @@ const summary = (
     holderTerminalId: null,
     holderAcquiredAt: null,
     importPendingSince: null,
+    origin: null,
     createdAt: CREATED_ISO,
     updatedAt: CREATED_ISO,
     ...overrides

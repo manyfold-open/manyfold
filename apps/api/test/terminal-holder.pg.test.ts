@@ -8,14 +8,17 @@ import { eq, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
+    apiTokens,
     chatSessions,
     createDb,
     terminalSessions,
+    tokenCredentials,
     users,
     type Database
 } from '@manyfold/db'
 import { ChatRepository } from '../src/modules/chat/chat.repository'
 import { TerminalSessionsRepository } from '../src/modules/terminal/terminal-sessions.repository'
+import { TerminalSessionRefsRepository } from '../src/modules/terminal/terminal-session-refs.repository'
 
 // Real-Postgres proof for session ownership by terminals (ADR-0029 §1, §2).
 //
@@ -36,6 +39,7 @@ interface Harness {
     db: Database
     repo: ChatRepository
     terminals: TerminalSessionsRepository
+    refs: TerminalSessionRefsRepository
     userId: string
     agentId: string
     runtimeId: string
@@ -83,6 +87,7 @@ const buildHarness = async (): Promise<Harness> => {
         db,
         repo: new ChatRepository(db),
         terminals: new TerminalSessionsRepository(db),
+        refs: new TerminalSessionRefsRepository(db),
         userId,
         agentId,
         runtimeId,
@@ -417,6 +422,187 @@ test(
                 await h.terminals.findById(recent.id),
                 'a recently ended row is kept'
             )
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+// ADR-0029 §3: what the CLI session hooks add on top.
+test(
+    'a hook-reported ref upserts per (terminal, ref) and never unbinds a session',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            assert.equal(await h.refs.countForTerminal(t1.id), 0)
+            const first = await h.refs.recordStart({
+                terminalId: t1.id,
+                framework: 'claude-code',
+                sessionRef: 'ref-new',
+                source: 'startup',
+                cwd: '/home/me',
+                chatSessionId: null
+            })
+            assert.equal(first.lastEvent, 'start')
+            assert.equal(first.chatSessionId, null)
+            const again = await h.refs.recordStart({
+                terminalId: t1.id,
+                framework: 'claude-code',
+                sessionRef: 'ref-new',
+                source: 'resume',
+                cwd: null,
+                chatSessionId: h.sessionId
+            })
+            assert.equal(again.id, first.id)
+            assert.equal(again.source, 'startup', 'the first source is kept')
+            assert.equal(again.chatSessionId, h.sessionId)
+            const third = await h.refs.recordStart({
+                terminalId: t1.id,
+                framework: 'claude-code',
+                sessionRef: 'ref-new',
+                source: 'compact',
+                cwd: null,
+                chatSessionId: null
+            })
+            assert.equal(third.chatSessionId, h.sessionId, 'null never unbinds')
+            assert.equal(await h.refs.countForTerminal(t1.id), 1)
+            assert.equal(await h.refs.recordEnd(t1.id, 'ref-new'), true)
+            assert.equal(await h.refs.recordEnd(t1.id, 'ref-never'), false)
+            assert.equal(
+                (await h.refs.find(t1.id, 'ref-new'))?.lastEvent,
+                'end'
+            )
+            // Unbound refs are what the terminal's end settles.
+            const unbound = await h.refs.recordStart({
+                terminalId: t1.id,
+                framework: 'claude-code',
+                sessionRef: 'ref-fresh',
+                source: 'clear',
+                cwd: null,
+                chatSessionId: null
+            })
+            assert.deepEqual(
+                (await h.refs.listUnboundUnsettled(t1.id)).map((r) => r.id),
+                [unbound.id]
+            )
+            await h.refs.settle(unbound.id, 'empty', null)
+            assert.deepEqual(await h.refs.listUnboundUnsettled(t1.id), [])
+            // The refs go with their terminal.
+            await h.db
+                .delete(terminalSessions)
+                .where(eq(terminalSessions.id, t1.id))
+            assert.equal(await h.refs.countForTerminal(t1.id), 0)
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'the ref move and the tail import are fenced on the hold; the token names the live terminal',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            const t2 = await newTerminal(h)
+            assert.equal(
+                await h.repo.moveHeldSessionRef(h.sessionId, t1.id, 'ref-2'),
+                false,
+                'no hold, no move'
+            )
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                true
+            )
+            await h.repo
+                .advanceRuntimeSyncCursor(h.sessionId, null, 4)
+                .catch(() => {})
+            assert.equal(
+                await h.repo.moveHeldSessionRef(h.sessionId, t2.id, 'ref-2'),
+                false,
+                'another terminal cannot redirect the session'
+            )
+            // The holder may append under its own hold; nobody else may.
+            const row = (sessionId: string, key: string) => ({
+                id: randomBytes(8).toString('hex'),
+                sessionId,
+                role: 'assistant' as const,
+                contentBlocksJson: [{ type: 'text' as const, text: key }],
+                capabilityEventsJson: {},
+                createdAt: new Date()
+            })
+            const m1 = row(h.sessionId, 'tail-1')
+            assert.equal(
+                (await h.repo.appendRecoveredMessages(h.sessionId, [m1], []))
+                    .conflicted,
+                true
+            )
+            assert.equal(
+                (
+                    await h.repo.appendRecoveredMessages(
+                        h.sessionId,
+                        [m1],
+                        [],
+                        { holderTerminalId: t2.id }
+                    )
+                ).conflicted,
+                true
+            )
+            const appended = await h.repo.appendRecoveredMessages(
+                h.sessionId,
+                [m1],
+                [],
+                { holderTerminalId: t1.id }
+            )
+            assert.equal(appended.conflicted, false)
+            assert.equal(appended.appended, 1)
+            assert.equal(
+                await h.repo.moveHeldSessionRef(h.sessionId, t1.id, 'ref-2'),
+                true
+            )
+            const state = await h.repo.sessionHolderState(h.sessionId)
+            assert.equal(state?.frameworkSessionRef, 'ref-2')
+            assert.equal(state?.holderTerminalId, t1.id)
+            assert.equal(
+                (
+                    await h.db
+                        .select({ cursor: chatSessions.runtimeSyncCursor })
+                        .from(chatSessions)
+                        .where(eq(chatSessions.id, h.sessionId))
+                )[0].cursor,
+                null,
+                'a moved ref starts the covered prefix over'
+            )
+            // The hook endpoint resolves the terminal from the token id it
+            // authenticated with, and only while the terminal is live.
+            const tokenHash = randomBytes(16).toString('hex')
+            await h.db
+                .insert(tokenCredentials)
+                .values({ tokenHash, kind: 'external' })
+            const [token] = await h.db
+                .insert(apiTokens)
+                .values({
+                    id: `tok_pgtest_${randomBytes(4).toString('hex')}`,
+                    userId: h.userId,
+                    name: 'terminal',
+                    tokenHash,
+                    scopes: ['api.full'],
+                    tokenKind: 'terminal'
+                })
+                .returning({ id: apiTokens.id })
+            await h.terminals.bindToken(t1.id, token.id)
+            assert.equal(
+                (await h.terminals.findLiveByTokenId(token.id))?.id,
+                t1.id
+            )
+            await h.terminals.end(t1.id, 'closed')
+            assert.equal(await h.terminals.findLiveByTokenId(token.id), null)
+            await h.db
+                .delete(tokenCredentials)
+                .where(eq(tokenCredentials.tokenHash, tokenHash))
         } finally {
             await h.close()
         }
