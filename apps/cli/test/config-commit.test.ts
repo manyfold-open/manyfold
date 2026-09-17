@@ -32,6 +32,7 @@ const fixture = async (t: TestContext) => {
     await mkdir(workspace, { recursive: true })
     const children: ChildProcess[] = []
     const terminals: Promise<unknown>[] = []
+    const pendingRequests = new Set<Promise<unknown>>()
     const peer = async () => {
         const loaders = process.versions.bun
             ? []
@@ -88,9 +89,26 @@ const fixture = async (t: TestContext) => {
             const id = randomUUID()
             child.send({ type: 'rpc-request', id, method: 'fs.write', payload })
             const result = (async () => {
-                await until(() => events.some((event) => event.id === id))
-                return events.find((event) => event.id === id)!.result!
+                await until(
+                    () =>
+                        events.some(
+                            (event) =>
+                                event.type === 'rpc-result' && event.id === id
+                        ) ||
+                        child.exitCode !== null ||
+                        child.signalCode !== null
+                )
+                const reply = events.find(
+                    (event) => event.type === 'rpc-result' && event.id === id
+                )
+                if (!reply?.result)
+                    throw new Error('config commit peer exited without a reply')
+                return reply.result
             })()
+            pendingRequests.add(result)
+            void result
+                .finally(() => pendingRequests.delete(result))
+                .catch(() => {})
             return { id, result }
         }
         const entry = { child, events, terminal, request }
@@ -104,6 +122,7 @@ const fixture = async (t: TestContext) => {
         }, 3000)
         await Promise.all(terminals)
         clearTimeout(kill)
+        await Promise.allSettled([...pendingRequests])
         await rm(root, { recursive: true, force: true })
     })
     const target = path.join(workspace, '.mcp.json')

@@ -170,7 +170,8 @@ export const commitConfigFile = async (input: {
                 flag: 'wx',
                 mode: 0o600
             })
-            const file = await open(temporary, 'r')
+            // Windows FlushFileBuffers requires a writable handle.
+            const file = await open(temporary, 'r+')
             try {
                 await file.sync()
             } finally {
