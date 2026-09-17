@@ -51,6 +51,10 @@ const buildHarness = (opts: {
     installExit?: number
     installStdout?: string
     upgradeInProgress?: boolean
+    viaDaemon?:
+        | { kind: 'not-capable' }
+        | { kind: 'dispatched'; toVersion: string | null; deferred: boolean }
+        | { kind: 'failed'; error: string }
 }) => {
     const host = {
         id: 'sbx_1',
@@ -85,7 +89,12 @@ const buildHarness = (opts: {
             host.cliVersion = version
         }
     }
+    const daemonUpgrades: Array<Record<string, unknown>> = []
     const runnerManager = {
+        upgradeViaDaemon: async (call: Record<string, unknown>) => {
+            daemonUpgrades.push(call)
+            return opts.viaDaemon ?? { kind: 'not-capable' }
+        },
         restartForInstalledCli: async (
             call: RestartCall
         ): Promise<RunnerRestartOutcome> => {
@@ -119,7 +128,7 @@ const buildHarness = (opts: {
         stdout: opts.installStdout ?? `MF_DEV_CLI_OK\nmf-upgraded=${NEW}\n`,
         stderr: ''
     })
-    return { svc, restartCalls, setVersions }
+    return { svc, restartCalls, setVersions, daemonUpgrades }
 }
 
 test('a landed install hands the installed version to the runner restart, over the same exec seam', async () => {
@@ -172,3 +181,27 @@ test('a restart that leaves the old process running does not fail the upgrade', 
         assert.equal(h.restartCalls.length, 1, outcome)
     }
 })
+
+// ADR-0029 §5: a runner that advertises daemon.update.manual is upgraded by
+// its own daemon — nothing is installed over it and nothing restarts it.
+test('a runner that can update itself is asked to, and the sprite is left alone', async () => {
+    const h = buildHarness({
+        viaDaemon: { kind: 'dispatched', toVersion: NEW, deferred: false }
+    })
+    await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.equal(h.daemonUpgrades.length, 1)
+    assert.deepEqual(h.restartCalls, [])
+    assert.deepEqual(h.setVersions, [NEW])
+    assert.equal(h.svc.execResults.length, 1, 'the install script never ran')
+})
+
+test('a daemon that refuses the update sends the upgrade down the install path', async () => {
+    const h = buildHarness({
+        viaDaemon: { kind: 'failed', error: 'daemon is applying an update' }
+    })
+    await h.svc.upgradeCli('user_1', 'sbx_1')
+    assert.equal(h.daemonUpgrades.length, 1)
+    assert.equal(h.restartCalls.length, 1)
+    assert.equal(h.svc.execResults.length, 0, 'the install script ran')
+})
+

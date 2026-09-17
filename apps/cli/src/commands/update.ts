@@ -28,6 +28,7 @@ import {
     resolveUpdateTarget
 } from '@/self-update'
 import { isBunStandalone } from '@/standalone'
+import { keepPreviousBinary, precheckBinary } from '@/daemon/manual-update'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 
 interface UpdateOptions {
@@ -130,6 +131,12 @@ export const performSelfUpdate = async (opts: {
     // default to the real process so production behaviour is unchanged.
     standalone?: boolean
     execPath?: string
+    // ADR-0029 §5: keep the running binary reachable as `<execPath>.prev`
+    // (same inode, hard link) so a handoff that fails can put it back.
+    keepPrevious?: boolean
+    // Seam for the `--version` precheck the new binary must pass before it
+    // replaces anything (POSIX; defaults to running it).
+    precheck?: (binary: string, targetVersion: string) => Promise<void>
 }): Promise<SelfUpdateResult> => {
     if (!(opts.standalone ?? isBunStandalone()))
         throw new Error('self-update only works on installed mf binaries')
@@ -180,7 +187,14 @@ export const performSelfUpdate = async (opts: {
 
         const newBinary = join(tmpDir, target.binaryName)
         await writeFile(newBinary, extractUpdateBinary(archive, target))
-        if (target.os !== 'windows') await chmod(newBinary, 0o755)
+        if (target.os !== 'windows') {
+            await chmod(newBinary, 0o755)
+            // A binary that cannot run `--version` never replaces the one
+            // that can; on an init-unit install it would otherwise crash-loop
+            // under the supervisor, on a manual one it would strand the host.
+            await (opts.precheck ?? precheckBinary)(newBinary, targetVersion)
+            if (opts.keepPrevious) await keepPreviousBinary(execPath)
+        }
 
         try {
             await replaceExecutable(newBinary, execPath)

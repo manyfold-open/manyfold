@@ -341,6 +341,9 @@ export interface FileExecHandle {
     // Persist the abort, then kill the group (TERM, then KILL).
     abort: () => void
     done: Promise<ExecBufferFinal>
+    // Stop watching without ending anything: the exec keeps running and its
+    // files keep growing for the daemon that takes over (ADR-0029 §5).
+    detach: () => void
 }
 
 export interface FileExecLease {
@@ -358,6 +361,19 @@ export const fileExecRegistry = {
     get: (refId: string): FileExecHandle | undefined => fileExecs.get(refId),
     size: (): number => fileExecs.size,
     keys: (): string[] => [...fileExecs.keys()]
+}
+
+// Hand every running file exec to whoever starts next: timers off, streams
+// left `running` on disk with their offsets in the events, leases and
+// temporary directories untouched — the successor re-stamps and re-owns them
+// through the same recovery a crash would. Returns how many were let go.
+export const detachAllFileExecs = (): number => {
+    let detached = 0
+    for (const handle of [...fileExecs.values()]) {
+        handle.detach()
+        detached += 1
+    }
+    return detached
 }
 
 interface OwnArgs {
@@ -590,6 +606,13 @@ const ownFileExec = (args: OwnArgs): FileExecHandle => {
             }
             killGroup()
         },
+        detach: () => {
+            if (finished) return
+            finished = true
+            clearTimers()
+            stream.subscribers.clear()
+            fileExecs.delete(refId)
+        },
         done
     }
     fileExecs.set(refId, handle)
@@ -645,7 +668,14 @@ export const startFileExec = (args: StartFileExecArgs): FileExecHandle => {
             )
             return final
         })()
-        return { refId, stream, cancelled: false, abort: () => {}, done }
+        return {
+            refId,
+            stream,
+            cancelled: false,
+            abort: () => {},
+            detach: () => {},
+            done
+        }
     }
     const executable = resolveExecutable(args.cmd[0], args.env, args.cwd)
     if (!executable) {
@@ -838,6 +868,24 @@ export const adoptFileExec = (
     return 'adopted'
 }
 
+// The last recovery's outcome, handed to the first hello once (ADR-0029
+// §5's observability): what the previous daemon left and what became of it.
+let lastRecovery: {
+    adopted: number
+    completed: number
+    crashed: number
+} | null = null
+
+export const takeLastRecovery = (): {
+    adopted: number
+    completed: number
+    crashed: number
+} | null => {
+    const summary = lastRecovery
+    lastRecovery = null
+    return summary
+}
+
 export const recoverFileExecs = (
     log: (message: string) => void
 ): { adopted: number; completed: number; crashed: number } => {
@@ -866,6 +914,8 @@ export const recoverFileExecs = (
             summary.crashed += 1
         }
     }
+    if (summary.adopted + summary.completed + summary.crashed > 0)
+        lastRecovery = { ...summary }
     return summary
 }
 

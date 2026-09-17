@@ -40,6 +40,14 @@ export const daemonPaths = {
     get execDir(): string {
         return join(daemonDir(), 'exec')
     },
+    // ADR-0029 §5: a manual-install self-update that rolled back leaves the
+    // target it refused to retry, and the report its successor sends once.
+    get updateLatchPath(): string {
+        return join(daemonDir(), 'update-latch.json')
+    },
+    get updateRollbackPath(): string {
+        return join(daemonDir(), 'update-rollback.json')
+    },
     get controlSocketPath(): string {
         return controlSocketPathFor(daemonDir())
     }

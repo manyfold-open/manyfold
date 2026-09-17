@@ -223,3 +223,4 @@ exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd �
 - **Connected machines 显示 `manual`** — daemon 不是通过 `mf daemon start` 启动的（比如用了 `--foreground` 或旧版本 CLI）。跑 `mf daemon stop && mf daemon start` 重新注册一份自启单元即可。
 - **`mf update` 升级后 Connected machines 还显示旧的 CLI 版本** — 系统当前跑的还是已加载到内存的旧二进制。跑 `mf daemon stop && mf daemon start` 让 daemon 在新二进制下重启。
 - **从 CLI 0.21 或更早版本升级后机器变成未注册** — CLI 0.22 移除了 pre-profile config 和 daemon fallback。请在目标 profile 中重新运行 `mf login`，签发新的机器 token，并执行 `mf daemon register`。`~/.manyfold/workspaces` 中已有的 Agent workspace 不会被删除。
+- **manual 的 daemon 远程升级**：standalone 的 `manual` daemon 也能从控制台升级：它自己换掉二进制、拉起继任者并把正在跑的 exec 交过去，继任者起不来就把旧二进制放回去（这个版本随后不会再试，除非换一个目标）。

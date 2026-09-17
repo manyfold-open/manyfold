@@ -1,4 +1,5 @@
 import {
+    auditAction,
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
@@ -10,7 +11,8 @@ import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
 import { eq } from 'drizzle-orm'
-import { agentRuntimes, type Database } from '@manyfold/db'
+import { randomUUID } from 'node:crypto'
+import { agentRuntimes, auditLogs, type Database } from '@manyfold/db'
 import { Inject } from '@nestjs/common'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonTokenService } from './daemon-token.service'
@@ -282,6 +284,73 @@ export class DaemonGateway implements OnModuleInit {
         }, PING_INTERVAL_MS)
     }
 
+    // What a restarted daemon reports once about the execs it inherited and
+    // about a self-update it had to undo (ADR-0029 §4/§5): logged and kept
+    // as audit rows on the daemon, since neither has a user request behind it.
+    private async recordHelloReports(
+        daemonId: string,
+        frame: HelloFrame
+    ): Promise<void> {
+        const recovery = frame.recovery
+        if (
+            recovery &&
+            typeof recovery === 'object' &&
+            ['adopted', 'completed', 'crashed'].every(
+                (key) =>
+                    typeof (recovery as unknown as Record<string, unknown>)[
+                        key
+                    ] === 'number'
+            )
+        ) {
+            this.log.log(
+                `daemon.ws.hello.recovery daemonId=${daemonId} adopted=${recovery.adopted} completed=${recovery.completed} crashed=${recovery.crashed}`
+            )
+            await this.audit(auditAction.DAEMON_EXEC_RECOVERED, daemonId, {
+                adopted: recovery.adopted,
+                completed: recovery.completed,
+                crashed: recovery.crashed
+            })
+        }
+        const rollback = frame.rollback
+        if (
+            rollback &&
+            typeof rollback === 'object' &&
+            typeof rollback.fromVersion === 'string' &&
+            typeof rollback.toVersion === 'string' &&
+            typeof rollback.reason === 'string'
+        ) {
+            this.log.warn(
+                `daemon.ws.hello.rollback daemonId=${daemonId} from=${rollback.fromVersion} to=${rollback.toVersion} reason=${JSON.stringify(rollback.reason.slice(0, 200))}`
+            )
+            await this.audit(auditAction.DAEMON_UPGRADE_ROLLED_BACK, daemonId, {
+                fromVersion: rollback.fromVersion.slice(0, 64),
+                toVersion: rollback.toVersion.slice(0, 64),
+                reason: rollback.reason.slice(0, 500),
+                at: typeof rollback.at === 'string' ? rollback.at.slice(0, 40) : null
+            })
+        }
+    }
+
+    private async audit(
+        action: string,
+        subject: string,
+        meta: Record<string, unknown>
+    ): Promise<void> {
+        try {
+            await this.db.insert(auditLogs).values({
+                id: randomUUID(),
+                actorId: null,
+                action,
+                subject,
+                meta
+            })
+        } catch (err) {
+            this.log.warn(
+                `failed to write audit ${action}/${subject}: ${(err as Error).message}`
+            )
+        }
+    }
+
     private async handleFrame(
         daemonId: string,
         socket: WsClient,
@@ -326,6 +395,7 @@ export class DaemonGateway implements OnModuleInit {
                 this.log.log(
                     `daemon.ws.hello daemonId=${daemonId} inflightStreams=${Array.isArray(frame.inflightStreams) ? frame.inflightStreams.length : 'unknown'} inventory=${inventory} clientFeatures=${features} ${daemonClientProcessFields(hello.clientProcess)}`
                 )
+                void this.recordHelloReports(daemonId, frame)
                 // Missing inventory means enumeration failed, never an empty
                 // stream set. Preserve resumable turns until the next hello.
                 if (frame.inflightStreams === undefined) {

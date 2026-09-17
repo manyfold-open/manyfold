@@ -1,5 +1,6 @@
 import {
     DAEMON_FEATURE_DAEMON_UPDATE,
+    DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_MIN_CLI_VERSION,
     DAEMON_ONLINE_THRESHOLD_MS,
@@ -61,6 +62,16 @@ const isInitUnitStartup = (
     method: DaemonStartupMethod | null
 ): method is Exclude<DaemonStartupMethod, 'manual'> =>
     method !== null && method !== 'manual'
+
+// Who brings the daemon back after the swap: its init unit, or — for a
+// manual start that says so (ADR-0029 §5) — the daemon itself, by handing
+// off to a successor it starts and rolling back if that never comes up.
+const canRestartAfterUpdate = (host: {
+    startupMethod: DaemonStartupMethod | null
+    clientFeatures: string[]
+}): boolean =>
+    isInitUnitStartup(host.startupMethod) ||
+    host.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
 
 const ONLINE_THRESHOLD_MS = DAEMON_ONLINE_THRESHOLD_MS
 
@@ -459,7 +470,7 @@ export class DaemonHostService {
             ),
             canRemoteUpgrade:
                 this.isOnline(host) &&
-                isInitUnitStartup(host.startupMethod) &&
+                canRestartAfterUpdate(host) &&
                 host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE),
             canCrossChannelUpgrade: this.crossChannelAllowed(host),
             canResumeInTerminal: host.clientFeatures.includes(
@@ -513,7 +524,7 @@ export class DaemonHostService {
             throw new BadRequestException('daemon host has been revoked')
         if (!this.isOnline(host))
             throw new BadRequestException('daemon is offline')
-        if (!isInitUnitStartup(host.startupMethod))
+        if (!canRestartAfterUpdate(host))
             throw new BadRequestException(
                 'this daemon is not managed by an init unit (launchd/systemd); run `mf update` then restart it on the machine'
             )

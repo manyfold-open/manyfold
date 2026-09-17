@@ -34,6 +34,14 @@ export interface WsClientOptions {
     onDisconnected?: (reason: string) => void
     handleRpc?: RpcHandler
     log?: (msg: string) => void
+    // Runtime-computed capabilities ride here; absent, the constant list.
+    clientFeatures?: string[]
+    // One-shot reports for the hello (exec recovery, an update rollback);
+    // called per hello, so the caller decides what is still worth sending.
+    helloExtras?: () => Pick<
+        Extract<DaemonWsFrame, { type: 'hello' }>,
+        'recovery' | 'rollback'
+    >
 }
 
 const PING_INTERVAL_MS = 25_000
@@ -151,8 +159,10 @@ export class DaemonWsClient {
                         this.opts.clientInstanceId ?? CLIENT_INSTANCE_ID,
                     pid: process.pid
                 },
-                clientFeatures: DAEMON_CLIENT_FEATURES,
-                ...(inflightStreams !== null ? { inflightStreams } : {})
+                clientFeatures:
+                    this.opts.clientFeatures ?? DAEMON_CLIENT_FEATURES,
+                ...(inflightStreams !== null ? { inflightStreams } : {}),
+                ...(this.opts.helloExtras?.() ?? {})
             }
             if (inflightStreams !== null && inflightStreams.length > 0)
                 this.log(

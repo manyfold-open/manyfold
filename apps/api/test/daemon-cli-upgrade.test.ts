@@ -107,7 +107,7 @@ test('canRemoteUpgrade is false when the daemon does not advertise daemon.update
     assert.equal(summary.canRemoteUpgrade, false)
 })
 
-test('upgrade refuses a manual daemon (cannot self-restart)', async () => {
+test('upgrade refuses a manual daemon that cannot hand off to a successor', async () => {
     const service = makeService({})
     await assert.rejects(
         () =>
@@ -117,6 +117,30 @@ test('upgrade refuses a manual daemon (cannot self-restart)', async () => {
             }),
         BadRequestException
     )
+})
+
+// ADR-0029 §5: a manual start that says it can swap, hand off and roll back
+// by itself is upgradeable from here like an init-unit daemon.
+test('upgrade accepts a manual daemon that advertises daemon.update.manual', async () => {
+    const rpcs: Array<Record<string, unknown>> = []
+    const service = makeService({
+        rpc: async (call: unknown) => {
+            rpcs.push(call as Record<string, unknown>)
+            return { toVersion: '9.9.9', restarting: true }
+        }
+    })
+    const manual = host({
+        startupMethod: 'manual',
+        clientFeatures: ['daemon.update', 'daemon.update.manual']
+    })
+    assert.equal(
+        (await service.toSummary(manual, [], 0)).canRemoteUpgrade,
+        true
+    )
+    const result = await service.upgrade({ host: manual, actorId: 'u1' })
+    assert.equal(result.ok, true)
+    assert.equal(rpcs.length, 1)
+    assert.equal(rpcs[0].method, 'daemon.update')
 })
 
 test('upgrade refuses an offline daemon', async () => {
