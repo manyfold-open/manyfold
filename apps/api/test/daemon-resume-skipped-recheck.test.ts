@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test, { mock } from 'node:test'
+import type { ConfigService } from '@nestjs/config'
+import type { WebSocket as WsClient } from 'ws'
 import {
     chatMessages,
     chatStreamEvents,
@@ -8,7 +10,7 @@ import {
     type Database
 } from '@manyfold/db'
 import { DaemonExecResumeService } from '../src/modules/daemon/daemon-exec-resume.service'
-import type { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.service'
+import { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.service'
 
 // #648: a hello can land while the #624 fence is still inside its 15s recovery
 // loop for the same turn. The daemon reports the ref, the ref matches an open
@@ -103,6 +105,7 @@ interface Harness {
         token: string
         helloOrder: number
         pendingRefs: Set<string>
+        online: boolean
     }
     runningLocally: Set<string>
     resumed: string[]
@@ -115,10 +118,16 @@ interface Harness {
     hello: (refIds: string[]) => Promise<void>
     settle: () => Promise<void>
     registerHandler: () => void
+    retireConnection: (token?: string) => void
 }
 
 const makeHarness = (
-    opts: { ageMs?: number; registerHandler?: boolean; refId?: string } = {}
+    opts: {
+        ageMs?: number
+        registerHandler?: boolean
+        refId?: string
+        registry?: DaemonRegistryService
+    } = {}
 ): Harness => {
     const db: DbState = {
         open: true,
@@ -198,14 +207,24 @@ const makeHarness = (
     const connection = {
         token: 'connection-1',
         helloOrder: 1,
-        pendingRefs: new Set<string>()
+        pendingRefs: new Set<string>(),
+        online: true
     }
-    const service = new ObservedRecheckService(fakeDb, {
-        isOnline: () => true,
+    const retireListeners = new Set<(daemonId: string, token: string) => void>()
+    const service = new ObservedRecheckService(fakeDb, opts.registry ?? {
+        isOnline: () => connection.online,
+        onConnectionRetired: (
+            listener: (daemonId: string, token: string) => void
+        ) => {
+            retireListeners.add(listener)
+            return () => {
+                retireListeners.delete(listener)
+            }
+        },
         hasPendingRef: (_daemonId: string, refId: string) =>
             connection.pendingRefs.has(refId),
         currentHelloEvidence: () =>
-            connection.helloOrder === 0
+            !connection.online || connection.helloOrder === 0
                 ? null
                 : {
                       connectionToken: connection.token,
@@ -215,6 +234,7 @@ const makeHarness = (
             _daemonId: string,
             evidence: { connectionToken: string; helloOrder: number } | null
         ) =>
+            connection.online &&
             evidence?.connectionToken === connection.token &&
             evidence.helloOrder === connection.helloOrder
     } as unknown as DaemonRegistryService)
@@ -270,9 +290,13 @@ const makeHarness = (
         resumedRefs,
         converged,
         cancelled,
-        timers: () =>
-            (service as unknown as { recheckTimers: Map<string, unknown> })
-                .recheckTimers,
+        timers: () => {
+            const owner = service as unknown as {
+                recheckTimers: Map<string, unknown>
+                helloLookupTimers: Map<string, unknown>
+            }
+            return new Map([...owner.recheckTimers, ...owner.helloLookupTimers])
+        },
         armed: () => service.armedDelays.length,
         armedDelay: (index: number) => service.armedDelays[index],
         hello: (refIds: string[]) => {
@@ -292,7 +316,11 @@ const makeHarness = (
             )
         },
         settle: () => new Promise((resolve) => setImmediate(resolve)),
-        registerHandler
+        registerHandler,
+        retireConnection: (token = connection.token) => {
+            if (token === connection.token) connection.online = false
+            for (const listener of retireListeners) listener(DAEMON, token)
+        }
     }
 }
 
@@ -1503,8 +1531,8 @@ test('overlapping hellos retain exactly one bounded matched retry after the newe
     assert.equal(
         (h.service as unknown as { helloSnapshots: Map<string, unknown> })
             .helloSnapshots.size,
-        0,
-        'full daemon history is released when the last lookup settles'
+        1,
+        'one batch retry owns the latest inventory until a fresh lookup succeeds'
     )
 
     t.mock.timers.tick(AC_SETTLE_BOUND_MS)
@@ -1622,3 +1650,275 @@ test('shutdown does not rearm a matched retry after an in-flight busy claim retu
         'an async completion cannot recreate a timer after teardown cleared it'
     )
 })
+
+function reconciliationGate() {
+    let release!: () => void
+    const promise = new Promise<void>((resolve) => {
+        release = resolve
+    })
+    return { promise, release }
+}
+
+function lookupState(h: Harness) {
+    return h.service as unknown as {
+        helloSnapshots: Map<
+            string,
+            {
+                streamsByRef: Map<string, unknown>
+                evidence: { connectionToken: string }
+            }
+        >
+        pendingOpenLookups: Map<string, { pending: number }>
+    }
+}
+
+test('repeated sole-hello lookup failures keep one bounded owner and reuse its inventory', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = makeHarness({ refId: 'exact-sole-ref' })
+    t.after(() => h.service.onModuleDestroy())
+    h.db.failOpenQuery = true
+    await assert.rejects(h.hello(['exact-sole-ref']), /open query failed/)
+    const inventory = lookupState(h).helloSnapshots.get(DAEMON)?.streamsByRef
+    assert.ok(inventory)
+    for (let attempt = 0; attempt < 3; attempt++) {
+        t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+        await h.settle()
+        assert.equal(h.timers().size, 1)
+        assert.equal(
+            lookupState(h).helloSnapshots.get(DAEMON)?.streamsByRef,
+            inventory
+        )
+        assert.deepEqual(h.resumed, [])
+        assert.deepEqual(h.converged, [])
+    }
+    assert.ok(
+        h.service.armedDelays.every(
+            (delay) => delay > 0 && delay < AC_SETTLE_BOUND_MS
+        )
+    )
+    h.db.failOpenQuery = false
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumedRefs, ['exact-sole-ref'])
+    assert.equal(h.timers().size, 0)
+    assert.equal(lookupState(h).helloSnapshots.size, 0)
+})
+
+test('a newer omission replaces the sole failed matched inventory before retry', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = makeHarness({ ageMs: 2 * 60_000 })
+    t.after(() => h.service.onModuleDestroy())
+    h.db.failOpenQuery = true
+    await assert.rejects(h.hello([TURN]), /open query failed/)
+    await assert.rejects(h.hello([]), /open query failed/)
+    assert.equal(h.timers().size, 1)
+    h.db.failOpenQuery = false
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [])
+    assert.deepEqual(h.converged, [TURN])
+    assert.equal(h.timers().size, 0)
+})
+
+test(
+    'old-epoch finally and retirement cannot delete the replacement lookup owner',
+    { timeout: 5_000 },
+    async (t) => {
+        const h = makeHarness({ refId: 'epoch-ref' })
+        const oldGate = reconciliationGate()
+        const oldStarted = reconciliationGate()
+        const newGate = reconciliationGate()
+        const newStarted = reconciliationGate()
+        t.after(() => {
+            oldGate.release()
+            newGate.release()
+            h.service.onModuleDestroy()
+        })
+        h.db.beforeOpenQuery = async () => {
+            oldStarted.release()
+            await oldGate.promise
+        }
+        const oldHello = h.hello(['epoch-ref'])
+        await oldStarted.promise
+        h.retireConnection()
+        h.connection.token = 'connection-2'
+        h.connection.online = true
+        h.connection.helloOrder = 0
+        h.db.beforeOpenQuery = async () => {
+            newStarted.release()
+            await newGate.promise
+        }
+        const newHello = h.hello(['epoch-ref'])
+        await newStarted.promise
+        const state = lookupState(h)
+        const newScope = state.pendingOpenLookups.get(DAEMON)
+        const pending = newScope?.pending
+        assert.ok(pending && pending > 0)
+        oldGate.release()
+        await oldHello
+        assert.equal(state.pendingOpenLookups.get(DAEMON), newScope)
+        assert.equal(newScope.pending, pending)
+        h.retireConnection('connection-1')
+        assert.equal(
+            state.helloSnapshots.get(DAEMON)?.evidence.connectionToken,
+            'connection-2'
+        )
+        newGate.release()
+        await newHello
+        assert.deepEqual(h.resumedRefs, ['epoch-ref'])
+        assert.deepEqual(h.converged, [])
+        assert.equal(state.helloSnapshots.size, 0)
+        assert.equal(state.pendingOpenLookups.size, 0)
+    }
+)
+
+test(
+    'a fresh zero-open lookup discards history without turning an older row into unmatched evidence',
+    { timeout: 5_000 },
+    async (t) => {
+        const h = makeHarness({ ageMs: 2 * 60_000 })
+        const gate = reconciliationGate()
+        const started = reconciliationGate()
+        t.after(() => {
+            gate.release()
+            h.service.onModuleDestroy()
+        })
+        h.db.beforeOpenQuery = async () => {
+            started.release()
+            await gate.promise
+        }
+        const oldHello = h.hello([TURN])
+        await started.promise
+        h.db.beforeOpenQuery = null
+        h.db.open = false
+        await h.hello([TURN])
+        assert.equal(
+            lookupState(h).helloSnapshots.get(DAEMON)?.streamsByRef.size,
+            0
+        )
+        gate.release()
+        await oldHello
+        assert.deepEqual(h.resumed, [])
+        assert.deepEqual(h.converged, [])
+        assert.equal(h.timers().size, 0)
+        assert.equal(lookupState(h).helloSnapshots.size, 0)
+    }
+)
+
+test('connection retirement removes a pending batch retry and its inventory', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const h = makeHarness()
+    t.after(() => h.service.onModuleDestroy())
+    h.db.failOpenQuery = true
+    await assert.rejects(h.hello([TURN]), /open query failed/)
+    assert.equal(h.timers().size, 1)
+    h.retireConnection()
+    assert.equal(h.timers().size, 0)
+    assert.equal(lookupState(h).helloSnapshots.size, 0)
+    h.db.failOpenQuery = false
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [])
+    assert.deepEqual(h.converged, [])
+})
+
+test('actual registry retirement releases a known turn handed from its timer to batch recovery', async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const registry = new DaemonRegistryService(
+        {
+            update: () => ({ set: () => ({ where: async () => undefined }) }),
+            select: () => ({
+                from: () => ({ where: () => ({ limit: async () => [] }) })
+            })
+        } as unknown as Database,
+        { get: () => undefined } as unknown as ConfigService
+    )
+    const h = makeHarness({ registry })
+    const socket = { close: () => {} } as unknown as WsClient
+    t.after(async () => {
+        h.service.onModuleDestroy()
+        await registry.onModuleDestroy()
+    })
+    await registry.register({
+        daemonId: DAEMON,
+        userId: 'user-fixture',
+        cliVersion: null,
+        hostname: null,
+        socket
+    })
+    const hello = () => {
+        const evidence = registry.recordHelloForSocket(DAEMON, socket)
+        assert.ok(evidence)
+        return h.service.handleInflightStreams(
+            DAEMON,
+            [
+                {
+                    refId: TURN,
+                    method: 'turn.start',
+                    lastSeq: 0,
+                    status: 'running'
+                }
+            ],
+            evidence
+        )
+    }
+    const state = h.service as unknown as {
+        helloTurns: Map<string, unknown>
+        recheckTimers: Map<string, unknown>
+        helloLookupTimers: Map<string, unknown>
+    }
+    h.runningLocally.add(TURN)
+    await hello()
+    assert.equal(state.recheckTimers.size, 1)
+    assert.equal(state.helloTurns.size, 1)
+    h.runningLocally.delete(TURN)
+    h.db.failOpenQuery = true
+    await assert.rejects(hello(), /open query failed/)
+    assert.equal(state.recheckTimers.size, 0)
+    assert.equal(state.helloLookupTimers.size, 1)
+    await registry.unregister(DAEMON, socket)
+    assert.equal(h.timers().size, 0)
+    assert.equal(
+        state.helloTurns.size,
+        0,
+        'retired batch ownership must not leave an unowned tracked turn'
+    )
+    assert.equal(lookupState(h).helloSnapshots.size, 0)
+    h.db.failOpenQuery = false
+    t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+    await h.settle()
+    assert.deepEqual(h.resumed, [])
+    assert.deepEqual(h.converged, [])
+})
+
+test(
+    'shutdown during the batch retry lookup prevents late work and releases evidence',
+    { timeout: 5_000 },
+    async (t) => {
+        t.mock.timers.enable({ apis: ['setTimeout'] })
+        const h = makeHarness()
+        const gate = reconciliationGate()
+        const started = reconciliationGate()
+        t.after(() => {
+            gate.release()
+            h.service.onModuleDestroy()
+        })
+        h.db.failOpenQuery = true
+        await assert.rejects(h.hello([TURN]), /open query failed/)
+        h.db.failOpenQuery = false
+        h.db.beforeOpenQuery = async () => {
+            started.release()
+            await gate.promise
+        }
+        t.mock.timers.tick(AC_SETTLE_BOUND_MS)
+        await started.promise
+        h.service.onModuleDestroy()
+        gate.release()
+        await h.settle()
+        assert.equal(h.timers().size, 0)
+        assert.equal(lookupState(h).helloSnapshots.size, 0)
+        assert.equal(lookupState(h).pendingOpenLookups.size, 0)
+        assert.deepEqual(h.resumed, [])
+        assert.deepEqual(h.converged, [])
+    }
+)
