@@ -170,62 +170,63 @@ try {
         database.close()
     }
 
-    const pty = require('node-pty')
-    const [command, args] =
-        process.platform === 'win32'
-            ? [
-                  'powershell.exe',
-                  [
-                      '-NoLogo',
-                      '-NoProfile',
-                      '-Command',
-                      "[Console]::Write('native-pty-ok')"
-                  ]
-              ]
-            : ['/bin/sh', ['-c', 'printf native-pty-ok']]
-    await new Promise((resolve, reject) => {
-        const child = pty.spawn(command, args, {
-            name: 'xterm-color',
-            cols: 80,
-            rows: 24,
+    const ptyEntry = require.resolve('node-pty')
+    const ptyProbe = run(
+        process.execPath,
+        [
+            '--eval',
+            `const assert = require('node:assert/strict')
+const pty = require(${JSON.stringify(ptyEntry)})
+const [command, args] = process.platform === 'win32'
+    ? ['powershell.exe', ['-NoLogo', '-NoProfile', '-Command', "[Console]::Write('native-pty-ok')"]]
+    : ['/bin/sh', ['-c', 'printf native-pty-ok']]
+const child = pty.spawn(command, args, {
+    name: 'xterm-color',
+    cols: 80,
+    rows: 24,
+    cwd: process.cwd(),
+    env: process.env
+})
+let output = ''
+let settled = false
+let exitSubscription
+const dataSubscription = child.onData((chunk) => { output += chunk })
+const finish = (error) => {
+    if (settled) return
+    settled = true
+    clearTimeout(timeout)
+    dataSubscription.dispose()
+    exitSubscription?.dispose()
+    try {
+        // Natural exit does not dispose node-pty's Windows ConPTY worker.
+        child.kill()
+    } catch (cleanupError) {
+        error ??= cleanupError
+    }
+    if (error) throw error
+    process.stdout.write('native-pty-clean-exit\\n')
+}
+const timeout = setTimeout(() => {
+    finish(new Error('node-pty native probe timed out'))
+}, 10_000)
+exitSubscription = child.onExit(({ exitCode }) => {
+    assert.equal(exitCode, 0)
+    assert.match(output, /native-pty-ok/)
+    finish()
+})`
+        ],
+        {
             cwd: installRoot,
-            env: process.env
-        })
-        let output = ''
-        let settled = false
-        let exitSubscription
-        const dataSubscription = child.onData((chunk) => {
-            output += chunk
-        })
-        const finish = (error) => {
-            if (settled) return
-            settled = true
-            clearTimeout(timeout)
-            dataSubscription.dispose()
-            exitSubscription?.dispose()
-            try {
-                // On Windows, an exited ConPTY keeps its worker thread alive
-                // until kill() releases the remaining native handles.
-                child.kill()
-            } catch (cleanupError) {
-                error ??= cleanupError
-            }
-            if (error) reject(error)
-            else resolve()
+            env: process.env,
+            timeout: 15_000,
+            killSignal: 'SIGKILL'
         }
-        const timeout = setTimeout(() => {
-            finish(new Error('node-pty native probe timed out'))
-        }, 10_000)
-        exitSubscription = child.onExit(({ exitCode }) => {
-            try {
-                assert.equal(exitCode, 0)
-                assert.match(output, /native-pty-ok/)
-                finish()
-            } catch (error) {
-                finish(error)
-            }
-        })
-    })
+    )
+    assert.match(
+        ptyProbe.stdout,
+        /native-pty-clean-exit/,
+        'node-pty probe did not exit cleanly'
+    )
 
     console.log(
         `test-native: runtime ${process.version} ABI ${process.versions.modules}, headers v${config.version} SHA ${config.sha256}, SQLite GC and PTY passed on ${process.platform}/${process.arch}`
