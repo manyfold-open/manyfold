@@ -1,5 +1,21 @@
 # @manyfold/api
 
+## 6.0.0
+
+### Major Changes
+
+- [#463](https://github.com/manyfold-open/manyfold/pull/463) [`11ebadb`](https://github.com/manyfold-open/manyfold/commit/11ebadb44f2f97a89fd7d5a92cec1dc863492b30) Thanks [@yingca1](https://github.com/yingca1)! - Replace ambiguous agent `storageBytes`/`storageMeasuredAt` fields with nullable `workspaceBytes`/`workspaceMeasuredAt`. Add scoped cached sandbox storage reports, measurement freshness and conservative path attribution; runtime account reads require explicit account intent and `agents:read` consent.
+
+    `mf sandbox storage-usage` reports the current sandbox, while `--account` reports all account sandboxes. `mf agent list --json` now returns `{ scope, agents }`; agent path diagnostics keep sleeping measurements unknown and expose cached sandbox usage separately. Upgrade the API and CLI together: storage commands and agent list/get reject older ambiguous responses.
+
+### Patch Changes
+
+- [#458](https://github.com/manyfold-open/manyfold/pull/458) [`51d0ab8`](https://github.com/manyfold-open/manyfold/commit/51d0ab80531ed75e0792cea8020c7ed4c6a3fc0c) Thanks [@yingca1](https://github.com/yingca1)! - Bound Chat connection recovery, offer reconnect and reload when status remains unavailable, and correlate stream closure without exposing conversation content.
+
+- [#462](https://github.com/manyfold-open/manyfold/pull/462) [`10655d1`](https://github.com/manyfold-open/manyfold/commit/10655d1478157db16fe2b65ff168b173772257ed) Thanks [@yingca1](https://github.com/yingca1)! - Retain the latest daemon hello across runtime preparation and failed open-turn lookups, retrying once per connection until the database recovers without requiring another reconnect. Release historical inventory after a successful lookup and discard retired connection evidence without disrupting newer connections.
+
+- [#463](https://github.com/manyfold-open/manyfold/pull/463) [`11ebadb`](https://github.com/manyfold-open/manyfold/commit/11ebadb44f2f97a89fd7d5a92cec1dc863492b30) Thanks [@yingca1](https://github.com/yingca1)! - Fence sandbox storage measurements across API instances, retain old readings on failure, and back off repeated failures without waking sleeping sandboxes. Publish host and successful workspace readings atomically and report bounded, privacy-safe measurement phases.
+
 ## 5.1.13
 
 ### Patch Changes

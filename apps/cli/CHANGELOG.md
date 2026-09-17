@@ -1,5 +1,13 @@
 # @manyfold/cli
 
+## 4.0.0
+
+### Major Changes
+
+- [#463](https://github.com/manyfold-open/manyfold/pull/463) [`11ebadb`](https://github.com/manyfold-open/manyfold/commit/11ebadb44f2f97a89fd7d5a92cec1dc863492b30) Thanks [@yingca1](https://github.com/yingca1)! - Replace ambiguous agent `storageBytes`/`storageMeasuredAt` fields with nullable `workspaceBytes`/`workspaceMeasuredAt`. Add scoped cached sandbox storage reports, measurement freshness and conservative path attribution; runtime account reads require explicit account intent and `agents:read` consent.
+
+    `mf sandbox storage-usage` reports the current sandbox, while `--account` reports all account sandboxes. `mf agent list --json` now returns `{ scope, agents }`; agent path diagnostics keep sleeping measurements unknown and expose cached sandbox usage separately. Upgrade the API and CLI together: storage commands and agent list/get reject older ambiguous responses.
+
 ## 3.0.3
 
 ### Patch Changes
