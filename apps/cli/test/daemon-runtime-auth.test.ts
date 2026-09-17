@@ -7,13 +7,16 @@ import {
     mkdtemp,
     readFile,
     readlink,
+    rm,
     stat,
     writeFile
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { createObjectId } from '@manyfold/shared'
-import { rpcHandler } from '../src/daemon/rpc'
+import { daemonActivitySnapshot, rpcHandler } from '../src/daemon/rpc'
+import { execStreams, readFinal } from '../src/daemon/exec-buffer'
+import { daemonPaths } from '../src/daemon/config'
 import type { RpcContext } from '../src/daemon/ws-client'
 import { RuntimeAuthManager } from '../src/daemon/runtime-auth/manager'
 import { ProfileBusyError } from '../src/daemon/runtime-auth/lock'
@@ -29,6 +32,31 @@ const ctx = (refId: string): RpcContext => ({
     sendEvent: () => {},
     onCancel: () => {}
 })
+
+const barrier = () => {
+    let open!: () => void
+    const reached = new Promise<void>((resolve) => {
+        open = resolve
+    })
+    return { reached, open }
+}
+
+const within = async <T>(pending: Promise<T>, label: string): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined
+    try {
+        return await Promise.race([
+            pending,
+            new Promise<never>((_, reject) => {
+                timer = setTimeout(
+                    () => reject(new Error(`timed out: ${label}`)),
+                    10_000
+                )
+            })
+        ])
+    } finally {
+        if (timer) clearTimeout(timer)
+    }
+}
 
 interface Sandbox {
     base: string
@@ -795,31 +823,431 @@ test('an execution holds the profile lock for its lifetime; same-profile work qu
                 env: process.env
             }
         )
+        const ready = barrier()
+        let output = ''
         const running = rpcHandler(
             'exec.start',
             {
-                cmd: ['sh', '-c', 'sleep 1'],
+                cmd: [
+                    process.execPath,
+                    '-e',
+                    "process.stdin.once('data', () => process.stdin.destroy()); process.stdout.write('exec-ready\\n')"
+                ],
+                env: { NODE_TEST_CONTEXT: '' },
+                keepStdinOpen: true,
                 authSelection: profileSelection(sb, 'codex', profileId)
             },
-            ctx('exec-long')
+            {
+                ...ctx('exec-long'),
+                sendEvent: (kind, data) => {
+                    if (kind === 'stdout') output += data
+                    if (output.includes('exec-ready')) ready.open()
+                }
+            }
         )
-        await new Promise((resolve) => setTimeout(resolve, 150))
-        await assert.rejects(
-            manager.executionContext('codex', profileId, 'probe', {
-                waitMs: 0
-            }),
-            (err: unknown) => err instanceof ProfileBusyError
-        )
-        assert.equal((await running).ok, true)
-        const after = await manager.executionContext(
-            'codex',
-            profileId,
-            'probe',
-            { waitMs: 0 }
-        )
-        await after.release()
+        try {
+            await within(ready.reached, 'exec ready and holding the profile')
+            await assert.rejects(
+                manager.executionContext('codex', profileId, 'probe', {
+                    waitMs: 0
+                }),
+                (err: unknown) => err instanceof ProfileBusyError
+            )
+            await rpcHandler(
+                'exec.input',
+                { refId: 'exec-long', data: 'finish' },
+                ctx('finish-long')
+            )
+            assert.equal((await within(running, 'exec completion')).ok, true)
+            const after = await manager.executionContext(
+                'codex',
+                profileId,
+                'probe',
+                { waitMs: 0 }
+            )
+            await after.release()
+        } finally {
+            await rpcHandler(
+                'exec.abort',
+                { refId: 'exec-long' },
+                ctx('cleanup-long')
+            )
+            await within(running, 'exec cleanup')
+        }
     })
 })
+
+test('exec completion waits for auth cleanup before terminal publication, resume and drain release', async (t) => {
+    await withSandbox(async (sb) => {
+        t.after(() => rm(sb.base, { recursive: true, force: true }))
+        const profileId = createObjectId('runtimeAuthProfile')
+        assert.equal(
+            (
+                await rpcHandler(
+                    'auth.create',
+                    {
+                        framework: 'codex',
+                        runtimeId: sb.runtimeId,
+                        profileId,
+                        authMethod: 'subscription'
+                    },
+                    ctx('release-create')
+                )
+            ).ok,
+            true
+        )
+        const view = join(
+            sb.configDir,
+            'runtime-auth',
+            sb.daemonId,
+            sb.runtimeId,
+            'profiles',
+            profileId,
+            'view'
+        )
+        await writeFile(join(view, 'auth.json'), '{"auth_mode":"chatgpt"}', {
+            mode: 0o600
+        })
+        const entered = barrier()
+        const allowRelease = barrier()
+        let acquire: RuntimeAuthManager['executionContext'] | undefined
+        let releaseCount = 0
+        let releaseTask: Promise<void> | undefined
+        const executionContext = RuntimeAuthManager.prototype.executionContext
+        t.after(() => {
+            RuntimeAuthManager.prototype.executionContext = executionContext
+        })
+        RuntimeAuthManager.prototype.executionContext = async function (
+            this: RuntimeAuthManager,
+            ...args: Parameters<typeof executionContext>
+        ) {
+            const context = await executionContext.apply(this, args)
+            if (args[2] !== 'exec:release-barrier') return context
+            acquire = executionContext.bind(this)
+            return {
+                ...context,
+                release: () => {
+                    releaseCount++
+                    entered.open()
+                    releaseTask = (async () => {
+                        await allowRelease.reached
+                        await context.release()
+                    })()
+                    return releaseTask
+                }
+            }
+        }
+        let acknowledged = false
+        let resumed = false
+        let resume: ReturnType<typeof rpcHandler> | undefined
+        const running = rpcHandler(
+            'exec.start',
+            {
+                cmd: [process.execPath, '-e', ''],
+                env: { NODE_TEST_CONTEXT: '' },
+                authSelection: profileSelection(sb, 'codex', profileId)
+            },
+            ctx('release-barrier')
+        ).then((result) => {
+            acknowledged = true
+            return result
+        })
+        try {
+            await within(entered.reached, 'auth release entry')
+            resume = rpcHandler(
+                'exec.resume',
+                {
+                    originalRefId: 'release-barrier',
+                    fromSeq: 0
+                },
+                ctx('release-resume')
+            ).then((result) => {
+                resumed = true
+                return result
+            })
+            await new Promise<void>((resolve) => setImmediate(resolve))
+            assert.equal(execStreams.get('release-barrier')?.status, 'running')
+            assert.equal(readFinal('release-barrier'), null)
+            assert.equal(acknowledged, false)
+            assert.equal(resumed, false)
+            assert.equal(daemonActivitySnapshot().activeExecs, 1)
+            assert.ok(acquire)
+            await assert.rejects(
+                acquire('codex', profileId, 'probe', {
+                    waitMs: 0
+                }),
+                ProfileBusyError
+            )
+            allowRelease.open()
+            assert.equal((await within(running, 'start completion')).ok, true)
+            assert.equal((await within(resume, 'resume completion')).ok, true)
+            assert.equal(releaseCount, 1)
+            assert.equal(daemonActivitySnapshot().activeExecs, 0)
+            const after = await acquire(
+                'codex',
+                profileId,
+                'probe',
+                { waitMs: 0 }
+            )
+            await after.release()
+        } finally {
+            allowRelease.open()
+            await rpcHandler(
+                'exec.abort',
+                { refId: 'release-barrier' },
+                ctx('cleanup-release')
+            )
+            await within(
+                Promise.allSettled([running, resume, releaseTask]),
+                'release cleanup'
+            )
+        }
+    })
+})
+
+for (const scenario of [
+    'nonzero',
+    'spawn-error',
+    'cancel',
+    'timeout',
+    'publish-error',
+    'subscriber-error',
+    'release-error',
+    'buffer-setup',
+    'spawn-setup'
+] as const) {
+    test(`exec ${scenario} owns one terminal result after auth release`, async (t) => {
+        await withSandbox(async (sb) => {
+            t.after(() => rm(sb.base, { recursive: true, force: true }))
+            const profileId = createObjectId('runtimeAuthProfile')
+            assert.equal(
+                (
+                    await rpcHandler(
+                        'auth.create',
+                        {
+                            framework: 'codex',
+                            runtimeId: sb.runtimeId,
+                            profileId,
+                            authMethod: 'subscription'
+                        },
+                        ctx(`create-${scenario}`)
+                    )
+                ).ok,
+                true
+            )
+            const view = join(
+                sb.configDir,
+                'runtime-auth',
+                sb.daemonId,
+                sb.runtimeId,
+                'profiles',
+                profileId,
+                'view'
+            )
+            await writeFile(
+                join(view, 'auth.json'),
+                '{"auth_mode":"chatgpt"}',
+                { mode: 0o600 }
+            )
+            const refId = `finish-${scenario}`
+            const entered = barrier()
+            const allowRelease = barrier()
+            const registered = barrier()
+            let cancel: (() => void) | undefined
+            let releaseCount = 0
+            let subscriberErrors = 0
+            let actualRelease: (() => Promise<void>) | undefined
+            let releaseTask: Promise<void> | undefined
+            let acquire: RuntimeAuthManager['executionContext'] | undefined
+            const executionContext =
+                RuntimeAuthManager.prototype.executionContext
+            t.after(() => {
+                RuntimeAuthManager.prototype.executionContext = executionContext
+            })
+            RuntimeAuthManager.prototype.executionContext = async function (
+                this: RuntimeAuthManager,
+                ...args: Parameters<typeof executionContext>
+            ) {
+                const context = await executionContext.apply(this, args)
+                if (args[2] !== `exec:${refId}`) return context
+                acquire = executionContext.bind(this)
+                actualRelease = context.release
+                return {
+                    ...context,
+                    release: () => {
+                        releaseCount++
+                        entered.open()
+                        releaseTask = (async () => {
+                            await allowRelease.reached
+                            if (scenario === 'release-error')
+                                throw new Error('private-credential-fixture')
+                            await context.release()
+                        })()
+                        return releaseTask
+                    }
+                }
+            }
+            if (scenario === 'buffer-setup')
+                await writeFile(daemonPaths.execDir, 'not a directory')
+            const cmd =
+                scenario === 'spawn-error'
+                    ? [join(sb.base, 'missing-command')]
+                    : scenario === 'spawn-setup'
+                      ? [null]
+                      : [
+                            process.execPath,
+                            '-e',
+                            scenario === 'nonzero'
+                                ? 'process.exitCode = 7'
+                                : scenario === 'publish-error'
+                                  ? "process.stdin.on('data', () => process.stdout.write('output')); process.stdin.resume()"
+                                  : scenario === 'subscriber-error'
+                                    ? "process.stdout.write('output')"
+                                    : scenario === 'cancel' ||
+                                        scenario === 'timeout'
+                                      ? 'setInterval(() => {}, 1000)'
+                                      : ''
+                        ]
+            let acknowledged = false
+            const running = rpcHandler(
+                'exec.start',
+                {
+                    cmd,
+                    env: { NODE_TEST_CONTEXT: '' },
+                    keepStdinOpen: scenario === 'publish-error',
+                    ...(scenario === 'timeout' ? { timeoutMs: 30 } : {}),
+                    authSelection: profileSelection(sb, 'codex', profileId)
+                },
+                {
+                    ...ctx(refId),
+                    sendEvent: () => {
+                        if (scenario === 'subscriber-error') {
+                            subscriberErrors++
+                            throw new Error('transport unavailable')
+                        }
+                    },
+                    onCancel: (handler) => {
+                        cancel = handler
+                        registered.open()
+                    }
+                }
+            ).then((result) => {
+                acknowledged = true
+                return result
+            })
+            try {
+                if (scenario === 'cancel' || scenario === 'publish-error') {
+                    await within(registered.reached, 'registered child')
+                    if (scenario === 'cancel') cancel!()
+                    else {
+                        const events = join(
+                            daemonPaths.execDir,
+                            refId,
+                            'events.ndjson'
+                        )
+                        await rm(events)
+                        await mkdir(events)
+                        assert.equal(
+                            (
+                                await rpcHandler(
+                                    'exec.input',
+                                    { refId, data: 'write' },
+                                    ctx('publish-input')
+                                )
+                            ).ok,
+                            true
+                        )
+                    }
+                }
+                await within(entered.reached, 'release entry')
+                await new Promise<void>((resolve) => setImmediate(resolve))
+                assert.equal(acknowledged, false)
+                if (scenario === 'subscriber-error') {
+                    assert.equal(subscriberErrors, 1)
+                    assert.equal(execStreams.get(refId)?.subscribers.size, 0)
+                }
+                if (scenario !== 'buffer-setup')
+                    assert.equal(execStreams.get(refId)?.status, 'running')
+                assert.equal(readFinal(refId), null)
+                if (scenario !== 'buffer-setup' && scenario !== 'spawn-setup')
+                    assert.equal(daemonActivitySnapshot().activeExecs, 1)
+                allowRelease.open()
+                const result = await within(running, 'terminal ACK')
+                assert.equal(releaseCount, 1)
+                assert.equal(daemonActivitySnapshot().activeExecs, 0)
+                assert.ok(acquire)
+                if (scenario === 'release-error') {
+                    assert.equal(result.ok, false)
+                    assert.equal(result.error, 'auth_context_release_failed')
+                    assert.ok(
+                        !JSON.stringify(readFinal(refId)).includes(
+                            'private-credential-fixture'
+                        )
+                    )
+                    await assert.rejects(
+                        acquire('codex', profileId, 'probe', {
+                            waitMs: 0
+                        }),
+                        ProfileBusyError
+                    )
+                } else {
+                    const after = await acquire(
+                        'codex',
+                        profileId,
+                        'probe',
+                        { waitMs: 0 }
+                    )
+                    await after.release()
+                    if (
+                        scenario === 'nonzero' ||
+                        scenario === 'timeout' ||
+                        scenario === 'subscriber-error'
+                    ) {
+                        assert.equal(result.ok, true)
+                        assert.equal(
+                            result.payload?.exitCode,
+                            scenario === 'nonzero' ? 7 : 0
+                        )
+                    } else {
+                        assert.equal(result.ok, false)
+                        if (scenario === 'spawn-error') {
+                            assert.match(result.error ?? '', /ENOENT/)
+                            assert.equal(result.payload?.exitCode, -1)
+                        } else if (scenario === 'publish-error')
+                            assert.match(
+                                result.error ?? '',
+                                /buffer append failed/
+                            )
+                        else
+                            assert.equal(
+                                result.error,
+                                scenario === 'cancel'
+                                    ? 'cancelled'
+                                    : `exec_${scenario.split('-')[0]}_setup_failed`
+                            )
+                    }
+                }
+                if (scenario !== 'buffer-setup')
+                    assert.deepEqual(
+                        readFinal(refId),
+                        JSON.parse(JSON.stringify(result))
+                    )
+            } finally {
+                allowRelease.open()
+                await rpcHandler(
+                    'exec.abort',
+                    { refId },
+                    ctx('failure-cleanup')
+                )
+                await within(
+                    Promise.allSettled([running, releaseTask]),
+                    'failure cleanup'
+                )
+                if (scenario === 'release-error') await actualRelease?.()
+            }
+        })
+    })
+}
 
 test('model.inspect under a profile reads the view, not the native home', async () => {
     await withSandbox(async (sb) => {
