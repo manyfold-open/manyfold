@@ -62,17 +62,10 @@ try {
         config.sha256,
         archive
     )
-    run(
-        'tar',
-        [
-            ...(process.platform === 'win32' ? ['--force-local'] : []),
-            '-xzf',
-            archive,
-            '-C',
-            extractionRoot
-        ],
-        { timeout: 60_000 }
-    )
+    run('tar', ['-xzf', path.basename(archive)], {
+        cwd: extractionRoot,
+        timeout: 60_000
+    })
 
     const headersRoot = path.join(extractionRoot, `node-v${config.version}`)
     if (process.platform === 'win32') {
