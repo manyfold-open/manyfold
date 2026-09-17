@@ -146,7 +146,7 @@ test('a test-runtime-only commit selects every workspace and changes build cache
     delete env.NODE_TEST_CONTEXT
     const turbo = (...args: string[]) =>
         JSON.parse(
-            execFileSync(path.join(root, 'node_modules/.bin/turbo'), args, {
+            execFileSync(process.execPath, [require.resolve('turbo/bin/turbo'), ...args], {
                 cwd,
                 env,
                 encoding: 'utf8',
