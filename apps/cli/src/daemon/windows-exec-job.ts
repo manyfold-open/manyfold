@@ -64,13 +64,14 @@ public static class ManyfoldExecJob {
         try {
             var limits = new ExtendedLimits(); limits.Basic.Flags = 0x2000;
             Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits)));
+            if (File.Exists(cancel)) { File.WriteAllText(receipt, "drained"); return 143; }
             var command = new StringBuilder();
             foreach (string arg in args) { if (command.Length > 0) command.Append(' '); command.Append(Quote(arg)); }
             var startup = new StartupInfo(); startup.Size = (uint)Marshal.SizeOf(startup);
             startup.Flags = 0x100; startup.Input = GetStdHandle(-10); startup.Output = GetStdHandle(-11); startup.Error = GetStdHandle(-12);
             Check(CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, 4, IntPtr.Zero, cwd, ref startup, out child));
             Check(AssignProcessToJobObject(job, child.Process)); assigned = true;
-            if (ResumeThread(child.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!File.Exists(cancel) && ResumeThread(child.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
             CloseHandle(child.Thread); child.Thread = IntPtr.Zero;
             uint result = 0;
             while (true) {
