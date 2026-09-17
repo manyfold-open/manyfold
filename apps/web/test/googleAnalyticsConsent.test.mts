@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import test from 'node:test'
 import { chromium, webkit } from 'playwright'
 import { build } from 'vite'
+import { overlayResolver } from '../vite-overlay'
 
 declare global {
     interface Window {
@@ -11,6 +12,9 @@ declare global {
             consent(value: 'granted' | 'denied'): void
             navigate(path: string): void
             event(): void
+            ready(): Promise<void>
+            select(language: string): void
+            current(): string
         }
         __gaFixture: {
             config: Record<string, unknown>
@@ -21,6 +25,7 @@ declare global {
 
 const root = resolve(import.meta.dirname, '../../..')
 const measurementId = 'G-OWNED1286'
+const overlayRoot = process.env.GA_CONSENT_OVERLAY_ROOT
 
 const bundle = async () => {
     const result = await build({
@@ -40,10 +45,16 @@ const bundle = async () => {
                     'packages/shared/src/index.ts'
                 ),
                 '@manyfold/sdk': resolve(root, 'packages/sdk/src/index.ts'),
-                '@manyfold/i18n': resolve(root, 'packages/i18n/src/index.ts')
+                '@manyfold/i18n': resolve(root, 'packages/i18n/src/browser.ts')
             }
         },
         plugins: [
+            overlayResolver(
+                resolve(root, 'apps/web/src'),
+                overlayRoot
+                    ? resolve(overlayRoot, 'apps/web-cloud/src')
+                    : undefined
+            ),
             {
                 name: 'owned-consent-fixture',
                 resolveId(id) {
@@ -57,18 +68,23 @@ const bundle = async () => {
                     import { BrowserRouter, useNavigate } from 'react-router-dom'
                     import { GoogleAnalytics, trackEvent } from '@/lib/googleAnalytics'
                     import { setAnalyticsConsent } from '@/lib/analyticsConsent'
+                    import { loadWebLanguage, I18nProvider, useI18n } from '@/lib/i18n'
+                    import { DocumentTitle } from '@/lib/pageTitle'
                     const Fixture = () => {
                         const navigate = useNavigate()
+                        const { language, setLanguage } = useI18n()
                         useEffect(() => {
                             window.__consentFixture = {
                                 consent: setAnalyticsConsent, navigate,
-                                event: () => trackEvent('owned_fixture_event')
+                                event: () => trackEvent('owned_fixture_event'),
+                                ready: () => loadWebLanguage('zh'),
+                                select: setLanguage, current: () => language
                             }
-                        }, [navigate])
-                        return React.createElement(GoogleAnalytics)
+                        }, [navigate, language, setLanguage])
+                        return React.createElement(React.Fragment, null, React.createElement(DocumentTitle), React.createElement(GoogleAnalytics))
                     }
                     createRoot(document.getElementById('root')).render(
-                        React.createElement(BrowserRouter, null, React.createElement(Fixture)))
+                        React.createElement(I18nProvider, null, React.createElement(BrowserRouter, null, React.createElement(Fixture))))
                 `
                 }
             }
@@ -78,8 +94,7 @@ const bundle = async () => {
             minify: false,
             sourcemap: false,
             rollupOptions: {
-                input: 'virtual:consent-fixture',
-                output: { inlineDynamicImports: true }
+                input: 'virtual:consent-fixture'
             }
         }
     })
@@ -89,7 +104,31 @@ const bundle = async () => {
     )
     const entry = output.find((item) => item.type === 'chunk' && item.isEntry)
     assert.ok(entry?.type === 'chunk')
-    return entry.code
+    const chinese = output.find(
+        (item) =>
+            item.type === 'chunk' &&
+            Object.keys(item.modules).some((id) => id.endsWith('/langs/zh.ts'))
+    )
+    assert.ok(
+        chinese?.type === 'chunk' && chinese.fileName !== entry.fileName,
+        'Chinese must remain outside the English entry'
+    )
+    assert.ok(
+        !Object.keys(entry.modules).some((id) =>
+            id.endsWith('/packages/i18n/src/index.ts')
+        ),
+        'no synchronous entry may pull Chinese back into the browser graph'
+    )
+    return {
+        entry: entry.fileName,
+        chinese: chinese.fileName,
+        files: new Map(
+            output.map((item) => [
+                item.fileName,
+                item.type === 'chunk' ? item.code : item.source
+            ])
+        )
+    }
 }
 
 // An owned transport consumer, not a claim about Google's backend. The live
@@ -118,13 +157,14 @@ test(
     async () => {
         const source = await bundle()
         const server = createServer((req, res) => {
-            if (req.url === '/fixture.js') {
+            const asset = source.files.get((req.url ?? '').slice(1))
+            if (asset !== undefined) {
                 res.setHeader('content-type', 'text/javascript')
-                res.end(source)
+                res.end(asset)
             } else {
                 res.setHeader('content-type', 'text/html')
                 res.end(
-                    '<!doctype html><html><body><div id="root"></div><script type="module" src="/fixture.js"></script></body></html>'
+                    `<!doctype html><html><body><div id="root"></div><script type="module" src="/${source.entry}"></script></body></html>`
                 )
             }
         })
@@ -137,14 +177,27 @@ test(
         try {
             for (const engine of [chromium, webkit]) {
                 const browser = await engine.launch({ headless: true })
+                let releaseLanguage = () => {}
                 try {
                     const context = await browser.newContext()
                     const page = await context.newPage()
                     const google: string[] = []
                     const unexpected: string[] = []
+                    let releaseChinese!: () => void
+                    const chineseHeld = new Promise<void>((resolve) => {
+                        releaseChinese = resolve
+                    })
+                    releaseLanguage = releaseChinese
+                    let chineseRequested = false
                     await page.route('**/*', async (route) => {
                         const url = new URL(route.request().url())
-                        if (url.origin === origin) return route.continue()
+                        if (url.origin === origin) {
+                            if (url.pathname === '/' + source.chinese) {
+                                chineseRequested = true
+                                await chineseHeld
+                            }
+                            return route.continue()
+                        }
                         if (
                             url.hostname === 'www.googletagmanager.com' &&
                             url.pathname === '/gtag/js'
@@ -203,6 +256,28 @@ test(
                         /owned-sensitive-marker|owned-command|owned-token/
                     )
                     assert.match(String(initial.params.page_title), /Manyfold/)
+                    assert.equal(chineseRequested, false)
+                    await page.evaluate(() =>
+                        window.__consentFixture.navigate('/zh/')
+                    )
+                    await page.waitForURL('**/zh/')
+                    await page.evaluate(() =>
+                        window.__consentFixture.navigate(
+                            '/?key=owned-sensitive-marker&cmd=owned-command'
+                        )
+                    )
+                    await page.waitForURL(
+                        '**/?key=owned-sensitive-marker&cmd=owned-command'
+                    )
+                    releaseChinese()
+                    await page.evaluate(() => window.__consentFixture.ready())
+                    assert.equal(
+                        await page.evaluate(
+                            () => window.__gaFixture.events.length
+                        ),
+                        1,
+                        'a retired language load must not report the abandoned route'
+                    )
                     await page.evaluate(() =>
                         window.__consentFixture.navigate('/zh/')
                     )
@@ -257,7 +332,72 @@ test(
                         'withdrawal survives a reload without Google bootstrap'
                     )
                     assert.deepEqual(unexpected, [])
+                    const recovering = await browser.newContext()
+                    await recovering.addInitScript(() => {
+                        localStorage.setItem('nca.web.language', 'zh')
+                        localStorage.setItem(
+                            'mf.web.analyticsConsent',
+                            'granted'
+                        )
+                    })
+                    const recoveryPage = await recovering.newPage()
+                    await recoveryPage.route('**/*', async (route) => {
+                        const url = new URL(route.request().url())
+                        if (url.origin === origin) {
+                            if (url.pathname === '/' + source.chinese)
+                                return route.abort('failed')
+                            return route.continue()
+                        }
+                        if (
+                            url.hostname === 'www.googletagmanager.com' &&
+                            url.pathname === '/gtag/js'
+                        )
+                            return route.fulfill({
+                                contentType: 'text/javascript',
+                                body: receiver
+                            })
+                        return route.abort()
+                    })
+                    await recoveryPage.goto(origin + '/settings/account')
+                    await recoveryPage.waitForFunction(() =>
+                        Boolean(window.__consentFixture && window.__gaFixture)
+                    )
+                    await recoveryPage.evaluate(() =>
+                        window.__consentFixture.ready().catch(() => {})
+                    )
+                    assert.equal(
+                        await recoveryPage.evaluate(
+                            () => window.__gaFixture.events.length
+                        ),
+                        0
+                    )
+                    await recoveryPage.evaluate(() =>
+                        window.__consentFixture.select('en')
+                    )
+                    await recoveryPage.waitForFunction(
+                        () => window.__consentFixture.current() === 'en'
+                    )
+                    await recoveryPage.evaluate(() =>
+                        window.__consentFixture.navigate('/workspace')
+                    )
+                    await recoveryPage.waitForFunction(() =>
+                        window.__gaFixture.events.some((event) =>
+                            String(event.params.page_location).endsWith(
+                                '/workspace'
+                            )
+                        )
+                    )
+                    const recovered = await recoveryPage.evaluate(() =>
+                        window.__gaFixture.events.at(-1)
+                    )
+                    assert.equal(
+                        recovered?.params.page_title,
+                        await recoveryPage.title()
+                    )
+                    assert.match(await recoveryPage.title(), /Workspace/)
+                    await recovering.close()
                 } finally {
+                    releaseLanguage()
                     await browser.close()
                 }
             }

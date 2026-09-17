@@ -5,7 +5,7 @@ import {
     subscribeAnalyticsConsent
 } from '@/lib/analyticsConsent'
 import { gaPageLocation } from '@/lib/googleAnalyticsUrl'
-import { i18nReady } from '@/lib/i18n'
+import { ensurePageLanguage, i18nReady } from '@/lib/i18n'
 import { pageTitleFor } from '@/lib/pageTitle'
 
 // Read defensively: this module is reachable from node-run unit tests (via
@@ -39,22 +39,35 @@ function gtag(..._args: unknown[]): void {
 let reported: string | null = null
 let tagLoaded = false
 let enabled = false
+let pageViewRequest = 0
 
 // Resolved from the route rather than read off document.title: DocumentTitle
 // writes that from the same table, but the two are siblings and a page view
 // must not depend on which effect React happens to run first.
 const reportPageView = (pathname: string, pageLocation: string): void => {
+    const request = ++pageViewRequest
     if (!enabled) return
     if (pageLocation === reported) return
-    reported = pageLocation
-    // Enhanced measurement events (scroll, outbound click, …) carry no
-    // page_location of their own, so they inherit this default instead of
-    // reading the raw href.
-    gtag('set', { page_location: pageLocation })
-    gtag('event', 'page_view', {
-        page_location: pageLocation,
-        page_title: pageTitleFor(pathname)
-    })
+    void ensurePageLanguage(pathname).then(
+        () => {
+            if (
+                !enabled ||
+                request !== pageViewRequest ||
+                pageLocation === reported
+            )
+                return
+            reported = pageLocation
+            // Enhanced measurement events (scroll, outbound click, …) carry no
+            // page_location of their own, so they inherit this default instead of
+            // reading the raw href.
+            gtag('set', { page_location: pageLocation })
+            gtag('event', 'page_view', {
+                page_location: pageLocation,
+                page_title: pageTitleFor(pathname)
+            })
+        },
+        () => {}
+    )
 }
 
 const loadTag = (): void => {
@@ -129,6 +142,7 @@ const enableAnalytics = (): void => {
 const disableAnalytics = (): void => {
     if (!measurementId) return
     enabled = false
+    pageViewRequest++
     // Official kill switch: an already-loaded gtag.js stops sending. The
     // script tag cannot be unloaded, but no further network calls happen.
     gaDisableFlag(true)

@@ -5191,7 +5191,7 @@ html[lang^='zh'] .landing-root .lp-cl-hero-copy .lp-h1 {
     grid-template-columns: 1fr auto;
     gap: 10px;
     font-size: 11.5px;
-    color: var(--lp-subtle);
+    color: var(--lp-muted);
 }
 
 .landing-root .lp-ob-foot b {

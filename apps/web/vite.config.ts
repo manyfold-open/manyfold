@@ -70,7 +70,7 @@ export default defineConfig(({ mode }) => {
                 ),
                 '@manyfold/i18n': resolve(
                     __dirname,
-                    '../../packages/i18n/src/index.ts'
+                    '../../packages/i18n/src/browser.ts'
                 )
             }
         },

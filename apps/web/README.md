@@ -15,6 +15,12 @@ pnpm --filter @manyfold/web build
 
 From the repo root: `just dev-web` for this app alone, `just dev` for the whole tree.
 
+## Language loading
+
+The Web Vite alias uses `@manyfold/i18n/browser`: English is synchronous and other catalogs load on demand. The default package entry keeps synchronous English and Chinese for Node, Admin, and static rendering. Both entries share the same translation, brand, and extras state; do not introduce a second instance or import the default entry into the Web bundle.
+
+Marketing URLs select their language before stored/browser preferences without overwriting the saved product preference. The initial render, page title, and consented pageview wait for that language's core and edition catalogs. Later product navigation uses the current selected language, including after recovery from a failed initial load. Edition extras retain one registered object and add completed catalogs by language, so a late load cannot replace another language or the current selection.
+
 ## Working against a remote API
 
 For UI-only work, you can skip the local backend and the login flow entirely: point the vite proxy at a deployed API and hand the dev bundle a personal access token.
