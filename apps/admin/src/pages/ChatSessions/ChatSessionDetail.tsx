@@ -280,9 +280,14 @@ const ChatSessionDetail: FC = (): ReactNode => {
         )
 
     const session = detail.session
-    const eventTypeSummary = Object.entries(detail.eventCounts).sort((a, b) =>
-        a[0].localeCompare(b[0])
-    )
+    const summaryCounts = { ...detail.eventCounts }
+    if (detail.cancelledEventCount) {
+        summaryCounts.error -= detail.cancelledEventCount
+        summaryCounts.cancelled = detail.cancelledEventCount
+    }
+    const eventTypeSummary = Object.entries(summaryCounts)
+        .filter(([, total]) => total > 0)
+        .sort((a, b) => a[0].localeCompare(b[0]))
     const filterTypes = [
         ...new Set([...KNOWN_EVENT_TYPES, ...Object.keys(detail.eventCounts)])
     ]
@@ -475,13 +480,19 @@ const ChatSessionDetail: FC = (): ReactNode => {
                                                 ).toLocaleString(getLocale())}
                                             </td>
                                             <td>
-                                                {turn.execution ? (
+                                                {turn.outcome ||
+                                                turn.execution ? (
                                                     <Badge
                                                         tone={turnStateTone(
-                                                            turn.execution.state
+                                                            turn.outcome ??
+                                                                turn.execution
+                                                                    ?.state ??
+                                                                null
                                                         )}
                                                     >
-                                                        {turn.execution.state}
+                                                        {turn.outcome ??
+                                                            turn.execution
+                                                                ?.state}
                                                     </Badge>
                                                 ) : (
                                                     '—'

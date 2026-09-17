@@ -208,6 +208,15 @@ test('with no version catalog the framework keeps its built-in default', async (
     assert.equal(input.frameworkVersionSource, 'none')
 })
 
+test('a git framework without catalog admission is refused before preparation', async () => {
+    const h = buildHarness({ frameworkVersions: false })
+    await assert.rejects(
+        h.svc.prepareRuntime('user_1', 'sbx_1', 'narranexus'),
+        ServiceUnavailableException
+    )
+    assert.equal(h.calls.prepare.length, 0)
+})
+
 test('a CLI the sandbox already reports is registered as found, not moved to another version', async () => {
     const h = buildHarness({ detected: ['claude-code', 'codex'] })
     await h.svc.prepareRuntime('user_1', 'sbx_1', 'codex')

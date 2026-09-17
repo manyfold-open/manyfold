@@ -1,5 +1,6 @@
 import type { DaemonInflightStream } from '@manyfold/shared'
 import { ADOPTABLE_TURN_RUNTIMES } from '@/modules/chat/chat.repository'
+import { isTerminalTurnExecutionState } from '@/modules/chat/turn-outcome'
 import {
     Inject,
     Injectable,
@@ -14,7 +15,8 @@ import {
     chatStreamEvents,
     turnExecutions,
     type ChatMessage as DbChatMessage,
-    type Database
+    type Database,
+    type TurnExecutionRow
 } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import {
@@ -130,11 +132,7 @@ interface TerminalVeto {
 
 interface UnmatchedTurnSnapshot {
     message: DbChatMessage
-    execution: {
-        runtime: 'sprites' | 'daemon' | 'k8s' | 'external'
-        state: 'running' | 'handoff' | 'adopting' | 'done' | 'failed'
-        leaseExpiresAt: Date
-    } | null
+    execution: Pick<TurnExecutionRow, 'runtime' | 'state' | 'leaseExpiresAt'> | null
     streamedRunnerFrames: boolean
 }
 
@@ -610,7 +608,7 @@ export class DaemonExecResumeService implements OnModuleDestroy {
         snapshot: UnmatchedTurnSnapshot
     ): UnmatchedVerdict {
         const { message, execution: exec, streamedRunnerFrames } = snapshot
-        if (!exec || exec.state === 'done' || exec.state === 'failed')
+        if (!exec || isTerminalTurnExecutionState(exec.state))
             return { action: 'converge' }
         const leaseMs = exec.leaseExpiresAt.getTime() - Date.now()
         if (leaseMs > 0)

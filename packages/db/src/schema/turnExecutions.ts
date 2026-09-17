@@ -58,7 +58,14 @@ export const turnExecutions = pgTable(
             withTimezone: true
         }).notNull(),
         state: text('state', {
-            enum: ['running', 'handoff', 'adopting', 'done', 'failed']
+            enum: [
+                'running',
+                'handoff',
+                'adopting',
+                'done',
+                'failed',
+                'cancelled'
+            ]
         }).notNull(),
         adoptCount: integer('adopt_count').notNull().default(0),
         createdAt: timestamp('created_at', { withTimezone: true })

@@ -32,6 +32,10 @@ import {
     type MessageCursor
 } from './chat.repository'
 import { decodeMessageCursor, encodeMessageCursor } from './message-page'
+import {
+    isCancelledTurnError,
+    isTerminalTurnExecutionState
+} from './turn-outcome'
 
 const TURNS_LIMIT = 100
 
@@ -56,16 +60,35 @@ const decodeSessionCursor = (cursor: string): AdminSessionCursor => {
 const errorFromPayload = (
     payload: Record<string, unknown> | undefined
 ): AdminChatSessionError | null => {
-    if (!payload) return null
+    if (!payload || isCancelledTurnError(payload)) return null
     const error = payload.error
-    if (!error || typeof error !== 'object') return null
-    const fields = error as Record<string, unknown>
+    const fields =
+        error && typeof error === 'object'
+            ? (error as Record<string, unknown>)
+            : {}
     return {
         code: typeof fields.code === 'string' ? fields.code : null,
         message: typeof fields.message === 'string' ? fields.message : null,
         retryable:
             typeof fields.retryable === 'boolean' ? fields.retryable : null
     }
+}
+
+const turnOutcome = (
+    execution: TurnExecutionRow | undefined,
+    terminal:
+        { eventType: string; payloadJson: Record<string, unknown> } | undefined
+): AdminChatSessionTurn['outcome'] => {
+    if (terminal?.eventType === 'done') return 'done'
+    if (
+        isCancelledTurnError(terminal?.payloadJson) ||
+        execution?.state === 'cancelled'
+    )
+        return 'cancelled'
+    if (terminal) return 'failed'
+    return execution && isTerminalTurnExecutionState(execution.state)
+        ? execution.state
+        : null
 }
 
 const messageCursor = (row: DbChatMessage): MessageCursor => ({
@@ -87,10 +110,11 @@ const toTurnMessage = (row: DbChatMessage): AdminChatTurnMessage => ({
 })
 
 const toExecution = (
-    row: TurnExecutionRow
+    row: TurnExecutionRow,
+    outcome: AdminChatSessionTurn['outcome']
 ): AdminChatSessionTurn['execution'] => ({
     runtime: row.runtime,
-    state: row.state,
+    state: outcome ?? row.state,
     spriteName: row.spriteName,
     ownerId: row.ownerId,
     adoptCount: row.adoptCount,
@@ -142,12 +166,12 @@ export class AdminChatSessionsService {
             sessionId,
             { limit: TURNS_LIMIT }
         )
-        const [turns, eventCounts] = await Promise.all([
+        const [turns, counts] = await Promise.all([
             this.buildTurns(turnRows),
-            this.repo.countSessionEventsByType(sessionId)
+            this.repo.countSessionEvents(sessionId)
         ])
 
-        return { session: summary, turns, eventCounts }
+        return { session: summary, turns, ...counts }
     }
 
     // The transcript half of the same turns `get` reports on: each assistant
@@ -218,9 +242,9 @@ export class AdminChatSessionsService {
         }>
     ): Promise<AdminChatSessionTurn[]> {
         const messageIds = rows.map((r) => r.message.id)
-        const [executions, errors] = await Promise.all([
+        const [executions, terminals] = await Promise.all([
             this.repo.listTurnExecutionsByMessageIds(messageIds),
-            this.repo.terminalErrorsForMessages(messageIds)
+            this.repo.terminalEventsForMessages(messageIds)
         ])
         const executionByMessage = new Map(
             executions.map((row) => [row.messageId, row])
@@ -228,6 +252,8 @@ export class AdminChatSessionsService {
 
         return rows.map(({ message, usage }) => {
             const execution = executionByMessage.get(message.id)
+            const terminal = terminals.get(message.id)
+            const outcome = turnOutcome(execution, terminal)
             const capabilities = message.capabilityEventsJson as Record<
                 string,
                 unknown
@@ -246,8 +272,12 @@ export class AdminChatSessionsService {
                 costUsd: usage?.costUsd == null ? null : Number(usage.costUsd),
                 firstTokenMs: usage?.firstTokenMs ?? null,
                 totalMs: usage?.totalMs ?? null,
-                execution: execution ? toExecution(execution) : null,
-                error: errorFromPayload(errors.get(message.id)),
+                outcome,
+                execution: execution ? toExecution(execution, outcome) : null,
+                error:
+                    outcome === 'failed'
+                        ? errorFromPayload(terminal?.payloadJson)
+                        : null,
                 compactedStreamRows: message.compactedStreamRows,
                 streamCompactedAt:
                     message.streamCompactedAt?.toISOString() ?? null
@@ -323,23 +353,11 @@ export class AdminChatSessionsService {
             this.repo.listSessionChannels(sessionIds)
         ])
 
-        // Only look up errors for turns that can actually be failed: the latest
-        // execution when it failed, plus the latest assistant message of
-        // sessions whose runtime does not use durable execution rows.
-        const errorCandidates = new Map<string, string>()
-        for (const sessionId of sessionIds) {
-            const execution = executions.get(sessionId)
-            if (execution) {
-                if (execution.state === 'failed')
-                    errorCandidates.set(sessionId, execution.messageId)
-                continue
-            }
-            const assistant = latestAssistants.get(sessionId)
-            if (assistant) errorCandidates.set(sessionId, assistant.id)
-        }
-        const errors = await this.repo.terminalErrorsForMessages([
-            ...errorCandidates.values()
-        ])
+        // The latest assistant is authoritative even when this runtime did not
+        // stamp an execution row. An older execution cannot describe its outcome.
+        const terminals = await this.repo.terminalEventsForMessages(
+            [...latestAssistants.values()].map((message) => message.id)
+        )
 
         const channelBySession = new Map<string, ChatSessionChannelSummary>()
         for (const row of channels) {
@@ -357,15 +375,22 @@ export class AdminChatSessionsService {
             const session = row.session
             const stats = messageStats.get(session.id)
             const usage = usageSums.get(session.id)
-            const execution = executions.get(session.id)
-            const candidateMessageId = errorCandidates.get(session.id)
-            const lastError = candidateMessageId
-                ? errorFromPayload(errors.get(candidateMessageId))
-                : null
+            const assistant = latestAssistants.get(session.id)
+            const latestExecution = executions.get(session.id)
+            const execution =
+                latestExecution?.messageId === assistant?.id
+                    ? latestExecution
+                    : undefined
+            const terminal = assistant ? terminals.get(assistant.id) : undefined
+            const outcome = turnOutcome(execution, terminal)
+            const lastError =
+                outcome === 'failed'
+                    ? errorFromPayload(terminal?.payloadJson)
+                    : null
             const status: AdminChatSessionStatus =
                 session.inflightMessageId !== null
                     ? 'running'
-                    : execution?.state === 'failed' || lastError !== null
+                    : outcome === 'failed'
                       ? 'failed'
                       : 'idle'
             return {
@@ -381,7 +406,7 @@ export class AdminChatSessionsService {
                 channel: channelBySession.get(session.id) ?? null,
                 status,
                 inflightMessageId: session.inflightMessageId,
-                lastTurnState: execution?.state ?? null,
+                lastTurnState: outcome ?? execution?.state ?? null,
                 lastError,
                 messageCount: stats?.messageCount ?? 0,
                 lastMessageAt: stats?.lastMessageAt?.toISOString() ?? null,

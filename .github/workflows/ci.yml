@@ -40,8 +40,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - name: Resolve affected base
               env:
@@ -118,8 +119,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - name: Resolve affected base
               env:
@@ -169,8 +171,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec turbo run build --filter='@manyfold/api^...'
             - name: Run api tests (shard ${{ matrix.shard }}/4)
@@ -205,8 +208,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - name: Build workspace dependencies
               run: pnpm exec turbo run build --filter='@manyfold/api^...' --concurrency=5
@@ -253,8 +257,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - name: Build the API and its dependencies
               run: pnpm exec turbo run build --filter=@manyfold/api --concurrency=5
@@ -283,8 +288,9 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - name: Resolve affected base
               env:
@@ -310,13 +316,15 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: 'pnpm'
+            - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
             - run: pnpm exec playwright install --with-deps chromium webkit
             - run: pnpm test:browser-sentry
             - run: pnpm test:browser-telemetry
             - run: pnpm test:browser-settings
+            - run: pnpm test:browser-admin-outcome
 
     secret-scan:
         needs: prepare

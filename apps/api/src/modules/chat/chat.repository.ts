@@ -60,6 +60,11 @@ import { nonTerminalStreamEventInsert } from './stream-event-insert'
 import { dedupRecoveredRowsBySourceKey } from './recovered-dedup'
 import { createAssistantBlockBuffer } from './assistant-blocks'
 import { TurnFenceLostError, type TurnExecutionFence } from './turn-fence'
+import {
+    CANCELLED_BY_USER_CODE,
+    isCancelledTurnError,
+    isTerminalTurnExecutionState
+} from './turn-outcome'
 
 // The runtimes the adoption sweep will claim and replay from a transcript. A
 // turn_executions row for any OTHER runtime exists for cross-replica ownership
@@ -1372,6 +1377,30 @@ export class ChatRepository {
         return map
     }
 
+    async terminalEventsForMessages(
+        messageIds: string[]
+    ): Promise<Map<string, { eventType: string; payloadJson: Record<string, unknown> }>> {
+        if (messageIds.length === 0) return new Map()
+        const rows = await this.db
+            .selectDistinctOn([chatStreamEvents.messageId], {
+                messageId: chatStreamEvents.messageId,
+                eventType: chatStreamEvents.eventType,
+                payloadJson: chatStreamEvents.payloadJson
+            })
+            .from(chatStreamEvents)
+            .where(
+                and(
+                    inArray(chatStreamEvents.messageId, messageIds),
+                    inArray(chatStreamEvents.eventType, ['done', 'error'])
+                )
+            )
+            .orderBy(chatStreamEvents.messageId, desc(chatStreamEvents.id))
+        return new Map(rows.map((row) => [row.messageId, {
+            eventType: row.eventType,
+            payloadJson: row.payloadJson as Record<string, unknown>
+        }]))
+    }
+
     async listAdminSessionsPage(opts: {
         limit: number
         after: AdminSessionCursor | null
@@ -1419,7 +1448,8 @@ export class ChatRepository {
                                           eq(
                                               chatStreamEvents.eventType,
                                               'error'
-                                          )
+                                          ),
+                                          sql`${chatStreamEvents.payloadJson}->'error'->>'code' is distinct from ${CANCELLED_BY_USER_CODE}`
                                       )
                                   )
                           )
@@ -1638,20 +1668,25 @@ export class ChatRepository {
             .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
     }
 
-    async countSessionEventsByType(
+    async countSessionEvents(
         sessionId: string
-    ): Promise<Record<string, number>> {
+    ): Promise<{ eventCounts: Record<string, number>; cancelledEventCount: number }> {
         const rows = await this.db
             .select({
                 eventType: chatStreamEvents.eventType,
-                total: count()
+                total: count(),
+                cancelled: sql<number>`count(*) filter (where ${chatStreamEvents.eventType} = 'error' and ${chatStreamEvents.payloadJson}->'error'->>'code' = ${CANCELLED_BY_USER_CODE})`
             })
             .from(chatStreamEvents)
             .where(eq(chatStreamEvents.sessionId, sessionId))
             .groupBy(chatStreamEvents.eventType)
         const counts: Record<string, number> = {}
-        for (const row of rows) counts[row.eventType] = Number(row.total)
-        return counts
+        let cancelledEventCount = 0
+        for (const row of rows) {
+            counts[row.eventType] = Number(row.total)
+            cancelledEventCount += Number(row.cancelled)
+        }
+        return { eventCounts: counts, cancelledEventCount }
     }
 
     async listAdminSessionStreamEvents(
@@ -1776,8 +1811,7 @@ export class ChatRepository {
                 const execution = await lockTurnExecution(tx, row.messageId)
                 if (
                     execution &&
-                    execution.state !== 'done' &&
-                    execution.state !== 'failed'
+                    !isTerminalTurnExecutionState(execution.state)
                 )
                     return { id: null, fenceLost: true }
             }
@@ -1900,7 +1934,12 @@ export class ChatRepository {
                 await tx
                     .update(turnExecutions)
                     .set({
-                        state: row.eventType === 'done' ? 'done' : 'failed',
+                        state:
+                            row.eventType === 'done'
+                                ? 'done'
+                                : isCancelledTurnError(row.payloadJson)
+                                  ? 'cancelled'
+                                  : 'failed',
                         updatedAt: new Date()
                     })
                     .where(
@@ -2510,7 +2549,7 @@ export class ChatRepository {
             if (!current) return { outcome: 'busy' }
             if (current.sessionId !== input.sessionId)
                 return { outcome: 'mismatch' }
-            if (current.state === 'done' || current.state === 'failed')
+            if (isTerminalTurnExecutionState(current.state))
                 return { outcome: 'terminal' }
 
             const [claimed] = await tx

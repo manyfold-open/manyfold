@@ -7,6 +7,8 @@ on:
             - 'apps/cli/**'
             - 'packages/shared/**'
             - 'pnpm-lock.yaml'
+            - '.node-test-version'
+            - 'scripts/check-test-runtime.mjs'
             - '.github/workflows/daemon-lifecycle.yml'
             - '.github/workflows/release-cli.yml'
             - '.github/workflows/release-cli-dev.yml'
@@ -16,6 +18,8 @@ on:
             - 'apps/cli/**'
             - 'packages/shared/**'
             - 'pnpm-lock.yaml'
+            - '.node-test-version'
+            - 'scripts/check-test-runtime.mjs'
             - '.github/workflows/daemon-lifecycle.yml'
             - '.github/workflows/release-cli.yml'
             - '.github/workflows/release-cli-dev.yml'
@@ -42,7 +46,9 @@ jobs:
                       target: bun-darwin-arm64
                     - os: macos-15-intel
                       target: bun-darwin-x64
-                    - os: windows-latest
+                    # pnpm 10.29.3 bundles node-gyp 11.5, which recognizes VS2022
+                    # but not VS2026 (now used by windows-latest/windows-2025).
+                    - os: windows-2022
                       target: bun-windows-x64
         env:
             MF_CLI_CHANNEL: dev
@@ -56,12 +62,29 @@ jobs:
                   version: 10.29.3
             - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
               with:
-                  node-version: '22'
+                  node-version-file: .node-test-version
                   cache: pnpm
+            - run: node scripts/check-test-runtime.mjs
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
               with:
                   bun-version: latest
+            - name: Select Python for Windows native builds
+              if: runner.os == 'Windows'
+              shell: pwsh
+              # Match node-gyp 11.5's Windows Node24 matrix: Python 3.14 is
+              # excluded there due to nodejs/node#59983.
+              run: |
+                  $python = py -3.13 -c "import sys; print(sys.executable)"
+                  if ($LASTEXITCODE -ne 0) { throw 'Python 3.13 is required for native builds' }
+                  Write-Host "Native build Python: $python"
+                  & $python --version
+                  if ($LASTEXITCODE -ne 0) { throw 'Selected Python cannot execute' }
+                  "NODE_GYP_FORCE_PYTHON=$python" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
             - run: pnpm install --frozen-lockfile
+            - name: Verify Windows SQLite addon
+              if: runner.os == 'Windows'
+              run: |
+                  node -e "const assert = require('node:assert/strict'); const Database = require('better-sqlite3'); const db = new Database(':memory:'); assert.equal(db.prepare('select 1 as value').get().value, 1); db.close(); console.log('SQLite addon loaded:', process.version, 'ABI', process.versions.modules)"
             - run: pnpm exec turbo run build --filter='@manyfold/cli^...' --concurrency=2
             - name: Compile the standalone ownership worker
               working-directory: apps/cli
