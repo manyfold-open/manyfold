@@ -81,6 +81,7 @@ Stop the Manyfold daemon and remove its autostart unit
 | --- | --- |
 | `--system` | target system scope (boot-time unit; needs root/sudo; default as root) |
 | `--user` | target user scope (per-login unit; default as non-root) |
+| `--keep-execs` | leave running execs alone for the next daemon to adopt (default: stop the process groups this daemon owns) |
 | `-h, --help` | display help for command |
 
 ## `mf daemon logs`

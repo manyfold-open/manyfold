@@ -896,3 +896,184 @@ test(
         }
     }
 )
+
+// ---- ADR-0029 §4, B3: what `mf daemon stop` and the update drain do ------
+
+const { stopOwnedFileExecs } = await import('../src/daemon/exec-files')
+const { drainSessionCount } = await import('../src/daemon/rpc')
+const { survivalForKillMode } = await import('../src/daemon/init-unit')
+const { buildUnit } = await import('../src/daemon/init-unit/linux')
+
+test(
+    'mf daemon stop ends the execs this daemon owns, by identity, and leaves the rest alone',
+    { skip: !posix },
+    async () => {
+        const running = startExec('stop-owned', [
+            '/bin/sh',
+            '-c',
+            'echo up; sleep 30'
+        ])
+        await sleep(300)
+        const ownedPid = (
+            readMeta(running.refId) as unknown as { owner: { pid: number } }
+        ).owner.pid
+        // A leftover from another daemon: a pid that is alive but not the exec's own.
+        const foreign = nextRef('stop-foreign')
+        const foreignDir = join(daemonPaths.execDir, foreign)
+        mkdirSync(foreignDir, { recursive: true })
+        writeFileSync(
+            join(foreignDir, 'meta.json'),
+            JSON.stringify({
+                refId: foreign,
+                method: 'exec.start',
+                payload: {},
+                startedAt: new Date().toISOString(),
+                status: 'running',
+                format: 2,
+                cwd: home,
+                owner: {
+                    pid: process.pid,
+                    startTime: 'not ours',
+                    bootId: 'another'
+                }
+            })
+        )
+        for (const name of [
+            'events.ndjson',
+            'stdin',
+            'stdout.log',
+            'stderr.log'
+        ])
+            writeFileSync(join(foreignDir, name), '')
+        // One that already finished: its exit line is the next daemon's to read.
+        const finished = nextRef('stop-finished')
+        const finishedDir = join(daemonPaths.execDir, finished)
+        mkdirSync(finishedDir, { recursive: true })
+        writeFileSync(
+            join(finishedDir, 'meta.json'),
+            JSON.stringify({
+                refId: finished,
+                method: 'exec.start',
+                payload: {},
+                startedAt: new Date().toISOString(),
+                status: 'running',
+                format: 2,
+                cwd: home,
+                owner: { pid: ownedPid, startTime: 'x', bootId: 'y' }
+            })
+        )
+        for (const [name, body] of [
+            ['events.ndjson', ''],
+            ['stdin', ''],
+            ['stdout.log', ''],
+            ['stderr.log', ''],
+            ['exit', '0\n']
+        ])
+            writeFileSync(join(finishedDir, name), body)
+
+        const summary = await stopOwnedFileExecs({
+            log: () => {},
+            waitMs: 3_000
+        })
+        assert.equal(summary.stopped, 1)
+        assert.equal(summary.kept, 1)
+        assert.ok(
+            (
+                readMeta(running.refId) as unknown as {
+                    abortRequestedAt?: string
+                }
+            ).abortRequestedAt
+        )
+        assert.equal(
+            (readMeta(foreign) as unknown as { abortRequestedAt?: string })
+                .abortRequestedAt,
+            undefined
+        )
+        assert.equal(existsSync(join(finishedDir, 'exit')), true)
+        // In production the daemon is gone when this runs; here its owner loop
+        // is still alive and sees the exit line the wrapper wrote after the TERM.
+        const final = await running.handle.done
+        assert.equal(final.payload?.exitCode, 143)
+        assert.throws(() => process.kill(-ownedPid, 0), /ESRCH/)
+        rmSync(foreignDir, { recursive: true, force: true })
+        rmSync(finishedDir, { recursive: true, force: true })
+
+        // What the next daemon makes of the leftover: the persisted abort turns
+        // the recorded 143 into a cancelled, aborted stream.
+        const left = nextRef('stop-leftover')
+        const leftDir = join(daemonPaths.execDir, left)
+        mkdirSync(leftDir, { recursive: true })
+        writeFileSync(
+            join(leftDir, 'meta.json'),
+            JSON.stringify({
+                refId: left,
+                method: 'exec.start',
+                payload: {},
+                startedAt: new Date().toISOString(),
+                status: 'running',
+                format: 2,
+                cwd: home,
+                owner: { pid: 2 ** 22 - 3, startTime: 'gone', bootId: 'gone' },
+                abortRequestedAt: new Date().toISOString()
+            })
+        )
+        for (const [name, body] of [
+            ['events.ndjson', ''],
+            ['stdin', ''],
+            ['stdout.log', ''],
+            ['stderr.log', ''],
+            ['exit', '143\n']
+        ])
+            writeFileSync(join(leftDir, name), body)
+        recoverFileExecs(() => {})
+        const leftover = await fileExecRegistry.get(left)?.done
+        assert.equal(leftover?.error, 'cancelled')
+        assert.equal(execStreams.get(left)?.status, 'aborted')
+    }
+)
+
+test('the update drain counts only what dies with the daemon', () => {
+    const counts = { pipeExecs: 1, fileExecs: 2, ptys: 1, turns: 1 }
+    assert.equal(drainSessionCount({ ...counts, fileExecsAdoptable: false }), 5)
+    assert.equal(drainSessionCount({ ...counts, fileExecsAdoptable: true }), 3)
+    assert.equal(
+        drainSessionCount({
+            pipeExecs: 0,
+            fileExecs: 4,
+            ptys: 0,
+            turns: 0,
+            fileExecsAdoptable: true
+        }),
+        0
+    )
+})
+
+test('exec survival is decided by the supervisor: launchd always, systemd only with KillMode=process, manual never', () => {
+    assert.equal(survivalForKillMode('launchd-user', null).survive, true)
+    assert.equal(survivalForKillMode('launchd-system', null).survive, true)
+    assert.equal(survivalForKillMode('systemd-user', 'process').survive, true)
+    assert.equal(
+        survivalForKillMode('systemd-user', 'control-group').survive,
+        false
+    )
+    assert.match(
+        survivalForKillMode('systemd-system', null).reason,
+        /KillMode=unknown/
+    )
+    assert.equal(survivalForKillMode('manual', null).survive, false)
+    assert.match(survivalForKillMode('manual', null).reason, /--keep-execs/)
+})
+
+test('the systemd user unit keeps detached execs alive across a restart; the system unit is left to its operator', () => {
+    const ctx = (scope: 'user' | 'system') => ({
+        scope,
+        programArgs: ['/opt/mf', 'daemon', 'start', '--foreground'],
+        home: '/home/me',
+        user: 'me',
+        group: 'me',
+        errLogPath: '/home/me/.manyfold/daemon.err.log',
+        profile: 'default'
+    })
+    assert.match(buildUnit(ctx('user')), /^KillMode=process$/m)
+    assert.doesNotMatch(buildUnit(ctx('system')), /KillMode/)
+})

@@ -102,7 +102,8 @@ instructions outside its managed reference block.
 mf daemon status              # process + heartbeat state, plus autostart status
 mf daemon logs                # tail the local log file
 mf daemon start               # install autostart unit and start (default: login scope)
-mf daemon stop                # stop the daemon and remove its autostart unit
+mf daemon stop                # stop the daemon (and the execs it owns), remove its autostart unit
+mf daemon stop --keep-execs   # stop the daemon but leave running execs for the next one to adopt
 mf daemon doctor              # diagnose registration / framework detection issues
 mf daemon hooks status        # claude / codex session hooks (see below)
 ```
@@ -233,6 +234,15 @@ is off by default while it is verified per framework; `mf daemon start` logs
 whether it is on. An exec that runs under a runtime auth profile keeps its
 profile lease across the restart too: the new daemon takes the lease over
 before it reconnects, so nothing else can run on that profile in between.
+
+Whether an exec actually outlives a restart depends on what supervises the
+daemon: launchd always leaves it alone; a systemd **user** unit written by
+`mf daemon start` now carries `KillMode=process` for the same effect (reinstall
+an older unit with `mf daemon stop && mf daemon start`); a system unit is the
+operator's, and `mf daemon doctor` reports what it does. `mf daemon start` logs
+`exec survival: yes|no`, and an update only waits for the sessions that would
+die with the daemon. A plain `mf daemon stop` ends the execs the daemon owns;
+`--keep-execs` leaves them for the next daemon to adopt.
 
 ## Troubleshooting
 

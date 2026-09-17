@@ -56,6 +56,7 @@ ExecStart=${execStart}
 Restart=on-failure
 RestartSec=5
 StartLimitIntervalSec=0
+KillMode=process
 Environment=PATH=${path}
 Environment=${systemdQuote(`MF_PROFILE=${ctx.profile}`)}
 StandardOutput=append:${ctx.errLogPath.replace(ctx.home, '%h')}
@@ -178,6 +179,34 @@ export const uninstall = async (opts: {
             { timeout: 10_000 }
         )
     } catch {}
+}
+
+// What systemd does to the rest of the cgroup when the daemon stops or
+// restarts. `process` leaves a detached exec alive for the next daemon to
+// adopt (ADR-0029 §4); the default `control-group` kills it. Read from the
+// loaded unit, not the file: it is the loaded value that acts.
+export const killModeOf = async (
+    scope: Scope,
+    profile: string
+): Promise<string | null> => {
+    try {
+        const { stdout } = await execFileAsync(
+            'systemctl',
+            systemctlArgs(
+                scope,
+                'show',
+                systemdUnitNameFor(profile),
+                '-p',
+                'KillMode',
+                '--value'
+            ),
+            { timeout: 5_000 }
+        )
+        const value = String(stdout).trim()
+        return value || null
+    } catch {
+        return null
+    }
 }
 
 export const status = async (

@@ -27,6 +27,10 @@ export interface DaemonLocalHealth {
     uptimeMs: number
     wsConnected: boolean
     activeExecs: number
+    // Of activeExecs, how many would outlive a restart of this daemon
+    // (detached file execs on an installation that keeps them; ADR-0029 §4).
+    adoptableExecs?: number
+    execsSurviveRestart?: boolean
     activePtys: number
     updatePending: boolean
     autoUpdate: boolean

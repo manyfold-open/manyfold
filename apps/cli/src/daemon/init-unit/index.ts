@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import type { DaemonStartupMethod } from '@manyfold/shared'
 import { homedir, userInfo } from 'node:os'
 import { daemonPaths } from '@/daemon/config'
 import { resolveProfile } from '@/config'
@@ -111,6 +112,53 @@ export const getInitUnitStatus = async (
     const profile = resolveProfile()
     if (process.platform === 'darwin') return darwin.status(scope, profile)
     return linux.status(scope, profile)
+}
+
+export interface ExecSurvival {
+    survive: boolean
+    reason: string
+}
+
+// Whether a detached exec outlives a restart of THIS installation, decided
+// at runtime from what actually manages the daemon (ADR-0029 §4): launchd
+// signals only the job's own process group, so a detached exec is safe; a
+// systemd unit is safe only with KillMode=process, which the user unit now
+// carries but an operator's system unit may not; a manual start has no
+// supervisor, so nothing but `mf daemon stop --keep-execs` keeps them.
+export const survivalForKillMode = (
+    startupMethod: DaemonStartupMethod,
+    killMode: string | null
+): ExecSurvival => {
+    if (startupMethod === 'launchd-user' || startupMethod === 'launchd-system')
+        return {
+            survive: true,
+            reason: 'launchd signals only its own process group'
+        }
+    if (startupMethod === 'systemd-user' || startupMethod === 'systemd-system')
+        return killMode === 'process'
+            ? { survive: true, reason: 'systemd KillMode=process' }
+            : {
+                  survive: false,
+                  reason: `systemd KillMode=${killMode ?? 'unknown'}; reinstall the unit with mf daemon stop && mf daemon start`
+              }
+    return {
+        survive: false,
+        reason: 'no init unit; only mf daemon stop --keep-execs keeps them'
+    }
+}
+
+export const execsSurviveRestart = async (
+    startupMethod: DaemonStartupMethod
+): Promise<ExecSurvival> => {
+    if (startupMethod === 'systemd-user' || startupMethod === 'systemd-system')
+        return survivalForKillMode(
+            startupMethod,
+            await linux.killModeOf(
+                startupMethod === 'systemd-user' ? 'user' : 'system',
+                resolveProfile()
+            )
+        )
+    return survivalForKillMode(startupMethod, null)
 }
 
 export const isLikelyDevBinary = (): boolean => {

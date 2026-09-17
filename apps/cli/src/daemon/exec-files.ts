@@ -20,6 +20,7 @@ import {
     markCrashed,
     readEventsFrom,
     readFinal,
+    listBufferRefIds,
     readMeta,
     recoverCrashedBuffers,
     updateMeta,
@@ -864,6 +865,55 @@ export const recoverFileExecs = (
             markCrashed(refId)
             summary.crashed += 1
         }
+    }
+    return summary
+}
+
+// ---------------------------------------------------------------------------
+// `mf daemon stop` (ADR-0029 §4, B3): stopping the daemon means stopping the
+// process groups it owns, too — unless the caller wants the next daemon to
+// adopt them (`--keep-execs`, the runner-manager's restart path). Runs in the
+// CLI process after the daemon is gone, so it decides from the files alone:
+// only an exec whose owner identity still matches is ours to signal; a
+// finished one is left for the next daemon to complete, a recycled pid is
+// never touched. The abort is stamped so the completion reads as cancelled.
+export const stopOwnedFileExecs = async (opts: {
+    log: (message: string) => void
+    waitMs?: number
+}): Promise<{ stopped: number; kept: number }> => {
+    const summary = { stopped: 0, kept: 0 }
+    const sleep = (ms: number): Promise<void> =>
+        new Promise((resolve) => setTimeout(resolve, ms))
+    for (const refId of listBufferRefIds()) {
+        const meta = readMeta(refId)
+        if (!meta || !isFileExecMeta(meta) || meta.status !== 'running')
+            continue
+        if (readFinal(refId) || readExitCode(bufferDir(refId)) !== null)
+            continue
+        if (!ownerIdentityMatches(meta.owner)) {
+            summary.kept += 1
+            continue
+        }
+        updateMeta(refId, { abortRequestedAt: new Date().toISOString() })
+        try {
+            signalGroup(meta.owner.pid, 'SIGTERM')
+        } catch (err) {
+            opts.log(`exec ${refId}: SIGTERM failed: ${(err as Error).message}`)
+        }
+        const deadline = Date.now() + (opts.waitMs ?? KILL_ESCALATE_MS)
+        while (Date.now() < deadline && processGroupAlive(meta.owner.pid))
+            await sleep(100)
+        if (processGroupAlive(meta.owner.pid)) {
+            updateMeta(refId, { killedAt: new Date().toISOString() })
+            try {
+                signalGroup(meta.owner.pid, 'SIGKILL')
+            } catch (err) {
+                opts.log(
+                    `exec ${refId}: SIGKILL failed: ${(err as Error).message}`
+                )
+            }
+        }
+        summary.stopped += 1
     }
     return summary
 }
