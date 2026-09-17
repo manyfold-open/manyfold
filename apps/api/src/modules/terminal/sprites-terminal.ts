@@ -17,6 +17,7 @@ import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-
 import { SpriteStatusSyncService } from '@/modules/agents/sprite-status/sprite-status-sync.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
+import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
 
 export interface SpritesTerminalRequest {
     // Either an agent terminal or a bare-sandbox terminal. sessionKey is the
@@ -41,7 +42,12 @@ export interface SpritesTerminalRequest {
     // platform's own MF_* / TERM block.
     extraEnv?: Record<string, string>
     client: WsClient
-    onClose: () => void
+    onClose: (cause: TerminalCloseCause) => void
+    // The terminal's durable identity learns its token and its process
+    // handle (the vendor exec session id) from here, so any API instance can
+    // later kill the process through the sprites API (ADR-0029 §1).
+    onToken?: (tokenId: string) => void
+    onHandle?: (sessionId: string) => void
 }
 
 // The interactive terminal runs as the USER, so it carries a short-lived
@@ -66,6 +72,7 @@ export const terminalShellCommand = (
 
 const TERMINAL_TOKEN_TTL_SECONDS = 12 * 60 * 60
 const TERMINAL_HANDSHAKE_RETRY_DELAYS_MS = [250, 750] as const
+const EXEC_KILL_TIMEOUT_SEC = 10
 
 export const terminalHandshakeRetryDelayMs = (
     status: number,
@@ -132,6 +139,7 @@ export class SpritesTerminal {
             expiresInSeconds: TERMINAL_TOKEN_TTL_SECONDS,
             tokenKind: 'terminal'
         })
+        req.onToken?.(terminalToken.tokenId)
         const connectionEnv = await this.connections.resolveAgentEnv({
             userId,
             extras
@@ -167,6 +175,7 @@ export class SpritesTerminal {
         let retryTimer: NodeJS.Timeout | null = null
         let handshakeAttempt = 0
         let cleaned = false
+        let execSessionId: string | null = null
 
         const cleanup = (code = 1000, reason = ''): void => {
             if (cleaned) return
@@ -189,11 +198,37 @@ export class SpritesTerminal {
                 if (client.readyState === client.OPEN)
                     client.close(code, reason)
             } catch {}
-            if (agentId) void this.spriteStorage.measureIfDue(agentId, 'terminal')
-            void this.apiTokens
-                .hardDelete({ tokenId: terminalToken.tokenId, userId })
-                .catch(() => {})
-            onClose()
+            const cause: TerminalCloseCause =
+                reason === 'exit'
+                    ? 'exit'
+                    : reason === 'upstream handshake failed'
+                      ? 'tunnel-failed'
+                      : 'client-closed'
+            const finish = (): void => {
+                if (agentId)
+                    void this.spriteStorage.measureIfDue(agentId, 'terminal')
+                void this.apiTokens
+                    .hardDelete({ tokenId: terminalToken.tokenId, userId })
+                    .catch(() => {})
+                onClose(cause)
+            }
+            // Closing the socket does not stop the process on the sprite
+            // (packages/sprites exec-stream records prod billing a detached
+            // one for three days). Kill it through its session id first: the
+            // release this close triggers must never run over a live TUI.
+            if (cause !== 'exit' && execSessionId) {
+                const sessionId = execSessionId
+                void spritesClient
+                    .killExecSession(spriteName, sessionId, {
+                        timeoutSec: EXEC_KILL_TIMEOUT_SEC
+                    })
+                    .catch((err: Error) =>
+                        this.log.warn(
+                            `sprites.terminal.kill_failed sprite=${spriteName} session=${sessionId}: ${err.message}`
+                        )
+                    )
+                    .finally(finish)
+            } else finish()
         }
 
         unregister = this.sessionRegistry.register(sessionKey, {
@@ -288,6 +323,15 @@ export class SpritesTerminal {
                         const msg = JSON.parse(text) as {
                             type?: string
                             exit_code?: number
+                            session_id?: string
+                        }
+                        if (
+                            msg.type === 'session_info' &&
+                            typeof msg.session_id === 'string' &&
+                            msg.session_id
+                        ) {
+                            execSessionId = msg.session_id
+                            req.onHandle?.(msg.session_id)
                         }
                         if (msg.type === 'exit') cleanup(1000, 'exit')
                     } catch {}
@@ -350,6 +394,26 @@ export class SpritesTerminal {
         client.on('error', () => cleanup(1011, 'client error'))
 
         connectUpstream()
+    }
+
+    // Kill a terminal's process this instance may not have the socket of (a
+    // takeover, the user's release from the chat view, the lease reaper).
+    async killByHandle(args: {
+        accountId: string
+        spriteName: string
+        handle: string
+    }): Promise<void> {
+        const account = await this.accounts.getById(args.accountId)
+        if (!account)
+            throw new NotFoundException(
+                `sprites account ${args.accountId} not found`
+            )
+        const spritesClient = createClient({
+            token: this.accounts.decryptToken(account)
+        })
+        await spritesClient.killExecSession(args.spriteName, args.handle, {
+            timeoutSec: EXEC_KILL_TIMEOUT_SEC
+        })
     }
 }
 

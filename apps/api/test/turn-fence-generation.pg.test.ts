@@ -546,7 +546,8 @@ test('idle recovery and a new dispatch serialize on the session row', async (t) 
     try {
         await h.repo.releaseInflightTurn(h.sessionId, h.messageId)
         assert.equal(
-            await dispatch.repo.claimInflightTurn(h.sessionId, 'live-claim'),
+            (await dispatch.repo.claimInflightTurn(h.sessionId, 'live-claim'))
+                .ok,
             true
         )
         assert.deepEqual(
@@ -591,7 +592,7 @@ test('idle recovery and a new dispatch serialize on the session row', async (t) 
         assert.equal(settled, false)
         held.release()
         await held.done
-        assert.equal(await claim, true)
+        assert.equal((await claim).ok, true)
         assert.equal(
             (await h.repo.getSessionById(h.sessionId))?.frameworkSessionRef,
             'framework-recovered'
@@ -624,7 +625,7 @@ test('idle recovery and a new dispatch serialize on the session row', async (t) 
         assert.equal(settled, false)
         rebuild.release()
         await rebuild.done
-        assert.equal(await claimAfterRebuild, true)
+        assert.equal((await claimAfterRebuild).ok, true)
     } finally {
         releaseHeld?.()
         await heldDone?.catch(() => undefined)

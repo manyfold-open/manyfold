@@ -52,6 +52,7 @@ export class GeminiCliSessionReader implements SessionReader {
             return {
                 sourceFile: null,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     `gemini session file for ${ctx.frameworkSessionRef} not found under ~/.gemini/tmp/`
                 ]
@@ -64,6 +65,7 @@ export class GeminiCliSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [
                     `failed to read ${sourceFile}: ${(err as Error).message}`
                 ]
@@ -73,13 +75,14 @@ export class GeminiCliSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [`failed to read ${sourceFile}`]
             }
 
         const { messages, warnings } = sourceFile.endsWith('.jsonl')
             ? parseGeminiJsonl(text, sourceFile)
             : parseGeminiJson(text, sourceFile)
-        return { sourceFile, messages, warnings }
+        return { sourceFile, messages, transcript: 'read', warnings }
     }
 
     async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {

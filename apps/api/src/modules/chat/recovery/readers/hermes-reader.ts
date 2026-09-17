@@ -49,6 +49,7 @@ export class HermesSessionReader implements SessionReader {
             return {
                 sourceFile: null,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     `hermes session ${ctx.frameworkSessionRef} not found in state.db or ~/.hermes/sessions/`
                 ]
@@ -62,6 +63,7 @@ export class HermesSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [
                     ...sqliteWarnings,
                     `failed to read ${sourceFile}: ${(err as Error).message}`
@@ -72,6 +74,7 @@ export class HermesSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [...sqliteWarnings, `failed to read ${sourceFile}`]
             }
 
@@ -83,6 +86,7 @@ export class HermesSessionReader implements SessionReader {
         return {
             sourceFile,
             messages,
+            transcript: 'read',
             warnings: [...sqliteWarnings, ...warnings]
         }
     }

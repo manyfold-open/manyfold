@@ -60,7 +60,7 @@ const makeDb = (
         delete: () => ({ where: async () => undefined }),
         select: (fields?: Record<string, unknown>) => {
             const selected = fields?.inflightMessageId
-                ? [{ inflightMessageId: null }]
+                ? [{ inflightMessageId: null, holderTerminalId: null }]
                 : existingMessages
             return {
                 from: () => ({

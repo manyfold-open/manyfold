@@ -209,6 +209,7 @@ export type {
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
     ChatSessionListChangeReason,
+    ChatSessionChangeDetail,
     ChatSessionsChangedEvent,
     RuntimeServiceStatus,
     AgentRuntimeSummary,
@@ -778,6 +779,10 @@ export type {
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
+    RuntimeTranscriptOutcome,
+    SessionHolderReleaseResponse,
+    SessionImportRetryResponse,
+    SessionImportAbandonResponse,
     ShareChatSessionResult,
     GetChatSessionShareResult,
     SharedChatMessage,
@@ -809,7 +814,9 @@ export {
     isHermesPermissionMode,
     openclawPermissionModes,
     isOpenclawPermissionMode,
-    agentSessionListLimits
+    agentSessionListLimits,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE
 } from './chat'
 export type {
     ConversationListEnvelope,

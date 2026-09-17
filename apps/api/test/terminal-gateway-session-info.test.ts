@@ -8,7 +8,7 @@ const makeSocket = (): {
     fireClose(): void
 } => {
     const frames: string[] = []
-    const handlers = new Map<string, () => void>()
+    const handlers = new Map<string, Array<() => void>>()
     const socket = {
         OPEN: 1,
         readyState: 1,
@@ -16,7 +16,7 @@ const makeSocket = (): {
             if (typeof data === 'string') frames.push(data)
         },
         on: (event: string, fn: () => void): void => {
-            handlers.set(event, fn)
+            handlers.set(event, [...(handlers.get(event) ?? []), fn])
         },
         close: (): void => {},
         ping: (): void => {}
@@ -24,7 +24,45 @@ const makeSocket = (): {
     return {
         socket,
         frames,
-        fireClose: () => handlers.get('close')?.()
+        fireClose: () => {
+            for (const fn of handlers.get('close') ?? []) fn()
+        }
+    }
+}
+
+// The terminal's durable identity and its hold on the session (ADR-0029 §1):
+// the gateway creates the row once every check passed, then acquires as the
+// last fallible step of a resume.
+const fakeTerminals = () => {
+    const rows: Array<Record<string, unknown>> = []
+    return {
+        rows,
+        create: async (input: Record<string, unknown>) => {
+            const row = { id: `tms_${rows.length + 1}`, ...input }
+            rows.push(row)
+            return row
+        },
+        bindToken: async () => {},
+        setHandle: async () => {},
+        markHeld: async () => {},
+        renewLease: async () => true
+    }
+}
+
+const fakeHolder = (outcome: string) => {
+    const calls: Array<[string, ...unknown[]]> = []
+    return {
+        calls,
+        acquire: async (args: Record<string, unknown>) => {
+            calls.push(['acquire', args])
+            return outcome
+        },
+        supersede: async (prevTerminalId: string) => {
+            calls.push(['supersede', prevTerminalId])
+        },
+        finish: async (terminalId: string, cause: string) => {
+            calls.push(['finish', terminalId, cause])
+        }
     }
 }
 
@@ -35,6 +73,12 @@ const runSession = async (args: {
     // TUI; the default never resolves one, like a runtime with no resume path.
     resolve?: () => Promise<unknown>
     resumeChatSessionId?: string
+    prevTerminalId?: string
+    terminals?: ReturnType<typeof fakeTerminals>
+    holder?: ReturnType<typeof fakeHolder>
+    // The sprites driver, so a test can see what resume the tunnel got and
+    // drive the close it reports.
+    spritesTunnel?: (req: Record<string, unknown>) => Promise<void>
 }): Promise<Array<Record<string, unknown>>> => {
     const { socket, frames, fireClose } = makeSocket()
     const gateway = new TerminalGateway(
@@ -49,12 +93,15 @@ const runSession = async (args: {
         } as never,
         { listForUser: async () => [{ agent: args.agent }] } as never,
         { findHostById: async () => ({ terminalEnabled: true }) } as never,
-        { tunnel: async () => {} } as never,
+        { tunnel: args.spritesTunnel ?? (async () => {}) } as never,
         { tunnel: async () => {} } as never,
         { tunnel: async () => {} } as never,
         { findById: args.findById } as never,
         {} as never,
-        { resolve: args.resolve ?? (async () => null) } as never
+        { resolve: args.resolve ?? (async () => null) } as never,
+        undefined,
+        args.terminals as never,
+        args.holder as never
     )
     await (
         gateway as unknown as {
@@ -66,6 +113,9 @@ const runSession = async (args: {
             token: 'tok',
             ...(args.resumeChatSessionId
                 ? { resumeChatSessionId: args.resumeChatSessionId }
+                : {}),
+            ...(args.prevTerminalId
+                ? { prevTerminalId: args.prevTerminalId }
                 : {})
         }
     })
@@ -83,6 +133,7 @@ const runSession = async (args: {
 
 const daemonAgent = {
     id: 'agt-1',
+    userId: 'u1',
     name: 'laptop agent',
     status: 'running',
     runtime: 'daemon',
@@ -169,19 +220,123 @@ test('session_info reports a resume withheld for a turn in flight', async () => 
     assert.equal(info.resume, 'turn-in-flight')
 })
 
-test('session_info reports an applied resume', async () => {
+test('session_info reports an applied resume once the hold is acquired', async () => {
+    const terminals = fakeTerminals()
+    const holder = fakeHolder('applied')
+    let tunnelResume: unknown = 'unset'
     const frames = await runSession({
         agent: spritesAgent,
         findById: async () => null,
         resumeChatSessionId: 'cs-1',
         resolve: async () => ({
             resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
-            outcome: 'applied'
-        })
+            outcome: 'applied',
+            ref: 'thread-1'
+        }),
+        terminals,
+        holder,
+        spritesTunnel: async (req) => {
+            tunnelResume = req.resume
+            ;(req.onClose as (cause: string) => void)('client-closed')
+        }
     })
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
     assert.equal(info.resume, 'applied')
+    // The id rides on the frame so the tab can name it on a reconnect.
+    assert.equal(info.terminal_id, 'tms_1')
+    assert.equal(terminals.rows.length, 1)
+    assert.deepEqual(holder.calls[0], [
+        'acquire',
+        {
+            terminalId: 'tms_1',
+            userId: spritesAgent.userId,
+            agentId: 'agt-1',
+            sessionId: 'cs-1',
+            expectedRef: 'thread-1'
+        }
+    ])
+    assert.deepEqual(tunnelResume, {
+        command: ['codex', 'resume', 'thread-1'],
+        env: {}
+    })
+    // The driver's close reaches the holder with its cause.
+    assert.deepEqual(holder.calls[1], ['finish', 'tms_1', 'client-closed'])
+})
+
+// Losing the acquire is not an error: the terminal still opens, as a plain
+// shell, and the frame says another terminal owns the session.
+test('a lost acquire opens a plain shell and reports session-held', async () => {
+    const holder = fakeHolder('session-held')
+    let tunnelResume: unknown = 'unset'
+    const frames = await runSession({
+        agent: spritesAgent,
+        findById: async () => null,
+        resumeChatSessionId: 'cs-1',
+        resolve: async () => ({
+            resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
+            outcome: 'applied',
+            ref: 'thread-1'
+        }),
+        terminals: fakeTerminals(),
+        holder,
+        spritesTunnel: async (req) => {
+            tunnelResume = req.resume
+        }
+    })
+    const info = frames.find((frame) => frame.type === 'session_info')
+    assert.ok(info)
+    assert.equal(info.resume, 'session-held')
+    assert.equal(tunnelResume, null)
+})
+
+// Without a durable identity nothing could release the hold, so a resume
+// is never applied over it — the honest word is unavailable.
+test('a resume is not applied without a terminal identity', async () => {
+    let tunnelResume: unknown = 'unset'
+    const frames = await runSession({
+        agent: spritesAgent,
+        findById: async () => null,
+        resumeChatSessionId: 'cs-1',
+        resolve: async () => ({
+            resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
+            outcome: 'applied',
+            ref: 'thread-1'
+        }),
+        spritesTunnel: async (req) => {
+            tunnelResume = req.resume
+        }
+    })
+    const info = frames.find((frame) => frame.type === 'session_info')
+    assert.ok(info)
+    assert.equal(info.resume, 'unavailable')
+    assert.equal(tunnelResume, null)
+    assert.equal('terminal_id' in info, false)
+})
+
+// An API restart makes the tab reconnect with the terminal it had; that one
+// must be retired before the new one acquires, or the tab's own reconnect
+// would be refused as session-held.
+test('a reconnect retires the terminal it names before acquiring', async () => {
+    const holder = fakeHolder('applied')
+    await runSession({
+        agent: spritesAgent,
+        findById: async () => null,
+        resumeChatSessionId: 'cs-1',
+        prevTerminalId: 'tms_0',
+        resolve: async () => ({
+            resume: { command: ['codex', 'resume', 'thread-1'], env: {} },
+            outcome: 'applied',
+            ref: 'thread-1'
+        }),
+        terminals: fakeTerminals(),
+        holder
+    })
+    assert.deepEqual(
+        holder.calls.map((call) => call[0]),
+        ['supersede', 'acquire']
+    )
+    assert.equal(holder.calls[0][1], 'tms_0')
 })
 
 // A runtime with no resume path never consults the service; the honest word

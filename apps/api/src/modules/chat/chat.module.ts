@@ -116,8 +116,10 @@ import { ChatApiFileService } from '@/modules/chat/api-files/chat-api-file.servi
     exports: [
         ChatAdapterRegistry,
         ChatService,
+        ChatRepository,
         ChatSseBroadcaster,
-        ChatApiFileService
+        ChatApiFileService,
+        SessionRecoveryService
     ]
 })
 export class ChatModule {}

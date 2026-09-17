@@ -174,6 +174,7 @@ export const readHermesSqliteSession = async (
         return {
             sourceFile: dbPath,
             messages: [],
+            transcript: 'unreadable',
             warnings: materialized.warnings
         }
     const { tmpDir } = materialized
@@ -186,6 +187,7 @@ export const readHermesSqliteSession = async (
             return {
                 sourceFile: dbPath,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     ...materialized.warnings,
                     `hermes session ${sessionRef} not found in ${dbPath}`
@@ -198,6 +200,7 @@ export const readHermesSqliteSession = async (
         return {
             sourceFile: dbPath,
             messages,
+            transcript: 'read',
             warnings: materialized.warnings,
             summary
         }
@@ -208,6 +211,7 @@ export const readHermesSqliteSession = async (
         return {
             sourceFile: dbPath,
             messages: [],
+            transcript: 'unreadable',
             warnings: [
                 ...materialized.warnings,
                 `hermes state.db read failed: ${(err as Error).message}`

@@ -15,6 +15,11 @@ import { FilesModule } from '@/modules/agents/files/files.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
 import { ConnectionsModule } from '@/modules/connections/connections.module'
+import { ChatModule } from '@/modules/chat/chat.module'
+import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
+import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
+import { TerminalHolderController } from '@/modules/terminal/terminal-holder.controller'
+import { TerminalLeaseReaper } from '@/modules/terminal/terminal-lease.reaper'
 
 @Module({
     imports: [
@@ -28,14 +33,19 @@ import { ConnectionsModule } from '@/modules/connections/connections.module'
         RuntimeAccessModule,
         SpriteStorageModule,
         ConnectionsModule,
-        SecretsModule
+        SecretsModule,
+        ChatModule
     ],
+    controllers: [TerminalHolderController],
     providers: [
         TerminalGateway,
         SpritesTerminal,
         K8sTerminal,
         DaemonTerminal,
-        TerminalResumeService
+        TerminalResumeService,
+        TerminalSessionsRepository,
+        TerminalHolderService,
+        TerminalLeaseReaper
     ]
 })
 export class TerminalModule {}

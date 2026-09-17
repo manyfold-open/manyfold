@@ -1,6 +1,7 @@
 import type { ChatContentBlock, ChatRole } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { terminalSessions } from '@manyfold/db'
 import { SessionRecoveryService } from '../src/modules/chat/recovery/session-recovery.service'
 import { CandidateScanCache } from '../src/modules/chat/recovery/readers'
 import type { RecoveredMessage } from '../src/modules/chat/recovery/readers'
@@ -68,6 +69,14 @@ const makeHarness = (
         openTurnStartSeq?: number | null
         runtime?: 'sprites' | 'daemon'
         execUnavailable?: boolean
+        // ADR-0029: a terminal holds the session / the import a release left
+        // pending / the identity the holding terminal recorded / what the
+        // reader finds / the runtime is unreachable.
+        held?: boolean
+        importPendingSince?: Date | null
+        holderIdentity?: { hostId: string; runtimeId: string } | null
+        readerTranscript?: 'read' | 'missing' | 'unreadable'
+        fsThrows?: boolean
     } = {}
 ) => {
     const session = {
@@ -81,6 +90,11 @@ const makeHarness = (
                 : options.frameworkSessionRef,
         inflightMessageId: options.inflight ? 'msg-live' : null,
         runtimeSyncCursor: options.runtimeSyncCursor ?? null,
+        holderTerminalId: options.held ? 'tms_1' : null,
+        holderAcquiredAt: options.held
+            ? new Date('2026-05-10T10:05:00Z')
+            : null,
+        importPendingSince: options.importPendingSince ?? null,
         createdAt: new Date('2026-05-10T10:00:00Z'),
         updatedAt: new Date('2026-05-10T10:00:00Z')
     }
@@ -107,9 +121,29 @@ const makeHarness = (
         )
     ]
     const sourceRows: Array<{ sessionId: string; sourceEventKey: string }> = []
+    const audits: Array<Record<string, unknown>> = []
+    const holders =
+        options.holderIdentity === undefined
+            ? [{ hostId: agent.hostId, runtimeId: agent.runtimeId }]
+            : options.holderIdentity
+              ? [options.holderIdentity]
+              : []
     const db = {
         select: () => ({
-            from: () => ({ where: () => ({ limit: async () => [agent] }) })
+            from: (table: unknown) => {
+                const rows = table === terminalSessions ? holders : [agent]
+                const chain = {
+                    where: () => chain,
+                    orderBy: () => chain,
+                    limit: async () => rows
+                }
+                return chain
+            }
+        }),
+        insert: () => ({
+            values: async (row: Record<string, unknown>) => {
+                audits.push(row)
+            }
         })
     }
     let appendCalls = 0
@@ -130,6 +164,16 @@ const makeHarness = (
             return true
         },
         getSession: async (id: string) => (id === session.id ? session : null),
+        clearImportPending: async (_sessionId: string, observed: Date) => {
+            if (
+                session.importPendingSince === null ||
+                session.importPendingSince.getTime() !== observed.getTime() ||
+                session.holderTerminalId !== null
+            )
+                return false
+            session.importPendingSince = null
+            return true
+        },
         listMessages: async () =>
             [...messages].sort(
                 (a, b) => a.createdAt.getTime() - b.createdAt.getTime()
@@ -140,7 +184,10 @@ const makeHarness = (
             sources: Array<{ sessionId: string; sourceEventKey: string }>
         ) => {
             appendCalls++
-            if (session.inflightMessageId !== null)
+            if (
+                session.inflightMessageId !== null ||
+                session.holderTerminalId !== null
+            )
                 return { appended: 0, conflicted: true, upsertedSources: 0 }
             for (const row of rows) messages.push(row)
             for (const s of sources)
@@ -163,6 +210,7 @@ const makeHarness = (
     const drivers = {
         recoveryFsForAgent: async () => {
             fsCalls++
+            if (options.fsThrows) throw new Error('daemon dh-1 is offline')
             return { fs: {} }
         }
     }
@@ -171,6 +219,7 @@ const makeHarness = (
             sourceFile: '/tmp/s.jsonl',
             warnings: [],
             messages: options.localMessages ?? [],
+            transcript: options.readerTranscript ?? 'read',
             lineCount: options.lineCount,
             openTurnStartSeq: options.openTurnStartSeq
         }),
@@ -200,6 +249,8 @@ const makeHarness = (
     )
     return {
         service,
+        session,
+        audits,
         messages,
         sourceRows,
         cursorMoves,
@@ -236,6 +287,7 @@ test('automatic history sync does not touch a Sprite with marked exec unavailabi
         appended: 0,
         recoveredSourceCount: 0,
         skipped: 'exec-unavailable',
+        transcript: null,
         warnings: []
     })
     assert.deepEqual(h.healthChecks, ['host-1'])
@@ -607,4 +659,177 @@ test('a reader without a line count never sets a cursor', async () => {
         'session-1'
     )
     assert.deepEqual(h.cursorMoves, [])
+})
+
+// ADR-0029 §1: a terminal owns the session's writes; the import waits for
+// the release that stamps import_pending_since, and the runtime is not read
+// in between.
+test('a held session is skipped without touching the runtime', async () => {
+    const h = makeHarness({ held: true, localMessages: localSuperset })
+    const res = await h.service.syncRuntimeSessionIntoCloud(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.deepEqual(res, {
+        appended: 0,
+        recoveredSourceCount: 0,
+        skipped: 'held-by-terminal',
+        transcript: null,
+        warnings: []
+    })
+    assert.equal(h.fsCallCount(), 0)
+    assert.equal(h.messages.length, 2)
+})
+
+/* ADR-0029 §2: the import a release leaves pending is a hard precondition of
+   the next turn. Done only when the transcript was actually read; a missing
+   or unreadable one, or an unreachable runtime, stays pending (loudly);
+   a runtime that is no longer the one the terminal wrote on is abandoned. */
+const PENDING_AT = new Date('2026-05-10T10:10:00Z')
+
+test('settlePendingImport is a no-op without a pending stamp', async () => {
+    const h = makeHarness({ localMessages: localSuperset })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.deepEqual(res, {
+        state: 'done',
+        appended: 0,
+        transcript: null,
+        warnings: []
+    })
+    assert.equal(h.fsCallCount(), 0)
+})
+
+test('a pending import settles once the transcript is read', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        localMessages: localSuperset
+    })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'done')
+    assert.equal(res.appended, 2)
+    assert.equal(res.transcript, 'read')
+    assert.equal(h.session.importPendingSince, null)
+    assert.equal(h.messages.length, 4)
+})
+
+test('an empty transcript still settles the import', async () => {
+    const h = makeHarness({ importPendingSince: PENDING_AT, localMessages: [] })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'done')
+    assert.equal(res.appended, 0)
+    assert.equal(h.session.importPendingSince, null)
+})
+
+test('a missing transcript on an unchanged runtime stays pending', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        readerTranscript: 'missing'
+    })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'pending')
+    assert.equal(res.transcript, 'missing')
+    assert.equal(h.session.importPendingSince, PENDING_AT)
+    assert.deepEqual(h.audits, [])
+})
+
+test('an unreadable transcript stays pending', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        readerTranscript: 'unreadable'
+    })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'pending')
+    assert.equal(h.session.importPendingSince, PENDING_AT)
+})
+
+test('an unreachable runtime keeps the import pending', async () => {
+    const h = makeHarness({ importPendingSince: PENDING_AT, fsThrows: true })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'pending')
+    assert.equal(res.transcript, null)
+    assert.ok(res.warnings.some((w) => w.includes('not reachable')))
+    assert.equal(h.session.importPendingSince, PENDING_AT)
+})
+
+test('a replaced runtime abandons the import instead of blocking the session', async () => {
+    const h = makeHarness({
+        importPendingSince: PENDING_AT,
+        readerTranscript: 'missing',
+        holderIdentity: { hostId: 'host-0', runtimeId: 'runtime-1' }
+    })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'done')
+    assert.equal(h.session.importPendingSince, null)
+    assert.equal(
+        h.fsCallCount(),
+        0,
+        'nothing to read on a runtime that never had it'
+    )
+    assert.equal(h.audits.length, 1)
+    assert.equal(h.audits[0].action, 'chat_session.import.auto_abandoned')
+    assert.equal(h.audits[0].subject, 'session-1')
+})
+
+test('a hold in place defers the import', async () => {
+    const h = makeHarness({ held: true, importPendingSince: PENDING_AT })
+    const res = await h.service.settlePendingImport(
+        'user-1',
+        'agent-1',
+        'session-1'
+    )
+    assert.equal(res.state, 'pending')
+    assert.equal(h.fsCallCount(), 0)
+})
+
+test('abandoning an import is audited and idempotent', async () => {
+    const h = makeHarness({ importPendingSince: PENDING_AT })
+    assert.deepEqual(
+        await h.service.abandonPendingImport(
+            'user-1',
+            'agent-1',
+            'session-1',
+            'user'
+        ),
+        { abandoned: true }
+    )
+    assert.equal(h.session.importPendingSince, null)
+    assert.equal(h.audits[0].action, 'chat_session.import.abandoned')
+    assert.deepEqual(
+        await h.service.abandonPendingImport(
+            'user-1',
+            'agent-1',
+            'session-1',
+            'user'
+        ),
+        { abandoned: false }
+    )
 })

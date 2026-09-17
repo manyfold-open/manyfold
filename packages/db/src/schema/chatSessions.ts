@@ -1,4 +1,12 @@
-import { index, integer, pgTable, text, timestamp } from 'drizzle-orm/pg-core'
+import {
+    check,
+    index,
+    integer,
+    pgTable,
+    text,
+    timestamp
+} from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { users } from './users'
 import { agents } from './agents'
 
@@ -27,6 +35,23 @@ export const chatSessions = pgTable(
         // moves — a new file has no covered prefix — which sends the next sync
         // back to the content diff.
         runtimeSyncCursor: integer('runtime_sync_cursor'),
+        // The Manyfold-opened terminal that currently owns this session's
+        // writes: set while it runs the framework's own TUI on the session's
+        // ref, so no turn may dispatch into the same transcript. The CHECK
+        // below keeps it and inflightMessageId mutually exclusive in the
+        // database, so an instance still on older code gets a constraint
+        // error instead of a double occupancy (ADR-0029 §1).
+        holderTerminalId: text('holder_terminal_id'),
+        holderAcquiredAt: timestamp('holder_acquired_at', {
+            withTimezone: true
+        }),
+        // Set by the same statement that releases the holder: what the
+        // terminal wrote has not been imported yet, and no turn may run until
+        // it is or the import is abandoned — a codex turn would otherwise
+        // push runtimeSyncCursor past those lines forever (ADR-0029 §2).
+        importPendingSince: timestamp('import_pending_since', {
+            withTimezone: true
+        }),
         createdAt: timestamp('created_at', { withTimezone: true })
             .notNull()
             .defaultNow(),
@@ -42,6 +67,14 @@ export const chatSessions = pgTable(
         updatedAtIdIdx: index('chat_sessions_updated_at_id_idx').on(
             table.updatedAt,
             table.id
+        ),
+        turnXorHolder: check(
+            'chat_sessions_turn_xor_holder',
+            sql`${table.inflightMessageId} is null or ${table.holderTerminalId} is null`
+        ),
+        holderPair: check(
+            'chat_sessions_holder_pair',
+            sql`(${table.holderTerminalId} is null) = (${table.holderAcquiredAt} is null)`
         )
     })
 )

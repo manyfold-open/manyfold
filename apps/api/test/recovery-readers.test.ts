@@ -2174,3 +2174,53 @@ test('hermes sqlite candidates carry the newest reply and message time', async (
     assert.equal(candidate.model, null)
     rmSync(dir, { recursive: true, force: true })
 })
+
+/* ADR-0029 §2: the import gate must not mistake an absent transcript for an
+   empty one, so every reader says what its read established — the file was
+   read, no file exists for the ref, or one exists but could not be read —
+   separately from what it parsed. */
+test('the claude reader reports what its read established', async () => {
+    const reader = new ClaudeCodeSessionReader()
+    const base = {
+        listFiles: async (): Promise<string[]> => [],
+        exec: async (): Promise<string | null> => null,
+        readBinary: async (): Promise<Buffer | null> => null
+    }
+    const missing = await reader.readMessages({
+        fs: {
+            ...base,
+            locate: async (): Promise<string | null> => null,
+            readFile: async (): Promise<string | null> => null
+        },
+        agentId: 'agt',
+        frameworkSessionRef: 'sess-1'
+    })
+    assert.equal(missing.transcript, 'missing')
+    assert.equal(missing.sourceFile, null)
+
+    const unreadable = await reader.readMessages({
+        fs: {
+            ...base,
+            locate: async (): Promise<string | null> => '/h/.claude/projects/p/sess-1.jsonl',
+            readFile: async (): Promise<string | null> => {
+                throw new Error('permission denied')
+            }
+        },
+        agentId: 'agt',
+        frameworkSessionRef: 'sess-1'
+    })
+    assert.equal(unreadable.transcript, 'unreadable')
+    assert.equal(unreadable.messages.length, 0)
+
+    const read = await reader.readMessages({
+        fs: {
+            ...base,
+            locate: async (): Promise<string | null> => '/h/.claude/projects/p/sess-1.jsonl',
+            readFile: async (): Promise<string | null> => ''
+        },
+        agentId: 'agt',
+        frameworkSessionRef: 'sess-1'
+    })
+    assert.equal(read.transcript, 'read')
+    assert.equal(read.messages.length, 0)
+})

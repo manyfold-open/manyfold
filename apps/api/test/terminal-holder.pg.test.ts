@@ -1,0 +1,386 @@
+import 'tsconfig-paths/register'
+import 'reflect-metadata'
+import 'dotenv/config'
+import assert from 'node:assert/strict'
+import { randomBytes } from 'node:crypto'
+import test from 'node:test'
+import { eq, sql } from 'drizzle-orm'
+import {
+    agentRuntimes,
+    agents,
+    chatSessions,
+    createDb,
+    terminalSessions,
+    users,
+    type Database
+} from '@manyfold/db'
+import { ChatRepository } from '../src/modules/chat/chat.repository'
+import { TerminalSessionsRepository } from '../src/modules/terminal/terminal-sessions.repository'
+
+// Real-Postgres proof for session ownership by terminals (ADR-0029 §1, §2).
+//
+// The in-memory chat and terminal tests stub these methods, so only live PG
+// exercises the actual SQL: the acquire compare-and-set and its three
+// predicates, the release that stamps the import pending in the same
+// statement, the fenced clear, the turn claim refusing a held or pending
+// session, the CHECK that makes a double occupancy unwritable even for older
+// code, and the terminal row's lease and end compare-and-sets.
+//
+// Env-gated like the other *.pg.test.ts:
+//   RUN_PG_E2E=1 DATABASE_URL=postgres://postgres:postgres@localhost:5432/nca \
+//     pnpm --filter @manyfold/api test
+// against a migrated DB (`just db-migrate`).
+const RUN = process.env.RUN_PG_E2E === '1'
+
+interface Harness {
+    db: Database
+    repo: ChatRepository
+    terminals: TerminalSessionsRepository
+    userId: string
+    agentId: string
+    runtimeId: string
+    sessionId: string
+    close: () => Promise<void>
+}
+
+const buildHarness = async (): Promise<Harness> => {
+    const url = process.env.DATABASE_URL
+    if (!url) throw new Error('DATABASE_URL must be set in .env')
+    const db = createDb(url)
+    const suffix = randomBytes(8).toString('hex')
+    const userId = `user_pgtest_${suffix}`
+    const runtimeId = `art_pgtest_${suffix}`
+    const agentId = `agt_pgtest_${suffix}`
+    const sessionId = `cts_pgtest_${suffix}`
+
+    await db
+        .insert(users)
+        .values({ id: userId, email: `${suffix}@pgtest.local` })
+    await db.insert(agentRuntimes).values({
+        id: runtimeId,
+        userId,
+        name: `pgtest-runtime-${suffix}`,
+        framework: 'claude-code',
+        kind: 'sprites'
+    })
+    await db.insert(agents).values({
+        id: agentId,
+        userId,
+        name: 'pgtest-agent',
+        framework: 'claude-code',
+        runtime: 'sprites',
+        runtimeId,
+        internalId: `internal-${agentId}`
+    })
+    await db.insert(chatSessions).values({
+        id: sessionId,
+        userId,
+        agentId,
+        frameworkSessionRef: 'ref-1'
+    })
+
+    return {
+        db,
+        repo: new ChatRepository(db),
+        terminals: new TerminalSessionsRepository(db),
+        userId,
+        agentId,
+        runtimeId,
+        sessionId,
+        close: async (): Promise<void> => {
+            await db.delete(users).where(eq(users.id, userId))
+            const client = (
+                db as unknown as { $client?: { end?: () => Promise<void> } }
+            ).$client
+            if (client?.end) await client.end()
+        }
+    }
+}
+
+const newTerminal = (h: Harness) =>
+    h.terminals.create({
+        userId: h.userId,
+        agentId: h.agentId,
+        runtime: 'sprites',
+        hostId: null,
+        runtimeId: h.runtimeId
+    })
+
+const readSession = async (h: Harness) =>
+    (
+        await h.db
+            .select({
+                inflightMessageId: chatSessions.inflightMessageId,
+                holderTerminalId: chatSessions.holderTerminalId,
+                holderAcquiredAt: chatSessions.holderAcquiredAt,
+                importPendingSince: chatSessions.importPendingSince
+            })
+            .from(chatSessions)
+            .where(eq(chatSessions.id, h.sessionId))
+    )[0]
+
+test(
+    'acquire is a compare-and-set against a live turn, another holder and the ref',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            const t2 = await newTerminal(h)
+            // The ref the argv was built from must still be the row's ref.
+            assert.equal(
+                await h.repo.acquireSessionHolder(
+                    h.sessionId,
+                    t1.id,
+                    'ref-moved'
+                ),
+                false
+            )
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                true
+            )
+            assert.equal((await readSession(h)).holderTerminalId, t1.id)
+            assert.ok((await readSession(h)).holderAcquiredAt)
+            // A second terminal cannot take a held session.
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t2.id, 'ref-1'),
+                false
+            )
+            assert.equal((await readSession(h)).holderTerminalId, t1.id)
+            // Nor can a turn claim it: the refusal names the terminal.
+            assert.deepEqual(
+                await h.repo.claimInflightTurn(h.sessionId, 'm1'),
+                {
+                    ok: false,
+                    blockedBy: 'terminal'
+                }
+            )
+            assert.equal((await readSession(h)).inflightMessageId, null)
+            // And the database itself refuses a double occupancy, whoever writes.
+            await assert.rejects(
+                h.db
+                    .update(chatSessions)
+                    .set({ inflightMessageId: 'm-raw' })
+                    .where(eq(chatSessions.id, h.sessionId)),
+                /chat_sessions_turn_xor_holder/
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'a live turn refuses the acquire, and a pending import does not',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            assert.equal(
+                (await h.repo.claimInflightTurn(h.sessionId, 'm1')).ok,
+                true
+            )
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                false
+            )
+            assert.equal(
+                await h.repo.releaseInflightTurn(h.sessionId, 'm1'),
+                true
+            )
+            await h.db
+                .update(chatSessions)
+                .set({ importPendingSince: new Date() })
+                .where(eq(chatSessions.id, h.sessionId))
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                true
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'release stamps the import pending in the same statement and the clear is fenced',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            const t2 = await newTerminal(h)
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                true
+            )
+            // Only the holder's own id releases.
+            assert.deepEqual(
+                await h.repo.releaseSessionHolder(h.sessionId, t2.id),
+                {
+                    released: false,
+                    importPendingSince: null
+                }
+            )
+            const released = await h.repo.releaseSessionHolder(
+                h.sessionId,
+                t1.id
+            )
+            assert.equal(released.released, true)
+            assert.ok(released.importPendingSince)
+            const after = await readSession(h)
+            assert.equal(after.holderTerminalId, null)
+            assert.equal(after.holderAcquiredAt, null)
+            assert.equal(
+                after.importPendingSince?.getTime(),
+                released.importPendingSince?.getTime()
+            )
+            // A turn is refused while the import is pending, naming the import.
+            assert.deepEqual(
+                await h.repo.claimInflightTurn(h.sessionId, 'm1'),
+                {
+                    ok: false,
+                    blockedBy: 'import'
+                }
+            )
+            // The clear is fenced on the stamp the importer observed...
+            assert.equal(
+                await h.repo.clearImportPending(
+                    h.sessionId,
+                    new Date(released.importPendingSince!.getTime() - 1)
+                ),
+                false
+            )
+            // ...and refused while a terminal holds the session again.
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t2.id, 'ref-1'),
+                true
+            )
+            assert.equal(
+                await h.repo.clearImportPending(
+                    h.sessionId,
+                    released.importPendingSince!
+                ),
+                false
+            )
+            const rereleased = await h.repo.releaseSessionHolder(
+                h.sessionId,
+                t2.id
+            )
+            assert.equal(rereleased.released, true)
+            assert.equal(
+                await h.repo.clearImportPending(
+                    h.sessionId,
+                    rereleased.importPendingSince!
+                ),
+                true
+            )
+            assert.equal((await readSession(h)).importPendingSince, null)
+            assert.equal(
+                (await h.repo.claimInflightTurn(h.sessionId, 'm1')).ok,
+                true
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'the idle writers and the deletes refuse a held session',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const t1 = await newTerminal(h)
+            assert.equal(
+                await h.repo.acquireSessionHolder(h.sessionId, t1.id, 'ref-1'),
+                true
+            )
+            assert.deepEqual(
+                await h.repo.upsertMessageSourcesForIdleSession(
+                    h.sessionId,
+                    [],
+                    'x'
+                ),
+                { upserted: 0, conflicted: true }
+            )
+            assert.deepEqual(
+                await h.repo.replaceSessionMessages(h.sessionId, []),
+                {
+                    replaced: 0,
+                    conflicted: true,
+                    upsertedSources: 0
+                }
+            )
+            assert.equal(
+                await h.repo.advanceRuntimeSyncCursor(h.sessionId, null, 3),
+                false
+            )
+            assert.equal(await h.repo.deleteSession(h.sessionId), false)
+            assert.equal(await h.repo.deleteSessionIfEmpty(h.sessionId), false)
+            assert.equal(
+                (await h.repo.releaseSessionHolder(h.sessionId, t1.id))
+                    .released,
+                true
+            )
+            assert.equal(await h.repo.deleteSession(h.sessionId), true)
+        } finally {
+            await h.close()
+        }
+    }
+)
+
+test(
+    'the terminal row: lease renewal, ending once, and the expired scan',
+    { skip: !RUN },
+    async () => {
+        const h = await buildHarness()
+        try {
+            const row = await newTerminal(h)
+            assert.equal(row.endedAt, null)
+            assert.ok(row.leaseExpiresAt.getTime() > Date.now() + 200_000)
+            await h.terminals.setHandle(row.id, 'exec-1')
+            await h.terminals.markHeld(row.id, h.sessionId)
+            assert.equal(await h.terminals.renewLease(row.id), true)
+            // Not expired yet: the scan does not list it.
+            assert.equal(
+                (await h.terminals.listExpiredLive(50)).some(
+                    (r) => r.id === row.id
+                ),
+                false
+            )
+            await h.db
+                .update(terminalSessions)
+                .set({ leaseExpiresAt: sql`now() - interval '1 second'` })
+                .where(eq(terminalSessions.id, row.id))
+            const expired = await h.terminals.listExpiredLive(50)
+            assert.ok(expired.some((r) => r.id === row.id))
+            // Exactly one ender wins; the loser sees the row already ended.
+            const ended = await h.terminals.end(row.id, 'reclaimed')
+            assert.equal(ended?.processHandle, 'exec-1')
+            assert.equal(ended?.heldSessionId, h.sessionId)
+            assert.equal(await h.terminals.end(row.id, 'closed'), null)
+            // An ended row renews nothing: its tunnel must stop.
+            assert.equal(await h.terminals.renewLease(row.id), false)
+            assert.equal(
+                (await h.terminals.listExpiredLive(50)).some(
+                    (r) => r.id === row.id
+                ),
+                false
+            )
+            // ended_at and ended_reason travel together.
+            await assert.rejects(
+                h.db
+                    .update(terminalSessions)
+                    .set({ endedReason: null })
+                    .where(eq(terminalSessions.id, row.id)),
+                /terminal_sessions_ended_pair/
+            )
+        } finally {
+            await h.close()
+        }
+    }
+)

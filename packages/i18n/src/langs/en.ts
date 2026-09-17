@@ -3043,7 +3043,28 @@ const en = {
             resumeNeedsDaemonUpgrade:
                 'This is a plain shell: resuming the conversation here needs a newer Manyfold CLI on this computer.',
             resumeTurnInFlight:
-                'This is a plain shell: this conversation is still being answered, and only one session can write to it at a time. Reopen the terminal once the answer finishes.'
+                'This is a plain shell: this conversation is still being answered, and only one session can write to it at a time. Reopen the terminal once the answer finishes.',
+            resumeSessionHeld:
+                'This is a plain shell: another terminal already has this conversation open, and only one can write to it at a time. Close that terminal, or use “Back to web” in the chat view, then reopen the terminal here.'
+        },
+        sessionHolder: {
+            heldBanner: 'This conversation is open in a terminal. Messages from the web, channels and the API are refused until it is released.',
+            backToWeb: 'Back to web',
+            releasing: 'Releasing…',
+            importPending: 'Bringing what was said in the terminal into this conversation…',
+            importFailed: 'What was said in the terminal could not be imported yet, so this conversation is paused. Retry once the runtime is reachable, or abandon the import.',
+            retrySync: 'Retry import',
+            abandonImport: 'Abandon import',
+            abandonConfirmTitle: 'Abandon the terminal import?',
+            abandonConfirmBody: 'Messages written in the terminal since it opened will not appear in this conversation. The transcript itself stays on the runtime.',
+            abandonConfirmAction: 'Abandon',
+            imported: '{{count}} message(s) from the terminal were added to this conversation.',
+            importedNone: 'Nothing new was said in the terminal.',
+            importAbandoned: 'The terminal import was abandoned; this conversation is open again.',
+            reclaimed: 'The terminal that had this conversation open stopped responding, so the conversation was released.',
+            dismiss: 'Dismiss',
+            composerHeld: 'Open in a terminal — use “Back to web” to continue here.',
+            composerImporting: 'Importing what was said in the terminal…'
         },
         composer: {
             askPlaceholder: 'Ask {{target}} anything.',

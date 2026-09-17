@@ -185,7 +185,11 @@ test('sendMessage has no agent.status gate: a stopped agent still accepts and pe
             return row
         },
         listMessages: async () => inserted,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         updateTitleIfEmpty: async () => undefined,
         touchSession: async () => undefined

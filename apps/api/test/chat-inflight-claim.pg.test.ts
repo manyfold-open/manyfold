@@ -225,13 +225,13 @@ test(
         const h = await buildHarness()
         try {
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'm1'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'm1')).ok,
                 true
             )
             assert.equal(await readClaim(h), 'm1')
             // second claim while held -> rejected, claim unchanged
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'm2'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'm2')).ok,
                 false
             )
             assert.equal(await readClaim(h), 'm1')
@@ -241,7 +241,7 @@ test(
             await h.repo.releaseInflightTurn(h.sessionId, 'm1')
             assert.equal(await readClaim(h), null)
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'm2'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'm2')).ok,
                 true
             )
         } finally {
@@ -258,7 +258,7 @@ test(
         try {
             await insertAssistant(h, 'm1')
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'm1'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'm1')).ok,
                 true
             )
             const fence = await h.repo.upsertTurnExecution({
@@ -318,7 +318,7 @@ test(
             // a FRESH claim at a missing message is NOT swept (protects the
             // claim-before-insert window on another instance)
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'ghost'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'ghost')).ok,
                 true
             )
             assert.equal(await h.repo.clearStaleInflightClaims(), 0)
@@ -332,7 +332,7 @@ test(
             // not-exists guard protects it regardless of age
             await insertAssistant(h, 'live')
             assert.equal(
-                await h.repo.claimInflightTurn(h.sessionId, 'live'),
+                (await h.repo.claimInflightTurn(h.sessionId, 'live')).ok,
                 true
             )
             await ageOutClaim(h)

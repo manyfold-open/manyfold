@@ -54,6 +54,12 @@ export const apiPaths = {
         `/agents/${agentId}/sessions/${sessionId}/cancel`,
     AGENT_SESSION_SHARE: (agentId: string, sessionId: string) =>
         `/agents/${agentId}/sessions/${sessionId}/share`,
+    AGENT_SESSION_HOLDER_RELEASE: (agentId: string, sessionId: string) =>
+        `/agents/${agentId}/sessions/${sessionId}/holder/release`,
+    AGENT_SESSION_IMPORT_RETRY: (agentId: string, sessionId: string) =>
+        `/agents/${agentId}/sessions/${sessionId}/import/retry`,
+    AGENT_SESSION_IMPORT_ABANDON: (agentId: string, sessionId: string) =>
+        `/agents/${agentId}/sessions/${sessionId}/import/abandon`,
     CHAT_SHARED_BY_ID: (shareId: string) =>
         `/chat/shared/${encodeURIComponent(shareId)}`,
     CHAT_SHARED_MESSAGES: (shareId: string) =>

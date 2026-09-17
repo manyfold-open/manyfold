@@ -8,7 +8,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common'
 import type { WebSocket as WsClient } from 'ws'
 import type { Agent } from '@manyfold/db'
 import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    DaemonRegistryService,
+    DaemonRpcResponseError
+} from '@/modules/daemon/daemon-registry.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import {
     ApiTokenService,
@@ -16,6 +19,7 @@ import {
 } from '@/modules/auth/api-token.service'
 
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
+import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
 
 export interface DaemonTerminalRequest {
     agent: Agent
@@ -24,7 +28,12 @@ export interface DaemonTerminalRequest {
     rows: number
     resume?: ResolvedTerminalResume | null
     client: WsClient
-    onClose: () => void
+    onClose: (cause: TerminalCloseCause) => void
+    // The terminal's durable identity learns its token and its process
+    // handle (the pty stream refId) from here, so any API instance can later
+    // close the pty through the daemon (ADR-0029 §1).
+    onToken?: (tokenId: string) => void
+    onHandle?: (refId: string) => void
 }
 
 // A shell on the machine itself, addressed by host instead of agent. It gets
@@ -49,6 +58,8 @@ const TERMINAL_BASE_ENV = {
     LANG: 'C.UTF-8',
     COLORTERM: 'truecolor'
 }
+
+const PTY_CLOSE_TIMEOUT_MS = 5_000
 
 @Injectable()
 export class DaemonTerminal {
@@ -79,6 +90,7 @@ export class DaemonTerminal {
             expiresInSeconds: TERMINAL_TOKEN_TTL_SECONDS,
             tokenKind: 'terminal'
         })
+        req.onToken?.(terminalToken.tokenId)
         const dropTerminalToken = (): void => {
             void this.apiTokens
                 .hardDelete({
@@ -113,7 +125,21 @@ export class DaemonTerminal {
             rows,
             client,
             onClose,
+            onHandle: req.onHandle,
             release: dropTerminalToken
+        })
+    }
+
+    // Close a pty this instance may not own the stream of (a takeover, the
+    // user's release from the chat view, the lease reaper): the broker
+    // rewrites the refId for a daemon connected to a peer instance, and the
+    // daemon's ack proves the process is gone.
+    async closePty(daemonId: string, refId: string): Promise<void> {
+        await this.registry.rpc({
+            daemonId,
+            method: 'pty.close',
+            payload: { refId },
+            timeoutMs: PTY_CLOSE_TIMEOUT_MS
         })
     }
 
@@ -160,7 +186,8 @@ export class DaemonTerminal {
         cols: number
         rows: number
         client: WsClient
-        onClose: () => void
+        onClose: (cause: TerminalCloseCause) => void
+        onHandle?: (refId: string) => void
         release: () => void
     }): Promise<void> {
         const {
@@ -174,6 +201,7 @@ export class DaemonTerminal {
             rows,
             client,
             onClose,
+            onHandle,
             release
         } = args
         let closed = false
@@ -216,9 +244,10 @@ export class DaemonTerminal {
                 client.close(4503, 'daemon unavailable')
             } catch {}
             release()
-            onClose()
+            onClose('tunnel-failed')
             return
         }
+        onHandle?.(stream.refId)
 
         client.on('message', (raw, isBinary) => {
             if (closed) return
@@ -265,18 +294,40 @@ export class DaemonTerminal {
             } catch {}
         })
 
+        // The browser went away: close the pty and wait for the daemon's ack
+        // before releasing anything this terminal holds, so a hold is only
+        // ever released over a process known to be dead (ADR-0029 §1). A
+        // daemon that cannot answer gets the fire-and-forget cancel instead
+        // and the release goes ahead: it will not outlive its tunnel.
         const cleanup = (): void => {
             if (closed) return
             closed = true
-            stream.cancel()
-            release()
-            onClose()
+            void this.closePty(daemonId, stream.refId)
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `pty.close failed for daemon ${daemonId}: ${err.message}`
+                    )
+                )
+                .finally(() => {
+                    stream.cancel()
+                    release()
+                    onClose('client-closed')
+                })
         }
         client.on('close', cleanup)
         client.on('error', cleanup)
 
+        // How the pty ended on its own: the shell exited (its transcript is
+        // settled), the daemon refused the open, or the daemon's connection
+        // dropped under a pty that may well still be running — that last
+        // case keeps the terminal's hold for the lease to decide.
+        let endCause: TerminalCloseCause = 'exit'
         stream.result
             .catch((err) => {
+                endCause =
+                    err instanceof DaemonRpcResponseError
+                        ? 'tunnel-failed'
+                        : 'daemon-lost'
                 this.log.warn(
                     `pty.open ended for daemon ${daemonId}: ${(err as Error).message}`
                 )
@@ -297,7 +348,7 @@ export class DaemonTerminal {
                         client.close(1000, 'pty closed')
                     } catch {}
                     release()
-                    onClose()
+                    onClose(endCause)
                 }
             })
     }

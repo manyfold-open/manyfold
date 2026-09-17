@@ -35,9 +35,13 @@ export type TerminalResumeBlocked =
 // agent's configuration; `turn-in-flight` is the one that only the API can
 // decide (it is the session's turn lock, read at connect) and the one that
 // clears on its own, so the tab records it rather than predicting it.
+// `session-held` is its sibling: another terminal owns the session's writes
+// (ADR-0029 §1), which clears when that terminal closes or the user takes
+// the session back from the chat view.
 export type TerminalResumeOutcome =
     | 'applied'
     | 'turn-in-flight'
+    | 'session-held'
     | 'unavailable'
 
 export interface TerminalResumeAvailability {

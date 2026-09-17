@@ -46,6 +46,12 @@ export interface ReaderResult {
     sourceFile: string | null
     messages: RecoveredMessage[]
     warnings: string[]
+    // What the read established, separately from what it parsed: the file
+    // was read ('read', however many messages it held), no file exists for
+    // the ref ('missing'), or one exists but could not be read
+    // ('unreadable'). Consumers that must not mistake an absent transcript
+    // for an empty one — the import gate — branch on this (ADR-0029 §2).
+    transcript: 'read' | 'missing' | 'unreadable'
     summary?: RecoverySummary
     // Newline-terminated lines the transcript had at read time, numbered as
     // RecoveredRawSource.sourceSeq is. The runtime-session cursor is kept in

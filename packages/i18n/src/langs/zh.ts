@@ -2905,7 +2905,28 @@ const zh: Translations = {
             resumeNeedsDaemonUpgrade:
                 '这是一个普通 shell：要在这里继续对话，需要这台电脑上的 Manyfold CLI 升级到更新的版本。',
             resumeTurnInFlight:
-                '这是一个普通 shell：这轮对话还在生成中，同一时刻只能有一个会话写入它。等回答结束后重新打开终端即可。'
+                '这是一个普通 shell：这轮对话还在生成中，同一时刻只能有一个会话写入它。等回答结束后重新打开终端即可。',
+            resumeSessionHeld:
+                '这是一个普通 shell：另一个终端已经打开了这段对话，同一时刻只能有一个终端写入它。关掉那个终端，或在 chat 视图里点「回到 web」，再在这里重新打开终端。'
+        },
+        sessionHolder: {
+            heldBanner: '这段对话正在终端中进行。释放之前，来自 web、channel 与 API 的消息都会被拒绝。',
+            backToWeb: '回到 web',
+            releasing: '正在释放…',
+            importPending: '正在把终端里说过的内容导入这段对话…',
+            importFailed: '终端里说过的内容还没能导入，这段对话暂时挂起。等 runtime 可达后重试，或放弃导入。',
+            retrySync: '重试导入',
+            abandonImport: '放弃导入',
+            abandonConfirmTitle: '放弃终端导入？',
+            abandonConfirmBody: '终端打开以来写入的消息不会出现在这段对话里。transcript 本身仍保留在 runtime 上。',
+            abandonConfirmAction: '放弃',
+            imported: '来自终端的 {{count}} 条消息已加入这段对话。',
+            importedNone: '终端里没有新的内容。',
+            importAbandoned: '已放弃终端导入，这段对话重新开放。',
+            reclaimed: '打开这段对话的终端已停止响应，对话已被释放。',
+            dismiss: '关闭',
+            composerHeld: '正在终端中进行 —— 点「回到 web」在这里继续。',
+            composerImporting: '正在导入终端里说过的内容…'
         },
         composer: {
             askPlaceholder: '向 {{target}} 提问。',
