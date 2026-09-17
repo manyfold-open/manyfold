@@ -1,6 +1,5 @@
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
-import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
@@ -65,7 +64,7 @@ const buildHarness = async (
     max?: number
 ): Promise<Harness> => {
     const url = databaseUrl ?? process.env.DATABASE_URL
-    if (!url) throw new Error('DATABASE_URL must be set in .env')
+    if (!url) throw new Error('DATABASE_URL must name an owned test database')
     const db = createDb(url, max ? { max } : undefined)
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
