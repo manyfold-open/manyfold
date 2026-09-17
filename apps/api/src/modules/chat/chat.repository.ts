@@ -1668,20 +1668,25 @@ export class ChatRepository {
             .orderBy(asc(chatMessages.createdAt), asc(chatMessages.id))
     }
 
-    async countSessionEventsByType(
+    async countSessionEvents(
         sessionId: string
-    ): Promise<Record<string, number>> {
+    ): Promise<{ eventCounts: Record<string, number>; cancelledEventCount: number }> {
         const rows = await this.db
             .select({
                 eventType: chatStreamEvents.eventType,
-                total: count()
+                total: count(),
+                cancelled: sql<number>`count(*) filter (where ${chatStreamEvents.eventType} = 'error' and ${chatStreamEvents.payloadJson}->'error'->>'code' = ${CANCELLED_BY_USER_CODE})`
             })
             .from(chatStreamEvents)
             .where(eq(chatStreamEvents.sessionId, sessionId))
             .groupBy(chatStreamEvents.eventType)
         const counts: Record<string, number> = {}
-        for (const row of rows) counts[row.eventType] = Number(row.total)
-        return counts
+        let cancelledEventCount = 0
+        for (const row of rows) {
+            counts[row.eventType] = Number(row.total)
+            cancelledEventCount += Number(row.cancelled)
+        }
+        return { eventCounts: counts, cancelledEventCount }
     }
 
     async listAdminSessionStreamEvents(

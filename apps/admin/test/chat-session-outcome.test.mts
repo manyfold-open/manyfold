@@ -223,7 +223,8 @@ for (const viewport of [
                 body = {
                     session: summary(id, isFailed),
                     turns: [fixtureTurn],
-                    eventCounts: { error: 1 }
+                    eventCounts: { error: id === 'mixed' ? 2 : 1 },
+                    cancelledEventCount: isFailed ? 0 : 1
                 }
             else {
                 unexpected.push(url.pathname)
@@ -253,7 +254,9 @@ for (const viewport of [
                     .count(),
                 1
             )
-            await page.getByRole('button', { name: 'Has errors', exact: true }).click()
+            await page
+                .getByRole('button', { name: 'Has errors', exact: true })
+                .click()
             await page.waitForFunction(
                 () => !document.body.textContent?.includes('Cancelled fixture')
             )
@@ -264,12 +267,14 @@ for (const viewport of [
                 1
             )
             assert.ok(calls.some((path) => path.includes('hasError=true')))
-            for (const id of ['cancelled', 'legacy']) {
+            for (const id of ['cancelled', 'legacy', 'mixed']) {
                 await page.goto(`${origin}/chat-sessions/${id}`)
                 await page
                     .getByText('Fixture prompt', { exact: true })
                     .waitFor()
-                const badges = page.locator('span.border').filter({ hasText: /^cancelled$/ })
+                const badges = page
+                    .locator('span.border')
+                    .filter({ hasText: /^cancelled$/ })
                 assert.equal(
                     await badges.count(),
                     2,
@@ -297,6 +302,18 @@ for (const viewport of [
                     (await page.getByText(/cancelled_by_user/).count()) > 0,
                     'raw wire remains inspectable'
                 )
+                const summaryCount = page.getByText('cancelled ×1', {
+                    exact: true
+                })
+                assert.equal(await summaryCount.count(), 1)
+                assert.doesNotMatch(
+                    (await summaryCount.getAttribute('class')) ?? '',
+                    /accent-ruby/
+                )
+                assert.equal(
+                    await page.getByText('error ×1', { exact: true }).count(),
+                    id === 'mixed' ? 1 : 0
+                )
                 await page
                     .getByRole('button', { name: 'Refresh', exact: true })
                     .click()
@@ -323,6 +340,10 @@ for (const viewport of [
             )
             assert.ok(
                 (await page.getByText(/Fixture unavailable/).count()) >= 1
+            )
+            assert.equal(
+                await page.getByText('error ×1', { exact: true }).count(),
+                1
             )
         } finally {
             await browser.close()

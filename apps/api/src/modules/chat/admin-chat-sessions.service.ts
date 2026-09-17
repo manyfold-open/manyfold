@@ -166,12 +166,12 @@ export class AdminChatSessionsService {
             sessionId,
             { limit: TURNS_LIMIT }
         )
-        const [turns, eventCounts] = await Promise.all([
+        const [turns, counts] = await Promise.all([
             this.buildTurns(turnRows),
-            this.repo.countSessionEventsByType(sessionId)
+            this.repo.countSessionEvents(sessionId)
         ])
 
-        return { session: summary, turns, eventCounts }
+        return { session: summary, turns, ...counts }
     }
 
     // The transcript half of the same turns `get` reports on: each assistant

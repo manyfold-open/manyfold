@@ -280,9 +280,14 @@ const ChatSessionDetail: FC = (): ReactNode => {
         )
 
     const session = detail.session
-    const eventTypeSummary = Object.entries(detail.eventCounts).sort((a, b) =>
-        a[0].localeCompare(b[0])
-    )
+    const summaryCounts = { ...detail.eventCounts }
+    if (detail.cancelledEventCount) {
+        summaryCounts.error -= detail.cancelledEventCount
+        summaryCounts.cancelled = detail.cancelledEventCount
+    }
+    const eventTypeSummary = Object.entries(summaryCounts)
+        .filter(([, total]) => total > 0)
+        .sort((a, b) => a[0].localeCompare(b[0]))
     const filterTypes = [
         ...new Set([...KNOWN_EVENT_TYPES, ...Object.keys(detail.eventCounts)])
     ]

@@ -270,6 +270,7 @@ test(
                 1,
                 'raw wire counts stay inspectable'
             )
+            assert.equal(detail.cancelledEventCount, 1)
             const events = await h.service.listEvents(sessionId, {
                 limit: 10,
                 afterId: null,
@@ -425,6 +426,35 @@ test(
         }
     }
 )
+
+test('cancellation event counts cover the whole session beyond the turn page', {
+    skip: !RUN && 'RUN_PG_E2E!=1'
+}, async (t) => {
+    const h = await buildHarness(t)
+    try {
+        const sessionId = await createSession(h, {
+            userId: h.memberId, agentId: h.memberAgentId
+        })
+        const failedId = await addAssistantMessage(h, sessionId)
+        await addEvent(h, sessionId, failedId, 1, 'error', { error: { code: null } })
+        for (let i = 0; i < 101; i++) {
+            const messageId = await addAssistantMessage(h, sessionId)
+            await addEvent(h, sessionId, messageId, 1, 'token', cancellation)
+            await addEvent(h, sessionId, messageId, 2, 'error', cancellation)
+        }
+        const detail = await h.service.get(sessionId)
+        assert.equal(detail.turns.length, 100)
+        assert.ok(detail.turns.every((turn) => turn.outcome === 'cancelled'))
+        assert.equal(detail.session.status, 'idle')
+        assert.equal(detail.eventCounts.error, 102)
+        assert.equal(detail.eventCounts.token, 101)
+        assert.equal(detail.cancelledEventCount, 101,
+            'only typed error events count; neither the turn page nor same-named token payloads do')
+        assert.equal(detail.eventCounts.error - detail.cancelledEventCount, 1)
+    } finally {
+        await h.close()
+    }
+})
 
 test(
     'Has errors excludes only the exact typed cancellation code',

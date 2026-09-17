@@ -78,6 +78,8 @@ export interface AdminChatSessionDetail {
     session: AdminChatSessionSummary
     turns: AdminChatSessionTurn[]
     eventCounts: Record<string, number>
+    // Subset of raw error events whose typed code is cancelled_by_user.
+    cancelledEventCount: number
 }
 
 export interface AdminChatStreamEvent {
