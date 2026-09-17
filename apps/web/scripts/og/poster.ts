@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { tForLanguage } from '@manyfold/i18n'
+import { renderPlates } from '../../src/components/field/fields'
 import { POSTER_CSS, POSTER_TEMPLATE } from './paths'
 
 export const POSTER_LOCALES = ['en', 'zh'] as const
@@ -30,7 +31,7 @@ export const HTML_LANG: Record<PosterLocale, string> = {
 // fails until they agree. Changed bytes are always a bump: a retired version
 // keeps its own filename and its own bytes, because clients cache by URL and
 // rewriting one is a lie.
-export const POSTER_VERSION = 'v5'
+export const POSTER_VERSION = 'v6'
 
 export const posterFile = (locale: PosterLocale): string =>
     locale === 'en'
@@ -56,7 +57,11 @@ export const RETIRED_CARDS: RetiredCards = {
     'manyfold-og-v3.png':
         '9f63be3fc7f2365a48f086515b6f430e9c766d8858fdce6dcf9c34d0841f4e34',
     'manyfold-og-zh-v3.png':
-        '558115ecdb6bb8085a26729fed26f6b2064e94843541f44ea9aa88c9e03649cd'
+        '558115ecdb6bb8085a26729fed26f6b2064e94843541f44ea9aa88c9e03649cd',
+    'manyfold-og-v5.png':
+        '669a8fdfc2bec8ab3b749231725309506163a16f2faa9b880c44a3f1b8dfd453',
+    'manyfold-og-zh-v5.png':
+        '91a728d9f0f1c81f8b849594d2a29febfae4a383afa3063e1381771316483cf1'
 }
 
 // The unversioned name predates the suffix. No page emits it, but pasted links
@@ -80,9 +85,13 @@ const escapeHtml = (value: string): string =>
 
 // The hero sets two lines: the statement, then the claim it resolves into.
 // Landing.tsx's floor hero composes the same three keys the same way.
-const titleHtml = (copy: PosterCopy): string =>
+//
+// No word space before the accent in CJK. The catalog's after-clause already
+// ends in a full-width comma, which carries its own trailing space, so a latin
+// space on top of it opens a gap wide enough to read as a dropped character.
+const titleHtml = (locale: PosterLocale, copy: PosterCopy): string =>
     `${escapeHtml(copy['web.landing.heroTitleBefore'])}<br />` +
-    `${escapeHtml(copy['web.landing.heroTitleAfter'])} ` +
+    `${escapeHtml(copy['web.landing.heroTitleAfter'])}${locale === 'zh' ? '' : ' '}` +
     `<span class="p-accent">${escapeHtml(copy['web.landing.heroTitleAccent'])}</span>`
 
 // The tagline is set as two lines, broken at its last clause boundary, which
@@ -98,6 +107,24 @@ export const taglineLines = (tagline: string): string[] => {
 const taglineHtml = (copy: PosterCopy): string =>
     taglineLines(copy['web.landing.heroTagline']).map(escapeHtml).join('<br />')
 
+// The Fieldwork subject, held at one phase. The card is a still, so it takes
+// the frame where the shape reads most like itself — for the ripple that is
+// t=0.5, the one with the fullest, most symmetric rings. Ripple because the
+// hero's own metaphor is one input spreading outward (DESIGN.landing.md §3.5),
+// which is what the copy beside it says.
+//
+// The grid is coarser than the landing's: X renders this card about 504px
+// wide, and a field pitched for a screen turns to grey fog at 0.42x. It is
+// also large enough for the ring spacing to stay above the aliasing floor —
+// k=5 over a ~23-cell radius puts a ring every 4.6 cells (§3.5).
+const FIELD = {
+    shape: 'ripple',
+    ramp: 'wave',
+    cols: 96,
+    rows: 46,
+    t: 0.5
+} as const
+
 export interface PosterInput {
     locale: PosterLocale
     copy: PosterCopy
@@ -106,12 +133,16 @@ export interface PosterInput {
 
 export const posterHtml = ({ locale, copy, styles }: PosterInput): string => {
     const template = readFileSync(POSTER_TEMPLATE, 'utf8')
+    const [fieldLight, fieldMid, fieldDeep] = renderPlates(FIELD)
     const filled: Record<string, string> = {
         lang: HTML_LANG[locale],
         locale,
         styles,
-        title: titleHtml(copy),
-        tagline: taglineHtml(copy)
+        title: titleHtml(locale, copy),
+        tagline: taglineHtml(copy),
+        fieldLight: escapeHtml(fieldLight),
+        fieldMid: escapeHtml(fieldMid),
+        fieldDeep: escapeHtml(fieldDeep)
     }
     return template.replace(/\{\{(\w+)\}\}/g, (whole, key: string) => {
         if (!(key in filled))

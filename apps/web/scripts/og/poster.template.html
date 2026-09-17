@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
     Art source for the exported social card. poster.ts fills the placeholders
-    from the @manyfold/i18n landing hero keys and inlines poster.css plus the
-    pinned faces into the style block, so this file holds layout only — never
+    from the @manyfold/i18n landing hero keys, renders the field through the
+    same engine the landing components use, and inlines poster.css plus the
+    pinned faces into the style block — so this file holds layout only, never
     copy. Editing it changes the committed PNGs, so re-run the render.
 -->
 <html lang="{{lang}}">
@@ -15,28 +16,29 @@
     </head>
     <body>
         <div class="poster">
-            <div class="p-chassis"></div>
-            <div class="p-screws"></div>
-            <div class="p-groove"></div>
-            <div class="p-lip"></div>
+            <div class="p-field" aria-hidden="true">
+                <pre data-ink="1">{{fieldLight}}</pre>
+                <pre data-ink="2">{{fieldMid}}</pre>
+                <pre data-ink="3">{{fieldDeep}}</pre>
+            </div>
             <div class="p-row">
                 <span class="p-brand">
                     <svg viewBox="0 0 135 100" aria-hidden="true">
                         <polygon
                             points="10,80 35,15 47.5,15 22.5,80"
-                            fill="#101013"
+                            fill="#ededef"
                         />
                         <polygon
                             points="35,15 60,80 47.5,15 72.5,80"
-                            fill="#2a2b30"
+                            fill="#8c8e96"
                         />
                         <polygon
                             points="60,80 85,15 72.5,80 97.5,15"
-                            fill="#101013"
+                            fill="#ededef"
                         />
                         <polygon
                             points="85,15 110,80 97.5,15 122.5,80"
-                            fill="#2a2b30"
+                            fill="#8c8e96"
                         />
                     </svg>
                     Manyfold
