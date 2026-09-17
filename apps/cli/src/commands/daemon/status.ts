@@ -118,7 +118,13 @@ export const registerDaemonStatus = (program: Command): void => {
                             local.adoptableExecs
                                 ? ` (${local.adoptableExecs} would survive a restart)`
                                 : ''
-                        }, ${local.activePtys} pty`
+                        }, ${local.activePtys} pty${
+                            local.ownedTerminals
+                                ? ` (${local.ownedTerminals} terminal${
+                                      local.ownedTerminals === 1 ? '' : 's'
+                                  } kept, ${local.attachedTerminals ?? 0} attached)`
+                                : ''
+                        }`
                     )
                     console.log(
                         `auto-update: ${local.autoUpdate ? kleur.green('on') : kleur.gray('off')}`

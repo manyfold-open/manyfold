@@ -1624,6 +1624,7 @@ const ko: Record<string, string> = {
     "web.terminal.noAuthToken": "인증 토큰 없음",
     "web.terminal.wsError": "WebSocket 오류",
     "web.terminal.reconnect": "다시 연결",
+    "web.terminal.attachedElsewhere": "이 터미널은 이제 다른 탭에 표시됩니다. 여기로 다시 가져오려면 다시 연결하세요.",
     "web.terminal.limitedPty": "제한된 터미널 — 크기 조정이나 작업 제어가 없습니다. 전체 터미널 지원을 활성화하려면 이 컴퓨터에서 CLI를 업데이트하세요.",
     "web.terminal.enablePromptTitle": "터미널을 활성화하시겠습니까?",
     "web.terminal.enablePromptBody": "이 샌드박스에 대해 터미널이 꺼져 있습니다. 대화형 셸을 열려면 활성화하세요. 샌드박스 설정에서 언제든지 다시 끌 수 있습니다.",

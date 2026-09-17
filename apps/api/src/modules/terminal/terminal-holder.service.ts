@@ -28,16 +28,21 @@ import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
 import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
 import type { TerminalResumeOutcome } from '@/modules/terminal/terminal-resume.service'
+import { ApiTokenService } from '@/modules/auth/api-token.service'
 
 // Why a terminal stopped, as its driver saw it. Everything but `daemon-lost`
-// proves the process is dead or was killed on the way out, so the hold is
-// released; a daemon that merely lost its socket may still be running the
-// pty, so its terminal keeps the hold until the lease reaper decides.
+// and `detached` proves the process is dead or was killed on the way out, so
+// the hold is released; a daemon that merely lost its socket may still be
+// running the pty, so its terminal keeps the hold until the lease reaper
+// decides, and a terminal the daemon owns (ADR-0029 §6) outlives the
+// attachment that ended, so its hold stays until the daemon's inventory
+// says the terminal is gone.
 export type TerminalCloseCause =
     | 'client-closed'
     | 'exit'
     | 'tunnel-failed'
     | 'daemon-lost'
+    | 'detached'
 
 // Session ownership by terminals (ADR-0029 §1, §2): taking the hold as the
 // last step of a resume, and every way it is given back — the tunnel
@@ -59,7 +64,11 @@ export class TerminalHolderService {
         private readonly statusBroadcaster?: SpriteStatusBroadcaster,
         // Same rule; absent, a terminal's end settles no hook-reported refs.
         @Optional()
-        private readonly refs?: TerminalSessionRefsRepository
+        private readonly refs?: TerminalSessionRefsRepository,
+        // The token an owned terminal's shell carries lives as long as the
+        // terminal, so whichever path ends the row drops it (ADR-0029 §6).
+        @Optional()
+        private readonly apiTokens?: ApiTokenService
     ) {}
 
     // The hold is one compare-and-set against no live turn, no other holder
@@ -98,13 +107,65 @@ export class TerminalHolderService {
             )
             return
         }
+        if (cause === 'detached') {
+            this.log.log(
+                `terminal.detached terminal=${terminalId}; hold kept while the daemon owns it`
+            )
+            return
+        }
         const row = await this.terminals.end(
             terminalId,
             cause === 'tunnel-failed' ? 'failed' : 'closed'
         )
         if (!row) return
+        await this.dropToken(row)
         await this.releaseAndImport(row)
         this.settleRefsDetached(row)
+    }
+
+    // A terminal the daemon still owns that this tab may attach to instead
+    // of opening another (ADR-0029 §6): the one it names from before its
+    // reconnect, or the one holding the very session it wants to resume. A
+    // plain shell is only reused for a plain shell; a hold is only reused
+    // for its own session.
+    async reusableTerminal(args: {
+        userId: string
+        agentId: string
+        sessionId: string | null
+        prevTerminalId: string | null
+    }): Promise<TerminalSessionRow | null> {
+        const candidates: string[] = []
+        if (args.prevTerminalId) candidates.push(args.prevTerminalId)
+        if (args.sessionId) {
+            const state = await this.chatRepo.sessionHolderState(args.sessionId)
+            if (state?.holderTerminalId) candidates.push(state.holderTerminalId)
+        }
+        for (const id of new Set(candidates)) {
+            const row = await this.terminals.findById(id)
+            if (
+                !row ||
+                row.endedAt ||
+                row.userId !== args.userId ||
+                row.agentId !== args.agentId ||
+                row.runtime !== 'daemon' ||
+                row.processHandle !== row.id ||
+                (row.heldSessionId ?? null) !== args.sessionId
+            )
+                continue
+            return row
+        }
+        return null
+    }
+
+    // The daemon's inventory no longer names this terminal: its process is
+    // gone, so the row ends and whatever it held is released.
+    async endGone(row: TerminalSessionRow): Promise<boolean> {
+        const ended = await this.terminals.end(row.id, 'closed')
+        if (!ended) return false
+        await this.dropToken(ended)
+        await this.releaseAndImport(ended)
+        this.settleRefsDetached(ended)
+        return true
     }
 
     // A reconnecting tab names the terminal it replaces: the old process is
@@ -117,6 +178,7 @@ export class TerminalHolderService {
         const row = await this.terminals.end(prevTerminalId, 'superseded')
         if (!row) return
         await this.killByHandle(row)
+        await this.dropToken(row)
         await this.releaseAndImport(row)
         this.settleRefsDetached(row)
     }
@@ -138,6 +200,7 @@ export class TerminalHolderService {
         if (!row)
             return { released: false, terminalId: session.holderTerminalId }
         await this.killByHandle(row)
+        await this.dropToken(row)
         const released = await this.releaseAndImport(row)
         this.settleRefsDetached(row)
         return { released, terminalId: row.id }
@@ -170,6 +233,7 @@ export class TerminalHolderService {
             if (!row) continue
             reclaimed += 1
             await this.killByHandle(row)
+            await this.dropToken(row)
             const released = await this.releaseAndImport(row, {
                 kind: 'holder-reclaimed'
             })
@@ -259,6 +323,20 @@ export class TerminalHolderService {
             await this.refs.settle(ref.id, result.outcome, result.sessionId)
             this.log.log(
                 `terminal.refs.settled terminal=${row.id} ref=${ref.sessionRef} outcome=${result.outcome}${result.sessionId ? ` session=${result.sessionId}` : ''}`
+            )
+        }
+    }
+
+    private async dropToken(row: TerminalSessionRow): Promise<void> {
+        if (!row.tokenId || !this.apiTokens) return
+        try {
+            await this.apiTokens.hardDelete({
+                tokenId: row.tokenId,
+                userId: row.userId
+            })
+        } catch (err) {
+            this.log.warn(
+                `terminal.token_drop_failed terminal=${row.id}: ${(err as Error).message}`
             )
         }
     }

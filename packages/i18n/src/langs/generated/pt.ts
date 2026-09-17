@@ -1633,6 +1633,7 @@ const pt: Record<string, string> = {
     'web.terminal.noAuthToken': 'Nenhum token de autenticação',
     'web.terminal.wsError': 'Erro WebSocket',
     'web.terminal.reconnect': 'Reconectar',
+    'web.terminal.attachedElsewhere': 'Este terminal agora é exibido em outra aba. Reconecte para trazê-lo de volta aqui.',
     'web.terminal.limitedPty': 'Terminal limitado – sem redimensionamento ou controle de trabalho. Atualize o CLI neste computador para ativar suporte total ao terminal.',
     'web.terminal.enablePromptTitle': 'Habilitar terminal?',
     'web.terminal.enablePromptBody': 'O terminal está desligado para esta sandbox. Habilite-o para abrir um shell interativo. Você pode desligá-lo novamente a qualquer momento nas configurações do sandbox.',

@@ -1625,6 +1625,7 @@ const ja: Record<string, string> = {
     'web.terminal.noAuthToken': '認証トークンがありません',
     'web.terminal.wsError': 'WebSocket エラー',
     'web.terminal.reconnect': '再接続',
+    'web.terminal.attachedElsewhere': 'この端末は現在、別のタブに表示されています。ここに戻すには再接続してください。',
     'web.terminal.limitedPty': '制限された端末 — サイズ変更やジョブ制御はありません。このコンピュータの CLI を更新して、完全な端末サポートを有効にします。',
     'web.terminal.enablePromptTitle': 'ターミナルを有効にしますか？',
     'web.terminal.enablePromptBody': 'このサンドボックスではターミナルがオフになっています。有効にすると対話型シェルが開きます。サンドボックス設定でいつでも再びオフにできます。',

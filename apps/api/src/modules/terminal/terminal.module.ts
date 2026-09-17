@@ -24,6 +24,7 @@ import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-sessi
 import { TerminalHookService } from '@/modules/terminal/terminal-hook.service'
 import { TerminalHookController } from '@/modules/terminal/terminal-hook.controller'
 import { ShareRateLimitService } from '@/common/share-rate-limit.service'
+import { TerminalInventoryService } from '@/modules/terminal/terminal-inventory.service'
 
 @Module({
     imports: [
@@ -52,6 +53,7 @@ import { ShareRateLimitService } from '@/common/share-rate-limit.service'
         TerminalHolderService,
         TerminalHookService,
         TerminalLeaseReaper,
+        TerminalInventoryService,
         // Module-local buckets for the hook endpoint's per-terminal limit.
         ShareRateLimitService
     ]

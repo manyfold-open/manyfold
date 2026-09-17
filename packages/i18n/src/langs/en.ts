@@ -3022,6 +3022,8 @@ const en = {
             noAuthToken: 'No auth token',
             wsError: 'WebSocket error',
             reconnect: 'Reconnect',
+            attachedElsewhere:
+                'This terminal is now shown in another tab. Reconnect to bring it back here.',
             limitedPty:
                 'Limited terminal — no resize or job control. Update the CLI on this computer to enable full terminal support.',
             enablePromptTitle: 'Enable terminal?',

@@ -2886,6 +2886,7 @@ const zh: Translations = {
             noAuthToken: '没有认证令牌',
             wsError: 'WebSocket 错误',
             reconnect: '重新连接',
+            attachedElsewhere: '该终端已在另一个标签页中显示。重新连接可把它接回这里。',
             limitedPty:
                 '受限终端 — 不支持调整大小和作业控制。请在这台电脑上更新 CLI 以启用完整终端。',
             enablePromptTitle: '开启终端？',

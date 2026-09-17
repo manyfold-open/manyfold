@@ -3,12 +3,14 @@ import { randomUUID } from 'node:crypto'
 import {
     DAEMON_CLIENT_FEATURES,
     type DaemonInflightStream,
+    type DaemonOwnedTerminal,
     type DaemonRpcMethod,
     type DaemonStreamKind,
     type DaemonWsFrame
 } from '@manyfold/shared'
 import { enumerateInflightForHello, gcStaleBuffers } from './exec-buffer'
 import { recoverFileExecs } from './exec-files'
+import { listOwnedTerminals } from './owned-terminals'
 
 export interface RpcContext {
     refId: string
@@ -150,6 +152,21 @@ export class DaemonWsClient {
                     `inflight enumeration failed: ${(err as Error).message}`
                 )
             }
+            // Same rule for the terminals this daemon owns (ADR-0029 §6).
+            let terminals: DaemonOwnedTerminal[] | null = null
+            try {
+                terminals = listOwnedTerminals().map(
+                    ({ terminalId, attached, startedAt }) => ({
+                        terminalId,
+                        attached,
+                        startedAt
+                    })
+                )
+            } catch (err) {
+                this.log(
+                    `terminal enumeration failed: ${(err as Error).message}`
+                )
+            }
             const hello: DaemonWsFrame = {
                 type: 'hello',
                 daemonUuid: this.opts.daemonUuid,
@@ -162,6 +179,7 @@ export class DaemonWsClient {
                 clientFeatures:
                     this.opts.clientFeatures ?? DAEMON_CLIENT_FEATURES,
                 ...(inflightStreams !== null ? { inflightStreams } : {}),
+                ...(terminals !== null ? { terminals } : {}),
                 ...(this.opts.helloExtras?.() ?? {})
             }
             if (inflightStreams !== null && inflightStreams.length > 0)

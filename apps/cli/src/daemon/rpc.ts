@@ -48,6 +48,19 @@ import { runOpenclawTurn } from './openclaw-turn'
 import { runOpenclawAcpTurn } from './openclaw-acp-turn'
 import type { RpcContext, RpcHandler } from './ws-client'
 import { encodePtyChunk, resolvePtyBackend } from './pty-backend'
+import {
+    assertOwnedTerminalCapacity,
+    attachOwnedTerminal,
+    attachedTerminalCount,
+    closeOwnedTerminal,
+    detachOwnedTerminal,
+    isOwnedTerminalId,
+    ownedTerminal,
+    ownedTerminalCount,
+    registerOwnedTerminal,
+    resizeOwnedTerminal,
+    type OwnedTerminalAttachment
+} from './owned-terminals'
 import { machineWorkspacesRoot } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
@@ -958,11 +971,17 @@ export const daemonActivitySnapshot = (): {
     activeExecs: number
     adoptableExecs: number
     activePtys: number
+    ownedTerminals: number
+    attachedTerminals: number
     updatePending: boolean
 } => ({
     activeExecs: execChildren.size + fileExecRegistry.size(),
     adoptableExecs: fileExecsAdoptable ? fileExecRegistry.size() : 0,
+    // Attachments count as ptys (they hold the update drain); a terminal
+    // nobody is attached to does not.
     activePtys: ptySessions.size,
+    ownedTerminals: ownedTerminalCount(),
+    attachedTerminals: attachedTerminalCount(),
     updatePending: updateCoordinator.blocksNewSessions()
 })
 
@@ -1926,6 +1945,23 @@ const handlers: Partial<
         return { ok: true }
     },
     'pty.open': async (payload, ctx) => {
+        // A terminal id makes the pty the daemon's (ADR-0029 §6): this
+        // stream is one attachment to it, and a second open with the same
+        // id attaches to what is already running instead of spawning again.
+        // Attaching is not a new session, so it is not gated by the drain.
+        if (payload.terminalId !== undefined && !isOwnedTerminalId(payload.terminalId))
+            return { ok: false, error: 'invalid terminalId' }
+        const terminalId = isOwnedTerminalId(payload.terminalId)
+            ? payload.terminalId
+            : null
+        if (terminalId && ownedTerminal(terminalId)) {
+            try {
+                ctx.sendEvent('pty.attach', JSON.stringify({ mode: 'attached' }))
+            } catch {
+                return { ok: false, error: 'ws not open' }
+            }
+            return attachStreamToOwnedTerminal(terminalId, payload, ctx)
+        }
         if (updateCoordinator.blocksNewSessions())
             return { ok: false, error: UPDATE_PENDING_ERROR }
         // A sign-in for a runtime auth profile: the manager composes argv and
@@ -1936,6 +1972,18 @@ const handlers: Partial<
             payload.authLogin && typeof payload.authLogin === 'object'
                 ? (payload.authLogin as Record<string, unknown>)
                 : null
+        if (authLogin && terminalId)
+            return {
+                ok: false,
+                error: 'terminalId is not supported for a sign-in terminal'
+            }
+        if (terminalId) {
+            try {
+                assertOwnedTerminalCapacity()
+            } catch (err) {
+                return { ok: false, error: (err as Error).message }
+            }
+        }
         let login: Awaited<
             ReturnType<RuntimeAuthManager['prepareLogin']>
         > | null = null
@@ -2028,6 +2076,23 @@ const handlers: Partial<
               ]
             : ['-il']
 
+        if (terminalId)
+            return spawnOwnedTerminal(
+                {
+                    terminalId,
+                    backend,
+                    shell,
+                    args,
+                    cwd,
+                    env,
+                    cols,
+                    rows,
+                    profileBound: authContext !== null,
+                    releaseAuth
+                },
+                ctx
+            )
+
         let term: ReturnType<typeof backend.spawn>
         try {
             term = backend.spawn({
@@ -2088,6 +2153,12 @@ const handlers: Partial<
         return { ok: true }
     },
     'pty.close': async (payload) => {
+        // By terminal id from any API instance (a release, a takeover, the
+        // reaper): the process is killed, its attachment learns from the exit.
+        if (isOwnedTerminalId(payload.terminalId)) {
+            closeOwnedTerminal(payload.terminalId)
+            return { ok: true }
+        }
         const session = ptySessions.get(String(payload.refId ?? ''))
         if (!session) return { ok: true }
         try {
@@ -2096,6 +2167,132 @@ const handlers: Partial<
         releasePtySession(String(payload.refId ?? ''))
         return { ok: true }
     }
+}
+
+const ownedSession = (terminalId: string): TerminalSession => ({
+    write: (data): void => {
+        ownedTerminal(terminalId)?.term.write(data)
+    },
+    resize: (cols, rows): void => {
+        resizeOwnedTerminal(terminalId, cols, rows)
+    },
+    kill: (): void => {
+        closeOwnedTerminal(terminalId)
+    }
+})
+
+const ptySize = (
+    payload: Record<string, unknown>
+): { cols: number; rows: number } => ({
+    cols: Math.max(20, Math.min(500, Number(payload.cols ?? 80))),
+    rows: Math.max(5, Math.min(200, Number(payload.rows ?? 24)))
+})
+
+// The stream becomes the terminal's attachment: it gets the screen so far and
+// then the live tail, its cancel detaches (the terminal stays for the next
+// attachment), and it ends when the pty exits or another attachment takes
+// over. Input and resize keep addressing it by refId meanwhile.
+const attachStreamToOwnedTerminal = async (
+    terminalId: string,
+    payload: Record<string, unknown>,
+    ctx: RpcContext
+): Promise<{ ok: boolean; error?: string; payload?: Record<string, unknown> }> => {
+    let settle!: (result: { exitCode?: number; detached?: boolean }) => void
+    const settled = new Promise<{ exitCode?: number; detached?: boolean }>(
+        (resolveSettled) => {
+            settle = resolveSettled
+        }
+    )
+    const attachment: OwnedTerminalAttachment = {
+        refId: ctx.refId,
+        send: (base64) => ctx.sendEvent('pty.out', base64),
+        settle: (result) => settle(result)
+    }
+    if (!attachOwnedTerminal(terminalId, attachment, ptySize(payload)))
+        return { ok: false, error: 'terminal not found' }
+    ptySessions.set(ctx.refId, ownedSession(terminalId))
+    ctx.onCancel(() => {
+        detachOwnedTerminal(terminalId, ctx.refId)
+        releasePtySession(ctx.refId)
+    })
+    const result = await settled
+    releasePtySession(ctx.refId)
+    return {
+        ok: true,
+        payload: result.detached
+            ? { detached: true }
+            : { exitCode: result.exitCode ?? 0 }
+    }
+}
+
+const spawnOwnedTerminal = async (
+    args: {
+        terminalId: string
+        backend: Awaited<ReturnType<typeof resolvePtyBackend>>
+        shell: string
+        args: string[]
+        cwd: string
+        env: Record<string, string>
+        cols: number
+        rows: number
+        profileBound: boolean
+        releaseAuth: () => void
+    },
+    ctx: RpcContext
+): Promise<{ ok: boolean; error?: string; payload?: Record<string, unknown> }> => {
+    // Announced before the first byte, so the viewer resets before output.
+    try {
+        ctx.sendEvent('pty.attach', JSON.stringify({ mode: 'spawned' }))
+    } catch {
+        args.releaseAuth()
+        return { ok: false, error: 'ws not open' }
+    }
+    // The data callback only enqueues (a throw inside Bun's native callback
+    // is uncatchable upstream); whatever arrives before the registry has the
+    // terminal is held back and fed once it does.
+    const early: Array<Uint8Array | string> = []
+    let feed: (chunk: Uint8Array | string) => void = (chunk) => {
+        early.push(chunk)
+    }
+    let term: ReturnType<typeof args.backend.spawn>
+    try {
+        term = args.backend.spawn({
+            shell: args.shell,
+            args: args.args,
+            cwd: args.cwd,
+            env: args.env,
+            cols: args.cols,
+            rows: args.rows,
+            onData: (chunk) => feed(chunk)
+        })
+    } catch (err) {
+        args.releaseAuth()
+        throw err
+    }
+    try {
+        const registered = registerOwnedTerminal({
+            terminalId: args.terminalId,
+            term,
+            cols: args.cols,
+            rows: args.rows,
+            profileBound: args.profileBound,
+            onExit: () => args.releaseAuth(),
+            log: (message) => console.error(message)
+        })
+        feed = registered.feed
+        for (const chunk of early.splice(0)) feed(chunk)
+    } catch (err) {
+        try {
+            term.kill('SIGTERM')
+        } catch {}
+        args.releaseAuth()
+        return { ok: false, error: (err as Error).message }
+    }
+    return attachStreamToOwnedTerminal(
+        args.terminalId,
+        { cols: args.cols, rows: args.rows },
+        ctx
+    )
 }
 
 const encodePtyOut = (text: string): string =>

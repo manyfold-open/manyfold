@@ -32,6 +32,9 @@ export interface DaemonLocalHealth {
     adoptableExecs?: number
     execsSurviveRestart?: boolean
     activePtys: number
+    // Terminals this daemon owns (ADR-0029 §6) and how many have a viewer.
+    ownedTerminals?: number
+    attachedTerminals?: number
     updatePending: boolean
     autoUpdate: boolean
     startupMethod: DaemonStartupMethod

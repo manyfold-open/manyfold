@@ -323,3 +323,180 @@ test('daemon terminal sends pty.open failures to browser', async () => {
     assert.equal(client.closed?.reason, 'pty closed')
     assert.equal(closed, true)
 })
+
+// A terminal the daemon owns (ADR-0029 §6): the stream is one attachment to
+// it, so the browser going away detaches instead of killing, and the
+// daemon's first event says whether the shell is the one it already had.
+const ownedRegistry = () => {
+    const calls: Array<Record<string, unknown>> = []
+    const rpcCalls: Array<Record<string, unknown>> = []
+    let onEvent: ((kind: string, data: string) => void) | null = null
+    let resolveResult!: (payload: Record<string, unknown>) => void
+    let cancelled = false
+    const result = new Promise<Record<string, unknown>>((resolve) => {
+        resolveResult = resolve
+    })
+    return {
+        calls,
+        rpcCalls,
+        cancelled: () => cancelled,
+        emit: (kind: string, data: string) => onEvent?.(kind, data),
+        finish: (payload: Record<string, unknown>) => resolveResult(payload),
+        registry: {
+            streamRpc: (call: Record<string, unknown>) => {
+                calls.push(call)
+                onEvent = call.onEvent as (kind: string, data: string) => void
+                return {
+                    refId: 'ref-1',
+                    result,
+                    cancel: () => {
+                        cancelled = true
+                    }
+                }
+            },
+            rpc: async (call: Record<string, unknown>) => {
+                rpcCalls.push(call)
+                return {}
+            }
+        }
+    }
+}
+
+const TERMINAL_ID = 'tms_abcdefghijklmnopqrstuvwxyz'
+
+test('an owned terminal is opened under its id and the browser going away only detaches', async () => {
+    const r = ownedRegistry()
+    const client = new FakeClient()
+    const apiTokens = makeApiTokens()
+    const terminal = new DaemonTerminal(
+        r.registry as never,
+        fakeConnections as never,
+        apiTokens as never
+    )
+    const handles: string[] = []
+    let closeCause: string | null = null
+    await terminal.tunnel({
+        agent: makeAgent() as never,
+        cols: 80,
+        rows: 24,
+        client: client as never,
+        onClose: (cause) => {
+            closeCause = cause
+        },
+        onHandle: (refId) => handles.push(refId),
+        ownedTerminalId: TERMINAL_ID,
+        boundTokenId: null
+    })
+    assert.equal(
+        (r.calls[0].payload as { terminalId?: string }).terminalId,
+        TERMINAL_ID
+    )
+    assert.deepEqual(handles, [], 'the handle is the id, set by the gateway')
+
+    client.emit('close')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(r.rpcCalls, [], 'no pty.close: the daemon keeps it')
+    assert.equal(r.cancelled(), true)
+    assert.equal(closeCause, 'detached')
+    assert.deepEqual(apiTokens.calls.deleted, [], 'the shell keeps its token')
+})
+
+test("the daemon's attach verdict decides which token the shell carries", async () => {
+    const run = async (mode: 'attached' | 'spawned') => {
+        const r = ownedRegistry()
+        const client = new FakeClient()
+        const apiTokens = makeApiTokens()
+        const terminal = new DaemonTerminal(
+            r.registry as never,
+            fakeConnections as never,
+            apiTokens as never
+        )
+        const bound: string[] = []
+        let closeCause: string | null = null
+        await terminal.tunnel({
+            agent: makeAgent() as never,
+            cols: 80,
+            rows: 24,
+            client: client as never,
+            onClose: (cause) => {
+                closeCause = cause
+            },
+            onToken: (tokenId) => bound.push(tokenId),
+            ownedTerminalId: TERMINAL_ID,
+            boundTokenId: 'tok-old'
+        })
+        assert.deepEqual(bound, [], 'nothing bound before the daemon speaks')
+        r.emit('pty.attach', JSON.stringify({ mode }))
+        await new Promise((resolve) => setImmediate(resolve))
+        const frames = client.sent
+            .filter((data): data is string => typeof data === 'string')
+            .map((data) => JSON.parse(data) as Record<string, unknown>)
+        assert.deepEqual(frames.at(-1), { type: 'attached', mode })
+        const afterAttach = [...apiTokens.calls.deleted]
+        r.finish({ exitCode: 0 })
+        await new Promise((resolve) => setImmediate(resolve))
+        return {
+            bound,
+            afterAttach,
+            deleted: apiTokens.calls.deleted,
+            closeCause
+        }
+    }
+    const attached = await run('attached')
+    assert.deepEqual(attached.bound, [])
+    assert.deepEqual(attached.afterAttach, ['tok-1'], 'fresh token unused')
+    assert.deepEqual(attached.deleted, ['tok-1', 'tok-old'])
+    assert.equal(attached.closeCause, 'exit')
+
+    const spawned = await run('spawned')
+    assert.deepEqual(spawned.bound, ['tok-1'])
+    assert.deepEqual(spawned.afterAttach, ['tok-old'], 'old shell is gone')
+    assert.deepEqual(spawned.deleted, ['tok-old', 'tok-1'])
+    assert.equal(spawned.closeCause, 'exit')
+})
+
+test('a stream ended by another attachment closes the tab with 4409 and keeps the terminal', async () => {
+    const r = ownedRegistry()
+    const client = new FakeClient()
+    const apiTokens = makeApiTokens()
+    const terminal = new DaemonTerminal(
+        r.registry as never,
+        fakeConnections as never,
+        apiTokens as never
+    )
+    let closeCause: string | null = null
+    await terminal.tunnel({
+        agent: makeAgent() as never,
+        cols: 80,
+        rows: 24,
+        client: client as never,
+        onClose: (cause) => {
+            closeCause = cause
+        },
+        ownedTerminalId: TERMINAL_ID,
+        boundTokenId: null
+    })
+    r.finish({ detached: true })
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(client.closed, {
+        code: 4409,
+        reason: 'terminal attached elsewhere'
+    })
+    assert.equal(closeCause, 'detached')
+    assert.deepEqual(apiTokens.calls.deleted, [])
+})
+
+test('closePty addresses an owned terminal by its id and a stream-bound pty by its refId', async () => {
+    const r = ownedRegistry()
+    const terminal = new DaemonTerminal(
+        r.registry as never,
+        fakeConnections as never,
+        makeApiTokens() as never
+    )
+    await terminal.closePty('dh-1', TERMINAL_ID)
+    await terminal.closePty('dh-1', 'ref-1')
+    assert.deepEqual(
+        r.rpcCalls.map((call) => call.payload),
+        [{ terminalId: TERMINAL_ID }, { refId: 'ref-1' }]
+    )
+})

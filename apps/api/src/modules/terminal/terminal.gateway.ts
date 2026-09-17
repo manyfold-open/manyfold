@@ -24,7 +24,10 @@ import {
     TerminalResumeService,
     type TerminalResumeOutcome
 } from '@/modules/terminal/terminal-resume.service'
-import { DAEMON_FEATURE_PTY_COMMAND } from '@manyfold/shared'
+import {
+    DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_PTY_TERMINAL
+} from '@manyfold/shared'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
 import {
@@ -254,13 +257,22 @@ export class TerminalGateway implements OnModuleInit {
         // already lives there, so it needs no credential opt-in — but it does
         // need to be new enough to run a command as its shell's argv, or it
         // would open a plain shell while the UI promised a resumed session.
+        const daemonHost =
+            agent.runtime === 'daemon' && agent.daemonId
+                ? await this.daemonHosts.findById(agent.daemonId)
+                : null
+        const daemonFeatures = daemonHost?.clientFeatures ?? []
         const daemonCanResume =
             agent.runtime === 'daemon' && agent.daemonId
-                ? (
-                      (await this.daemonHosts.findById(agent.daemonId))
-                          ?.clientFeatures ?? []
-                  ).includes(DAEMON_FEATURE_PTY_COMMAND)
+                ? daemonFeatures.includes(DAEMON_FEATURE_PTY_COMMAND)
                 : false
+        // The daemon keeps its terminals (ADR-0029 §6): the pty is addressed
+        // by the row's id, a reconnect attaches to it, and the daemon's
+        // inventory, not this tunnel's lease, is its proof of life.
+        const ownedTerminals =
+            agent.runtime === 'daemon' &&
+            !!agent.daemonId &&
+            daemonFeatures.includes(DAEMON_FEATURE_PTY_TERMINAL)
         const resumeSupported =
             agent.runtime === 'sprites' ||
             (agent.runtime === 'daemon' && daemonCanResume)
@@ -301,17 +313,30 @@ export class TerminalGateway implements OnModuleInit {
         const terminalCwd = cwd ?? defaultTerminalCwd(agent as Agent)
 
         let terminalPty: boolean | null = null
-        if (agent.runtime === 'daemon' && agent.daemonId) {
-            const host = await this.daemonHosts.findById(agent.daemonId)
-            terminalPty = host?.terminalPty ?? null
-        }
+        if (agent.runtime === 'daemon' && agent.daemonId)
+            terminalPty = daemonHost?.terminalPty ?? null
 
+        // Attach first (ADR-0029 §6): a terminal the daemon still owns — the
+        // one this tab had before its reconnect, or the one holding the very
+        // session it wants — is attached to, hold and all, instead of being
+        // opened again.
+        const prevTerminalId = query.prevTerminalId?.trim() || null
+        const reused =
+            ownedTerminals && this.holder
+                ? await this.holder.reusableTerminal({
+                      userId: agent.userId,
+                      agentId: agent.id,
+                      sessionId: resumeSessionId || null,
+                      prevTerminalId
+                  })
+                : null
         // Every check has passed: the terminal gets its durable identity, a
         // reconnect retires the terminal it replaces, and a resume takes the
         // session's writes as the LAST fallible step — a lost acquire still
         // opens the terminal, as a plain shell (ADR-0029 §1).
         const terminalRow =
-            this.terminals &&
+            reused ??
+            (this.terminals &&
             (agent.runtime === 'sprites' || agent.runtime === 'daemon')
                 ? await this.terminals.create({
                       userId: agent.userId,
@@ -320,10 +345,13 @@ export class TerminalGateway implements OnModuleInit {
                       hostId: agent.hostId ?? null,
                       runtimeId: agent.runtimeId ?? null
                   })
-                : null
+                : null)
         const terminalId = terminalRow?.id ?? null
-        const prevTerminalId = query.prevTerminalId?.trim()
-        if (prevTerminalId && this.holder)
+        // An owned terminal is addressed by its row id from the start, so any
+        // instance can close it before the daemon has said a word.
+        if (ownedTerminals && terminalId && !reused && this.terminals)
+            await this.terminals.setHandle(terminalId, terminalId)
+        if (prevTerminalId && prevTerminalId !== reused?.id && this.holder)
             await this.holder
                 .supersede(prevTerminalId, auth.userId)
                 .catch((err: Error) =>
@@ -333,21 +361,26 @@ export class TerminalGateway implements OnModuleInit {
                 )
         if (resume && resumeSessionId) {
             const ref = resolution?.ref ?? null
-            const outcome =
-                terminalId && this.holder && ref
-                    ? await this.holder.acquire({
-                          terminalId,
-                          userId: agent.userId,
-                          agentId: agent.id,
-                          sessionId: resumeSessionId,
-                          expectedRef: ref
-                      })
-                    : 'unavailable'
+            // A reused terminal already holds this very session.
+            const outcome = reused
+                ? 'applied'
+                : terminalId && this.holder && ref
+                  ? await this.holder.acquire({
+                        terminalId,
+                        userId: agent.userId,
+                        agentId: agent.id,
+                        sessionId: resumeSessionId,
+                        expectedRef: ref
+                    })
+                  : 'unavailable'
             if (outcome !== 'applied') resume = null
             resumeOutcome = outcome
         }
         const finishTerminal = (cause: TerminalCloseCause): void => {
             if (!terminalId) return
+            // A reused terminal that could not be reached is still the
+            // daemon's; its inventory decides, not a failed tunnel.
+            if (cause === 'tunnel-failed' && reused) cause = 'daemon-lost'
             void this.holder
                 ?.finish(terminalId, cause)
                 .catch((err: Error) =>
@@ -385,7 +418,8 @@ export class TerminalGateway implements OnModuleInit {
 
         const connectedAt = Date.now()
         this.attachHeartbeat(socket, `agent=${agent.id}`)
-        if (terminalId) this.attachLease(socket, terminalId)
+        // An owned terminal's lease is renewed on the daemon's inventory.
+        if (terminalId && !ownedTerminals) this.attachLease(socket, terminalId)
 
         const onClose = (cause: TerminalCloseCause): void => {
             const durationMs = Date.now() - connectedAt
@@ -443,7 +477,13 @@ export class TerminalGateway implements OnModuleInit {
                     client: socket,
                     onClose,
                     onToken: this.terminalRecorder(terminalId, 'token'),
-                    onHandle: this.terminalRecorder(terminalId, 'handle')
+                    onHandle: this.terminalRecorder(terminalId, 'handle'),
+                    ...(ownedTerminals && terminalId
+                        ? {
+                              ownedTerminalId: terminalId,
+                              boundTokenId: reused?.tokenId ?? null
+                          }
+                        : {})
                 })
             } else {
                 await this.k8s.tunnel({
