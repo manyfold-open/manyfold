@@ -121,6 +121,12 @@ const baseInfo = (): Record<string, string> => ({
     bot_agent: WEIXIN_BOT_AGENT
 })
 
+class WeixinHttpError extends Error {
+    constructor(operation: string, readonly status: number, text: string) {
+        super(`weixin ${operation} HTTP ${status}: ${text.slice(0, 200)}`)
+    }
+}
+
 const weixinPost = async <T extends WeixinApiEnvelope>(
     opts: WeixinRequestOptions,
     endpoint: string,
@@ -147,10 +153,7 @@ const weixinPost = async <T extends WeixinApiEnvelope>(
             ...(opts.signal ? { signal: opts.signal } : {})
         }
     })
-    if (!res.ok)
-        throw new Error(
-            `weixin ${operation} HTTP ${res.status}: ${res.text.slice(0, 200)}`
-        )
+    if (!res.ok) throw new WeixinHttpError(operation, res.status, res.text)
     if (!res.json) throw new Error(`weixin ${operation} returned no JSON`)
     return res.json
 }
@@ -158,23 +161,37 @@ const weixinPost = async <T extends WeixinApiEnvelope>(
 const isTimeoutError = (err: unknown): boolean =>
     err instanceof Error && / timed out after \d+ms$/.test(err.message)
 
-// Long-poll for updates. A client-side timeout is the normal no-news outcome
-// and returns an empty envelope so the caller simply re-polls.
+type WeixinGetUpdatesResult =
+    | { kind: 'updates'; response: WeixinGetUpdatesResponse }
+    | { kind: 'poll-boundary'; msgs: []; get_updates_buf: string }
+
+// A 524 poll boundary is not a successful initial sync. Keep that distinction
+// local: the gateway JSON cannot manufacture the result's discriminant.
 export const weixinGetUpdates = async (
     opts: WeixinRequestOptions,
     getUpdatesBuf: string
-): Promise<WeixinGetUpdatesResponse> => {
+): Promise<WeixinGetUpdatesResult> => {
     const timeoutMs = opts.timeoutMs ?? WEIXIN_LONG_POLL_TIMEOUT_MS + 5_000
     try {
-        return await weixinPost<WeixinGetUpdatesResponse>(
+        const response = await weixinPost<WeixinGetUpdatesResponse>(
             { ...opts, timeoutMs },
             'ilink/bot/getupdates',
             'getUpdates',
             { get_updates_buf: getUpdatesBuf }
         )
+        return { kind: 'updates', response }
     } catch (err) {
+        if (err instanceof WeixinHttpError && err.status === 524)
+            return {
+                kind: 'poll-boundary',
+                msgs: [],
+                get_updates_buf: getUpdatesBuf
+            }
         if (isTimeoutError(err))
-            return { ret: 0, msgs: [], get_updates_buf: getUpdatesBuf }
+            return {
+                kind: 'updates',
+                response: { ret: 0, msgs: [], get_updates_buf: getUpdatesBuf }
+            }
         throw err
     }
 }
