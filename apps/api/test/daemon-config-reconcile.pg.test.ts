@@ -12,6 +12,8 @@ import { createObjectId } from '@manyfold/shared'
 import { readFile, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as schedule } from 'node:timers'
+import { once } from 'node:events'
+import { WebSocket } from 'ws'
 import {
     daemonConfigLeaseName,
     type DaemonConfigSnapshot,
@@ -25,6 +27,143 @@ import {
 } from '../src/modules/agent-self/agent-context-doc.service'
 
 const RUN = process.env.RUN_PG_E2E === '1'
+
+const blockNextHostUpdate = async (
+    h: Awaited<ReturnType<typeof configFixture>>
+) => {
+    const name = `cfg_gate_${h.daemonId.replaceAll('_', '')}`
+    const key = Math.floor(Math.random() * 2_000_000_000) + 1
+    const lock = await h.db.$client.reserve()
+    await lock`select pg_advisory_lock(${key})`
+    await h.db.execute(sql.raw(`
+        create sequence ${name};
+        create function ${name}() returns trigger language plpgsql as $$
+        begin
+            if nextval('${name}') = 1 then
+                perform pg_advisory_xact_lock(${key});
+            end if;
+            return null;
+        end $$;
+        create trigger ${name} before update on runtime_hosts
+            for each statement execute function ${name}();
+    `))
+    let released = false
+    const release = async () => {
+        if (released) return
+        released = true
+        await lock`select pg_advisory_unlock(${key})`
+        lock.release()
+    }
+    return {
+        held: () => until(async () => {
+            const rows = await h.db.execute(sql`
+                select 1 from pg_locks
+                where locktype = 'advisory' and objid = ${key} and not granted
+            `)
+            return rows.length > 0
+        }),
+        release,
+        close: async () => {
+            await release()
+            await h.db.execute(sql.raw(`
+                drop trigger ${name} on runtime_hosts;
+                drop function ${name}();
+                drop sequence ${name};
+            `))
+        }
+    }
+}
+
+const openHelloSocket = async (url: string) => {
+    const socket = new WebSocket(url, {
+        headers: { authorization: 'Bearer fixture-only' }
+    })
+    socket.on('error', () => {})
+    await once(socket, 'open')
+    socket.send(JSON.stringify({
+        type: 'hello',
+        cliVersion: '4.0.0',
+        clientFeatures: ['fs.write.config-commit'],
+        inflightStreams: []
+    }))
+    return socket
+}
+
+test(
+    'a delayed registration cannot replace the accepted reconnect identity',
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const api = await h.api()
+        const registrations: Promise<void>[] = []
+        const register = api.registry.register.bind(api.registry)
+        t.mock.method(api.registry, 'register', (...args: Parameters<typeof register>) => {
+            const pending = register(...args)
+            registrations.push(pending)
+            return pending
+        })
+        const gate = await blockNextHostUpdate(h)
+        let first: WebSocket | undefined
+        try {
+            first = await openHelloSocket(api.url)
+            await gate.held()
+            const oldToken = api.registry.localConfigConnectionToken(h.daemonId)
+            const connecting = h.connect(api.url)
+            await until(() => api.registry.localConfigConnectionToken(h.daemonId) !== oldToken)
+            // The old implementation accepts B while A's already-issued SQL
+            // is blocked before its row lock. A then overwrites B's identity.
+            await until(() => api.registry.currentHelloEvidence(h.daemonId) !== null, 300).catch(() => {})
+            await gate.release()
+            await connecting
+            await Promise.all(registrations)
+            const [host] = await h.db.select().from(runtimeHosts).where(eq(runtimeHosts.id, h.daemonId))
+            assert.equal(host.rpcConnectionToken, api.registry.localConfigConnectionToken(h.daemonId))
+            await until(async () => (await h.readAgent()).extras.contextDocDelivery?.status === 'delivered', 8000)
+            assert.equal(JSON.parse(await h.readProject()).mcpServers.fixture.command, 'offline-desired')
+        } finally {
+            first?.terminate()
+            await gate.close()
+        }
+    }
+)
+
+for (const remote of [false, true]) test(
+    `a delayed disconnect cannot clear the ${remote ? 'peer API' : 'same API'} replacement identity or stop its agents`,
+    { skip: !RUN, timeout: 20_000 },
+    async (t) => {
+        const h = await configFixture(t)
+        const old = await h.api(false)
+        const current = remote ? await h.api(false) : old
+        const first = await openHelloSocket(old.url)
+        await until(() => old.registry.currentHelloEvidence(h.daemonId) !== null)
+        let cleared: Promise<void> | undefined
+        const unregister = old.registry.unregister.bind(old.registry)
+        t.mock.method(old.registry, 'unregister', (...args: Parameters<typeof unregister>) => {
+            cleared = unregister(...args)
+            return cleared
+        })
+        const gate = await blockNextHostUpdate(h)
+        try {
+            first.close()
+            await gate.held()
+            const connecting = h.connect(current.url)
+            await until(() => current.registry.localConfigConnectionToken(h.daemonId) !== undefined)
+            await until(() => current.registry.currentHelloEvidence(h.daemonId) !== null, 300).catch(() => {})
+            await gate.release()
+            await connecting
+            await cleared
+            const [host] = await h.db.select().from(runtimeHosts).where(eq(runtimeHosts.id, h.daemonId))
+            assert.equal(host.rpcConnectionToken, current.registry.localConfigConnectionToken(h.daemonId))
+            if (remote) assert.equal((await h.readAgent()).status, 'running')
+            await current.mcp.materializeForAgent(await h.readAgent())
+            assert.equal(JSON.parse(await h.readProject()).mcpServers.fixture.command, 'offline-desired')
+        } finally {
+            first.terminate()
+            await gate.close()
+        }
+    }
+)
+
 test(
     'offline desired MCP and old context automatically converge after an accepted hello without stream inventory',
     { skip: !RUN, timeout: 20_000 },

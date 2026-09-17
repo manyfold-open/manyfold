@@ -15,7 +15,7 @@ import {
 import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import postgres from 'postgres'
-import { and, eq, gt } from 'drizzle-orm'
+import { and, eq, gt, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -173,6 +173,8 @@ export class DaemonRegistryService
     private readonly helloListeners = new Set<
         (daemonId: string, userId: string, evidence: DaemonHelloEvidence) => void
     >()
+    private readonly connectionMutations = new Map<string, Promise<void>>()
+    private stopping = false
 
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
@@ -209,6 +211,7 @@ export class DaemonRegistryService
     }
 
     async onModuleDestroy(): Promise<void> {
+        this.stopping = true
         for (const conn of this.conns.values())
             this.notifyConnectionRetired(conn)
         this.connectionRetirementListeners.clear()
@@ -220,6 +223,8 @@ export class DaemonRegistryService
         }
         for (const [, buffer] of this.brokerChunks) clearTimeout(buffer.timer)
         this.brokerChunks.clear()
+        while (this.connectionMutations.size)
+            await Promise.allSettled([...this.connectionMutations.values()])
         if (this.brokerUnlisten) await this.brokerUnlisten().catch(() => {})
         if (this.brokerSql)
             await this.brokerSql.end({ timeout: 5 }).catch(() => {})
@@ -234,6 +239,7 @@ export class DaemonRegistryService
         clientFeatures?: string[]
         socket: WsClient
     }): Promise<void> {
+        if (this.stopping) throw new Error('daemon registry shutting down')
         const existing = this.conns.get(args.daemonId)
         if (existing) {
             this.notifyConnectionRetired(existing)
@@ -256,12 +262,16 @@ export class DaemonRegistryService
             connectedAt: new Date()
         })
         const connection = this.conns.get(args.daemonId)!
-        await this.markConnected(
-            args.daemonId,
-            connection.connectedAt,
-            args.clientFeatures,
-            connection.token
-        )
+        await this.mutateConnection(args.daemonId, async () => {
+            if (this.stopping || this.conns.get(args.daemonId) !== connection)
+                return
+            await this.markConnected(
+                args.daemonId,
+                connection.connectedAt,
+                args.clientFeatures,
+                connection.token
+            )
+        })
         const replacementKind = !existing
             ? 'none'
             : existing.clientProcess && args.clientProcess
@@ -281,7 +291,7 @@ export class DaemonRegistryService
         this.failPending(conn, 'connection closed')
         this.conns.delete(daemonId)
         this.notifyConnectionRetired(conn)
-        await this.clearConnectionLease(daemonId)
+        await this.clearConnectionLease(daemonId, conn.token)
         this.log.log(
             `daemon disconnected daemonId=${daemonId} userId=${conn.userId} cliVersion=${conn.cliVersion ?? 'unknown'} hostname=${conn.hostname ?? 'unknown'} ${daemonClientProcessFields(conn.clientProcess)}`
         )
@@ -342,15 +352,18 @@ export class DaemonRegistryService
     }
 
     private async releaseOwnRpcLease(daemonId: string): Promise<void> {
-        await this.db
-            .update(runtimeHosts)
-            .set(RELEASED_RPC_LEASE())
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
+        await this.mutateConnection(daemonId, async () => {
+            if (this.conns.has(daemonId)) return
+            await this.db
+                .update(runtimeHosts)
+                .set(RELEASED_RPC_LEASE())
+                .where(
+                    and(
+                        eq(runtimeHosts.id, daemonId),
+                        eq(runtimeHosts.rpcInstanceId, this.instanceId)
+                    )
                 )
-            )
+        })
     }
 
     private async disconnectAsync(
@@ -363,7 +376,7 @@ export class DaemonRegistryService
             return
         }
         this.disconnectLocal(daemonId, reason)
-        await this.clearConnectionLease(daemonId)
+        await this.clearConnectionLease(daemonId, conn.token)
     }
 
     private disconnectLocal(
@@ -785,49 +798,63 @@ export class DaemonRegistryService
             .where(eq(runtimeHosts.id, daemonId))
     }
 
-    private async clearConnectionLease(daemonId: string): Promise<void> {
-        const [host] = await this.db
-            .select({ status: runtimeHosts.status })
-            .from(runtimeHosts)
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
-                )
-            )
-            .limit(1)
-        if (!host) return
+    private async mutateConnection(
+        daemonId: string,
+        work: () => Promise<void>
+    ): Promise<void> {
+        // A newer connection must wait for already-issued identity writes;
+        // checking the local token cannot cancel SQL queued in PostgreSQL.
+        const pending = (this.connectionMutations.get(daemonId) ?? Promise.resolve())
+            .catch(() => {})
+            .then(work)
+        this.connectionMutations.set(daemonId, pending)
+        try {
+            await pending
+        } finally {
+            if (this.connectionMutations.get(daemonId) === pending)
+                this.connectionMutations.delete(daemonId)
+        }
+    }
 
-        const now = new Date()
-        await this.db
-            .update(runtimeHosts)
-            .set({
-                rpcInstanceId: null,
-                rpcConnectionToken: null,
-                rpcInbox: null,
-                rpcConnectedAt: null,
-                rpcLastSeenAt: null,
-                status: host.status === 'active' ? 'offline' : host.status,
-                updatedAt: now
+    private async clearConnectionLease(daemonId: string, token?: string): Promise<void> {
+        await this.mutateConnection(daemonId, async () => {
+            if (this.conns.has(daemonId)) return
+            await this.db.transaction(async (tx) => {
+                const now = new Date()
+                const [host] = await tx
+                    .update(runtimeHosts)
+                    .set({
+                        ...RELEASED_RPC_LEASE(),
+                        status: sql`case when ${runtimeHosts.status} = 'active' then 'offline' else ${runtimeHosts.status} end`,
+                        updatedAt: now
+                    })
+                    .where(
+                        and(
+                            eq(runtimeHosts.id, daemonId),
+                            eq(runtimeHosts.rpcInstanceId, this.instanceId),
+                            token
+                                ? eq(runtimeHosts.rpcConnectionToken, `${this.instanceId}:${token}`)
+                                : undefined
+                        )
+                    )
+                    .returning({ id: runtimeHosts.id })
+                if (!host) return
+                // Keep the host row locked until its dependent status writes
+                // finish, so another API cannot take over between them.
+                await tx
+                    .update(agentRuntimes)
+                    .set({ status: 'stopped', updatedAt: now })
+                    .where(eq(agentRuntimes.daemonId, daemonId))
+                await tx
+                    .update(agents)
+                    .set({
+                        status: 'stopped',
+                        failureReason: 'daemon disconnected',
+                        updatedAt: now
+                    })
+                    .where(eq(agents.daemonId, daemonId))
             })
-            .where(
-                and(
-                    eq(runtimeHosts.id, daemonId),
-                    eq(runtimeHosts.rpcInstanceId, this.instanceId)
-                )
-            )
-        await this.db
-            .update(agentRuntimes)
-            .set({ status: 'stopped', updatedAt: now })
-            .where(eq(agentRuntimes.daemonId, daemonId))
-        await this.db
-            .update(agents)
-            .set({
-                status: 'stopped',
-                failureReason: 'daemon disconnected',
-                updatedAt: now
-            })
-            .where(eq(agents.daemonId, daemonId))
+        })
     }
 
     private async publishRemoteDisconnect(
@@ -888,10 +915,12 @@ export class DaemonRegistryService
             case 'cancel':
                 this.forwardedStreams.get(message.requestId)?.cancel()
                 return
-            case 'disconnect':
+            case 'disconnect': {
+                const token = this.conns.get(message.daemonId)?.token
                 this.disconnectLocal(message.daemonId, message.reason)
-                await this.clearConnectionLease(message.daemonId)
+                await this.clearConnectionLease(message.daemonId, token)
                 return
+            }
         }
     }
 

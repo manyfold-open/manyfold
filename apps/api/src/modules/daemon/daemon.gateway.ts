@@ -253,6 +253,7 @@ export class DaemonGateway implements OnModuleInit {
             clientFeatures: acceptedClientFeatures,
             socket
         })
+        if (socket.readyState !== 1) return
         registered = true
 
         const welcome: DaemonWsFrame = {
