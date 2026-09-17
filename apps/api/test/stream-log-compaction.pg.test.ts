@@ -1115,10 +1115,12 @@ test(
 
             try {
                 assert.equal(
-                    await repo.claimInflightTurn(
-                        h.sessionId,
-                        'cms_regenerate_inflight'
-                    ),
+                    (
+                        await repo.claimInflightTurn(
+                            h.sessionId,
+                            'cms_regenerate_inflight'
+                        )
+                    ).ok,
                     true
                 )
                 await h.db.execute(sql`

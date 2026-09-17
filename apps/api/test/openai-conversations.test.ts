@@ -30,6 +30,9 @@ const summary = (
     title: 'Title',
     frameworkSessionRef: null,
     channel: null,
+    holderTerminalId: null,
+    holderAcquiredAt: null,
+    importPendingSince: null,
     createdAt: CREATED_ISO,
     updatedAt: CREATED_ISO,
     ...overrides

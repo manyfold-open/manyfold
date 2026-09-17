@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
+    ConflictException,
     HttpException,
     InternalServerErrorException,
     NotFoundException,
@@ -215,4 +216,21 @@ test('a filter built without a reporter still answers the request', () => {
     const captured: Captured = { headers: {} }
     new HttpExceptionFilter().catch(new Error('boom'), fakeHost(captured))
     assert.equal(captured.status, 500)
+})
+
+// 409 has no status-derived code of its own (it would fall to bad_request),
+// so the session-ownership conflicts of ADR-0029 carry theirs in the body and
+// the filter must pass it through untouched.
+test('a 409 with an object body keeps its stable code', () => {
+    const captured: Captured = { headers: {} }
+    new HttpExceptionFilter().catch(
+        new ConflictException({
+            code: 'session_held_by_terminal',
+            message: 'session is open in a terminal'
+        }),
+        fakeHost(captured)
+    )
+    assert.equal(captured.status, 409)
+    assert.equal(captured.body?.error.code, 'session_held_by_terminal')
+    assert.equal(captured.body?.error.message, 'session is open in a terminal')
 })

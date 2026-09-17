@@ -1,4 +1,4 @@
-import { createObjectId } from '@manyfold/shared'
+import { auditAction, createObjectId } from '@manyfold/shared'
 import type {
     AgentFramework,
     AgentRuntime,
@@ -13,7 +13,9 @@ import type {
     RuntimeSessionRecoverRawResponse,
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
-    RuntimeSessionViewResponse
+    RuntimeSessionViewResponse,
+    SessionImportAbandonResponse,
+    SessionImportRetryResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -27,9 +29,11 @@ import {
     ServiceUnavailableException
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import {
     agents,
+    auditLogs,
+    terminalSessions,
     type Agent,
     type ChatMessage as DbChatMessage,
     type ChatMessageSource as DbChatMessageSource,
@@ -43,6 +47,7 @@ import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 import { SpriteExecHealthService } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
+import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     ExecDriverFactory,
     type RecoveryFsHandle
@@ -119,7 +124,9 @@ export class SessionRecoveryService {
         @Optional()
         private readonly statusBroadcaster?: SpriteStatusBroadcaster,
         @Optional()
-        private readonly execHealth?: SpriteExecHealthService
+        private readonly execHealth?: SpriteExecHealthService,
+        @Optional()
+        private readonly telemetry?: TelemetryService
     ) {}
 
     async recoverRuntimeSessionRawSources(
@@ -769,6 +776,7 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'no-session-ref',
+                transcript: null,
                 warnings: []
             }
         const reader = this.readers.get(agent.framework)
@@ -777,6 +785,7 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'unsupported',
+                transcript: null,
                 warnings: []
             }
         // A live turn is already the authoritative writer; appending under it
@@ -786,6 +795,18 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'inflight',
+                transcript: null,
+                warnings: []
+            }
+        // A terminal owns the session's writes: the import waits for its
+        // release, which is what stamps import_pending_since and runs it
+        // (ADR-0029 §1).
+        if (session.holderTerminalId !== null)
+            return {
+                appended: 0,
+                recoveredSourceCount: 0,
+                skipped: 'held-by-terminal',
+                transcript: null,
                 warnings: []
             }
 
@@ -799,6 +820,7 @@ export class SessionRecoveryService {
                 appended: 0,
                 recoveredSourceCount: 0,
                 skipped: 'exec-unavailable',
+                transcript: null,
                 warnings: []
             }
 
@@ -809,11 +831,7 @@ export class SessionRecoveryService {
             agent.framework === 'openclaw'
                 ? await this.drivers.openclawRpcForAgent(agent.id)
                 : null
-        let result: {
-            messages: RecoveredMessage[]
-            warnings: string[]
-            sourceFile: string | null
-        }
+        let result: ReaderResult
         try {
             result = await this.runReader(() =>
                 reader.readMessages({
@@ -918,6 +936,7 @@ export class SessionRecoveryService {
                     appended: 0,
                     recoveredSourceCount: 0,
                     skipped: 'inflight',
+                    transcript: null,
                     warnings
                 }
             appended = appendResult.appended
@@ -939,8 +958,199 @@ export class SessionRecoveryService {
             appended,
             recoveredSourceCount,
             skipped: null,
+            transcript: result.transcript,
             warnings
         }
+    }
+
+    // The import a release leaves pending is settled here — from the release
+    // itself, from the turn gate's single retry, and from the user's manual
+    // retry. Done means the transcript was actually read (or there is nothing
+    // to read); anything short of that stays pending, loudly, because a codex
+    // turn dispatched over unimported lines loses them for good (ADR-0029
+    // §2). A runtime whose identity changed since the terminal held the
+    // session can never produce that transcript, so its import is abandoned
+    // instead of blocking the session forever.
+    async settlePendingImport(
+        userId: string,
+        agentId: string,
+        sessionId: string
+    ): Promise<SessionImportRetryResponse> {
+        const session = await this.loadOptionalSessionContext(
+            userId,
+            agentId,
+            sessionId
+        )
+        const observed = session.importPendingSince
+        if (!observed)
+            return { state: 'done', appended: 0, transcript: null, warnings: [] }
+        if (session.holderTerminalId !== null)
+            return {
+                state: 'pending',
+                appended: 0,
+                transcript: null,
+                warnings: ['the session is open in a terminal']
+            }
+        const agent = await this.loadAgentContext(userId, agentId)
+        const [holder] = await this.db
+            .select({
+                hostId: terminalSessions.hostId,
+                runtimeId: terminalSessions.runtimeId
+            })
+            .from(terminalSessions)
+            .where(eq(terminalSessions.heldSessionId, sessionId))
+            .orderBy(desc(terminalSessions.createdAt))
+            .limit(1)
+        if (
+            holder &&
+            (holder.hostId !== agent.hostId ||
+                holder.runtimeId !== agent.runtimeId)
+        ) {
+            await this.abandonPendingImport(
+                userId,
+                agentId,
+                sessionId,
+                'runtime-changed'
+            )
+            return { state: 'done', appended: 0, transcript: null, warnings: [] }
+        }
+
+        let result: RuntimeSessionSyncResponse
+        try {
+            result = await this.syncRuntimeSessionIntoCloud(
+                userId,
+                agentId,
+                sessionId
+            )
+        } catch (err) {
+            if (!(err instanceof HttpException) || err.getStatus() !== 503)
+                throw err
+            this.log.warn(
+                `terminal import stays pending session=${sessionId}: ${err.message}`
+            )
+            return {
+                state: 'pending',
+                appended: 0,
+                transcript: null,
+                warnings: [err.message]
+            }
+        }
+        const done =
+            result.skipped === 'no-session-ref' ||
+            result.skipped === 'unsupported' ||
+            result.transcript === 'read'
+        if (!done) {
+            if (result.transcript === 'missing') {
+                this.log.warn(
+                    `terminal import found no transcript for session=${sessionId} on an unchanged runtime; staying pending`
+                )
+                this.telemetry?.event('chat.import.transcript_missing', {
+                    sessionId,
+                    agentId,
+                    framework: agent.framework
+                })
+            }
+            return {
+                state: 'pending',
+                appended: result.appended,
+                transcript: result.transcript,
+                warnings: result.warnings
+            }
+        }
+        const cleared = await this.repo.clearImportPending(sessionId, observed)
+        if (!cleared) {
+            // The release path and the turn gate's retry can settle the same
+            // stamp concurrently; the loser of the clear must not report a
+            // pending import the winner just finished. Only a re-stamp (a
+            // newer release) keeps it pending.
+            const now = await this.repo.sessionHolderState(sessionId)
+            if (now?.importPendingSince)
+                return {
+                    state: 'pending',
+                    appended: result.appended,
+                    transcript: result.transcript,
+                    warnings: [
+                        ...result.warnings,
+                        'a newer terminal release re-stamped the import'
+                    ]
+                }
+            return {
+                state: 'done',
+                appended: result.appended,
+                transcript: result.transcript,
+                warnings: result.warnings
+            }
+        }
+        this.statusBroadcaster?.emitSessionsChanged(userId, {
+            type: 'chat-sessions-changed',
+            agentId,
+            sessionId,
+            reason: 'import-settled',
+            detail: { kind: 'import-done', appended: result.appended },
+            at: new Date().toISOString()
+        })
+        return {
+            state: 'done',
+            appended: result.appended,
+            transcript: result.transcript,
+            warnings: result.warnings
+        }
+    }
+
+    // The escape hatch: explicit (the user gave up on a runtime that will
+    // not answer) or automatic (the runtime is no longer the one the terminal
+    // wrote on). Audited and announced to online tabs; never silent.
+    async abandonPendingImport(
+        userId: string,
+        agentId: string,
+        sessionId: string,
+        reason: 'user' | 'runtime-changed'
+    ): Promise<SessionImportAbandonResponse> {
+        const session = await this.loadOptionalSessionContext(
+            userId,
+            agentId,
+            sessionId
+        )
+        const pendingSince = session.importPendingSince
+        if (!pendingSince) return { abandoned: false }
+        const cleared = await this.repo.clearImportPending(
+            sessionId,
+            pendingSince
+        )
+        if (!cleared) return { abandoned: false }
+        const action =
+            reason === 'user'
+                ? auditAction.CHAT_SESSION_IMPORT_ABANDONED
+                : auditAction.CHAT_SESSION_IMPORT_AUTO_ABANDONED
+        try {
+            await this.db.insert(auditLogs).values({
+                id: randomUUID(),
+                actorId: userId,
+                action,
+                subject: sessionId,
+                meta: {
+                    agentId,
+                    reason,
+                    pendingSince: pendingSince.toISOString()
+                }
+            })
+        } catch (err) {
+            this.log.warn(
+                `failed to write audit ${action}/${sessionId}: ${(err as Error).message}`
+            )
+        }
+        this.log.warn(
+            `terminal import abandoned session=${sessionId} reason=${reason}`
+        )
+        this.statusBroadcaster?.emitSessionsChanged(userId, {
+            type: 'chat-sessions-changed',
+            agentId,
+            sessionId,
+            reason: 'import-settled',
+            detail: { kind: 'import-abandoned', reason },
+            at: new Date().toISOString()
+        })
+        return { abandoned: true }
     }
 
     private async loadContext(
@@ -1513,6 +1723,9 @@ const toApiSession = (row: DbChatSession): ChatSessionSummary => ({
     title: row.title,
     frameworkSessionRef: row.frameworkSessionRef,
     channel: null,
+    holderTerminalId: row.holderTerminalId,
+    holderAcquiredAt: row.holderAcquiredAt?.toISOString() ?? null,
+    importPendingSince: row.importPendingSince?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
 })

@@ -207,3 +207,32 @@ test('a generic plan cannot use the terminal-probe partial index', { skip: !RUN 
         if (client?.end) await client.end()
     }
 })
+
+// ADR-0029 §1: the invariant that a session is never both in a turn and held
+// by a terminal lives in the database, so an instance still on older code
+// gets a constraint error instead of a double occupancy. Proves the two
+// CHECKs (and the terminal row's own pair check) exist after migration 0023.
+test('session ownership CHECK constraints exist after migrations (ADR-0029)', { skip: !RUN }, async () => {
+    const url = process.env.DATABASE_URL
+    assert.ok(url, 'DATABASE_URL must be set')
+    const db = createDb(url)
+    try {
+        const rows = (await db.execute(sql`
+            select conrelid::regclass::text as table_name, conname
+            from pg_constraint
+            where contype = 'c'
+        `)) as unknown as Array<{ table_name: string; conname: string }>
+        const have = new Set(rows.map((r) => `${r.table_name}.${r.conname}`))
+        for (const name of [
+            'chat_sessions.chat_sessions_turn_xor_holder',
+            'chat_sessions.chat_sessions_holder_pair',
+            'terminal_sessions.terminal_sessions_ended_pair'
+        ])
+            assert.ok(have.has(name), `missing check ${name}`)
+    } finally {
+        const client = (
+            db as unknown as { $client?: { end?: () => Promise<void> } }
+        ).$client
+        if (client?.end) await client.end()
+    }
+})

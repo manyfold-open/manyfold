@@ -57,6 +57,13 @@ export interface TerminalTabModel {
     // so the seed equals the tip both before and after the turn ends and the
     // rebuild that would finally load the TUI never fires.
     resumeWithheld?: boolean
+    // The withheld resume was another terminal's hold on the session
+    // (ADR-0029 §1) rather than a turn: a different notice, and the chat
+    // view's "Back to web" is what clears it.
+    resumeHeldElsewhere?: boolean
+    // The API's id for this tab's terminal; compared with the session's
+    // holder to decide whether "Back to web" is an unmount or an API call.
+    terminalId?: string | null
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }
@@ -68,6 +75,9 @@ interface TerminalSessionProps {
     // What the API did with the tab's resumeChatSessionId, from the
     // session_info frame of every connection (a reconnect re-decides it).
     onResumeOutcome?: (tabId: string, outcome: TerminalResumeOutcome) => void
+    // The id the API gave this tab's terminal (session_info.terminal_id), so
+    // the chat view can tell whether its own terminal is the session's holder.
+    onTerminalId?: (tabId: string, terminalId: string) => void
     tab: TerminalSessionTarget
     // Typed into the shell once, on its first output (the prompt). Any
     // earlier and the daemon's PTY is not open yet to receive it.
@@ -129,7 +139,8 @@ const buildWsUrl = (
     tab: TerminalSessionTarget,
     token: string,
     cols: number,
-    rows: number
+    rows: number,
+    prevTerminalId: string | null
 ): string => {
     const base = import.meta.env.VITE_API_URL ?? '/api'
     const params = new URLSearchParams({
@@ -144,6 +155,11 @@ const buildWsUrl = (
     if (tab.cwdRootId) params.set('cwdRootId', tab.cwdRootId)
     if (tab.resumeChatSessionId)
         params.set('resumeChatSessionId', tab.resumeChatSessionId)
+    // A reconnect names the terminal it replaces so the API retires that one
+    // (kills its process, releases its hold) before this one resumes; without
+    // it every API restart would leave the tab's own reconnect refused as
+    // `session-held` (ADR-0029 §1).
+    if (prevTerminalId) params.set('prevTerminalId', prevTerminalId)
 
     if (base.startsWith('http://') || base.startsWith('https://')) {
         const url = new URL(base)
@@ -177,6 +193,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     getToken,
     onStatusChange,
     onResumeOutcome,
+    onTerminalId,
     tab,
     initialInput
 }): ReactNode => {
@@ -193,9 +210,13 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     const getTokenRef = useRef(getToken)
     const onStatusChangeRef = useRef(onStatusChange)
     const onResumeOutcomeRef = useRef(onResumeOutcome)
+    const onTerminalIdRef = useRef(onTerminalId)
     const themeRef = useRef(theme)
     const fontSizeRef = useRef(fontSize)
     const retriesRef = useRef(0)
+    // The id the API gave this tab's current terminal; sent back on the next
+    // connect as prevTerminalId. Survives reconnects on purpose.
+    const terminalIdRef = useRef<string | null>(null)
     const reconnectTimerRef = useRef<number | null>(null)
     const initialInputRef = useRef(initialInput)
     // Once per mount, not per connection: a reconnect must not re-run it.
@@ -208,6 +229,7 @@ const TerminalSession: FC<TerminalSessionProps> = ({
     getTokenRef.current = getToken
     onStatusChangeRef.current = onStatusChange
     onResumeOutcomeRef.current = onResumeOutcome
+    onTerminalIdRef.current = onTerminalId
     themeRef.current = theme
     fontSizeRef.current = fontSize
 
@@ -281,7 +303,9 @@ const TerminalSession: FC<TerminalSessionProps> = ({
         let dim = fit.proposeDimensions()
         if (!dim) dim = { cols: 80, rows: 24 }
 
-        const ws = new WebSocket(buildWsUrl(tab, token, dim.cols, dim.rows))
+        const ws = new WebSocket(
+            buildWsUrl(tab, token, dim.cols, dim.rows, terminalIdRef.current)
+        )
         ws.binaryType = 'arraybuffer'
         wsRef.current = ws
 
@@ -309,7 +333,11 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                         }
                     },
                     () => setLimitedTerminal(true),
-                    (outcome) => onResumeOutcomeRef.current?.(tab.id, outcome)
+                    (outcome) => onResumeOutcomeRef.current?.(tab.id, outcome),
+                    (terminalId) => {
+                        terminalIdRef.current = terminalId
+                        onTerminalIdRef.current?.(tab.id, terminalId)
+                    }
                 )
                 return
             }
@@ -498,7 +526,8 @@ const handleTerminalTextFrame = (
     ) => void,
     onUpstreamOpen: () => void,
     onLimitedTerminal: () => void,
-    onResumeOutcome: (outcome: TerminalResumeOutcome) => void
+    onResumeOutcome: (outcome: TerminalResumeOutcome) => void,
+    onTerminalId: (terminalId: string) => void
 ): void => {
     try {
         const msg = JSON.parse(frame) as {
@@ -506,6 +535,7 @@ const handleTerminalTextFrame = (
             message?: string
             exit_code?: number
             session_id?: string
+            terminal_id?: string
             terminal_pty?: boolean | null
             resume?: TerminalResumeOutcome
         }
@@ -513,6 +543,8 @@ const handleTerminalTextFrame = (
             if (isUpstreamTerminalSessionInfo(msg)) onUpstreamOpen()
             if (msg.terminal_pty === false) onLimitedTerminal()
             if (msg.resume) onResumeOutcome(msg.resume)
+            if (typeof msg.terminal_id === 'string' && msg.terminal_id)
+                onTerminalId(msg.terminal_id)
             return
         }
         if (msg.type === 'error' && msg.message) {

@@ -227,7 +227,14 @@ const makeHarness = (
     const repo = {
         getSession: async () => sessionRow,
         latestInflightMessageId: async () => opts.inflightMessageId ?? null,
-        claimInflightTurn: async () => opts.inflightMessageId == null,
+        claimInflightTurn: async () =>
+            opts.inflightMessageId == null
+                ? {
+                      ok: true as const,
+                      frameworkSessionRef: sessionRow.frameworkSessionRef,
+                      runtimeSyncCursor: null
+                  }
+                : { ok: false as const, blockedBy: 'turn' as const },
         releaseInflightTurn: async () => {},
         getMessage: async (_sessionId: string, messageId: string) =>
             messages.find((message) => message.id === messageId) ?? null,

@@ -52,6 +52,7 @@ export const objectIdPrefixes = Object.freeze({
     skillRepo: 'skr',
     spritesAccount: 'spa',
     storageMeasurementAttempt: 'sma',
+    terminalSession: 'tms',
     userConnection: 'ucn',
     userExport: 'uxp',
     userExternalAgentProvider: 'uep',

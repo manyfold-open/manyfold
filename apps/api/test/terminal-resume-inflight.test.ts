@@ -58,7 +58,8 @@ test('an idle session still resumes into its TUI', async () => {
                 ],
                 env: {}
             },
-            outcome: 'applied'
+            outcome: 'applied',
+            ref: 'thread-1'
         }
     )
 })
@@ -66,7 +67,7 @@ test('an idle session still resumes into its TUI', async () => {
 test('a session with a turn in flight opens a plain shell and says why', async () => {
     assert.deepEqual(
         await resolveFor({ ref: 'thread-1', inflightMessageId: 'msg_live' }),
-        { resume: null, outcome: 'turn-in-flight' }
+        { resume: null, outcome: 'turn-in-flight', ref: null }
     )
 })
 
@@ -76,11 +77,11 @@ test('a session with a turn in flight opens a plain shell and says why', async (
 test('a missing session ref is unavailable whether or not a turn is in flight', async () => {
     assert.deepEqual(
         await resolveFor({ ref: null, inflightMessageId: null }),
-        { resume: null, outcome: 'unavailable' }
+        { resume: null, outcome: 'unavailable', ref: null }
     )
     assert.deepEqual(
         await resolveFor({ ref: null, inflightMessageId: 'msg_live' }),
-        { resume: null, outcome: 'unavailable' }
+        { resume: null, outcome: 'unavailable', ref: null }
     )
 })
 
@@ -92,6 +93,6 @@ test('an unsupported framework is unavailable, not in flight', async () => {
             { ref: 'sess', inflightMessageId: 'msg_live' },
             { framework: 'hermes' }
         ),
-        { resume: null, outcome: 'unavailable' }
+        { resume: null, outcome: 'unavailable', ref: null }
     )
 })

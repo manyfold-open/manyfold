@@ -53,6 +53,7 @@ import {
 } from '@/components/icons'
 import { useApiClient } from '@/lib/apiClient'
 import { createReconnectingStream } from '@/lib/spriteStatusStream'
+import { publishSessionsChanged } from '@/lib/sessionOwnershipEvents'
 import {
     createSessionInvalidationQueue,
     type SessionInvalidationQueue
@@ -2832,6 +2833,7 @@ const AppShell: FC = (): ReactNode => {
                         sessionInvalidationRef.current?.invalidate(
                             event.agentId
                         )
+                        publishSessionsChanged(event)
                     },
                     onError: (err) => {
                         console.error('[sprite-status] SSE error', err)

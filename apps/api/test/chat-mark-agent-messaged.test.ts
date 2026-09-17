@@ -71,7 +71,11 @@ const makeHarness = (opts: { updateFails?: boolean } = {}) => {
             return row
         },
         listMessages: async () => inserted,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         updateTitleIfEmpty: async () => undefined,
         touchSession: async () => undefined
@@ -167,7 +171,10 @@ test('sendMessage stamps lastMessageAt once the user message is persisted', asyn
 
 test('a turn rejected by the inflight lock does not count as a prompt', async () => {
     const h = makeHarness()
-    h.service['repo'].claimInflightTurn = async () => false
+    h.service['repo'].claimInflightTurn = async () => ({
+        ok: false,
+        blockedBy: 'turn'
+    })
 
     await assert.rejects(
         h.service.sendMessage('user-1', 'agent-1', 'session-1', 'hello')

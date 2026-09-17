@@ -132,6 +132,14 @@ export interface ChatSessionSummary {
     title: string | null
     frameworkSessionRef: string | null
     channel: ChatSessionChannelSummary | null
+    // The Manyfold-opened terminal currently running the framework's TUI on
+    // this session; while set, no turn may dispatch into it (ADR-0029 §1).
+    holderTerminalId: string | null
+    holderAcquiredAt: string | null
+    // Set from the moment a terminal releases the session until what it
+    // wrote has been imported (or the import is abandoned); turns are refused
+    // meanwhile (ADR-0029 §2).
+    importPendingSince: string | null
     createdAt: string
     updatedAt: string
 }
@@ -719,17 +727,45 @@ export interface RuntimeSessionRestoreResponse {
 export interface RuntimeSessionSyncResponse {
     appended: number
     recoveredSourceCount: number
-    // 'inflight' when a live turn holds the session; 'no-session-ref' /
-    // 'unsupported' when there is nothing to read; 'exec-unavailable' while
-    // the Sprite's exec endpoint awaits its single recovery probe.
-    // null when a read ran.
+    // 'inflight' when a live turn holds the session; 'held-by-terminal' while
+    // a terminal owns its writes; 'no-session-ref' / 'unsupported' when there
+    // is nothing to read; 'exec-unavailable' while the Sprite's exec endpoint
+    // awaits its single recovery probe. null when a read ran.
     skipped:
         | 'inflight'
+        | 'held-by-terminal'
         | 'no-session-ref'
         | 'unsupported'
         | 'exec-unavailable'
         | null
+    // What the read found, when one ran: the transcript itself, no file for
+    // the ref, or a file that could not be read. Null when skipped. An import
+    // only counts as done on 'read' (ADR-0029 §2).
+    transcript: RuntimeTranscriptOutcome | null
     warnings: string[]
+}
+
+export type RuntimeTranscriptOutcome = 'read' | 'missing' | 'unreadable'
+
+// 409 body codes for a turn refused by session ownership (ADR-0029). Stable:
+// channel, A2A and OpenAI-compatible callers branch on them.
+export const CHAT_SESSION_HELD_BY_TERMINAL_CODE = 'session_held_by_terminal'
+export const CHAT_SESSION_IMPORT_PENDING_CODE = 'session_import_pending'
+
+export interface SessionHolderReleaseResponse {
+    released: boolean
+    terminalId: string | null
+}
+
+export interface SessionImportRetryResponse {
+    state: 'done' | 'pending'
+    appended: number
+    transcript: RuntimeTranscriptOutcome | null
+    warnings: string[]
+}
+
+export interface SessionImportAbandonResponse {
+    abandoned: boolean
 }
 
 export interface ShareChatSessionResult {

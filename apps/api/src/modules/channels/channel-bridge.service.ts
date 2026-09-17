@@ -19,6 +19,8 @@ import type { ChannelDeliveryRow, ChannelRow } from '@manyfold/db'
 import {
     ChatService,
     InflightTurnConflictError,
+    SessionHeldByTerminalError,
+    SessionImportPendingError,
     type ChatTurnObserver
 } from '@/modules/chat/chat.service'
 import {
@@ -116,11 +118,16 @@ const STOPPED_MARKER = '⏹ stopped'
 // attachments (which are placed first and win the shared count/size caps).
 const HISTORY_ATTACHMENT_MAX_COUNT = 4
 
+// The three ownership 409s are transient states of the session, not
+// verdicts on the message: handleInbound queues or refuses them with a
+// notice, never dead-letters them.
 const isDeterministicInboundError = (err: unknown): boolean =>
     err instanceof UnsupportedEventError ||
     (err instanceof HttpException &&
         err.getStatus() < 500 &&
-        !(err instanceof InflightTurnConflictError))
+        !(err instanceof InflightTurnConflictError) &&
+        !(err instanceof SessionHeldByTerminalError) &&
+        !(err instanceof SessionImportPendingError))
 
 // The ⚠ copy must match what actually happened (#577): only a capability gap
 // is "this agent" territory; an ingest failure is transient and retryable, and
@@ -814,7 +821,33 @@ export class ChannelBridgeService {
                     }
                 )
             } catch (err) {
-                if (!(err instanceof InflightTurnConflictError)) throw err
+                // A terminal may own the session for hours (ADR-0029 §1): a
+                // fresh message is refused with a notice instead of piling
+                // up, while one already waiting in the queue stays there for
+                // the replay after release. A pending import (§2) is short,
+                // so it queues like an inflight turn.
+                if (
+                    err instanceof SessionHeldByTerminalError &&
+                    inbound.delivery.errorMessage !== INFLIGHT_QUEUE_REASON
+                ) {
+                    await this.rejectHeldInbound({
+                        ctx,
+                        provider,
+                        channel,
+                        deliveryId,
+                        scopeKey,
+                        chatSessionId: resolved.chatSessionId,
+                        replyToProviderMessageId: event.replyTargetId
+                    })
+                    inboundSettled = true
+                    return
+                }
+                if (
+                    !(err instanceof InflightTurnConflictError) &&
+                    !(err instanceof SessionHeldByTerminalError) &&
+                    !(err instanceof SessionImportPendingError)
+                )
+                    throw err
                 await this.queueBusyInbound({
                     ctx,
                     provider,
@@ -1061,6 +1094,44 @@ export class ChannelBridgeService {
             status: 'failed',
             errorMessage,
             nextAttemptAt: new Date(Date.now() + backoff)
+        })
+    }
+
+    private async rejectHeldInbound(opts: {
+        ctx: ChannelContext
+        provider: ChannelProvider
+        channel: ChannelRow
+        deliveryId: bigint
+        scopeKey: string
+        chatSessionId: string
+        replyToProviderMessageId?: string | null
+    }): Promise<void> {
+        const { ctx, provider, channel, scopeKey, chatSessionId } = opts
+        await provider
+            .sendText(
+                ctx,
+                scopeKey,
+                'This conversation is open in a terminal right now, so this message was not delivered. Send it again once the terminal closes.',
+                {
+                    replyToProviderMessageId: opts.replyToProviderMessageId,
+                    nonConversational: true
+                }
+            )
+            .catch((sendErr) =>
+                this.logger.warn(
+                    `failed to send held-session reply for channel=${channel.id}: ${(sendErr as Error).message}`
+                )
+            )
+        await this.repo.updateDelivery(opts.deliveryId, {
+            chatSessionId,
+            scopeKey,
+            status: 'dropped',
+            errorMessage: 'session_held_by_terminal'
+        })
+        this.telemetry.event('channel.inbound.rejected', {
+            channelId: channel.id,
+            chatSessionId,
+            reason: 'session_held_by_terminal'
         })
     }
 

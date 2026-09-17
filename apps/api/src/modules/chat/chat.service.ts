@@ -11,6 +11,8 @@ import {
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
     DEFAULT_OPENCLAW_PERMISSION_MODE,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE,
     createObjectId,
     isObjectId
 } from '@manyfold/shared'
@@ -28,6 +30,7 @@ import type {
     ChatRole,
     ChatSessionChannelSummary,
     ChatSessionListChangeReason,
+    ChatSessionChangeDetail,
     ChatSessionSummary,
     ChatTurnStatusPhase,
     ChatUploadBlock,
@@ -91,8 +94,10 @@ import {
 import {
     ChatRepository,
     type MessageCursor,
-    type TerminalStreamContent
+    type TerminalStreamContent,
+    type TurnClaim
 } from '@/modules/chat/chat.repository'
+import { SessionRecoveryService } from '@/modules/chat/recovery/session-recovery.service'
 import {
     ChatSseBroadcaster,
     type EmittedStreamEvent,
@@ -497,6 +502,39 @@ export class InflightTurnConflictError extends ConflictException {
     }
 }
 
+// Thrown when a Manyfold-opened terminal holds the session's writes (ADR-0029
+// §1). Deliberately NOT a subclass of InflightTurnConflictError: the channel
+// bridge and A2A branch on that type, and a held session is refused rather
+// than waited on — the TUI can stay open for hours. Object body so the
+// filter emits the stable code instead of the generic 409 fallback.
+export class SessionHeldByTerminalError extends ConflictException {
+    constructor() {
+        super({
+            code: CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+            message: 'session is open in a terminal'
+        })
+    }
+}
+
+// Thrown while what a terminal wrote has not been imported yet (ADR-0029 §2).
+// Same non-inheritance rule; channel inbound queues behind it like a turn.
+export class SessionImportPendingError extends ConflictException {
+    constructor() {
+        super({
+            code: CHAT_SESSION_IMPORT_PENDING_CODE,
+            message: 'the session is still importing what its terminal wrote'
+        })
+    }
+}
+
+const turnBlockedError = (
+    blockedBy: 'turn' | 'terminal' | 'import'
+): ConflictException => {
+    if (blockedBy === 'terminal') return new SessionHeldByTerminalError()
+    if (blockedBy === 'import') return new SessionImportPendingError()
+    return new InflightTurnConflictError()
+}
+
 interface ChatTurnConfig {
     model: string | null
     modelConfig: AgentModelConfig | null
@@ -662,7 +700,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // Same rule. Absent = no session-list push; the sidebar falls back to
         // refreshing only on its own mutations.
         @Optional()
-        private readonly statusBroadcaster?: SpriteStatusBroadcaster
+        private readonly statusBroadcaster?: SpriteStatusBroadcaster,
+        // Same rule. Absent = a pending terminal import is refused outright
+        // instead of getting its one settle attempt at the turn gate.
+        @Optional()
+        private readonly recovery?: SessionRecoveryService
     ) {
         // Registered here rather than in onApplicationBootstrap so a manually
         // constructed service (tests) gets the subscription without running
@@ -1589,13 +1631,15 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         userId: string,
         agentId: string,
         sessionId: string,
-        reason: ChatSessionListChangeReason
+        reason: ChatSessionListChangeReason,
+        detail?: ChatSessionChangeDetail
     ): void {
         this.statusBroadcaster?.emitSessionsChanged(userId, {
             type: 'chat-sessions-changed',
             agentId,
             sessionId,
             reason,
+            ...(detail ? { detail } : {}),
             at: new Date().toISOString()
         })
     }
@@ -1853,16 +1897,25 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (force) {
             const deleted = await this.repo.deleteSession(sessionId)
             if (deleted) return
+            await this.assertSessionNotHeld(sessionId)
             throw new NotFoundException('session not found')
         }
 
         const deleted = await this.repo.deleteSessionIfEmpty(sessionId)
         if (deleted) return
+        await this.assertSessionNotHeld(sessionId)
 
         if (await this.repo.sessionHasMessages(sessionId))
             throw new ConflictException('session is not empty')
 
         throw new NotFoundException('session not found')
+    }
+
+    // Deletes are no-ops while a terminal holds the session (ADR-0029 §1);
+    // this turns the no-op into the same 409 every other writer gets.
+    private async assertSessionNotHeld(sessionId: string): Promise<void> {
+        const state = await this.repo.sessionHolderState(sessionId)
+        if (state?.holderTerminalId) throw new SessionHeldByTerminalError()
     }
 
     // Fired by the web composer on focus/first keystroke so the sprite's ~1s
@@ -1920,6 +1973,35 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 `prewarm skipped for agent=${agentId} class=${safeErrorClass(err)}`
             )
         }
+    }
+
+    // The turn gate with its one bounded retry: a session whose terminal
+    // import is still pending gets a single settle attempt before the turn is
+    // refused (ADR-0029 §2), so a runtime that is back answers on the next
+    // send rather than only after a manual retry. The settle is bounded by
+    // the recovery read's own timeouts; it never loops.
+    private async claimTurnSlot(
+        userId: string,
+        agentId: string,
+        sessionId: string,
+        assistantMessageId: string
+    ): Promise<TurnClaim> {
+        const claim = await this.repo.claimInflightTurn(
+            sessionId,
+            assistantMessageId
+        )
+        if (claim.ok || claim.blockedBy !== 'import' || !this.recovery)
+            return claim
+        const settled = await this.recovery
+            .settlePendingImport(userId, agentId, sessionId)
+            .catch((err: Error) => {
+                this.logger.warn(
+                    `pending import settle failed at the turn gate session=${sessionId}: ${err.message}`
+                )
+                return null
+            })
+        if (settled?.state !== 'done') return claim
+        return this.repo.claimInflightTurn(sessionId, assistantMessageId)
     }
 
     async sendMessage(
@@ -1996,14 +2078,23 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // statement between the two can leave the slot marked and
             // unreleasable. endPendingTurn tolerates an id it never saw.
             this.beginPendingTurn(assistantMessageId)
-            const claimed = await this.repo.claimInflightTurn(
+            const claim = await this.claimTurnSlot(
+                userId,
+                agentId,
                 sessionId,
                 assistantMessageId
             )
-            // Losing the CAS means the claim names ANOTHER turn, and
-            // releaseInflightTurn only clears a claim that names this one, so
-            // the catch below cannot release the winner's slot.
-            if (!claimed) throw new InflightTurnConflictError()
+            // Losing the CAS means the slot is someone else's (another turn,
+            // a terminal, a pending import), and releaseInflightTurn only
+            // clears a claim that names this one, so the catch below cannot
+            // release the winner's slot.
+            if (!claim.ok) throw turnBlockedError(claim.blockedBy)
+            // The row as of the claim is the one this turn owns; `session`
+            // above is a snapshot read before the gate (ADR-0029 §1).
+            const turnSession = {
+                ...session,
+                frameworkSessionRef: claim.frameworkSessionRef
+            }
             if (this.drainingForShutdown) {
                 await this.repo
                     .releaseInflightTurn(sessionId, assistantMessageId)
@@ -2060,14 +2151,14 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // so skip the full-session load on their hot path.
             const needsHistory =
                 framework === 'codex'
-                    ? !session.frameworkSessionRef
+                    ? !turnSession.frameworkSessionRef
                     : framework !== 'claude-code' && framework !== 'gemini-cli'
             const historyRows = needsHistory
                 ? await this.repo.listMessages(sessionId)
                 : []
             await this.startAssistantTurn(
                 adapter,
-                session,
+                turnSession,
                 userMessageRow,
                 historyRows,
                 framework,
@@ -2152,11 +2243,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
 
         try {
             this.beginPendingTurn(assistantMessageId)
-            const claimed = await this.repo.claimInflightTurn(
+            const claim = await this.claimTurnSlot(
+                userId,
+                agentId,
                 sessionId,
                 assistantMessageId
             )
-            if (!claimed) throw new InflightTurnConflictError()
+            if (!claim.ok) throw turnBlockedError(claim.blockedBy)
             if (this.drainingForShutdown) {
                 await this.repo
                     .releaseInflightTurn(sessionId, assistantMessageId)
@@ -6963,6 +7056,9 @@ const toApiSession = (
     title: row.title,
     frameworkSessionRef: row.frameworkSessionRef,
     channel,
+    holderTerminalId: row.holderTerminalId,
+    holderAcquiredAt: row.holderAcquiredAt?.toISOString() ?? null,
+    importPendingSince: row.importPendingSince?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
 })

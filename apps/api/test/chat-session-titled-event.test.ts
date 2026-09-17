@@ -53,7 +53,11 @@ const makeHarness = (
             return row
         },
         listMessages: async () => inserted,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         updateTitleIfEmpty: async () => options.titleWon,
         touchSession: async () => undefined,

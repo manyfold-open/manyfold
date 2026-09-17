@@ -55,6 +55,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile: null,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     `claude session file containing sessionId=${ctx.frameworkSessionRef} not found under ~/.claude/projects/`
                 ]
@@ -67,6 +68,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [
                     `failed to read ${sourceFile}: ${(err as Error).message}`
                 ]
@@ -76,6 +78,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [`failed to read ${sourceFile}`]
             }
 
@@ -84,7 +87,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             ctx.frameworkSessionRef,
             sourceFile
         )
-        return { sourceFile, messages, warnings }
+        return { sourceFile, messages, transcript: 'read', warnings }
     }
 
     async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {

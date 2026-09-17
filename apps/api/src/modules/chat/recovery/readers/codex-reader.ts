@@ -59,6 +59,7 @@ export class CodexSessionReader implements SessionReader {
             return {
                 sourceFile: null,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     `codex rollout file for thread=${ctx.frameworkSessionRef} not found under ~/.codex/sessions/`
                 ]
@@ -71,6 +72,7 @@ export class CodexSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [
                     `failed to read ${sourceFile}: ${(err as Error).message}`
                 ]
@@ -80,12 +82,14 @@ export class CodexSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [`failed to read ${sourceFile}`]
             }
 
         const fallbackModel = await readCodexConfigModel(ctx)
         return {
             sourceFile,
+            transcript: 'read',
             ...parseCodexJsonl(
                 text,
                 sourceFile,

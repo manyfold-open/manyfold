@@ -58,6 +58,27 @@ import { likeNeedle } from '@/common/catalog-query'
 import { sanitizeForJsonb } from '@/common/jsonb-sanitize'
 import { nonTerminalStreamEventInsert } from './stream-event-insert'
 import { dedupRecoveredRowsBySourceKey } from './recovered-dedup'
+
+// Outcome of claiming a session's turn slot. A won claim carries the ref and
+// cursor AS OF the claim, so the turn dispatches against the row it now owns
+// rather than a snapshot read before the gate. A refused claim says what
+// occupies the slot: a live turn, a terminal holding the session's writes,
+// or a transcript import that has not settled yet (ADR-0029 §1, §2).
+export type TurnClaim =
+    | {
+          ok: true
+          frameworkSessionRef: string | null
+          runtimeSyncCursor: number | null
+      }
+    | { ok: false; blockedBy: 'turn' | 'terminal' | 'import' }
+
+export interface SessionHolderState {
+    inflightMessageId: string | null
+    holderTerminalId: string | null
+    holderAcquiredAt: Date | null
+    importPendingSince: Date | null
+    frameworkSessionRef: string | null
+}
 import { createAssistantBlockBuffer } from './assistant-blocks'
 import { TurnFenceLostError, type TurnExecutionFence } from './turn-fence'
 import {
@@ -215,6 +236,7 @@ export class ChatRepository {
             .where(
                 and(
                     eq(chatSessions.id, sessionId),
+                    isNull(chatSessions.holderTerminalId),
                     notExists(
                         this.db
                             .select({ id: chatMessages.id })
@@ -227,10 +249,17 @@ export class ChatRepository {
         return deleted.length > 0
     }
 
+    // Both deletes refuse while a terminal holds the session: the TUI is
+    // still writing the transcript this row is the home of.
     async deleteSession(sessionId: string): Promise<boolean> {
         const deleted = await this.db
             .delete(chatSessions)
-            .where(eq(chatSessions.id, sessionId))
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    isNull(chatSessions.holderTerminalId)
+                )
+            )
             .returning({ id: chatSessions.id })
         return deleted.length > 0
     }
@@ -482,6 +511,7 @@ export class ChatRepository {
                 and(
                     eq(chatSessions.id, sessionId),
                     isNull(chatSessions.inflightMessageId),
+                    isNull(chatSessions.holderTerminalId),
                     from === null
                         ? isNull(chatSessions.runtimeSyncCursor)
                         : eq(chatSessions.runtimeSyncCursor, from)
@@ -840,12 +870,19 @@ export class ChatRepository {
     }> {
         return this.db.transaction(async (tx) => {
             const [session] = await tx
-                .select({ inflightMessageId: chatSessions.inflightMessageId })
+                .select({
+                    inflightMessageId: chatSessions.inflightMessageId,
+                    holderTerminalId: chatSessions.holderTerminalId
+                })
                 .from(chatSessions)
                 .where(eq(chatSessions.id, sessionId))
                 .limit(1)
                 .for('update')
-            if (!session || session.inflightMessageId !== null)
+            if (
+                !session ||
+                session.inflightMessageId !== null ||
+                session.holderTerminalId !== null
+            )
                 return {
                     replaced: 0,
                     conflicted: true,
@@ -923,12 +960,19 @@ export class ChatRepository {
             return { appended: 0, conflicted: false, upsertedSources: 0 }
         return this.db.transaction(async (tx) => {
             const [session] = await tx
-                .select({ inflightMessageId: chatSessions.inflightMessageId })
+                .select({
+                    inflightMessageId: chatSessions.inflightMessageId,
+                    holderTerminalId: chatSessions.holderTerminalId
+                })
                 .from(chatSessions)
                 .where(eq(chatSessions.id, sessionId))
                 .limit(1)
                 .for('update')
-            if (!session || session.inflightMessageId !== null)
+            if (
+                !session ||
+                session.inflightMessageId !== null ||
+                session.holderTerminalId !== null
+            )
                 return { appended: 0, conflicted: true, upsertedSources: 0 }
 
             // Idempotency: message rows carry random ids, so only the stable
@@ -1026,12 +1070,19 @@ export class ChatRepository {
             return { upserted: 0, conflicted: false }
         return this.db.transaction(async (tx) => {
             const [session] = await tx
-                .select({ inflightMessageId: chatSessions.inflightMessageId })
+                .select({
+                    inflightMessageId: chatSessions.inflightMessageId,
+                    holderTerminalId: chatSessions.holderTerminalId
+                })
                 .from(chatSessions)
                 .where(eq(chatSessions.id, sessionId))
                 .limit(1)
                 .for('update')
-            if (!session || session.inflightMessageId !== null)
+            if (
+                !session ||
+                session.inflightMessageId !== null ||
+                session.holderTerminalId !== null
+            )
                 return { upserted: 0, conflicted: true }
             await upsertMessageSourcesTx(tx, rows)
             if (frameworkSessionRef !== undefined)
@@ -2023,24 +2074,136 @@ export class ChatRepository {
         return fenceHolds(this.db as unknown as DatabaseTx, fence)
     }
 
-    // Atomically claim the session's single turn slot. Returns true if claimed
-    // (idle -> messageId), false if another turn already holds it. Cross-instance
-    // safe via the compare-and-set against a NULL inflight_message_id.
+    // Atomically claim the session's single turn slot: idle, not held by a
+    // terminal, and with no transcript import pending. Cross-instance safe via
+    // the compare-and-set; the CHECK on chat_sessions additionally rejects a
+    // claim over a holder even from an instance still running older code. A
+    // refused claim is classified from a follow-up read — that only picks the
+    // error code, the gate itself is the UPDATE.
     async claimInflightTurn(
         sessionId: string,
         messageId: string
-    ): Promise<boolean> {
-        const claimed = await this.db
+    ): Promise<TurnClaim> {
+        const [won] = await this.db
             .update(chatSessions)
             .set({ inflightMessageId: messageId, updatedAt: new Date() })
             .where(
                 and(
                     eq(chatSessions.id, sessionId),
-                    isNull(chatSessions.inflightMessageId)
+                    isNull(chatSessions.inflightMessageId),
+                    isNull(chatSessions.holderTerminalId),
+                    isNull(chatSessions.importPendingSince)
+                )
+            )
+            .returning({
+                frameworkSessionRef: chatSessions.frameworkSessionRef,
+                runtimeSyncCursor: chatSessions.runtimeSyncCursor
+            })
+        if (won)
+            return {
+                ok: true,
+                frameworkSessionRef: won.frameworkSessionRef,
+                runtimeSyncCursor: won.runtimeSyncCursor
+            }
+        const state = await this.sessionHolderState(sessionId)
+        if (state?.holderTerminalId) return { ok: false, blockedBy: 'terminal' }
+        if (state?.importPendingSince) return { ok: false, blockedBy: 'import' }
+        return { ok: false, blockedBy: 'turn' }
+    }
+
+    async sessionHolderState(
+        sessionId: string
+    ): Promise<SessionHolderState | null> {
+        const [row] = await this.db
+            .select({
+                inflightMessageId: chatSessions.inflightMessageId,
+                holderTerminalId: chatSessions.holderTerminalId,
+                holderAcquiredAt: chatSessions.holderAcquiredAt,
+                importPendingSince: chatSessions.importPendingSince,
+                frameworkSessionRef: chatSessions.frameworkSessionRef
+            })
+            .from(chatSessions)
+            .where(eq(chatSessions.id, sessionId))
+            .limit(1)
+        return row ?? null
+    }
+
+    // A terminal takes the session's writes as the LAST fallible step of its
+    // resume: one compare-and-set against no live turn, no other holder, and
+    // the very ref its argv was built from. A pending import does not block
+    // it — the terminal resumes the same transcript the import will read.
+    async acquireSessionHolder(
+        sessionId: string,
+        terminalId: string,
+        expectedRef: string
+    ): Promise<boolean> {
+        const rows = await this.db
+            .update(chatSessions)
+            .set({
+                holderTerminalId: terminalId,
+                holderAcquiredAt: new Date(),
+                updatedAt: new Date()
+            })
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    isNull(chatSessions.inflightMessageId),
+                    isNull(chatSessions.holderTerminalId),
+                    eq(chatSessions.frameworkSessionRef, expectedRef)
                 )
             )
             .returning({ id: chatSessions.id })
-        return claimed.length > 0
+        return rows.length > 0
+    }
+
+    // Release and mark the import pending in ONE statement so no turn can
+    // slip between the two (ADR-0029 §2). Matched by terminal id so a late
+    // release never clears a newer holder. The pending stamp is a JS Date on
+    // purpose: it is the fence clearImportPending compares by equality, and
+    // a database now() would carry microseconds the round trip drops.
+    async releaseSessionHolder(
+        sessionId: string,
+        terminalId: string
+    ): Promise<{ released: boolean; importPendingSince: Date | null }> {
+        const pendingSince = new Date()
+        const rows = await this.db
+            .update(chatSessions)
+            .set({
+                holderTerminalId: null,
+                holderAcquiredAt: null,
+                importPendingSince: pendingSince,
+                updatedAt: pendingSince
+            })
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    eq(chatSessions.holderTerminalId, terminalId)
+                )
+            )
+            .returning({ id: chatSessions.id })
+        return rows.length > 0
+            ? { released: true, importPendingSince: pendingSince }
+            : { released: false, importPendingSince: null }
+    }
+
+    // Fenced on the stamp the caller observed: a release that happened after
+    // the import started re-stamps the row and keeps it pending.
+    async clearImportPending(
+        sessionId: string,
+        observedPendingSince: Date
+    ): Promise<boolean> {
+        const rows = await this.db
+            .update(chatSessions)
+            .set({ importPendingSince: null, updatedAt: new Date() })
+            .where(
+                and(
+                    eq(chatSessions.id, sessionId),
+                    eq(chatSessions.importPendingSince, observedPendingSince),
+                    isNull(chatSessions.holderTerminalId)
+                )
+            )
+            .returning({ id: chatSessions.id })
+        return rows.length > 0
     }
 
     // Release a claim we hold (matched by messageId so a late release can never
