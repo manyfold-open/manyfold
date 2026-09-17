@@ -42,10 +42,3 @@ export const selectMarketingLanguage = (
         item.path !== undefined ? { persist: false } : undefined
     )
 }
-
-export const shouldPinMarketingLanguage = (
-    pathname: string,
-    lastPinnedPathname: string | null,
-    targetLanguage: Language | null
-): boolean =>
-    targetLanguage !== null && pathname !== lastPinnedPathname

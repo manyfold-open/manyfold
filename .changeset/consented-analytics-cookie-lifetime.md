@@ -11,3 +11,5 @@ Keep font subsets out of the initial stylesheet and load the NetMind sign-in for
 Restore the landing's two-step CTA layout and mutually exclusive desktop/mobile step labels. A failed sign-in chunk keeps the dialog closable and offers an explicit page reload to clear the browser's failed-module cache.
 
 Prioritize the static marketing body's styles and fonts ahead of its SPA enhancement without lowering the product shell's entry priority.
+
+Cancel a marketing page's pending language selection when leaving its URL, so a late catalog cannot override browser navigation or a newer product language choice.

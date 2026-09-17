@@ -28,6 +28,8 @@ declare global {
             select(language: string): void
             ready(language: string): Promise<void>
             current(): string
+            navigate(path: string | number): void
+            mounts(): number
         }
     }
 }
@@ -41,6 +43,7 @@ test(
             envDir: false,
             root: resolve(root, 'apps/web'),
             logLevel: 'silent',
+            define: { 'process.env.NODE_ENV': JSON.stringify('development') },
             resolve: {
                 alias: {
                     '@': resolve(root, 'apps/web/src'),
@@ -68,19 +71,32 @@ test(
                     load(id) {
                         if (id !== '\0virtual:language-fixture') return
                         return `
-                    import React, { useEffect } from 'react'
+                    import React, { StrictMode, useEffect } from 'react'
                     import { createRoot } from 'react-dom/client'
+                    import { BrowserRouter, useLocation, useNavigate } from 'react-router-dom'
                     import { I18nProvider, useI18n, i18nReady, loadWebLanguage } from '@/lib/i18n'
+                    import { useMarketingLanguagePin } from '@/seo/useMarketingLanguagePin'
+                    import { isMarketingPath } from '@/seo/pages'
                     import { getLocale } from '@manyfold/i18n'
+                    let marketingMounts = 0
+                    const MarketingPin = () => {
+                        useMarketingLanguagePin()
+                        useEffect(() => { marketingMounts++ }, [])
+                        return null
+                    }
                     const Fixture = () => {
                         const { language, setLanguage, t } = useI18n()
-                        useEffect(() => { window.__languageFixture = { select: setLanguage, ready: loadWebLanguage, current: () => language } }, [language, setLanguage])
+                        const { pathname } = useLocation()
+                        const navigate = useNavigate()
+                        useEffect(() => { window.__languageFixture = { select: setLanguage, ready: loadWebLanguage, current: () => language, navigate, mounts: () => marketingMounts } }, [language, setLanguage, navigate])
                         return React.createElement('main', null,
+                            isMarketingPath(pathname) && React.createElement(MarketingPin),
+                            React.createElement('output', { id: 'pathname' }, pathname),
                             React.createElement('output', { id: 'locale' }, getLocale()),
                             React.createElement('output', { id: 'translated' }, t('common.loading')))
                     }
                     i18nReady.then(() => createRoot(document.getElementById('root')).render(
-                        React.createElement(I18nProvider, null, React.createElement(Fixture))))
+                        React.createElement(StrictMode, null, React.createElement(I18nProvider, null, React.createElement(BrowserRouter, null, React.createElement(Fixture))))))
                 `
                     }
                 }
@@ -166,6 +182,11 @@ test(
             await page.waitForFunction(
                 () => window.__languageFixture?.current() === 'zh'
             )
+            assert.equal(
+                await page.evaluate(() => window.__languageFixture.mounts()),
+                2,
+                'the fixture exercises StrictMode effect replay'
+            )
             assert.deepEqual([...new Set(requested)], ['zh'])
             assert.equal(
                 await page.evaluate(() =>
@@ -229,6 +250,95 @@ test(
                     (await everyPage.locator('#translated').innerText())
                         .length > 0
                 )
+            }
+
+            for (const destination of [
+                'back',
+                '/workspace',
+                'user-selection'
+            ]) {
+                const navigation = await browser.newContext({ locale: 'en-US' })
+                await navigation.addInitScript(() =>
+                    localStorage.setItem('nca.web.language', 'de')
+                )
+                const navigationPage = await navigation.newPage()
+                let releaseChinese!: () => void
+                const chineseHeld = new Promise<void>((resolve) => {
+                    releaseChinese = resolve
+                })
+                let requestedChinese!: () => void
+                const chineseRequested = new Promise<void>((resolve) => {
+                    requestedChinese = resolve
+                })
+                await navigationPage.route('**/*', async (route) => {
+                    const url = new URL(route.request().url())
+                    if (url.origin !== origin) return route.abort()
+                    if (catalogPaths.get(url.pathname) === 'zh') {
+                        requestedChinese()
+                        await chineseHeld
+                    }
+                    return route.continue()
+                })
+                try {
+                    await navigationPage.goto(origin)
+                    await navigationPage.waitForFunction(() =>
+                        Boolean(window.__languageFixture)
+                    )
+                    await navigationPage.evaluate(() =>
+                        window.__languageFixture.navigate('/zh/')
+                    )
+                    await chineseRequested
+                    await navigationPage.evaluate((destination) => {
+                        window.__languageFixture.navigate(
+                            destination === 'back' ? -1 : '/workspace'
+                        )
+                        if (destination === 'user-selection')
+                            window.__languageFixture.select('fr')
+                    }, destination)
+                    await navigationPage.waitForFunction(
+                        (pathname) =>
+                            document.getElementById('pathname')?.textContent ===
+                            pathname,
+                        destination === 'back' ? '/' : '/workspace'
+                    )
+                    releaseChinese()
+                    await navigationPage.evaluate(async (destination) => {
+                        await window.__languageFixture.ready('zh')
+                        if (destination === 'user-selection')
+                            await window.__languageFixture.ready('fr')
+                        await new Promise((resolve) =>
+                            requestAnimationFrame(() =>
+                                requestAnimationFrame(resolve)
+                            )
+                        )
+                    }, destination)
+                    assert.equal(
+                        await navigationPage.evaluate(() =>
+                            window.__languageFixture.current()
+                        ),
+                        destination === 'user-selection' ? 'fr' : 'en',
+                        `leaving a pending marketing pin must preserve the current selection: ${destination}`
+                    )
+                    assert.equal(
+                        await navigationPage.evaluate(() =>
+                            localStorage.getItem('nca.web.language')
+                        ),
+                        destination === 'user-selection' ? 'fr' : 'de'
+                    )
+                    await navigationPage.evaluate(() =>
+                        window.__languageFixture.navigate('/workspace')
+                    )
+                    await navigationPage.waitForURL('**/workspace')
+                    await navigationPage.evaluate(() =>
+                        window.__languageFixture.navigate('/zh/')
+                    )
+                    await navigationPage.waitForFunction(
+                        () => window.__languageFixture.current() === 'zh'
+                    )
+                } finally {
+                    releaseChinese()
+                    await navigation.close()
+                }
             }
         } finally {
             releaseFrench()

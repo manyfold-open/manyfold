@@ -87,13 +87,17 @@ interface I18nContextValue {
     direction: TextDirection
     language: Language
     locale: string
-    setLanguage: (language: Language, options?: { persist?: boolean }) => void
+    setLanguage: (
+        language: Language,
+        options?: { persist?: boolean }
+    ) => () => void
     t: TFn
 }
 
 export const createLanguageRequestGuard = (): {
     begin: () => number
     isCurrent: (request: number) => boolean
+    cancel: (request: number) => void
 } => {
     let current = 0
     return {
@@ -101,7 +105,10 @@ export const createLanguageRequestGuard = (): {
             current += 1
             return current
         },
-        isCurrent: (request) => request === current
+        isCurrent: (request) => request === current,
+        cancel: (request) => {
+            if (request === current) current += 1
+        }
     }
 }
 
@@ -137,7 +144,10 @@ export const I18nProvider: FC<{ children: ReactNode }> = ({
     const languageRequests = useRef(createLanguageRequestGuard())
 
     const setLanguage = useCallback(
-        (nextLanguage: Language, options?: { persist?: boolean }): void => {
+        (
+            nextLanguage: Language,
+            options?: { persist?: boolean }
+        ): (() => void) => {
             const request = languageRequests.current.begin()
             void loadWebLanguage(nextLanguage).then(
                 () => {
@@ -162,6 +172,7 @@ export const I18nProvider: FC<{ children: ReactNode }> = ({
                     return
                 }
             )
+            return () => languageRequests.current.cancel(request)
         },
         []
     )
