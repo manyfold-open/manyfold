@@ -58,9 +58,8 @@ test(
                             await sql.unsafe(statement)
                     }
                     const userId = 'usr_phase8_contract'
-                    await db
-                        .insert(users)
-                        .values({ id: userId, email: 'contract@example.test' })
+                    // This fixture intentionally stops before later user columns.
+                    await sql`insert into users (id, email) values (${userId}, 'contract@example.test')`
                     await db.insert(agentRuntimes).values({
                         id: 'art_contract',
                         userId,
@@ -202,9 +201,7 @@ test(
                     }
                     const userId = 'usr_binding_switch'
                     const agentId = 'agt_binding_switch'
-                    await db
-                        .insert(users)
-                        .values({ id: userId, email: 'binding@example.test' })
+                    await sql`insert into users (id, email) values (${userId}, 'binding@example.test')`
                     await db.insert(agentRuntimes).values({
                         id: 'art_binding_switch',
                         userId,

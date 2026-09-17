@@ -33,8 +33,9 @@ interface BusPayload {
 }
 
 // Same cross-instance fan-out as ChatStreamBus, on a dedicated channel.
-// Status events are small and need no replay, so they ride in the NOTIFY
-// payload directly instead of being persisted and pumped from the DB.
+// Status events ride directly in NOTIFY. Quota warning receipts are persisted
+// separately and re-evaluated on the quota cadence if no client acknowledges;
+// this transport itself remains best-effort and never replays stale payloads.
 @Injectable()
 export class SpriteStatusBus
     implements OnApplicationBootstrap, OnApplicationShutdown

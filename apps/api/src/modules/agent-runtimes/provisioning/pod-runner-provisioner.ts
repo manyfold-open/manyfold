@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import type { Database } from '@manyfold/db'
 import {
     buildPodRunnerEnv,
     podRunnerHostName,
@@ -40,14 +41,17 @@ export class PodRunnerProvisioner {
         return podRunnerCarries(framework)
     }
 
-    async mint(args: {
-        userId: string
-        runtimeId: string
-        framework: AgentFramework
-        // The image's manyfold home root; for coding images this is the PVC
-        // mount path, which is what puts the daemon's uuid on durable storage.
-        homeRoot: string
-    }): Promise<PodRunnerProvision | null> {
+    async mint(
+        args: {
+            userId: string
+            runtimeId: string
+            framework: AgentFramework
+            // The image's manyfold home root; for coding images this is the PVC
+            // mount path, which is what puts the daemon's uuid on durable storage.
+            homeRoot: string
+        },
+        db?: Pick<Database, 'insert'>
+    ): Promise<PodRunnerProvision | null> {
         if (!this.supports(args.framework)) return null
         const apiBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')
         // Without a reachable API there is nothing for the daemon to dial, so
@@ -63,13 +67,16 @@ export class PodRunnerProvisioner {
         // the daemon into a permanent 4401 reconnect loop. The token's real
         // lifetime is the host's: teardown deletes the host and the token
         // cascades with it, and admin revocation is available before then.
-        const minted = await this.tokens.mint({
-            userId: args.userId,
-            // The host name the pod will register under; teardown re-derives
-            // it from the runtime id, so it is not carried on the result.
-            name: podRunnerHostName(args.runtimeId),
-            purpose: 'pod_runner'
-        })
+        const minted = await this.tokens.mint(
+            {
+                userId: args.userId,
+                // The host name the pod will register under; teardown re-derives
+                // it from the runtime id, so it is not carried on the result.
+                name: podRunnerHostName(args.runtimeId),
+                purpose: 'pod_runner'
+            },
+            db
+        )
         return {
             env: buildPodRunnerEnv({
                 apiBaseUrl: publicApiUrlWithApiPrefix(apiBaseUrl),

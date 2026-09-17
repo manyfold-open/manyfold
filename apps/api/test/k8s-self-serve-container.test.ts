@@ -48,7 +48,15 @@ const makeService = (opts: {
             : {
                   provision: async (input: Record<string, unknown>) => {
                       provisionCalls.push(input)
-                      return { runtime: freshRuntime }
+                      return {
+                          runtime: freshRuntime,
+                          completeAgentCreate: async () => {},
+                          assertAgentCreateActive: async () => {},
+                          runAgentCreate: async (
+                              work: () => Promise<unknown>
+                          ) => work(),
+                          rollbackAgentCreate: async () => {}
+                      }
                   }
               }
     const service = new AgentOrchestratorService(
@@ -63,7 +71,10 @@ const makeService = (opts: {
         {
             attach: async (input: Record<string, unknown>) => {
                 attachCalls.push(input)
-                return { id: 'agt_new', name: input.name }
+                return {
+                    id: input.agentCreateId ?? 'agt_new',
+                    name: input.name
+                }
             }
         } as never, // attach
         {
@@ -138,7 +149,7 @@ test('missing provisioner degrades to CONTAINER_REQUIRED instead of a 500', asyn
 test('self-serve create provisions a container and attaches the agent to it', async () => {
     const h = makeService({ cloudComputer: openCloudComputerPort })
     const summary = (await h.service.create(ctx)) as { id: string }
-    assert.equal(summary.id, 'agt_new')
+    assert.equal(summary.id, h.attachCalls[0].agentCreateId)
     assert.equal(h.provisionCalls.length, 1)
     const input = h.provisionCalls[0]
     assert.deepEqual(

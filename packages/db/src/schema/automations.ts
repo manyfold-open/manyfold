@@ -49,6 +49,9 @@ export const automations = pgTable(
         // edits are rejected and plan quotas do not apply.
         origin: jsonb('origin').$type<AutomationOrigin>(),
         nextRunAt: timestamp('next_run_at', { withTimezone: true }),
+        // Only quota skips set this marker. Retry wakeups re-check headroom;
+        // they are never occurrences of the user's schedule.
+        quotaRetryAt: timestamp('quota_retry_at', { withTimezone: true }),
         lastRunAt: timestamp('last_run_at', { withTimezone: true }),
         // Tombstone: deletion is two-phase. A non-null value removes the row
         // from every product surface immediately; the retention sweep hard-
@@ -70,6 +73,10 @@ export const automations = pgTable(
         ),
         agentIdx: index('automations_agent_idx').on(table.agentId),
         dueIdx: index('automations_due_idx').on(table.status, table.nextRunAt),
+        quotaRetryIdx: index('automations_quota_retry_idx').on(
+            table.status,
+            table.quotaRetryAt
+        ),
         deletedAtIdx: index('automations_deleted_at_idx').on(table.deletedAt)
     })
 )

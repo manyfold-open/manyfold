@@ -21,6 +21,7 @@ export const objectIdPrefixes = Object.freeze({
     apiToken: 'pat',
     automation: 'aut',
     automationRun: 'aur',
+    quotaWarningReceipt: 'qwr',
     catalogCategory: 'cat',
     channel: 'chn',
     larkAppRegistration: 'lreg',

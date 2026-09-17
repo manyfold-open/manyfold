@@ -7,8 +7,18 @@ export type QuotaWarningCode =
     | 'concurrent'
     | 'wholesale_soft'
     | 'active_hours'
+    | 'channels'
+    | 'automations'
+    | 'automation_runs'
+    | 'api_requests'
 
 export type LastQuotaWarningsAt = Partial<Record<QuotaWarningCode, string>>
+
+export type PendingQuotaWarnings = Partial<Record<QuotaWarningCode, {
+    receiptId: string
+    policyKey: string
+    createdAt: string
+}>>
 
 export const users = pgTable('users', {
     id: text('id').primaryKey(),
@@ -39,6 +49,11 @@ export const users = pgTable('users', {
         .references(() => plans.id, { onDelete: 'restrict' }),
     lastQuotaWarningsAt: jsonb('last_quota_warnings_at')
         .$type<LastQuotaWarningsAt>()
+        .notNull()
+        .default({}),
+    // Bounded to the current warning codes; no stale usage payload is stored.
+    pendingQuotaWarnings: jsonb('pending_quota_warnings')
+        .$type<PendingQuotaWarnings>()
         .notNull()
         .default({}),
     // Per-user override of framework_runtime_defaults admin setting. Takes
