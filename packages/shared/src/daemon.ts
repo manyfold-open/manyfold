@@ -440,6 +440,9 @@ export interface DaemonTurnFinalPayload {
 
 export const DAEMON_FEATURE_EXEC_RESUME = 'exec.resume'
 export const DAEMON_FEATURE_EXEC_STDIN = 'exec.stdin'
+// The exec owner creates private temporary settings and cleans its owned process
+// tree/resources before completing, including forced cancellation on Windows.
+export const DAEMON_FEATURE_EXEC_RESOURCES = 'exec.resources.v1'
 export const DAEMON_FEATURE_DAEMON_UPDATE = 'daemon.update'
 // The protocol baseline honours stable/dev channel overrides for updates.
 export const DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL = 'daemon.update.channel'
@@ -540,6 +543,7 @@ export const DAEMON_FEATURE_AUTH_API_KEY = 'auth-api-key.v1'
 export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
+    DAEMON_FEATURE_EXEC_RESOURCES,
     DAEMON_FEATURE_DAEMON_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_FS_WRITE_BINARY,
