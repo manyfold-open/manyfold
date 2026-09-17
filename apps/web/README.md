@@ -21,8 +21,6 @@ The Web Vite alias uses `@manyfold/i18n/browser`: English is synchronous and oth
 
 Marketing URLs select their language before stored/browser preferences without overwriting the saved product preference. The initial render, page title, and consented pageview wait for that language's core and edition catalogs. Later product navigation uses the current selected language, including after recovery from a failed initial load. Edition extras retain one registered object and add completed catalogs by language, so a late load cannot replace another language or the current selection.
 
-The entry module loads asynchronously so it does not block parsing the static marketing body. React starts when both its initial language attempt and DOM readiness have settled; a cached script arriving before `#root` and a slow script arriving after `DOMContentLoaded` use the same single mount. Attribution capture and telemetry initialization retain their module ordering.
-
 ## Working against a remote API
 
 For UI-only work, you can skip the local backend and the login flow entirely: point the vite proxy at a deployed API and hand the dev bundle a personal access token.
