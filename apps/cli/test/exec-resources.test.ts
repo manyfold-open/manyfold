@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
@@ -29,7 +29,8 @@ for (const scenario of [
     'stdin-open',
     'nested-worker',
     'exited-parent',
-    'spawn-error'
+    'spawn-error',
+    ...(process.platform === 'win32' ? ['path-precedence'] as const : [])
 ] as const) {
     test(`exec owner cleans private resources before ACK: ${scenario}`, async () => {
         const base = await mkdtemp(join(tmpdir(), 'mf-exec-resource-test-'))
@@ -65,6 +66,11 @@ for (const scenario of [
         }
         const leaf = join(base, 'leaf.cjs'),
             worker = join(base, 'worker.cjs')
+        const selectedBinaryDirectory = join(base, 'selected bin')
+        if (scenario === 'path-precedence') {
+            await mkdir(selectedBinaryDirectory)
+            await copyFile(process.execPath, join(selectedBinaryDirectory, 'cmd.exe'))
+        }
         await writeFile(
             leaf,
             `process.on('SIGTERM',()=>{}); process.stdout.write(String(process.pid)+'\\n'); setInterval(()=>{},1000)`
@@ -95,12 +101,12 @@ if(process.argv[2]==='nested-worker'||process.argv[2]==='exited-parent'){
                     cmd:
                         scenario === 'spawn-error'
                             ? [join(base, 'missing-binary')]
-                        : [process.execPath, worker, scenario, leaf, 'quoted "argument"', 'trailing\\', '\u4ef7\u683c'],
+                        : [scenario === 'path-precedence' ? 'cmd.exe' : process.execPath, worker, scenario, leaf, 'quoted "argument"', 'trailing\\', '\u4ef7\u683c'],
                     dir: workspace,
                     temporarySettings: 'gemini-platform',
                     keepStdinOpen: scenario === 'stdin-open',
                     stdin: 'fixture \u8f93\u5165',
-                    env: { MF_EXEC_TEMP_DIR: unowned },
+                    env: { MF_EXEC_TEMP_DIR: unowned, ...(scenario === 'path-precedence' ? { PATH: selectedBinaryDirectory } : {}) },
                     timeoutMs: 15000
                 },
                 context
@@ -120,7 +126,7 @@ if(process.argv[2]==='nested-worker'||process.argv[2]==='exited-parent'){
                 const result = await within(running)
                 assert.equal(
                     result.ok,
-                    scenario === 'success' || scenario === 'failure' || scenario === 'exited-parent'
+                    scenario === 'success' || scenario === 'failure' || scenario === 'exited-parent' || scenario === 'path-precedence'
                 )
                 if (scenario === 'failure')
                     assert.equal(result.payload?.exitCode, 7)

@@ -8,6 +8,7 @@ using System.Text;
 using System.IO;
 using System.Diagnostics;
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 public static class ManyfoldExecJob {
     [StructLayout(LayoutKind.Sequential)] struct BasicLimits {
@@ -60,6 +61,25 @@ public static class ManyfoldExecJob {
         }
         result.Append('\\', slashes * 2); return result.Append('"').ToString();
     }
+    static string Executable(string file, string cwd) {
+        // Match libuv's cwd/PATH lookup instead of CreateProcess's implicit
+        // system-directory search (which can pick WSL bash over the chosen CLI).
+        var directories = new List<string>();
+        if (file.IndexOfAny(new char[] { '\\', '/', ':' }) >= 0) directories.Add(cwd);
+        else {
+            directories.Add(cwd);
+            foreach (string entry in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';')) {
+                if (entry.Length > 0) directories.Add(Path.GetFullPath(Path.Combine(cwd, entry.Trim('"'))));
+            }
+        }
+        foreach (string directory in directories) {
+            string candidate = Path.GetFullPath(Path.Combine(directory, file));
+            if (Path.GetExtension(file).Length > 0 && File.Exists(candidate)) return candidate;
+            if (File.Exists(candidate + ".com")) return candidate + ".com";
+            if (File.Exists(candidate + ".exe")) return candidate + ".exe";
+        }
+        throw new FileNotFoundException("owned exec executable not found");
+    }
     public static int Run(string[] args, string cwd, string cancel, string receipt) {
         IntPtr job = CreateJobObject(IntPtr.Zero, null);
         if (job == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -72,7 +92,7 @@ public static class ManyfoldExecJob {
             foreach (string arg in args) { if (command.Length > 0) command.Append(' '); command.Append(Quote(arg)); }
             var startup = new StartupInfo(); startup.Size = (uint)Marshal.SizeOf(startup);
             startup.Flags = 0x100; startup.Input = GetStdHandle(-10); startup.Output = GetStdHandle(-11); startup.Error = GetStdHandle(-12);
-            Check(CreateProcess(null, command, IntPtr.Zero, IntPtr.Zero, true, 4, IntPtr.Zero, cwd, ref startup, out child));
+            Check(CreateProcess(Executable(args[0], cwd), command, IntPtr.Zero, IntPtr.Zero, true, 4, IntPtr.Zero, cwd, ref startup, out child));
             Check(AssignProcessToJobObject(job, child.Process)); assigned = true;
             if (!File.Exists(cancel)) {
                 if (ResumeThread(child.Thread) == 0xffffffff) throw new Win32Exception(Marshal.GetLastWin32Error());
