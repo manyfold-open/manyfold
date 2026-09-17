@@ -64,7 +64,11 @@ const loadTag = (): void => {
     gtag('js', new Date())
     // Page views are sent manually; the automatic one would fire before GA
     // can be handed a scrubbed page_location.
-    gtag('config', measurementId, { send_page_view: false })
+    gtag('config', measurementId, {
+        send_page_view: false,
+        cookie_expires: 400 * 24 * 60 * 60,
+        cookie_update: true
+    })
     const script = document.createElement('script')
     script.async = true
     // `l` names the queue gtag.js attaches to; it must match window.mfDataLayer.
