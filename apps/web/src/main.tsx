@@ -64,4 +64,13 @@ const renderApp = (): void => {
     )
 }
 
-void i18nReady.then(renderApp, renderApp)
+const renderWhenDocumentReady = (): void => {
+    // An async, cached entry can finish before the parser reaches #root.
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', renderApp, { once: true })
+    } else {
+        renderApp()
+    }
+}
+
+void i18nReady.then(renderWhenDocumentReady, renderWhenDocumentReady)
