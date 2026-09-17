@@ -39,6 +39,8 @@ mf channels send <channelId> --chat-id <provider_chat_id> --text "This week's nu
 
 The platform reads each file at send time and again on retry. Text and files use separate durable deliveries, so a failed file upload retries independently and never resends text that already succeeded.
 
+Lark and Feishu send `.opus` files as audio and `.mp4` files as video. Images retain their native image format; documents and other files are sent as file attachments.
+
 ## Read the result
 
 A text-only or files-only send returns the delivery at the top level:
@@ -67,6 +69,8 @@ When text and files are both present, `files` reports the attachment delivery se
 ```
 
 `sent` means the provider accepted the delivery. `queued` means the first attempt failed and Manyfold will retry with backoff; do not immediately resend it. Keep `providerMessageId` when you need to correlate a reply or reply natively later.
+
+`failed` means the delivery cannot be retried automatically, for example a Lark file/message type mismatch. Correct the file or request before sending again; resend only the failed files when the text already succeeded.
 
 ## Limits and recovery
 
