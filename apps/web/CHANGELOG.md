@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.1.5
+
+### Patch Changes
+
+- [#453](https://github.com/manyfold-open/manyfold/pull/453) [`a79482f`](https://github.com/manyfold-open/manyfold/commit/a79482fbaebc604d9a2dc7d061650ba28f08b3e9) Thanks [@yingca1](https://github.com/yingca1)! - Keep quota warnings pending until a connected client acknowledges them, revalidate current allowance before confirmation, and preserve delivery across API instances and reconnects.
+
 ## 2.1.4
 
 ### Patch Changes
