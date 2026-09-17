@@ -1041,7 +1041,7 @@ export interface NcaClient {
     auth: AuthClient
     runtimeAccess: {
         summary: () => Promise<RuntimeAccessSummary>
-        sandboxUsage: () => Promise<SandboxUsageBreakdown>
+        sandboxUsage: (options?: { agentId?: string }) => Promise<SandboxUsageBreakdown>
         acknowledgeQuotaWarning: (receiptId: string) => Promise<{ acknowledged: boolean }>
     }
     agents: AgentsClient
@@ -2556,9 +2556,9 @@ export const createClient = (options: ClientOptions): NcaClient => {
         runtimeAccess: {
             summary: () =>
                 request<RuntimeAccessSummary>(apiPaths.ME_RUNTIME_ACCESS),
-            sandboxUsage: () =>
+            sandboxUsage: (options) =>
                 request<SandboxUsageBreakdown>(
-                    apiPaths.ME_RUNTIME_ACCESS_SANDBOX_USAGE
+                    options?.agentId ? apiPaths.ME_RUNTIME_ACCESS_SANDBOX_USAGE_FOR_AGENT(options.agentId) : apiPaths.ME_RUNTIME_ACCESS_SANDBOX_USAGE
                 ),
             acknowledgeQuotaWarning: (receiptId) => request(
                 apiPaths.ME_RUNTIME_ACCESS_QUOTA_WARNING_ACK,

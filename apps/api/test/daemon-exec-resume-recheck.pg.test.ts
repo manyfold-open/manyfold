@@ -1,10 +1,9 @@
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
-import 'dotenv/config'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
 import test from 'node:test'
-import { eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import {
     agentRuntimes,
     agents,
@@ -19,6 +18,7 @@ import {
 import { ChatRepository } from '../src/modules/chat/chat.repository'
 import { DaemonExecResumeService } from '../src/modules/daemon/daemon-exec-resume.service'
 import type { DaemonRegistryService } from '../src/modules/daemon/daemon-registry.service'
+import { withScratchDatabase } from '../scripts/scratch-db'
 
 // The cold-runner reconnect race (#512): a turn.start push rejected by
 // `connection replaced` leaves an open turn stamped on a daemon whose hello
@@ -59,10 +59,13 @@ interface Harness {
     close: () => Promise<void>
 }
 
-const buildHarness = async (): Promise<Harness> => {
-    const url = process.env.DATABASE_URL
-    if (!url) throw new Error('DATABASE_URL must be set in .env')
-    const db = createDb(url)
+const buildHarness = async (
+    databaseUrl?: string,
+    max?: number
+): Promise<Harness> => {
+    const url = databaseUrl ?? process.env.DATABASE_URL
+    if (!url) throw new Error('DATABASE_URL must name an owned test database')
+    const db = createDb(url, max ? { max } : undefined)
     const suffix = randomBytes(8).toString('hex')
     const userId = `user_pgtest_${suffix}`
     const runtimeId = `art_pgtest_${suffix}`
@@ -119,9 +122,13 @@ const buildHarness = async (): Promise<Harness> => {
         registry,
         sessionId,
         id: (name: string) => `${name}_${suffix}`,
-        timers: () =>
-            (service as unknown as { recheckTimers: Map<string, unknown> })
-                .recheckTimers,
+        timers: () => {
+            const owner = service as unknown as {
+                recheckTimers: Map<string, unknown>
+                helloLookupTimers: Map<string, unknown>
+            }
+            return new Map([...owner.recheckTimers, ...owner.helloLookupTimers])
+        },
         close: async (): Promise<void> => {
             service.onModuleDestroy()
             await db.delete(users).where(eq(users.id, userId))
@@ -1007,6 +1014,368 @@ test(
             t.mock.timers.reset()
             await h.close()
         }
+    }
+)
+
+async function waitForFixture(
+    promise: Promise<void>,
+    signal: AbortSignal
+): Promise<void> {
+    signal.throwIfAborted()
+    let abort!: () => void
+    const aborted = new Promise<never>((_resolve, reject) => {
+        abort = () => reject(signal.reason)
+        signal.addEventListener('abort', abort, { once: true })
+    })
+    try {
+        await Promise.race([promise, aborted])
+    } finally {
+        signal.removeEventListener('abort', abort)
+    }
+}
+
+for (const scenario of [
+    'lookup-failure',
+    'matched-success',
+    'empty-success'
+] as const)
+    test(
+        `real PostgreSQL runtime-repair await window: ${scenario}`,
+        { skip: !RUN, timeout: 15_000 },
+        async (t) => {
+            await withScratchDatabase('hello_prelookup', async ({ url }) => {
+                const h = await buildHarness(url, 1)
+                const second = createDb(url, { max: 1 })
+                const lock = 570_570
+                let older: Promise<void> | undefined
+                let newer: Promise<void> | undefined
+                let releaseResume!: () => void
+                const resumeHeld = new Promise<void>((resolve) => {
+                    releaseResume = resolve
+                })
+                let restoreUpdate: (() => void) | undefined
+                let restoreSelect: (() => void) | undefined
+                try {
+                    const daemonId = h.id('dh_repair_window'),
+                        turn = h.id('m_repair_window'),
+                        refId = h.id('exact_repair_ref')
+                    if (scenario !== 'empty-success') {
+                        await insertMessage(h, turn, daemonId, {
+                            ageMs: 7 * 60_000
+                        })
+                        await h.db
+                            .update(chatMessages)
+                            .set({ daemonExecRef: refId })
+                            .where(eq(chatMessages.id, turn))
+                        await insertExec(h, turn, {
+                            state: 'handoff',
+                            leaseMs: -1000,
+                            runtime: 'daemon'
+                        })
+                        await h.db
+                            .update(chatSessions)
+                            .set({ inflightMessageId: turn })
+                            .where(eq(chatSessions.id, h.sessionId))
+                    }
+                    const refs: string[] = []
+                    const captured = captureHandler(h, {
+                        claimOwnerId:
+                            scenario === 'lookup-failure'
+                                ? 'prelookup-recovery-instance'
+                                : undefined,
+                        onResumeStart: (_id, ref) => refs.push(ref),
+                        onResume:
+                            scenario === 'matched-success'
+                                ? () => resumeHeld
+                                : undefined
+                    })
+
+                    // Only connection A blocks, before the UPDATE obtains row locks.
+                    // Connection B can therefore execute H2's real status repairs.
+                    await h.db.execute(
+                        sql.raw(`CREATE FUNCTION fixture_repair_gate() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN
+                    IF current_setting('manyfold.fixture_repair', true) = '1' THEN
+                        PERFORM pg_advisory_xact_lock(${lock});
+                    END IF;
+                    RETURN NULL;
+                END $$`)
+                    )
+                    await h.db.execute(
+                        sql.raw(
+                            'CREATE TRIGGER fixture_repair_gate BEFORE UPDATE ON agent_runtimes FOR EACH STATEMENT EXECUTE FUNCTION fixture_repair_gate()'
+                        )
+                    )
+                    await h.db.execute(
+                        sql.raw("SET manyfold.fixture_repair = '1'")
+                    )
+                    const [owner] = await h.db.execute(
+                        sql`select pg_backend_pid() as pid`
+                    )
+                    const [holder] = await second.execute(
+                        sql`select pg_backend_pid() as pid, pg_advisory_lock(${lock})`
+                    )
+                    const originalUpdate = h.db.update.bind(h.db)
+                    let updates = 0
+                    const updateMock = t.mock.method(h.db, 'update', ((
+                        table: Parameters<typeof h.db.update>[0]
+                    ) =>
+                        ++updates === 1
+                            ? originalUpdate(table)
+                            : second.update(table)) as typeof h.db.update)
+                    restoreUpdate = () => updateMock.mock.restore()
+                    const selectMock = t.mock.method(
+                        h.db,
+                        'select',
+                        (...args: Parameters<typeof h.db.select>) => {
+                            const builder = second.select(...args)
+                            const from = builder.from.bind(builder)
+                            builder.from = ((table: typeof chatMessages) => {
+                                const query = from(table)
+                                if (
+                                    table !== chatMessages ||
+                                    scenario !== 'lookup-failure'
+                                )
+                                    return query
+                                const where = query.where.bind(query)
+                                query.where = ((
+                                    condition: Parameters<typeof query.where>[0]
+                                ) => {
+                                    assert.ok(typeof condition !== 'function')
+                                    return where(
+                                        and(condition, sql`1 / ${0} = 1`)
+                                    )
+                                }) as typeof query.where
+                                return query
+                            }) as typeof builder.from
+                            return builder
+                        }
+                    )
+                    restoreSelect = () => selectMock.mock.restore()
+                    t.mock.timers.enable({ apis: ['setTimeout'] })
+                    older = hello(h, daemonId, [])
+                    const deadline = performance.now() + 5000
+                    while (true) {
+                        const [state] = await second.execute(
+                            sql`select pg_blocking_pids(${Number(owner.pid)}) as blockers`
+                        )
+                        if (
+                            (state.blockers as number[]).includes(
+                                Number(holder.pid)
+                            )
+                        )
+                            break
+                        if (performance.now() >= deadline)
+                            throw new Error(
+                                'runtime repair did not reach its SQL barrier'
+                            )
+                    }
+                    const inventory = [
+                        ...Array.from(
+                            { length: 20_000 },
+                            (_, index) => `historical-${index}`
+                        ),
+                        refId
+                    ]
+                    newer = hello(h, daemonId, inventory)
+                    void newer.catch(() => {})
+                    if (scenario === 'lookup-failure')
+                        await assert.rejects(newer, /division by zero/)
+                    else {
+                        if (scenario === 'matched-success')
+                            await waitForFixture(
+                                captured.waitForResumed(),
+                                t.signal
+                            )
+                        else await newer
+                        const snapshot = (
+                            h.service as unknown as {
+                                helloSnapshots: Map<
+                                    string,
+                                    { streamsByRef: Map<string, unknown> }
+                                >
+                            }
+                        ).helloSnapshots.get(daemonId)
+                        assert.equal(
+                            snapshot?.streamsByRef.size,
+                            scenario === 'matched-success' ? 1 : 0,
+                            'fresh lookup releases full history while H1 repair and H2 resume are still pending'
+                        )
+                        assert.equal(h.timers().size, 0)
+                    }
+                    restoreSelect()
+                    restoreUpdate()
+                    await second.execute(
+                        sql`select pg_advisory_unlock(${lock})`
+                    )
+                    await older
+                    if (scenario === 'lookup-failure') {
+                        assert.equal(
+                            h.timers().size,
+                            1,
+                            'latest positive evidence keeps exactly one bounded retry'
+                        )
+                        assert.deepEqual(captured.resumed, [])
+                        t.mock.timers.tick(h.service.recheckDelayMs)
+                        await waitForFixture(
+                            captured.waitForResumed(),
+                            t.signal
+                        )
+                        const [claimed] = await h.db
+                            .select({
+                                generation: turnExecutions.generation,
+                                ownerId: turnExecutions.ownerId
+                            })
+                            .from(turnExecutions)
+                            .where(eq(turnExecutions.messageId, turn))
+                        assert.deepEqual(claimed, {
+                            generation: 2,
+                            ownerId: 'prelookup-recovery-instance'
+                        })
+                    }
+                    assert.deepEqual(captured.failed, [])
+                    assert.deepEqual(
+                        refs,
+                        scenario === 'empty-success' ? [] : [refId]
+                    )
+                    assert.equal(h.timers().size, 0)
+                    assert.equal(
+                        (
+                            h.service as unknown as {
+                                helloSnapshots: Map<string, unknown>
+                            }
+                        ).helloSnapshots.size,
+                        0
+                    )
+                    releaseResume()
+                    await newer.catch(() => {})
+                    assert.deepEqual(
+                        await h.db
+                            .select()
+                            .from(chatStreamEvents)
+                            .where(eq(chatStreamEvents.messageId, turn)),
+                        []
+                    )
+                } finally {
+                    restoreSelect?.()
+                    restoreUpdate?.()
+                    await second
+                        .execute(sql`select pg_advisory_unlock(${lock})`)
+                        .catch(() => {})
+                    releaseResume()
+                    await older?.catch(() => {})
+                    await newer?.catch(() => {})
+                    h.service.onModuleDestroy()
+                    t.mock.timers.reset()
+                    await second.$client.end()
+                    await h.close()
+                }
+            })
+        }
+    )
+
+test(
+    'a sole hello lookup failure retains one batch owner for a large inventory',
+    { skip: !RUN, timeout: 15_000 },
+    async (t) => {
+        await withScratchDatabase('hello_first_lookup', async ({ url }) => {
+            const h = await buildHarness(url, 1)
+            let restoreSelect: (() => void) | undefined
+            try {
+                const daemonId = h.id('dh_first_lookup'),
+                    turn = h.id('m_first_lookup'),
+                    refId = h.id('exact_first_ref')
+                await insertMessage(h, turn, daemonId, { ageMs: 7 * 60_000 })
+                await h.db
+                    .update(chatMessages)
+                    .set({ daemonExecRef: refId })
+                    .where(eq(chatMessages.id, turn))
+                await insertExec(h, turn, {
+                    state: 'handoff',
+                    leaseMs: -1000,
+                    runtime: 'daemon'
+                })
+                await h.db
+                    .update(chatSessions)
+                    .set({ inflightMessageId: turn })
+                    .where(eq(chatSessions.id, h.sessionId))
+                const refs: string[] = []
+                const captured = captureHandler(h, {
+                    claimOwnerId: 'first-lookup-recovery',
+                    onResumeStart: (_id, ref) => refs.push(ref)
+                })
+                const originalSelect = h.db.select.bind(h.db)
+                let lookups = 0,
+                    boundParameters = 0
+                const selectMock = t.mock.method(
+                    h.db,
+                    'select',
+                    (...args: Parameters<typeof h.db.select>) => {
+                        const builder = originalSelect(...args)
+                        const from = builder.from.bind(builder)
+                        builder.from = ((table: typeof chatMessages) => {
+                            const query = from(table)
+                            if (table !== chatMessages) return query
+                            const where = query.where.bind(query)
+                            query.where = ((
+                                condition: Parameters<typeof query.where>[0]
+                            ) => {
+                                assert.ok(typeof condition !== 'function')
+                                const statement = where(
+                                    and(condition, sql`1 / ${0} = 1`)
+                                )
+                                lookups++
+                                boundParameters =
+                                    statement.toSQL().params.length
+                                return statement
+                            }) as typeof query.where
+                            return query
+                        }) as typeof builder.from
+                        return builder
+                    }
+                )
+                restoreSelect = () => selectMock.mock.restore()
+                t.mock.timers.enable({ apis: ['setTimeout'] })
+                const inventory = [
+                    ...Array.from(
+                        { length: 20_000 },
+                        (_, index) => `historical-${index}`
+                    ),
+                    refId
+                ]
+                await assert.rejects(
+                    hello(h, daemonId, inventory),
+                    /division by zero/
+                )
+                restoreSelect()
+                assert.equal(lookups, 1)
+                assert.ok(
+                    boundParameters <= 2,
+                    'inventory refs must not become query parameters'
+                )
+                assert.equal(h.timers().size, 1)
+                assert.deepEqual(captured.resumed, [])
+                assert.deepEqual(captured.failed, [])
+                t.mock.timers.tick(h.service.recheckDelayMs)
+                await waitForFixture(captured.waitForResumed(), t.signal)
+                assert.deepEqual(refs, [refId])
+                assert.deepEqual(captured.failed, [])
+                assert.equal(h.timers().size, 0)
+                assert.equal(
+                    (
+                        h.service as unknown as {
+                            helloSnapshots: Map<string, unknown>
+                        }
+                    ).helloSnapshots.size,
+                    0
+                )
+            } finally {
+                restoreSelect?.()
+                h.service.onModuleDestroy()
+                t.mock.timers.reset()
+                await h.close()
+            }
+        })
     }
 )
 

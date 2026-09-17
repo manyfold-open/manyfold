@@ -71,6 +71,7 @@ import {
 import { useDeleteAgent } from '@/lib/useDeleteAgent'
 import { agentStatusDotLabel } from '@/lib/agentStatusDot'
 import { formatDateTime } from '@/lib/dateFormat'
+import { formatBytesDecimal } from '@/lib/sandboxUsageRows'
 import { useI18n } from '@/lib/i18n'
 import { timeAgo } from '@/lib/timeAgo'
 import { subscribeAgentCredentialsUpdates } from '@/lib/agentCredentialsEvents'
@@ -113,9 +114,10 @@ const openNativeUi = (
 
 const formatDate = (value: string | null): string => formatDateTime(value, '-')
 
-const formatBytes = (value: number): string => {
-    if (!Number.isFinite(value) || value <= 0) return '0 B'
-    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+const formatBytes = (value: number | null): string => {
+    if (value === null || !Number.isFinite(value)) return '-'
+    if (value <= 0) return '0 B'
+    const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
     let size = value
     let unit = 0
     while (size >= 1024 && unit < units.length - 1) {
@@ -1903,6 +1905,15 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                     {storageError}
                                 </div>
                             )}
+                            {storage?.cachedSandbox && (
+                                <div className='text-caption text-muted mb-4' data-storage-scope='sandbox'>
+                                    {storage.asleep && <span className='mr-2'>{t('web.agents.detail.storage.asleep')}</span>}
+                                    {t('web.agents.detail.storage.cachedSandbox', {
+                                        value: formatBytesDecimal(storage.cachedSandbox.storageBytes),
+                                        date: formatDate(storage.cachedSandbox.storageMeasuredAt)
+                                    })}
+                                </div>
+                            )}
                             <div className='workbench-stat-grid mb-4'>
                                 {(storage?.items ?? []).map((item) => (
                                     <div
@@ -1932,7 +1943,7 @@ const AgentSettingsContent: FC = (): ReactNode => {
                                             {formatBytes(storage.totalBytes)}
                                         </div>
                                         <div className='text-caption text-subtle mt-2'>
-                                            {t(
+                                            {storage.totalBytes === null ? t('web.agents.detail.storage.notMeasured') : t(
                                                 'web.agents.detail.storage.measured',
                                                 {
                                                     date: formatDate(

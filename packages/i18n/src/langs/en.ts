@@ -451,8 +451,10 @@ const en = {
                     unavailableExternal:
                         'External agents have no workspace on Manyfold, so there is nothing to back up here.',
                     starting: 'Starting...',
-                    title: 'Storage',
-                    total: 'Total'
+                    title: 'Agent-owned paths',
+                    total: 'Agent path total',
+                    cachedSandbox: 'Cached sandbox filesystem: {{value}} · measured {{date}}',
+                    asleep: 'Sandbox asleep'
                 },
                 updated: 'Updated',
                 updating: 'Updating…',
@@ -1191,6 +1193,14 @@ const en = {
             subscribeCancel: 'Checkout canceled — your plan is unchanged.'
         },
         sandboxUsage: {
+            attributedValue: 'Attributed: {{value}}',
+            attributionUnknown: 'Attribution unknown',
+            freshnessFresh: 'Recent readings',
+            freshnessStale: 'Cached readings',
+            freshnessPartial: '{{count}} sandboxes unmeasured',
+            freshnessUnknown: 'Measurement unavailable',
+            oldestMeasured: 'Oldest measurement {{time}}',
+            storageEmpty: 'No current sandboxes',
             title: 'Sandbox usage',
             subtitle:
                 'What consumed your sandbox storage and active hours this billing period, per sandbox.',
@@ -1199,11 +1209,11 @@ const en = {
             statSandboxes: 'Sandboxes',
             storageSectionTitle: 'Storage by sandbox',
             storageSectionBody:
-                'Each sandbox VM bills as a whole. The rows show what is inside it — per-agent workspaces and shared framework home dirs — as last measured while it ran.',
+                'Each sandbox VM is counted once. The rows show per-agent workspaces and configuration directories, as last measured while it ran.',
             vmDiskUsed: 'VM disk used: {{value}}',
             measuredAt: 'measured {{time}}',
             tagWorkspace: 'workspace',
-            tagHomeShared: 'home · shared',
+            tagHomeShared: 'config / state',
             systemOther: 'System & other',
             notMeasured:
                 'Not measured yet — storage is measured inside the sandbox while it runs, at most every 5 minutes.',
@@ -2529,6 +2539,9 @@ const en = {
             recovering: 'Recovering this answer…',
             resuming: 'Resuming this answer…',
             stalled: 'No output for a while, still waiting…',
+            connectionPaused: 'Connection interrupted. The latest turn status is unavailable.',
+            reconnect: 'Reconnect',
+            reload: 'Reload page',
             working: 'Working…',
             tokensNotReported: 'Tokens not reported by this agent',
             modelUnknown: 'model unknown',

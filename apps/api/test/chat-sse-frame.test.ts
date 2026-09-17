@@ -29,6 +29,8 @@ const openStream = async (): Promise<StreamHarness> => {
     const raw = {
         socket: { setNoDelay: (): void => undefined },
         destroyed: false,
+        on: (): void => undefined,
+        off: (): void => undefined,
         get writableLength(): number {
             return buffered
         },
@@ -45,6 +47,7 @@ const openStream = async (): Promise<StreamHarness> => {
         headers: {},
         raw: {
             destroyed: false,
+            off: (): void => undefined,
             on: (event: string, handler: () => void): void => {
                 if (event === 'close') closeHandlers.push(handler)
             }
@@ -60,7 +63,8 @@ const openStream = async (): Promise<StreamHarness> => {
                 captured.push(subscriber)
                 return () => undefined
             }
-        } as never
+        } as never,
+        { event: () => {} } as never
     )
     await controller.stream(
         { userId: 'user-1' } as never,
@@ -74,7 +78,7 @@ const openStream = async (): Promise<StreamHarness> => {
 
     const subscriber = captured[0]
     if (!subscriber) throw new Error('stream never subscribed')
-    // The handshake writes nothing itself; only events are counted.
+    // Ignore transport-only handshake metadata; only events are counted.
     writes.length = 0
     return {
         send: subscriber.send,

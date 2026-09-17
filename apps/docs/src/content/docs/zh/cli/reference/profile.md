@@ -1,7 +1,7 @@
 ---
 title: "mf profile"
 description: "Inspect and manage CLI profiles (ADR-0014)"
-order: 17
+order: 18
 ---
 **用法:** `mf profile [command]`
 

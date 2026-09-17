@@ -303,7 +303,7 @@ export class ExecDriverFactory {
             accountSlug: account.slug,
             logger
         })
-        void this.spriteStorage.measureIfDue(agent.id)
+        void this.spriteStorage.measureIfDue(agent.id, 'chat')
         const baseEnv = agentBaseEnv(
             this.config,
             agent,

@@ -25,6 +25,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf connections`](/docs/cli/reference/connections/) | List the connections linked to this agent (or, for a user, your account) |
 | [`mf model-config`](/docs/cli/reference/model-config/) | Read/update agent model configuration |
 | [`mf runtime`](/docs/cli/reference/runtime/) | Manage agent runtimes (the sprite/pod shell) |
+| [`mf sandbox`](/docs/cli/reference/sandbox/) | Inspect sandbox storage |
 | [`mf skills`](/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/docs/cli/reference/usage/) | Read token + cost usage statistics |
 | [`mf a2a`](/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |

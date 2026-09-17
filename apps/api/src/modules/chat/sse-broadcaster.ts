@@ -43,7 +43,7 @@ export interface EmittedStreamEvent {
 
 export interface BroadcastSubscriber {
     send: (event: ChatStreamEvent) => void
-    close: () => void
+    close: (reason?: 'server_shutdown' | 'write_error') => void
 }
 
 interface PendingTokenBuffer {
@@ -318,7 +318,7 @@ export class ChatSseBroadcaster
         for (const pump of this.pumps.values()) {
             for (const sub of pump.subs) {
                 try {
-                    sub.subscriber.close()
+                    sub.subscriber.close('server_shutdown')
                 } catch {}
             }
             pump.subs.clear()
@@ -826,13 +826,16 @@ export class ChatSseBroadcaster
         sessionId: string,
         subscriber: BroadcastSubscriber,
         lastEventId: string | null,
-        replayMessageId: string | null = null
+        replayMessageId: string | null = null,
+        signal?: AbortSignal
     ): Promise<() => void> {
+        if (signal?.aborted) return () => {}
         const cursor = await this.initialCursor(
             sessionId,
             lastEventId,
             replayMessageId
         )
+        if (signal?.aborted) return () => {}
         let pump = this.pumps.get(sessionId)
         if (!pump) {
             pump = {
@@ -847,14 +850,17 @@ export class ChatSseBroadcaster
         }
         const entry: PumpSubscriber = { subscriber, cursor }
         pump.subs.add(entry)
-        this.kick(sessionId)
-        return (): void => {
+        const unsubscribe = (): void => {
+            signal?.removeEventListener('abort', unsubscribe)
             const current = this.pumps.get(sessionId)
             if (!current) return
             current.subs.delete(entry)
             if (current.subs.size === 0 && !current.running)
                 this.pumps.delete(sessionId)
         }
+        signal?.addEventListener('abort', unsubscribe, { once: true })
+        this.kick(sessionId)
+        return unsubscribe
     }
 
     private async initialCursor(
@@ -963,7 +969,7 @@ export class ChatSseBroadcaster
                             )
                             pump.subs.delete(sub)
                             try {
-                                sub.subscriber.close()
+                                sub.subscriber.close('write_error')
                             } catch {
                                 /* ignore */
                             }

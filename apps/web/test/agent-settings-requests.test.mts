@@ -5,6 +5,7 @@ import test, { before } from 'node:test'
 import { chromium, type Page } from 'playwright'
 import { build } from 'vite'
 import type { SdkAgent } from '@manyfold/sdk'
+import type { AgentStorageUsageResponse } from '@manyfold/shared'
 
 const root = resolve(import.meta.dirname, '../../..')
 const origin = 'http://settings.test'
@@ -120,6 +121,19 @@ const credentials = {
     extras: {},
     updatedAt: '2026-09-01T00:00:00Z'
 }
+const storageUsage = (
+    agentId: string,
+    totalBytes: number
+): AgentStorageUsageResponse => ({
+    scope: 'agent-paths',
+    unit: 'bytes',
+    agentId,
+    checkedAt: '2026-09-01T00:00:00Z',
+    asleep: false,
+    items: [],
+    totalBytes,
+    cachedSandbox: null
+})
 
 const barrier = () => {
     let release!: () => void
@@ -176,11 +190,7 @@ const fixture = async (agents: Record<string, SdkAgent>) => {
             else if (path.endsWith('/model-config')) body = model(id)
             else if (path.endsWith('/credentials')) body = credentials
             else if (path.endsWith('/storage-usage'))
-                body = {
-                    items: [],
-                    totalBytes: 1024,
-                    checkedAt: '2026-09-01T00:00:00Z'
-                }
+                body = storageUsage(id, 1024)
             else if (
                 path === '/api/channels' ||
                 path.startsWith('/api/backups')
@@ -349,7 +359,7 @@ test('quick section changes discard older storage responses and preserve refresh
         const hold = barrier()
         f.holds.set('/api/agents/a/storage-usage', hold)
         f.responses.set('/api/agents/a/storage-usage', {
-            body: { items: [], totalBytes: 1024 }
+            body: storageUsage('a', 1024)
         })
         await f.page.goto(origin + '/agents/a/settings/storage')
         await f.page.locator('.settings-sidebar').first().waitFor()
@@ -372,16 +382,16 @@ test('quick section changes discard older storage responses and preserve refresh
         hold.release()
         await renderSettled(f.page)
         assert.equal(
-            await f.page.getByText('1.0 KB', { exact: true }).count(),
+            await f.page.getByText('1.0 KiB', { exact: true }).count(),
             0
         )
         f.responses.set('/api/agents/a/storage-usage', {
-            body: { items: [], totalBytes: 2048 }
+            body: storageUsage('a', 2048)
         })
         await f.page
             .getByRole('button', { name: 'Refresh', exact: true })
             .click()
-        await f.page.getByText('2.0 KB', { exact: true }).waitFor()
+        await f.page.getByText('2.0 KiB', { exact: true }).waitFor()
         assert.equal(
             await f.page
                 .getByText('measurement fixture failed', { exact: false })
@@ -537,7 +547,7 @@ test('mobile rail navigation preserves the same request boundary', async () => {
     try {
         await f.page.setViewportSize({ width: 390, height: 844 })
         await f.page.goto(origin + '/agents/a/settings/overview')
-        await f.page.getByText('1.0 KB', { exact: false }).first().waitFor()
+        await f.page.getByText('1.0 KiB', { exact: false }).first().waitFor()
         await renderSettled(f.page)
         f.calls.length = 0
         await f.page.locator('.settings-mobile-menu-btn').click()

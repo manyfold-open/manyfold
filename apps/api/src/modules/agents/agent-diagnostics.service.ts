@@ -19,9 +19,7 @@ import { KubernetesService } from '@/modules/k8s/kubernetes.service'
 import { PodExecFactory } from '@/modules/k8s/pod-exec'
 import { resolveAgentPod } from '@/modules/agents/adapters/k8s-pod-resolver'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
-import { HERMES_PORT } from '@/modules/agents/bootstrap/hermes-shared'
-import { OPENCLAW_PORT } from '@/modules/agents/bootstrap/openclaw-shared'
-import { NARRANEXUS_PORT } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { resolvedStoragePath } from './sprite-storage/storage-attribution'
 
 const DU_MISSING = '__NCA_MISSING__'
 const DEFAULT_TIMEOUT_MS = 12_000
@@ -66,15 +64,19 @@ export const nestedConfigBytes = (
     workspaceBytes: number,
     configPath: string | null,
     workspacePath: string | null
-): number => {
+): number | null => {
     if (!configPath || !workspacePath) return configBytes
-    const normalizedConfig = trimTrailingSlash(configPath)
-    const normalizedWorkspace = trimTrailingSlash(workspacePath)
+    const normalizedConfig = resolvedStoragePath(configPath, null)
+    const normalizedWorkspace = resolvedStoragePath(workspacePath, null)
+    if (!normalizedConfig || !normalizedWorkspace) return null
+    if (normalizedWorkspace === normalizedConfig)
+        return workspaceBytes === configBytes ? 0 : null
+    if (normalizedConfig.startsWith(`${normalizedWorkspace}/`))
+        return configBytes <= workspaceBytes ? 0 : null
     if (
-        normalizedWorkspace === normalizedConfig ||
         normalizedWorkspace.startsWith(`${normalizedConfig}/`)
     )
-        return Math.max(0, configBytes - workspaceBytes)
+        return workspaceBytes <= configBytes ? configBytes - workspaceBytes : null
     return configBytes
 }
 
@@ -99,22 +101,35 @@ export class AgentDiagnosticsService {
         const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
         const checkedAt = new Date().toISOString()
         const targets = this.storageTargets(agent)
+        const host = agent.runtime === 'sprites' && agent.hostId ? await this.runtimes.findHostById(agent.hostId) : null
+        const cachedHost = host?.kind === 'sandbox' && host.userId === agent.userId ? host : null
+        const presence = cachedHost?.spriteStatus === 'warm' || cachedHost?.spriteStatus === 'cold' ? 'asleep' : await this.spriteState(agent)
+        const asleep = presence === 'asleep'
+        const cachedSandbox: AgentStorageUsageResponse['cachedSandbox'] = cachedHost ? {
+            scope: 'sandbox', unit: 'bytes', hostId: cachedHost.id,
+            storageBytes: cachedHost.storageBytes,
+            storageMeasuredAt: cachedHost.storageMeasuredAt?.toISOString() ?? null,
+            storageFreshness: !cachedHost.storageMeasuredAt || !cachedHost.storageBreakdown ? 'unknown' : presence !== 'running' || Date.now() - cachedHost.storageMeasuredAt.getTime() >= 5 * 60 * 1000 ? 'stale' : 'fresh',
+            asleep
+        } : null
+        const scope = { scope: 'agent-paths' as const, unit: 'bytes' as const, asleep, cachedSandbox }
         // du is an exec: skip it instead of waking/billing a sleeping
-        // service sprite (same rule as the exec-based health checks).
-        if (await this.serviceSpriteAsleep(agent)) {
+        // sprite, including coding frameworks.
+        if (presence !== 'running') {
+            const message = asleep ? SLEEPING_SPRITE_SKIP.message : 'Sandbox status is unavailable; measurement skipped without waking it.'
             const items = [
-                asleepStorageItem(targets.workspace),
+                asleepStorageItem(targets.workspace, message),
                 targets.config
-                    ? asleepStorageItem(targets.config)
+                    ? asleepStorageItem(targets.config, message)
                     : skippedStorageItem('config', 'Agent config/state', null)
             ]
-            return { agentId: agent.id, checkedAt, items, totalBytes: 0 }
+            return { ...scope, agentId: agent.id, checkedAt, items, totalBytes: null }
         }
         const workspace = await this.duItem(agent, targets.workspace)
         const config = targets.config
             ? await this.duItem(agent, targets.config)
             : skippedStorageItem('config', 'Agent config/state', null)
-        const configBytes = nestedConfigBytes(
+        const configBytes = config.bytes === null || workspace.bytes === null ? config.bytes : nestedConfigBytes(
             config.bytes,
             workspace.bytes,
             config.path,
@@ -127,16 +142,19 @@ export class AgentDiagnosticsService {
                       ...config,
                       bytes: configBytes,
                       message:
-                          config.status === 'ok'
-                              ? 'Measured config/state usage excluding nested workspace usage.'
+                          configBytes === null
+                              ? 'Path measurements changed or overlap inconsistently; attribution is unavailable.'
+                              : config.status === 'ok'
+                              ? 'Measured config/state usage excluding overlapping workspace usage.'
                               : config.message
                   }
         const items = [workspace, configItem]
         return {
+            ...scope,
             agentId: agent.id,
             checkedAt,
             items,
-            totalBytes: items.reduce((sum, item) => sum + item.bytes, 0)
+            totalBytes: items.some((item) => item.bytes === null) ? null : items.reduce((sum, item) => sum + (item.bytes ?? 0), 0)
         }
     }
 
@@ -154,22 +172,19 @@ export class AgentDiagnosticsService {
         return agent
     }
 
-    // True only for a service-framework sprite that exists but is not
-    // running (warm/cold). not_found and control-plane errors return false
-    // so the exec-based checks keep failing loudly as before — getSprite is
-    // a control-plane read and never wakes the VM.
-    private async serviceSpriteAsleep(agent: Agent): Promise<boolean> {
+    // Only a positive running observation admits an exec-based diagnostic.
+    private async spriteState(agent: Agent): Promise<'running' | 'asleep' | 'unavailable'> {
+        if (agent.runtime !== 'sprites') return 'running'
         try {
             const runtime = await this.runtimeFor(agent)
-            if (runtime.kind !== 'sprites') return false
-            if (!serviceHealthUrlFor(runtime.framework)) return false
+            if (runtime.kind !== 'sprites') return 'unavailable'
             const client = await this.spriteClientFor(agent, runtime)
             const sprite = await client.getSprite(
                 this.spriteNameFor(agent, runtime)
             )
-            return sprite.status !== 'running'
+            return sprite.status === 'running' ? 'running' : 'asleep'
         } catch {
-            return false
+            return 'unavailable'
         }
     }
 
@@ -187,11 +202,8 @@ export class AgentDiagnosticsService {
         const workspaceRoot = roots.find((root) => root.id === 'workspace')
         const workspacePath = agent.workspacePath || workspaceRoot?.path || null
         const configRoot = roots.find((root) => root.id !== 'workspace')
-        const configPath =
-            configRoot?.path ??
-            (agent.framework === 'openclaw' || agent.framework === 'hermes'
-                ? agent.mountPath
-                : null)
+        const serviceConfig = agent.framework === 'openclaw' || agent.framework === 'hermes'
+        const configPath = serviceConfig ? agent.mountPath : configRoot?.path ?? null
         return {
             workspace: {
                 kind: 'workspace',
@@ -201,7 +213,7 @@ export class AgentDiagnosticsService {
             config: configPath
                 ? {
                       kind: 'config',
-                      label: configRoot?.label ?? 'Agent config/state',
+                      label: serviceConfig ? 'Agent config/state' : configRoot?.label ?? 'Agent config/state',
                       path: configPath
                   }
                 : null
@@ -233,7 +245,7 @@ export class AgentDiagnosticsService {
             return {
                 ...target,
                 exists: false,
-                bytes: 0,
+                bytes: null,
                 status: 'failed',
                 message: `Usage check unavailable: ${redactDiagnosticText(
                     (err as Error).message
@@ -244,7 +256,7 @@ export class AgentDiagnosticsService {
             return {
                 ...target,
                 exists: false,
-                bytes: 0,
+                bytes: null,
                 status: 'failed',
                 message: `Usage check failed: ${redactDiagnosticText(
                     result.stderr || result.stdout || `exit ${result.exitCode}`
@@ -257,7 +269,7 @@ export class AgentDiagnosticsService {
             return {
                 ...target,
                 exists: false,
-                bytes: 0,
+                bytes: null,
                 status: 'failed',
                 message: `Usage check failed: ${redactDiagnosticText(
                     (err as Error).message
@@ -411,31 +423,15 @@ const skippedStorageItem = (
 })
 
 const asleepStorageItem = (
-    target: Omit<AgentStorageUsageItem, 'exists' | 'bytes' | 'status' | 'message'>
+    target: Omit<AgentStorageUsageItem, 'exists' | 'bytes' | 'status' | 'message'>,
+    message = SLEEPING_SPRITE_SKIP.message
 ): AgentStorageUsageItem => ({
     ...target,
     exists: false,
-    bytes: 0,
+    bytes: null,
     status: 'skipped',
-    message: SLEEPING_SPRITE_SKIP.message
+    message
 })
-
-// The k8s deployments' readiness probes hit these same paths unauthenticated
-// in production (hermes /v1/health, openclaw /healthz, narranexus /healthz) —
-// the live diagnostics probe reuses that verified contract. Non-service
-// frameworks return null and keep the plain sprite check.
-const serviceHealthUrlFor = (framework: string): string | null => {
-    switch (framework) {
-        case 'hermes':
-            return `http://127.0.0.1:${HERMES_PORT}/v1/health`
-        case 'openclaw':
-            return `http://127.0.0.1:${OPENCLAW_PORT}/healthz`
-        case 'narranexus':
-            return `http://127.0.0.1:${NARRANEXUS_PORT}/healthz`
-        default:
-            return null
-    }
-}
 
 const toCommandResult = (result: ExecResult): CommandResult => ({
     exitCode: result.exitCode,
@@ -450,6 +446,3 @@ const spritesLoggerFor = (log: Logger): SpritesLogger => ({
     error: (m, meta) =>
         log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
 })
-
-const trimTrailingSlash = (value: string): string =>
-    value === '/' ? value : value.replace(/\/+$/, '')

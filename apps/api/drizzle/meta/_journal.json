@@ -148,6 +148,13 @@
       "when": 1789619268924,
       "tag": "0020_quota_recovery_receipts",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1789627377739,
+      "tag": "0021_sandbox_storage_measurement",
+      "breakpoints": true
     }
   ]
 }

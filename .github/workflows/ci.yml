@@ -175,6 +175,7 @@ jobs:
                   cache: 'pnpm'
             - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
+            - run: pnpm test-native:prepare
             - run: pnpm exec turbo run build --filter='@manyfold/api^...'
             - name: Run api tests (shard ${{ matrix.shard }}/4)
               working-directory: apps/api
@@ -212,6 +213,7 @@ jobs:
                   cache: 'pnpm'
             - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
+            - run: pnpm test-native:prepare
             - name: Build workspace dependencies
               run: pnpm exec turbo run build --filter='@manyfold/api^...' --concurrency=5
             - name: Migrate (open-source entrypoint)
@@ -261,6 +263,7 @@ jobs:
                   cache: 'pnpm'
             - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
+            - run: pnpm test-native:prepare
             - name: Build the API and its dependencies
               run: pnpm exec turbo run build --filter=@manyfold/api --concurrency=5
             - name: Migrate the scratch database
@@ -292,6 +295,7 @@ jobs:
                   cache: 'pnpm'
             - run: node scripts/check-test-runtime.mjs
             - run: pnpm install --frozen-lockfile
+            - run: pnpm test-native:prepare
             - name: Resolve affected base
               env:
                   CI_PUSH_BEFORE: ${{ github.event_name == 'push' && github.event.before || '' }}
@@ -324,6 +328,7 @@ jobs:
             - run: pnpm test:browser-sentry
             - run: pnpm test:browser-telemetry
             - run: pnpm test:browser-settings
+            - run: pnpm test:browser-chat-sse
             - run: pnpm test:browser-admin-outcome
 
     secret-scan:

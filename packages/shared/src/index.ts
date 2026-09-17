@@ -251,6 +251,8 @@ export type {
     ConfirmMeDeletionBody,
     RestoreMeDeletionBody,
     SandboxUsageAgentRow,
+    SandboxUsageRuntimeRow,
+    StorageFreshness,
     SandboxUsageHomeRow,
     SandboxUsageHost,
     SandboxUsageDeletedHost,

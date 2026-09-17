@@ -197,6 +197,92 @@ const terminate = async (
 const blocksOf = (row: { contentBlocksJson: unknown }): unknown =>
     row.contentBlocksJson
 
+for (const outcome of ['done', 'error'] as const) {
+    test(`a disconnected subscriber recovers one durable ${outcome} and the authoritative terminal page`, { skip: !RUN, timeout: 10_000 }, async () => {
+        const h = await buildHarness()
+        const bus = { onMessage: () => {}, onListenEstablished: () => {}, notify: () => {} } as unknown as ChatStreamBus
+        const broadcaster = new ChatSseBroadcaster(h.repo, bus)
+        const oldEvents: ChatStreamEvent[] = [], resumedEvents: ChatStreamEvent[] = []
+        let unsubscribe: (() => void) | undefined
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+            const first = await broadcaster.subscribe(h.sessionId, { send: event => { oldEvents.push(event) }, close: () => {} }, String(h.checkpointId))
+            first()
+            const terminalId = await terminate(h, outcome)
+            let delivered!: () => void
+            const terminal = new Promise<void>((resolve, reject) => {
+                delivered = resolve
+                timer = setTimeout(() => reject(new Error('durable terminal was not delivered')), 5000)
+            })
+            unsubscribe = await broadcaster.subscribe(h.sessionId, {
+                send: event => { resumedEvents.push(event); if (event.type === outcome) delivered() }, close: () => {}
+            }, String(h.checkpointId))
+            await terminal
+            clearTimeout(timer)
+            unsubscribe()
+            unsubscribe = undefined
+            assert.deepEqual(oldEvents, [])
+            assert.deepEqual(resumedEvents.map(event => [event.type, event.eventId]), [[outcome, String(terminalId)]])
+            const service = new ChatService(h.db, h.repo, broadcaster, undefined as never,
+                undefined as never, undefined as never, undefined as never,
+                {} as never, {} as never, {} as never, {} as never)
+            const page = await service.listMessagePage(h.userId, h.agentId, h.sessionId, { limit: 50 })
+            assert.equal(page.inflightAssistantMessageId, null)
+            assert.equal(page.streamCursorEventId, String(terminalId))
+            const row = page.messages.find(message => message.id === h.assistantId)
+            assert.deepEqual(row?.contentBlocks, FINAL)
+            assert.equal(row?.error?.code ?? null, outcome === 'error' ? 'adapter_failed' : null)
+        } finally {
+            clearTimeout(timer)
+            unsubscribe?.()
+            broadcaster.onModuleDestroy()
+            await h.close()
+        }
+    })
+}
+
+test('a connection cancelled after its real replay cursor read starts no tail query', { skip: !RUN, timeout: 10_000 }, async () => {
+    const h = await buildHarness()
+    let entered!: () => void, release!: () => void
+    const reading = new Promise<void>(resolve => { entered = resolve })
+    const held = new Promise<void>(resolve => { release = resolve })
+    const repo = Object.create(h.repo) as ChatRepository
+    repo.streamReplayCursor = async (...args) => {
+        const cursor = await h.repo.streamReplayCursor(...args)
+        entered()
+        await held
+        return cursor
+    }
+    let tailReads = 0
+    repo.listSessionStreamEventsSince = async (...args) => {
+        tailReads++
+        return h.repo.listSessionStreamEventsSince(...args)
+    }
+    const broadcaster = new ChatSseBroadcaster(repo, { onMessage() {}, onListenEstablished() {} } as unknown as ChatStreamBus)
+    const controller = new AbortController()
+    let pending: Promise<() => void> | undefined
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+        pending = broadcaster.subscribe(h.sessionId, { send() { assert.fail('closed stream received replay') }, close() {} }, null, h.assistantId, controller.signal)
+        await Promise.race([
+            reading,
+            pending.then(() => { throw new Error('subscribe finished before cursor barrier') }),
+            new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('cursor barrier timed out')), 5000) })
+        ])
+        controller.abort()
+        release()
+        const unsubscribe = await pending
+        assert.equal(tailReads, 0)
+        unsubscribe()
+    } finally {
+        clearTimeout(timeout)
+        release()
+        if (pending) await pending.then(unsubscribe => unsubscribe(), () => {})
+        broadcaster.onModuleDestroy()
+        await h.close()
+    }
+})
+
 interface TransactionSettings {
     isolation: string
     read_only: string
