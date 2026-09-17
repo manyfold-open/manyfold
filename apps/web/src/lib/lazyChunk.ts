@@ -17,10 +17,11 @@ const recovery = createPreloadErrorRecovery(
 )
 
 export const installPreloadErrorRecovery = recovery.install
+export const loadChunk = recovery.guardedImport
 
 // Every React.lazy boundary in this app loads through here, so a chunk deleted
 // by a deploy recovers the same way everywhere instead of via a route list
 // that would rot (#540). eslint.config.js blocks importing lazy from react
 // anywhere else in apps/web/src.
 export const lazyChunk: typeof lazy = (load) =>
-    lazy(() => recovery.guardedImport(load))
+    lazy(() => loadChunk(load))
