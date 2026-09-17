@@ -9,6 +9,7 @@ import {
     mkdirSync,
     readFileSync,
     realpathSync,
+    rmSync,
     writeFileSync
 } from 'node:fs'
 import {
@@ -59,6 +60,7 @@ import {
 import { assertOperationId, assertProfileId, authRoot } from './runtime-auth/paths'
 import { ProfileBusyError } from './runtime-auth/lock'
 import {
+    bufferDir,
     ExecStream,
     type ExecBufferFinal,
     execStreams,
@@ -66,6 +68,11 @@ import {
     readFinal,
     readMeta
 } from './exec-buffer'
+import {
+    fileExecEnabled,
+    fileExecRegistry,
+    startFileExec
+} from './exec-files'
 import { normalizeWireChannel } from '@/channel'
 import { performSelfUpdate } from '@/commands/update'
 import { detectStartupMethod } from './startup-method'
@@ -855,8 +862,13 @@ const execChildren = new Map<string, ExecChildEntry>()
 const turnSessions = new Set<string>()
 
 const updateCoordinator = new UpdateDrainCoordinator({
+    // File execs (ADR-0029 §4) still count as sessions here: until the drain
+    // contract of the B3 slice lands, an update waits for them like any other.
     activeSessions: () =>
-        execChildren.size + ptySessions.size + turnSessions.size,
+        execChildren.size +
+        fileExecRegistry.size() +
+        ptySessions.size +
+        turnSessions.size,
     applyUpdate: (spec) => performSelfUpdate(spec),
     // Exit non-zero so launchd (KeepAlive SuccessfulExit=false) / systemd
     // (Restart=on-failure) respawn the freshly-installed binary. Delay the
@@ -879,7 +891,7 @@ export const daemonActivitySnapshot = (): {
     activePtys: number
     updatePending: boolean
 } => ({
-    activeExecs: execChildren.size,
+    activeExecs: execChildren.size + fileExecRegistry.size(),
     activePtys: ptySessions.size,
     updatePending: updateCoordinator.blocksNewSessions()
 })
@@ -938,6 +950,21 @@ const execStart = async (
         return { ok: false, payload: { exitCode: -1 }, error: 'cmd required' }
     if (payload.temporarySettings !== undefined && payload.temporarySettings !== 'gemini-platform')
         return { ok: false, payload: { exitCode: -1 }, error: 'unsupported temporary settings' }
+    // Idempotent by refId (ADR-0029 §4): a dispatch repeated after a restart
+    // attaches to the exec that is still running — or replays the one that
+    // finished — instead of starting a second agent on the same turn. Only a
+    // crashed leftover is replaced.
+    const live = execStreams.get(ctx.refId)
+    const priorMeta = readMeta(ctx.refId)
+    if (
+        live?.status === 'running' ||
+        (priorMeta && priorMeta.status !== 'crashed' && readFinal(ctx.refId))
+    )
+        return execResume({ originalRefId: ctx.refId, fromSeq: 0 }, ctx)
+    if (priorMeta) {
+        execStreams.delete(ctx.refId)
+        rmSync(bufferDir(ctx.refId), { recursive: true, force: true })
+    }
     const cwd = payload.dir
         ? ensureUnderAllowedRoot(payload.dir)
         : process.cwd()
@@ -960,6 +987,17 @@ const execStart = async (
             error: authError(err).error
         }
     }
+    // The file path (ADR-0029 §4, B1): a plain exec — no auth lease, no
+    // temporary settings, no interactive stdin — runs detached with its IO
+    // in files the daemon tails, so it survives this daemon. The rest keep
+    // the pipes until the next slices move them.
+    if (
+        fileExecEnabled() &&
+        !authContext &&
+        !payload.temporarySettings &&
+        !payload.keepStdinOpen
+    )
+        return execStartFiles(payload, ctx, cwd, metaPayload)
     type Completion = {
         final: ExecBufferFinal
         status: 'completed' | 'aborted' | 'crashed'
@@ -1138,6 +1176,66 @@ const execStart = async (
     })
 }
 
+const execStartFiles = (
+    payload: ExecPayload,
+    ctx: RpcContext,
+    cwd: string,
+    metaPayload: Record<string, unknown>
+): Promise<{
+    ok: boolean
+    payload?: Record<string, unknown>
+    error?: string
+}> => {
+    let stream: ExecStream
+    try {
+        stream = new ExecStream({
+            refId: ctx.refId,
+            method: 'exec.start',
+            payload: metaPayload
+        })
+        execStreams.set(ctx.refId, stream)
+    } catch {
+        return Promise.resolve({
+            ok: false,
+            payload: { exitCode: -1 },
+            error: 'exec_buffer_setup_failed'
+        })
+    }
+    const childEnv: Record<string, string> = {}
+    for (const [key, value] of Object.entries({
+        ...process.env,
+        ...(payload.env ?? {})
+    }))
+        if (typeof value === 'string') childEnv[key] = value
+    delete childEnv[EXEC_TEMP_DIRECTORY_ENV]
+    const handle = startFileExec({
+        refId: ctx.refId,
+        cmd: payload.cmd,
+        cwd,
+        env: childEnv,
+        stdin: typeof payload.stdin === 'string' ? payload.stdin : '',
+        timeoutMs: payload.timeoutMs,
+        stream,
+        log: (message) => console.error(message)
+    })
+    ctx.onCancel(() => handle.abort())
+    return new Promise((resolveAck) => {
+        let acknowledged = false
+        const settle = (final: ExecBufferFinal): void => {
+            if (acknowledged) return
+            acknowledged = true
+            updateCoordinator.onSessionEnd()
+            resolveAck({
+                ok: final.ok,
+                payload: final.payload,
+                error: final.error
+            })
+        }
+        subscribeCtxToStream(stream, ctx, 0, settle)
+        void handle.done.then(settle)
+    })
+}
+
 const execResume = async (
     payload: Record<string, unknown>,
     ctx: RpcContext
@@ -1194,6 +1292,11 @@ const execAbort = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    const fileExec = fileExecRegistry.get(refId)
+    if (fileExec) {
+        fileExec.abort()
+        return { ok: true }
+    }
     const entry = execChildren.get(refId)
     if (!entry) {
         const meta = readMeta(refId)
@@ -1222,6 +1325,8 @@ const execInput = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    // A file exec's stdin was a file, closed at spawn.
+    if (fileExecRegistry.get(refId)) return { ok: false, error: 'stdin closed' }
     const entry = execChildren.get(refId)
     if (!entry) return { ok: false, error: `no live child for refId ${refId}` }
     if (!entry.child.stdin || entry.child.stdin.writableEnded)
@@ -1246,6 +1351,7 @@ const execEof = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    if (fileExecRegistry.get(refId)) return { ok: true }
     const entry = execChildren.get(refId)
     if (!entry) return { ok: false, error: `no live child for refId ${refId}` }
     if (!entry.child.stdin || entry.child.stdin.writableEnded)

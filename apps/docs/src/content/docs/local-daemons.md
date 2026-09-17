@@ -222,6 +222,17 @@ daemon environment to disable this, or `1` to force it for a custom deployment.
 Manual `mf update` still requires restarting the daemon so the init unit loads
 the new binary.
 
+### Preview: execs that survive a daemon restart
+
+By default a chat turn's process is a child of the daemon, so a daemon restart
+(a crash, or an update) ends it. On macOS and Linux, `MF_DAEMON_EXEC_FILES=1`
+in the daemon environment starts plain execs detached instead, with their
+input and output in files under the daemon's exec directory: a restarted
+daemon picks the running process back up and the turn continues. The switch
+is off by default while it is verified per framework; `mf daemon start` logs
+whether it is on. Execs that run under a runtime auth profile keep the old
+behaviour for now.
+
 ## Troubleshooting
 
 - **`daemon register requires --token <token>`** — the command was run without a token. Re-copy the full command from the web UI.

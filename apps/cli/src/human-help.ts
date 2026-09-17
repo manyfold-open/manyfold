@@ -55,6 +55,10 @@ const ROOT_ENVIRONMENT = [
     [
         'MF_DAEMON_AUTO_UPDATE',
         'force daemon auto-update on/off (default: on for the official API URL)'
+    ],
+    [
+        'MF_DAEMON_EXEC_FILES',
+        'preview: run plain execs detached with file IO so they survive a daemon restart (macOS/Linux, default: off)'
     ]
 ] as const
 
