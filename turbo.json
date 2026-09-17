@@ -3,7 +3,9 @@
     "ui": "tui",
     "concurrency": "20",
     "globalDependencies": [
-        ".github/workflows/ci.yml"
+        ".github/workflows/ci.yml",
+        ".node-test-version",
+        "scripts/check-test-runtime.mjs"
     ],
     "tasks": {
         "dev": {

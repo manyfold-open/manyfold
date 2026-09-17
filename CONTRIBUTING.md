@@ -69,6 +69,18 @@ Node production dependency graph, not mutable base images or OS repositories.
 
 ## Test isolation
 
+For CI-equivalent tests, select the exact Node version in `.node-test-version`
+(currently 24.20.0), then install dependencies under that runtime. Run
+`pnpm test-runtime:check` before the suites. It exercises real test files with
+coalesced ASCII and Unicode stdout, verifies complete TAP and file execution,
+and has an external SIGKILL bound. Node 22's test-runner framing defect is fixed
+in the selected release; changing product output or rerunning a failed suite
+does not repair it. When switching Node majors, rebuild native dependencies
+with pnpm running under the selected Node, rather than reusing an old ABI.
+
+The test pin is a CI selection/cache input. Production images and package
+engine declarations retain their existing Node contracts.
+
 Sealed test commands require Node 20.6 or later for module loader hooks. Older
 runtimes fail explicitly instead of running without protection. This does not
 change the production runtime or package engine declaration.
