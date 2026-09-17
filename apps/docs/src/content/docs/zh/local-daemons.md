@@ -205,6 +205,10 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 让自定义部署强制启用。手动运行 `mf update` 后仍需重启 daemon，才能让 init unit
 加载新 binary。
 
+### 预览：让 exec 活过 daemon 重启
+
+默认情况下，一次 chat turn 的进程是 daemon 的子进程，daemon 重启（崩溃或更新）就会把它带走。在 macOS 和 Linux 上，给 daemon 环境设置 `MF_DAEMON_EXEC_FILES=1`，普通 exec 会改为 detached 启动，输入输出都落在 daemon exec 目录下的文件里：重启后的 daemon 会把还在跑的进程接回来，turn 继续。这个开关在逐个框架验证完之前默认关闭；`mf daemon start` 的日志会显示它是否开启。走 runtime auth profile 的 exec 暂时保持原有行为。
+
 ## 排错
 
 - **`daemon register requires --token <token>`** — 没传 token。回到网页应用重新复制完整命令。

@@ -57,6 +57,7 @@ import { boundErrSink, createDaemonLog } from '@/daemon/log-file'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 import { augmentPathFromUserShell } from '@/daemon/shell-path'
 import { reconcileSessionHooksOnStart } from '@/daemon/session-hooks'
+import { EXEC_FILES_ENV, fileExecEnabled } from '@/daemon/exec-files'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 const DETECT_REFRESH_MS = DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
@@ -169,6 +170,17 @@ const runClaimedForeground = async (
         })
         await log(
             `auto-update: ${autoUpdate.enabled ? 'on' : 'off'} (${autoUpdate.reason})`
+        )
+        // ADR-0029 §4 gray release: plain execs run detached with their IO in
+        // files the daemon tails, so they survive a daemon restart.
+        await log(
+            `exec files: ${
+                fileExecEnabled()
+                    ? `on (${EXEC_FILES_ENV})`
+                    : process.platform === 'win32'
+                      ? 'off (Windows keeps the pipe supervisor)'
+                      : `off (enable with ${EXEC_FILES_ENV}=1)`
+            }`
         )
         stopControlServer = await startControlServer({
             socketPath: daemonPaths.controlSocketPath,

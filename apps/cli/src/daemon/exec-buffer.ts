@@ -38,6 +38,10 @@ export interface ExecBufferMeta {
     startedAt: string
     status: DaemonInflightStreamStatus
     completedAt?: string
+    // Absent for a pipe exec (the original layout); 2 for an exec whose
+    // child writes files the daemon tails (ADR-0029 §4, exec-files.ts). The
+    // extra fields that format adds ride along untyped here and typed there.
+    format?: number
 }
 
 export interface ExecBufferFinal {
@@ -50,6 +54,11 @@ export interface ExecBufferEvent {
     seq: number
     kind: DaemonStreamKind | '__done__'
     data: string
+    // File execs only: where in the source log `data` came from (byte offset
+    // and byte length), so a daemon that restarts mid-stream resumes the tail
+    // exactly there and the seq numbering stays reproducible.
+    off?: number
+    len?: number
 }
 
 export type ExecStreamSubscriber = (
@@ -63,13 +72,17 @@ interface ExecStreamArgs {
     method: DaemonRpcMethod
     payload: Record<string, unknown>
     onPublishFailure?: (final: ExecBufferFinal) => void
+    // Re-own a buffer that is already on disk (a file exec adopted after a
+    // daemon restart): keep its meta and continue its seq numbering.
+    adopt?: { seq: number }
 }
 
 const ensureExecRoot = (): void => {
     mkdirSync(daemonPaths.execDir, { recursive: true, mode: 0o700 })
 }
 
-const bufferDir = (refId: string): string => join(daemonPaths.execDir, refId)
+export const bufferDir = (refId: string): string =>
+    join(daemonPaths.execDir, refId)
 
 const metaPath = (refId: string): string => join(bufferDir(refId), 'meta.json')
 const eventsPath = (refId: string): string =>
@@ -100,6 +113,17 @@ const readJsonIfPresent = <T>(path: string): T | null => {
 
 const writeMeta = (meta: ExecBufferMeta): void => {
     atomicWriteSync(metaPath(meta.refId), JSON.stringify(meta, null, 2))
+}
+
+// Merge a patch into the buffer's meta on disk; the fields the file exec
+// layout adds (owner identity, deadline, abort stamp) live here.
+export const updateMeta = (
+    refId: string,
+    patch: Record<string, unknown>
+): void => {
+    const current = readMeta(refId)
+    if (!current) return
+    writeMeta({ ...current, ...patch } as ExecBufferMeta)
 }
 
 const writeFinal = (refId: string, final: ExecBufferFinal): void => {
@@ -152,6 +176,10 @@ export class ExecStream {
         this.onPublishFailure = args.onPublishFailure
         ensureExecRoot()
         mkdirSync(bufferDir(args.refId), { recursive: true, mode: 0o700 })
+        if (args.adopt) {
+            this.seq = args.adopt.seq
+            return
+        }
         writeMeta({
             refId: args.refId,
             method: args.method,
@@ -164,7 +192,11 @@ export class ExecStream {
         } catch {}
     }
 
-    publish(kind: DaemonStreamKind, data: string): number {
+    publish(
+        kind: DaemonStreamKind,
+        data: string,
+        source?: { off: number; len: number }
+    ): number {
         if (this.status !== 'running')
             throw new Error(
                 `cannot publish to ${this.status} stream ${this.refId}`
@@ -172,7 +204,12 @@ export class ExecStream {
         this.seq += 1
         const seq = this.seq
         try {
-            appendEventSync(this.refId, { seq, kind, data })
+            appendEventSync(this.refId, {
+                seq,
+                kind,
+                data,
+                ...(source ? { off: source.off, len: source.len } : {})
+            })
         } catch (err) {
             const final = {
                 ok: false,
@@ -227,6 +264,7 @@ export class ExecStream {
         }
         try {
             writeMeta({
+                ...cachedMeta,
                 refId: this.refId,
                 method: this.method,
                 payload: cachedMeta?.payload ?? {},
@@ -277,7 +315,7 @@ export const lastSeq = (refId: string): number => {
     return events.length > 0 ? events[events.length - 1].seq : 0
 }
 
-const markCrashed = (refId: string): void => {
+export const markCrashed = (refId: string): void => {
     const meta = readMeta(refId)
     if (!meta) return
     writeMeta({ ...meta, status: 'crashed', completedAt: new Date().toISOString() })
@@ -289,7 +327,12 @@ const removeBuffer = (refId: string): void => {
     } catch {}
 }
 
-export const recoverCrashedBuffers = (): void => {
+// Pipe execs that were running when the previous daemon died are lost with
+// it (their pipes closed). File execs (format 2) are not decided here: their
+// child may well be alive, and exec-files.ts adopts or completes them.
+export const recoverCrashedBuffers = (
+    opts: { adoptable?: (refId: string, meta: ExecBufferMeta) => boolean } = {}
+): void => {
     ensureExecRoot()
     let entries: string[]
     try {
@@ -301,7 +344,9 @@ export const recoverCrashedBuffers = (): void => {
         const meta = readMeta(refId)
         if (!meta) continue
         const final = readFinal(refId)
-        if (meta.status === 'running' && !final) markCrashed(refId)
+        if (meta.status !== 'running' || final) continue
+        if (opts.adoptable?.(refId, meta)) continue
+        markCrashed(refId)
     }
 }
 

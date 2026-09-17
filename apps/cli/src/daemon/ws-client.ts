@@ -7,11 +7,8 @@ import {
     type DaemonStreamKind,
     type DaemonWsFrame
 } from '@manyfold/shared'
-import {
-    enumerateInflightForHello,
-    gcStaleBuffers,
-    recoverCrashedBuffers
-} from './exec-buffer'
+import { enumerateInflightForHello, gcStaleBuffers } from './exec-buffer'
+import { recoverFileExecs } from './exec-files'
 
 export interface RpcContext {
     refId: string
@@ -63,7 +60,11 @@ export class DaemonWsClient {
         this.stopped = false
         this.backoffMs = BACKOFF_INITIAL_MS
         try {
-            recoverCrashedBuffers()
+            const recovered = recoverFileExecs((message) => this.log(message))
+            if (recovered.adopted + recovered.completed + recovered.crashed > 0)
+                this.log(
+                    `exec-files recovery adopted=${recovered.adopted} completed=${recovered.completed} crashed=${recovered.crashed}`
+                )
             this.sweepBuffers()
         } catch (err) {
             this.log(`exec-buffer recovery failed: ${(err as Error).message}`)
