@@ -1550,15 +1550,23 @@ const AgentChat: FC = (): ReactNode => {
     useEffect(
         () =>
             subscribeSessionsChanged((event) => {
-                if (
-                    !agentId ||
-                    event.agentId !== agentId ||
-                    event.sessionId !== activeSessionIdRef.current
-                )
+                if (!agentId || event.agentId !== agentId) return
+                const detail = event.detail
+                // A TUI in this agent's terminal opened a conversation it
+                // could not take (ADR-0029 §3): the user is in the terminal
+                // view, on whatever session they resumed, so the warning is
+                // for the agent, not for the session it names.
+                if (detail?.kind === 'terminal-attach-refused') {
+                    setOwnershipNotice(
+                        detail.reason === 'turn-in-flight'
+                            ? t('web.sessionHolder.attachRefusedTurn')
+                            : t('web.sessionHolder.attachRefusedHeld')
+                    )
                     return
+                }
+                if (event.sessionId !== activeSessionIdRef.current) return
                 if (event.reason === 'import-settled')
                     void reloadSessionMessages()
-                const detail = event.detail
                 if (!detail) return
                 setOwnershipNotice(
                     detail.kind === 'import-done'

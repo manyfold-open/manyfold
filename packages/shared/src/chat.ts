@@ -140,9 +140,15 @@ export interface ChatSessionSummary {
     // wrote has been imported (or the import is abandoned); turns are refused
     // meanwhile (ADR-0029 §2).
     importPendingSince: string | null
+    // Set when the session was created from a transcript a Manyfold-opened
+    // terminal wrote (ADR-0029 §3); null for every other way a session
+    // starts.
+    origin: ChatSessionOrigin | null
     createdAt: string
     updatedAt: string
 }
+
+export type ChatSessionOrigin = 'terminal'
 
 export interface ChatSessionChannelSummary {
     id: string
@@ -766,6 +772,64 @@ export interface SessionImportRetryResponse {
 
 export interface SessionImportAbandonResponse {
     abandoned: boolean
+}
+
+// What a CLI's own SessionStart / SessionEnd hook reports from a terminal
+// Manyfold opened (ADR-0029 §3). The terminal is resolved from the token that
+// authenticated the report, never from this body; transcript paths are not
+// accepted — the API reads transcripts through the runtime it already has.
+export const TERMINAL_HOOK_FRAMEWORKS = ['claude-code', 'codex'] as const
+export type TerminalHookFramework = (typeof TERMINAL_HOOK_FRAMEWORKS)[number]
+export const TERMINAL_HOOK_EVENTS = ['start', 'end'] as const
+export type TerminalHookEvent = (typeof TERMINAL_HOOK_EVENTS)[number]
+// SessionStart's `source` (how the session began) or SessionEnd's `reason`,
+// both CLIs' vocabularies folded together; anything else is sent as 'other'.
+export const TERMINAL_HOOK_SOURCES = [
+    'startup',
+    'resume',
+    'clear',
+    'compact',
+    'fork',
+    'logout',
+    'prompt_input_exit',
+    'other'
+] as const
+export type TerminalHookSource = (typeof TERMINAL_HOOK_SOURCES)[number]
+
+export interface TerminalSessionHookRequest {
+    framework: TerminalHookFramework
+    event: TerminalHookEvent
+    source: TerminalHookSource
+    sessionRef: string
+    cwd?: string
+}
+
+// How the API filed the report (ADR-0029 §3, the ownership table). Returned
+// for the hook's own debug log; nothing in the terminal acts on it.
+export type TerminalSessionHookOutcome =
+    // The ref is the one the terminal already holds (the resume it was
+    // opened with, or a compaction that kept the id).
+    | 'noop'
+    // The CLI renamed the session the terminal was opened on: the old ref's
+    // tail was imported and the chat session now points at the new ref.
+    | 'ref-moved'
+    // The ref names an idle chat session, which the terminal now holds.
+    | 'acquired'
+    // The ref names a chat session a turn is running on, or another
+    // terminal holds: left alone, warned about.
+    | 'refused-turn-in-flight'
+    | 'refused-held-elsewhere'
+    // An unknown ref started in this terminal: recorded, so the terminal's
+    // end can turn a non-empty transcript into a chat session.
+    | 'recorded'
+    // SessionEnd for the held ref: the hold is released and the import runs.
+    | 'released'
+    // Logged and dropped: another framework's session, a resume of a ref
+    // Manyfold never saw, an end for a ref this terminal never started.
+    | 'ignored'
+
+export interface TerminalSessionHookResponse {
+    outcome: TerminalSessionHookOutcome
 }
 
 export interface ShareChatSessionResult {

@@ -2924,6 +2924,8 @@ const zh: Translations = {
             importedNone: '终端里没有新的内容。',
             importAbandoned: '已放弃终端导入，这段对话重新开放。',
             reclaimed: '打开这段对话的终端已停止响应，对话已被释放。',
+            attachRefusedTurn: '终端打开了一段正在运行 turn 的对话，未接管；等 turn 结束后再在终端里继续。',
+            attachRefusedHeld: '终端打开了一段已在另一个终端中打开的对话，未接管。',
             dismiss: '关闭',
             composerHeld: '正在终端中进行 —— 点「回到 web」在这里继续。',
             composerImporting: '正在导入终端里说过的内容…'

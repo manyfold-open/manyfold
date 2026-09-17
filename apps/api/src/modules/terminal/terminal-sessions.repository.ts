@@ -99,6 +99,26 @@ export class TerminalSessionsRepository {
         return row ?? null
     }
 
+    // The terminal a CLI hook reports from is whichever live one the token
+    // that authenticated the report was minted for (ADR-0029 §3): the body
+    // and the shell's env are never trusted for it. The token is hard-deleted
+    // when the terminal closes, so a late report finds nothing.
+    async findLiveByTokenId(
+        tokenId: string
+    ): Promise<TerminalSessionRow | null> {
+        const [row] = await this.db
+            .select()
+            .from(terminalSessions)
+            .where(
+                and(
+                    eq(terminalSessions.tokenId, tokenId),
+                    isNull(terminalSessions.endedAt)
+                )
+            )
+            .limit(1)
+        return row ?? null
+    }
+
     async findById(id: string): Promise<TerminalSessionRow | null> {
         const [row] = await this.db
             .select()

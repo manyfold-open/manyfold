@@ -53,6 +53,7 @@ export const objectIdPrefixes = Object.freeze({
     spritesAccount: 'spa',
     storageMeasurementAttempt: 'sma',
     terminalSession: 'tms',
+    terminalSessionRef: 'tsr',
     userConnection: 'ucn',
     userExport: 'uxp',
     userExternalAgentProvider: 'uep',

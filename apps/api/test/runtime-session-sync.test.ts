@@ -133,6 +133,7 @@ const makeHarness = (
             from: (table: unknown) => {
                 const rows = table === terminalSessions ? holders : [agent]
                 const chain = {
+                    leftJoin: () => chain,
                     where: () => chain,
                     orderBy: () => chain,
                     limit: async () => rows

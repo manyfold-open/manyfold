@@ -56,6 +56,7 @@ import { detectStartupMethod } from '@/daemon/startup-method'
 import { boundErrSink, createDaemonLog } from '@/daemon/log-file'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 import { augmentPathFromUserShell } from '@/daemon/shell-path'
+import { reconcileSessionHooksOnStart } from '@/daemon/session-hooks'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 const DETECT_REFRESH_MS = DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
@@ -255,6 +256,9 @@ const runClaimedForeground = async (
         detectedFrameworks = await detectFrameworks()
         lastDetectAt = Date.now()
         await heartbeat()
+        // With the owner's yes recorded (or on a sprite runner), keep the CLI
+        // session hooks current for the frameworks this start detected.
+        await reconcileSessionHooksOnStart(config, detectedFrameworks, log)
         heartbeatTimer = setInterval(() => {
             void heartbeat()
         }, HEARTBEAT_INTERVAL_MS)

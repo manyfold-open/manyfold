@@ -54,6 +54,10 @@ export interface DaemonConfig {
     channel?: CliChannel
     workspaceBaseDir?: string
     skillsDir?: string
+    // Whether this machine's owner said yes to the CLI session hooks
+    // (ADR-0029 §3); absent until asked. `mf daemon start` installs and
+    // refreshes them only while this is 'enabled'.
+    sessionHooks?: 'enabled' | 'disabled'
 }
 
 export interface DaemonConfigPaths {

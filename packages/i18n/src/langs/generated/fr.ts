@@ -1661,6 +1661,8 @@ const fr: Record<string, string> = {
     'web.sessionHolder.importedNone': 'Rien de nouveau n’a été dit dans le terminal.',
     'web.sessionHolder.importAbandoned': 'L’import du terminal a été abandonné ; cette conversation est de nouveau ouverte.',
     'web.sessionHolder.reclaimed': 'Le terminal qui avait ouvert cette conversation ne répond plus ; la conversation a été libérée.',
+    'web.sessionHolder.attachRefusedTurn': 'Le terminal a ouvert une conversation dont un tour est en cours. Elle n’a pas été reprise ; attendez la fin du tour avant de continuer dans le terminal.',
+    'web.sessionHolder.attachRefusedHeld': 'Le terminal a ouvert une conversation déjà ouverte dans un autre terminal. Elle n’a pas été reprise.',
     'web.sessionHolder.dismiss': 'Fermer',
     'web.sessionHolder.composerHeld': 'Ouverte dans un terminal — choisissez « Retour au web » pour continuer ici.',
     'web.sessionHolder.composerImporting': 'Import de ce qui a été dit dans le terminal…',

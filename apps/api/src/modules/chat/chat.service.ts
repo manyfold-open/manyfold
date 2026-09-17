@@ -7059,6 +7059,7 @@ const toApiSession = (
     holderTerminalId: row.holderTerminalId,
     holderAcquiredAt: row.holderAcquiredAt?.toISOString() ?? null,
     importPendingSince: row.importPendingSince?.toISOString() ?? null,
+    origin: row.origin,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString()
 })

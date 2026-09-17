@@ -27,6 +27,11 @@ import { MF_CLI_VERSION } from '@/version'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliFetch } from '@/transport'
 import { installInitUnitAndStart } from './start'
+import {
+    installSessionHooks,
+    sessionHooksSupported,
+    writeSessionHooksConsent
+} from '@/daemon/session-hooks'
 
 const DAEMON_TOKEN_PREFIX = 'ldt_'
 
@@ -36,6 +41,8 @@ interface DaemonRegisterOptions {
     workspaceRoot?: string
     skillsDir?: string
     yes?: boolean
+    // commander's --no-hooks: false when the user opted out.
+    hooks?: boolean
 }
 
 const promptYesNo = async (q: string): Promise<boolean> => {
@@ -167,6 +174,49 @@ export const registerDaemonHost = async (opts: {
     return { daemonId: data.daemonId, detectedFrameworks }
 }
 
+// The session hooks need the owner's explicit yes on a self-owned machine
+// (ADR-0029 §3): asked here once, remembered with the registration, and
+// re-applied by every daemon start. `-y` says yes to this too; `--no-hooks`
+// records the no so start never asks again either.
+export const decideSessionHooks = async (
+    options: Pick<DaemonRegisterOptions, 'yes' | 'hooks'>,
+    detected: DetectedFramework[]
+): Promise<void> => {
+    if (!sessionHooksSupported()) return
+    const hookable = detected.filter(
+        (f) => f.framework === 'claude-code' || f.framework === 'codex'
+    )
+    if (hookable.length === 0) return
+    let install: boolean | null = options.hooks === false ? false : null
+    if (install === null && options.yes) install = true
+    if (install === null && process.stdin.isTTY)
+        install = await promptYesNo(
+            `Install the Manyfold session hooks into ${hookable
+                .map((f) => f.framework)
+                .join(' and ')} settings? They act only inside terminals Manyfold opens. [Y/n] `
+        )
+    if (install === null) {
+        console.log(
+            kleur.gray(
+                '  session hooks: not installed (run `mf daemon hooks install` to add them)'
+            )
+        )
+        return
+    }
+    await writeSessionHooksConsent(install ? 'enabled' : 'disabled')
+    if (!install) {
+        console.log(kleur.gray('  session hooks: skipped (--no-hooks)'))
+        return
+    }
+    const changes = await installSessionHooks({ detected: hookable })
+    for (const change of changes)
+        console.log(
+            change.error
+                ? kleur.yellow(`  session hooks: ${change.error}`)
+                : `  session hooks: ${kleur.cyan(change.framework)} ${change.action}`
+        )
+}
+
 export const registerDaemonRegister = (program: Command): void => {
     program
         .command('register')
@@ -186,8 +236,12 @@ export const registerDaemonRegister = (program: Command): void => {
         )
         .option(
             '-y, --yes',
-            'skip confirmation and start the daemon after registering',
+            'skip confirmation: start the daemon and install the session hooks after registering',
             false
+        )
+        .option(
+            '--no-hooks',
+            'do not install the claude / codex session hooks (they act only inside Manyfold terminals)'
         )
         .action(async (options: DaemonRegisterOptions) => {
             const parent = program.parent
@@ -224,6 +278,8 @@ export const registerDaemonRegister = (program: Command): void => {
                         `  detected: ${kleur.cyan(f.framework)} ${f.version ?? '(no version)'}`
                     )
             console.log('')
+
+            await decideSessionHooks(options, detectedFrameworks)
 
             const scope = defaultScope()
 

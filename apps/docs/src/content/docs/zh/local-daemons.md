@@ -96,6 +96,7 @@ mf daemon logs                # tail 本地日志
 mf daemon start               # 安装自启单元并启动（默认登录级）
 mf daemon stop                # 停止 daemon 并移除自启单元
 mf daemon doctor              # 诊断注册 / 框架检测问题
+mf daemon hooks status        # claude / codex 的 session hook（见下）
 ```
 
 Daemon 日志在 `~/.manyfold/profiles/<profile>/daemon/daemon.log`。
@@ -112,6 +113,20 @@ launchd/systemd 的环境（如 WSL1、最小化容器）。自动安装 daemon 
 macOS 和 Linux；Windows 需要前台进程或自行配置 service manager。
 
 执行 `mf update` 升级 CLI 后，先 `mf daemon stop` 再 `mf daemon start`，让自启单元重新写入新的二进制路径。否则 launchd / systemd 在你手动重启单元前会一直用旧路径。
+
+### Session hook
+
+从 web 打开某个对话的终端（TUI resume）之后，Manyfold 需要知道终端里的 `claude` / `codex` 进程正在哪个对话上：它有没有换掉 session id、有没有 `/clear`、有没有另起新会话。这些由 CLI 自己的 `SessionStart` / `SessionEnd` hook 上报，所以 `mf daemon register` 会问一次是否安装（`-y` 视为同意，`--no-hooks` 视为拒绝）。安装内容是一个脚本，加上 `~/.claude/settings.json` 与 `~/.codex/hooks.json` 里每个事件一条带 Manyfold 标记的条目，和你已有的 hook 并存。
+
+hook 只在 Manyfold 打开的终端里生效（shell 带有 `MF_TERMINAL_ID`），并且不输出任何内容，所以你自己的 shell 和模型上下文都不受影响。Codex 对新装的 hook 需要你在它的 TUI 里用 `/hooks` 批准一次才会执行。
+
+```sh
+mf daemon hooks install       # 为本机已有的框架安装，并在 daemon 启动时保持最新
+mf daemon hooks status        # 按框架查看安装状态
+mf daemon hooks uninstall     # 只移除 Manyfold 加的内容
+```
+
+没有 hook 终端照样能用：从 web 打开的对话会在你关掉终端或点 **Back to web** 时交还；只是 TUI 内部发生的事（`/clear`、新会话）不会被跟踪。
 
 ### 每个 profile 只运行一个 daemon
 

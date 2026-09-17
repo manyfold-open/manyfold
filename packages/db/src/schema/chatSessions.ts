@@ -52,6 +52,10 @@ export const chatSessions = pgTable(
         importPendingSince: timestamp('import_pending_since', {
             withTimezone: true
         }),
+        // Only sessions created from a transcript a Manyfold-opened terminal
+        // wrote carry a value (ADR-0029 §3); every other way a session starts
+        // leaves it null.
+        origin: text('origin', { enum: ['terminal'] }),
         createdAt: timestamp('created_at', { withTimezone: true })
             .notNull()
             .defaultNow(),

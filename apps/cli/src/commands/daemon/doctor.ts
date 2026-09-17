@@ -4,6 +4,8 @@ import { detectFrameworks } from '@/daemon/detect'
 import { checkPtySupport } from '@/daemon/pty-backend'
 import { getInitUnitStatus, type InitUnitInfo } from '@/daemon/init-unit'
 import { emit, jsonOption } from '@/output'
+import { sessionHooksStatus } from '@/daemon/session-hooks'
+import { printSessionHooksStatus } from './hooks'
 
 const summarizeUnit = (info: InitUnitInfo): string => {
     if (!info.installed) return kleur.gray('not installed')
@@ -21,16 +23,18 @@ export const registerDaemonDoctor = (program: Command): void => {
     ).action(async (opts: { json?: boolean }) => {
         const detected = await detectFrameworks()
         const terminalSupport = await checkPtySupport()
-        const [userUnit, systemUnit] = await Promise.all([
+        const [userUnit, systemUnit, hooks] = await Promise.all([
             getInitUnitStatus('user'),
-            getInitUnitStatus('system')
+            getInitUnitStatus('system'),
+            sessionHooksStatus()
         ])
         emit(
             opts,
             {
                 frameworks: detected,
                 terminal: terminalSupport,
-                autostart: { user: userUnit, system: systemUnit }
+                autostart: { user: userUnit, system: systemUnit },
+                sessionHooks: hooks
             },
             () => {
                 if (detected.length === 0) {
@@ -68,6 +72,7 @@ export const registerDaemonDoctor = (program: Command): void => {
                 console.log(
                     `${kleur.cyan('autostart/s'.padEnd(12))} ${summarizeUnit(systemUnit)}`
                 )
+                printSessionHooksStatus(hooks)
             }
         )
     })
