@@ -294,9 +294,8 @@ test('the clone command quotes the tag and the url', () => {
     )
 })
 
-// The install path's repo and version must come from ONE settings read. A
-// second read could see a source switch land in between and hand the bootstrap
-// a tag that only exists on the repository it is no longer cloning.
+// Pin selection reads settings once; catalog admission owns the repository
+// paired with the chosen version, without a later source-settings lookup.
 const orchestratorWith = (sourceRepos: Record<string, string>) => {
     const service = Object.create(
         AgentOrchestratorService.prototype
@@ -309,7 +308,18 @@ const orchestratorWith = (sourceRepos: Record<string, string>) => {
                 return { ...baseSettings(sourceRepos) }
             }
         },
-        frameworkVersions: { latestForFresh: async () => 'v1.15.0' }
+        frameworkVersions: {
+            latestForFresh: async () => 'v1.15.0',
+            catalogForFresh: async () => ({
+                framework: 'narranexus',
+                latest: 'v1.15.0',
+                versions: ['v1.15.0'],
+                source: 'github',
+                sourceRepo: sourceRepos.narranexus ?? UPSTREAM,
+                fetchedAt: new Date().toISOString(),
+                blocked: []
+            })
+        }
     })
     return {
         reads: () => reads,
@@ -328,7 +338,7 @@ const orchestratorWith = (sourceRepos: Record<string, string>) => {
     }
 }
 
-test('a create resolves version and repository from one settings read', async () => {
+test('a create preserves the catalog repository without a later settings read', async () => {
     const { resolve, reads } = orchestratorWith({ narranexus: FORK })
 
     const resolved = await resolve('narranexus')

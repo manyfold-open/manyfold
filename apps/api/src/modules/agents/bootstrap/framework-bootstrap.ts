@@ -29,7 +29,7 @@ export interface BootstrapContext {
     // degrades to whatever the sprite already has. See installFrameworkVersion.
     frameworkVersionSource?: FrameworkInstallSource
     // For a git-installed framework, the `owner/name` to clone. Resolved in the
-    // same settings read as `frameworkVersion` and carried as a value, so a
+    // same catalog snapshot as `frameworkVersion` and carried as a value, so a
     // source switch mid-operation cannot leave a tag chosen from one repository
     // being cloned from another. Undefined for ctx builders that never clone.
     frameworkRepo?: string | null

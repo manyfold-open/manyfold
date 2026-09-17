@@ -193,8 +193,8 @@ export class NarraNexusSpriteBootstrap implements SpriteServiceBootstrap {
         const env = this.serviceEnv(ctx, creds, gatewayToken, runtimeReportToken)
 
         const installVersion = ctx.frameworkVersion ?? NARRANEXUS_VERSION
-        // The ctx value was resolved alongside `frameworkVersion`, from one
-        // settings read, so the tag and the repo it must exist on always agree.
+        // The ctx value was admitted alongside `frameworkVersion` by one
+        // catalog snapshot, so the tag and its source repository stay together.
         // The fallback covers ctx builders that never clone (restart, dashboard).
         const installRepo =
             ctx.frameworkRepo ?? defaultFrameworkRepo('narranexus')

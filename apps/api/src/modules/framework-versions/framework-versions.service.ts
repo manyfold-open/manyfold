@@ -267,6 +267,26 @@ export class FrameworkVersionsService implements OnModuleInit {
         }
     }
 
+    // Git installs admit against the complete snapshot. A refresh may succeed
+    // while a source switch makes its returned entry empty; do not substitute
+    // the previous repository's latest in that case.
+    async catalogForFresh(
+        framework: VersionedFramework
+    ): Promise<FrameworkVersionCatalogEntry> {
+        const entry = await this.getForFramework(framework)
+        if (!isStale(entry.fetchedAt)) return entry
+        try {
+            return await this.refreshFramework(framework)
+        } catch (err) {
+            this.log.warn(
+                `catalog refresh failed for ${framework}: ${(err as Error).message}`
+            )
+            // Re-apply current source/policy to the cache: same-source entries
+            // remain usable, but an intervening source switch invalidates them.
+            return this.getForFramework(framework)
+        }
+    }
+
     // The build a fresh install of `framework` gets (request > admin pin >
     // catalog latest, blocked windows applied); see resolveFrameworkInstallVersion.
     async resolveInstallVersion(
@@ -277,7 +297,8 @@ export class FrameworkVersionsService implements OnModuleInit {
             {
                 settings:
                     await this.adminSettings.getCachedFrameworkDefaultVersions(),
-                latestForFresh: (fw) => this.latestForFresh(fw)
+                latestForFresh: (fw) => this.latestForFresh(fw),
+                catalogForFresh: (fw) => this.catalogForFresh(fw)
             },
             framework,
             requested

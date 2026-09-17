@@ -352,7 +352,9 @@ export class AgentOrchestratorService {
             {
                 settings:
                     await this.adminSettings.getCachedFrameworkDefaultVersions(),
-                latestForFresh: (fw) => this.frameworkVersions.latestForFresh(fw)
+                latestForFresh: (fw) => this.frameworkVersions.latestForFresh(fw),
+                catalogForFresh: (fw) =>
+                    this.frameworkVersions.catalogForFresh(fw)
             },
             framework,
             requested
