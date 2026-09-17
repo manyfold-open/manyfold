@@ -7,6 +7,7 @@ import {
 } from '@manyfold/shared'
 import type { AgentSummary } from '@manyfold/shared'
 import { randomUUID } from 'node:crypto'
+import { workspaceReading } from '../sprite-storage/workspace-reading'
 import {
     BadRequestException,
     ConflictException,
@@ -162,8 +163,7 @@ const toSummary = (
     model: row.model,
     extras: row.extras,
     workspacePath: row.workspacePath,
-    storageBytes: row.storageBytes ?? null,
-    storageMeasuredAt: row.storageMeasuredAt?.toISOString() ?? null,
+    ...workspaceReading(row),
     startedAt: row.startedAt?.toISOString() ?? null,
     lastActiveAt: lastActiveAtIso(row),
     lastMessageAt: row.lastMessageAt?.toISOString() ?? null,

@@ -369,6 +369,7 @@ export const apiPaths = {
         `/agent-self/a2a/callers/${encodeURIComponent(tokenId)}`,
     ME_RUNTIME_ACCESS: '/me/runtime-access',
     ME_RUNTIME_ACCESS_SANDBOX_USAGE: '/me/runtime-access/sandbox-usage',
+    ME_RUNTIME_ACCESS_SANDBOX_USAGE_FOR_AGENT: (agentId: string) => `/me/runtime-access/sandbox-usage/agent/${encodeURIComponent(agentId)}`,
     ME_RUNTIME_ACCESS_QUOTA_WARNING_ACK: '/me/runtime-access/quota-warning-ack',
     ME_API_TOKENS: '/me/api-tokens',
     ME_API_TOKEN_BY_ID: (id: string) => `/me/api-tokens/${id}`,

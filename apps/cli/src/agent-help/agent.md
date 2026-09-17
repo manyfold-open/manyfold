@@ -45,9 +45,17 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
 
 - `list` / `get` / `create` / `update` print one line per agent:
   `id  name  framework/runtime  status`. All four accept `--json` (the
-  array for `list`, the full record otherwise); `delete` emits `{ ok, id }`.
+  scoped `{ scope, agents }` result for `list`, the full record otherwise);
+  `delete` emits `{ ok, id }`. The list scope is `agent` or `account`.
+- Agent records expose `workspaceBytes` and `workspaceMeasuredAt`, never the
+  old mixed-unit `storageBytes`. Unknown historical readings are null. These
+  values describe an agent's workspace, not its sandbox or the whole account.
+  Use `mf sandbox storage-usage --account --json` for account storage totals.
 - `storage-usage` and `credentials get` always emit pretty-printed JSON
   (`--json` accepted but already the default).
+- `storage-usage` states `scope: "agent-paths"`; sleeping paths remain unknown,
+  while `cachedSandbox` carries the separate cached filesystem reading. See
+  `mf help sandbox --agent` for storage units, freshness and attribution.
 - `credentials reveal` masks the apiKey (first 4 + last 4 chars) unless
   `--show` is passed; never paste a revealed value into chat. `--json`
   is available.

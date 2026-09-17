@@ -17,18 +17,18 @@ order: 5
 
 | 命令 | 用途 |
 | --- | --- |
-| [`mf agent list`](#mf-agent-list) | List agents owned by the current user |
+| [`mf agent list`](#mf-agent-list) | List visible agents: runtime identity defaults to self; --account requires consent |
 | [`mf agent get`](#mf-agent-get) | Show a single agent |
 | [`mf agent create`](#mf-agent-create) | Create a new agent on sprites.dev |
 | [`mf agent update`](#mf-agent-update) | Update agent name or model |
 | [`mf agent delete`](#mf-agent-delete) | Delete an agent (irreversible) |
-| [`mf agent storage-usage`](#mf-agent-storage-usage) | Report storage usage for an agent |
+| [`mf agent storage-usage`](#mf-agent-storage-usage) | Report agent-owned path usage, separate from sandbox and account storage |
 | [`mf agent model-config`](#mf-agent-model-config) | Manage agent model config |
 | [`mf agent credentials`](#mf-agent-credentials) | Manage agent credentials (provider keys, etc.) |
 
 ## `mf agent list`
 
-List agents owned by the current user
+List visible agents: runtime identity defaults to self; --account requires consent
 
 **用法:** `mf agent list [options]`
 
@@ -134,7 +134,7 @@ Delete an agent (irreversible)
 
 ## `mf agent storage-usage`
 
-Report storage usage for an agent
+Report agent-owned path usage, separate from sandbox and account storage
 
 **用法:** `mf agent storage-usage [options] <agentId>`
 

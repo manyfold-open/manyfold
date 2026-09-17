@@ -211,20 +211,20 @@ test('a2a send points an unknown peer to the canonical status command', async ()
     assert.ok(urls[0].includes('/agent-self/a2a/peers?'))
 })
 
-test('agent list --json prints a JSON array', async () => {
-    const { out } = await runCli(['agent', 'list', '--json'], (async () =>
-        json([
-            {
-                id: 'agt_1',
-                name: 'demo',
-                framework: 'claude-code',
-                runtime: 'sprite',
-                status: 'ready'
-            }
-        ])) as typeof fetch)
-    const parsed = JSON.parse(out.join('\n'))
-    assert.ok(Array.isArray(parsed))
-    assert.equal(parsed[0].id, 'agt_1')
+test('agent list --json identifies self scope and keeps unknown workspace values nullable', async () => {
+    const rows = [{ id: 'agt_env', name: 'demo', framework: 'claude-code', runtime: 'sprites', status: 'running', workspaceBytes: null, workspaceMeasuredAt: null }]
+    const requests: string[] = []
+    const result = await runCli(['agent', 'list', '--json'], (async (input) => {
+        const path = new URL(String(input)).pathname
+        requests.push(path)
+        if (path === '/api/auth/whoami') return json({ kind: 'agent-runtime', userId: 'user-1', agentId: 'agt_env' })
+        if (path === '/api/agents') return json(rows)
+        throw new Error(`unexpected request ${path}`)
+    }) as typeof fetch)
+    assert.equal(result.exitCode, 0)
+    assert.deepEqual(result.err, [])
+    assert.deepEqual(JSON.parse(result.out.join('\n')), { scope: 'agent', agents: rows })
+    assert.deepEqual(requests.sort(), ['/api/agents', '/api/auth/whoami'])
 })
 
 test('channels get --json keeps secrets redacted', async () => {

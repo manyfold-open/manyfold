@@ -16,7 +16,39 @@ mf agent storage-usage agt_xxx
 ```
 
 Add `--json` for scripts. An agent runtime identity sees its own context by
-default; a human login can add `--account` for explicit account-wide access.
+default. Account access from a runtime requires explicit `--account` and the
+corresponding consent grant; a human login keeps its account access.
+
+## Storage
+
+```sh
+mf sandbox storage-usage --json
+mf --account sandbox storage-usage --json
+mf agent storage-usage agt_xxx --json
+```
+
+The first command reports the current sandbox's cached whole-filesystem usage.
+Outside an agent runtime, select `--agent-id agt_xxx` or use `--account`.
+The account report includes each sandbox once, including empty and sleeping
+sandboxes, sorted by storage usage. Runtime account reads require `agents:read`
+consent. Both reports include `scope`, byte units, measurement times and
+freshness; reading them never wakes a sleeping sandbox.
+
+`agent storage-usage` is an agent-owned path diagnostic, not the account meter.
+It measures workspace and configuration paths only when the sandbox is running.
+Sleeping or unavailable sandboxes return unknown path values and retain their
+cached sandbox reading separately. An unknown value is `null`, not zero.
+
+Agent records expose `workspaceBytes` and `workspaceMeasuredAt` together instead
+of the ambiguous `storageBytes` and `storageMeasuredAt`. Workspace values are raw
+directory sizes; they must not be summed to reconstruct whole-sandbox storage.
+The sandbox report separately exposes known-path attribution, which accounts for
+nested or aliased paths without claiming exact filesystem or invoice allocation.
+Incomplete or inconsistent measurements keep attribution unknown.
+
+`agent list --json` returns `{ "scope": "agent" | "account", "agents": [...] }`.
+This is a breaking API/CLI contract change. Upgrade the API and CLI together;
+storage commands and agent list/get reject older ambiguous responses explicitly.
 
 ## Create a sprites.dev coding agent
 

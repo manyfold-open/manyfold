@@ -14,8 +14,33 @@ mf agent get agt_xxx
 mf agent storage-usage agt_xxx
 ```
 
-脚本可加 `--json`。Agent runtime identity 默认只看到自己的 context；human login
-需要显式 account-wide access 时可加 `--account`。
+脚本可加 `--json`。Agent runtime identity 默认只看到自己的 context；runtime 的账户级
+访问需要显式 `--account` 与对应 consent grant，human login 保留账户访问权限。
+
+## 存储
+
+```sh
+mf sandbox storage-usage --json
+mf --account sandbox storage-usage --json
+mf agent storage-usage agt_xxx --json
+```
+
+第一条命令返回当前 sandbox 缓存的整机文件系统用量。在 Agent runtime 外使用时，
+指定 `--agent-id agt_xxx` 或选择 `--account`。账户报告每台 sandbox 只计算一次，
+包含空 sandbox 和休眠 sandbox，并按存储用量排序。Runtime 的账户读取需要
+`agents:read` consent。报告包含 `scope`、字节单位、测量时间和 freshness，读取不会唤醒休眠 sandbox。
+
+`agent storage-usage` 是 Agent 自有路径诊断，不是账户存储总计。它只在 sandbox 运行时
+测量 workspace 和配置目录；休眠或不可用时返回未知路径值，并单独保留缓存的 sandbox
+读数。未知值为 `null`，不伪装成零。
+
+Agent record 的 `workspaceBytes` 和 `workspaceMeasuredAt` 成对返回，替代语义混杂的
+`storageBytes` 和 `storageMeasuredAt`。Workspace 值是目录原始大小，不能相加推算整机用量。
+Sandbox 报告另有已知路径归属，处理嵌套目录和路径别名，但不声称精确分摊文件系统或账单。
+测量缺失或不一致时，归属保持未知。
+
+`agent list --json` 返回 `{ "scope": "agent" | "account", "agents": [...] }`。
+这是 API/CLI 的破坏性契约变更，应一起升级。存储命令和 Agent list/get 会明确拒绝旧版的歧义响应。
 
 ## 创建 sprites.dev coding Agent
 

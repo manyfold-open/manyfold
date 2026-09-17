@@ -15,19 +15,28 @@ const makeHost = (over: Partial<SandboxUsageHost> = {}): SandboxUsageHost => ({
     storageBytes: 5_000_000_000,
     storageMeasuredAt: '2026-06-15T10:00:00.000Z',
     storageMeasured: true,
-    homes: [{ framework: 'claude-code', bytes: 400_000_000 }],
+    storageMeasuredVia: 'df',
+    storageFreshness: 'stale',
+    attributionComplete: true,
+    asleep: false,
+    runtimes: [],
+    homes: [{ framework: 'claude-code', bytes: 400_000_000, measuredBytes: 400_000_000, path: '/fixture/.claude', agentIds: ['agt_1'] }],
     agents: [
         {
             agentId: 'agt_1',
             name: 'coder',
             framework: 'claude-code',
-            workspaceBytes: 1_200_000_000
+            workspaceBytes: 1_200_000_000,
+            workspaceMeasuredAt: '2026-06-15T10:00:00.000Z',
+            attributedBytes: 1_200_000_000
         },
         {
             agentId: 'agt_2',
             name: 'fresh',
             framework: 'codex',
-            workspaceBytes: null
+            workspaceBytes: null,
+            workspaceMeasuredAt: null,
+            attributedBytes: null
         }
     ],
     ...over
@@ -49,7 +58,7 @@ test('sharePct clamps to [0, 100] and handles a zero total', () => {
     assert.equal(sharePct(10, 0), 0)
 })
 
-test('hostStorageRows lists workspaces, homes and a clamped remainder', () => {
+test('hostStorageRows lists attributed workspaces, homes and a measured remainder', () => {
     const rows = hostStorageRows(makeHost())
     assert.deepEqual(
         rows.map((r) => [r.kind, r.bytes]),
@@ -75,7 +84,9 @@ test('hostStorageRows omits the remainder when the host was never measured', () 
                 agentId: 'agt_2',
                 name: 'fresh',
                 framework: 'codex',
-                workspaceBytes: null
+                workspaceBytes: null,
+                workspaceMeasuredAt: null,
+                attributedBytes: null
             }
         ]
     })
@@ -98,21 +109,31 @@ test('hostStorageRows gives a bare measured sandbox the whole reading as remaind
     )
 })
 
-test('hostStorageRows clamps a negative remainder to zero', () => {
+test('hostStorageRows leaves a conflicting filesystem remainder unknown', () => {
     const host = makeHost({
         storageBytes: 1_000_000_000,
-        homes: [{ framework: 'claude-code', bytes: 900_000_000 }],
+        homes: [{ framework: 'claude-code', bytes: 900_000_000, measuredBytes: 900_000_000, path: '/fixture/.claude', agentIds: ['agt_1'] }],
         agents: [
             {
                 agentId: 'agt_1',
                 name: 'coder',
                 framework: 'claude-code',
-                workspaceBytes: 800_000_000
+                workspaceBytes: 800_000_000,
+                workspaceMeasuredAt: '2026-06-15T10:00:00.000Z',
+                attributedBytes: 800_000_000
             }
         ]
     })
     const rows = hostStorageRows(host)
     const other = rows[rows.length - 1]
     assert.equal(other.kind, 'other')
-    assert.equal(other.bytes, 0)
+    assert.equal(other.bytes, null)
+})
+
+test('known raw path usage remains visible when allocation is unknown', () => {
+    const host = makeHost({ attributionComplete: false, agents: [{ agentId: 'agt_1', name: 'coder', framework: 'codex', workspaceBytes: 1200, workspaceMeasuredAt: '2026-06-15T10:00:00.000Z', attributedBytes: null }] })
+    const rows = hostStorageRows(host)
+    assert.equal(rows[0].measuredBytes, 1200)
+    assert.equal(rows[0].bytes, null)
+    assert.equal(rows.some((row) => row.kind === 'other'), false)
 })

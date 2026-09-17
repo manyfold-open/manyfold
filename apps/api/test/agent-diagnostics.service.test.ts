@@ -41,6 +41,16 @@ test('nestedConfigBytes subtracts workspace usage when workspace is nested', () 
     )
 })
 
+test('diagnostic attribution never clamps contradictory nested measurements into a partition', () => {
+    assert.equal(nestedConfigBytes(10, 20, '/config', '/config/workspace'), null)
+    assert.equal(nestedConfigBytes(30, 20, '/workspace/config', '/workspace'), null)
+    assert.equal(nestedConfigBytes(10, 20, '/same', '/same'), null)
+    assert.equal(nestedConfigBytes(20, 20, '/same/', '/same'), 0)
+    assert.equal(nestedConfigBytes(10, 20, '/workspace/config', '/workspace'), 0)
+    assert.equal(nestedConfigBytes(10, 20, '/foo', '/foobar'), 10)
+    assert.equal(nestedConfigBytes(10, 20, '~/.openclaw', '/home/sprite/.openclaw/workspace'), null)
+})
+
 test('redactDiagnosticText removes secret-like output', () => {
     const raw =
         'Bearer abc.def OPENAI_API_KEY=sk-test1234567890 eyJhbGciOi token'
@@ -60,7 +70,8 @@ test('storageUsage returns a failed item when k8s pod resolution is unavailable'
     const result = await service.storageUsage('user-1', 'agent-1', false)
 
     assert.equal(result.items[0].status, 'failed')
-    assert.equal(result.items[0].bytes, 0)
+    assert.equal(result.items[0].bytes, null)
+    assert.equal(result.totalBytes, null)
     assert.match(result.items[0].message, /has no k8s namespace/)
 })
 
@@ -250,9 +261,22 @@ test('storageUsage on a sleeping service sprite skips du without any exec', asyn
     // WHY: du is an exec and would wake/bill a sleeping service sprite —
     // storageUsage must report it asleep without ever execing.
     assert.equal(probeCalls.length, 0, 'du must not run on a sleeping sprite')
-    assert.equal(result.totalBytes, 0)
+    assert.equal(result.totalBytes, null)
+    assert.equal(result.scope, 'agent-paths')
+    assert.equal(result.asleep, true)
     for (const item of result.items) {
         assert.equal(item.status, 'skipped')
+        assert.equal(item.bytes, null)
         assert.match(item.message, /asleep/)
     }
 })
+
+for (const sprite of [{ status: 'cold' }, { status: 'warm' }, 'not_found'] as const)
+    test(`coding sprite diagnostic avoids exec for ${typeof sprite === 'string' ? sprite : sprite.status}`, async () => {
+        const { service, probeCalls } = spriteDiagnosticsSetup({ framework: 'codex', sprite })
+        const result = await service.storageUsage('user-1', 'agent-1', false)
+        assert.equal(probeCalls.length, 0)
+        assert.equal(result.totalBytes, null)
+        assert.equal(result.asleep, sprite !== 'not_found')
+        assert.equal(result.items[0].bytes, null)
+    })
