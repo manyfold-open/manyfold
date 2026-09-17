@@ -14,10 +14,12 @@
         "apps/api": {
             "entry": [
                 "src/main.ts",
+                "scripts/*.mjs",
                 "test/*.test.ts"
             ],
             "project": [
                 "src/**",
+                "scripts/*.mjs",
                 "test/**"
             ],
             "ignore": [
@@ -55,6 +57,7 @@
         "apps/web": {
             "entry": [
                 "test/*.test.ts",
+                "test/agent-settings-fixture.tsx",
                 "scripts/*.ts",
                 "scripts/og/canonical.ts",
                 "scripts/og/render.ts",

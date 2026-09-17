@@ -1,5 +1,6 @@
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
+import { renameWithWindowsRetry } from '@/atomic-rename'
 import { daemonPaths } from '@/daemon/config'
 import {
     acquireProcessLock,
@@ -86,7 +87,7 @@ const writeDaemonPid = async (
     const temporary = `${paths.pidPath}.${instanceId}.tmp`
     try {
         await writeFile(temporary, `${pid}\n`, { flag: 'wx', mode: 0o600 })
-        await rename(temporary, paths.pidPath)
+        await renameWithWindowsRetry(temporary, paths.pidPath)
     } finally {
         await unlink(temporary).catch((err: NodeJS.ErrnoException) => {
             if (err.code !== 'ENOENT') throw err

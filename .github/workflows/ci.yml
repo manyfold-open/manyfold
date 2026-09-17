@@ -134,6 +134,7 @@ jobs:
                   fi
             - run: pnpm force-exit:check
             - run: pnpm sealed-env:check
+            - run: pnpm runtime-deps:check
             - run: pnpm lint
             # Docs-site CLI reference + changelog must track the CLI version;
             # spans apps/cli and apps/docs, so no single affected package
@@ -315,6 +316,7 @@ jobs:
             - run: pnpm exec playwright install --with-deps chromium webkit
             - run: pnpm test:browser-sentry
             - run: pnpm test:browser-telemetry
+            - run: pnpm test:browser-settings
 
     secret-scan:
         needs: prepare
