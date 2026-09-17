@@ -1136,7 +1136,8 @@ export class RuntimeAccessService {
                     code: 'AUTOMATION_RUN_QUOTA_REACHED',
                     current,
                     limit: row.maxAutomationRunsMonthly,
-                    planName: row.planName
+                    planName: row.planName,
+                    resetAt: period.end.toISOString()
                 })
         })
     }

@@ -114,13 +114,15 @@ test('AutomationsService tick defers quota-skipped scheduled automation out of t
     const db = new FakeDb()
     db.selectResults.push(
         [],
+        [],
         [
             {
                 automation: {
                     ...automationRow,
                     nextRunAt: new Date('2026-06-12T09:00:00.000Z')
                 },
-                agent: agentRow
+                agent: agentRow,
+                quotaRevision: 'fixture-revision'
             }
         ],
         []
@@ -135,7 +137,8 @@ test('AutomationsService tick defers quota-skipped scheduled automation out of t
             reserveAutomationRun: async (userId: string) => {
                 reservedRunUserIds.push(userId)
                 throw new ForbiddenException({
-                    code: 'AUTOMATION_RUN_QUOTA_REACHED'
+                    code: 'AUTOMATION_RUN_QUOTA_REACHED',
+                    resetAt: nextDailyNineUtcInNextQuotaWindow(new Date()).toISOString()
                 })
             }
         } as never
@@ -154,6 +157,8 @@ test('AutomationsService tick defers quota-skipped scheduled automation out of t
     const patch = automationUpdates[0].set
     assert.equal(patch.lastRunAt, undefined)
     assert.ok(patch.updatedAt instanceof Date)
+    assert.ok(patch.quotaRetryAt instanceof Date)
+    assert.ok(patch.quotaRetryAt.getTime() <= beforeTick.getTime() + 61_000)
     const nextRunAt = patch.nextRunAt
     assert.ok(nextRunAt instanceof Date)
     assert.equal(
