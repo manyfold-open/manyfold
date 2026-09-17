@@ -82,7 +82,7 @@ export const perMillionRate = (value: number | null): string =>
 export const priceScopeTag = (entry: ModelPriceEntryView, t: TFn): string =>
     entry.scope === 'provider'
         ? t('web.modelProviders.priceScopeCustom')
-        : entry.scope === 'built_in' || entry.scope === 'global'
+        : entry.scope === 'built_in' || entry.scope === 'managed' || entry.scope === 'global'
           ? t('web.modelProviders.priceScopePlatform')
           : entry.priceStatus === 'missing'
             ? t('web.modelProviders.priceScopeNoPrice')

@@ -1,3 +1,4 @@
+import type { ServedPriceScope } from '../usage/served-price-scope'
 import type {
     AgentFramework,
     AgentModelConfig,
@@ -114,6 +115,9 @@ export interface ApiChatAdapterContext {
     // cost computation so per-provider price scopes apply to the live number.
     modelProviderId?: string | null
     modelProviderBuiltInId?: string | null
+    modelProviderManagedBrand?: string | null
+    // Server-only dispatch receipt, awaited before starting the actual exec.
+    onServedPriceScope?: (scope: ServedPriceScope) => Promise<void>
     modelConfig: AgentModelConfig | null
     // Runtime-local turns keep modelConfig null (adapters read a set
     // modelConfig as "inject platform credentials"), so the CLI flags that

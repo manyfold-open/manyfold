@@ -24,6 +24,8 @@ import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { messageToPromptText } from './message-content'
 import { redactSecrets } from './claude-stream-consumer'
 import { extractGeminiUsage } from './gemini-usage'
+import { UNKNOWN_PRICE_SCOPE } from '@/modules/usage/served-price-scope'
+import { geminiPlatformLauncher } from './gemini-platform-launcher'
 import {
     createGeminiThoughtTail,
     geminiThoughtPollMs,
@@ -209,11 +211,14 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         const {
             driver: spriteDriver,
             creds,
+            resolvePriceScope,
+            supportsExecResources,
             runtime,
             agent,
             baseEnv,
             authContext
-        } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
+        } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
+            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined)
         // A runner turn swaps the transport only — `runtime` stays
         // 'sprites' so credentials, the bash bootstrap and the workspace cwd all
         // keep their sprite meaning. See claude-code.adapter, including why
@@ -232,10 +237,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         // chat.service stamps on the message.
         const carryingDaemonId =
             runtime === 'daemon' ? agent.daemonId : (ctx.runnerDaemonId ?? null)
-        const geminiCreds =
-            runtime === 'daemon'
-                ? null
-                : (creds as ResolvedGeminiCliCredentials)
+        const geminiCreds = creds as ResolvedGeminiCliCredentials | null
         // modelConfig null + tuning present = runtime-local turn (see
         // resolveTurnConfig). Gating the env on it keeps GEMINI_API_KEY out
         // of the exec, which both lets the CLI use its own on-disk sign-in
@@ -272,7 +274,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             cmd.push('--resume', ctx.frameworkSessionRef)
 
         const env =
-            runtime === 'sprites' && geminiCreds && !runtimeLocalTurn
+            (runtime === 'sprites' || ctx.modelConfig?.framework === 'gemini-cli') && geminiCreds && !runtimeLocalTurn && !authContext
                 ? {
                       GEMINI_API_KEY: geminiCreds.googleApiKey,
                       GOOGLE_GEMINI_BASE_URL:
@@ -286,8 +288,23 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             ? await this.adminSettings.getCachedChatExecTimeoutMs()
             : resolveChatExecTimeoutMs(DEFAULT_CHAT_EXEC_TIMEOUTS)
 
+        if (env && runtime === 'daemon' && !(await supportsExecResources?.())) {
+            yield { type: 'error', error: {
+                code: 'gemini_platform_exec_unsupported',
+                message: 'Update the Manyfold CLI to use platform Gemini credentials on this machine.',
+                retryable: false
+            } }
+            return
+        }
+        const servedScope = env ? await resolvePriceScope?.() ?? UNKNOWN_PRICE_SCOPE : UNKNOWN_PRICE_SCOPE
+        await ctx.onServedPriceScope?.(servedScope)
+        ctx.abortSignal?.throwIfAborted()
+        ctx = { ...ctx, ...servedScope }
         const handle = driver.stream({
-            cmd: [
+            cmd: env && runtime !== 'sprites' ? [
+                'bash', '-lc', `${PATH_PREPEND_LOCAL_BIN}\nexport GEMINI_CLI_TRUST_WORKSPACE=true\nexec node -e "$1" -- "\${@:2}"`,
+                'gemini', geminiPlatformLauncher(GEMINI_INTERNAL_MODEL_TARGETS), ...cmd.slice(1)
+            ] : [
                 'bash',
                 '-lc',
                 GEMINI_BOOTSTRAP,
@@ -295,6 +312,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
                 ...cmd.slice(1)
             ],
             env,
+            ...(env && runtime === 'daemon' ? { temporarySettings: 'gemini-platform' as const } : {}),
             stdin: prompt,
             dir: agent.workspacePath ?? undefined,
             timeoutMs: execTimeouts.timeoutMs,
@@ -543,7 +561,8 @@ export class GeminiCliAdapter implements ApiChatAdapter {
                     pricing,
                     {
                         modelProviderId: ctx.modelProviderId,
-                        modelProviderBuiltInId: ctx.modelProviderBuiltInId
+                        modelProviderBuiltInId: ctx.modelProviderBuiltInId,
+                        modelProviderManagedBrand: ctx.modelProviderManagedBrand
                     }
                 ))
                     yield { type: 'usage', usage }

@@ -65,6 +65,7 @@ import {
     isCancelledTurnError,
     isTerminalTurnExecutionState
 } from './turn-outcome'
+import { priceScopeFromMetadata, type ServedPriceScope } from '../usage/served-price-scope'
 
 // The runtimes the adoption sweep will claim and replay from a transcript. A
 // turn_executions row for any OTHER runtime exists for cross-replica ownership
@@ -499,6 +500,8 @@ export class ChatRepository {
         patch: Record<string, unknown>,
         fence?: TurnExecutionFence
     ): Promise<void> {
+        if (Object.prototype.hasOwnProperty.call(patch, 'pricingScope'))
+            throw new Error('turn pricing scope must be stamped once before dispatch')
         const merged = sanitizeForJsonb(patch) as Record<string, unknown>
         const apply = async (tx: Database | DatabaseTx): Promise<void> => {
             await tx
@@ -520,6 +523,60 @@ export class ChatRepository {
             return
         }
         await apply(this.db)
+    }
+
+    async stampTurnPriceScope(
+        messageId: string,
+        sessionId: string,
+        scope: ServedPriceScope,
+        fence?: TurnExecutionFence
+    ): Promise<void> {
+        await this.db.transaction(async (tx) => {
+            await tx.execute(sql`select pg_advisory_xact_lock(hashtext('chat_stream_events'), hashtext(${sessionId}))`)
+            if (fence) {
+                if (fence.messageId !== messageId || !(await lockTurnSessionFence(tx, fence, sessionId)))
+                    throw new TurnFenceLostError(messageId)
+                const execution = await lockTurnExecution(tx, messageId)
+                if (!execution || !['running', 'handoff', 'adopting'].includes(execution.state))
+                    throw new TurnFenceLostError(messageId)
+            } else if (await lockTurnExecution(tx, messageId)) {
+                throw new TurnFenceLostError(messageId)
+            }
+            const [message] = await tx.select({
+                capabilityEventsJson: chatMessages.capabilityEventsJson,
+                role: chatMessages.role,
+                inflightMessageId: chatSessions.inflightMessageId
+            }).from(chatMessages)
+                .innerJoin(chatSessions, eq(chatSessions.id, chatMessages.sessionId))
+                .where(and(eq(chatMessages.id, messageId), eq(chatMessages.sessionId, sessionId)))
+                .limit(1)
+            if (!message || message.role !== 'assistant' || message.inflightMessageId !== messageId)
+                throw new TurnFenceLostError(messageId)
+            const [terminal] = await tx.select({ id: chatStreamEvents.id }).from(chatStreamEvents)
+                .where(and(eq(chatStreamEvents.messageId, messageId), inArray(chatStreamEvents.eventType, ['done', 'error'])))
+                .limit(1)
+            if (terminal) throw new TurnFenceLostError(messageId)
+            const metadata = message.capabilityEventsJson as Record<string, unknown> | null
+            if (metadata && Object.prototype.hasOwnProperty.call(metadata, 'pricingScope')) {
+                const previous = priceScopeFromMetadata(metadata)
+                const stored = metadata.pricingScope as { version?: unknown } | null
+                if (stored?.version !== 1 ||
+                    previous.modelProviderId !== scope.modelProviderId ||
+                    previous.modelProviderBuiltInId !== scope.modelProviderBuiltInId ||
+                    previous.modelProviderManagedBrand !== scope.modelProviderManagedBrand)
+                    throw new Error('turn pricing scope cannot change after dispatch')
+                return
+            }
+            await tx.update(chatMessages).set({ capabilityEventsJson: jsonbMerge(
+                chatMessages.capabilityEventsJson,
+                { pricingScope: {
+                    version: 1,
+                    modelProviderId: scope.modelProviderId,
+                    modelProviderBuiltInId: scope.modelProviderBuiltInId,
+                    modelProviderManagedBrand: scope.modelProviderManagedBrand
+                } }
+            ) }).where(eq(chatMessages.id, messageId))
+        })
     }
 
     // Durable half of a permission answer (see ChatPermissionBus). The

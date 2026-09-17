@@ -20,6 +20,7 @@ import { DRIZZLE } from '@/db/tokens'
 import {
     MANAGED_PRICING_PORT,
     noManagedPricingPort,
+    type ManagedPriceRow,
     type ManagedPricingPort
 } from '@/common/ports/managed-models.ports'
 import { ModelPriceSnapshotRepository } from './model-price-snapshot.repository'
@@ -200,6 +201,7 @@ export type LiteLlmModelPricing = ModelPriceTableEntry
 export interface ModelPriceScopeContext {
     modelProviderId?: string | null
     modelProviderBuiltInId?: string | null
+    modelProviderManagedBrand?: string | null
 }
 
 export interface UsagePricingInput extends ModelPriceScopeContext {
@@ -246,8 +248,8 @@ export type ScopeEntryMap = Map<string, ScopeModelConfig>
 
 // Everything operators and users have configured, in resolution order:
 // `scopes` holds the provider rows (`row:<providerId>`) and built-in defaults
-// (`builtin:<builtInId>`); `overrides`/`pins` are the managed catalog's global
-// layer, unchanged from when they were the only one.
+// (`builtin:<builtInId>`) and managed channels (`managed:<brand>`).
+// `overrides`/`pins` retain the explicit global engine configuration contract.
 export interface ModelPriceConfigIndex {
     overrides: Map<string, LiteLlmModelPricing>
     pins: Map<string, ModelPriceRef>
@@ -259,8 +261,8 @@ export interface UsagePricingOptions {
     fetchModelsDev?: PricingFetcher
     fetchNetmind?: PricingFetcher
     ttlMs?: number
-    // Configured per-token prices and source pins — the managed catalog's global
-    // layer plus the per-provider and per-built-in scopes. All matched EXACTLY
+    // Configured per-token prices and source pins, globally or by provider,
+    // built-in provider, or managed channel. All matched EXACTLY
     // (never fuzzily): every key is a real upstream model id, so exact is both
     // complete and predictable for whoever set the number.
     loadPriceConfig?: () => Promise<ModelPriceConfigIndex>
@@ -316,9 +318,8 @@ const rowPricing = (row: ModelPriceConfigRow): LiteLlmModelPricing => ({
     cache_read_input_token_cost: toPriceNumber(row.cacheReadCostPerToken)
 })
 
-// Last row wins when two brands carry the same model id: an id is priced by
-// what it costs, not by which channel routes it, so a disagreement is an
-// operator error rather than something to average.
+// Explicit global configuration retained for engine callers. Managed catalog
+// rows must use managedPricesFromRows so their channel identity is not erased.
 export const overridePricingFromRows = (
     rows: readonly ModelPriceConfigRow[]
 ): Map<string, LiteLlmModelPricing> => {
@@ -331,7 +332,7 @@ export const overridePricingFromRows = (
     return out
 }
 
-// Same last-row-wins rule as the price overrides, for the same reason.
+// The pin half of explicit global configuration.
 export const pinsFromRows = (
     rows: readonly ModelPriceConfigRow[]
 ): Map<string, ModelPriceRef> => {
@@ -370,6 +371,29 @@ export const scopedPricesFromRows = (
         const scope = out.get(scopeKey) ?? new Map<string, ScopeModelConfig>()
         scope.set(normalizeModel(row.modelId), entry)
         out.set(scopeKey, scope)
+    }
+    return out
+}
+
+const managedPricesFromRows = (
+    rows: readonly ManagedPriceRow[]
+): Map<string, ScopeEntryMap> => {
+    const out = new Map<string, ScopeEntryMap>()
+    for (const row of rows) {
+        if (!row.brand?.trim()) continue
+        const key = `managed:${row.brand}`
+        const scope = out.get(key) ?? new Map<string, ScopeModelConfig>()
+        const model = normalizeModel(row.modelId)
+        const entry: ScopeModelConfig = {}
+        const pricing = rowPricing(row)
+        if (hasBasePrice(pricing)) entry.override = pricing
+        if (row.priceRefSource && row.priceRefKey)
+            entry.pin = { source: row.priceRefSource, key: row.priceRefKey }
+        if (!entry.override && !entry.pin) continue
+        // Case/whitespace variants can evade a raw DB unique key. An ambiguous
+        // normalized identity is unpriced, independent of row return order.
+        scope.set(model, scope.has(model) ? {} : entry)
+        out.set(key, scope)
     }
     return out
 }
@@ -809,13 +833,13 @@ export class UsagePricingEngine {
     // Whether a model would record a real cost. Drives the catalog's
     // "only auto-enable a priced model" gate, so an unpriced model can never
     // start serving turns that silently bill nothing.
-    hasPricing(model: string | null): boolean {
-        return this.resolvePricing(model) !== null
+    hasPricing(model: string | null, scope?: ModelPriceScopeContext): boolean {
+        return this.resolvePricing(model, scope) !== null
     }
 
     // Most specific configured scope wins: the provider row that served the
-    // turn, then its built-in provider's default, then the managed catalog's
-    // global layer, then the ranked table match. A scope that has an entry for
+    // turn, then its built-in default, its managed channel, explicit global
+    // configuration, and the ranked table match. A scope that has an entry for
     // the model OWNS it — a broken pin there reads as unpriced rather than
     // sliding down to a scope whose number the pinner deliberately replaced.
     resolvePricing(
@@ -837,6 +861,11 @@ export class UsagePricingEngine {
             scopeKeys.push({
                 key: `builtin:${scope.modelProviderBuiltInId}`,
                 scope: 'built_in'
+            })
+        if (scope?.modelProviderManagedBrand)
+            scopeKeys.push({
+                key: `managed:${scope.modelProviderManagedBrand}`,
+                scope: 'managed'
             })
         for (const candidate of scopeKeys) {
             const entry = this.config.scopes.get(candidate.key)?.get(normalized)
@@ -1055,8 +1084,10 @@ export class UsagePricingEngine {
     // path never does, so a slow origin cannot stall a turn.
     async ensureLoaded(): Promise<void> {
         this.refreshSourcesIfNeeded()
+        this.refreshConfigIfNeeded()
         await Promise.all(
-            MODEL_PRICE_SOURCES.map((source) => this.sources[source].settled)
+            [...MODEL_PRICE_SOURCES.map((source) => this.sources[source].settled),
+                this.overrideRefreshPromise]
         )
     }
 
@@ -1255,9 +1286,12 @@ export class UsagePricingService
                         })
                 ])
                 return {
-                    overrides: overridePricingFromRows(rows),
-                    pins: pinsFromRows(rows),
-                    scopes: scopedPricesFromRows(scopedRows)
+                    overrides: new Map(),
+                    pins: new Map(),
+                    scopes: new Map([
+                        ...scopedPricesFromRows(scopedRows),
+                        ...managedPricesFromRows(rows)
+                    ])
                 }
             },
             loadSnapshot: (source) => snapshots.read(source),

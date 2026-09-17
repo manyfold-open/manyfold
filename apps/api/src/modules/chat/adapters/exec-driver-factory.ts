@@ -6,9 +6,10 @@ import {
     agentWsUrl,
     envTextFromExtras,
     envTextToRecord,
-    frameworkCapability
+    frameworkCapability,
+    DAEMON_FEATURE_EXEC_RESOURCES
 } from '@manyfold/shared'
-import type { OpenclawCredentialsInput } from '@manyfold/shared'
+import type { AgentModelConfigSource, OpenclawCredentialsInput } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
@@ -18,6 +19,7 @@ import {
     agentRuntimes,
     agents,
     agentCredentials,
+    userModelProviders,
     type Agent,
     type Database
 } from '@manyfold/db'
@@ -65,10 +67,13 @@ import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { podRunnerAttemptedFor } from '@/modules/chat/runner/runner-rollout'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
+import { UNKNOWN_PRICE_SCOPE, verifiedCodingPriceScope, type ServedPriceScope } from '@/modules/usage/served-price-scope'
 
 export interface ExecDriverHandle {
     driver: ExecDriver
     creds: unknown
+    resolvePriceScope?: () => Promise<ServedPriceScope>
+    supportsExecResources?: () => Promise<boolean>
     runtime: 'sprites' | 'k8s' | 'daemon'
     agent: Agent
     // Per-agent runtime identity + connection env (sprites), or connection +
@@ -119,7 +124,8 @@ export class ExecDriverFactory {
 
     async forAgent(
         agentId: string,
-        preloaded?: Agent
+        preloaded?: Agent,
+        turnSource?: AgentModelConfigSource
     ): Promise<ExecDriverHandle> {
         const agent =
             preloaded?.id === agentId
@@ -135,6 +141,11 @@ export class ExecDriverFactory {
 
         if (!agent.runtimeId)
             throw new Error(`agent ${agentId} has no linked runtime`)
+        // Per-turn platform/local selection can differ from the saved default.
+        // The driver and the injected credentials must use that same selection.
+        const selectedAuthContext = authContextRefFor(turnSource
+            ? { ...agent, extras: { modelConfig: { source: turnSource } } }
+            : agent)
 
         if (agent.runtime === 'daemon') {
             if (!agent.daemonId)
@@ -154,7 +165,7 @@ export class ExecDriverFactory {
             const baseEnv = coding
                 ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
                 : undefined
-            const authContext = authContextRefFor(agent)
+            const authContext = selectedAuthContext
             if (authContext)
                 assertHostHonoursAuthContext(
                     authContext,
@@ -170,6 +181,8 @@ export class ExecDriverFactory {
                     authContext
                 ),
                 creds,
+                resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
+                supportsExecResources: async () => (await this.hostFeatures(agent.daemonId!))?.clientFeatures.includes(DAEMON_FEATURE_EXEC_RESOURCES) ?? false,
                 runtime: 'daemon',
                 agent,
                 ...(baseEnv ? { baseEnv } : {}),
@@ -238,10 +251,11 @@ export class ExecDriverFactory {
                 pod.metadata.name,
                 AGENT_CONTAINER_NAME
             )
-            assertHostHonoursAuthContext(authContextRefFor(agent), null, 'a pod')
+            assertHostHonoursAuthContext(selectedAuthContext, null, 'a pod')
             return {
                 driver: new K8sExecDriver(podExec),
                 creds,
+                resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
                 runtime: 'k8s',
                 agent,
                 ...(baseEnv ? { baseEnv } : {}),
@@ -296,7 +310,7 @@ export class ExecDriverFactory {
             connectionEnv,
             identityToken
         )
-        const authContext = authContextRefFor(agent)
+        const authContext = selectedAuthContext
         return {
             driver: new SpritesExecDriver(client, agent.spriteName, logger, {
                 sessionRegistry: this.sessionRegistry,
@@ -305,11 +319,26 @@ export class ExecDriverFactory {
                 authContext
             }),
             creds,
+            resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
             runtime: 'sprites',
             agent,
             baseEnv,
             authContext
         }
+    }
+
+    private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
+        if (!agent.modelProviderId || !['codex', 'gemini-cli'].includes(agent.framework))
+            return { ...UNKNOWN_PRICE_SCOPE }
+        const [provider] = await this.db.select().from(userModelProviders)
+            .where(eq(userModelProviders.id, agent.modelProviderId)).limit(1)
+        if (!provider || provider.userId !== agent.userId) return { ...UNKNOWN_PRICE_SCOPE }
+        return verifiedCodingPriceScope({
+            framework: agent.framework,
+            credentials,
+            provider,
+            providerApiKey: this.crypto.decrypt({ ciphertext: provider.apiKeyCiphertext, keyVersion: provider.keyVersion })
+        })
     }
 
     // Capability lookup for the auth-context gate: the registration row is

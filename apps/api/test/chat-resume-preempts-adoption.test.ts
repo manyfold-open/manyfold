@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
-import type { EmittedChatEvent } from '../src/modules/chat/chat-adapter'
+import type { ApiChatAdapterContext, EmittedChatEvent } from '../src/modules/chat/chat-adapter'
 import type { TurnExecutionFence } from '../src/modules/chat/turn-fence'
 
 // #570, in the shape it was reported: a daemon-carried turn whose session has a
@@ -109,14 +109,16 @@ interface Harness {
     handedOff: number[]
     releasedInflight: string[]
     hasStream: () => boolean
+    resumeScopes: Array<{ id: string | null | undefined; brand: string | null | undefined }>
 }
 
 const makeHarness = (
-    opts: { claimReturns?: 'null'; resumeThrows?: boolean } = {}
+    opts: { claimReturns?: 'null'; resumeThrows?: boolean; storedPriceScope?: Record<string, unknown> } = {}
 ): Harness => {
     const written: Written[] = []
     const claims: Array<{ messageId: string; ownerId: string }> = []
     const order: string[] = []
+    const resumeScopes: Harness['resumeScopes'] = []
     const entered = deferred()
     const adoptionStream = deferred()
     let abortSeen = false
@@ -130,7 +132,7 @@ const makeHarness = (
         select: () => ({
             from: () => ({
                 leftJoin: () => ({
-                    where: () => ({ limit: async () => [agentRow] })
+                    where: () => ({ limit: async () => [opts.storedPriceScope ? { ...agentRow, modelProviderId: 'current-replacement', managedBrand: 'replacement-brand' } : agentRow] })
                 })
             })
         }),
@@ -139,7 +141,7 @@ const makeHarness = (
 
     const repo = {
         getSessionById: async () => sessionRow,
-        getMessageById: async () => messageRow,
+        getMessageById: async () => ({ ...messageRow, capabilityEventsJson: opts.storedPriceScope ? { pricingScope: opts.storedPriceScope } : null }),
         getTurnExecution: async () => execRow,
         listStreamEventsSince: async () => [],
         listMessageSourceRows: async () => [],
@@ -256,7 +258,8 @@ const makeHarness = (
         emitDetached: write
     }
 
-    const resumeMessage = async function* (): AsyncIterable<EmittedChatEvent> {
+    const resumeMessage = async function* (ctx: ApiChatAdapterContext): AsyncIterable<EmittedChatEvent> {
+        resumeScopes.push({ id: ctx.modelProviderId, brand: ctx.modelProviderManagedBrand })
         order.push('resume-attached')
         if (opts.resumeThrows) throw new Error('attach failed')
         yield { type: 'done', finalMessageId: TURN }
@@ -331,7 +334,8 @@ const makeHarness = (
         activeTurns: () => service.activeTurnCount(),
         handedOff,
         releasedInflight,
-        hasStream: () => streams.has(TURN)
+        hasStream: () => streams.has(TURN),
+        resumeScopes
     }
 }
 
@@ -341,6 +345,14 @@ const resume = (service: ChatService) =>
         daemonId: 'dh-1',
         refId: 'ref-1'
     })
+
+test('a resumed turn reads its durable pricing scope after claiming, not the stale hello row or current binding', async () => {
+    const h = makeHarness({ storedPriceScope: {
+        version: 1, modelProviderId: 'original-provider', modelProviderBuiltInId: null, modelProviderManagedBrand: 'original-brand'
+    } })
+    assert.equal(await resume(h.service), 'handled')
+    assert.deepEqual(h.resumeScopes, [{ id: 'original-provider', brand: 'original-brand' }])
+})
 
 test('a matched hello preempts a transcript adoption of the same turn', async () => {
     const h = makeHarness()

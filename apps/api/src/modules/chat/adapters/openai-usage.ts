@@ -100,7 +100,8 @@ export const buildOpenAiUsage = (
         ...tokens,
         inputTokensIncludeCache,
         modelProviderId: scope?.modelProviderId ?? null,
-        modelProviderBuiltInId: scope?.modelProviderBuiltInId ?? null
+        modelProviderBuiltInId: scope?.modelProviderBuiltInId ?? null,
+        modelProviderManagedBrand: scope?.modelProviderManagedBrand ?? null
     })
     return {
         model,
