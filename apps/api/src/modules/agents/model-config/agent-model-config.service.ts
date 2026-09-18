@@ -1,4 +1,8 @@
-import type { AgentRuntimeAuthBinding, UpdateAgentRuntimeAuthBody } from '@manyfold/shared'
+import type {
+    AgentRuntimeAuthBinding,
+    DaemonAuthContextRef,
+    UpdateAgentRuntimeAuthBody
+} from '@manyfold/shared'
 import {
     RUNTIME_AUTH_ERROR,
     isRuntimeAuthProfileId,
@@ -84,6 +88,7 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { ModelProvidersService } from '@/modules/model-providers/model-providers.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
+import { RuntimeAuthProfilesService } from '@/modules/agent-runtimes/auth/runtime-auth-profiles.service'
 import {
     assertHostHonoursAuthContext,
     authContextRefFor
@@ -146,7 +151,12 @@ export class AgentModelConfigService {
         @Optional()
         private readonly daemonRegistry?: DaemonRegistryService,
         @Optional()
-        private readonly execDrivers?: ExecDriverFactory
+        private readonly execDrivers?: ExecDriverFactory,
+        // Appended LAST and @Optional so positional test construction keeps
+        // working; absent, a profile-bound sprites inspection reports its
+        // runner unavailable instead of waking it.
+        @Optional()
+        private readonly runtimeAuth?: RuntimeAuthProfilesService
     ) {}
 
     async getForAgent(
@@ -1539,7 +1549,16 @@ export class AgentModelConfigService {
                 await this.hostFeatures(daemonId),
                 'this machine'
             )
-        const payload = await this.daemonRegistry.rpc({
+        return this.modelInspectViaDaemon(daemonId, agent, authContext)
+    }
+
+    private async modelInspectViaDaemon(
+        daemonId: string,
+        agent: Agent,
+        authContext: DaemonAuthContextRef | null,
+        timeoutMs = 15_000
+    ): Promise<DaemonFrameworkModelCapability> {
+        const payload = await this.daemonRegistry!.rpc({
             daemonId,
             method: 'model.inspect',
             payload: {
@@ -1548,7 +1567,7 @@ export class AgentModelConfigService {
                     ? { authSelection: { mode: 'profile', ...authContext } }
                     : {})
             },
-            timeoutMs: 15_000
+            timeoutMs
         })
         const inspect = payload as unknown as DaemonModelInspectResponse
         const capability = inspect?.frameworks?.find(
@@ -1561,9 +1580,51 @@ export class AgentModelConfigService {
         return capability
     }
 
+    // A profile-bound sprites agent can only be inspected through the
+    // sprite's runner: the bare sprite exec would read the host sign-in, so
+    // it refuses an auth context outright. Both callers of the refresh are a
+    // user's explicit action (the Refresh click, a send's preflight), so
+    // bringing the runner up here carries the same consent as an account
+    // wake and uses the same admission and awake hold.
+    private async inspectSpriteRunnerModelCapability(
+        agent: Agent,
+        authContext: DaemonAuthContextRef
+    ): Promise<DaemonFrameworkModelCapability> {
+        if (!this.runtimeAuth || !this.daemonRegistry || !agent.runtimeId)
+            throw new BadRequestException(
+                `${RUNTIME_AUTH_ERROR.contextUnsupported}: this deployment cannot inspect the selected auth profile; switch the agent back to the sandbox's own sign-in`
+            )
+        const resolved = await this.runtimeAuth.resolveRuntimeHost(
+            agent.userId,
+            agent.runtimeId,
+            { wake: true }
+        )
+        if (resolved.availability !== 'ok' || !resolved.host)
+            throw new BadRequestException(
+                `${RUNTIME_AUTH_ERROR.contextUnsupported}: the sandbox runner is not available (${resolved.availability}); refresh again or switch the agent back to the sandbox's own sign-in`
+            )
+        assertHostHonoursAuthContext(
+            authContext,
+            { clientFeatures: resolved.host.clientFeatures ?? [] },
+            'this sandbox'
+        )
+        // Measured on the local stack [2026-09-18]: a cold bring-up plus the
+        // CLI's first profile-context inspect overruns the daemon branch's
+        // 15s; the second click succeeded warm. Give the cold path headroom.
+        return this.modelInspectViaDaemon(
+            resolved.host.id,
+            agent,
+            authContext,
+            30_000
+        )
+    }
+
     private async inspectExecRuntimeModelCapability(
         agent: Agent
     ): Promise<DaemonFrameworkModelCapability> {
+        const authContext = authContextRefFor(agent)
+        if (authContext && agent.runtime === 'sprites')
+            return this.inspectSpriteRunnerModelCapability(agent, authContext)
         if (!this.execDrivers)
             throw new BadRequestException('runtime exec is unavailable')
         const handle = await this.execDrivers.forAgent(agent.id)

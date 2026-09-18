@@ -695,12 +695,9 @@ const en = {
                 expired: 'Sign-in expired',
                 apiKey: 'API key',
                 unknownStatus: 'Unknown',
-                checkNow: 'Check now',
                 refreshUsage: 'Refresh usage',
-                sandboxAsleep: 'The sandbox is asleep. Checking its account wakes it and counts as running time.',
                 sandboxLimit: 'Every active sandbox slot on your plan is in use. Stop another sandbox or let it fall asleep, then check again.',
                 daemonOffline: 'The machine is offline, so its sign-in cannot be checked.',
-                daemonUpgradeRequired: 'Update the mf CLI on this machine to see its account and usage.',
                 probeFailed: 'Could not check the account on this runtime.',
                 usageStale: 'The saved sign-in has expired on the runtime. Usage shows again after the CLI next runs and refreshes it.',
                 usageUnauthorized: 'The provider rejected the saved sign-in. Sign in again to see usage.',
@@ -3184,10 +3181,6 @@ const en = {
             readyModels: 'Ready · {{count}} models',
             notChecked: 'Not checked',
             config: 'Config',
-            cli: 'CLI',
-            checked: 'Checked',
-            notCheckedYet:
-                'Not checked yet — use “Refresh” above to read the agent\'s CLI config.',
             chooseModel: 'Choose model',
             default: 'Default',
             models: 'Models',
@@ -3242,7 +3235,6 @@ const en = {
                 credentialsMissing:
                     'No sign-in was found on this runtime. Sign in there, then refresh.',
                 cliDefault: 'CLI default',
-                modelsFrom: 'Models from the local CLI config',
                 pickModel: 'Select a local model'
             },
             claudeMapping: 'Claude model mapping',

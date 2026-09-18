@@ -1,4 +1,5 @@
 import type {
+    AgentRuntimeAuthBinding,
     RuntimeAuthListView,
     RuntimeAuthOperationView,
     RuntimeAuthProfileView
@@ -175,6 +176,23 @@ export const runtimeAuthOptions = (
             }
         })
 ]
+
+// The rows an agent's own picker offers. A bound profile the list no longer
+// carries (removed elsewhere, or the list failed to load) still needs a row
+// so the user can see it and move the agent off it.
+export const profilesWithBinding = (
+    list: Pick<RuntimeAuthListView, 'profiles'> | null,
+    binding: Pick<AgentRuntimeAuthBinding, 'profileId' | 'profile'>
+): RuntimeAuthProfileSummary[] => {
+    const profiles: RuntimeAuthProfileSummary[] = [...(list?.profiles ?? [])]
+    if (
+        binding.profileId &&
+        binding.profile &&
+        !profiles.some((profile) => profile.id === binding.profileId)
+    )
+        profiles.push(binding.profile)
+    return profiles
+}
 
 // The wizard's starting selection: the runtime's default profile when it is
 // still bindable, otherwise the host sign-in. A stale default id (the profile

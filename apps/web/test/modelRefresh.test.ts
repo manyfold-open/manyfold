@@ -93,6 +93,9 @@ for (const entry of entryPoints) {
         const click = compile(entry.initializer.expression.getText(composer), {
             source: 'runtime-local',
             runtimeLocal: true,
+            // The account leg of the click is the account hooks' contract,
+            // not the model refresh one under test here.
+            accountEnabled: false,
             setRefreshingSource: () => {},
             onRefresh: (source?: string) => (completion = refresh(source))
         }) as () => void

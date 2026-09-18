@@ -1,4 +1,4 @@
-import type { RuntimeAccountView } from '@manyfold/shared'
+import type { RuntimeAccountUsage, RuntimeAccountView } from '@manyfold/shared'
 import type { TagTone } from '@/components/Tag'
 import type { TFn } from '@/lib/i18n'
 import { formatDuration } from '@/lib/usageFormat'
@@ -109,6 +109,87 @@ export const hostAccountSubline = (
         identity?.organization ?? null
     ].filter((part): part is string => Boolean(part))
     return parts.length > 0 ? parts.join(' · ') : null
+}
+
+const CACHE_VERSION = 1
+const cacheKey = (runtimeId: string): string =>
+    `mf.runtimeAccountView.${runtimeId}`
+
+const localStorageOrNull = (): Storage | null => {
+    try {
+        return globalThis.localStorage ?? null
+    } catch {
+        return null
+    }
+}
+
+// Only a successful probe is cached: it is the shape that carries an identity
+// and usage, and the reader wants "who was this host last time", not "the
+// sandbox was asleep last time".
+export const readCachedRuntimeAccountView = (
+    runtimeId: string
+): RuntimeAccountView | null => {
+    const storage = localStorageOrNull()
+    if (!storage) return null
+    const key = cacheKey(runtimeId)
+    try {
+        const raw = storage.getItem(key)
+        if (!raw) return null
+        const parsed = JSON.parse(raw) as {
+            version?: number
+            view?: RuntimeAccountView
+        } | null
+        const view = parsed?.view
+        if (
+            parsed?.version !== CACHE_VERSION ||
+            !view ||
+            view.runtimeId !== runtimeId ||
+            view.status !== 'ok'
+        ) {
+            storage.removeItem(key)
+            return null
+        }
+        return view
+    } catch {
+        try {
+            storage.removeItem(key)
+        } catch {
+            // Storage can be unavailable mid-flight; the cache is best-effort.
+        }
+        return null
+    }
+}
+
+export const writeCachedRuntimeAccountView = (
+    view: RuntimeAccountView
+): void => {
+    if (view.status !== 'ok') return
+    const storage = localStorageOrNull()
+    if (!storage) return
+    try {
+        storage.setItem(
+            cacheKey(view.runtimeId),
+            JSON.stringify({
+                version: CACHE_VERSION,
+                storedAt: new Date().toISOString(),
+                view
+            })
+        )
+    } catch {
+        // Quota or privacy-mode failures only lose the head start.
+    }
+}
+
+// What the composer's local-config panel may chart: usage exists only for
+// the host sign-in (profile accounts carry none yet), and a probe that did
+// not reach the host has nothing trustworthy to show.
+export const ambientAccountUsage = (
+    boundProfileId: string | null,
+    account: RuntimeAccountView | null
+): RuntimeAccountUsage | null => {
+    if (boundProfileId || !account || account.status !== 'ok') return null
+    const usage = account.usage
+    return usage && usage.windows.length > 0 ? usage : null
 }
 
 // The account section offers sign-in when the host reports no usable

@@ -91,6 +91,7 @@ import {
     mergeCachedRuntimeLocalModelConfigView,
     normalizeDraftForView,
     readCachedModelConfigView,
+    sameModelConfigViewExceptRuntimeAuth,
     subscribeModelConfigViewUpdates,
     validateModelConfigDraft,
     writeCachedModelConfigView
@@ -439,6 +440,19 @@ const AgentChat: FC = (): ReactNode => {
         },
         []
     )
+    // The last stored view, so a broadcast that only moved the runtime-auth
+    // binding (picking an account in the composer menu, or in another tab)
+    // can land without resetting the menu's unsent model/source drafts.
+    const modelConfigViewRef = useRef<AgentModelConfigView | null>(null)
+    useEffect(() => {
+        modelConfigViewRef.current = modelConfigView
+    }, [modelConfigView])
+    const handleModelConfigViewChange = useCallback(
+        (view: AgentModelConfigView): void => {
+            setModelConfigView(view)
+        },
+        []
+    )
     const capabilities: ChatCapabilities = useMemo(
         () =>
             currentAgent
@@ -623,7 +637,10 @@ const AgentChat: FC = (): ReactNode => {
         }
         return subscribeModelConfigViewUpdates(agentId, (cachedView) => {
             if (cachedView.framework !== currentAgentFramework) return
-            applyModelConfigView(cachedView)
+            const prev = modelConfigViewRef.current
+            if (prev && sameModelConfigViewExceptRuntimeAuth(prev, cachedView))
+                setModelConfigView(cachedView)
+            else applyModelConfigView(cachedView)
         })
     }, [
         agentId,
@@ -2403,6 +2420,14 @@ const AgentChat: FC = (): ReactNode => {
                     : null
             }
             modelConfigRefreshing={modelConfigRefreshing}
+            runtimeId={
+                frameworkModelConfigSupported ? currentAgent.runtimeId : null
+            }
+            onModelConfigViewChange={
+                frameworkModelConfigSupported
+                    ? handleModelConfigViewChange
+                    : undefined
+            }
             permissionMode={permissionMode ?? undefined}
             onPermissionModeChange={handlePermissionModeChange}
             onModelConfigDraftChange={
