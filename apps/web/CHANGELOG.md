@@ -1,5 +1,11 @@
 # @manyfold/web
 
+## 2.2.1
+
+### Patch Changes
+
+- [#481](https://github.com/manyfold-open/manyfold/pull/481) [`218ae1a`](https://github.com/manyfold-open/manyfold/commit/218ae1ad42326206a5b30dee24abf7e1535c8ad5) Thanks [@yingca1](https://github.com/yingca1)! - The chat composer's Local config panel now shows and switches the account the agent runs under, reusing the runtime page's account probe. Picking an account persists immediately (same compare-and-set binding as Agent Settings) and takes effect from the next run; while the agent is on the host sign-in, the panel charts that account's usage windows when the last probe has them. The read-only CLI version and Checked rows are gone.
+
 ## 2.2.0
 
 ### Minor Changes
