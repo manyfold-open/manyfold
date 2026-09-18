@@ -1,5 +1,40 @@
 # @manyfold/web
 
+## 2.2.0
+
+### Minor Changes
+
+- [#469](https://github.com/manyfold-open/manyfold/pull/469) [`ad37487`](https://github.com/manyfold-open/manyfold/commit/ad37487e6d93bf1510fb0d4a83fd0f77db701f53) Thanks [@yingca1](https://github.com/yingca1)! - Make a terminal's hold on a chat session explicit, and gate the next turn on importing what it wrote (ADR-0029 §1, §2).
+
+    - Resuming a session's TUI in the terminal now takes the session's writes as its last step. While held, web sends, channel messages, A2A tasks and the OpenAI-compatible endpoint are refused with a stable `409 session_held_by_terminal`; channel messages get a notice, ones already queued stay queued. The invariant is a database CHECK, so two writers can no longer share one transcript.
+    - The chat view shows "Open in a terminal · Back to web" over a read-only composer; a second tab sees the same and can release from there. Closing the terminal, a reconnecting tab, or a lease that ran out (the reaper, audited) all release it by killing the process through its handle first.
+    - Releasing stamps the import pending in the same statement and imports the terminal's transcript; a turn is refused with `409 session_import_pending` until that import has actually read the transcript, with one bounded retry at the gate, a manual retry, and an explicit abandon (automatic when the runtime is no longer the one the terminal wrote on).
+    - Sprites terminals now kill their exec session on close instead of leaving it running and billed; daemon terminals wait for the pty close ack before releasing.
+
+### Patch Changes
+
+- [#470](https://github.com/manyfold-open/manyfold/pull/470) [`19a9156`](https://github.com/manyfold-open/manyfold/commit/19a9156d511e7750f9cea2473041f63c1719f404) Thanks [@yingca1](https://github.com/yingca1)! - Terminals now tell the platform which CLI session they are on (ADR-0029 §3, hook reporting).
+
+    - `mf daemon hooks install | uninstall | status`: Manyfold's `SessionStart` / `SessionEnd` hooks for `claude` and `codex`, written as one marked script plus one marked entry per event in `~/.claude/settings.json` and `~/.codex/hooks.json`, next to your own hooks. `mf daemon register` asks once (`-y` says yes, `--no-hooks` says no); the choice is remembered and `mf daemon start` keeps the hooks current. A sprite runner installs them by default. The hooks act only inside a terminal Manyfold opened (`MF_TERMINAL_ID`), never print, and are not installed on Windows.
+    - API: `POST /terminal/session-hooks`, reachable only with the token of a live Manyfold terminal. A resume that came back under a new id, or a compaction that changed it, moves the chat session to the new ref after importing the old ref's tail; a TUI that opens an idle chat session takes its hold; one that opens a session with a turn in flight, or held by another terminal, is left alone and the tab is warned; a session that started fresh in the terminal (`startup`, `/clear`, fork) becomes a chat session of its own — marked `origin: terminal` — when the terminal ends, if its transcript is not empty; `SessionEnd` gives the hold back and runs the import without waiting for the terminal to close.
+    - Every terminal Manyfold opens now carries the full four-key runtime identity (`MF_API_URL` and `MF_DEPLOY_ENV` were missing on the daemon arm) plus `MF_TERMINAL_ID`, registered as terminal surfaces of the exec env contract.
+
+- [#475](https://github.com/manyfold-open/manyfold/pull/475) [`673428d`](https://github.com/manyfold-open/manyfold/commit/673428d2d6eb25334f6edd22de25d45987e9b26e) Thanks [@yingca1](https://github.com/yingca1)! - Terminals on daemon agents now belong to the daemon rather than to the browser tab showing them (ADR-0029 §6). The daemon keeps the shell and a headless copy of its screen when the tab's connection drops or the tab closes; the workbench's reconnect, or the next open of a terminal for a session that shell holds, attaches to the same shell and gets the screen back, taking it over from any other tab (which is told with close code 4409). A terminal nobody is attached to is closed after 30 minutes, or 5 minutes under a runtime auth profile; "Back to web" ends it at once. The daemon lists the terminals it owns in every hello and heartbeat, and the platform now takes that list, not the tab's tunnel, as proof that a terminal's hold is alive: a terminal the daemon no longer reports has its row ended and its hold released, and a terminal no row claims is closed. `mf daemon status` shows the terminals kept and attached; a daemon keeps at most 8. Daemons without the capability (`pty.terminal.v1`) keep the previous stream-bound behaviour.
+
+- [#468](https://github.com/manyfold-open/manyfold/pull/468) [`d9a1401`](https://github.com/manyfold-open/manyfold/commit/d9a1401d88b9edca5894053be59feea6231d288d) Thanks [@yingca1](https://github.com/yingca1)! - Explicitly limit consented Google Analytics cookies to 400 days, renewing with consented activity, and document the difference from first-party attribution storage. Analytics remains opt-in: no Google tag loads before acceptance, withdrawal stops events and clears accessible cookies, and SPA pageviews stay application-owned and sanitized. This corrects the earlier release note describing the original consent-less integration; that historical entry does not describe the current behavior.
+
+    Improve the contrast of small landing-page labels, example records, status text and footer copy using the existing design tokens.
+
+    Keep font subsets out of the initial stylesheet and load the NetMind sign-in form only when its dialog opens. Web loads non-English catalogs on demand while preserving one shared translation runtime, URL-pinned marketing language, and correctly localized analytics titles.
+
+    Restore the landing's two-step CTA layout and mutually exclusive desktop/mobile step labels. A failed sign-in chunk keeps the dialog closable and offers an explicit page reload to clear the browser's failed-module cache.
+
+    Prioritize the static marketing body's styles and fonts ahead of its SPA enhancement without lowering the product shell's entry priority.
+
+    Cancel a marketing page's pending language selection when leaving its URL, so a late catalog cannot override browser navigation or a newer product language choice.
+
+- [#461](https://github.com/manyfold-open/manyfold/pull/461) [`d43060f`](https://github.com/manyfold-open/manyfold/commit/d43060f49b253c51508fde751ea1c108a18b9984) Thanks [@jiam1ngfu](https://github.com/jiam1ngfu)! - Re-export the shared social card as v6: the landing register on a dark ground, with a Fieldwork ripple beside the hero copy and the milled-aluminium chassis retired. Both apps point at the new file; v5 keeps its own URL and bytes for clients that cached it.
+
 ## 2.1.6
 
 ### Patch Changes
