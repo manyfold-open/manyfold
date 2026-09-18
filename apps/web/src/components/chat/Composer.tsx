@@ -56,6 +56,7 @@ import {
 } from '@/components/icons'
 import { Spinner } from '@/components/Loading'
 import { UsageWindows } from '@/components/RuntimeAccountList'
+import { relative } from '@/components/RuntimeDetailPanel'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import ComposerMenu from '@/components/chat/ComposerMenu'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
@@ -90,14 +91,15 @@ import { useI18n, type TFn } from '@/lib/i18n'
 import {
     ambientAccountUsage,
     hostAccountHeadline,
-    hostAccountSubline
+    planLabel
 } from '@/lib/runtimeAccount'
 import {
     INHERITED_AUTH_OPTION,
     profileDisplayName,
     profilesWithBinding,
     runtimeAuthOptions,
-    runtimeAuthPickerState
+    runtimeAuthPickerState,
+    runtimeAuthSwitchable
 } from '@/lib/runtimeAuth'
 import { useRuntimeAccount } from '@/lib/useRuntimeAccount'
 import { useRuntimeAuthBinding } from '@/lib/useRuntimeAuthBinding'
@@ -1871,12 +1873,20 @@ const RuntimeLocalModelMenu: FC<{
     )
     const bound = view.runtimeAuth.profileId
     // Opening the menu never wakes a sleeping sandbox: both loads below read
-    // whatever the host last reported. The account probe only matters while
-    // the agent runs on the host sign-in — a bound profile has no usage yet.
-    const { list } = useRuntimeAuthList(authSupported ? runtimeId : null)
-    const { view: account } = useRuntimeAccount(
-        authSupported && !bound ? runtimeId : null
-    )
+    // whatever the host last reported (the account starts from its local
+    // cache). The refresh icon is the user's explicit wake. The account probe
+    // only matters while the agent runs on the host sign-in — a bound profile
+    // has no usage yet.
+    const {
+        list,
+        loading: listLoading,
+        reload: reloadAuth
+    } = useRuntimeAuthList(authSupported ? runtimeId : null)
+    const {
+        lastOk: account,
+        loading: accountLoading,
+        probe: probeAccount
+    } = useRuntimeAccount(authSupported && !bound ? runtimeId : null)
     const {
         saving,
         error: bindingError,
@@ -1927,11 +1937,10 @@ const RuntimeLocalModelMenu: FC<{
 
     const picker = runtimeAuthPickerState(list)
     const showAccount = authSupported
-    // Picker boundary matches the settings row: with nothing to choose the
-    // account renders read-only, but an existing binding stays switchable
-    // even when the list cannot offer it, so the user can move the agent off
-    // it. What the agent runs as — and its usage — shows either way.
-    const pickerAvailable = picker !== 'hidden' || Boolean(bound)
+    // Switching only needs the database (a binding is a DB compare-and-set),
+    // so an asleep sandbox still switches; the picker state still names the
+    // execute-unsupported case when the host is reachable but its mf is old.
+    const pickerAvailable = runtimeAuthSwitchable(list, view.runtimeAuth)
     const accountOptions = runtimeAuthOptions(
         profilesWithBinding(list, view.runtimeAuth),
         t
@@ -1940,13 +1949,33 @@ const RuntimeLocalModelMenu: FC<{
     const accountValueLabel =
         bound && view.runtimeAuth.profile
             ? profileDisplayName(view.runtimeAuth.profile)
-            : account?.status === 'ok'
+            : account
               ? hostAccountHeadline(account, t)
               : t('web.runtimeAuth.inherited')
-    const accountSubline =
-        !bound && account?.status === 'ok'
-            ? hostAccountSubline(account, t)
-            : null
+    const accountRefreshing = accountLoading || listLoading
+    const refreshAccount = (): void => {
+        void probeAccount(true)
+        void reloadAuth({ wake: true })
+    }
+    const accountCaption =
+        picker === 'execute-unsupported'
+            ? t('web.runtimeAuth.executeUnsupported')
+            : [
+                  !bound
+                      ? planLabel(
+                            account?.identity?.plan ??
+                                account?.usage?.plan ??
+                                null
+                        )
+                      : null,
+                  !bound && account?.checkedAt
+                      ? t('web.runtimeDetails.checked', {
+                            time: relative(account.checkedAt)
+                        })
+                      : null
+              ]
+                  .filter((part): part is string => Boolean(part))
+                  .join(' · ')
     const usage = ambientAccountUsage(bound, account)
 
     return (
@@ -2109,11 +2138,33 @@ const RuntimeLocalModelMenu: FC<{
                             </SubmenuPanel>
                         )}
                     </div>
-                    {accountSubline && (
-                        <p className='text-caption text-subtle px-2.5'>
-                            {accountSubline}
-                        </p>
-                    )}
+                    <div className='text-caption text-subtle flex items-center gap-2 px-2.5 pb-1'>
+                        <span className='min-w-0 flex-1 truncate'>
+                            {accountCaption}
+                        </span>
+                        <ShortcutTooltip label={t('web.composer.refresh')}>
+                            <button
+                                type='button'
+                                className='chat-composer-model-source-iconbtn'
+                                disabled={accountRefreshing}
+                                aria-label={t('web.composer.refresh')}
+                                onClick={refreshAccount}
+                            >
+                                {accountRefreshing ? (
+                                    <Spinner size={12} />
+                                ) : (
+                                    <RefreshIcon className='h-3 w-3' />
+                                )}
+                            </button>
+                        </ShortcutTooltip>
+                        <Link
+                            to={`/settings/runtimes/${runtimeId}`}
+                            className='text-link hover:text-fg shrink-0 font-medium'
+                            onClick={onRequestClose}
+                        >
+                            {t('web.runtimeAuth.runtimePageLink')}
+                        </Link>
+                    </div>
                     {usage && (
                         <div className='px-2.5 pb-1'>
                             <UsageWindows
@@ -2123,18 +2174,6 @@ const RuntimeLocalModelMenu: FC<{
                             />
                         </div>
                     )}
-                    <p className='text-caption text-subtle px-2.5 pb-1 pt-1'>
-                        {picker === 'execute-unsupported'
-                            ? t('web.runtimeAuth.executeUnsupported')
-                            : t('web.runtimeAuth.settingsHint')}{' '}
-                        <Link
-                            to={`/settings/runtimes/${runtimeId}`}
-                            className='text-link hover:text-fg font-medium'
-                            onClick={onRequestClose}
-                        >
-                            {t('web.runtimeAuth.runtimePageLink')}
-                        </Link>
-                    </p>
                     {bindingError && (
                         <div className='text-caption text-error px-2.5 pb-1'>
                             {bindingError}

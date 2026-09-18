@@ -194,6 +194,17 @@ export const profilesWithBinding = (
     return profiles
 }
 
+// Whether the composer may offer switching at all. Unlike the picker state
+// this does not need an awake host: profiles live in the database and the
+// binding write is a database compare-and-set, so a sleeping sandbox's agent
+// can still be moved between accounts — the next execution picks it up.
+export const runtimeAuthSwitchable = (
+    list: Pick<RuntimeAuthListView, 'profiles'> | null,
+    binding: Pick<AgentRuntimeAuthBinding, 'profileId' | 'profile'>
+): boolean =>
+    Boolean(binding.profileId) ||
+    profilesWithBinding(list, binding).some(profileBindable)
+
 // The wizard's starting selection: the runtime's default profile when it is
 // still bindable, otherwise the host sign-in. A stale default id (the profile
 // was removed) must not pre-select a row the list no longer has.
