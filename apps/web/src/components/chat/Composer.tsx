@@ -87,7 +87,11 @@ import {
 } from '@/lib/permissionModes'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
-import { ambientAccountUsage, hostAccountHeadline } from '@/lib/runtimeAccount'
+import {
+    ambientAccountUsage,
+    hostAccountHeadline,
+    hostAccountSubline
+} from '@/lib/runtimeAccount'
 import {
     INHERITED_AUTH_OPTION,
     profileDisplayName,
@@ -1922,10 +1926,12 @@ const RuntimeLocalModelMenu: FC<{
     const claudeDraft = draft?.framework === 'claude-code' ? draft : null
 
     const picker = runtimeAuthPickerState(list)
-    // Same boundary as the settings row: nothing to choose hides the picker,
-    // but an existing binding stays visible even when the list cannot offer
-    // it, so the user can still move the agent off it.
-    const showAccount = authSupported && (picker !== 'hidden' || Boolean(bound))
+    const showAccount = authSupported
+    // Picker boundary matches the settings row: with nothing to choose the
+    // account renders read-only, but an existing binding stays switchable
+    // even when the list cannot offer it, so the user can move the agent off
+    // it. What the agent runs as — and its usage — shows either way.
+    const pickerAvailable = picker !== 'hidden' || Boolean(bound)
     const accountOptions = runtimeAuthOptions(
         profilesWithBinding(list, view.runtimeAuth),
         t
@@ -1937,6 +1943,10 @@ const RuntimeLocalModelMenu: FC<{
             : account?.status === 'ok'
               ? hostAccountHeadline(account, t)
               : t('web.runtimeAuth.inherited')
+    const accountSubline =
+        !bound && account?.status === 'ok'
+            ? hostAccountSubline(account, t)
+            : null
     const usage = ambientAccountUsage(bound, account)
 
     return (
@@ -2056,13 +2066,26 @@ const RuntimeLocalModelMenu: FC<{
                 <>
                     <div className='popover-separator' />
                     <div className='chat-composer-claude-menu'>
-                        {branch(
-                            'account',
-                            t('web.runtimeAuth.accountLabel'),
-                            accountValueLabel,
-                            saving
+                        {pickerAvailable ? (
+                            branch(
+                                'account',
+                                t('web.runtimeAuth.accountLabel'),
+                                accountValueLabel,
+                                saving
+                            )
+                        ) : (
+                            <div className='text-ui text-muted flex w-full items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-left font-medium'>
+                                <span className='chat-composer-codex-branch-copy'>
+                                    <span className='chat-composer-codex-branch-label'>
+                                        {t('web.runtimeAuth.accountLabel')}
+                                    </span>
+                                    <span className='chat-composer-codex-branch-value'>
+                                        {accountValueLabel}
+                                    </span>
+                                </span>
+                            </div>
                         )}
-                        {submenu === 'account' && (
+                        {pickerAvailable && submenu === 'account' && (
                             <SubmenuPanel
                                 title={t('web.runtimeAuth.accountLabel')}
                                 count={accountOptions.length}
@@ -2086,6 +2109,11 @@ const RuntimeLocalModelMenu: FC<{
                             </SubmenuPanel>
                         )}
                     </div>
+                    {accountSubline && (
+                        <p className='text-caption text-subtle px-2.5'>
+                            {accountSubline}
+                        </p>
+                    )}
                     {usage && (
                         <div className='px-2.5 pb-1'>
                             <UsageWindows
