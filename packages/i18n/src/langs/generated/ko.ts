@@ -316,7 +316,6 @@ const ko: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'CLI 기본값',
     'web.credentials.runtimeLocal.credentialsExpired': '이 런타임의 로그인이 만료되었습니다. 해당 머신에서 다시 로그인한 뒤 새로 고치세요.',
     'web.credentials.runtimeLocal.credentialsMissing': '이 런타임에서 로그인 정보를 찾지 못했습니다. 해당 머신에서 로그인한 뒤 새로 고치세요.',
-    'web.credentials.runtimeLocal.modelsFrom': '로컬 CLI 설정의 모델',
     'web.credentials.runtimeLocal.pickModel': '로컬 모델 선택',
     'web.emptyState.agentsWorkspaceBody': '에이전트는 자체 샌드박스에서 동작합니다. 대화하거나, 스킬을 추가하거나, 일정에 맞춰 실행할 수 있습니다.',
     "web.emptyState.agentsCreateAction": "에이전트 만들기",

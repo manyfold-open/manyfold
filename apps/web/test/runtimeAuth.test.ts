@@ -15,7 +15,6 @@ import {
     profileSubline,
     profilesWithBinding,
     runtimeAuthOptions,
-    runtimeAuthSwitchable,
     runtimeAuthPickerState
 } from '../src/lib/runtimeAuth'
 
@@ -307,41 +306,5 @@ test('no binding returns the list as-is', () => {
     assert.deepEqual(
         rows.map((row) => row.id),
         ['rap_1']
-    )
-})
-
-test('switching needs only a database profile, not an awake host', () => {
-    const none = { profileId: null, profile: null }
-    assert.equal(runtimeAuthSwitchable(null, none), false)
-    assert.equal(runtimeAuthSwitchable(list(), none), false)
-    assert.equal(
-        runtimeAuthSwitchable(
-            list({
-                availability: 'sandbox-asleep',
-                profiles: [profile()]
-            }),
-            none
-        ),
-        true
-    )
-    assert.equal(
-        runtimeAuthSwitchable(
-            list({ profiles: [profile({ lifecycle: 'deleting' })] }),
-            none
-        ),
-        false
-    )
-    assert.equal(
-        runtimeAuthSwitchable(null, {
-            profileId: 'rap_1',
-            profile: {
-                id: 'rap_1',
-                label: 'Work',
-                lifecycle: 'ready',
-                credentialStatus: 'valid',
-                identity: null
-            }
-        }),
-        true
     )
 })

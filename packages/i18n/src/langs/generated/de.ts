@@ -304,7 +304,6 @@ const de: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'CLI-Standard',
     'web.credentials.runtimeLocal.credentialsExpired': 'Die Anmeldung auf dieser Laufzeitumgebung ist abgelaufen. Melde dich dort erneut an und aktualisiere anschließend.',
     'web.credentials.runtimeLocal.credentialsMissing': 'Auf dieser Laufzeitumgebung wurde keine Anmeldung gefunden. Melde dich dort an und aktualisiere anschließend.',
-    'web.credentials.runtimeLocal.modelsFrom': 'Modelle aus der lokalen CLI-Konfiguration',
     'web.credentials.runtimeLocal.pickModel': 'Lokales Modell auswählen',
     'web.emptyState.sandboxActivityTitle': 'Keine Aktivität',
     'web.emptyState.sandboxActivityBody': 'Da nichts läuft oder geplant ist, wird die Sandbox von selbst angehalten.',

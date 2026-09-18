@@ -304,7 +304,6 @@ const pt: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'Padrão da CLI',
     'web.credentials.runtimeLocal.credentialsExpired': 'A sessão neste ambiente de execução expirou. Entre novamente por lá e depois atualize.',
     'web.credentials.runtimeLocal.credentialsMissing': 'Nenhuma sessão foi encontrada neste ambiente de execução. Entre por lá e depois atualize.',
-    'web.credentials.runtimeLocal.modelsFrom': 'Modelos da configuração local da CLI',
     'web.credentials.runtimeLocal.pickModel': 'Selecionar um modelo local',
     'web.emptyState.sandboxActivityTitle': 'Nenhuma atividade',
     'web.emptyState.sandboxActivityBody': 'Nada está em execução ou programado, então o sandbox fará uma pausa por conta própria.',

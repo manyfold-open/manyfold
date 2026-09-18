@@ -304,7 +304,6 @@ const ja: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'CLI のデフォルト',
     'web.credentials.runtimeLocal.credentialsExpired': 'このランタイムのサインインは期限切れです。そのマシンで再度サインインしてから更新してください。',
     'web.credentials.runtimeLocal.credentialsMissing': 'このランタイムにサインイン情報が見つかりません。そのマシンでサインインしてから更新してください。',
-    'web.credentials.runtimeLocal.modelsFrom': 'ローカル CLI 設定のモデル',
     'web.credentials.runtimeLocal.pickModel': 'ローカルモデルを選択',
     'web.emptyState.sandboxActivityTitle': '活動なし',
     'web.emptyState.sandboxActivityBody': '何も実行中またはスケジュールされていないため、サンドボックスは自動的に一時停止します。',

@@ -304,7 +304,6 @@ const es: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'Valor predeterminado de la CLI',
     'web.credentials.runtimeLocal.credentialsExpired': 'La sesión en este entorno de ejecución ha caducado. Vuelve a iniciar sesión allí y luego actualiza.',
     'web.credentials.runtimeLocal.credentialsMissing': 'No se encontró ninguna sesión en este entorno de ejecución. Inicia sesión allí y luego actualiza.',
-    'web.credentials.runtimeLocal.modelsFrom': 'Modelos de la configuración local de la CLI',
     'web.credentials.runtimeLocal.pickModel': 'Seleccionar un modelo local',
     'web.emptyState.sandboxActivityTitle': 'Sin actividad',
     'web.emptyState.sandboxActivityBody': 'No hay nada en ejecución ni programado, por lo que sandbox se detendrá por sí solo.',

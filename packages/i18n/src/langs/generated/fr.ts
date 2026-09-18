@@ -304,7 +304,6 @@ const fr: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'Valeur par défaut de la CLI',
     'web.credentials.runtimeLocal.credentialsExpired': 'La connexion sur cet environnement d\'exécution a expiré. Reconnectez-vous là-bas, puis actualisez.',
     'web.credentials.runtimeLocal.credentialsMissing': 'Aucune connexion n\'a été trouvée sur cet environnement d\'exécution. Connectez-vous là-bas, puis actualisez.',
-    'web.credentials.runtimeLocal.modelsFrom': 'Modèles issus de la configuration locale de la CLI',
     'web.credentials.runtimeLocal.pickModel': 'Sélectionner un modèle local',
     'web.emptyState.sandboxActivityTitle': 'Aucune activité',
     'web.emptyState.sandboxActivityBody': 'Rien n\'est en cours d\'exécution ou planifié, le bac à sable se mettra donc en pause tout seul.',

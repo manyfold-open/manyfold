@@ -304,7 +304,6 @@ const hi: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'CLI डिफ़ॉल्ट',
     'web.credentials.runtimeLocal.credentialsExpired': 'इस रनटाइम पर साइन-इन की अवधि समाप्त हो गई है। वहाँ दोबारा साइन इन करें, फिर रीफ़्रेश करें।',
     'web.credentials.runtimeLocal.credentialsMissing': 'इस रनटाइम पर कोई साइन-इन नहीं मिला। वहाँ साइन इन करें, फिर रीफ़्रेश करें।',
-    'web.credentials.runtimeLocal.modelsFrom': 'स्थानीय CLI कॉन्फ़िगरेशन के मॉडल',
     'web.credentials.runtimeLocal.pickModel': 'स्थानीय मॉडल चुनें',
     'web.emptyState.sandboxActivityTitle': 'कोई गतिविधि नहीं',
     'web.emptyState.sandboxActivityBody': 'कुछ भी नहीं चल रहा है या शेड्यूल नहीं किया गया है, इसलिए सैंडबॉक्स अपने आप रुक जाएगा।',

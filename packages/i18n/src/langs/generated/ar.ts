@@ -1416,7 +1416,6 @@ const ar: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'الافتراضي من CLI',
     'web.credentials.runtimeLocal.credentialsExpired': 'انتهت صلاحية تسجيل الدخول على بيئة التشغيل هذه. سجّل الدخول هناك مرة أخرى ثم حدّث.',
     'web.credentials.runtimeLocal.credentialsMissing': 'لم يُعثر على تسجيل دخول على بيئة التشغيل هذه. سجّل الدخول هناك ثم حدّث.',
-    'web.credentials.runtimeLocal.modelsFrom': 'النماذج من إعداد CLI المحلي',
     'web.credentials.runtimeLocal.pickModel': 'اختر نموذجًا محليًا',
     'web.credentials.savedProviders': 'موفّرو {{provider}} المحفوظون',
     'web.credentials.saving': 'جارٍ الحفظ…',

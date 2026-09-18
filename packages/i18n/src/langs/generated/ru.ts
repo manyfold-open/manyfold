@@ -304,7 +304,6 @@ const ru: Record<string, string> = {
     'web.credentials.runtimeLocal.cliDefault': 'По умолчанию из CLI',
     'web.credentials.runtimeLocal.credentialsExpired': 'Срок входа в этой среде выполнения истёк. Войдите там заново, затем обновите.',
     'web.credentials.runtimeLocal.credentialsMissing': 'В этой среде выполнения вход не найден. Войдите там, затем обновите.',
-    'web.credentials.runtimeLocal.modelsFrom': 'Модели из локальной конфигурации CLI',
     'web.credentials.runtimeLocal.pickModel': 'Выбрать локальную модель',
     'web.emptyState.sandboxActivityTitle': 'Нет активности',
     'web.emptyState.sandboxActivityBody': 'Ничего не запущено и не запланировано, поэтому песочница приостановится сама по себе.',
