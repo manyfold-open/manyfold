@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 6.1.1
+
+### Patch Changes
+
+- [#481](https://github.com/manyfold-open/manyfold/pull/481) [`218ae1a`](https://github.com/manyfold-open/manyfold/commit/218ae1ad42326206a5b30dee24abf7e1535c8ad5) Thanks [@yingca1](https://github.com/yingca1)! - Profile-bound sprites agents now probe and run through their sandbox runner. The runtime-local model refresh brings the runner up (same admission and awake hold as an account wake) instead of failing with `auth_context_unsupported`, and turn dispatch always attempts the runner for a turn that requires an auth profile — the rollout list only governs turns that could also run on the bare sprite exec. Codex profile turns also select the builtin OpenAI provider explicitly, so a sandbox whose shared config.toml still pins the platform gateway from a platform-source bootstrap no longer posts subscription credentials at that gateway (401 INVALID_API_KEY).
+
 ## 6.1.0
 
 ### Minor Changes
