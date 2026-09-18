@@ -1,32 +1,26 @@
-import { useState } from 'react'
 import type { FC, ReactNode } from 'react'
 import {
-    RUNTIME_AUTH_ERROR,
     runtimeAuthSupported,
     type AgentFramework,
     type AgentModelConfigView,
     type AgentRuntime
 } from '@manyfold/shared'
-import { ApiError } from '@manyfold/sdk'
 import { Link } from 'react-router-dom'
 import RuntimeAuthProfileSelect from '@/components/chat/RuntimeAuthProfileSelect'
 import { Spinner } from '@/components/Loading'
-import { writeCachedModelConfigView } from '@/lib/agentModelConfig'
-import { useApiClient } from '@/lib/apiClient'
-import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
 import {
     INHERITED_AUTH_OPTION,
-    runtimeAuthPickerState,
-    type RuntimeAuthProfileSummary
+    profilesWithBinding,
+    runtimeAuthPickerState
 } from '@/lib/runtimeAuth'
+import { useRuntimeAuthBinding } from '@/lib/useRuntimeAuthBinding'
 import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 
 // The agent's "run under which account" row on the Model provider tab, shown
-// under the source switch while the source is the runtime's own CLI. A
-// change persists at once as a compare-and-set on the binding version, so
-// two tabs editing the same agent cannot silently overwrite each other; the
-// loser sees the conflict and the reloaded value.
+// under the source switch while the source is the runtime's own CLI. The
+// write itself (CAS + conflict recovery) is the shared binding hook, so this
+// row and the composer's local-config panel cannot drift.
 const RuntimeAuthBindingRow: FC<{
     agentId: string
     runtimeId: string
@@ -43,53 +37,17 @@ const RuntimeAuthBindingRow: FC<{
     onView
 }): ReactNode => {
     const { t } = useI18n()
-    const client = useApiClient()
     const supported = runtimeAuthSupported(framework, runtimeKind)
     const { list, reload } = useRuntimeAuthList(supported ? runtimeId : null)
-    const [saving, setSaving] = useState(false)
-    const [error, setError] = useState<string | null>(null)
+    const { saving, error, change } = useRuntimeAuthBinding(
+        agentId,
+        view,
+        onView
+    )
     const picker = runtimeAuthPickerState(list)
     const bound = view.runtimeAuth.profileId
-    // A bound profile that the list no longer offers (removed elsewhere)
-    // still needs a row so the user can see it and move the agent off it.
     if (!supported || (picker === 'hidden' && !bound)) return null
-    const profiles: RuntimeAuthProfileSummary[] = [...(list?.profiles ?? [])]
-    if (
-        bound &&
-        view.runtimeAuth.profile &&
-        !profiles.some((profile) => profile.id === bound)
-    )
-        profiles.push(view.runtimeAuth.profile)
-
-    const change = async (profileId: string): Promise<void> => {
-        const next = profileId || null
-        if (next === bound || saving) return
-        setSaving(true)
-        setError(null)
-        try {
-            const updated = await client.agents.updateRuntimeAuth(agentId, {
-                profileId: next,
-                expectedBindingVersion: view.runtimeAuth.bindingVersion
-            })
-            writeCachedModelConfigView(updated)
-            onView(updated)
-        } catch (err) {
-            if (
-                err instanceof ApiError &&
-                err.code === RUNTIME_AUTH_ERROR.bindingConflict
-            ) {
-                setError(t('web.runtimeAuth.bindingConflict'))
-                try {
-                    const fresh = await client.agents.getModelConfig(agentId)
-                    writeCachedModelConfigView(fresh)
-                    onView(fresh)
-                } catch {}
-            } else setError(apiErrorMessage(err))
-            void reload()
-        } finally {
-            setSaving(false)
-        }
-    }
+    const profiles = profilesWithBinding(list, view.runtimeAuth)
 
     return (
         <div className='space-y-1.5 pt-1'>
@@ -101,7 +59,9 @@ const RuntimeAuthBindingRow: FC<{
                     profiles={profiles}
                     value={bound ?? INHERITED_AUTH_OPTION}
                     onChange={(next): void => {
-                        void change(next)
+                        void change(next).then((ok) => {
+                            if (!ok) void reload()
+                        })
                     }}
                     disabled={saving || picker === 'execute-unsupported'}
                     size='sm'

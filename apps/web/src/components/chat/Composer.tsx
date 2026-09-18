@@ -20,7 +20,8 @@ import {
     isAllowedChatAttachment,
     isClaudeCodeModelAlias,
     isClaudeCodeOneMillionModelAlias,
-    resolveClaudeCodeModelOptions
+    resolveClaudeCodeModelOptions,
+    runtimeAuthSupported
 } from '@manyfold/shared'
 import type {
     ClipboardEvent,
@@ -31,6 +32,7 @@ import type {
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import {
     ArrowUpIcon,
     CheckIcon,
@@ -53,6 +55,7 @@ import {
     ZapIcon
 } from '@/components/icons'
 import { Spinner } from '@/components/Loading'
+import { UsageWindows } from '@/components/RuntimeAccountList'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import ComposerMenu from '@/components/chat/ComposerMenu'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
@@ -82,9 +85,19 @@ import {
     type ComposerPermissionMode,
     type PermissionOption
 } from '@/lib/permissionModes'
-import { formatDateTime } from '@/lib/dateFormat'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
+import { ambientAccountUsage, hostAccountHeadline } from '@/lib/runtimeAccount'
+import {
+    INHERITED_AUTH_OPTION,
+    profileDisplayName,
+    profilesWithBinding,
+    runtimeAuthOptions,
+    runtimeAuthPickerState
+} from '@/lib/runtimeAuth'
+import { useRuntimeAccount } from '@/lib/useRuntimeAccount'
+import { useRuntimeAuthBinding } from '@/lib/useRuntimeAuthBinding'
+import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 
 interface Props {
     disabled: boolean
@@ -110,6 +123,10 @@ interface Props {
     modelConfigDraft?: AgentModelConfig | null
     modelConfigSource?: AgentModelConfigSource
     modelConfigRefreshing?: boolean
+    // The agent's runtime id plus a view write-back enable the local-config
+    // panel's account picker; without them the panel stays read-only.
+    runtimeId?: string | null
+    onModelConfigViewChange?: (view: AgentModelConfigView) => void
     permissionMode?: ComposerPermissionMode
     onPermissionModeChange?: (mode: ComposerPermissionMode) => void
     onModelConfigDraftChange?: (config: AgentModelConfig) => void
@@ -188,6 +205,7 @@ const Composer: FC<Props> = ({
     hint,
     agentName,
     framework,
+    runtime,
     model,
     modelOverride,
     modelOptions = [],
@@ -197,6 +215,8 @@ const Composer: FC<Props> = ({
     modelConfigDraft = null,
     modelConfigSource,
     modelConfigRefreshing = false,
+    runtimeId = null,
+    onModelConfigViewChange,
     permissionMode,
     onPermissionModeChange,
     onModelConfigDraftChange,
@@ -1084,11 +1104,16 @@ const Composer: FC<Props> = ({
                                                 refreshing={
                                                     modelConfigRefreshing
                                                 }
+                                                runtimeId={runtimeId}
+                                                runtimeKind={runtime}
                                                 onChange={
                                                     onModelConfigDraftChange
                                                 }
                                                 onSourceChange={
                                                     onModelConfigSourceChange
+                                                }
+                                                onViewChange={
+                                                    onModelConfigViewChange
                                                 }
                                                 onRefresh={onRefreshModelConfig}
                                                 onOpenSettings={
@@ -1570,6 +1595,7 @@ const ContextRefChip: FC<{
 interface ModelMenuItemProps {
     label: string
     active: boolean
+    disabled?: boolean
     onSelect: () => void
 }
 
@@ -1578,8 +1604,11 @@ interface FrameworkModelConfigMenuProps {
     draft: AgentModelConfig | null
     source: AgentModelConfigSource
     refreshing: boolean
+    runtimeId?: string | null
+    runtimeKind?: AgentRuntime
     onChange?: (config: AgentModelConfig) => void
     onSourceChange?: (source: AgentModelConfigSource) => void
+    onViewChange?: (view: AgentModelConfigView) => void
     onRefresh?: (source?: AgentModelConfigSource) => Promise<void> | void
     onOpenSettings?: () => void
     onRequestClose?: () => void
@@ -1590,8 +1619,11 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
     draft,
     source,
     refreshing,
+    runtimeId,
+    runtimeKind,
     onChange,
     onSourceChange,
+    onViewChange,
     onRefresh,
     onOpenSettings,
     onRequestClose
@@ -1722,7 +1754,10 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                     <RuntimeLocalModelMenu
                         view={view}
                         draft={draft}
+                        runtimeId={runtimeId ?? null}
+                        runtimeKind={runtimeKind}
                         onChange={onChange}
+                        onViewChange={onViewChange}
                         onRequestClose={onRequestClose}
                     />
                     <RuntimeLocalModelSummary view={view} />
@@ -1806,13 +1841,43 @@ const ModelInlineNotice: FC<{
 const RuntimeLocalModelMenu: FC<{
     view: AgentModelConfigView
     draft: AgentModelConfig | null
+    runtimeId: string | null
+    runtimeKind?: AgentRuntime
     onChange?: (config: AgentModelConfig) => void
+    onViewChange?: (view: AgentModelConfigView) => void
     onRequestClose?: () => void
-}> = ({ view, draft, onChange, onRequestClose }): ReactNode => {
+}> = ({
+    view,
+    draft,
+    runtimeId,
+    runtimeKind,
+    onChange,
+    onViewChange,
+    onRequestClose
+}): ReactNode => {
     const { t } = useI18n()
     const [submenu, setSubmenu] = useState<
-        'model' | 'effort' | 'speed' | 'intelligence' | null
+        'model' | 'effort' | 'speed' | 'intelligence' | 'account' | null
     >(null)
+    const authSupported = Boolean(
+        runtimeId &&
+            runtimeKind &&
+            onViewChange &&
+            runtimeAuthSupported(view.framework, runtimeKind)
+    )
+    const bound = view.runtimeAuth.profileId
+    // Opening the menu never wakes a sleeping sandbox: both loads below read
+    // whatever the host last reported. The account probe only matters while
+    // the agent runs on the host sign-in — a bound profile has no usage yet.
+    const { list } = useRuntimeAuthList(authSupported ? runtimeId : null)
+    const { view: account } = useRuntimeAccount(
+        authSupported && !bound ? runtimeId : null
+    )
+    const {
+        saving,
+        error: bindingError,
+        change
+    } = useRuntimeAuthBinding(view.agentId, view, onViewChange ?? (() => {}))
     const options = runtimeLocalModelOptions(view)
     if (options.length === 0) return null
 
@@ -1828,7 +1893,8 @@ const RuntimeLocalModelMenu: FC<{
     const branch = (
         key: typeof submenu,
         label: string,
-        value: string
+        value: string,
+        busy = false
     ): ReactNode => (
         <button
             type='button'
@@ -1845,11 +1911,33 @@ const RuntimeLocalModelMenu: FC<{
                     {value}
                 </span>
             </span>
-            <ChevronRightIcon className='text-muted h-4 w-4 shrink-0' />
+            {busy ? (
+                <Spinner size={12} />
+            ) : (
+                <ChevronRightIcon className='text-muted h-4 w-4 shrink-0' />
+            )}
         </button>
     )
     const codexDraft = draft?.framework === 'codex' ? draft : null
     const claudeDraft = draft?.framework === 'claude-code' ? draft : null
+
+    const picker = runtimeAuthPickerState(list)
+    // Same boundary as the settings row: nothing to choose hides the picker,
+    // but an existing binding stays visible even when the list cannot offer
+    // it, so the user can still move the agent off it.
+    const showAccount = authSupported && (picker !== 'hidden' || Boolean(bound))
+    const accountOptions = runtimeAuthOptions(
+        profilesWithBinding(list, view.runtimeAuth),
+        t
+    )
+    const accountValue = bound ?? INHERITED_AUTH_OPTION
+    const accountValueLabel =
+        bound && view.runtimeAuth.profile
+            ? profileDisplayName(view.runtimeAuth.profile)
+            : account?.status === 'ok'
+              ? hostAccountHeadline(account, t)
+              : t('web.runtimeAuth.inherited')
+    const usage = ambientAccountUsage(bound, account)
 
     return (
         <>
@@ -1964,6 +2052,68 @@ const RuntimeLocalModelMenu: FC<{
                     </SubmenuPanel>
                 )}
             </div>
+            {showAccount && (
+                <>
+                    <div className='popover-separator' />
+                    <div className='chat-composer-claude-menu'>
+                        {branch(
+                            'account',
+                            t('web.runtimeAuth.accountLabel'),
+                            accountValueLabel,
+                            saving
+                        )}
+                        {submenu === 'account' && (
+                            <SubmenuPanel
+                                title={t('web.runtimeAuth.accountLabel')}
+                                count={accountOptions.length}
+                            >
+                                {accountOptions.map((option) => (
+                                    <ModelMenuItem
+                                        key={option.value || 'inherited'}
+                                        label={option.label}
+                                        active={option.value === accountValue}
+                                        disabled={
+                                            option.disabled ||
+                                            saving ||
+                                            picker === 'execute-unsupported'
+                                        }
+                                        onSelect={() => {
+                                            setSubmenu(null)
+                                            void change(option.value)
+                                        }}
+                                    />
+                                ))}
+                            </SubmenuPanel>
+                        )}
+                    </div>
+                    {usage && (
+                        <div className='px-2.5 pb-1'>
+                            <UsageWindows
+                                windows={usage.windows}
+                                note={null}
+                                fetchedAt={null}
+                            />
+                        </div>
+                    )}
+                    <p className='text-caption text-subtle px-2.5 pb-1 pt-1'>
+                        {picker === 'execute-unsupported'
+                            ? t('web.runtimeAuth.executeUnsupported')
+                            : t('web.runtimeAuth.settingsHint')}{' '}
+                        <Link
+                            to={`/settings/runtimes/${runtimeId}`}
+                            className='text-link hover:text-fg font-medium'
+                            onClick={onRequestClose}
+                        >
+                            {t('web.runtimeAuth.runtimePageLink')}
+                        </Link>
+                    </p>
+                    {bindingError && (
+                        <div className='text-caption text-error px-2.5 pb-1'>
+                            {bindingError}
+                        </div>
+                    )}
+                </>
+            )}
         </>
     )
 }
@@ -1973,44 +2123,24 @@ const RuntimeLocalModelSummary: FC<{
 }> = ({ view }): ReactNode => {
     const { t } = useI18n()
     const local = view.runtimeLocal
-    const rows: Array<{ label: string; value: string; mono?: boolean }> = []
-    if (local?.current)
-        rows.push({ label: t('web.composer.config'), value: local.current })
-    if (local?.cliVersion)
-        rows.push({ label: t('web.composer.cli'), value: local.cliVersion, mono: true })
-    if (local?.lastCheckedAt)
-        rows.push({
-            label: t('web.composer.checked'),
-            value: formatDateTime(local.lastCheckedAt)
-        })
+    // A CLI on its default config reports no current model; the footnote has
+    // nothing to say then and renders nothing rather than an empty frame.
+    if (!local || (!local.current && !local.error)) return null
     return (
         <>
             <div className='popover-separator' />
             <dl className='chat-composer-runtime-local'>
-                {rows.length === 0 && !local?.error && (
-                    <div className='chat-composer-runtime-local-empty'>
-                        {t('web.composer.notCheckedYet')}
-                    </div>
-                )}
-                {rows.map((row) => (
-                    <div
-                        key={row.label}
-                        className='chat-composer-runtime-local-row'
-                    >
+                {local.current && (
+                    <div className='chat-composer-runtime-local-row'>
                         <dt className='chat-composer-runtime-local-label'>
-                            {row.label}
+                            {t('web.composer.config')}
                         </dt>
-                        <dd
-                            className={[
-                                'chat-composer-runtime-local-value',
-                                row.mono ? 'font-mono' : ''
-                            ].join(' ')}
-                        >
-                            {row.value}
+                        <dd className='chat-composer-runtime-local-value'>
+                            {local.current}
                         </dd>
                     </div>
-                ))}
-                {local?.error && (
+                )}
+                {local.error && (
                     <div className='chat-composer-runtime-local-error'>
                         {local.error}
                     </div>
@@ -2508,6 +2638,7 @@ const SubmenuPanel: FC<{
 const ModelMenuItem: FC<ModelMenuItemProps> = ({
     label,
     active,
+    disabled = false,
     onSelect
 }): ReactNode => (
     <button
@@ -2515,6 +2646,7 @@ const ModelMenuItem: FC<ModelMenuItemProps> = ({
         role='menuitemradio'
         aria-checked={active}
         className='chat-composer-model-option'
+        disabled={disabled}
         onClick={onSelect}
     >
         <span className='min-w-0 truncate'>{label}</span>

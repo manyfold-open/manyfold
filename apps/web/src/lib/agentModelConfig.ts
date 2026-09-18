@@ -187,6 +187,17 @@ export const mergeCachedRuntimeLocalModelConfigView = (
     }
 }
 
+// True when two views differ only in their runtime-auth binding. The chat
+// page uses it to apply a binding-only broadcast (picking an account in the
+// composer menu) without resetting the menu's unsent model/source drafts; a
+// serialization mismatch just falls back to the full apply.
+export const sameModelConfigViewExceptRuntimeAuth = (
+    a: AgentModelConfigView,
+    b: AgentModelConfigView
+): boolean =>
+    JSON.stringify({ ...a, runtimeAuth: null }) ===
+    JSON.stringify({ ...b, runtimeAuth: null })
+
 export const draftFromModelConfigView = (
     view: AgentModelConfigView | null
 ): AgentModelConfig | null => {

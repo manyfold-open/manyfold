@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback } from 'react'
 import type { FC, ReactNode } from 'react'
-import type { AgentRuntimeSummary, RuntimeAccountView } from '@manyfold/shared'
+import type { AgentRuntimeSummary } from '@manyfold/shared'
 import { Link } from 'react-router-dom'
 import { GhostSettingsRows, Spinner } from '@/components/Loading'
 import { RuntimeAccountList } from '@/components/RuntimeAccountList'
 import { NoticeRow, relative, Section } from '@/components/RuntimeDetailPanel'
-import { useApiClient } from '@/lib/apiClient'
-import { apiErrorMessage } from '@/lib/errorMessage'
 import { useI18n } from '@/lib/i18n'
 import { updatesPath } from '@/lib/updateCenter'
+import { useRuntimeAccount } from '@/lib/useRuntimeAccount'
 import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 
 // The runtime page's Account section: the host probe (who the machine is
@@ -19,11 +18,8 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
     runtime
 }): ReactNode => {
     const { t } = useI18n()
-    const client = useApiClient()
-    const [view, setView] = useState<RuntimeAccountView | null>(null)
-    const [loading, setLoading] = useState(false)
-    const [error, setError] = useState<string | null>(null)
     const runtimeId = runtime.id
+    const { view, loading, error, probe } = useRuntimeAccount(runtimeId)
     const {
         list: auth,
         loading: authLoading,
@@ -31,49 +27,12 @@ const RuntimeAccountSection: FC<{ runtime: AgentRuntimeSummary }> = ({
         reload: reloadAuth
     } = useRuntimeAuthList(runtimeId)
 
-    const probe = useCallback(
-        async (wake: boolean, refreshUsage = false): Promise<void> => {
-            setLoading(true)
-            setError(null)
-            try {
-                setView(
-                    await client.agentRuntimes.getAccount(runtimeId, {
-                        wake,
-                        refreshUsage
-                    })
-                )
-            } catch (e) {
-                setError(apiErrorMessage(e))
-            } finally {
-                setLoading(false)
-            }
-        },
-        [client, runtimeId]
-    )
-
-    useEffect(() => {
-        void probe(false)
-    }, [probe])
-
-    // A wake from this page holds the sandbox awake for a few minutes so the
-    // sign-in it was for does not pay a second wake; leaving the page lets
-    // it go, so the sandbox suspends on its own and gives the plan's active
-    // slot back.
-    const wokeRef = useRef(false)
     const refreshAll = useCallback(
         async (wake: boolean): Promise<void> => {
-            if (wake) wokeRef.current = true
             await probe(wake)
             await reloadAuth({ wake })
         },
         [probe, reloadAuth]
-    )
-    useEffect(
-        () => (): void => {
-            if (wokeRef.current)
-                void client.runtimeAuth.release(runtimeId).catch(() => null)
-        },
-        [client, runtimeId]
     )
 
     const wakeAction = (label: string): ReactNode => (

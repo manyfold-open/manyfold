@@ -3184,10 +3184,6 @@ const en = {
             readyModels: 'Ready · {{count}} models',
             notChecked: 'Not checked',
             config: 'Config',
-            cli: 'CLI',
-            checked: 'Checked',
-            notCheckedYet:
-                'Not checked yet — use “Refresh” above to read the agent\'s CLI config.',
             chooseModel: 'Choose model',
             default: 'Default',
             models: 'Models',

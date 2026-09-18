@@ -1,4 +1,4 @@
-import type { RuntimeAccountView } from '@manyfold/shared'
+import type { RuntimeAccountUsage, RuntimeAccountView } from '@manyfold/shared'
 import type { TagTone } from '@/components/Tag'
 import type { TFn } from '@/lib/i18n'
 import { formatDuration } from '@/lib/usageFormat'
@@ -109,6 +109,18 @@ export const hostAccountSubline = (
         identity?.organization ?? null
     ].filter((part): part is string => Boolean(part))
     return parts.length > 0 ? parts.join(' · ') : null
+}
+
+// What the composer's local-config panel may chart: usage exists only for
+// the host sign-in (profile accounts carry none yet), and a probe that did
+// not reach the host has nothing trustworthy to show.
+export const ambientAccountUsage = (
+    boundProfileId: string | null,
+    account: RuntimeAccountView | null
+): RuntimeAccountUsage | null => {
+    if (boundProfileId || !account || account.status !== 'ok') return null
+    const usage = account.usage
+    return usage && usage.windows.length > 0 ? usage : null
 }
 
 // The account section offers sign-in when the host reports no usable

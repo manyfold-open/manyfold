@@ -13,6 +13,7 @@ import {
     profileNeedsSignIn,
     profileStatusTag,
     profileSubline,
+    profilesWithBinding,
     runtimeAuthOptions,
     runtimeAuthPickerState
 } from '../src/lib/runtimeAuth'
@@ -253,5 +254,57 @@ test('the picker hides without a reachable host or bindable profile and warns on
             })
         ),
         'execute-unsupported'
+    )
+})
+
+test('a bound profile the list no longer offers still gets a row', () => {
+    const bound = profile({ id: 'rap_gone', label: 'Removed elsewhere' })
+    const binding = {
+        profileId: 'rap_gone',
+        profile: {
+            id: bound.id,
+            label: bound.label,
+            lifecycle: bound.lifecycle,
+            credentialStatus: bound.credentialStatus,
+            identity: bound.identity
+        }
+    }
+    const appended = profilesWithBinding(list({ profiles: [profile()] }), binding)
+    assert.deepEqual(
+        appended.map((row) => row.id),
+        ['rap_1', 'rap_gone']
+    )
+    assert.deepEqual(
+        profilesWithBinding(null, binding).map((row) => row.id),
+        ['rap_gone']
+    )
+})
+
+test('a bound profile already in the list is not duplicated', () => {
+    const bound = profile()
+    const rows = profilesWithBinding(list({ profiles: [bound] }), {
+        profileId: bound.id,
+        profile: {
+            id: bound.id,
+            label: bound.label,
+            lifecycle: bound.lifecycle,
+            credentialStatus: bound.credentialStatus,
+            identity: bound.identity
+        }
+    })
+    assert.deepEqual(
+        rows.map((row) => row.id),
+        ['rap_1']
+    )
+})
+
+test('no binding returns the list as-is', () => {
+    const rows = profilesWithBinding(list({ profiles: [profile()] }), {
+        profileId: null,
+        profile: null
+    })
+    assert.deepEqual(
+        rows.map((row) => row.id),
+        ['rap_1']
     )
 })
