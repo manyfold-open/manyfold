@@ -15,4 +15,5 @@ order: 2
 | `--system` | install the daemon at system scope (boot-time; needs root/sudo; default as root) |
 | `--user` | install the daemon at user scope (per-login; default as non-root) |
 | `--no-launch-browser` | print the auth URL and prompt for the auth code instead of launching a browser (use over SSH) |
+| `--no-hooks` | do not install the claude / codex session hooks (they act only inside Manyfold terminals) |
 | `-h, --help` | display help for command |

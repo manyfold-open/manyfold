@@ -1,5 +1,0 @@
----
-'@manyfold/cli': minor
----
-
-The daemon can run chat-turn execs without pipes (ADR-0029 §4, first slice, gray release off by default). With `MF_DAEMON_EXEC_FILES=1` on macOS / Linux, a plain exec (no runtime auth profile, no temporary settings, no interactive stdin) starts detached through a fixed `/bin/sh` wrapper: stdin comes from a file, stdout and stderr append to log files in the exec directory, and the wrapper commits the exit code as one line in `exit`. The daemon only tails those files, stamps every event with its source byte offset, and on restart adopts an exec that is still running when its pid, start time and boot id all match what it recorded — never signalling a recycled pid — or completes one whose exit line landed while nobody watched. Aborts and deadlines are persisted before they take effect (a timeout reports exit code 124, a signal death 128+n, a kill hits the whole process group), `exec.start` is idempotent by ref id, and the raw logs are deleted at completion. Windows keeps the pipe supervisor; every other exec keeps the pipe path until the next slices move it. `mf daemon start` logs whether the switch is on.
