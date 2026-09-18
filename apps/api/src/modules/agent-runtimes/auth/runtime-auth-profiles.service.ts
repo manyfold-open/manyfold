@@ -117,7 +117,7 @@ const VENDOR_FOR: Record<ConfigurableFramework, string> = {
     'gemini-cli': 'google'
 }
 
-interface ResolvedHost {
+export interface ResolvedHost {
     host: RuntimeHostRow | null
     availability: RuntimeAuthAvailability
 }
@@ -191,6 +191,19 @@ export class RuntimeAuthProfilesService {
                 message: 'auth profile not found'
             })
         return row
+    }
+
+    // Model-config's runtime-local inspection borrows the same resolution the
+    // account endpoints use: a profile-bound sprites agent can only be
+    // inspected through its runner, and bringing that runner up (slot
+    // admission, awake hold) must work exactly like an account wake.
+    async resolveRuntimeHost(
+        userId: string,
+        runtimeId: string,
+        opts: { wake: boolean }
+    ): Promise<ResolvedHost> {
+        const runtime = await this.requireRuntime(userId, runtimeId)
+        return this.resolveHost(runtime, opts)
     }
 
     private async resolveHost(

@@ -4506,7 +4506,17 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         if (!this.runnerManager) return { runner: null }
         if (args.runtime !== 'sprites' || !args.spriteName)
             return { runner: null }
-        if (!spriteRunnerAttemptedFor(args.framework, agentId))
+        // A profile-bound turn has no fallback transport — the bare sprite
+        // exec refuses an auth context outright — so it always attempts the
+        // runner; the rollout list only governs turns that could run either
+        // way.
+        const authContextTurn = Boolean(
+            args.requiredFeatures?.includes(DAEMON_FEATURE_AUTH_CONTEXT)
+        )
+        if (
+            !authContextTurn &&
+            !spriteRunnerAttemptedFor(args.framework, agentId)
+        )
             return { runner: null }
         const startedAt = Date.now()
         try {
