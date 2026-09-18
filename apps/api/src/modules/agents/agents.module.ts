@@ -50,6 +50,7 @@ import { ModelProvidersModule } from '@/modules/model-providers/model-providers.
 import { ConnectionsModule } from '@/modules/connections/connections.module'
 import { AgentSelfModule } from '@/modules/agent-self/agent-self.module'
 import { AgentContextDocManageService } from '@/modules/agents/agent-context-doc-manage.service'
+import { DaemonConfigReconciler } from './daemon-config-reconciler.service'
 import { FrameworkCatalogModule } from '@/modules/framework-catalog/framework-catalog.module'
 import { FrameworkVersionsModule } from '@/modules/framework-versions/framework-versions.module'
 import { FrameworkVersionProbeService } from '@/modules/agents/framework-versions/framework-version-probe.service'
@@ -153,7 +154,8 @@ import {
         McpImportService,
         FrameworkUpgradeService,
         AgentServiceRestartService,
-        AgentContextDocManageService
+        AgentContextDocManageService,
+        DaemonConfigReconciler
     ],
     exports: [
         AgentsService,

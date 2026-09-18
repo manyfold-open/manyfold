@@ -1,7 +1,7 @@
 import { useEffect, type FC } from 'react'
 import { matchPath, useLocation } from 'react-router-dom'
 import { t } from '@manyfold/i18n'
-import { useI18n } from '@/lib/i18n'
+import { ensurePageLanguage, useI18n } from '@/lib/i18n'
 import { seoTitleForPath } from '@/seo/pages'
 
 const BRAND = 'Manyfold'
@@ -152,7 +152,16 @@ export const DocumentTitle: FC = () => {
     // Re-runs on a language switch so the tab does not keep the old wording.
     const { language } = useI18n()
     useEffect(() => {
-        document.title = pageTitleFor(pathname)
+        let current = true
+        void ensurePageLanguage(pathname).then(
+            () => {
+                if (current) document.title = pageTitleFor(pathname)
+            },
+            () => {}
+        )
+        return () => {
+            current = false
+        }
     }, [pathname, language])
     return null
 }

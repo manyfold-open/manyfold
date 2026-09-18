@@ -148,6 +148,7 @@ test(
             const result = await performSelfUpdate({
                 standalone: true,
                 execPath,
+                precheck: async () => {},
                 fetchImpl: h.fetchImpl
             })
             assert.equal(result.changed, true)
@@ -184,6 +185,7 @@ test(
                     performSelfUpdate({
                         standalone: true,
                         execPath,
+                        precheck: async () => {},
                         fetchImpl: h.fetchImpl
                     }),
                 /sha256 mismatch/
@@ -203,6 +205,7 @@ test(
             await performSelfUpdate({
                 standalone: true,
                 execPath,
+                precheck: async () => {},
                 targetVersion: '9.9.9',
                 fetchImpl: h.fetchImpl
             })
@@ -228,6 +231,7 @@ test(
             await performSelfUpdate({
                 standalone: true,
                 execPath,
+                precheck: async () => {},
                 targetVersion: version,
                 fetchImpl: h.fetchImpl
             })
@@ -253,6 +257,7 @@ test(
             const result = await performSelfUpdate({
                 standalone: true,
                 execPath,
+                precheck: async () => {},
                 fetchImpl: h.fetchImpl
             })
             assert.equal(result.changed, false)
@@ -277,6 +282,7 @@ test(
                     performSelfUpdate({
                         standalone: true,
                         execPath,
+                        precheck: async () => {},
                         fetchImpl: h.fetchImpl
                     }),
                 new RegExp(`no ${targetName} build`)

@@ -436,6 +436,9 @@ export class RuntimeAuthManager {
     ): Promise<{
         env: Record<string, string>
         dirs: FrameworkConfigDirs
+        // Where the lease lives, so an exec that outlives this daemon can
+        // record it (a path, never the env) and its adopter can re-stamp it.
+        lockDir: string
         release: () => Promise<void>
     }> {
         const metadata = await this.requireMetadata(framework, profileId)
@@ -452,6 +455,7 @@ export class RuntimeAuthManager {
                 metadata.authMethod
             ),
             dirs: viewConfigDirs(framework, paths.viewDir),
+            lockDir: paths.lockDir,
             release: () => lock.release()
         }
     }

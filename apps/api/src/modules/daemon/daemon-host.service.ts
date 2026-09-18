@@ -1,9 +1,11 @@
 import {
     DAEMON_FEATURE_DAEMON_UPDATE,
+    DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_MIN_CLI_VERSION,
     DAEMON_ONLINE_THRESHOLD_MS,
     DaemonHostSummary,
+    DaemonOwnedTerminal,
     DaemonStartupMethod,
     DetectedFramework,
     MfCliChannel,
@@ -13,7 +15,8 @@ import {
     cliChannelOfVersion,
     createObjectId,
     isCliUpdateAvailable,
-    isCliVersionTooOld
+    isCliVersionTooOld,
+    isObjectId
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -37,6 +40,7 @@ import {
     daemonTokens,
     isManagedDaemonTokenPurpose,
     runtimeHosts,
+    serviceLeases,
     type Database,
     type RuntimeHostRow
 } from '@manyfold/db'
@@ -61,6 +65,16 @@ const isInitUnitStartup = (
 ): method is Exclude<DaemonStartupMethod, 'manual'> =>
     method !== null && method !== 'manual'
 
+// Who brings the daemon back after the swap: its init unit, or — for a
+// manual start that says so (ADR-0029 §5) — the daemon itself, by handing
+// off to a successor it starts and rolling back if that never comes up.
+const canRestartAfterUpdate = (host: {
+    startupMethod: DaemonStartupMethod | null
+    clientFeatures: string[]
+}): boolean =>
+    isInitUnitStartup(host.startupMethod) ||
+    host.clientFeatures.includes(DAEMON_FEATURE_MANUAL_UPDATE)
+
 const ONLINE_THRESHOLD_MS = DAEMON_ONLINE_THRESHOLD_MS
 
 @Injectable()
@@ -77,6 +91,61 @@ export class DaemonHostService {
         private readonly cliCatalog: CliVersionCatalogService,
         private readonly config: ConfigService
     ) {}
+
+    // The terminals a daemon owns (ADR-0029 §6), as its hello and heartbeat
+    // list them. Fanned out to whoever holds terminal rows; nothing is kept
+    // here, since the list changes with every shell that opens or exits.
+    private readonly inventoryListeners = new Set<
+        (daemonId: string, terminals: DaemonOwnedTerminal[]) => void
+    >()
+
+    onTerminalInventory(
+        listener: (daemonId: string, terminals: DaemonOwnedTerminal[]) => void
+    ): () => void {
+        this.inventoryListeners.add(listener)
+        return () => {
+            this.inventoryListeners.delete(listener)
+        }
+    }
+
+    // A list with one malformed entry is no list at all: a listener would
+    // read the missing entry as a terminal that ended.
+    reportTerminalInventory(daemonId: string, terminals: unknown): void {
+        if (!Array.isArray(terminals) || terminals.length > 256) return
+        const parsed: DaemonOwnedTerminal[] = []
+        for (const entry of terminals) {
+            const record =
+                entry && typeof entry === 'object'
+                    ? (entry as Record<string, unknown>)
+                    : null
+            if (
+                !record ||
+                typeof record.terminalId !== 'string' ||
+                !isObjectId(record.terminalId, 'terminalSession') ||
+                typeof record.attached !== 'boolean' ||
+                typeof record.startedAt !== 'string'
+            ) {
+                this.log.warn(
+                    `daemon.terminals.invalid daemonId=${daemonId}; inventory ignored`
+                )
+                return
+            }
+            parsed.push({
+                terminalId: record.terminalId,
+                attached: record.attached,
+                startedAt: record.startedAt
+            })
+        }
+        for (const listener of this.inventoryListeners) {
+            try {
+                listener(daemonId, parsed)
+            } catch (err) {
+                this.log.warn(
+                    `daemon.terminals.listener_failed daemonId=${daemonId}: ${(err as Error).message}`
+                )
+            }
+        }
+    }
 
     private assertSupportedVersion(version: string): void {
         if (isCliVersionTooOld(version, DAEMON_MIN_CLI_VERSION))
@@ -359,6 +428,7 @@ export class DaemonHostService {
                 throw new ConflictException(
                     'daemon host must be revoked before deletion'
                 )
+            await tx.delete(serviceLeases).where(eq(serviceLeases.name, `daemon-config:${args.id}`))
             return deletedRuntimes.length
         })
         await this.audit(args.actorId, auditAction.DAEMON_DELETED, args.id, {
@@ -457,7 +527,7 @@ export class DaemonHostService {
             ),
             canRemoteUpgrade:
                 this.isOnline(host) &&
-                isInitUnitStartup(host.startupMethod) &&
+                canRestartAfterUpdate(host) &&
                 host.clientFeatures.includes(DAEMON_FEATURE_DAEMON_UPDATE),
             canCrossChannelUpgrade: this.crossChannelAllowed(host),
             canResumeInTerminal: host.clientFeatures.includes(
@@ -511,7 +581,7 @@ export class DaemonHostService {
             throw new BadRequestException('daemon host has been revoked')
         if (!this.isOnline(host))
             throw new BadRequestException('daemon is offline')
-        if (!isInitUnitStartup(host.startupMethod))
+        if (!canRestartAfterUpdate(host))
             throw new BadRequestException(
                 'this daemon is not managed by an init unit (launchd/systemd); run `mf update` then restart it on the machine'
             )

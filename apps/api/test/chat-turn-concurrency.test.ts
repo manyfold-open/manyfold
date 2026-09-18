@@ -6,7 +6,9 @@ import type {
 } from '../src/modules/chat/chat-adapter'
 import {
     ChatService,
-    InflightTurnConflictError
+    InflightTurnConflictError,
+    SessionHeldByTerminalError,
+    SessionImportPendingError
 } from '../src/modules/chat/chat.service'
 import type { TurnBudgets } from '../src/modules/chat/turn-budgets'
 
@@ -1027,9 +1029,14 @@ const makeHarness = (
         latestInflightMessageId: async (sessionId: string) =>
             inflightBySession.get(sessionId) ?? null,
         claimInflightTurn: async (sessionId: string, messageId: string) => {
-            if (inflightBySession.has(sessionId)) return false
+            if (inflightBySession.has(sessionId))
+                return { ok: false as const, blockedBy: 'turn' as const }
             inflightBySession.set(sessionId, messageId)
-            return true
+            return {
+                ok: true as const,
+                frameworkSessionRef: null,
+                runtimeSyncCursor: null
+            }
         },
         releaseInflightTurn: async (sessionId: string, messageId: string) => {
             if (inflightBySession.get(sessionId) === messageId)
@@ -1263,3 +1270,117 @@ const makeHarness = (
         internals
     }
 }
+
+/* ADR-0029: the turn slot has two more occupants than a live turn — a
+   terminal holding the session's writes, and a transcript import that has
+   not settled. Each refuses with its own 409, never with the inflight error
+   the channel bridge and A2A wait on. A pending import gets exactly one
+   settle attempt at the gate before the refusal. */
+const blockedRepo = (
+    h: Harness,
+    blockedBy: 'terminal' | 'import',
+    afterSettle?: () => void
+): { claims: number } => {
+    const state = { claims: 0 }
+    const repo = h.service['repo'] as {
+        claimInflightTurn: (...args: unknown[]) => Promise<unknown>
+    }
+    let settled = false
+    repo.claimInflightTurn = async () => {
+        state.claims += 1
+        if (settled)
+            return {
+                ok: true,
+                frameworkSessionRef: null,
+                runtimeSyncCursor: null
+            }
+        return { ok: false, blockedBy }
+    }
+    if (afterSettle)
+        Object.assign(h.service, {
+            recovery: {
+                settlePendingImport: async () => {
+                    settled = true
+                    afterSettle()
+                    return {
+                        state: 'done',
+                        appended: 0,
+                        transcript: 'read',
+                        warnings: []
+                    }
+                }
+            }
+        })
+    return state
+}
+
+test('a session held by a terminal refuses the turn with its own 409', async () => {
+    const stop = keepLoopAlive()
+    const h = makeHarness()
+    try {
+        const state = blockedRepo(h, 'terminal')
+        await assert.rejects(
+            h.service.sendMessage('user-1', 'agent-1', 'session-a', 'hi'),
+            (err: unknown) =>
+                err instanceof SessionHeldByTerminalError &&
+                !(err instanceof InflightTurnConflictError)
+        )
+        assert.equal(state.claims, 1)
+        assert.equal(h.service.activeTurnCount(), 0)
+    } finally {
+        stop()
+    }
+})
+
+test('a pending import gets one settle attempt at the gate, then the turn runs', async () => {
+    const stop = keepLoopAlive()
+    const h = makeHarness()
+    try {
+        let settles = 0
+        const state = blockedRepo(h, 'import', () => {
+            settles += 1
+        })
+        const sent = await h.service.sendMessage(
+            'user-1',
+            'agent-1',
+            'session-a',
+            'hi'
+        )
+        assert.ok(sent.assistantMessageId)
+        assert.equal(settles, 1)
+        assert.equal(state.claims, 2, 'claim, settle, claim again')
+    } finally {
+        stop()
+    }
+})
+
+test('a pending import that will not settle refuses the turn with its own 409', async () => {
+    const stop = keepLoopAlive()
+    const h = makeHarness()
+    try {
+        const state = blockedRepo(h, 'import')
+        Object.assign(h.service, {
+            recovery: {
+                settlePendingImport: async () => ({
+                    state: 'pending',
+                    appended: 0,
+                    transcript: 'missing',
+                    warnings: []
+                })
+            }
+        })
+        await assert.rejects(
+            h.service.sendMessage('user-1', 'agent-1', 'session-a', 'hi'),
+            (err: unknown) =>
+                err instanceof SessionImportPendingError &&
+                !(err instanceof InflightTurnConflictError)
+        )
+        assert.equal(
+            state.claims,
+            1,
+            'no second claim without a settled import'
+        )
+    } finally {
+        stop()
+    }
+})

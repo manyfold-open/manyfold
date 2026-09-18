@@ -4,6 +4,8 @@ import {
     A2aTaskTracePage,
     ChatUsage,
     DEFAULT_A2A_TURN_TIMEOUTS,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE,
     auditAction,
     createObjectId
 } from '@manyfold/shared'
@@ -39,9 +41,22 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import {
     ChatService,
-    InflightTurnConflictError
+    InflightTurnConflictError,
+    SessionHeldByTerminalError,
+    SessionImportPendingError
 } from '@/modules/chat/chat.service'
 import type { EmittedChatEvent } from '@/modules/chat/chat-adapter'
+
+// Stable codes for a task that failed before its turn started; the session
+// ownership ones mirror the HTTP 409 body codes (ADR-0029).
+export const turnStartFailureCode = (err: unknown): string => {
+    if (err instanceof InflightTurnConflictError) return 'inflight_turn'
+    if (err instanceof SessionHeldByTerminalError)
+        return CHAT_SESSION_HELD_BY_TERMINAL_CODE
+    if (err instanceof SessionImportPendingError)
+        return CHAT_SESSION_IMPORT_PENDING_CODE
+    return 'turn_start_failed'
+}
 import {
     A2aTaskRepository,
     type A2aTaskScope,
@@ -612,10 +627,7 @@ export class A2aService implements OnModuleInit, OnModuleDestroy {
                     state: 'failed',
                     errorJson: {
                         message: (err as Error).message,
-                        code:
-                            err instanceof InflightTurnConflictError
-                                ? 'inflight_turn'
-                                : 'turn_start_failed'
+                        code: turnStartFailureCode(err)
                     },
                     completedAt: new Date()
                 })

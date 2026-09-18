@@ -18,7 +18,11 @@ import {
     buildReplyHud
 } from '../src/modules/channels/channel-bridge.service'
 import { ChannelSendError } from '../src/modules/channels/channel-send-error'
-import { InflightTurnConflictError } from '../src/modules/chat/chat.service'
+import {
+    InflightTurnConflictError,
+    SessionHeldByTerminalError,
+    SessionImportPendingError
+} from '../src/modules/chat/chat.service'
 import { ChannelProviderRegistry } from '../src/modules/channels/channel-provider-registry.service'
 import { ChannelSessionRouter } from '../src/modules/channels/channel-session-router.service'
 import { FakeChannelProvider } from '../src/modules/channels/providers/fake.provider'
@@ -402,6 +406,70 @@ test('a requeued inbound is not re-acked on replay', async () => {
     assert.equal(harness.sendMessageCalls.length, 0)
     const captures = harness.fakeProvider.drainOutbound('chn-1')
     assert.equal(captures.filter((c) => c.kind === 'final').length, 0)
+})
+
+/* ADR-0029 §1: a terminal may own the session for hours, so a fresh channel
+   message is refused with a notice rather than queued behind it; one that was
+   already waiting in the queue stays there for the replay after release. The
+   pending import that follows a release (§2) is short: it queues like an
+   inflight turn. */
+test('bridge refuses a fresh message while a terminal holds the session', async () => {
+    const harness = makeHarness({ held: true })
+
+    await harness.bridge.handleInbound(
+        baseChannel,
+        inboundEvent({ text: 'while held' })
+    )
+
+    assert.equal(harness.sendMessageCalls.length, 0)
+    const inboundDeliveries = harness.deliveries.filter(
+        (d) => d.direction === 'inbound'
+    )
+    assert.equal(inboundDeliveries.length, 1)
+    assert.equal(inboundDeliveries[0]?.status, 'dropped')
+    assert.equal(inboundDeliveries[0]?.errorMessage, 'session_held_by_terminal')
+    const finals = harness.fakeProvider
+        .drainOutbound('chn-1')
+        .filter((c) => c.kind === 'final')
+    assert.equal(finals.length, 1)
+    assert.match((finals[0] as { text: string }).text, /open in a terminal/)
+})
+
+test('a queued message stays queued when its replay finds the session held', async () => {
+    const harness = makeHarness({ held: true })
+    const row = seedInboundDelivery(harness, {
+        status: 'queued',
+        errorMessage: 'inflight_turn',
+        scopeKey: 'fake:chat-1:user-remote',
+        attemptCount: 0,
+        nextAttemptAt: new Date(Date.now() - 1000)
+    })
+
+    const replayed = await harness.bridge.replayRecoverableInboundEvents()
+
+    assert.equal(replayed, 1)
+    assert.equal(row.status, 'queued')
+    assert.equal(row.errorMessage, 'inflight_turn')
+    assert.equal(harness.sendMessageCalls.length, 0)
+    const captures = harness.fakeProvider.drainOutbound('chn-1')
+    assert.equal(captures.filter((c) => c.kind === 'final').length, 0)
+})
+
+test('bridge queues the message while the session imports its terminal transcript', async () => {
+    const harness = makeHarness({ importPending: true })
+
+    await harness.bridge.handleInbound(
+        baseChannel,
+        inboundEvent({ text: 'during import' })
+    )
+
+    assert.equal(harness.sendMessageCalls.length, 0)
+    const inboundDeliveries = harness.deliveries.filter(
+        (d) => d.direction === 'inbound'
+    )
+    assert.equal(inboundDeliveries.length, 1)
+    assert.equal(inboundDeliveries[0]?.status, 'queued')
+    assert.equal(inboundDeliveries[0]?.errorMessage, 'inflight_turn')
 })
 
 test('bridge drops the message when the inflight queue is full', async () => {
@@ -1354,6 +1422,10 @@ test('sweep recovers stale processing outbound rows', async () => {
 
 interface MakeHarnessOptions {
     inflight?: boolean
+    // ADR-0029: the session's writes belong to a terminal / its transcript
+    // import has not settled.
+    held?: boolean
+    importPending?: boolean
     completeBeforeReturn?: boolean
     dynamicInflight?: boolean
     queueScenario?: boolean
@@ -1527,6 +1599,9 @@ const makeHarness = (opts: MakeHarnessOptions = {}): Harness => {
             sendMessageAttempts.count += 1
             if (opts.sendMessageError) throw opts.sendMessageError
             // Simulate the atomic per-session turn claim: reject a concurrent turn.
+            if (opts.held === true) throw new SessionHeldByTerminalError()
+            if (opts.importPending === true)
+                throw new SessionImportPendingError()
             if (opts.inflight === true) throw new InflightTurnConflictError()
             if (opts.dynamicInflight === true) {
                 if (inflightClaimed) throw new InflightTurnConflictError()

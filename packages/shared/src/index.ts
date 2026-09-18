@@ -209,6 +209,7 @@ export type {
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
     ChatSessionListChangeReason,
+    ChatSessionChangeDetail,
     ChatSessionsChangedEvent,
     RuntimeServiceStatus,
     AgentRuntimeSummary,
@@ -778,6 +779,17 @@ export type {
     RuntimeSessionRebuildParsedResponse,
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
+    RuntimeTranscriptOutcome,
+    SessionHolderReleaseResponse,
+    SessionImportRetryResponse,
+    SessionImportAbandonResponse,
+    ChatSessionOrigin,
+    TerminalHookFramework,
+    TerminalHookEvent,
+    TerminalHookSource,
+    TerminalSessionHookRequest,
+    TerminalSessionHookOutcome,
+    TerminalSessionHookResponse,
     ShareChatSessionResult,
     GetChatSessionShareResult,
     SharedChatMessage,
@@ -809,7 +821,12 @@ export {
     isHermesPermissionMode,
     openclawPermissionModes,
     isOpenclawPermissionMode,
-    agentSessionListLimits
+    agentSessionListLimits,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE,
+    TERMINAL_HOOK_FRAMEWORKS,
+    TERMINAL_HOOK_EVENTS,
+    TERMINAL_HOOK_SOURCES
 } from './chat'
 export type {
     ConversationListEnvelope,
@@ -839,6 +856,9 @@ export type {
     DaemonStreamKind,
     DaemonWsFrame,
     DaemonClientProcess,
+    DaemonExecRecoveryReport,
+    DaemonUpdateRollbackReport,
+    DaemonOwnedTerminal,
     DaemonInflightStream,
     DaemonInflightStreamStatus,
     DaemonTurnStartPayload,
@@ -857,6 +877,8 @@ export {
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
     DAEMON_FEATURE_EXEC_RESOURCES,
+    DAEMON_FEATURE_EXEC_FILES,
+    DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_FS_WRITE_BINARY,
@@ -870,6 +892,7 @@ export {
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
+    DAEMON_FEATURE_FS_CONFIG_COMMIT,
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
@@ -877,9 +900,11 @@ export {
     DAEMON_FEATURE_AUTH_CONTEXT,
     DAEMON_FEATURE_WS_AUTH_HEADER,
     DAEMON_FEATURE_AUTH_API_KEY,
+    DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_CLIENT_FEATURES,
     DAEMON_DETECTABLE_FRAMEWORKS
 } from './daemon'
+export type { DaemonConfigCommit } from './daemon'
 export type {
     ChatUsage,
     CostSource,
@@ -1060,6 +1085,7 @@ export {
     MF_ENV_API_TOKEN,
     MF_ENV_API_URL,
     MF_ENV_DEPLOY_ENV,
+    MF_ENV_TERMINAL_ID,
     MF_RUNTIME_IDENTITY_ENV_KEYS,
     PATH_PREPEND_LOCAL_BIN
 } from './exec-env'

@@ -83,6 +83,7 @@ export interface HeartbeatRequest {
     startupMethod: DaemonStartupMethod
     terminalPty?: boolean
     clientFeatures?: string[]
+    terminals?: DaemonOwnedTerminal[]
 }
 
 export interface HeartbeatResponse {
@@ -211,7 +212,15 @@ export type DaemonRpcMethod =
     | 'workspace.delete'
     | 'daemon.update'
 
-export type DaemonStreamKind = 'stdout' | 'stderr' | 'pty.out' | 'fs.chunk'
+// `pty.attach` is the first event on a pty.open stream that carries a
+// terminalId: its data says whether the daemon attached the stream to a
+// terminal it already had (`attached`) or spawned one under that id.
+export type DaemonStreamKind =
+    | 'stdout'
+    | 'stderr'
+    | 'pty.out'
+    | 'pty.attach'
+    | 'fs.chunk'
 
 export type DaemonInflightStreamStatus =
     | 'running'
@@ -231,6 +240,34 @@ export interface DaemonClientProcess {
     pid: number
 }
 
+// What a restarted daemon made of the execs the previous one left running
+// (ADR-0029 §4): sent once, in its first hello.
+export interface DaemonExecRecoveryReport {
+    adopted: number
+    completed: number
+    crashed: number
+}
+
+// Why a self-update on a manual install was undone (ADR-0029 §5): the
+// daemon that runs after the rollback is the old binary again, and it
+// carries this once so the platform learns what happened.
+export interface DaemonUpdateRollbackReport {
+    fromVersion: string
+    toVersion: string
+    reason: string
+    at: string
+}
+
+// A terminal the daemon owns (ADR-0029 §6): opened with a terminalId, it
+// outlives the stream that opened it. The daemon lists them in every hello
+// and heartbeat; the API takes the list as proof of life for the terminal
+// rows it holds and ends the rows the daemon no longer has.
+export interface DaemonOwnedTerminal {
+    terminalId: string
+    attached: boolean
+    startedAt: string
+}
+
 export type DaemonWsFrame =
     | {
           type: 'hello'
@@ -239,6 +276,12 @@ export type DaemonWsFrame =
           clientProcess?: DaemonClientProcess
           clientFeatures?: string[]
           inflightStreams?: DaemonInflightStream[]
+          recovery?: DaemonExecRecoveryReport
+          rollback?: DaemonUpdateRollbackReport
+          // Present-but-empty and absent differ, as for inflightStreams: an
+          // empty list proves the daemon owns no terminal, a missing one
+          // means the enumeration failed.
+          terminals?: DaemonOwnedTerminal[]
       }
     | {
           type: 'welcome'
@@ -443,6 +486,17 @@ export const DAEMON_FEATURE_EXEC_STDIN = 'exec.stdin'
 // The exec owner creates private temporary settings and cleans its owned process
 // tree/resources before completing, including forced cancellation on Windows.
 export const DAEMON_FEATURE_EXEC_RESOURCES = 'exec.resources.v1'
+// The daemon can run execs without pipes and keep them across its own
+// restart (ADR-0029 §4): `mf daemon stop --keep-execs` exists, and a
+// restart adopts what the previous daemon left running. The platform's
+// runner bring-up passes --keep-execs only to a daemon that says so.
+export const DAEMON_FEATURE_EXEC_FILES = 'exec.files.v1'
+// A daemon nobody supervises (`manual` startup) can still take
+// daemon.update: it swaps the binary itself, hands its execs to a
+// successor it starts, and rolls back if that successor never comes up
+// (ADR-0029 §5). Computed at runtime — a standalone POSIX binary that is
+// not the pod runner — so it is NOT in DAEMON_CLIENT_FEATURES.
+export const DAEMON_FEATURE_MANUAL_UPDATE = 'daemon.update.manual'
 export const DAEMON_FEATURE_DAEMON_UPDATE = 'daemon.update'
 // The protocol baseline honours stable/dev channel overrides for updates.
 export const DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL = 'daemon.update.channel'
@@ -486,6 +540,13 @@ export const DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG = 'fs.claude-user-config'
 // after the write. MCP materialization always requests 0600 so plaintext
 // configuration keys never land world-readable (#781).
 export const DAEMON_FEATURE_FS_WRITE_MODE = 'fs.write.mode'
+export const DAEMON_FEATURE_FS_CONFIG_COMMIT = 'fs.write.config-commit'
+
+export interface DaemonConfigCommit {
+    generation: string
+    revision: string
+    expectedSha256: string | null
+}
 // The turn runners parse the split budgets (idleTimeoutMs / headersTimeoutMs /
 // maxDurationMs) on DaemonTurnStartPayload. The single timeoutMs field is
 // retired; this advertisement remains useful for fleet inspection.
@@ -515,6 +576,14 @@ export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
 // leave the user staring at a prompt under a UI that said it was resuming
 // their conversation.
 export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
+// pty.open honours `terminalId` (ADR-0029 §6): the pty belongs to the daemon
+// and the stream is one attachment to it — a cancel detaches instead of
+// killing, a second pty.open with the same id attaches (the screen so far,
+// then the live tail), pty.close honours `terminalId`, and the hello and
+// heartbeat list the owned terminals so the API can hold their rows on the
+// daemon's word instead of a tunnel lease. Without it the API opens pty
+// streams the old way, one process per stream.
+export const DAEMON_FEATURE_PTY_TERMINAL = 'pty.terminal.v1'
 
 // The daemon answers `account.inspect` (who is signed in on this machine per
 // coding CLI, plus the raw vendor usage response). The API must check this
@@ -544,6 +613,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_FEATURE_EXEC_STDIN,
     DAEMON_FEATURE_EXEC_RESOURCES,
+    DAEMON_FEATURE_EXEC_FILES,
     DAEMON_FEATURE_DAEMON_UPDATE,
     DAEMON_FEATURE_DAEMON_UPDATE_CHANNEL,
     DAEMON_FEATURE_FS_WRITE_BINARY,
@@ -553,11 +623,13 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_HELLO_INFLIGHT,
     DAEMON_FEATURE_FS_CLAUDE_USER_CONFIG,
     DAEMON_FEATURE_FS_WRITE_MODE,
+    DAEMON_FEATURE_FS_CONFIG_COMMIT,
     DAEMON_FEATURE_TURN_BUDGETS,
     DAEMON_FEATURE_CREDENTIAL_FACTS,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_FEATURE_AUTH_PROFILES,

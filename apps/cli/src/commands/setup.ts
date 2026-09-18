@@ -12,7 +12,7 @@ import { resolveScope } from '@/daemon/init-unit'
 import { resolveSecretInput } from '@/secret-input'
 import { createCliClient, createCliFetch } from '@/transport'
 import { runBrowserLogin, runHeadlessLogin } from './login'
-import { registerDaemonHost } from './daemon/register'
+import { decideSessionHooks, registerDaemonHost } from './daemon/register'
 import { installInitUnitAndStart } from './daemon/start'
 
 interface SetupOptions {
@@ -23,6 +23,8 @@ interface SetupOptions {
     user?: boolean
     // Commander maps `--no-launch-browser` to `launchBrowser: false`.
     launchBrowser?: boolean
+    // Commander maps `--no-hooks` to `hooks: false`.
+    hooks?: boolean
 }
 
 interface RootOptions {
@@ -121,6 +123,10 @@ export const registerSetup = (program: Command): void => {
             '--no-launch-browser',
             'print the auth URL and prompt for the auth code instead of launching a browser (use over SSH)'
         )
+        .option(
+            '--no-hooks',
+            'do not install the claude / codex session hooks (they act only inside Manyfold terminals)'
+        )
         .action(async (opts: SetupOptions) => {
             const root = program.opts<RootOptions>()
             const stored = await loadConfig()
@@ -178,6 +184,10 @@ export const registerSetup = (program: Command): void => {
                         console.log(
                             `  detected: ${kleur.cyan(f.framework)} ${f.version ?? '(no version)'}`
                         )
+                await decideSessionHooks(
+                    { hooks: opts.hooks },
+                    registration.detectedFrameworks
+                )
             }
 
             await installInitUnitAndStart(resolveScope(opts))

@@ -28,7 +28,8 @@ export const GET: APIRoute = async ({ props }) => {
             await renderOgCard(
                 `${copy.changelogTitle} · ${changelogProduct(entry)} ${entry.data.version}`,
                 changelogTitle(entry),
-                changelogLead(entry) ?? copy.changelogDescription
+                changelogLead(entry) ?? copy.changelogDescription,
+                `/changelog/${changelogSlug(entry)}`
             )
         ),
         { headers: { 'content-type': 'image/png' } }

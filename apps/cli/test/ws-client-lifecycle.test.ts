@@ -213,10 +213,13 @@ test('completion from an old connection cannot remove a new RPC cancel handler',
         let newCancelled = 0
         let finishOld: (() => void) | undefined
         let finishNew: (() => void) | undefined
+        const connectionChecks: Array<() => boolean> = []
         const client = new DaemonWsClient({
             ...options(url),
             handleRpc: async (_method, _payload, ctx) => {
                 const old = ++calls === 1
+                assert(ctx.isCurrentConnection)
+                connectionChecks.push(ctx.isCurrentConnection)
                 ctx.onCancel(() => {
                     if (old) oldCancelled++
                     else newCancelled++
@@ -243,6 +246,7 @@ test('completion from an old connection cannot remove a new RPC cancel handler',
             )
             sockets[0].send(request)
             await until(() => finishOld !== undefined)
+            assert.equal(connectionChecks[0](), true)
             sockets[0].close()
             await until(
                 () =>
@@ -251,6 +255,8 @@ test('completion from an old connection cannot remove a new RPC cancel handler',
             )
             sockets[1].send(request)
             await until(() => finishNew !== undefined)
+            assert.equal(connectionChecks[0](), false)
+            assert.equal(connectionChecks[1](), true)
             finishOld!()
             await delay(20)
             sockets[1].send(
@@ -263,6 +269,7 @@ test('completion from an old connection cannot remove a new RPC cancel handler',
             finishNew?.()
             await delay(10)
             client.stop()
+            assert(connectionChecks.every((check) => !check()))
         }
     })
 })

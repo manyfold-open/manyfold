@@ -2,8 +2,16 @@ import type { Command } from 'commander'
 import kleur from 'kleur'
 import { detectFrameworks } from '@/daemon/detect'
 import { checkPtySupport } from '@/daemon/pty-backend'
-import { getInitUnitStatus, type InitUnitInfo } from '@/daemon/init-unit'
+import {
+    getInitUnitStatus,
+    survivalForKillMode,
+    type InitUnitInfo
+} from '@/daemon/init-unit'
+import { killModeOf } from '@/daemon/init-unit/linux'
+import { resolveProfile } from '@/config'
 import { emit, jsonOption } from '@/output'
+import { sessionHooksStatus } from '@/daemon/session-hooks'
+import { printSessionHooksStatus } from './hooks'
 
 const summarizeUnit = (info: InitUnitInfo): string => {
     if (!info.installed) return kleur.gray('not installed')
@@ -13,6 +21,17 @@ const summarizeUnit = (info: InitUnitInfo): string => {
     return `${flags.join(', ')}   ${kleur.gray(info.unitPath)}`
 }
 
+const unitSurvival = async (scope: 'user' | 'system') =>
+    process.platform === 'linux'
+        ? survivalForKillMode(
+              scope === 'user' ? 'systemd-user' : 'systemd-system',
+              await killModeOf(scope, resolveProfile())
+          )
+        : survivalForKillMode(
+              scope === 'user' ? 'launchd-user' : 'launchd-system',
+              null
+          )
+
 export const registerDaemonDoctor = (program: Command): void => {
     jsonOption(
         program
@@ -21,16 +40,27 @@ export const registerDaemonDoctor = (program: Command): void => {
     ).action(async (opts: { json?: boolean }) => {
         const detected = await detectFrameworks()
         const terminalSupport = await checkPtySupport()
-        const [userUnit, systemUnit] = await Promise.all([
+        const [userUnit, systemUnit, hooks] = await Promise.all([
             getInitUnitStatus('user'),
-            getInitUnitStatus('system')
+            getInitUnitStatus('system'),
+            sessionHooksStatus()
         ])
+        // Whether a detached exec would outlive a restart under each
+        // installed unit (ADR-0029 §4): launchd always keeps it; a systemd
+        // unit only with KillMode=process, which an operator-written system
+        // unit may lack.
+        const survival = {
+            user: userUnit.installed ? await unitSurvival('user') : null,
+            system: systemUnit.installed ? await unitSurvival('system') : null
+        }
         emit(
             opts,
             {
                 frameworks: detected,
                 terminal: terminalSupport,
-                autostart: { user: userUnit, system: systemUnit }
+                autostart: { user: userUnit, system: systemUnit },
+                sessionHooks: hooks,
+                execSurvival: survival
             },
             () => {
                 if (detected.length === 0) {
@@ -68,6 +98,20 @@ export const registerDaemonDoctor = (program: Command): void => {
                 console.log(
                     `${kleur.cyan('autostart/s'.padEnd(12))} ${summarizeUnit(systemUnit)}`
                 )
+                for (const [scope, verdict] of [
+                    ['u', survival.user],
+                    ['s', survival.system]
+                ] as const) {
+                    if (!verdict) continue
+                    console.log(
+                        `${kleur.cyan(`survival/${scope}`.padEnd(12))} ${
+                            verdict.survive
+                                ? kleur.green('execs survive a restart')
+                                : kleur.yellow('execs die with the daemon')
+                        }   ${kleur.gray(verdict.reason)}`
+                    )
+                }
+                printSessionHooksStatus(hooks)
             }
         )
     })

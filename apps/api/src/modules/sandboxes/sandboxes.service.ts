@@ -381,6 +381,31 @@ export class SandboxesService {
                 component: 'mf-cli'
             },
             async () => {
+                // A runner that can update itself (ADR-0029 §5) is asked to:
+                // it downloads, prechecks, swaps, hands its execs to a
+                // successor and rolls back on its own, so nothing here has to
+                // install over it or restart it. The version it lands on
+                // reaches the row through its heartbeat; the ack's target is
+                // recorded meanwhile. Anything else keeps the install path.
+                const viaDaemon = await this.runnerManager.upgradeViaDaemon({
+                    userId: owner,
+                    spriteName,
+                    targetVersion,
+                    channel
+                })
+                if (viaDaemon.kind === 'dispatched') {
+                    const landing = viaDaemon.toVersion ?? targetVersion
+                    if (landing)
+                        await this.runtimes.setSandboxCliVersion(
+                            owner,
+                            hostId,
+                            landing
+                        )
+                    this.log.log(
+                        `sandbox cli upgrade via daemon.update host=${hostId} to=${landing ?? 'latest'} deferred=${viaDaemon.deferred}`
+                    )
+                    return this.get(owner, hostId)
+                }
                 const client = this.spritesClientFor(account)
                 const exec = (opts: {
                     cmd: string[]

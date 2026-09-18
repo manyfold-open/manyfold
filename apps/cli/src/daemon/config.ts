@@ -40,6 +40,14 @@ export const daemonPaths = {
     get execDir(): string {
         return join(daemonDir(), 'exec')
     },
+    // ADR-0029 §5: a manual-install self-update that rolled back leaves the
+    // target it refused to retry, and the report its successor sends once.
+    get updateLatchPath(): string {
+        return join(daemonDir(), 'update-latch.json')
+    },
+    get updateRollbackPath(): string {
+        return join(daemonDir(), 'update-rollback.json')
+    },
     get controlSocketPath(): string {
         return controlSocketPathFor(daemonDir())
     }
@@ -54,6 +62,10 @@ export interface DaemonConfig {
     channel?: CliChannel
     workspaceBaseDir?: string
     skillsDir?: string
+    // Whether this machine's owner said yes to the CLI session hooks
+    // (ADR-0029 §3); absent until asked. `mf daemon start` installs and
+    // refreshes them only while this is 'enabled'.
+    sessionHooks?: 'enabled' | 'disabled'
 }
 
 export interface DaemonConfigPaths {

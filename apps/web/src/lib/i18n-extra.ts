@@ -7,3 +7,7 @@ import type { Language } from '@manyfold/i18n'
 export const extraTranslations: Partial<
     Record<Language, Record<string, string>>
 > = {}
+
+export const loadExtraTranslations = async (
+    _language: Language
+): Promise<void> => {}

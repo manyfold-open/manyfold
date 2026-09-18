@@ -74,12 +74,14 @@ const tryReadViaRpc = async (
         return {
             sourceFile: `rpc:sessions.history?sessionKey=${ctx.frameworkSessionRef}`,
             messages,
+            transcript: 'read',
             warnings
         }
     } catch (err) {
         return {
             sourceFile: null,
             messages: [],
+            transcript: 'missing',
             warnings: [
                 `sessions.history rpc failed (${(err as Error).message}); falling back to file scan`
             ]
@@ -106,6 +108,7 @@ const readViaFileScan = async (ctx: ReaderContext): Promise<ReaderResult> => {
         return {
             sourceFile: null,
             messages: [],
+            transcript: 'missing',
             warnings: [
                 `openclaw session file ${ctx.frameworkSessionRef}.jsonl not found under ~/.openclaw/agents/*/sessions/`
             ]
@@ -117,6 +120,7 @@ const readViaFileScan = async (ctx: ReaderContext): Promise<ReaderResult> => {
         return {
             sourceFile,
             messages: [],
+            transcript: 'unreadable',
             warnings: [
                 `failed to read ${sourceFile}: ${(err as Error).message}`
             ]
@@ -126,6 +130,7 @@ const readViaFileScan = async (ctx: ReaderContext): Promise<ReaderResult> => {
         return {
             sourceFile,
             messages: [],
+            transcript: 'unreadable',
             warnings: [`failed to read ${sourceFile}`]
         }
     const { messages, warnings } = parseOpenclawJsonl(
@@ -133,7 +138,7 @@ const readViaFileScan = async (ctx: ReaderContext): Promise<ReaderResult> => {
         sourceFile,
         ctx.frameworkSessionRef
     )
-    return { sourceFile, messages, warnings }
+    return { sourceFile, messages, transcript: 'read', warnings }
 }
 
 const listViaFileScan = async (

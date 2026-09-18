@@ -115,3 +115,73 @@ test('hello carries inflightStreams even when empty, plus the feature flag', asy
         })
     }
 })
+
+// ADR-0029 §4/§5: runtime-computed capabilities and the one-shot reports a
+// restarted daemon owes the platform ride the hello when the caller supplies
+// them, and never otherwise.
+test('hello carries the supplied client features and one-shot reports', async () => {
+    const httpServer = createServer()
+    const wss = new WebSocketServer({ server: httpServer })
+    const hellos: Array<Record<string, unknown>> = []
+    let second!: () => void
+    const twoHellos = new Promise<void>((resolve) => {
+        second = resolve
+    })
+    wss.on('connection', (socket: WebSocket) => {
+        socket.once('message', (raw) => {
+            hellos.push(JSON.parse(String(raw)) as Record<string, unknown>)
+            if (hellos.length === 2) second()
+            // Drop the socket so the client reconnects and says hello again.
+            socket.close()
+        })
+    })
+    await new Promise<void>((resolve) =>
+        httpServer.listen(0, '127.0.0.1', resolve)
+    )
+    const address = httpServer.address()
+    assert.ok(address && typeof address === 'object')
+    let reports = 1
+    const client = new DaemonWsClient({
+        apiUrl: `http://127.0.0.1:${address.port}`,
+        token: 't',
+        daemonUuid: 'uuid-hello-extras',
+        cliVersion: '0.0.0-test',
+        clientFeatures: ['exec.resume', 'daemon.update.manual'],
+        helloExtras: () =>
+            reports-- > 0
+                ? {
+                      recovery: { adopted: 1, completed: 2, crashed: 0 },
+                      rollback: {
+                          fromVersion: '1.0.0',
+                          toVersion: '2.0.0',
+                          reason: 'never came up',
+                          at: 'now'
+                      }
+                  }
+                : {},
+        log: () => {}
+    })
+    client.start()
+    try {
+        await twoHellos
+        assert.deepEqual(hellos[0].clientFeatures, [
+            'exec.resume',
+            'daemon.update.manual'
+        ])
+        assert.deepEqual(hellos[0].recovery, {
+            adopted: 1,
+            completed: 2,
+            crashed: 0
+        })
+        assert.equal(
+            (hellos[0].rollback as { toVersion: string }).toVersion,
+            '2.0.0'
+        )
+        assert.equal('recovery' in hellos[1], false, 'reported once')
+        assert.equal('rollback' in hellos[1], false)
+    } finally {
+        client.stop()
+        wss.close()
+        httpServer.close()
+    }
+})

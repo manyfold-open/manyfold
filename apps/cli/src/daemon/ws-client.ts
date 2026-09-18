@@ -3,20 +3,20 @@ import { randomUUID } from 'node:crypto'
 import {
     DAEMON_CLIENT_FEATURES,
     type DaemonInflightStream,
+    type DaemonOwnedTerminal,
     type DaemonRpcMethod,
     type DaemonStreamKind,
     type DaemonWsFrame
 } from '@manyfold/shared'
-import {
-    enumerateInflightForHello,
-    gcStaleBuffers,
-    recoverCrashedBuffers
-} from './exec-buffer'
+import { enumerateInflightForHello, gcStaleBuffers } from './exec-buffer'
+import { recoverFileExecs } from './exec-files'
+import { listOwnedTerminals } from './owned-terminals'
 
 export interface RpcContext {
     refId: string
     sendEvent: (kind: DaemonStreamKind, data: string, seq?: number) => void
     onCancel: (handler: () => void) => void
+    isCurrentConnection?: () => boolean
 }
 
 export type RpcHandler = (
@@ -36,6 +36,14 @@ export interface WsClientOptions {
     onDisconnected?: (reason: string) => void
     handleRpc?: RpcHandler
     log?: (msg: string) => void
+    // Runtime-computed capabilities ride here; absent, the constant list.
+    clientFeatures?: string[]
+    // One-shot reports for the hello (exec recovery, an update rollback);
+    // called per hello, so the caller decides what is still worth sending.
+    helloExtras?: () => Pick<
+        Extract<DaemonWsFrame, { type: 'hello' }>,
+        'recovery' | 'rollback'
+    >
 }
 
 const PING_INTERVAL_MS = 25_000
@@ -61,8 +69,15 @@ export class DaemonWsClient {
         if (!this.stopped) return
         this.stopped = false
         this.backoffMs = BACKOFF_INITIAL_MS
+        // Recovery completes BEFORE the first dial, synchronously: an adopted
+        // exec's profile lease is re-stamped in there, and nothing may be
+        // dispatched onto that profile until it is (ADR-0029 §4).
         try {
-            recoverCrashedBuffers()
+            const recovered = recoverFileExecs((message) => this.log(message))
+            if (recovered.adopted + recovered.completed + recovered.crashed > 0)
+                this.log(
+                    `exec-files recovery adopted=${recovered.adopted} completed=${recovered.completed} crashed=${recovered.crashed}`
+                )
             this.sweepBuffers()
         } catch (err) {
             this.log(`exec-buffer recovery failed: ${(err as Error).message}`)
@@ -137,6 +152,21 @@ export class DaemonWsClient {
                     `inflight enumeration failed: ${(err as Error).message}`
                 )
             }
+            // Same rule for the terminals this daemon owns (ADR-0029 §6).
+            let terminals: DaemonOwnedTerminal[] | null = null
+            try {
+                terminals = listOwnedTerminals().map(
+                    ({ terminalId, attached, startedAt }) => ({
+                        terminalId,
+                        attached,
+                        startedAt
+                    })
+                )
+            } catch (err) {
+                this.log(
+                    `terminal enumeration failed: ${(err as Error).message}`
+                )
+            }
             const hello: DaemonWsFrame = {
                 type: 'hello',
                 daemonUuid: this.opts.daemonUuid,
@@ -146,8 +176,11 @@ export class DaemonWsClient {
                         this.opts.clientInstanceId ?? CLIENT_INSTANCE_ID,
                     pid: process.pid
                 },
-                clientFeatures: DAEMON_CLIENT_FEATURES,
-                ...(inflightStreams !== null ? { inflightStreams } : {})
+                clientFeatures:
+                    this.opts.clientFeatures ?? DAEMON_CLIENT_FEATURES,
+                ...(inflightStreams !== null ? { inflightStreams } : {}),
+                ...(terminals !== null ? { terminals } : {}),
+                ...(this.opts.helloExtras?.() ?? {})
             }
             if (inflightStreams !== null && inflightStreams.length > 0)
                 this.log(
@@ -244,6 +277,10 @@ export class DaemonWsClient {
                 else {
                     const ctx: RpcContext = {
                         refId: frame.refId,
+                        isCurrentConnection: () =>
+                            !this.stopped &&
+                            this.ws === ws &&
+                            ws.readyState === WebSocket.OPEN,
                         sendEvent: (kind, data, seq) => {
                             if (
                                 this.stopped ||

@@ -1161,6 +1161,7 @@ const statusJson = (local: Record<string, unknown> | null, pid = 4242) =>
     JSON.stringify({ configured: true, localPid: pid, local })
 
 const restartHarness = (opts: {
+    clientFeatures?: string[]
     hostRow?: boolean
     statusStdout?: string
     statusExit?: number
@@ -1202,7 +1203,8 @@ const restartHarness = (opts: {
                                   {
                                       id: 'dh_runner',
                                       status: 'active',
-                                      cliVersion: rowVersion
+                                      cliVersion: rowVersion,
+                                      clientFeatures: opts.clientFeatures ?? []
                                   }
                               ]
                 })
@@ -1246,6 +1248,7 @@ test('parseRunnerStatus: the running daemon, shell noise, and every way there is
             kind: 'running',
             version: OLD_BUILD,
             activeExecs: 1,
+            adoptableExecs: 0,
             activePtys: 0
         }
     )
@@ -1254,6 +1257,7 @@ test('parseRunnerStatus: the running daemon, shell noise, and every way there is
         kind: 'running',
         version: OLD_BUILD,
         activeExecs: 0,
+        adoptableExecs: 0,
         activePtys: 0
     })
     assert.deepEqual(parseRunnerStatus('{"configured":false}'), {
@@ -1317,6 +1321,44 @@ test('restart: an idle runner on the old build is stopped and started, and count
         'stop precedes start in the same exec'
     )
     assert.match(start, /setsid nohup .* daemon start --foreground/)
+})
+
+// ADR-0029 §4 (B3): an exec the next daemon adopts is not a reason to keep
+// the old build, and the stop that precedes the start leaves it alive — but
+// only when the daemon said it can (an older CLI would refuse the flag).
+test('restart: adoptable execs do not make the runner busy, and a capable daemon is stopped with --keep-execs', async () => {
+    const h = restartHarness({
+        statusStdout: statusJson({
+            version: OLD_BUILD,
+            activeExecs: 2,
+            adoptableExecs: 2,
+            activePtys: 0
+        }),
+        versionAfterStart: NEW_BUILD,
+        clientFeatures: ['exec.files.v1']
+    })
+    assert.equal(await h.restart(), 'restarted')
+    assert.match(h.calls[1], /daemon stop --keep-execs/)
+})
+
+test('restart: an exec that would die with the daemon still keeps the old build, and a daemon without the capability is stopped plainly', async () => {
+    const busy = restartHarness({
+        statusStdout: statusJson({
+            version: OLD_BUILD,
+            activeExecs: 2,
+            adoptableExecs: 1,
+            activePtys: 0
+        }),
+        clientFeatures: ['exec.files.v1']
+    })
+    assert.equal(await busy.restart(), 'busy')
+    const plain = restartHarness({
+        statusStdout: statusJson({ version: OLD_BUILD, activeExecs: 0 }),
+        versionAfterStart: NEW_BUILD
+    })
+    assert.equal(await plain.restart(), 'restarted')
+    assert.match(plain.calls[1], /daemon stop >\/dev\/null/)
+    assert.doesNotMatch(plain.calls[1], /--keep-execs/)
 })
 
 test('restart: the row still on the old build after the wait is a timeout, with the runner log read for the report', async () => {

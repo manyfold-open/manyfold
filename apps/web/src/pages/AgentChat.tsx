@@ -5,6 +5,8 @@ import {
     AgentModelConfigView,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_MESSAGE_SOFT_LIMIT,
+    CHAT_SESSION_HELD_BY_TERMINAL_CODE,
+    CHAT_SESSION_IMPORT_PENDING_CODE,
     ChatCapabilities,
     ChatMessage,
     ChatMessagesPage,
@@ -58,6 +60,7 @@ import { Ghost } from '@/components/Loading'
 import { useApiClient } from '@/lib/apiClient'
 import { publishAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
 import { apiErrorMessage } from '@/lib/errorMessage'
+import { subscribeSessionsChanged } from '@/lib/sessionOwnershipEvents'
 import { lazyChunk } from '@/lib/lazyChunk'
 import { buildQuotaConflictRequest } from '@/lib/quotaConflict'
 import { useAppAuth } from '@/lib/auth'
@@ -117,7 +120,10 @@ import SidePane, {
     type SidePaneKind,
     type SidePaneOption
 } from '@/components/chat/SidePane'
-import type { TerminalTabModel } from '@/components/TerminalSession'
+import type {
+    TerminalConnectionStatus,
+    TerminalTabModel
+} from '@/components/TerminalSession'
 import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import {
     ensureSandboxTerminalEnabled,
@@ -174,6 +180,16 @@ type SessionViewMode = 'chat' | 'terminal'
 // Don't re-read the runtime transcript more than once per this window on the
 // throttled (session-open) path; a forced switch-back sync ignores it.
 const RUNTIME_SYNC_THROTTLE_MS = 15_000
+// A release runs the import right away; past this the banner stops saying
+// "importing" and offers retry / abandon (ADR-0029 §7).
+const IMPORT_PENDING_STALE_MS = 10_000
+const OWNERSHIP_BANNER_CLASS =
+    'border-divider/80 bg-surface text-caption text-muted mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-1.5'
+const OWNERSHIP_ACTION_CLASS =
+    'text-caption text-fg hover:bg-soft inline-flex h-5 shrink-0 items-center rounded-md px-1.5 font-medium transition-colors disabled:opacity-60'
+const isSessionOwnershipCode = (code: unknown): boolean =>
+    code === CHAT_SESSION_HELD_BY_TERMINAL_CODE ||
+    code === CHAT_SESSION_IMPORT_PENDING_CODE
 
 // A rejected cancel POST is undone immediately by cancelRequestFailed. This
 // covers the other case: the POST was accepted (or is still hanging) and no
@@ -299,6 +315,14 @@ const AgentChat: FC = (): ReactNode => {
     const activeSession = activeSessionId
         ? (sessions.find((session) => session.id === activeSessionId) ?? null)
         : null
+    // Session ownership (ADR-0029): a terminal holds the writes, or the
+    // import that follows its release has not settled. Either way the
+    // composer is read-only and the banner above it says what to do.
+    const heldByTerminal = activeSession?.holderTerminalId != null
+    const importPendingSince =
+        !heldByTerminal && activeSession?.importPendingSince
+            ? activeSession.importPendingSince
+            : null
     const shareableSession =
         activeSession && !activeSession.channel ? activeSession : null
     const isDraft =
@@ -1197,10 +1221,16 @@ const AgentChat: FC = (): ReactNode => {
         setSessionTerminal(null)
     }, [agentId])
 
-    // Switching sessions in the sidebar re-points the terminal at the newly
-    // selected session so the TUI resumes there. The session-scoped id makes
-    // SessionTerminal remount (fresh xterm) rather than append onto the
-    // previous session's scrollback.
+    // Switching sessions in the sidebar while the terminal is showing
+    // re-points it at the newly selected session so the TUI resumes there.
+    // The session-scoped id makes SessionTerminal remount (fresh xterm)
+    // rather than append onto the previous session's scrollback. In the chat
+    // view the terminal is hidden, and retargeting it would silently take
+    // the hold on every session the user clicks through (ADR-0029 §1): it is
+    // torn down instead. Closing its socket releases the hold on the session
+    // it had, unless the daemon owns the terminal (ADR-0029 §6): that one
+    // keeps running, visibly held, until "Back to web" or its own timeout,
+    // and switching back to it attaches to the same shell.
     useEffect(() => {
         if (!currentAgent) return
         setSessionTerminal((prev) => {
@@ -1210,16 +1240,18 @@ const AgentChat: FC = (): ReactNode => {
             // only an actual session change may retarget the terminal.
             if (prev.id === base || prev.id.startsWith(`${base}-g`))
                 return prev
+            if (sessionView === 'chat') return null
             return {
                 ...prev,
                 id: base,
                 status: 'connecting',
                 seedMessageId: null,
                 resumeWithheld: false,
+                resumeHeldElsewhere: false,
                 resumeChatSessionId: activeSessionId ?? undefined
             }
         })
-    }, [activeSessionId, currentAgent])
+    }, [activeSessionId, currentAgent, sessionView])
 
     const terminalAvailability = currentAgent
         ? terminalAvailabilityForAgent(currentAgent)
@@ -1350,7 +1382,6 @@ const AgentChat: FC = (): ReactNode => {
         ]
     )
 
-    const noopTerminalStatusChange = useCallback((): void => {}, [])
 
     // The API decides the resume at connect and says so on session_info; the
     // tab keeps that verdict, and it is the tab's verdict — not the stream's
@@ -1361,11 +1392,196 @@ const AgentChat: FC = (): ReactNode => {
         (tabId: string, outcome: TerminalResumeOutcome): void => {
             setSessionTerminal((prev) =>
                 prev && prev.id === tabId
-                    ? { ...prev, resumeWithheld: outcome === 'turn-in-flight' }
+                    ? {
+                          ...prev,
+                          resumeWithheld:
+                              outcome === 'turn-in-flight' ||
+                              outcome === 'session-held',
+                          resumeHeldElsewhere: outcome === 'session-held'
+                      }
                     : prev
             )
         },
         []
+    )
+
+    const handleTerminalId = useCallback(
+        (tabId: string, terminalId: string): void => {
+            setSessionTerminal((prev) =>
+                prev && prev.id === tabId ? { ...prev, terminalId } : prev
+            )
+        },
+        []
+    )
+    const handleTerminalStatusChange = useCallback(
+        (tabId: string, status: TerminalConnectionStatus): void => {
+            setSessionTerminal((prev) =>
+                prev && prev.id === tabId ? { ...prev, status } : prev
+            )
+        },
+        []
+    )
+
+    // The hold this tab's terminal had was released elsewhere (another tab's
+    // "Back to web", the lease reaper): its process is dead and the socket
+    // closed. Drop the dead tab so the next switch resumes afresh instead of
+    // showing a closed shell. A reconnecting terminal is still `connecting`
+    // and keeps its tab.
+    const lastHolderRef = useRef<string | null>(null)
+    useEffect(() => {
+        const previous = lastHolderRef.current
+        const current = activeSession?.holderTerminalId ?? null
+        lastHolderRef.current = current
+        if (!previous || current !== null) return
+        setSessionTerminal((prev) =>
+            prev &&
+            prev.resumeChatSessionId === activeSessionId &&
+            prev.terminalId === previous &&
+            (prev.status === 'closed' || prev.status === 'error')
+                ? null
+                : prev
+        )
+    }, [activeSession?.holderTerminalId, activeSessionId])
+
+    // "Back to web" (ADR-0029 §7): the API kills the holder through its
+    // process handle and releases the hold, whether it is this tab's own
+    // terminal, another tab's, or one a reload lost. Closing this tab's
+    // socket alone is not enough: a terminal the daemon owns (ADR-0029 §6)
+    // would only detach and keep the hold. The tab's own terminal is
+    // unmounted once the release is through.
+    const [ownershipBusy, setOwnershipBusy] = useState(false)
+    const handleBackToWeb = useCallback(async (): Promise<void> => {
+        if (!agentId || !activeSessionId) return
+        const ownsHold =
+            sessionTerminal?.resumeChatSessionId === activeSessionId &&
+            sessionTerminal.terminalId != null &&
+            sessionTerminal.terminalId === activeSession?.holderTerminalId
+        setOwnershipBusy(true)
+        try {
+            await client.chat.releaseSessionHolder(agentId, activeSessionId)
+            if (ownsHold) {
+                setSessionView('chat')
+                setSessionTerminal(null)
+            }
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            setOwnershipBusy(false)
+            void refreshSessionsForAgent(agentId)
+        }
+    }, [
+        activeSession?.holderTerminalId,
+        activeSessionId,
+        agentId,
+        client,
+        refreshSessionsForAgent,
+        sessionTerminal
+    ])
+
+    const handleRetryImport = useCallback(async (): Promise<void> => {
+        if (!agentId || !activeSessionId) return
+        setOwnershipBusy(true)
+        try {
+            const res = await client.chat.importRetry(agentId, activeSessionId)
+            if (res.state === 'done' && res.appended > 0)
+                await reloadSessionMessages()
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            setOwnershipBusy(false)
+            void refreshSessionsForAgent(agentId)
+        }
+    }, [
+        activeSessionId,
+        agentId,
+        client,
+        refreshSessionsForAgent,
+        reloadSessionMessages
+    ])
+
+    const handleAbandonImport = useCallback(async (): Promise<void> => {
+        if (!agentId || !activeSessionId) return
+        const ok = await confirm({
+            title: t('web.sessionHolder.abandonConfirmTitle'),
+            description: t('web.sessionHolder.abandonConfirmBody'),
+            confirmLabel: t('web.sessionHolder.abandonConfirmAction'),
+            tone: 'danger'
+        })
+        if (!ok) return
+        setOwnershipBusy(true)
+        try {
+            await client.chat.importAbandon(agentId, activeSessionId)
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            setOwnershipBusy(false)
+            void refreshSessionsForAgent(agentId)
+        }
+    }, [activeSessionId, agentId, client, confirm, refreshSessionsForAgent, t])
+
+    // Past this age the import is not "in progress" but stuck: the banner
+    // switches to the retry / abandon actions.
+    const [importPendingStale, setImportPendingStale] = useState(false)
+    useEffect(() => {
+        if (!importPendingSince) {
+            setImportPendingStale(false)
+            return
+        }
+        const age = Date.now() - new Date(importPendingSince).getTime()
+        if (age >= IMPORT_PENDING_STALE_MS) {
+            setImportPendingStale(true)
+            return
+        }
+        setImportPendingStale(false)
+        const timer = window.setTimeout(
+            () => setImportPendingStale(true),
+            IMPORT_PENDING_STALE_MS - age
+        )
+        return () => window.clearTimeout(timer)
+    }, [importPendingSince])
+
+    // What just happened to the session on screen, from the API's own
+    // announcement: the list refetch (app shell) redraws the banner, this is
+    // the one-line notice the transition deserves. A settled import also
+    // reloads the messages it added.
+    const [ownershipNotice, setOwnershipNotice] = useState<string | null>(null)
+    useEffect(() => {
+        setOwnershipNotice(null)
+    }, [activeSessionId])
+    useEffect(
+        () =>
+            subscribeSessionsChanged((event) => {
+                if (!agentId || event.agentId !== agentId) return
+                const detail = event.detail
+                // A TUI in this agent's terminal opened a conversation it
+                // could not take (ADR-0029 §3): the user is in the terminal
+                // view, on whatever session they resumed, so the warning is
+                // for the agent, not for the session it names.
+                if (detail?.kind === 'terminal-attach-refused') {
+                    setOwnershipNotice(
+                        detail.reason === 'turn-in-flight'
+                            ? t('web.sessionHolder.attachRefusedTurn')
+                            : t('web.sessionHolder.attachRefusedHeld')
+                    )
+                    return
+                }
+                if (event.sessionId !== activeSessionIdRef.current) return
+                if (event.reason === 'import-settled')
+                    void reloadSessionMessages()
+                if (!detail) return
+                setOwnershipNotice(
+                    detail.kind === 'import-done'
+                        ? detail.appended > 0
+                            ? t('web.sessionHolder.imported', {
+                                  count: detail.appended
+                              })
+                            : t('web.sessionHolder.importedNone')
+                        : detail.kind === 'import-abandoned'
+                          ? t('web.sessionHolder.importAbandoned')
+                          : t('web.sessionHolder.reclaimed')
+                )
+            }),
+        [agentId, reloadSessionMessages, t]
     )
 
     /* Only the blocked reasons the user can act on. A framework with no
@@ -1382,9 +1598,11 @@ const AgentChat: FC = (): ReactNode => {
               ? t('web.sessionView.resumeNeedsSignIn')
               : resumeAvailability.blocked === 'daemon-needs-upgrade'
                 ? t('web.sessionView.resumeNeedsDaemonUpgrade')
-                : sessionTerminal?.resumeWithheld
-                  ? t('web.sessionView.resumeTurnInFlight')
-                  : null
+                : sessionTerminal?.resumeHeldElsewhere
+                  ? t('web.sessionView.resumeSessionHeld')
+                  : sessionTerminal?.resumeWithheld
+                    ? t('web.sessionView.resumeTurnInFlight')
+                    : null
 
     const createSession = useCallback(
         async (selectCreated = true): Promise<string | null> => {
@@ -1608,6 +1826,10 @@ const AgentChat: FC = (): ReactNode => {
             // state instead of locking the composer behind a phantom turn.
             if (pendingStreamKey)
                 chatStreamStore.abandonPendingTurn(pendingStreamKey)
+            // A 409 from session ownership means the list is stale about
+            // the hold or the pending import; the refetch draws the banner.
+            if (agentId && isSessionOwnershipCode((err as { code?: unknown }).code))
+                void refreshSessionsForAgent(agentId)
             const newAgent = currentAgent
             const conflict = newAgent
                 ? buildQuotaConflictRequest({
@@ -2029,13 +2251,22 @@ const AgentChat: FC = (): ReactNode => {
     const modelConfigBlocked =
         frameworkModelConfigSupported &&
         (modelConfigLoading || !modelConfigValidation.valid)
-    const interactionDisabled = disabled || isSubmitting || modelConfigBlocked
+    const interactionDisabled =
+        disabled ||
+        isSubmitting ||
+        modelConfigBlocked ||
+        heldByTerminal ||
+        importPendingSince !== null
     const stopAvailable =
         stream.streamingAssistantId !== null &&
         (!isCancelling || cancelRetryOffered)
     const composerHint = disabled
         ? (chatAvailability.reason ?? undefined)
-        : modelConfigLoading
+        : heldByTerminal
+          ? t('web.sessionHolder.composerHeld')
+          : importPendingSince !== null
+            ? t('web.sessionHolder.composerImporting')
+            : modelConfigLoading
           ? t('web.chat.loadingModelOptions')
           : modelConfigBlocked
             ? (modelConfigValidation.message ?? t('web.composer.chooseModel'))
@@ -2204,6 +2435,63 @@ const AgentChat: FC = (): ReactNode => {
             onRemoveContextRef={handleRemoveComposerContextRef}
         />
     )
+
+    const ownershipBanner: ReactNode = heldByTerminal ? (
+        <div className={OWNERSHIP_BANNER_CLASS}>
+            <span className='min-w-0 truncate'>
+                {t('web.sessionHolder.heldBanner')}
+            </span>
+            <button
+                type='button'
+                disabled={ownershipBusy}
+                onClick={() => void handleBackToWeb()}
+                className={OWNERSHIP_ACTION_CLASS}
+            >
+                {ownershipBusy
+                    ? t('web.sessionHolder.releasing')
+                    : t('web.sessionHolder.backToWeb')}
+            </button>
+        </div>
+    ) : importPendingSince ? (
+        <div className={OWNERSHIP_BANNER_CLASS}>
+            <span className='min-w-0 truncate'>
+                {importPendingStale
+                    ? t('web.sessionHolder.importFailed')
+                    : t('web.sessionHolder.importPending')}
+            </span>
+            {importPendingStale && (
+                <div className='flex shrink-0 items-center gap-1'>
+                    <button
+                        type='button'
+                        disabled={ownershipBusy}
+                        onClick={() => void handleRetryImport()}
+                        className={OWNERSHIP_ACTION_CLASS}
+                    >
+                        {t('web.sessionHolder.retrySync')}
+                    </button>
+                    <button
+                        type='button'
+                        disabled={ownershipBusy}
+                        onClick={() => void handleAbandonImport()}
+                        className={OWNERSHIP_ACTION_CLASS}
+                    >
+                        {t('web.sessionHolder.abandonImport')}
+                    </button>
+                </div>
+            )}
+        </div>
+    ) : ownershipNotice ? (
+        <div className={OWNERSHIP_BANNER_CLASS}>
+            <span className='min-w-0 truncate'>{ownershipNotice}</span>
+            <button
+                type='button'
+                onClick={() => setOwnershipNotice(null)}
+                className={OWNERSHIP_ACTION_CLASS}
+            >
+                {t('web.sessionHolder.dismiss')}
+            </button>
+        </div>
+    ) : null
 
     return (
         <div className='flex h-full min-h-0 overflow-hidden'>
@@ -2425,6 +2713,7 @@ const AgentChat: FC = (): ReactNode => {
                                 {showEmptyState && (
                                     <NewChatLaunchpadIntro />
                                 )}
+                                {ownershipBanner}
                                 <div ref={composerDockRef}>
                                     {renderComposer(
                                         showEmptyState ? 'inline' : 'dock'
@@ -2463,11 +2752,12 @@ const AgentChat: FC = (): ReactNode => {
                                             active={sessionView === 'terminal'}
                                             getToken={getToken}
                                             onStatusChange={
-                                                noopTerminalStatusChange
+                                                handleTerminalStatusChange
                                             }
                                             onResumeOutcome={
                                                 handleTerminalResumeOutcome
                                             }
+                                            onTerminalId={handleTerminalId}
                                             tab={sessionTerminal}
                                         />
                                     </Suspense>

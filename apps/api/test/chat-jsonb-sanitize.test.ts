@@ -279,7 +279,11 @@ const makeHarness = (
         },
         listMessages: async () => insertedMessages,
         latestInflightMessageId: async () => null,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         upsertMessageSources: async () => ({ upserted: 0 }),
         writeAssistantContent: async (_messageId: string, blocks: unknown) => {

@@ -24,9 +24,20 @@ import {
     TerminalResumeService,
     type TerminalResumeOutcome
 } from '@/modules/terminal/terminal-resume.service'
-import { DAEMON_FEATURE_PTY_COMMAND } from '@manyfold/shared'
+import {
+    DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_PTY_TERMINAL
+} from '@manyfold/shared'
 import { K8sTerminal } from '@/modules/terminal/k8s-terminal'
 import { DaemonTerminal } from '@/modules/terminal/daemon-terminal'
+import {
+    TerminalSessionsRepository,
+    TERMINAL_LEASE_RENEW_MS
+} from '@/modules/terminal/terminal-sessions.repository'
+import {
+    TerminalHolderService,
+    type TerminalCloseCause
+} from '@/modules/terminal/terminal-holder.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { buildStatusBanner } from '@/modules/terminal/status-banner'
 import { HOME_ROOT_ID } from '@/modules/agents/bootstrap/file-roots'
@@ -45,6 +56,10 @@ interface TerminalQuery {
     cwdPath?: string
     cwdRootId?: string
     resumeChatSessionId?: string
+    // The terminal a reconnecting tab replaces (ADR-0029 §1): its process is
+    // killed and its hold released before this one resumes, so an API
+    // restart never leaves the user's own reconnect facing `session-held`.
+    prevTerminalId?: string
     rows?: string
 }
 
@@ -71,7 +86,13 @@ export class TerminalGateway implements OnModuleInit {
         // Appended last + @Optional so positional test construction keeps
         // working; absent, the operationId branch reports unavailable.
         @Optional()
-        private readonly runtimeAuth?: RuntimeAuthProfilesService
+        private readonly runtimeAuth?: RuntimeAuthProfilesService,
+        // Same rule. Absent (tests), agent terminals get no durable row and a
+        // resume is never applied: without a holder it could double-write.
+        @Optional()
+        private readonly terminals?: TerminalSessionsRepository,
+        @Optional()
+        private readonly holder?: TerminalHolderService
     ) {}
 
     onModuleInit(): void {
@@ -236,13 +257,22 @@ export class TerminalGateway implements OnModuleInit {
         // already lives there, so it needs no credential opt-in — but it does
         // need to be new enough to run a command as its shell's argv, or it
         // would open a plain shell while the UI promised a resumed session.
+        const daemonHost =
+            agent.runtime === 'daemon' && agent.daemonId
+                ? await this.daemonHosts.findById(agent.daemonId)
+                : null
+        const daemonFeatures = daemonHost?.clientFeatures ?? []
         const daemonCanResume =
             agent.runtime === 'daemon' && agent.daemonId
-                ? (
-                      (await this.daemonHosts.findById(agent.daemonId))
-                          ?.clientFeatures ?? []
-                  ).includes(DAEMON_FEATURE_PTY_COMMAND)
+                ? daemonFeatures.includes(DAEMON_FEATURE_PTY_COMMAND)
                 : false
+        // The daemon keeps its terminals (ADR-0029 §6): the pty is addressed
+        // by the row's id, a reconnect attaches to it, and the daemon's
+        // inventory, not this tunnel's lease, is its proof of life.
+        const ownedTerminals =
+            agent.runtime === 'daemon' &&
+            !!agent.daemonId &&
+            daemonFeatures.includes(DAEMON_FEATURE_PTY_TERMINAL)
         const resumeSupported =
             agent.runtime === 'sprites' ||
             (agent.runtime === 'daemon' && daemonCanResume)
@@ -261,10 +291,10 @@ export class TerminalGateway implements OnModuleInit {
                       injectModelCredentials: agent.runtime === 'sprites'
                   })
                 : null
-        const resume = resolution?.resume ?? null
+        let resume = resolution?.resume ?? null
         // Only when a resume was asked for: a runtime with no resume path never
         // consults the service, and "unavailable" is the honest word for it.
-        const resumeOutcome: TerminalResumeOutcome | null = resumeSessionId
+        let resumeOutcome: TerminalResumeOutcome | null = resumeSessionId
             ? (resolution?.outcome ?? 'unavailable')
             : null
 
@@ -283,9 +313,81 @@ export class TerminalGateway implements OnModuleInit {
         const terminalCwd = cwd ?? defaultTerminalCwd(agent as Agent)
 
         let terminalPty: boolean | null = null
-        if (agent.runtime === 'daemon' && agent.daemonId) {
-            const host = await this.daemonHosts.findById(agent.daemonId)
-            terminalPty = host?.terminalPty ?? null
+        if (agent.runtime === 'daemon' && agent.daemonId)
+            terminalPty = daemonHost?.terminalPty ?? null
+
+        // Attach first (ADR-0029 §6): a terminal the daemon still owns — the
+        // one this tab had before its reconnect, or the one holding the very
+        // session it wants — is attached to, hold and all, instead of being
+        // opened again.
+        const prevTerminalId = query.prevTerminalId?.trim() || null
+        const reused =
+            ownedTerminals && this.holder
+                ? await this.holder.reusableTerminal({
+                      userId: agent.userId,
+                      agentId: agent.id,
+                      sessionId: resumeSessionId || null,
+                      prevTerminalId
+                  })
+                : null
+        // Every check has passed: the terminal gets its durable identity, a
+        // reconnect retires the terminal it replaces, and a resume takes the
+        // session's writes as the LAST fallible step — a lost acquire still
+        // opens the terminal, as a plain shell (ADR-0029 §1).
+        const terminalRow =
+            reused ??
+            (this.terminals &&
+            (agent.runtime === 'sprites' || agent.runtime === 'daemon')
+                ? await this.terminals.create({
+                      userId: agent.userId,
+                      agentId: agent.id,
+                      runtime: agent.runtime,
+                      hostId: agent.hostId ?? null,
+                      runtimeId: agent.runtimeId ?? null
+                  })
+                : null)
+        const terminalId = terminalRow?.id ?? null
+        // An owned terminal is addressed by its row id from the start, so any
+        // instance can close it before the daemon has said a word.
+        if (ownedTerminals && terminalId && !reused && this.terminals)
+            await this.terminals.setHandle(terminalId, terminalId)
+        if (prevTerminalId && prevTerminalId !== reused?.id && this.holder)
+            await this.holder
+                .supersede(prevTerminalId, auth.userId)
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `terminal.supersede_failed prev=${prevTerminalId}: ${err.message}`
+                    )
+                )
+        if (resume && resumeSessionId) {
+            const ref = resolution?.ref ?? null
+            // A reused terminal already holds this very session.
+            const outcome = reused
+                ? 'applied'
+                : terminalId && this.holder && ref
+                  ? await this.holder.acquire({
+                        terminalId,
+                        userId: agent.userId,
+                        agentId: agent.id,
+                        sessionId: resumeSessionId,
+                        expectedRef: ref
+                    })
+                  : 'unavailable'
+            if (outcome !== 'applied') resume = null
+            resumeOutcome = outcome
+        }
+        const finishTerminal = (cause: TerminalCloseCause): void => {
+            if (!terminalId) return
+            // A reused terminal that could not be reached is still the
+            // daemon's; its inventory decides, not a failed tunnel.
+            if (cause === 'tunnel-failed' && reused) cause = 'daemon-lost'
+            void this.holder
+                ?.finish(terminalId, cause)
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `terminal.finish_failed terminal=${terminalId}: ${err.message}`
+                    )
+                )
         }
 
         try {
@@ -304,7 +406,9 @@ export class TerminalGateway implements OnModuleInit {
                     // The client cannot predict this: the gate is decided here
                     // at connect (and again on every reconnect), against state
                     // its own stream view lags or leads.
-                    ...(resumeOutcome ? { resume: resumeOutcome } : {})
+                    ...(resumeOutcome ? { resume: resumeOutcome } : {}),
+                    // Sent back as prevTerminalId on the tab's reconnect.
+                    ...(terminalId ? { terminal_id: terminalId } : {})
                 })
             )
             socket.send(Buffer.from(buildStatusBanner(agent), 'utf8'), {
@@ -314,12 +418,15 @@ export class TerminalGateway implements OnModuleInit {
 
         const connectedAt = Date.now()
         this.attachHeartbeat(socket, `agent=${agent.id}`)
+        // An owned terminal's lease is renewed on the daemon's inventory.
+        if (terminalId && !ownedTerminals) this.attachLease(socket, terminalId)
 
-        const onClose = (): void => {
+        const onClose = (cause: TerminalCloseCause): void => {
             const durationMs = Date.now() - connectedAt
             this.log.log(
-                `terminal.closed agent=${agent.id} runtime=${agent.runtime} durationMs=${durationMs}`
+                `terminal.closed agent=${agent.id} runtime=${agent.runtime} cause=${cause} durationMs=${durationMs}`
             )
+            finishTerminal(cause)
         }
 
         try {
@@ -349,22 +456,34 @@ export class TerminalGateway implements OnModuleInit {
                     extras: agent.extras,
                     ...(extraEnv ? { extraEnv } : {}),
                     agentId: agent.id,
+                    terminalId,
                     cols,
                     cwd: terminalCwd,
                     rows,
                     resume,
                     client: socket,
-                    onClose
+                    onClose,
+                    onToken: this.terminalRecorder(terminalId, 'token'),
+                    onHandle: this.terminalRecorder(terminalId, 'handle')
                 })
             } else if (agent.runtime === 'daemon') {
                 await this.daemon.tunnel({
                     agent: agent as Agent,
+                    terminalId,
                     cols,
                     cwd: terminalCwd,
                     rows,
                     resume,
                     client: socket,
-                    onClose
+                    onClose,
+                    onToken: this.terminalRecorder(terminalId, 'token'),
+                    onHandle: this.terminalRecorder(terminalId, 'handle'),
+                    ...(ownedTerminals && terminalId
+                        ? {
+                              ownedTerminalId: terminalId,
+                              boundTokenId: reused?.tokenId ?? null
+                          }
+                        : {})
                 })
             } else {
                 await this.k8s.tunnel({
@@ -373,9 +492,13 @@ export class TerminalGateway implements OnModuleInit {
                     cwd: terminalCwd,
                     rows,
                     client: socket,
-                    onClose
+                    onClose: () => onClose('client-closed')
                 })
             }
+            // The browser may have gone before the driver attached its close
+            // listener; a hold must not wait for the lease reaper over that.
+            if (socket.readyState !== socket.OPEN)
+                finishTerminal('client-closed')
         } catch (err) {
             const message = (err as Error).message
             this.log.warn(`terminal.tunnel_failed ${message}`)
@@ -383,7 +506,54 @@ export class TerminalGateway implements OnModuleInit {
             try {
                 socket.close(1011, 'tunnel failed')
             } catch {}
+            finishTerminal('tunnel-failed')
         }
+    }
+
+    private terminalRecorder(
+        terminalId: string | null,
+        field: 'token' | 'handle'
+    ): ((value: string) => void) | undefined {
+        if (!terminalId || !this.terminals) return undefined
+        const terminals = this.terminals
+        return (value) => {
+            void (
+                field === 'token'
+                    ? terminals.bindToken(terminalId, value)
+                    : terminals.setHandle(terminalId, value)
+            ).catch((err: Error) =>
+                this.log.warn(
+                    `terminal.record_failed terminal=${terminalId} field=${field}: ${err.message}`
+                )
+            )
+        }
+    }
+
+    // The lease is the terminal's proof of life for every other instance.
+    // Zero rows on renewal means the row was ended under this tunnel (a
+    // takeover or the reaper): stop serving instead of writing over whoever
+    // owns the session now. 4410 is not one of the codes the tab reconnects
+    // on, so a superseded terminal does not fight its successor.
+    private attachLease(socket: WsClient, terminalId: string): void {
+        const terminals = this.terminals
+        if (!terminals) return
+        const timer = setInterval(() => {
+            void terminals
+                .renewLease(terminalId)
+                .then((alive) => {
+                    if (alive) return
+                    this.log.warn(`terminal.lease.lost terminal=${terminalId}`)
+                    try {
+                        socket.close(4410, 'terminal superseded')
+                    } catch {}
+                })
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `terminal.lease.renew_failed terminal=${terminalId}: ${err.message}`
+                    )
+                )
+        }, TERMINAL_LEASE_RENEW_MS)
+        socket.on('close', () => clearInterval(timer))
     }
 
     // Bare-sandbox terminal: addressed by sandboxId, no agent. Resolves the host,

@@ -3,8 +3,7 @@ import test from 'node:test'
 import type { Language } from '@manyfold/i18n'
 import {
     marketingLanguageMenuItems,
-    selectMarketingLanguage,
-    shouldPinMarketingLanguage
+    selectMarketingLanguage
 } from '../src/components/marketing/marketingLanguage'
 import {
     marketingLinkLanguage,
@@ -46,31 +45,6 @@ test('marketing language menus expose reviewed locales without inventing SEO pat
             .map((item) => item.code),
         ['es', 'fr', 'de', 'ja', 'ko', 'pt', 'ru', 'ar', 'hi']
     )
-})
-
-test('marketing language pin runs once for each pathname', () => {
-    assert.equal(shouldPinMarketingLanguage('/', null, 'en'), true)
-    assert.equal(shouldPinMarketingLanguage('/', '/', 'en'), false)
-    assert.equal(shouldPinMarketingLanguage('/zh/', '/', 'zh'), true)
-    assert.equal(shouldPinMarketingLanguage('/zh/', '/zh/', 'zh'), false)
-    assert.equal(shouldPinMarketingLanguage('/', null, null), false)
-})
-
-test('marketing language pin tracks non-marketing paths between SEO visits', () => {
-    let lastPathname: string | null = null
-    const visit = (pathname: string, target: 'en' | 'zh' | null): boolean => {
-        const shouldPin = shouldPinMarketingLanguage(
-            pathname,
-            lastPathname,
-            target
-        )
-        lastPathname = pathname
-        return shouldPin
-    }
-
-    assert.equal(visit('/', 'en'), true)
-    assert.equal(visit('/workspace', null), false)
-    assert.equal(visit('/', 'en'), true)
 })
 
 test('SEO language links use a transient selection even on the current path', () => {

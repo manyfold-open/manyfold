@@ -194,7 +194,11 @@ const makeHarness = (opts: {
         },
         listMessages: async () => insertedMessages,
         latestInflightMessageId: async () => latestInflight,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: 'conv-1',
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async (_sessionId: string, messageId: string) => {
             releaseCalls.push(messageId)
             latestInflight = null

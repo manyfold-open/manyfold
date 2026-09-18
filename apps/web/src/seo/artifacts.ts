@@ -136,7 +136,18 @@ export const buildPageHtml = (
         RENDER_MARKER,
         seoHeadTags(entry, { noindex: env !== 'production' })
     ].join('\n        ')
-    return shell
+    // The static body can paint before its SPA enhancement. Prioritize
+    // CSS/fonts on these pages without changing app.html or script order.
+    const marketingShell = shell.replace(/<script\b[^>]*>/g, (tag) => {
+        if (
+            !/\stype="module"/.test(tag) ||
+            !/\ssrc="\/assets\/[^"/]+\.js"/.test(tag)
+        ) return tag
+        return /\sfetchpriority="[^"]*"/.test(tag)
+            ? tag.replace(/\sfetchpriority="[^"]*"/, ' fetchpriority="low"')
+            : tag.replace('<script', '<script fetchpriority="low"')
+    })
+    return marketingShell
         .replace('<html lang="en">', `<html lang="${htmlLangFor(entry)}">`)
         .replace(
             TITLE_TAG,

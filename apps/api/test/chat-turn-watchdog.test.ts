@@ -690,7 +690,11 @@ const makeHarness = (
         },
         listMessages: async () => insertedMessages,
         latestInflightMessageId: async () => latestInflight,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         upsertMessageSources: async (rows: unknown[]) => ({
             upserted: rows.length

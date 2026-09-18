@@ -82,14 +82,22 @@ mf daemon logs
 
 也可以打开 **New agent**，选好框架后，把 runtime 选成 **Self-owned computer**。
 
+## 已保存的 MCP 与平台上下文
+
+Claude Code、Codex 和 Gemini CLI Agent 的 daemon 重连后，Manyfold 会重试已保存的 MCP 配置和平台上下文。电脑离线期间保存的修改会保持待交付状态，直到写入成功。连接账号变更也会刷新上下文，不要求模板版本先升级。
+
+自动交付需要当前 CLI。较旧 daemon 会显示升级提示；请更新并重启，或在 Agent 设置中显式推送。写入失败会保留可见状态，之后可以重试。Manyfold 保留托管引用块之外的自定义指令。
+
 ## 管理 daemon
 
 ```sh
 mf daemon status              # 进程 + 心跳状态，以及自启单元状态
 mf daemon logs                # tail 本地日志
 mf daemon start               # 安装自启单元并启动（默认登录级）
-mf daemon stop                # 停止 daemon 并移除自启单元
+mf daemon stop                # 停止 daemon（连同它拥有的 exec）并移除自启单元
+mf daemon stop --keep-execs   # 只停 daemon，留下正在跑的 exec 给下一个 daemon 接管
 mf daemon doctor              # 诊断注册 / 框架检测问题
+mf daemon hooks status        # claude / codex 的 session hook（见下）
 ```
 
 Daemon 日志在 `~/.manyfold/profiles/<profile>/daemon/daemon.log`。
@@ -106,6 +114,20 @@ launchd/systemd 的环境（如 WSL1、最小化容器）。自动安装 daemon 
 macOS 和 Linux；Windows 需要前台进程或自行配置 service manager。
 
 执行 `mf update` 升级 CLI 后，先 `mf daemon stop` 再 `mf daemon start`，让自启单元重新写入新的二进制路径。否则 launchd / systemd 在你手动重启单元前会一直用旧路径。
+
+### Session hook
+
+从 web 打开某个对话的终端（TUI resume）之后，Manyfold 需要知道终端里的 `claude` / `codex` 进程正在哪个对话上：它有没有换掉 session id、有没有 `/clear`、有没有另起新会话。这些由 CLI 自己的 `SessionStart` / `SessionEnd` hook 上报，所以 `mf daemon register` 会问一次是否安装（`-y` 视为同意，`--no-hooks` 视为拒绝）。安装内容是一个脚本，加上 `~/.claude/settings.json` 与 `~/.codex/hooks.json` 里每个事件一条带 Manyfold 标记的条目，和你已有的 hook 并存。
+
+hook 只在 Manyfold 打开的终端里生效（shell 带有 `MF_TERMINAL_ID`），并且不输出任何内容，所以你自己的 shell 和模型上下文都不受影响。Codex 对新装的 hook 需要你在它的 TUI 里用 `/hooks` 批准一次才会执行。
+
+```sh
+mf daemon hooks install       # 为本机已有的框架安装，并在 daemon 启动时保持最新
+mf daemon hooks status        # 按框架查看安装状态
+mf daemon hooks uninstall     # 只移除 Manyfold 加的内容
+```
+
+没有 hook 终端照样能用：从 web 打开的对话会在你关掉终端或点 **Back to web** 时交还；只是 TUI 内部发生的事（`/clear`、新会话）不会被跟踪。
 
 ### 每个 profile 只运行一个 daemon
 
@@ -184,6 +206,18 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 让自定义部署强制启用。手动运行 `mf update` 后仍需重启 daemon，才能让 init unit
 加载新 binary。
 
+### 预览：让 exec 活过 daemon 重启
+
+默认情况下，一次 chat turn 的进程是 daemon 的子进程，daemon 重启（崩溃或更新）就会把它带走。在 macOS 和 Linux 上，给 daemon 环境设置 `MF_DAEMON_EXEC_FILES=1`，普通 exec 会改为 detached 启动，输入输出都落在 daemon exec 目录下的文件里：重启后的 daemon 会把还在跑的进程接回来，turn 继续。这个开关在逐个框架验证完之前默认关闭；`mf daemon start` 的日志会显示它是否开启。走 runtime auth profile 的 exec 重启后同样保留 profile 租约：新 daemon 会在重连之前先把租约接过来，中间不会有别的东西跑到这个 profile 上。
+
+exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd 从不碰它；`mf daemon start` 写的 systemd **user** unit 现在带 `KillMode=process`，效果一样（旧 unit 用 `mf daemon stop && mf daemon start` 重装）；system unit 归运维管，`mf daemon doctor` 会报告它的行为。`mf daemon start` 会记 `exec survival: yes|no`，更新只等那些会随 daemon 一起死的 session。普通的 `mf daemon stop` 会把 daemon 拥有的 exec 一起结束；`--keep-execs` 则留给下一个 daemon 接管。
+
+### 终端留在 daemon 上
+
+在 workbench 里给 daemon agent 打开的终端属于 daemon，而不是显示它的那个浏览器标签页。标签页断线（网络抖动、平台发布）或者被关掉时，shell 以及里面跑着的东西——包括 resume 进来的 `claude` / `codex` 会话——都留在机器上继续运行。workbench 下次打开这个终端时会接回同一个 shell：先把屏幕原样恢复，再继续实时输出。给一个已经被这样的 shell 持有的会话打开终端，同样会接到它上面，并从其它正在显示它的标签页手里接管过来（那个标签页会提示，并提供重新连接）。
+
+没有人连着的终端 30 分钟后关闭；跑在 runtime auth profile 下的终端是 5 分钟，因为它一直占着这个 profile 的锁。chat 视图里的"回到 web"会立即结束它。`mf daemon status` 会显示 daemon 保留了多少个终端、其中多少个有人在看；一个 daemon 最多保留 8 个。daemon 重启仍然会结束它的终端。
+
 ## 排错
 
 - **`daemon register requires --token <token>`** — 没传 token。回到网页应用重新复制完整命令。
@@ -195,3 +229,4 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 - **Connected machines 显示 `manual`** — daemon 不是通过 `mf daemon start` 启动的（比如用了 `--foreground` 或旧版本 CLI）。跑 `mf daemon stop && mf daemon start` 重新注册一份自启单元即可。
 - **`mf update` 升级后 Connected machines 还显示旧的 CLI 版本** — 系统当前跑的还是已加载到内存的旧二进制。跑 `mf daemon stop && mf daemon start` 让 daemon 在新二进制下重启。
 - **从 CLI 0.21 或更早版本升级后机器变成未注册** — CLI 0.22 移除了 pre-profile config 和 daemon fallback。请在目标 profile 中重新运行 `mf login`，签发新的机器 token，并执行 `mf daemon register`。`~/.manyfold/workspaces` 中已有的 Agent workspace 不会被删除。
+- **manual 的 daemon 远程升级**：standalone 的 `manual` daemon 也能从控制台升级：它自己换掉二进制、拉起继任者并把正在跑的 exec 交过去，继任者起不来就把旧二进制放回去（这个版本随后不会再试，除非换一个目标）。

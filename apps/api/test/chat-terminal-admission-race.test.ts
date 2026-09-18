@@ -256,7 +256,11 @@ const makeHarness = (): Harness => {
         listMessages: async () => insertedMessages,
         latestInflightMessageId: async () => null,
         getTurnExecution: async () => null,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         upsertMessageSources: async () => ({ upserted: 0 }),
         touchSession: async () => undefined,

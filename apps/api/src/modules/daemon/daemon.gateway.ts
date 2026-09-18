@@ -1,9 +1,9 @@
 import {
+    auditAction,
     DAEMON_FEATURE_EXEC_RESUME,
     DAEMON_MIN_CLI_VERSION,
     isCliVersionTooOld,
     DaemonClientProcess,
-    DaemonInflightStream,
     DaemonWsFrame
 } from '@manyfold/shared'
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common'
@@ -11,7 +11,8 @@ import { HttpAdapterHost } from '@nestjs/core'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { WebSocket as WsClient } from 'ws'
 import { eq } from 'drizzle-orm'
-import { agentRuntimes, type Database } from '@manyfold/db'
+import { randomUUID } from 'node:crypto'
+import { agentRuntimes, auditLogs, type Database } from '@manyfold/db'
 import { Inject } from '@nestjs/common'
 import { DRIZZLE } from '@/db/tokens'
 import { DaemonTokenService } from './daemon-token.service'
@@ -149,7 +150,8 @@ export class DaemonGateway implements OnModuleInit {
         let registered = false
         let helloSeen = false
         let clientProcess: DaemonClientProcess | undefined
-        let bufferedInflight: DaemonInflightStream[] | null = null
+        let bufferedHello: HelloFrame | null = null
+        let acceptedClientFeatures: string[] = []
         let acceptHello!: (accepted: boolean) => void
         const helloReady = new Promise<boolean>((resolve) => {
             acceptHello = resolve
@@ -179,17 +181,27 @@ export class DaemonGateway implements OnModuleInit {
             return { accepted, clientProcess }
         }
 
-        const handleInflightWhenReady = (
-            streams: DaemonInflightStream[]
-        ): void => {
+        const handleHelloWhenReady = (frame: HelloFrame): void => {
+            acceptedClientFeatures = Array.isArray(frame.clientFeatures)
+                ? frame.clientFeatures.filter((feature) =>
+                    typeof feature === 'string' && /^[-a-z0-9._:]{1,80}$/i.test(feature)
+                ).slice(0, 64)
+                : []
             if (!registered) {
-                bufferedInflight = streams
+                bufferedHello = frame
                 return
             }
-            const evidence = this.registry.recordHelloForSocket(host.id, socket)
+            const evidence = this.registry.recordHelloForSocket(
+                host.id, socket, acceptedClientFeatures
+            )
             if (!evidence) return
+            // The terminals the daemon owns arrive before any dispatch could
+            // (ADR-0029 §6); like inflightStreams, absent means unknown.
+            if (frame.terminals !== undefined)
+                this.hosts.reportTerminalInventory(host.id, frame.terminals)
+            if (frame.inflightStreams === undefined) return
             void this.resumeService
-                .handleInflightStreams(host.id, streams, evidence)
+                .handleInflightStreams(host.id, frame.inflightStreams, evidence)
                 .catch((err) =>
                     this.log.warn(
                         `daemon.ws.resume_failed daemonId=${host.id} ${(err as Error).message}`
@@ -203,7 +215,7 @@ export class DaemonGateway implements OnModuleInit {
                 socket,
                 raw,
                 armPongDeadline,
-                handleInflightWhenReady,
+                handleHelloWhenReady,
                 handleHelloVersion
             ).catch((err: unknown) => {
                 this.log.warn(
@@ -244,8 +256,10 @@ export class DaemonGateway implements OnModuleInit {
             cliVersion: host.cliVersion,
             hostname: host.hostname,
             clientProcess,
+            clientFeatures: acceptedClientFeatures,
             socket
         })
+        if (socket.readyState !== 1) return
         registered = true
 
         const welcome: DaemonWsFrame = {
@@ -259,10 +273,10 @@ export class DaemonGateway implements OnModuleInit {
 
         await this.hosts.touchLastSeen(host.id)
 
-        if (bufferedInflight) {
-            const pending = bufferedInflight
-            bufferedInflight = null
-            handleInflightWhenReady(pending)
+        if (bufferedHello) {
+            const pending = bufferedHello
+            bufferedHello = null
+            handleHelloWhenReady(pending)
         }
 
         armPongDeadline()
@@ -274,12 +288,79 @@ export class DaemonGateway implements OnModuleInit {
         }, PING_INTERVAL_MS)
     }
 
+    // What a restarted daemon reports once about the execs it inherited and
+    // about a self-update it had to undo (ADR-0029 §4/§5): logged and kept
+    // as audit rows on the daemon, since neither has a user request behind it.
+    private async recordHelloReports(
+        daemonId: string,
+        frame: HelloFrame
+    ): Promise<void> {
+        const recovery = frame.recovery
+        if (
+            recovery &&
+            typeof recovery === 'object' &&
+            ['adopted', 'completed', 'crashed'].every(
+                (key) =>
+                    typeof (recovery as unknown as Record<string, unknown>)[
+                        key
+                    ] === 'number'
+            )
+        ) {
+            this.log.log(
+                `daemon.ws.hello.recovery daemonId=${daemonId} adopted=${recovery.adopted} completed=${recovery.completed} crashed=${recovery.crashed}`
+            )
+            await this.audit(auditAction.DAEMON_EXEC_RECOVERED, daemonId, {
+                adopted: recovery.adopted,
+                completed: recovery.completed,
+                crashed: recovery.crashed
+            })
+        }
+        const rollback = frame.rollback
+        if (
+            rollback &&
+            typeof rollback === 'object' &&
+            typeof rollback.fromVersion === 'string' &&
+            typeof rollback.toVersion === 'string' &&
+            typeof rollback.reason === 'string'
+        ) {
+            this.log.warn(
+                `daemon.ws.hello.rollback daemonId=${daemonId} from=${rollback.fromVersion} to=${rollback.toVersion} reason=${JSON.stringify(rollback.reason.slice(0, 200))}`
+            )
+            await this.audit(auditAction.DAEMON_UPGRADE_ROLLED_BACK, daemonId, {
+                fromVersion: rollback.fromVersion.slice(0, 64),
+                toVersion: rollback.toVersion.slice(0, 64),
+                reason: rollback.reason.slice(0, 500),
+                at: typeof rollback.at === 'string' ? rollback.at.slice(0, 40) : null
+            })
+        }
+    }
+
+    private async audit(
+        action: string,
+        subject: string,
+        meta: Record<string, unknown>
+    ): Promise<void> {
+        try {
+            await this.db.insert(auditLogs).values({
+                id: randomUUID(),
+                actorId: null,
+                action,
+                subject,
+                meta
+            })
+        } catch (err) {
+            this.log.warn(
+                `failed to write audit ${action}/${subject}: ${(err as Error).message}`
+            )
+        }
+    }
+
     private async handleFrame(
         daemonId: string,
         socket: WsClient,
         raw: unknown,
         armPongDeadline: () => void,
-        handleInflightStreams: (streams: DaemonInflightStream[]) => void,
+        handleAcceptedHello: (frame: HelloFrame) => void,
         handleHelloVersion: (frame: HelloFrame) => HelloDecision
     ): Promise<void> {
         let frame: DaemonWsFrame
@@ -298,6 +379,7 @@ export class DaemonGateway implements OnModuleInit {
             case 'hello': {
                 const hello = handleHelloVersion(frame)
                 if (!hello.accepted) return
+                handleAcceptedHello(frame)
                 const features = Array.isArray(frame.clientFeatures)
                     ? frame.clientFeatures
                           .filter(
@@ -317,6 +399,7 @@ export class DaemonGateway implements OnModuleInit {
                 this.log.log(
                     `daemon.ws.hello daemonId=${daemonId} inflightStreams=${Array.isArray(frame.inflightStreams) ? frame.inflightStreams.length : 'unknown'} inventory=${inventory} clientFeatures=${features} ${daemonClientProcessFields(hello.clientProcess)}`
                 )
+                void this.recordHelloReports(daemonId, frame)
                 // Missing inventory means enumeration failed, never an empty
                 // stream set. Preserve resumable turns until the next hello.
                 if (frame.inflightStreams === undefined) {
@@ -325,7 +408,6 @@ export class DaemonGateway implements OnModuleInit {
                     )
                     return
                 }
-                handleInflightStreams(frame.inflightStreams)
                 return
             }
             case 'ping': {

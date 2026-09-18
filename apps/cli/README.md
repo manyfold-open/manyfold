@@ -43,6 +43,7 @@ mf agent list
 mf agent get <agent-id>
 mf runtime list
 mf daemon status              # local rpc daemon
+mf daemon hooks status        # claude / codex session hooks (act only inside Manyfold terminals)
 ```
 
 Set the API endpoint and token via flags or env:
@@ -52,6 +53,7 @@ export MF_API_URL=https://your-api.example.com/api
 export MF_TOKEN=...
 export MF_HTTP_TIMEOUT=30s # ordinary API requests; plain numbers are seconds
 export MF_DAEMON_AUTO_UPDATE=0 # daemon self-updates when idle by default (official API URL only)
+export MF_DAEMON_EXEC_FILES=1  # macOS/Linux: run plain execs detached with file IO so they survive a daemon restart (preview, off by default)
 # or per-call without putting the token in argv:
 printf '%s' "$MF_TOKEN" | mf --api-url ... --token - whoami
 ```

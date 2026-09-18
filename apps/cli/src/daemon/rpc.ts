@@ -9,6 +9,7 @@ import {
     mkdirSync,
     readFileSync,
     realpathSync,
+    rmSync,
     writeFileSync
 } from 'node:fs'
 import {
@@ -47,6 +48,19 @@ import { runOpenclawTurn } from './openclaw-turn'
 import { runOpenclawAcpTurn } from './openclaw-acp-turn'
 import type { RpcContext, RpcHandler } from './ws-client'
 import { encodePtyChunk, resolvePtyBackend } from './pty-backend'
+import {
+    assertOwnedTerminalCapacity,
+    attachOwnedTerminal,
+    attachedTerminalCount,
+    closeOwnedTerminal,
+    detachOwnedTerminal,
+    isOwnedTerminalId,
+    ownedTerminal,
+    ownedTerminalCount,
+    registerOwnedTerminal,
+    resizeOwnedTerminal,
+    type OwnedTerminalAttachment
+} from './owned-terminals'
 import { machineWorkspacesRoot } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
@@ -59,6 +73,7 @@ import {
 import { assertOperationId, assertProfileId, authRoot } from './runtime-auth/paths'
 import { ProfileBusyError } from './runtime-auth/lock'
 import {
+    bufferDir,
     ExecStream,
     type ExecBufferFinal,
     execStreams,
@@ -66,9 +81,15 @@ import {
     readFinal,
     readMeta
 } from './exec-buffer'
+import {
+    fileExecEnabled,
+    fileExecRegistry,
+    startFileExec
+} from './exec-files'
 import { normalizeWireChannel } from '@/channel'
-import { performSelfUpdate } from '@/commands/update'
+import { performSelfUpdate, type SelfUpdateResult } from '@/commands/update'
 import { detectStartupMethod } from './startup-method'
+import { precheckBinary, readUpdateLatch } from './manual-update'
 import {
     UPDATE_PENDING_ERROR,
     UpdateDrainCoordinator,
@@ -88,6 +109,7 @@ import {
 } from './inspect-fs'
 import { inspectRuntimeAccount } from './account-inspect'
 import { createExecResources, EXEC_TEMP_DIRECTORY_ENV } from './exec-resources'
+import { commitConfigFile } from './config-commit'
 
 interface TerminalSession {
     write(data: string): void
@@ -332,6 +354,7 @@ const resolveAuthContext = async (
 ): Promise<{
     env: Record<string, string>
     dirs: FrameworkConfigDirs
+    lockDir: string
     release: () => Promise<void>
 } | null> => {
     if (!selection || typeof selection !== 'object') return null
@@ -853,15 +876,86 @@ const execChildren = new Map<string, ExecChildEntry>()
 // a spawn). Counted so daemon.update drains around them like any session.
 const turnSessions = new Set<string>()
 
+// Whether this installation lets a detached exec outlive a daemon restart
+// (decided once at start from launchd / systemd KillMode; ADR-0029 §4). Only
+// then does the update drain leave file execs out of its count — the next
+// daemon adopts them — and admit new ones while an update waits.
+let fileExecsAdoptable = false
+
+export const setFileExecsAdoptable = (adoptable: boolean): void => {
+    fileExecsAdoptable = adoptable
+}
+
+// The sessions an update has to wait for: everything that dies with this
+// process. A file exec on an installation that keeps it alive is not one.
+export const drainSessionCount = (counts: {
+    pipeExecs: number
+    fileExecs: number
+    ptys: number
+    turns: number
+    fileExecsAdoptable: boolean
+}): number =>
+    counts.pipeExecs +
+    (counts.fileExecsAdoptable ? 0 : counts.fileExecs) +
+    counts.ptys +
+    counts.turns
+
+// Installed by the daemon start when this daemon can update itself without
+// a supervisor (ADR-0029 §5): it drives the handoff to a successor and never
+// returns to serving. Absent, an update restarts through the init unit.
+let manualUpdateHandoff: ((result: SelfUpdateResult) => Promise<void>) | null =
+    null
+
+export const setManualUpdateHandoff = (
+    handoff: ((result: SelfUpdateResult) => Promise<void>) | null
+): void => {
+    manualUpdateHandoff = handoff
+}
+
+export const manualUpdateCapable = (): boolean => manualUpdateHandoff !== null
+
 const updateCoordinator = new UpdateDrainCoordinator({
     activeSessions: () =>
-        execChildren.size + ptySessions.size + turnSessions.size,
-    applyUpdate: (spec) => performSelfUpdate(spec),
-    // Exit non-zero so launchd (KeepAlive SuccessfulExit=false) / systemd
-    // (Restart=on-failure) respawn the freshly-installed binary. Delay the
-    // exit so any pending ack frame flushes to the API before the socket
-    // closes.
-    restart: () => setTimeout(() => process.exit(1), 2000),
+        drainSessionCount({
+            pipeExecs: execChildren.size,
+            fileExecs: fileExecRegistry.size(),
+            ptys: ptySessions.size,
+            turns: turnSessions.size,
+            fileExecsAdoptable
+        }),
+    applyUpdate: (spec) =>
+        performSelfUpdate({
+            ...spec,
+            // The old binary stays reachable for the rollback only when this
+            // process is the one that would perform it.
+            keepPrevious: manualUpdateHandoff !== null,
+            precheck: async (binary, targetVersion) => {
+                // A target that already failed to come up here is not tried
+                // again until something else is asked for.
+                const latch = await readUpdateLatch(daemonPaths.updateLatchPath)
+                if (latch?.version === targetVersion)
+                    throw new Error(
+                        `update to ${targetVersion} was rolled back at ${latch.at} (${latch.reason}); pick another version`
+                    )
+                await precheckBinary(binary, targetVersion)
+            }
+        }),
+    // With a supervisor: exit non-zero so launchd (KeepAlive
+    // SuccessfulExit=false) / systemd (Restart=on-failure) respawn the
+    // freshly-installed binary, after a delay that lets any pending ack
+    // frame flush. Without one: hand off to a successor this process starts.
+    restart: (result) => {
+        if (manualUpdateHandoff) {
+            const handoff = manualUpdateHandoff
+            setTimeout(() => {
+                void handoff(result).catch((err: Error) =>
+                    console.error(`manual update handoff failed: ${err.message}`)
+                )
+            }, 2000)
+            return
+        }
+        setTimeout(() => process.exit(1), 2000)
+    },
     log: (msg) => console.error(msg)
 })
 
@@ -875,11 +969,19 @@ const releasePtySession = (refId: string): void => {
 
 export const daemonActivitySnapshot = (): {
     activeExecs: number
+    adoptableExecs: number
     activePtys: number
+    ownedTerminals: number
+    attachedTerminals: number
     updatePending: boolean
 } => ({
-    activeExecs: execChildren.size,
+    activeExecs: execChildren.size + fileExecRegistry.size(),
+    adoptableExecs: fileExecsAdoptable ? fileExecRegistry.size() : 0,
+    // Attachments count as ptys (they hold the update drain); a terminal
+    // nobody is attached to does not.
     activePtys: ptySessions.size,
+    ownedTerminals: ownedTerminalCount(),
+    attachedTerminals: attachedTerminalCount(),
     updatePending: updateCoordinator.blocksNewSessions()
 })
 
@@ -937,6 +1039,21 @@ const execStart = async (
         return { ok: false, payload: { exitCode: -1 }, error: 'cmd required' }
     if (payload.temporarySettings !== undefined && payload.temporarySettings !== 'gemini-platform')
         return { ok: false, payload: { exitCode: -1 }, error: 'unsupported temporary settings' }
+    // Idempotent by refId (ADR-0029 §4): a dispatch repeated after a restart
+    // attaches to the exec that is still running — or replays the one that
+    // finished — instead of starting a second agent on the same turn. Only a
+    // crashed leftover is replaced.
+    const live = execStreams.get(ctx.refId)
+    const priorMeta = readMeta(ctx.refId)
+    if (
+        live?.status === 'running' ||
+        (priorMeta && priorMeta.status !== 'crashed' && readFinal(ctx.refId))
+    )
+        return execResume({ originalRefId: ctx.refId, fromSeq: 0 }, ctx)
+    if (priorMeta) {
+        execStreams.delete(ctx.refId)
+        rmSync(bufferDir(ctx.refId), { recursive: true, force: true })
+    }
     const cwd = payload.dir
         ? ensureUnderAllowedRoot(payload.dir)
         : process.cwd()
@@ -958,6 +1075,39 @@ const execStart = async (
             payload: { exitCode: -1 },
             error: authError(err).error
         }
+    }
+    // The file path (ADR-0029 §4): the exec runs detached with its IO in
+    // files the daemon tails, so it survives this daemon. Its profile lease
+    // and temporary settings go with it as paths in the meta. Only an exec
+    // that keeps stdin open stays on the pipes.
+    if (fileExecEnabled() && !payload.keepStdinOpen) {
+        let resources: Awaited<ReturnType<typeof createExecResources>> | undefined
+        if (payload.temporarySettings)
+            try {
+                resources = await createExecResources(cmd, cwd)
+            } catch {
+                const pending = authContext
+                authContext = null
+                await pending?.release().catch(() => {})
+                return {
+                    ok: false,
+                    payload: { exitCode: -1 },
+                    error: 'exec_resources_setup_failed'
+                }
+            }
+        return execStartFiles(payload, ctx, cwd, metaPayload, {
+            auth: authContext
+                ? {
+                      lockDir: authContext.lockDir,
+                      label: `exec:${ctx.refId}`,
+                      release: authContext.release
+                  }
+                : undefined,
+            env: authContext
+                ? { ...stripAmbientAuthEnv(process.env), ...authContext.env }
+                : { ...process.env, ...(payload.env ?? {}) },
+            resources
+        })
     }
     type Completion = {
         final: ExecBufferFinal
@@ -1137,6 +1287,79 @@ const execStart = async (
     })
 }
 
+const execStartFiles = async (
+    payload: ExecPayload,
+    ctx: RpcContext,
+    cwd: string,
+    metaPayload: Record<string, unknown>,
+    owned: {
+        auth?: { lockDir: string; label: string; release: () => Promise<void> }
+        env: Record<string, string | undefined>
+        resources?: Awaited<ReturnType<typeof createExecResources>>
+    }
+): Promise<{
+    ok: boolean
+    payload?: Record<string, unknown>
+    error?: string
+}> => {
+    let stream: ExecStream
+    try {
+        stream = new ExecStream({
+            refId: ctx.refId,
+            method: 'exec.start',
+            payload: metaPayload
+        })
+        execStreams.set(ctx.refId, stream)
+    } catch {
+        await owned.resources?.release().catch(() => {})
+        await owned.auth?.release().catch(() => {})
+        return {
+            ok: false,
+            payload: { exitCode: -1 },
+            error: 'exec_buffer_setup_failed'
+        }
+    }
+    const childEnv: Record<string, string> = {}
+    for (const [key, value] of Object.entries(owned.env))
+        if (typeof value === 'string') childEnv[key] = value
+    delete childEnv[EXEC_TEMP_DIRECTORY_ENV]
+    if (owned.resources)
+        childEnv[EXEC_TEMP_DIRECTORY_ENV] = owned.resources.directory
+    const handle = startFileExec({
+        refId: ctx.refId,
+        cmd: owned.resources?.command ?? payload.cmd,
+        cwd,
+        env: childEnv,
+        stdin: typeof payload.stdin === 'string' ? payload.stdin : '',
+        timeoutMs: payload.timeoutMs,
+        stream,
+        log: (message) => console.error(message),
+        auth: owned.auth,
+        resources: owned.resources
+            ? {
+                  directory: owned.resources.directory,
+                  release: (leader) => owned.resources!.release(leader)
+              }
+            : undefined
+    })
+    ctx.onCancel(() => handle.abort())
+    return new Promise((resolveAck) => {
+        let acknowledged = false
+        const settle = (final: ExecBufferFinal): void => {
+            if (acknowledged) return
+            acknowledged = true
+            updateCoordinator.onSessionEnd()
+            resolveAck({
+                ok: final.ok,
+                payload: final.payload,
+                error: final.error
+            })
+        }
+        subscribeCtxToStream(stream, ctx, 0, settle)
+        void handle.done.then(settle)
+    })
+}
+
 const execResume = async (
     payload: Record<string, unknown>,
     ctx: RpcContext
@@ -1193,6 +1416,11 @@ const execAbort = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    const fileExec = fileExecRegistry.get(refId)
+    if (fileExec) {
+        fileExec.abort()
+        return { ok: true }
+    }
     const entry = execChildren.get(refId)
     if (!entry) {
         const meta = readMeta(refId)
@@ -1221,6 +1449,8 @@ const execInput = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    // A file exec's stdin was a file, closed at spawn.
+    if (fileExecRegistry.get(refId)) return { ok: false, error: 'stdin closed' }
     const entry = execChildren.get(refId)
     if (!entry) return { ok: false, error: `no live child for refId ${refId}` }
     if (!entry.child.stdin || entry.child.stdin.writableEnded)
@@ -1245,6 +1475,7 @@ const execEof = async (
 ): Promise<{ ok: boolean; error?: string }> => {
     const refId = String(payload.refId ?? '').trim()
     if (!refId) return { ok: false, error: 'refId required' }
+    if (fileExecRegistry.get(refId)) return { ok: true }
     const entry = execChildren.get(refId)
     if (!entry) return { ok: false, error: `no live child for refId ${refId}` }
     if (!entry.child.stdin || entry.child.stdin.writableEnded)
@@ -1426,7 +1657,7 @@ const handlers: Partial<
         }
     },
     'daemon.update': async (payload) => {
-        if (detectStartupMethod() === 'manual')
+        if (detectStartupMethod() === 'manual' && !manualUpdateCapable())
             return {
                 ok: false,
                 error: 'daemon is not managed by an init unit (launchd/systemd); run `mf update` then restart it manually'
@@ -1504,7 +1735,11 @@ const handlers: Partial<
         return { ok: true }
     },
     'exec.start': async (payload, ctx) => {
-        if (updateCoordinator.blocksNewSessions())
+        // A pending update refuses work that would die with this process; an
+        // exec the next daemon adopts is not that, so it is admitted.
+        const adoptable =
+            fileExecEnabled() && fileExecsAdoptable && !payload.keepStdinOpen
+        if (updateCoordinator.blocksNewSessions() && !adoptable)
             return { ok: false, error: UPDATE_PENDING_ERROR }
         return execStart(payload as unknown as ExecPayload, ctx)
     },
@@ -1662,8 +1897,19 @@ const handlers: Partial<
             payload: { size: st.size, chunked: true }
         }
     },
-    'fs.write': async (payload) => {
+    'fs.write': async (payload, ctx) => {
         const abs = ensureUnderAllowedRoot(String(payload.path ?? ''))
+        if (payload.configCommit !== undefined) {
+            if (payload.encoding !== undefined || payload.mode !== '600') return { ok: false, error: 'config_commit_invalid' }
+            try {
+                if (payload.content !== null && typeof payload.content !== 'string') return { ok: false, error: 'config_commit_invalid' }
+                const status = await commitConfigFile({ path: abs, content: payload.content as string | null, commit: payload.configCommit, ctx, validatePath: () => ensureUnderAllowedRoot(abs) })
+                return { ok: true, payload: { status } }
+            } catch (error) {
+                const message = (error as Error).message
+                return { ok: false, error: /^config_commit_[a-z_]+$/.test(message) ? message : 'config_commit_io_failed' }
+            }
+        }
         await mkdir(join(abs, '..'), { recursive: true })
         const raw = String(payload.content ?? '')
         // base64 keeps binary attachments (images, PDFs) intact; the legacy
@@ -1699,6 +1945,23 @@ const handlers: Partial<
         return { ok: true }
     },
     'pty.open': async (payload, ctx) => {
+        // A terminal id makes the pty the daemon's (ADR-0029 §6): this
+        // stream is one attachment to it, and a second open with the same
+        // id attaches to what is already running instead of spawning again.
+        // Attaching is not a new session, so it is not gated by the drain.
+        if (payload.terminalId !== undefined && !isOwnedTerminalId(payload.terminalId))
+            return { ok: false, error: 'invalid terminalId' }
+        const terminalId = isOwnedTerminalId(payload.terminalId)
+            ? payload.terminalId
+            : null
+        if (terminalId && ownedTerminal(terminalId)) {
+            try {
+                ctx.sendEvent('pty.attach', JSON.stringify({ mode: 'attached' }))
+            } catch {
+                return { ok: false, error: 'ws not open' }
+            }
+            return attachStreamToOwnedTerminal(terminalId, payload, ctx)
+        }
         if (updateCoordinator.blocksNewSessions())
             return { ok: false, error: UPDATE_PENDING_ERROR }
         // A sign-in for a runtime auth profile: the manager composes argv and
@@ -1709,6 +1972,18 @@ const handlers: Partial<
             payload.authLogin && typeof payload.authLogin === 'object'
                 ? (payload.authLogin as Record<string, unknown>)
                 : null
+        if (authLogin && terminalId)
+            return {
+                ok: false,
+                error: 'terminalId is not supported for a sign-in terminal'
+            }
+        if (terminalId) {
+            try {
+                assertOwnedTerminalCapacity()
+            } catch (err) {
+                return { ok: false, error: (err as Error).message }
+            }
+        }
         let login: Awaited<
             ReturnType<RuntimeAuthManager['prepareLogin']>
         > | null = null
@@ -1801,6 +2076,23 @@ const handlers: Partial<
               ]
             : ['-il']
 
+        if (terminalId)
+            return spawnOwnedTerminal(
+                {
+                    terminalId,
+                    backend,
+                    shell,
+                    args,
+                    cwd,
+                    env,
+                    cols,
+                    rows,
+                    profileBound: authContext !== null,
+                    releaseAuth
+                },
+                ctx
+            )
+
         let term: ReturnType<typeof backend.spawn>
         try {
             term = backend.spawn({
@@ -1861,6 +2153,12 @@ const handlers: Partial<
         return { ok: true }
     },
     'pty.close': async (payload) => {
+        // By terminal id from any API instance (a release, a takeover, the
+        // reaper): the process is killed, its attachment learns from the exit.
+        if (isOwnedTerminalId(payload.terminalId)) {
+            closeOwnedTerminal(payload.terminalId)
+            return { ok: true }
+        }
         const session = ptySessions.get(String(payload.refId ?? ''))
         if (!session) return { ok: true }
         try {
@@ -1869,6 +2167,132 @@ const handlers: Partial<
         releasePtySession(String(payload.refId ?? ''))
         return { ok: true }
     }
+}
+
+const ownedSession = (terminalId: string): TerminalSession => ({
+    write: (data): void => {
+        ownedTerminal(terminalId)?.term.write(data)
+    },
+    resize: (cols, rows): void => {
+        resizeOwnedTerminal(terminalId, cols, rows)
+    },
+    kill: (): void => {
+        closeOwnedTerminal(terminalId)
+    }
+})
+
+const ptySize = (
+    payload: Record<string, unknown>
+): { cols: number; rows: number } => ({
+    cols: Math.max(20, Math.min(500, Number(payload.cols ?? 80))),
+    rows: Math.max(5, Math.min(200, Number(payload.rows ?? 24)))
+})
+
+// The stream becomes the terminal's attachment: it gets the screen so far and
+// then the live tail, its cancel detaches (the terminal stays for the next
+// attachment), and it ends when the pty exits or another attachment takes
+// over. Input and resize keep addressing it by refId meanwhile.
+const attachStreamToOwnedTerminal = async (
+    terminalId: string,
+    payload: Record<string, unknown>,
+    ctx: RpcContext
+): Promise<{ ok: boolean; error?: string; payload?: Record<string, unknown> }> => {
+    let settle!: (result: { exitCode?: number; detached?: boolean }) => void
+    const settled = new Promise<{ exitCode?: number; detached?: boolean }>(
+        (resolveSettled) => {
+            settle = resolveSettled
+        }
+    )
+    const attachment: OwnedTerminalAttachment = {
+        refId: ctx.refId,
+        send: (base64) => ctx.sendEvent('pty.out', base64),
+        settle: (result) => settle(result)
+    }
+    if (!attachOwnedTerminal(terminalId, attachment, ptySize(payload)))
+        return { ok: false, error: 'terminal not found' }
+    ptySessions.set(ctx.refId, ownedSession(terminalId))
+    ctx.onCancel(() => {
+        detachOwnedTerminal(terminalId, ctx.refId)
+        releasePtySession(ctx.refId)
+    })
+    const result = await settled
+    releasePtySession(ctx.refId)
+    return {
+        ok: true,
+        payload: result.detached
+            ? { detached: true }
+            : { exitCode: result.exitCode ?? 0 }
+    }
+}
+
+const spawnOwnedTerminal = async (
+    args: {
+        terminalId: string
+        backend: Awaited<ReturnType<typeof resolvePtyBackend>>
+        shell: string
+        args: string[]
+        cwd: string
+        env: Record<string, string>
+        cols: number
+        rows: number
+        profileBound: boolean
+        releaseAuth: () => void
+    },
+    ctx: RpcContext
+): Promise<{ ok: boolean; error?: string; payload?: Record<string, unknown> }> => {
+    // Announced before the first byte, so the viewer resets before output.
+    try {
+        ctx.sendEvent('pty.attach', JSON.stringify({ mode: 'spawned' }))
+    } catch {
+        args.releaseAuth()
+        return { ok: false, error: 'ws not open' }
+    }
+    // The data callback only enqueues (a throw inside Bun's native callback
+    // is uncatchable upstream); whatever arrives before the registry has the
+    // terminal is held back and fed once it does.
+    const early: Array<Uint8Array | string> = []
+    let feed: (chunk: Uint8Array | string) => void = (chunk) => {
+        early.push(chunk)
+    }
+    let term: ReturnType<typeof args.backend.spawn>
+    try {
+        term = args.backend.spawn({
+            shell: args.shell,
+            args: args.args,
+            cwd: args.cwd,
+            env: args.env,
+            cols: args.cols,
+            rows: args.rows,
+            onData: (chunk) => feed(chunk)
+        })
+    } catch (err) {
+        args.releaseAuth()
+        throw err
+    }
+    try {
+        const registered = registerOwnedTerminal({
+            terminalId: args.terminalId,
+            term,
+            cols: args.cols,
+            rows: args.rows,
+            profileBound: args.profileBound,
+            onExit: () => args.releaseAuth(),
+            log: (message) => console.error(message)
+        })
+        feed = registered.feed
+        for (const chunk of early.splice(0)) feed(chunk)
+    } catch (err) {
+        try {
+            term.kill('SIGTERM')
+        } catch {}
+        args.releaseAuth()
+        return { ok: false, error: (err as Error).message }
+    }
+    return attachStreamToOwnedTerminal(
+        args.terminalId,
+        { cols: args.cols, rows: args.rows },
+        ctx
+    )
 }
 
 const encodePtyOut = (text: string): string =>

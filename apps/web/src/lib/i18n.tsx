@@ -19,7 +19,8 @@ import {
     setBrandName
 } from '@manyfold/i18n'
 import type { Language, TextDirection } from '@manyfold/i18n'
-import { extraTranslations } from '@/lib/i18n-extra'
+import { extraTranslations, loadExtraTranslations } from '@/lib/i18n-extra'
+import { seoPageForPath } from '@/seo/pages'
 
 // Module scope, before any component renders: the extras must be in place
 // for the first paint's translations (the cloud overlay swaps the module).
@@ -61,6 +62,8 @@ export const resolvePreferredLanguage = (
 
 const readInitialLanguage = (): Language => {
     if (typeof window === 'undefined') return defaultLanguage
+    const marketingLanguage = seoPageForPath(window.location.pathname)?.language
+    if (marketingLanguage) return marketingLanguage
 
     try {
         const stored = window.localStorage.getItem(languageStorageKey)
@@ -84,13 +87,17 @@ interface I18nContextValue {
     direction: TextDirection
     language: Language
     locale: string
-    setLanguage: (language: Language, options?: { persist?: boolean }) => void
+    setLanguage: (
+        language: Language,
+        options?: { persist?: boolean }
+    ) => () => void
     t: TFn
 }
 
 export const createLanguageRequestGuard = (): {
     begin: () => number
     isCurrent: (request: number) => boolean
+    cancel: (request: number) => void
 } => {
     let current = 0
     return {
@@ -98,7 +105,10 @@ export const createLanguageRequestGuard = (): {
             current += 1
             return current
         },
-        isCurrent: (request) => request === current
+        isCurrent: (request) => request === current,
+        cancel: (request) => {
+            if (request === current) current += 1
+        }
     }
 }
 
@@ -115,7 +125,17 @@ const initializeLanguage = (): Language => {
 // calls t() before React mounts — the initial analytics page view, for one —
 // would otherwise silently get the default language.
 const initialLanguage = initializeLanguage()
-export const i18nReady = loadPackageLanguage(initialLanguage)
+export const loadWebLanguage = async (language: Language): Promise<void> => {
+    await Promise.all([
+        loadPackageLanguage(language),
+        loadExtraTranslations(language)
+    ])
+}
+export const ensurePageLanguage = (pathname: string): Promise<void> =>
+    loadWebLanguage(
+        seoPageForPath(pathname)?.language ?? getLanguageOption().code
+    )
+export const i18nReady = loadWebLanguage(initialLanguage)
 
 export const I18nProvider: FC<{ children: ReactNode }> = ({
     children
@@ -124,9 +144,12 @@ export const I18nProvider: FC<{ children: ReactNode }> = ({
     const languageRequests = useRef(createLanguageRequestGuard())
 
     const setLanguage = useCallback(
-        (nextLanguage: Language, options?: { persist?: boolean }): void => {
+        (
+            nextLanguage: Language,
+            options?: { persist?: boolean }
+        ): (() => void) => {
             const request = languageRequests.current.begin()
-            void loadPackageLanguage(nextLanguage).then(
+            void loadWebLanguage(nextLanguage).then(
                 () => {
                     if (!languageRequests.current.isCurrent(request)) return
                     setPackageLanguage(nextLanguage)
@@ -149,6 +172,7 @@ export const I18nProvider: FC<{ children: ReactNode }> = ({
                     return
                 }
             )
+            return () => languageRequests.current.cancel(request)
         },
         []
     )

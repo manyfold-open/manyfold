@@ -15,6 +15,16 @@ import { FilesModule } from '@/modules/agents/files/files.module'
 import { RuntimeAccessModule } from '@/modules/runtime-access/runtime-access.module'
 import { SpriteStorageModule } from '@/modules/agents/sprite-storage/sprite-storage.module'
 import { ConnectionsModule } from '@/modules/connections/connections.module'
+import { ChatModule } from '@/modules/chat/chat.module'
+import { TerminalSessionsRepository } from '@/modules/terminal/terminal-sessions.repository'
+import { TerminalHolderService } from '@/modules/terminal/terminal-holder.service'
+import { TerminalHolderController } from '@/modules/terminal/terminal-holder.controller'
+import { TerminalLeaseReaper } from '@/modules/terminal/terminal-lease.reaper'
+import { TerminalSessionRefsRepository } from '@/modules/terminal/terminal-session-refs.repository'
+import { TerminalHookService } from '@/modules/terminal/terminal-hook.service'
+import { TerminalHookController } from '@/modules/terminal/terminal-hook.controller'
+import { ShareRateLimitService } from '@/common/share-rate-limit.service'
+import { TerminalInventoryService } from '@/modules/terminal/terminal-inventory.service'
 
 @Module({
     imports: [
@@ -28,14 +38,24 @@ import { ConnectionsModule } from '@/modules/connections/connections.module'
         RuntimeAccessModule,
         SpriteStorageModule,
         ConnectionsModule,
-        SecretsModule
+        SecretsModule,
+        ChatModule
     ],
+    controllers: [TerminalHolderController, TerminalHookController],
     providers: [
         TerminalGateway,
         SpritesTerminal,
         K8sTerminal,
         DaemonTerminal,
-        TerminalResumeService
+        TerminalResumeService,
+        TerminalSessionsRepository,
+        TerminalSessionRefsRepository,
+        TerminalHolderService,
+        TerminalHookService,
+        TerminalLeaseReaper,
+        TerminalInventoryService,
+        // Module-local buckets for the hook endpoint's per-terminal limit.
+        ShareRateLimitService
     ]
 })
 export class TerminalModule {}

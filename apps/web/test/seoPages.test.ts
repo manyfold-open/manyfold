@@ -330,6 +330,25 @@ test('app.html is the shell plus an unconditional noindex', () => {
     assert.ok(build404Html().includes('404'))
 })
 
+test('only marketing HTML lowers its local module entry priority', () => {
+    const shell = SHELL.replace(
+        '</head>',
+        '<script type="module" crossorigin src="/assets/index-owned.js"></script><script type="application/ld+json">{}</script></head>'
+    )
+    const marketing = buildPageHtml(shell, {
+        entry: entries[0],
+        bodyHtml: '<main>body</main>',
+        env: 'production'
+    })
+    assert.ok(
+        marketing.includes(
+            '<script fetchpriority="low" type="module" crossorigin src="/assets/index-owned.js">'
+        )
+    )
+    assert.ok(marketing.includes('<script type="application/ld+json">'))
+    assert.ok(!buildAppHtml(shell).includes('fetchpriority='))
+})
+
 // Caddy serves the app shell only for the families listed above and 404s
 // everything else on purpose, so a route added to App.tsx without a prefix
 // here is a page that works in dev and is unreachable in production. That is

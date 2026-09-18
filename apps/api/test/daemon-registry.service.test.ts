@@ -61,9 +61,18 @@ class RegistryDb {
     update() {
         return {
             set: () => ({
-                where: async () => undefined
+                where: () => {
+                    const result = Promise.resolve(undefined)
+                    return Object.assign(result, {
+                        returning: async () => this.row ? [this.row] : []
+                    })
+                }
             })
         }
+    }
+
+    transaction<T>(work: (tx: RegistryDb) => Promise<T>): Promise<T> {
+        return work(this)
     }
 }
 
@@ -244,6 +253,50 @@ test('a local socket replacement gets a distinct ownership token', async () => {
     assert.equal(registry.recordHelloForSocket('dh-1', first), null)
     assert.equal(registry.isCurrentHelloEvidence('dh-1', firstHello), false)
     assert.ok(registry.isCurrentHelloEvidence('dh-1', secondHello))
+})
+
+test('connection identity writes recover from failures, isolate daemons and drain on shutdown', async (t) => {
+    const registry = new DaemonRegistryService(
+        new RegistryDb(host()) as unknown as Database,
+        { get: () => undefined } as unknown as ConfigService
+    )
+    const internal = registry as unknown as {
+        markConnected(): Promise<void>
+        connectionMutations: Map<string, Promise<void>>
+    }
+    const writes: Array<{ resolve(): void; reject(error: Error): void }> = []
+    t.mock.method(internal, 'markConnected', () => new Promise<void>((resolve, reject) => {
+        writes.push({ resolve, reject })
+    }))
+    const args = {
+        daemonId: 'dh-1',
+        userId: 'user-1',
+        cliVersion: null,
+        hostname: null,
+        socket: { close() {} } as unknown as WsClient
+    }
+    const first = registry.register(args).catch((error: unknown) => error)
+    await waitFor(() => writes.length === 1)
+    const second = registry.register(args)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(writes.length, 1)
+    writes[0].reject(new Error('fixture database failure'))
+    assert.match(String(await first), /fixture database failure/)
+    await waitFor(() => writes.length === 2)
+    const other = registry.register({ ...args, daemonId: 'dh-2' })
+    await waitFor(() => writes.length === 3)
+    writes[2].resolve()
+    await other
+    assert.equal(internal.connectionMutations.size, 1)
+    let stopped = false
+    const shutdown = registry.onModuleDestroy().then(() => { stopped = true })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(stopped, false)
+    await assert.rejects(registry.register(args), /shutting down/)
+    writes[1].resolve()
+    await second
+    await shutdown
+    assert.equal(internal.connectionMutations.size, 0)
 })
 
 test('connection retirement covers replacement, unregister, forced disconnect and shutdown despite a failed observer', async (t) => {

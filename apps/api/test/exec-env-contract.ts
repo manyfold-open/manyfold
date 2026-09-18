@@ -503,6 +503,38 @@ export const execEnvSurfaces: readonly ExecEnvSurface[] = [
     ...externalSurfaces
 ]
 
+// The interactive terminal surfaces (ADR-0029 §3). Not a chat turn — no
+// framework argv is dispatched, the user types — so not a row in the matrix
+// above, but a shell the platform opens is where the user runs `mf` by hand
+// and where the CLI session hooks fire, so it carries the same four-key
+// identity a turn does, plus the terminal's own id as the hooks' switch.
+// Pinned by terminal-env-contract.test.ts against terminalIdentityEnv and the
+// daemon driver's pty.open payload.
+export interface TerminalEnvSurface {
+    runtime: 'sprites' | 'daemon'
+    // MF_API_TOKEN / MF_AGENT_ID / MF_API_URL / MF_DEPLOY_ENV, minted and
+    // composed per terminal session, over whatever the agent env carries.
+    identity: 'per-session'
+    // MF_TERMINAL_ID: present exactly when the terminal has a durable row.
+    terminalId: 'per-session'
+    note?: string
+}
+
+export const terminalEnvSurfaces: readonly TerminalEnvSurface[] = [
+    {
+        runtime: 'sprites',
+        identity: 'per-session',
+        terminalId: 'per-session',
+        note: 'The sprite shell profile also exports MF_API_URL and MF_DEPLOY_ENV (sprite-resident, #438); the per-session values are the same ones, laid on the exec so a terminal never depends on the login shell having sourced them.'
+    },
+    {
+        runtime: 'daemon',
+        identity: 'per-session',
+        terminalId: 'per-session',
+        note: 'Used to inject only MF_AGENT_ID and MF_API_TOKEN, so `mf` run in the terminal fell back to whatever API the machine profile stored (ADR-0029 §3 closes that).'
+    }
+]
+
 export const execEnvSurface = (
     framework: AgentFramework,
     runtime: AgentRuntime,

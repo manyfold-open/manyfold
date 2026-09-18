@@ -1,7 +1,13 @@
-import type { FC } from 'react'
+import { Suspense, type FC } from 'react'
+import { ErrorBoundary } from '@sentry/react'
 import ProductDialog from '@/components/ProductDialog'
-import { NetmindSignIn } from '@/components/NetmindSignIn'
 import { useI18n } from '@/lib/i18n'
+import { lazyChunk } from '@/lib/lazyChunk'
+
+const SignIn = lazyChunk(async () => {
+    const module = await import('@/components/NetmindSignIn')
+    return { default: module.NetmindSignIn }
+})
 
 interface NetmindSignInDialogProps {
     title: string
@@ -32,7 +38,32 @@ export const NetmindSignInDialog: FC<NetmindSignInDialogProps> = ({
             onClose={onClose}
             bodyClassName='pb-5'
         >
-            <NetmindSignIn onToken={onToken} submitLabel={submitLabel} />
+            <ErrorBoundary
+                fallback={() => (
+                    <div role='alert' className='space-y-3'>
+                        <p className='text-ui text-fg'>
+                            {t('errors.appCrash.title')}
+                        </p>
+                        <button
+                            type='button'
+                            className='workbench-button-secondary'
+                            onClick={() => window.location.reload()}
+                        >
+                            {t('errors.appCrash.reload')}
+                        </button>
+                    </div>
+                )}
+            >
+                <Suspense
+                    fallback={
+                        <p role='status' className='text-ui text-muted'>
+                            {t('common.loading')}
+                        </p>
+                    }
+                >
+                    <SignIn onToken={onToken} submitLabel={submitLabel} />
+                </Suspense>
+            </ErrorBoundary>
         </ProductDialog>
     )
 }

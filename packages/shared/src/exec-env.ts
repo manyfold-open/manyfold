@@ -22,6 +22,12 @@ export const MF_RUNTIME_IDENTITY_ENV_KEYS = [
 export type MfRuntimeIdentityEnvKey =
     (typeof MF_RUNTIME_IDENTITY_ENV_KEYS)[number]
 
+// The terminal a Manyfold-opened shell belongs to. Its presence is the switch
+// for the CLI session hooks: they report to the API only from a shell the
+// platform opened, and stay silent in the user's own (ADR-0029 §3). Not part
+// of the four-key identity above — a chat turn's process has no terminal.
+export const MF_ENV_TERMINAL_ID = 'MF_TERMINAL_ID'
+
 // Framework binaries are activated by an atomic symlink here, so this directory
 // must win over any image-baked global bin for a managed agent. Shells that skip
 // the prepend resolve whatever the image installed instead (#611).

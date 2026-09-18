@@ -24,20 +24,28 @@ export interface ResolvedTerminalResume {
 // credentials, no session ref yet) — the client derives those itself from the
 // agent's own configuration. `turn-in-flight` is the one it cannot derive and
 // the one that clears on its own, so the tab records it and knows to rebuild
-// into the TUI once the turn ends.
+// into the TUI once the turn ends. `session-held` is its sibling: another
+// terminal owns the session's writes (ADR-0029 §1); it clears when that
+// terminal closes or the user takes the session back from the chat view.
 export type TerminalResumeOutcome =
     | 'applied'
     | 'turn-in-flight'
+    | 'session-held'
     | 'unavailable'
 
 interface TerminalResumeResolution {
     resume: ResolvedTerminalResume | null
     outcome: TerminalResumeOutcome
+    // The ref the argv was built from; the gateway acquires the session
+    // holder against exactly this value, so a ref that moved in between
+    // fails the acquire instead of resuming a stale transcript.
+    ref: string | null
 }
 
 const UNAVAILABLE: TerminalResumeResolution = {
     resume: null,
-    outcome: 'unavailable'
+    outcome: 'unavailable',
+    ref: null
 }
 
 @Injectable()
@@ -126,7 +134,7 @@ export class TerminalResumeService {
             this.log.log(
                 `terminal.resume.skipped agent=${args.agentId} reason=turn-in-flight`
             )
-            return { resume: null, outcome: 'turn-in-flight' }
+            return { resume: null, outcome: 'turn-in-flight', ref: null }
         }
         const command = terminalResumeCommand(args.framework, row.ref)
         if (!command) return UNAVAILABLE
@@ -148,7 +156,7 @@ export class TerminalResumeService {
         // already the default.
         if (args.framework === 'claude-code')
             env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE = '1'
-        return { resume: { command, env }, outcome: 'applied' }
+        return { resume: { command, env }, outcome: 'applied', ref: row.ref }
     }
 
     private async claudeCredentialEnv(

@@ -5,8 +5,12 @@ import type { HeartbeatRequest } from '@manyfold/shared'
 import {
     apiPaths,
     DAEMON_CLIENT_FEATURES,
-    DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
+    DAEMON_FEATURE_MANUAL_UPDATE,
+    DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
+    POD_RUNNER_PROFILE
 } from '@manyfold/shared'
+import { spawn } from 'node:child_process'
+import { openSync } from 'node:fs'
 import { channelManifestUrl, CLI_CHANNEL } from '@/channel'
 import { loadUpdateChannelPref } from '@/channel-pref'
 import { fetchReleaseManifest } from '@/release-manifest'
@@ -35,8 +39,13 @@ import {
     daemonActivitySnapshot,
     requestDaemonUpdateIfIdle,
     rpcHandler,
-    setDeclaredWorkspaceRoot
+    setDeclaredWorkspaceRoot,
+    setFileExecsAdoptable,
+    setManualUpdateHandoff
 } from '@/daemon/rpc'
+import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
+import { listOwnedTerminals } from '@/daemon/owned-terminals'
+import { handOffToSuccessor, takeUpdateRollback } from '@/daemon/manual-update'
 import { isBunStandalone } from '@/standalone'
 import {
     claimDaemonPid,
@@ -46,6 +55,7 @@ import {
     runningDaemonPid
 } from '@/daemon/pid'
 import {
+    execsSurviveRestart,
     getInitUnitStatus,
     installInitUnit,
     isLikelyDevBinary,
@@ -56,6 +66,8 @@ import { detectStartupMethod } from '@/daemon/startup-method'
 import { boundErrSink, createDaemonLog } from '@/daemon/log-file'
 import { MF_CLI_COMMIT, MF_CLI_VERSION } from '@/version'
 import { augmentPathFromUserShell } from '@/daemon/shell-path'
+import { reconcileSessionHooksOnStart } from '@/daemon/session-hooks'
+import { EXEC_FILES_ENV, fileExecEnabled } from '@/daemon/exec-files'
 
 const HEARTBEAT_INTERVAL_MS = 15_000
 const DETECT_REFRESH_MS = DAEMON_FRAMEWORK_DETECT_INTERVAL_MS
@@ -88,7 +100,12 @@ const runForeground = async (): Promise<void> => {
     }
 
     try {
-        await runClaimedForeground(config, channelWarning, ownership.instanceId)
+        await runClaimedForeground(
+            config,
+            channelWarning,
+            ownership.instanceId,
+            () => ownership.release()
+        )
     } finally {
         await ownership.release()
     }
@@ -98,7 +115,8 @@ const runForeground = async (): Promise<void> => {
 const runClaimedForeground = async (
     config: DaemonConfig,
     channelWarning: string | null,
-    clientInstanceId: string
+    clientInstanceId: string,
+    releaseOwnership: () => Promise<void>
 ): Promise<void> => {
     await boundErrSink(daemonPaths.errLogPath)
     const startupMethod = detectStartupMethod()
@@ -148,6 +166,32 @@ const runClaimedForeground = async (
             []
         let lastDetectAt = 0
         await log(`startup method: ${startupMethod}`)
+        // Whether this installation keeps a detached exec alive across a
+        // restart decides what an update has to wait for (ADR-0029 §4).
+        const survival = await execsSurviveRestart(startupMethod)
+        setFileExecsAdoptable(survival.survive)
+        await log(
+            `exec survival: ${survival.survive ? 'yes' : 'no'} (${survival.reason})`
+        )
+        // A daemon without a supervisor updates itself by handing off to a
+        // successor it starts (ADR-0029 §5): only a standalone POSIX binary
+        // can, and never the pod runner, whose binary the image pins.
+        const manualUpdateCapable =
+            startupMethod === 'manual' &&
+            isBunStandalone() &&
+            process.platform !== 'win32' &&
+            resolveProfile() !== POD_RUNNER_PROFILE
+        const clientFeatures = manualUpdateCapable
+            ? [...DAEMON_CLIENT_FEATURES, DAEMON_FEATURE_MANUAL_UPDATE]
+            : [...DAEMON_CLIENT_FEATURES]
+        // What the last update on this install did, reported once.
+        let pendingRollback = await takeUpdateRollback(
+            daemonPaths.updateRollbackPath
+        )
+        if (pendingRollback)
+            await log(
+                `previous update to ${pendingRollback.toVersion} was rolled back: ${pendingRollback.reason}`
+            )
         const terminalSupport = await checkPtySupport()
         const terminalPty = !('problem' in terminalSupport)
         if ('problem' in terminalSupport)
@@ -169,6 +213,17 @@ const runClaimedForeground = async (
         await log(
             `auto-update: ${autoUpdate.enabled ? 'on' : 'off'} (${autoUpdate.reason})`
         )
+        // ADR-0029 §4 gray release: plain execs run detached with their IO in
+        // files the daemon tails, so they survive a daemon restart.
+        await log(
+            `exec files: ${
+                fileExecEnabled()
+                    ? `on (${EXEC_FILES_ENV})`
+                    : process.platform === 'win32'
+                      ? 'off (Windows keeps the pipe supervisor)'
+                      : `off (enable with ${EXEC_FILES_ENV}=1)`
+            }`
+        )
         stopControlServer = await startControlServer({
             socketPath: daemonPaths.controlSocketPath,
             getHealth: () => ({
@@ -184,6 +239,7 @@ const runClaimedForeground = async (
                 uptimeMs: Date.now() - startedAt,
                 wsConnected: localState.ws,
                 ...daemonActivitySnapshot(),
+                execsSurviveRestart: survival.survive,
                 autoUpdate: autoUpdate.enabled,
                 startupMethod,
                 logPath: daemonPaths.logPath
@@ -203,7 +259,24 @@ const runClaimedForeground = async (
                 cliVersion: MF_CLI_VERSION,
                 startupMethod,
                 terminalPty,
-                clientFeatures: DAEMON_CLIENT_FEATURES
+                clientFeatures,
+                // The terminals this daemon owns, as proof of life for their
+                // rows (ADR-0029 §6); left out when the list cannot be built.
+                ...(() => {
+                    try {
+                        return {
+                            terminals: listOwnedTerminals().map(
+                                ({ terminalId, attached, startedAt }) => ({
+                                    terminalId,
+                                    attached,
+                                    startedAt
+                                })
+                            )
+                        }
+                    } catch {
+                        return {}
+                    }
+                })()
             }
             try {
                 await cliFetch(`${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`, {
@@ -228,6 +301,16 @@ const runClaimedForeground = async (
             cliVersion: MF_CLI_VERSION,
             clientInstanceId,
             log: (m) => void log(m),
+            clientFeatures,
+            helloExtras: () => {
+                const recovery = takeLastRecovery()
+                const rollback = pendingRollback
+                pendingRollback = null
+                return {
+                    ...(recovery ? { recovery } : {}),
+                    ...(rollback ? { rollback } : {})
+                }
+            },
             onConnected: () => {
                 localState.ws = true
             },
@@ -243,6 +326,53 @@ const runClaimedForeground = async (
         ws.start()
         localState.status = 'running'
 
+        if (manualUpdateCapable) {
+            const wsClient = ws
+            setManualUpdateHandoff(async (result) => {
+                await log(
+                    `manual update: ${result.from} -> ${result.to} installed; handing off`
+                )
+                const outcome = await handOffToSuccessor({
+                    execPath: result.execPath,
+                    fromVersion: result.from,
+                    toVersion: result.to,
+                    stopServing: async () => {
+                        // Everything this process owns, in order: no new
+                        // work, tailers off (the execs keep running), the
+                        // API socket closed, the control socket and the pid
+                        // released for the successor to claim.
+                        stopping = true
+                        if (heartbeatTimer) clearInterval(heartbeatTimer)
+                        autoUpdater?.stop()
+                        const detached = detachAllFileExecs()
+                        if (detached > 0)
+                            await log(
+                                `manual update: ${detached} exec(s) left running for the successor`
+                            )
+                        wsClient.stop()
+                        const stopControl = stopControlServer
+                        stopControlServer = null
+                        await stopControl?.()
+                        await releaseOwnership()
+                    },
+                    spawnDaemon: (binary) => spawnDetachedDaemon(binary),
+                    health: () =>
+                        queryDaemonHealth(daemonPaths.controlSocketPath),
+                    kill: (pid, signal) => process.kill(pid, signal),
+                    latchPath: daemonPaths.updateLatchPath,
+                    rollbackPath: daemonPaths.updateRollbackPath,
+                    log: (message) => void log(message)
+                })
+                await log(
+                    outcome.kind === 'handed-off'
+                        ? `manual update: handed off to pid=${outcome.successorPid}; exiting`
+                        : `manual update: rolled back (${outcome.reason}); exiting`
+                )
+                await daemonLog.close()
+                process.exit(0)
+            })
+        }
+
         // The WS dial goes FIRST. Framework detection — five `--version` child
         // processes — used to run before it, and on a freshly-thawed sprite whose
         // resident services were also booting it took ~120s of CPU contention:
@@ -255,6 +385,9 @@ const runClaimedForeground = async (
         detectedFrameworks = await detectFrameworks()
         lastDetectAt = Date.now()
         await heartbeat()
+        // With the owner's yes recorded (or on a sprite runner), keep the CLI
+        // session hooks current for the frameworks this start detected.
+        await reconcileSessionHooksOnStart(config, detectedFrameworks, log)
         heartbeatTimer = setInterval(() => {
             void heartbeat()
         }, HEARTBEAT_INTERVAL_MS)
@@ -312,6 +445,22 @@ const runClaimedForeground = async (
 
 const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms))
+
+// The successor of a manual-install update: the same foreground start, in
+// its own session so it outlives this process, logging where the init units
+// would have sent it.
+const spawnDetachedDaemon = (binary: string): number => {
+    const sink = openSync(daemonPaths.errLogPath, 'a')
+    const child = spawn(binary, ['daemon', 'start', '--foreground'], {
+        detached: true,
+        stdio: ['ignore', sink, sink],
+        env: process.env
+    })
+    child.on('error', () => {})
+    child.unref()
+    if (!child.pid) throw new Error('successor daemon did not start')
+    return child.pid
+}
 
 const killAndWait = async (pid: number): Promise<void> => {
     try {

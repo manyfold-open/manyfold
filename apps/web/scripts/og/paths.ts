@@ -24,6 +24,9 @@ export const LOCK_FILE = path.join(repoRoot, LOCK_REL)
 // composes them or launches Chromium can still change pixels while leaving all
 // of those values intact. The lock fingerprints this exact allowlist.
 export const GENERATOR_RELS = [
+    // The field engine is an input to the art, not just to the app: change a
+    // shape's maths and the committed pixels change with it.
+    'apps/web/src/components/field/fields.ts',
     'apps/web/scripts/og/canonical.ts',
     'apps/web/scripts/og/contract.ts',
     'apps/web/scripts/og/fonts.ts',

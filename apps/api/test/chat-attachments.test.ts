@@ -395,7 +395,11 @@ const makeServiceHarness = (): {
             return row
         },
         listMessages: async () => inserted,
-        claimInflightTurn: async () => true,
+        claimInflightTurn: async () => ({
+            ok: true,
+            frameworkSessionRef: null,
+            runtimeSyncCursor: null
+        }),
         releaseInflightTurn: async () => {},
         updateTitleIfEmpty: async (_sessionId: string, title: string) => {
             harness.title = title

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isUpstreamTerminalSessionInfo } from '../src/lib/terminalSession'
+import {
+    isTerminalAttachedElsewhereClose,
+    isUpstreamTerminalSessionInfo
+} from '../src/lib/terminalSession'
 
 test('terminal reconnect budget resets only after the Sprite session opens', () => {
     // The API sends its own session_info before it has connected to sprites.dev.
@@ -45,4 +48,12 @@ test('a daemon PTY has no second hop, so the gateway session_info opens it', () 
         }),
         false
     )
+})
+
+test('a terminal taken over by another tab is not reconnected to', () => {
+    // 4409 says the terminal is alive elsewhere (ADR-0029 §6); reconnecting
+    // would take it straight back and the two tabs would trade it forever.
+    assert.equal(isTerminalAttachedElsewhereClose(4409), true)
+    assert.equal(isTerminalAttachedElsewhereClose(1006), false)
+    assert.equal(isTerminalAttachedElsewhereClose(4410), false)
 })

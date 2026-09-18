@@ -2,13 +2,23 @@ import type {
     DaemonAuthContextRef, DaemonPtyAuthLogin } from '@manyfold/shared'
 import {
     envTextFromExtras,
-    envTextToRecord
+    envTextToRecord,
+    isObjectId
 } from '@manyfold/shared'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import {
+    Injectable,
+    Logger,
+    NotFoundException,
+    Optional
+} from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import type { WebSocket as WsClient } from 'ws'
 import type { Agent } from '@manyfold/db'
 import { authContextRefFor } from '@/modules/agents/model-config/runtime-auth-selection'
-import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import {
+    DaemonRegistryService,
+    DaemonRpcResponseError
+} from '@/modules/daemon/daemon-registry.service'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import {
     ApiTokenService,
@@ -16,15 +26,33 @@ import {
 } from '@/modules/auth/api-token.service'
 
 import type { ResolvedTerminalResume } from '@/modules/terminal/terminal-resume.service'
+import type { TerminalCloseCause } from '@/modules/terminal/terminal-holder.service'
+import { terminalIdentityEnv } from '@/modules/terminal/terminal-env'
 
 export interface DaemonTerminalRequest {
     agent: Agent
+    // The terminal's durable identity (ADR-0029 §1), injected as
+    // MF_TERMINAL_ID so the CLI session hooks report from this shell.
+    terminalId?: string | null
     cols: number
     cwd?: string
     rows: number
     resume?: ResolvedTerminalResume | null
     client: WsClient
-    onClose: () => void
+    onClose: (cause: TerminalCloseCause) => void
+    // The terminal's durable identity learns its token and its process
+    // handle (the pty stream refId) from here, so any API instance can later
+    // close the pty through the daemon (ADR-0029 §1).
+    onToken?: (tokenId: string) => void
+    onHandle?: (refId: string) => void
+    // A terminal the daemon owns (ADR-0029 §6): the pty is opened under this
+    // id and the stream is one attachment to it. The daemon attaches to the
+    // terminal if it still has it (the shell keeps the token it was spawned
+    // with, `boundTokenId`) or spawns one under the id, and says which in
+    // its first event; the browser's close then detaches instead of
+    // killing, and the terminal's hold stays with its row.
+    ownedTerminalId?: string | null
+    boundTokenId?: string | null
 }
 
 // A shell on the machine itself, addressed by host instead of agent. It gets
@@ -50,6 +78,8 @@ const TERMINAL_BASE_ENV = {
     COLORTERM: 'truecolor'
 }
 
+const PTY_CLOSE_TIMEOUT_MS = 5_000
+
 @Injectable()
 export class DaemonTerminal {
     private readonly log = new Logger(DaemonTerminal.name)
@@ -57,7 +87,10 @@ export class DaemonTerminal {
     constructor(
         private readonly registry: DaemonRegistryService,
         private readonly connections: ConnectionsService,
-        private readonly apiTokens: ApiTokenService
+        private readonly apiTokens: ApiTokenService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, the identity env carries no API URL.
+        @Optional() private readonly config?: ConfigService
     ) {}
 
     async tunnel(req: DaemonTerminalRequest): Promise<void> {
@@ -79,14 +112,30 @@ export class DaemonTerminal {
             expiresInSeconds: TERMINAL_TOKEN_TTL_SECONDS,
             tokenKind: 'terminal'
         })
-        const dropTerminalToken = (): void => {
+        const dropToken = (tokenId: string): void => {
             void this.apiTokens
-                .hardDelete({
-                    tokenId: terminalToken.tokenId,
-                    userId: agent.userId
-                })
+                .hardDelete({ tokenId, userId: agent.userId })
                 .catch(() => {})
         }
+        // Which token the shell actually carries is only known once the
+        // daemon says whether it attached or spawned: an attached shell
+        // keeps the one it was spawned with, and the fresh one is dropped
+        // unused; a spawned shell carries the fresh one, which then binds to
+        // the row in place of any earlier one.
+        const ownedTerminalId = req.ownedTerminalId ?? null
+        let tokenInUse = terminalToken.tokenId
+        if (!ownedTerminalId) req.onToken?.(terminalToken.tokenId)
+        const onAttach = (mode: 'attached' | 'spawned'): void => {
+            if (mode === 'spawned') {
+                req.onToken?.(terminalToken.tokenId)
+                if (req.boundTokenId && req.boundTokenId !== terminalToken.tokenId)
+                    dropToken(req.boundTokenId)
+                return
+            }
+            dropToken(terminalToken.tokenId)
+            if (req.boundTokenId) tokenInUse = req.boundTokenId
+        }
+        const dropTerminalToken = (): void => dropToken(tokenInUse)
         const authContext = authContextRefFor(agent)
         await this.openPty({
             daemonId,
@@ -97,8 +146,12 @@ export class DaemonTerminal {
                 // Resume credentials sit under the platform's own vars: a
                 // session must not be able to rebind MF_API_TOKEN or TERM.
                 ...(resume?.env ?? {}),
-                MF_AGENT_ID: agent.id,
-                MF_API_TOKEN: terminalToken.plaintext,
+                ...terminalIdentityEnv({
+                    config: this.config,
+                    agentId: agent.id,
+                    terminalId: req.terminalId,
+                    tokenPlaintext: terminalToken.plaintext
+                }),
                 ...TERMINAL_BASE_ENV
             },
             ...(resume?.command.length ? { command: resume.command } : {}),
@@ -113,7 +166,28 @@ export class DaemonTerminal {
             rows,
             client,
             onClose,
+            onHandle: req.onHandle,
+            ...(ownedTerminalId
+                ? { terminalId: ownedTerminalId, onAttach }
+                : {}),
             release: dropTerminalToken
+        })
+    }
+
+    // Close a pty this instance may not own the stream of (a takeover, the
+    // user's release from the chat view, the lease reaper): the broker
+    // rewrites the refId for a daemon connected to a peer instance, and the
+    // daemon's ack proves the process is gone.
+    async closePty(daemonId: string, handle: string): Promise<void> {
+        await this.registry.rpc({
+            daemonId,
+            method: 'pty.close',
+            // An owned terminal is addressed by its own id (ADR-0029 §6), a
+            // stream-bound pty by the stream's refId.
+            payload: isObjectId(handle, 'terminalSession')
+                ? { terminalId: handle }
+                : { refId: handle },
+            timeoutMs: PTY_CLOSE_TIMEOUT_MS
         })
     }
 
@@ -160,7 +234,10 @@ export class DaemonTerminal {
         cols: number
         rows: number
         client: WsClient
-        onClose: () => void
+        onClose: (cause: TerminalCloseCause) => void
+        onHandle?: (refId: string) => void
+        terminalId?: string
+        onAttach?: (mode: 'attached' | 'spawned') => void
         release: () => void
     }): Promise<void> {
         const {
@@ -174,6 +251,9 @@ export class DaemonTerminal {
             rows,
             client,
             onClose,
+            onHandle,
+            terminalId,
+            onAttach,
             release
         } = args
         let closed = false
@@ -192,12 +272,27 @@ export class DaemonTerminal {
                     ...(command?.length ? { command } : {}),
                     ...(authLogin ? { authLogin } : {}),
                     ...(authSelection ? { authSelection } : {}),
+                    ...(terminalId ? { terminalId } : {}),
                     env
                 },
                 timeoutMs: 24 * 3600 * 1000,
                 onEvent: (kind, data) => {
-                    if (kind !== 'pty.out') return
                     if (closed) return
+                    if (kind === 'pty.attach') {
+                        // First on the stream, before any output: the tab
+                        // resets its screen so the daemon's snapshot lands
+                        // on a blank one.
+                        const mode = attachModeOf(data)
+                        if (!mode) return
+                        onAttach?.(mode)
+                        try {
+                            client.send(
+                                JSON.stringify({ type: 'attached', mode })
+                            )
+                        } catch {}
+                        return
+                    }
+                    if (kind !== 'pty.out') return
                     try {
                         client.send(Buffer.from(data, 'base64'), {
                             binary: true
@@ -216,9 +311,11 @@ export class DaemonTerminal {
                 client.close(4503, 'daemon unavailable')
             } catch {}
             release()
-            onClose()
+            onClose('tunnel-failed')
             return
         }
+        // An owned terminal's handle is its id, set by the gateway up front.
+        if (!terminalId) onHandle?.(stream.refId)
 
         client.on('message', (raw, isBinary) => {
             if (closed) return
@@ -265,18 +362,54 @@ export class DaemonTerminal {
             } catch {}
         })
 
+        // The browser went away: close the pty and wait for the daemon's ack
+        // before releasing anything this terminal holds, so a hold is only
+        // ever released over a process known to be dead (ADR-0029 §1). A
+        // daemon that cannot answer gets the fire-and-forget cancel instead
+        // and the release goes ahead: it will not outlive its tunnel.
         const cleanup = (): void => {
             if (closed) return
             closed = true
-            stream.cancel()
-            release()
-            onClose()
+            // The daemon keeps an owned terminal for the next attachment
+            // (ADR-0029 §6): the cancel detaches, nothing is killed and the
+            // shell keeps its token.
+            if (terminalId) {
+                stream.cancel()
+                onClose('detached')
+                return
+            }
+            void this.closePty(daemonId, stream.refId)
+                .catch((err: Error) =>
+                    this.log.warn(
+                        `pty.close failed for daemon ${daemonId}: ${err.message}`
+                    )
+                )
+                .finally(() => {
+                    stream.cancel()
+                    release()
+                    onClose('client-closed')
+                })
         }
         client.on('close', cleanup)
         client.on('error', cleanup)
 
+        // How the pty ended on its own: the shell exited (its transcript is
+        // settled), the daemon refused the open, or the daemon's connection
+        // dropped under a pty that may well still be running — that last
+        // case keeps the terminal's hold for the lease to decide. An owned
+        // terminal's stream also ends when another attachment takes the
+        // terminal over: the tab is told, and the terminal lives on.
+        let endCause: TerminalCloseCause = 'exit'
         stream.result
+            .then((payload) => {
+                if (terminalId && payload?.detached === true)
+                    endCause = 'detached'
+            })
             .catch((err) => {
+                endCause =
+                    err instanceof DaemonRpcResponseError
+                        ? 'tunnel-failed'
+                        : 'daemon-lost'
                 this.log.warn(
                     `pty.open ended for daemon ${daemonId}: ${(err as Error).message}`
                 )
@@ -293,12 +426,28 @@ export class DaemonTerminal {
             .finally(() => {
                 if (!closed) {
                     closed = true
+                    if (endCause === 'detached') {
+                        try {
+                            client.close(4409, 'terminal attached elsewhere')
+                        } catch {}
+                        onClose(endCause)
+                        return
+                    }
                     try {
                         client.close(1000, 'pty closed')
                     } catch {}
                     release()
-                    onClose()
+                    onClose(endCause)
                 }
             })
+    }
+}
+
+const attachModeOf = (data: string): 'attached' | 'spawned' | null => {
+    try {
+        const mode = (JSON.parse(data) as { mode?: unknown }).mode
+        return mode === 'attached' || mode === 'spawned' ? mode : null
+    } catch {
+        return null
     }
 }

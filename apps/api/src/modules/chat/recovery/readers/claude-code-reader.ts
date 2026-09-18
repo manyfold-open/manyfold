@@ -55,6 +55,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile: null,
                 messages: [],
+                transcript: 'missing',
                 warnings: [
                     `claude session file containing sessionId=${ctx.frameworkSessionRef} not found under ~/.claude/projects/`
                 ]
@@ -67,6 +68,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [
                     `failed to read ${sourceFile}: ${(err as Error).message}`
                 ]
@@ -76,6 +78,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             return {
                 sourceFile,
                 messages: [],
+                transcript: 'unreadable',
                 warnings: [`failed to read ${sourceFile}`]
             }
 
@@ -84,7 +87,7 @@ export class ClaudeCodeSessionReader implements SessionReader {
             ctx.frameworkSessionRef,
             sourceFile
         )
-        return { sourceFile, messages, warnings }
+        return { sourceFile, messages, transcript: 'read', warnings }
     }
 
     async listCandidates(ctx: CandidateContext): Promise<CandidateListing> {
@@ -219,6 +222,7 @@ export const parseClaudeJsonl = (
             continue
         if (!parsed.uuid || !parsed.type || !KEEP_TYPES.has(parsed.type))
             continue
+        if (parsed.isMeta === true) continue
         const role = parsed.message?.role
         if (role !== 'user' && role !== 'assistant' && role !== 'system')
             continue
@@ -293,6 +297,11 @@ export interface ClaudeJsonLine {
     // Subagent/sidechain entries; recovery excludes these from turn/terminal
     // reasoning so a subagent that outlived the main chain can't fake a result.
     isSidechain?: boolean
+    // Local bookkeeping the TUI stores as user entries — a slash command's
+    // caveat, `<command-name>`, its stdout, injected reminders. Not something
+    // the user said, so never a chat message (a session born from `/clear`
+    // would otherwise open with two of them and take its title from one).
+    isMeta?: boolean
     message?: {
         role?: string
         content?: unknown

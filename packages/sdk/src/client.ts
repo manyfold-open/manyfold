@@ -246,6 +246,9 @@ import type {
     SendTestNotificationResult,
     RuntimeSessionRestoreResponse,
     RuntimeSessionSyncResponse,
+    SessionHolderReleaseResponse,
+    SessionImportAbandonResponse,
+    SessionImportRetryResponse,
     AgentSessionListBody,
     AgentSessionListResponse,
     RuntimeSessionViewResponse,
@@ -1506,6 +1509,21 @@ export interface NcaClient {
             agentId: string,
             body: { sessionId: string }
         ) => Promise<RuntimeSessionSyncResponse>
+        // Session ownership by terminals (ADR-0029): give a held session
+        // back to the web, and settle or abandon the import a release left
+        // pending.
+        releaseSessionHolder: (
+            agentId: string,
+            sessionId: string
+        ) => Promise<SessionHolderReleaseResponse>
+        importRetry: (
+            agentId: string,
+            sessionId: string
+        ) => Promise<SessionImportRetryResponse>
+        importAbandon: (
+            agentId: string,
+            sessionId: string
+        ) => Promise<SessionImportAbandonResponse>
     }
     health: () => Promise<{ status: string; db: string; version: string }>
 }
@@ -3594,6 +3612,21 @@ export const createClient = (options: ClientOptions): NcaClient => {
                         method: 'POST',
                         body: JSON.stringify(body)
                     }
+                ),
+            releaseSessionHolder: (agentId, sessionId) =>
+                request<SessionHolderReleaseResponse>(
+                    apiPaths.AGENT_SESSION_HOLDER_RELEASE(agentId, sessionId),
+                    { method: 'POST' }
+                ),
+            importRetry: (agentId, sessionId) =>
+                request<SessionImportRetryResponse>(
+                    apiPaths.AGENT_SESSION_IMPORT_RETRY(agentId, sessionId),
+                    { method: 'POST' }
+                ),
+            importAbandon: (agentId, sessionId) =>
+                request<SessionImportAbandonResponse>(
+                    apiPaths.AGENT_SESSION_IMPORT_ABANDON(agentId, sessionId),
+                    { method: 'POST' }
                 )
         },
         frameworkCatalog: {

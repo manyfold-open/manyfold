@@ -113,6 +113,9 @@ export const auditAction = {
     USER_RUNTIME_ACCESS_UPDATED: 'user.runtime_access.updated',
     USER_PLAN_UPDATED: 'user.plan.updated',
     USER_PLAN_BACKFILLED: 'user.plan.backfilled',
+    CHAT_SESSION_HOLDER_RECLAIMED: 'chat_session.holder.reclaimed',
+    CHAT_SESSION_IMPORT_ABANDONED: 'chat_session.import.abandoned',
+    CHAT_SESSION_IMPORT_AUTO_ABANDONED: 'chat_session.import.auto_abandoned',
     A2A_TURN_TIMEOUTS_ENV_MIGRATED:
         'admin.settings.a2a_turn_timeouts.env_migrated',
     SPRITES_ACCOUNT_CREATED: 'sprites.account.created',
@@ -125,6 +128,8 @@ export const auditAction = {
     DAEMON_REVOKED: 'daemon.revoked',
     DAEMON_DELETED: 'daemon.deleted',
     DAEMON_UPGRADE_REQUESTED: 'daemon.upgrade.requested',
+    DAEMON_EXEC_RECOVERED: 'daemon.exec.recovered',
+    DAEMON_UPGRADE_ROLLED_BACK: 'daemon.upgrade.rolled_back',
     GRANT_MINTED: 'grant.minted',
     GRANT_REVOKED: 'grant.revoked',
     GRANT_REAUTHORIZED: 'grant.reauthorized',
