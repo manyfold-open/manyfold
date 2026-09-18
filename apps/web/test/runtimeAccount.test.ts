@@ -3,6 +3,7 @@ import test from 'node:test'
 import type { RuntimeAccountView } from '@manyfold/shared'
 import en from '../../../packages/i18n/src/langs/en'
 import {
+    ambientAccountUsage,
     credentialTag,
     formatResetsIn,
     hostAccountHeadline,
@@ -196,4 +197,36 @@ test('the host row is headed by its identity, or is simply the host sign-in', ()
     )
     // Not signed in: the title already reads "Host sign-in", so no subline.
     assert.equal(hostAccountSubline(view({ identity: null }), t), null)
+})
+
+test('the composer charts usage only for an ok host probe on the host sign-in', () => {
+    const usage = {
+        windows: [
+            {
+                key: 'five_hour',
+                usedPercent: 40,
+                resetsAt: null,
+                windowSeconds: 18000,
+                scope: null
+            }
+        ],
+        plan: null,
+        fetchedAt: '2026-09-03T10:00:00.000Z',
+        error: null
+    }
+    assert.equal(ambientAccountUsage('rap_1', view({ usage })), null)
+    assert.equal(
+        ambientAccountUsage(null, view({ usage, status: 'sandbox-asleep' })),
+        null
+    )
+    assert.equal(ambientAccountUsage(null, view({ usage: null })), null)
+    assert.equal(
+        ambientAccountUsage(
+            null,
+            view({ usage: { ...usage, windows: [] } })
+        ),
+        null
+    )
+    assert.equal(ambientAccountUsage(null, null), null)
+    assert.deepEqual(ambientAccountUsage(null, view({ usage })), usage)
 })

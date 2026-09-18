@@ -20,7 +20,10 @@ import {
     isAllowedChatAttachment,
     isClaudeCodeModelAlias,
     isClaudeCodeOneMillionModelAlias,
-    resolveClaudeCodeModelOptions
+    resolveClaudeCodeModelOptions,
+    runtimeAuthSupported,
+    RuntimeAccountView,
+    RuntimeAuthListView
 } from '@manyfold/shared'
 import type {
     ClipboardEvent,
@@ -31,12 +34,14 @@ import type {
 } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 import {
     ArrowUpIcon,
     CheckIcon,
     ChevronDownIcon,
     ChevronRightIcon,
     CloseIcon,
+    CloudComputerIcon,
     CodeIcon,
     FileIcon,
     FileArchiveIcon,
@@ -44,6 +49,7 @@ import {
     FileTextIcon,
     FolderIcon,
     InfoIcon,
+    LocalDaemonIcon,
     type LucideIcon,
     PaperclipIcon,
     PlusIcon,
@@ -53,6 +59,7 @@ import {
     ZapIcon
 } from '@/components/icons'
 import { Spinner } from '@/components/Loading'
+import { UsageWindows } from '@/components/RuntimeAccountList'
 import ShortcutTooltip from '@/components/ShortcutTooltip'
 import ComposerMenu from '@/components/chat/ComposerMenu'
 import ModelSourceSwitch from '@/components/chat/ModelSourceSwitch'
@@ -82,9 +89,23 @@ import {
     type ComposerPermissionMode,
     type PermissionOption
 } from '@/lib/permissionModes'
-import { formatDateTime } from '@/lib/dateFormat'
 import { FrameworkLogo } from '@/lib/frameworkMeta'
 import { useI18n, type TFn } from '@/lib/i18n'
+import {
+    ambientAccountUsage,
+    hostAccountHeadline,
+    planLabel
+} from '@/lib/runtimeAccount'
+import {
+    INHERITED_AUTH_OPTION,
+    profileDisplayName,
+    profilesWithBinding,
+    runtimeAuthOptions,
+    runtimeAuthPickerState
+} from '@/lib/runtimeAuth'
+import { useRuntimeAccount } from '@/lib/useRuntimeAccount'
+import { useRuntimeAuthBinding } from '@/lib/useRuntimeAuthBinding'
+import { useRuntimeAuthList } from '@/lib/useRuntimeAuthList'
 
 interface Props {
     disabled: boolean
@@ -110,6 +131,10 @@ interface Props {
     modelConfigDraft?: AgentModelConfig | null
     modelConfigSource?: AgentModelConfigSource
     modelConfigRefreshing?: boolean
+    // The agent's runtime id plus a view write-back enable the local-config
+    // panel's account picker; without them the panel stays read-only.
+    runtimeId?: string | null
+    onModelConfigViewChange?: (view: AgentModelConfigView) => void
     permissionMode?: ComposerPermissionMode
     onPermissionModeChange?: (mode: ComposerPermissionMode) => void
     onModelConfigDraftChange?: (config: AgentModelConfig) => void
@@ -188,6 +213,7 @@ const Composer: FC<Props> = ({
     hint,
     agentName,
     framework,
+    runtime,
     model,
     modelOverride,
     modelOptions = [],
@@ -197,6 +223,8 @@ const Composer: FC<Props> = ({
     modelConfigDraft = null,
     modelConfigSource,
     modelConfigRefreshing = false,
+    runtimeId = null,
+    onModelConfigViewChange,
     permissionMode,
     onPermissionModeChange,
     onModelConfigDraftChange,
@@ -645,37 +673,41 @@ const Composer: FC<Props> = ({
     const isGeminiModelConfig =
         hasFrameworkModelConfig && modelConfigView?.framework === 'gemini-cli'
     const modelDisplayParts: ComposerLabelParts | null =
-        hasFrameworkModelConfig && modelConfigSource !== 'runtime-local'
-            ? isCodexModelConfig
-                ? formatCodexComposerLabel(
+        hasFrameworkModelConfig
+            ? modelConfigSource === 'runtime-local'
+                ? formatRuntimeLocalComposerLabel(
+                      modelConfigView,
                       modelConfigDraft,
-                      modelDefaultLabel,
                       t
                   )
-                : isClaudeModelConfig
-                  ? formatClaudeComposerLabel(
+                : isCodexModelConfig
+                  ? formatCodexComposerLabel(
                         modelConfigDraft,
                         modelDefaultLabel,
                         t
                     )
-                  : isGeminiModelConfig
-                    ? formatGeminiComposerLabel(
+                  : isClaudeModelConfig
+                    ? formatClaudeComposerLabel(
                           modelConfigDraft,
-                          modelDefaultLabel
+                          modelDefaultLabel,
+                          t
                       )
-                    : null
+                    : isGeminiModelConfig
+                      ? formatGeminiComposerLabel(
+                            modelConfigDraft,
+                            modelDefaultLabel
+                        )
+                      : null
             : null
     const modelDisplayLabel = hasFrameworkModelConfig
-        ? modelConfigSource === 'runtime-local'
-            ? t('web.credentials.modelSourceLocal')
-            : modelDisplayParts
-              ? joinComposerLabelParts(modelDisplayParts)
-              : modelConfigDisplayLabel(
-                    modelConfigView,
-                    modelConfigDraft,
-                    modelDefaultLabel,
-                    t
-                )
+        ? modelDisplayParts
+            ? joinComposerLabelParts(modelDisplayParts)
+            : modelConfigDisplayLabel(
+                  modelConfigView,
+                  modelConfigDraft,
+                  modelDefaultLabel,
+                  t
+              )
         : formatModelLabel(modelOverrideValue || modelDefaultLabel)
     const modelBaseTitle = modelOverrideValue
         ? t('web.composer.modelSelectedTitle', {
@@ -1026,6 +1058,14 @@ const Composer: FC<Props> = ({
                                                     <Spinner size={12} />
                                                 </span>
                                             )}
+                                            {!streaming &&
+                                                hasFrameworkModelConfig &&
+                                                (modelConfigSource ===
+                                                'runtime-local' ? (
+                                                    <LocalDaemonIcon className='text-muted h-3.5 w-3.5 shrink-0' />
+                                                ) : (
+                                                    <CloudComputerIcon className='text-muted h-3.5 w-3.5 shrink-0' />
+                                                ))}
                                             {!streaming && isCodexFastSpeed && (
                                                 <ZapIcon className='text-muted h-3.5 w-3.5 shrink-0' />
                                             )}
@@ -1084,11 +1124,16 @@ const Composer: FC<Props> = ({
                                                 refreshing={
                                                     modelConfigRefreshing
                                                 }
+                                                runtimeId={runtimeId}
+                                                runtimeKind={runtime}
                                                 onChange={
                                                     onModelConfigDraftChange
                                                 }
                                                 onSourceChange={
                                                     onModelConfigSourceChange
+                                                }
+                                                onViewChange={
+                                                    onModelConfigViewChange
                                                 }
                                                 onRefresh={onRefreshModelConfig}
                                                 onOpenSettings={
@@ -1570,6 +1615,7 @@ const ContextRefChip: FC<{
 interface ModelMenuItemProps {
     label: string
     active: boolean
+    disabled?: boolean
     onSelect: () => void
 }
 
@@ -1578,8 +1624,11 @@ interface FrameworkModelConfigMenuProps {
     draft: AgentModelConfig | null
     source: AgentModelConfigSource
     refreshing: boolean
+    runtimeId?: string | null
+    runtimeKind?: AgentRuntime
     onChange?: (config: AgentModelConfig) => void
     onSourceChange?: (source: AgentModelConfigSource) => void
+    onViewChange?: (view: AgentModelConfigView) => void
     onRefresh?: (source?: AgentModelConfigSource) => Promise<void> | void
     onOpenSettings?: () => void
     onRequestClose?: () => void
@@ -1590,8 +1639,11 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
     draft,
     source,
     refreshing,
+    runtimeId,
+    runtimeKind,
     onChange,
     onSourceChange,
+    onViewChange,
     onRefresh,
     onOpenSettings,
     onRequestClose
@@ -1605,6 +1657,32 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
     const effectiveView = { ...view, source }
     const validation = validateModelConfigDraft(effectiveView, draft, t)
     const runtimeLocal = source === 'runtime-local'
+    // The account state lives up here rather than in RuntimeLocalModelMenu so
+    // the source panel's one refresh icon drives the account probe and the
+    // profile list along with the model refresh. Opening the menu never wakes
+    // a sleeping sandbox (the account starts from its local cache); that
+    // refresh click is the user's explicit wake.
+    const accountEnabled = Boolean(
+        runtimeLocal &&
+            runtimeId &&
+            runtimeKind &&
+            onViewChange &&
+            runtimeAuthSupported(view.framework, runtimeKind)
+    )
+    const bound = view.runtimeAuth.profileId
+    const { list, reload: reloadAuth } = useRuntimeAuthList(
+        accountEnabled ? (runtimeId ?? null) : null
+    )
+    const { lastOk: accountLastOk, probe: probeAccount } = useRuntimeAccount(
+        accountEnabled && !bound ? (runtimeId ?? null) : null
+    )
+    const binding = useRuntimeAuthBinding(
+        view.agentId,
+        view,
+        onViewChange ?? (() => {}),
+        { modelConfigSource: 'runtime-local' }
+    )
+    const [accountRefreshing, setAccountRefreshing] = useState(false)
     const runtimeLocalReady = view.runtimeLocal?.ready === true
     const hasSourceChoice = view.availableSources.includes('runtime-local')
     const platformReady = effectiveView.providerModelsStatus === 'ready'
@@ -1660,15 +1738,29 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                                 <button
                                     type='button'
                                     className='chat-composer-model-source-iconbtn'
-                                    disabled={refreshing || !onRefresh}
+                                    disabled={
+                                        refreshing ||
+                                        accountRefreshing ||
+                                        !onRefresh
+                                    }
                                     aria-label={t('web.composer.refresh')}
                                     onClick={() => {
                                         setRefreshingSource(source)
                                         void onRefresh?.(source)
+                                        if (accountEnabled) {
+                                            setAccountRefreshing(true)
+                                            void Promise.allSettled([
+                                                probeAccount(true),
+                                                reloadAuth({ wake: true })
+                                            ]).then(() =>
+                                                setAccountRefreshing(false)
+                                            )
+                                        }
                                     }}
                                 >
-                                    {refreshing &&
-                                    refreshingSource === source ? (
+                                    {(refreshing &&
+                                        refreshingSource === source) ||
+                                    accountRefreshing ? (
                                         <Spinner size={12} />
                                     ) : (
                                         <RefreshIcon className='h-3.5 w-3.5' />
@@ -1722,6 +1814,18 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
                     <RuntimeLocalModelMenu
                         view={view}
                         draft={draft}
+                        account={
+                            accountEnabled && runtimeId
+                                ? {
+                                      runtimeId,
+                                      list,
+                                      lastOk: accountLastOk,
+                                      saving: binding.saving,
+                                      error: binding.error,
+                                      change: binding.change
+                                  }
+                                : null
+                        }
                         onChange={onChange}
                         onRequestClose={onRequestClose}
                     />
@@ -1803,15 +1907,28 @@ const ModelInlineNotice: FC<{
 // options to intersect — so it gets its own menu rather than bending the three
 // platform ones. Every knob offers "CLI default", which clears it so the local
 // CLI keeps deciding.
+// What the local-config menu needs to name and switch the account; owned by
+// FrameworkModelConfigMenu so the source panel's one refresh icon can drive
+// the account probe too.
+interface RuntimeLocalAccountControls {
+    runtimeId: string
+    list: RuntimeAuthListView | null
+    lastOk: RuntimeAccountView | null
+    saving: boolean
+    error: string | null
+    change: (profileId: string) => Promise<boolean>
+}
+
 const RuntimeLocalModelMenu: FC<{
     view: AgentModelConfigView
     draft: AgentModelConfig | null
+    account: RuntimeLocalAccountControls | null
     onChange?: (config: AgentModelConfig) => void
     onRequestClose?: () => void
-}> = ({ view, draft, onChange, onRequestClose }): ReactNode => {
+}> = ({ view, draft, account, onChange, onRequestClose }): ReactNode => {
     const { t } = useI18n()
     const [submenu, setSubmenu] = useState<
-        'model' | 'effort' | 'speed' | 'intelligence' | null
+        'model' | 'effort' | 'speed' | 'intelligence' | 'account' | null
     >(null)
     const options = runtimeLocalModelOptions(view)
     if (options.length === 0) return null
@@ -1828,7 +1945,8 @@ const RuntimeLocalModelMenu: FC<{
     const branch = (
         key: typeof submenu,
         label: string,
-        value: string
+        value: string,
+        busy = false
     ): ReactNode => (
         <button
             type='button'
@@ -1845,20 +1963,49 @@ const RuntimeLocalModelMenu: FC<{
                     {value}
                 </span>
             </span>
-            <ChevronRightIcon className='text-muted h-4 w-4 shrink-0' />
+            {busy ? (
+                <Spinner size={12} />
+            ) : (
+                <ChevronRightIcon className='text-muted h-4 w-4 shrink-0' />
+            )}
         </button>
     )
     const codexDraft = draft?.framework === 'codex' ? draft : null
     const claudeDraft = draft?.framework === 'claude-code' ? draft : null
 
+    const bound = view.runtimeAuth.profileId
+    // Switching only needs the database (a binding is a DB compare-and-set),
+    // so an asleep sandbox still switches; the picker state still names the
+    // execute-unsupported case when the host is reachable but its mf is old.
+    const picker = runtimeAuthPickerState(account?.list ?? null)
+    const accountOptions = account
+        ? runtimeAuthOptions(
+              profilesWithBinding(account.list, view.runtimeAuth),
+              t
+          )
+        : []
+    const accountValue = bound ?? INHERITED_AUTH_OPTION
+    const accountValueLabel = [
+        bound && view.runtimeAuth.profile
+            ? profileDisplayName(view.runtimeAuth.profile)
+            : account?.lastOk
+              ? hostAccountHeadline(account.lastOk, t)
+              : t('web.runtimeAuth.inherited'),
+        planLabel(
+            bound
+                ? (view.runtimeAuth.profile?.identity?.plan ?? null)
+                : (account?.lastOk?.identity?.plan ??
+                      account?.lastOk?.usage?.plan ??
+                      null)
+        )
+    ]
+        .filter((part): part is string => Boolean(part))
+        .join(' · ')
+    const usage = account ? ambientAccountUsage(bound, account.lastOk) : null
+
     return (
         <>
             <div className='popover-separator' />
-            <div className='chat-composer-model-section-heading pb-0'>
-                <span className='min-w-0 flex-1 truncate'>
-                    {t('web.credentials.runtimeLocal.modelsFrom')}
-                </span>
-            </div>
             <div className='chat-composer-claude-menu'>
                 {branch(
                     'model',
@@ -1964,6 +2111,70 @@ const RuntimeLocalModelMenu: FC<{
                     </SubmenuPanel>
                 )}
             </div>
+            {account && (
+                <>
+                    <div className='popover-separator' />
+                    <div className='chat-composer-claude-menu'>
+                        {branch(
+                            'account',
+                            t('web.runtimeAuth.accountLabel'),
+                            accountValueLabel,
+                            account.saving
+                        )}
+                        {submenu === 'account' && (
+                            <SubmenuPanel
+                                title={t('web.runtimeAuth.accountLabel')}
+                                count={accountOptions.length}
+                            >
+                                {accountOptions.map((option) => (
+                                    <ModelMenuItem
+                                        key={option.value || 'inherited'}
+                                        label={option.label}
+                                        active={option.value === accountValue}
+                                        disabled={
+                                            option.disabled ||
+                                            account.saving ||
+                                            picker === 'execute-unsupported'
+                                        }
+                                        onSelect={() => {
+                                            setSubmenu(null)
+                                            void account.change(option.value)
+                                        }}
+                                    />
+                                ))}
+                                <div className='popover-separator' />
+                                <Link
+                                    to={`/settings/runtimes/${account.runtimeId}`}
+                                    role='menuitem'
+                                    className='chat-composer-model-option'
+                                    onClick={onRequestClose}
+                                >
+                                    {t('web.runtimeAuth.runtimePageLink')}
+                                </Link>
+                            </SubmenuPanel>
+                        )}
+                    </div>
+                    {usage && (
+                        <div className='px-2.5 pb-1'>
+                            <UsageWindows
+                                windows={usage.windows}
+                                note={null}
+                                fetchedAt={null}
+                            />
+                        </div>
+                    )}
+                    {picker === 'execute-unsupported' && (
+                        <p className='text-caption text-subtle px-2.5 pb-1'>
+                            {t('web.runtimeAuth.executeUnsupported')}
+                        </p>
+                    )}
+                    {account.error && (
+                        <div className='text-caption text-error px-2.5 pb-1'>
+                            {account.error}
+                        </div>
+                    )}
+                </>
+            )}
         </>
     )
 }
@@ -1973,44 +2184,24 @@ const RuntimeLocalModelSummary: FC<{
 }> = ({ view }): ReactNode => {
     const { t } = useI18n()
     const local = view.runtimeLocal
-    const rows: Array<{ label: string; value: string; mono?: boolean }> = []
-    if (local?.current)
-        rows.push({ label: t('web.composer.config'), value: local.current })
-    if (local?.cliVersion)
-        rows.push({ label: t('web.composer.cli'), value: local.cliVersion, mono: true })
-    if (local?.lastCheckedAt)
-        rows.push({
-            label: t('web.composer.checked'),
-            value: formatDateTime(local.lastCheckedAt)
-        })
+    // A CLI on its default config reports no current model; the footnote has
+    // nothing to say then and renders nothing rather than an empty frame.
+    if (!local || (!local.current && !local.error)) return null
     return (
         <>
             <div className='popover-separator' />
             <dl className='chat-composer-runtime-local'>
-                {rows.length === 0 && !local?.error && (
-                    <div className='chat-composer-runtime-local-empty'>
-                        {t('web.composer.notCheckedYet')}
-                    </div>
-                )}
-                {rows.map((row) => (
-                    <div
-                        key={row.label}
-                        className='chat-composer-runtime-local-row'
-                    >
+                {local.current && (
+                    <div className='chat-composer-runtime-local-row'>
                         <dt className='chat-composer-runtime-local-label'>
-                            {row.label}
+                            {t('web.composer.config')}
                         </dt>
-                        <dd
-                            className={[
-                                'chat-composer-runtime-local-value',
-                                row.mono ? 'font-mono' : ''
-                            ].join(' ')}
-                        >
-                            {row.value}
+                        <dd className='chat-composer-runtime-local-value'>
+                            {local.current}
                         </dd>
                     </div>
-                ))}
-                {local?.error && (
+                )}
+                {local.error && (
                     <div className='chat-composer-runtime-local-error'>
                         {local.error}
                     </div>
@@ -2508,6 +2699,7 @@ const SubmenuPanel: FC<{
 const ModelMenuItem: FC<ModelMenuItemProps> = ({
     label,
     active,
+    disabled = false,
     onSelect
 }): ReactNode => (
     <button
@@ -2515,6 +2707,7 @@ const ModelMenuItem: FC<ModelMenuItemProps> = ({
         role='menuitemradio'
         aria-checked={active}
         className='chat-composer-model-option'
+        disabled={disabled}
         onClick={onSelect}
     >
         <span className='min-w-0 truncate'>{label}</span>
@@ -2644,6 +2837,26 @@ const titleCase = (value: string): string =>
 interface ComposerLabelParts {
     name: string
     detail: string | null
+}
+
+// The pill for the runtime's own config: the drafted model when one is
+// chosen, else whatever the CLI config currently names, else its default.
+const formatRuntimeLocalComposerLabel = (
+    view: AgentModelConfigView | null,
+    draft: AgentModelConfig | null,
+    t: TFn
+): ComposerLabelParts => {
+    const name =
+        draft?.model?.trim() ||
+        view?.runtimeLocal?.current?.trim() ||
+        t('web.credentials.runtimeLocal.cliDefault')
+    const detail =
+        draft?.framework === 'claude-code' && draft.effort
+            ? formatClaudeEffortLabel(draft.effort, t)
+            : draft?.framework === 'codex' && draft.intelligence
+              ? formatCodexIntelligenceLabel(draft.intelligence, t)
+              : null
+    return { name, detail }
 }
 
 const formatCodexComposerLabel = (

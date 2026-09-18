@@ -32,6 +32,7 @@ import {
     providerModelIdsForSummary,
     readCachedModelConfigView,
     reconcileModelConfigDraftForProviderModels,
+    sameModelConfigViewExceptRuntimeAuth,
     validateModelConfigDraft,
     withClaudeModel,
     writeCachedModelConfigView
@@ -1649,4 +1650,37 @@ test('patchRuntimeLocalDraft drops the claude model map', () => {
         effort: 'high',
         modelMap: { sonnet: 'provider/claude-sonnet-4-6' }
     })
+})
+
+test('sameModelConfigViewExceptRuntimeAuth tolerates only a binding change', () => {
+    const rebound: AgentModelConfigView = {
+        ...codexView,
+        runtimeAuth: {
+            profileId: 'rap_1',
+            bindingVersion: 3,
+            effectiveFor: 'next-execution',
+            profile: {
+                id: 'rap_1',
+                label: 'Work',
+                lifecycle: 'ready',
+                credentialStatus: 'valid',
+                identity: null
+            }
+        }
+    }
+    assert.equal(sameModelConfigViewExceptRuntimeAuth(codexView, rebound), true)
+    assert.equal(
+        sameModelConfigViewExceptRuntimeAuth(codexView, {
+            ...rebound,
+            source: 'runtime-local'
+        }),
+        false
+    )
+    assert.equal(
+        sameModelConfigViewExceptRuntimeAuth(codexView, {
+            ...rebound,
+            config: null
+        }),
+        false
+    )
 })

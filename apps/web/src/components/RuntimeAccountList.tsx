@@ -262,8 +262,9 @@ const SignInLink: FC<{ busy?: boolean; onClick: () => void }> = ({
 }
 
 // The host account's usage windows, one per line: in a half-width card two
-// abreast truncates every label.
-const UsageWindows: FC<{
+// abreast truncates every label. Also charted by the composer's local-config
+// panel (bars only: note and fetchedAt stay null there).
+export const UsageWindows: FC<{
     windows: RuntimeAccountUsageWindow[]
     note: string | null
     // When the vendor last answered; the kept answer can be minutes old.

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { AuthModule } from '@/modules/auth/auth.module'
 import { SpritesAccountsModule } from '@/modules/sprites-accounts/sprites-accounts.module'
 import { AgentRuntimesModule } from '@/modules/agent-runtimes/agent-runtimes.module'
+import { RuntimeAuthModule } from '@/modules/agent-runtimes/auth/runtime-auth.module'
 import { AdminGuard } from '@/common/guards/admin.guard'
 import { AgentsController } from '@/modules/agents/agents.controller'
 import { AdminAgentsController } from '@/modules/agents/admin-agents.controller'
@@ -78,6 +79,7 @@ import {
         AuthModule,
         SpritesAccountsModule,
         AgentRuntimesModule,
+        RuntimeAuthModule,
         ModelProvidersModule,
         FrameworkCatalogModule,
         FrameworkVersionsModule,
