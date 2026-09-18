@@ -212,6 +212,12 @@ release channel，并且只在 idle 时更新。Daemon 忙碌时不会中断 ses
 
 exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd 从不碰它；`mf daemon start` 写的 systemd **user** unit 现在带 `KillMode=process`，效果一样（旧 unit 用 `mf daemon stop && mf daemon start` 重装）；system unit 归运维管，`mf daemon doctor` 会报告它的行为。`mf daemon start` 会记 `exec survival: yes|no`，更新只等那些会随 daemon 一起死的 session。普通的 `mf daemon stop` 会把 daemon 拥有的 exec 一起结束；`--keep-execs` 则留给下一个 daemon 接管。
 
+### 终端留在 daemon 上
+
+在 workbench 里给 daemon agent 打开的终端属于 daemon，而不是显示它的那个浏览器标签页。标签页断线（网络抖动、平台发布）或者被关掉时，shell 以及里面跑着的东西——包括 resume 进来的 `claude` / `codex` 会话——都留在机器上继续运行。workbench 下次打开这个终端时会接回同一个 shell：先把屏幕原样恢复，再继续实时输出。给一个已经被这样的 shell 持有的会话打开终端，同样会接到它上面，并从其它正在显示它的标签页手里接管过来（那个标签页会提示，并提供重新连接）。
+
+没有人连着的终端 30 分钟后关闭；跑在 runtime auth profile 下的终端是 5 分钟，因为它一直占着这个 profile 的锁。chat 视图里的"回到 web"会立即结束它。`mf daemon status` 会显示 daemon 保留了多少个终端、其中多少个有人在看；一个 daemon 最多保留 8 个。daemon 重启仍然会结束它的终端。
+
 ## 排错
 
 - **`daemon register requires --token <token>`** — 没传 token。回到网页应用重新复制完整命令。

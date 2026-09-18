@@ -35,6 +35,7 @@ const makeSocket = (): {
 // last fallible step of a resume.
 const fakeTerminals = () => {
     const rows: Array<Record<string, unknown>> = []
+    const handles: Array<[string, string]> = []
     return {
         rows,
         create: async (input: Record<string, unknown>) => {
@@ -43,19 +44,29 @@ const fakeTerminals = () => {
             return row
         },
         bindToken: async () => {},
-        setHandle: async () => {},
+        setHandle: async (id: string, handle: string) => {
+            handles.push([id, handle])
+        },
         markHeld: async () => {},
-        renewLease: async () => true
+        renewLease: async () => true,
+        handles
     }
 }
 
-const fakeHolder = (outcome: string) => {
+const fakeHolder = (
+    outcome: string,
+    reusable: Record<string, unknown> | null = null
+) => {
     const calls: Array<[string, ...unknown[]]> = []
     return {
         calls,
         acquire: async (args: Record<string, unknown>) => {
             calls.push(['acquire', args])
             return outcome
+        },
+        reusableTerminal: async (args: Record<string, unknown>) => {
+            calls.push(['reusableTerminal', args])
+            return reusable
         },
         supersede: async (prevTerminalId: string) => {
             calls.push(['supersede', prevTerminalId])
@@ -79,6 +90,7 @@ const runSession = async (args: {
     // The sprites driver, so a test can see what resume the tunnel got and
     // drive the close it reports.
     spritesTunnel?: (req: Record<string, unknown>) => Promise<void>
+    daemonTunnel?: (req: Record<string, unknown>) => Promise<void>
 }): Promise<Array<Record<string, unknown>>> => {
     const { socket, frames, fireClose } = makeSocket()
     const gateway = new TerminalGateway(
@@ -95,7 +107,7 @@ const runSession = async (args: {
         { findHostById: async () => ({ terminalEnabled: true }) } as never,
         { tunnel: args.spritesTunnel ?? (async () => {}) } as never,
         { tunnel: async () => {} } as never,
-        { tunnel: async () => {} } as never,
+        { tunnel: args.daemonTunnel ?? (async () => {}) } as never,
         { findById: args.findById } as never,
         {} as never,
         { resolve: args.resolve ?? (async () => null) } as never,
@@ -353,4 +365,119 @@ test('session_info reports unavailable when the runtime cannot resume at all', a
     const info = frames.find((frame) => frame.type === 'session_info')
     assert.ok(info)
     assert.equal(info.resume, 'unavailable')
+})
+
+// A daemon that owns its terminals (ADR-0029 §6): the tab attaches to the
+// terminal it names — hold and all — instead of opening another, a new one
+// is addressed by its row from the start, and a daemon without the
+// capability keeps today's stream-bound pty.
+const owningHost = async () => ({
+    terminalPty: true,
+    clientFeatures: ['pty.command', 'pty.terminal.v1']
+})
+
+test('an owning daemon attaches the tab to the terminal it names, without a new row or acquire', async () => {
+    const terminals = fakeTerminals()
+    const holder = fakeHolder('applied', {
+        id: 'tms_prev',
+        tokenId: 'tok-old',
+        heldSessionId: 'cs-1'
+    })
+    let tunnelReq: Record<string, unknown> | null = null
+    const frames = await runSession({
+        agent: daemonAgent,
+        findById: owningHost,
+        resumeChatSessionId: 'cs-1',
+        prevTerminalId: 'tms_prev',
+        resolve: async () => ({
+            resume: { command: ['claude', '--resume', 's-1'], env: {} },
+            outcome: 'applied',
+            ref: 's-1'
+        }),
+        terminals,
+        holder,
+        daemonTunnel: async (req) => {
+            tunnelReq = req
+        }
+    })
+    assert.deepEqual(terminals.rows, [], 'no new row')
+    assert.deepEqual(
+        holder.calls.map((call) => call[0]),
+        ['reusableTerminal'],
+        'neither superseded nor acquired'
+    )
+    const info = frames.find((frame) => frame.type === 'session_info')
+    assert.ok(info)
+    assert.equal(info.terminal_id, 'tms_prev')
+    assert.equal(info.resume, 'applied')
+    const req = tunnelReq as Record<string, unknown> | null
+    assert.equal(req?.ownedTerminalId, 'tms_prev')
+    assert.equal(req?.boundTokenId, 'tok-old')
+    assert.deepEqual(
+        (req?.resume as { command: string[] } | null)?.command,
+        ['claude', '--resume', 's-1'],
+        'the command still goes, for the daemon that lost the terminal'
+    )
+})
+
+test('with nothing to attach to, an owning daemon gets a new terminal addressed by its row', async () => {
+    const terminals = fakeTerminals()
+    const holder = fakeHolder('applied')
+    let tunnelReq: Record<string, unknown> | null = null
+    await runSession({
+        agent: daemonAgent,
+        findById: owningHost,
+        resumeChatSessionId: 'cs-1',
+        prevTerminalId: 'tms_dead',
+        resolve: async () => ({
+            resume: { command: ['claude', '--resume', 's-1'], env: {} },
+            outcome: 'applied',
+            ref: 's-1'
+        }),
+        terminals,
+        holder,
+        daemonTunnel: async (req) => {
+            tunnelReq = req
+        }
+    })
+    assert.equal(terminals.rows.length, 1)
+    assert.deepEqual(terminals.handles, [['tms_1', 'tms_1']])
+    assert.deepEqual(
+        holder.calls.map((call) => call[0]),
+        ['reusableTerminal', 'supersede', 'acquire']
+    )
+    const req = tunnelReq as Record<string, unknown> | null
+    assert.equal(req?.ownedTerminalId, 'tms_1')
+    assert.equal(req?.boundTokenId, null)
+})
+
+test('a daemon without the capability keeps the stream-bound terminal', async () => {
+    const terminals = fakeTerminals()
+    const holder = fakeHolder('applied')
+    let tunnelReq: Record<string, unknown> | null = null
+    await runSession({
+        agent: daemonAgent,
+        findById: async () => ({
+            terminalPty: true,
+            clientFeatures: ['pty.command']
+        }),
+        resumeChatSessionId: 'cs-1',
+        resolve: async () => ({
+            resume: { command: ['claude', '--resume', 's-1'], env: {} },
+            outcome: 'applied',
+            ref: 's-1'
+        }),
+        terminals,
+        holder,
+        daemonTunnel: async (req) => {
+            tunnelReq = req
+        }
+    })
+    assert.deepEqual(terminals.handles, [])
+    assert.deepEqual(
+        holder.calls.map((call) => call[0]),
+        ['acquire']
+    )
+    const req = tunnelReq as Record<string, unknown> | null
+    assert.equal('ownedTerminalId' in (req ?? {}), false)
 })

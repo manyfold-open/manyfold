@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
 import {
+    agents,
     terminalSessions,
     type Database,
     type TerminalSessionRow
@@ -117,6 +118,44 @@ export class TerminalSessionsRepository {
             )
             .limit(1)
         return row ?? null
+    }
+
+    // Renewal on the daemon's word (ADR-0029 §6): the live rows a daemon's
+    // inventory named, in one statement.
+    async renewLeases(ids: string[]): Promise<number> {
+        if (ids.length === 0) return 0
+        const rows = await this.db
+            .update(terminalSessions)
+            .set({ leaseExpiresAt: leaseFromNow })
+            .where(
+                and(
+                    inArray(terminalSessions.id, ids),
+                    isNull(terminalSessions.endedAt)
+                )
+            )
+            .returning({ id: terminalSessions.id })
+        return rows.length
+    }
+
+    // The live terminals a daemon owns: daemon-arm rows addressed by their
+    // own id (the handle an owned terminal gets at creation), reached through
+    // the agent's current daemon.
+    async listLiveOwnedByDaemon(
+        daemonId: string
+    ): Promise<TerminalSessionRow[]> {
+        const rows = await this.db
+            .select({ row: terminalSessions })
+            .from(terminalSessions)
+            .innerJoin(agents, eq(agents.id, terminalSessions.agentId))
+            .where(
+                and(
+                    eq(agents.daemonId, daemonId),
+                    eq(terminalSessions.runtime, 'daemon'),
+                    isNull(terminalSessions.endedAt),
+                    eq(terminalSessions.processHandle, terminalSessions.id)
+                )
+            )
+        return rows.map((r) => r.row)
     }
 
     async findById(id: string): Promise<TerminalSessionRow | null> {

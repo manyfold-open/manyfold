@@ -244,6 +244,25 @@ operator's, and `mf daemon doctor` reports what it does. `mf daemon start` logs
 die with the daemon. A plain `mf daemon stop` ends the execs the daemon owns;
 `--keep-execs` leaves them for the next daemon to adopt.
 
+### Terminals stay open on the daemon
+
+A terminal you open on a daemon agent from the workbench belongs to the daemon,
+not to the browser tab showing it. If the tab loses its connection (a network
+blip, a platform deploy) or you close it, the shell and whatever runs in it —
+a resumed `claude` or `codex` session included — keep running on the machine.
+The next time the workbench opens that terminal it attaches to the same shell:
+the screen comes back as it was, then live output continues. Opening the
+terminal for a session that is already held by such a shell attaches to it
+too, and takes it over from any other tab that was showing it (that tab says
+so and offers to reconnect).
+
+A terminal nobody is attached to is closed after 30 minutes, or after 5
+minutes when it runs under a runtime auth profile, since it holds that
+profile's lock the whole time. "Back to web" in the chat view ends it right
+away. `mf daemon status` shows how many terminals the daemon keeps and how
+many have a viewer; a daemon keeps at most 8. A daemon restart still ends
+its terminals.
+
 ## Troubleshooting
 
 - **`daemon register requires --token <token>`** — the command was run without a token. Re-copy the full command from the web UI.

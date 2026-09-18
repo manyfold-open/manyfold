@@ -1633,6 +1633,7 @@ const fr: Record<string, string> = {
     'web.terminal.noAuthToken': 'Pas de jeton d\'authentification',
     'web.terminal.wsError': 'Erreur WebSocket',
     'web.terminal.reconnect': 'Reconnecter',
+    'web.terminal.attachedElsewhere': 'Ce terminal est maintenant affiché dans un autre onglet. Reconnectez-vous pour le ramener ici.',
     'web.terminal.limitedPty': 'Terminal limité – pas de redimensionnement ni de contrôle des tâches. Mettez à jour la CLI sur cet ordinateur pour activer la prise en charge complète du terminal.',
     'web.terminal.enablePromptTitle': 'Activer le terminal ?',
     'web.terminal.enablePromptBody': 'Le terminal est éteint pour ce bac à sable. Activez-le pour ouvrir un shell interactif. Vous pouvez le désactiver à tout moment dans les paramètres du bac à sable.',

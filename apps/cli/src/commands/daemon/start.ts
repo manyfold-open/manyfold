@@ -44,6 +44,7 @@ import {
     setManualUpdateHandoff
 } from '@/daemon/rpc'
 import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
+import { listOwnedTerminals } from '@/daemon/owned-terminals'
 import { handOffToSuccessor, takeUpdateRollback } from '@/daemon/manual-update'
 import { isBunStandalone } from '@/standalone'
 import {
@@ -258,7 +259,24 @@ const runClaimedForeground = async (
                 cliVersion: MF_CLI_VERSION,
                 startupMethod,
                 terminalPty,
-                clientFeatures
+                clientFeatures,
+                // The terminals this daemon owns, as proof of life for their
+                // rows (ADR-0029 §6); left out when the list cannot be built.
+                ...(() => {
+                    try {
+                        return {
+                            terminals: listOwnedTerminals().map(
+                                ({ terminalId, attached, startedAt }) => ({
+                                    terminalId,
+                                    attached,
+                                    startedAt
+                                })
+                            )
+                        }
+                    } catch {
+                        return {}
+                    }
+                })()
             }
             try {
                 await cliFetch(`${config.apiUrl}${apiPaths.DAEMON_HEARTBEAT}`, {

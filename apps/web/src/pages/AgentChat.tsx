@@ -1227,8 +1227,10 @@ const AgentChat: FC = (): ReactNode => {
     // rather than append onto the previous session's scrollback. In the chat
     // view the terminal is hidden, and retargeting it would silently take
     // the hold on every session the user clicks through (ADR-0029 §1): it is
-    // torn down instead — closing its socket is what releases the hold on
-    // the session it had.
+    // torn down instead. Closing its socket releases the hold on the session
+    // it had, unless the daemon owns the terminal (ADR-0029 §6): that one
+    // keeps running, visibly held, until "Back to web" or its own timeout,
+    // and switching back to it attaches to the same shell.
     useEffect(() => {
         if (!currentAgent) return
         setSessionTerminal((prev) => {
@@ -1441,12 +1443,12 @@ const AgentChat: FC = (): ReactNode => {
         )
     }, [activeSession?.holderTerminalId, activeSessionId])
 
-    // "Back to web" (ADR-0029 §7). When this tab's own terminal is the
-    // holder, unmounting it closes the socket, and that is what kills the
-    // process and releases the hold. Otherwise — another tab's terminal, a
-    // reload that lost the terminal, or this tab's own plain shell opened
-    // while the session was already held — ask the API to do the same
-    // through the process handle.
+    // "Back to web" (ADR-0029 §7): the API kills the holder through its
+    // process handle and releases the hold, whether it is this tab's own
+    // terminal, another tab's, or one a reload lost. Closing this tab's
+    // socket alone is not enough: a terminal the daemon owns (ADR-0029 §6)
+    // would only detach and keep the hold. The tab's own terminal is
+    // unmounted once the release is through.
     const [ownershipBusy, setOwnershipBusy] = useState(false)
     const handleBackToWeb = useCallback(async (): Promise<void> => {
         if (!agentId || !activeSessionId) return
@@ -1454,14 +1456,13 @@ const AgentChat: FC = (): ReactNode => {
             sessionTerminal?.resumeChatSessionId === activeSessionId &&
             sessionTerminal.terminalId != null &&
             sessionTerminal.terminalId === activeSession?.holderTerminalId
-        if (ownsHold) {
-            setSessionView('chat')
-            setSessionTerminal(null)
-            return
-        }
         setOwnershipBusy(true)
         try {
             await client.chat.releaseSessionHolder(agentId, activeSessionId)
+            if (ownsHold) {
+                setSessionView('chat')
+                setSessionTerminal(null)
+            }
         } catch (err) {
             setError(apiErrorMessage(err))
         } finally {

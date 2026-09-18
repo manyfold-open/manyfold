@@ -1633,6 +1633,7 @@ const de: Record<string, string> = {
     'web.terminal.noAuthToken': 'Kein Authentifizierungstoken',
     'web.terminal.wsError': 'WebSocket-Fehler',
     'web.terminal.reconnect': 'Wieder verbinden',
+    'web.terminal.attachedElsewhere': 'Dieses Terminal wird jetzt in einem anderen Tab angezeigt. Verbinden Sie sich erneut, um es hierher zurückzuholen.',
     'web.terminal.limitedPty': 'Eingeschränktes Terminal – keine Größenänderung oder Jobkontrolle. Aktualisieren Sie CLI auf diesem Computer, um die vollständige Terminalunterstützung zu ermöglichen.',
     'web.terminal.enablePromptTitle': 'Terminal aktivieren?',
     'web.terminal.enablePromptBody': 'Das Terminal ist für diese Sandbox ausgeschaltet. Aktivieren Sie es, um eine interaktive Shell zu öffnen. Sie können es jederzeit in den Sandbox-Einstellungen wieder deaktivieren.',

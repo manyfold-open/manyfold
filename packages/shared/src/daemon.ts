@@ -83,6 +83,7 @@ export interface HeartbeatRequest {
     startupMethod: DaemonStartupMethod
     terminalPty?: boolean
     clientFeatures?: string[]
+    terminals?: DaemonOwnedTerminal[]
 }
 
 export interface HeartbeatResponse {
@@ -211,7 +212,15 @@ export type DaemonRpcMethod =
     | 'workspace.delete'
     | 'daemon.update'
 
-export type DaemonStreamKind = 'stdout' | 'stderr' | 'pty.out' | 'fs.chunk'
+// `pty.attach` is the first event on a pty.open stream that carries a
+// terminalId: its data says whether the daemon attached the stream to a
+// terminal it already had (`attached`) or spawned one under that id.
+export type DaemonStreamKind =
+    | 'stdout'
+    | 'stderr'
+    | 'pty.out'
+    | 'pty.attach'
+    | 'fs.chunk'
 
 export type DaemonInflightStreamStatus =
     | 'running'
@@ -249,6 +258,16 @@ export interface DaemonUpdateRollbackReport {
     at: string
 }
 
+// A terminal the daemon owns (ADR-0029 §6): opened with a terminalId, it
+// outlives the stream that opened it. The daemon lists them in every hello
+// and heartbeat; the API takes the list as proof of life for the terminal
+// rows it holds and ends the rows the daemon no longer has.
+export interface DaemonOwnedTerminal {
+    terminalId: string
+    attached: boolean
+    startedAt: string
+}
+
 export type DaemonWsFrame =
     | {
           type: 'hello'
@@ -259,6 +278,10 @@ export type DaemonWsFrame =
           inflightStreams?: DaemonInflightStream[]
           recovery?: DaemonExecRecoveryReport
           rollback?: DaemonUpdateRollbackReport
+          // Present-but-empty and absent differ, as for inflightStreams: an
+          // empty list proves the daemon owns no terminal, a missing one
+          // means the enumeration failed.
+          terminals?: DaemonOwnedTerminal[]
       }
     | {
           type: 'welcome'
@@ -553,6 +576,14 @@ export const DAEMON_FEATURE_TURN_HERMES_PERMISSIONS = 'turn.hermes.permissions'
 // leave the user staring at a prompt under a UI that said it was resuming
 // their conversation.
 export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
+// pty.open honours `terminalId` (ADR-0029 §6): the pty belongs to the daemon
+// and the stream is one attachment to it — a cancel detaches instead of
+// killing, a second pty.open with the same id attaches (the screen so far,
+// then the live tail), pty.close honours `terminalId`, and the hello and
+// heartbeat list the owned terminals so the API can hold their rows on the
+// daemon's word instead of a tunnel lease. Without it the API opens pty
+// streams the old way, one process per stream.
+export const DAEMON_FEATURE_PTY_TERMINAL = 'pty.terminal.v1'
 
 // The daemon answers `account.inspect` (who is signed in on this machine per
 // coding CLI, plus the raw vendor usage response). The API must check this
@@ -598,6 +629,7 @@ export const DAEMON_CLIENT_FEATURES = [
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
     DAEMON_FEATURE_TURN_HERMES_PERMISSIONS,
     DAEMON_FEATURE_PTY_COMMAND,
+    DAEMON_FEATURE_PTY_TERMINAL,
     DAEMON_FEATURE_ACCOUNT_INSPECT,
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
     DAEMON_FEATURE_AUTH_PROFILES,

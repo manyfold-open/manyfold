@@ -2314,6 +2314,7 @@ const ar: Record<string, string> = {
     'web.sessionView.switchToChat': 'التبديل إلى واجهة الدردشة',
     'web.terminal.enablePromptConfirm': 'تمكين الوحدة الطرفية',
     'web.terminal.enablePromptTitle': 'هل تريد تمكين الوحدة الطرفية؟',
+    'web.terminal.attachedElsewhere': 'يتم الآن عرض هذه الوحدة الطرفية في علامة تبويب أخرى. أعد الاتصال لإعادتها إلى هنا.',
     'web.terminal.limitedPty': 'وحدة طرفية محدودة — لا يمكن تغيير الحجم أو التحكم في المهام. قم بتحديث CLI على هذا الكمبيوتر لتمكين الدعم الكامل للوحدة الطرفية.',
     'web.terminal.minimize': 'تصغير لوحة الوحدة الطرفية',
     'web.terminal.noAuthToken': 'لا يوجد رمز مصادقة',

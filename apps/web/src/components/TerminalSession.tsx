@@ -8,7 +8,10 @@ import { useFontSize } from '@/lib/fontSize'
 import type { FontSizeMode } from '@/lib/fontSize'
 import { useI18n } from '@/lib/i18n'
 import type { TFn } from '@/lib/i18n'
-import { isUpstreamTerminalSessionInfo } from '@/lib/terminalSession'
+import {
+    isTerminalAttachedElsewhereClose,
+    isUpstreamTerminalSessionInfo
+} from '@/lib/terminalSession'
 import type { TerminalResumeOutcome } from '@/lib/terminalResume'
 
 export type TerminalConnectionStatus =
@@ -337,7 +340,11 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                     (terminalId) => {
                         terminalIdRef.current = terminalId
                         onTerminalIdRef.current?.(tab.id, terminalId)
-                    }
+                    },
+                    // The daemon is about to replay the terminal's screen
+                    // (ADR-0029 §6): it must land on a blank one, not on top
+                    // of what this tab showed before it reconnected.
+                    () => term.reset()
                 )
                 return
             }
@@ -370,6 +377,13 @@ const TerminalSession: FC<TerminalSessionProps> = ({
 
         ws.onclose = (event: CloseEvent): void => {
             if (disposedRef.current || wsRef.current !== ws) return
+            if (isTerminalAttachedElsewhereClose(event.code)) {
+                setConnectionStatus(
+                    'closed',
+                    t('web.terminal.attachedElsewhere')
+                )
+                return
+            }
             setConnectionStatus('closed')
             const recoverable =
                 event.code === 1012 ||
@@ -527,7 +541,8 @@ const handleTerminalTextFrame = (
     onUpstreamOpen: () => void,
     onLimitedTerminal: () => void,
     onResumeOutcome: (outcome: TerminalResumeOutcome) => void,
-    onTerminalId: (terminalId: string) => void
+    onTerminalId: (terminalId: string) => void,
+    onAttached: () => void
 ): void => {
     try {
         const msg = JSON.parse(frame) as {
@@ -538,6 +553,10 @@ const handleTerminalTextFrame = (
             terminal_id?: string
             terminal_pty?: boolean | null
             resume?: TerminalResumeOutcome
+        }
+        if (msg.type === 'attached') {
+            onAttached()
+            return
         }
         if (msg.type === 'session_info') {
             if (isUpstreamTerminalSessionInfo(msg)) onUpstreamOpen()

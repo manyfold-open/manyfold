@@ -12,3 +12,12 @@ export const isUpstreamTerminalSessionInfo = (value: unknown): boolean => {
     if (frame.runtime === 'daemon') return true
     return typeof frame.session_id === 'string' && frame.session_id.length > 0
 }
+
+// The API closes a tab's socket with this code when another attachment took
+// over the terminal the tab was showing (ADR-0029 §6). The terminal is
+// alive, just elsewhere: no reconnect, or the two tabs would trade it back
+// and forth.
+export const TERMINAL_CLOSE_ATTACHED_ELSEWHERE = 4409
+
+export const isTerminalAttachedElsewhereClose = (code: number): boolean =>
+    code === TERMINAL_CLOSE_ATTACHED_ELSEWHERE

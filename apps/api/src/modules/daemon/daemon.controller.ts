@@ -137,6 +137,8 @@ export class DaemonController {
                 host,
                 detectedFrameworks: body.detectedFrameworks
             })
+        if (host && body.terminals !== undefined)
+            this.hosts.reportTerminalInventory(auth.daemonId, body.terminals)
         return { ok: true, actions: [] }
     }
 

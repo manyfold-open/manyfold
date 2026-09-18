@@ -1633,6 +1633,7 @@ const es: Record<string, string> = {
     'web.terminal.noAuthToken': 'Sin token de autenticación',
     'web.terminal.wsError': 'Error WebSocket',
     'web.terminal.reconnect': 'Reconectar',
+    'web.terminal.attachedElsewhere': 'Este terminal ahora se muestra en otra pestaña. Vuelva a conectarse para traerlo de vuelta aquí.',
     'web.terminal.limitedPty': 'Terminal limitado: sin cambio de tamaño ni control de trabajos. Actualice CLI en esta computadora para habilitar la compatibilidad total con el terminal.',
     'web.terminal.enablePromptTitle': '¿Habilitar terminal?',
     'web.terminal.enablePromptBody': 'El terminal está apagado para este sandbox. Habilítelo para abrir un shell interactivo. Puede apagarlo nuevamente en cualquier momento en la configuración de sandbox.',

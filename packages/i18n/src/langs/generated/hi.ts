@@ -1631,6 +1631,7 @@ const hi: Record<string, string> = {
     'web.terminal.noAuthToken': 'कोई प्रमाणीकरण टोकन नहीं',
     'web.terminal.wsError': 'WebSocket त्रुटि',
     'web.terminal.reconnect': 'फिर से कनेक्ट करें',
+    'web.terminal.attachedElsewhere': 'यह टर्मिनल अब किसी अन्य टैब में दिखाया जा रहा है। इसे यहाँ वापस लाने के लिए पुनः कनेक्ट करें।',
     'web.terminal.limitedPty': 'सीमित टर्मिनल - कोई आकार परिवर्तन या कार्य नियंत्रण नहीं। पूर्ण टर्मिनल समर्थन सक्षम करने के लिए इस कंप्यूटर पर CLI को अपडेट करें।',
     'web.terminal.enablePromptTitle': 'टर्मिनल सक्षम करें?',
     'web.terminal.enablePromptBody': 'इस सैंडबॉक्स के लिए टर्मिनल बंद है। एक इंटरैक्टिव शेल खोलने के लिए इसे सक्षम करें। आप इसे सैंडबॉक्स सेटिंग में किसी भी समय फिर से बंद कर सकते हैं।',

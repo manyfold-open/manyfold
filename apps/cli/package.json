@@ -33,6 +33,8 @@
         "test:startup-e2e": "tsx test/daemon-startup.e2e.ts"
     },
     "dependencies": {
+        "@xterm/addon-serialize": "0.14.0",
+        "@xterm/headless": "6.0.0",
         "commander": "^12.1.0",
         "fflate": "^0.8.3",
         "fs-native-extensions": "^1.5.1",

@@ -195,6 +195,10 @@ export class DaemonGateway implements OnModuleInit {
                 host.id, socket, acceptedClientFeatures
             )
             if (!evidence) return
+            // The terminals the daemon owns arrive before any dispatch could
+            // (ADR-0029 §6); like inflightStreams, absent means unknown.
+            if (frame.terminals !== undefined)
+                this.hosts.reportTerminalInventory(host.id, frame.terminals)
             if (frame.inflightStreams === undefined) return
             void this.resumeService
                 .handleInflightStreams(host.id, frame.inflightStreams, evidence)
