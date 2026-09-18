@@ -158,6 +158,13 @@ export class CodexAdapter implements ApiChatAdapter {
         if (intelligence)
             cmd.push('-c', `model_reasoning_effort="${intelligence}"`)
         if (speed === 'fast') cmd.push('-c', 'service_tier="fast"')
+        // A profile turn authenticates against OpenAI itself — subscription
+        // tokens in the profile's auth.json, or an OpenAI API key — while the
+        // sprite's shared config.toml may still pin the platform provider
+        // from a platform-source bootstrap; posting profile credentials at
+        // that gateway 401s (INVALID_API_KEY). Select the builtin provider
+        // explicitly. Ambient turns keep the config's word.
+        if (authContext) cmd.push('-c', 'model_provider="openai"')
         const env =
             modelConfig && codexCreds && !authContext
                 ? platformCodexEnvAndArgs(cmd, codexCreds)
