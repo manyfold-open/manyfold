@@ -1679,7 +1679,8 @@ const FrameworkModelConfigMenu: FC<FrameworkModelConfigMenuProps> = ({
     const binding = useRuntimeAuthBinding(
         view.agentId,
         view,
-        onViewChange ?? (() => {})
+        onViewChange ?? (() => {}),
+        { modelConfigSource: 'runtime-local' }
     )
     const [accountRefreshing, setAccountRefreshing] = useState(false)
     const runtimeLocalReady = view.runtimeLocal?.ready === true

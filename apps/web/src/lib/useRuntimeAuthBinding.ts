@@ -20,7 +20,13 @@ import { useI18n } from '@/lib/i18n'
 export const useRuntimeAuthBinding = (
     agentId: string,
     view: AgentModelConfigView,
-    onView: (view: AgentModelConfigView) => void
+    onView: (view: AgentModelConfigView) => void,
+    // The composer's picker sits on the runtime-local panel while the agent's
+    // persisted source may still be platform — the API refuses a profile on a
+    // platform-source agent, so that surface sends the source along and both
+    // switch in one compare-and-set. The settings row only renders once the
+    // source is already persisted and sends nothing extra.
+    opts?: { modelConfigSource?: 'runtime-local' }
 ): {
     saving: boolean
     error: string | null
@@ -49,7 +55,10 @@ export const useRuntimeAuthBinding = (
             apply(
                 await client.agents.updateRuntimeAuth(agentId, {
                     profileId: next,
-                    expectedBindingVersion: view.runtimeAuth.bindingVersion
+                    expectedBindingVersion: view.runtimeAuth.bindingVersion,
+                    ...(opts?.modelConfigSource
+                        ? { modelConfigSource: opts.modelConfigSource }
+                        : {})
                 })
             )
             return true
