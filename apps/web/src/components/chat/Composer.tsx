@@ -41,6 +41,7 @@ import {
     ChevronDownIcon,
     ChevronRightIcon,
     CloseIcon,
+    CloudComputerIcon,
     CodeIcon,
     FileIcon,
     FileArchiveIcon,
@@ -48,6 +49,7 @@ import {
     FileTextIcon,
     FolderIcon,
     InfoIcon,
+    LocalDaemonIcon,
     type LucideIcon,
     PaperclipIcon,
     PlusIcon,
@@ -671,37 +673,41 @@ const Composer: FC<Props> = ({
     const isGeminiModelConfig =
         hasFrameworkModelConfig && modelConfigView?.framework === 'gemini-cli'
     const modelDisplayParts: ComposerLabelParts | null =
-        hasFrameworkModelConfig && modelConfigSource !== 'runtime-local'
-            ? isCodexModelConfig
-                ? formatCodexComposerLabel(
+        hasFrameworkModelConfig
+            ? modelConfigSource === 'runtime-local'
+                ? formatRuntimeLocalComposerLabel(
+                      modelConfigView,
                       modelConfigDraft,
-                      modelDefaultLabel,
                       t
                   )
-                : isClaudeModelConfig
-                  ? formatClaudeComposerLabel(
+                : isCodexModelConfig
+                  ? formatCodexComposerLabel(
                         modelConfigDraft,
                         modelDefaultLabel,
                         t
                     )
-                  : isGeminiModelConfig
-                    ? formatGeminiComposerLabel(
+                  : isClaudeModelConfig
+                    ? formatClaudeComposerLabel(
                           modelConfigDraft,
-                          modelDefaultLabel
+                          modelDefaultLabel,
+                          t
                       )
-                    : null
+                    : isGeminiModelConfig
+                      ? formatGeminiComposerLabel(
+                            modelConfigDraft,
+                            modelDefaultLabel
+                        )
+                      : null
             : null
     const modelDisplayLabel = hasFrameworkModelConfig
-        ? modelConfigSource === 'runtime-local'
-            ? t('web.credentials.modelSourceLocal')
-            : modelDisplayParts
-              ? joinComposerLabelParts(modelDisplayParts)
-              : modelConfigDisplayLabel(
-                    modelConfigView,
-                    modelConfigDraft,
-                    modelDefaultLabel,
-                    t
-                )
+        ? modelDisplayParts
+            ? joinComposerLabelParts(modelDisplayParts)
+            : modelConfigDisplayLabel(
+                  modelConfigView,
+                  modelConfigDraft,
+                  modelDefaultLabel,
+                  t
+              )
         : formatModelLabel(modelOverrideValue || modelDefaultLabel)
     const modelBaseTitle = modelOverrideValue
         ? t('web.composer.modelSelectedTitle', {
@@ -1052,6 +1058,14 @@ const Composer: FC<Props> = ({
                                                     <Spinner size={12} />
                                                 </span>
                                             )}
+                                            {!streaming &&
+                                                hasFrameworkModelConfig &&
+                                                (modelConfigSource ===
+                                                'runtime-local' ? (
+                                                    <LocalDaemonIcon className='text-muted h-3.5 w-3.5 shrink-0' />
+                                                ) : (
+                                                    <CloudComputerIcon className='text-muted h-3.5 w-3.5 shrink-0' />
+                                                ))}
                                             {!streaming && isCodexFastSpeed && (
                                                 <ZapIcon className='text-muted h-3.5 w-3.5 shrink-0' />
                                             )}
@@ -2822,6 +2836,26 @@ const titleCase = (value: string): string =>
 interface ComposerLabelParts {
     name: string
     detail: string | null
+}
+
+// The pill for the runtime's own config: the drafted model when one is
+// chosen, else whatever the CLI config currently names, else its default.
+const formatRuntimeLocalComposerLabel = (
+    view: AgentModelConfigView | null,
+    draft: AgentModelConfig | null,
+    t: TFn
+): ComposerLabelParts => {
+    const name =
+        draft?.model?.trim() ||
+        view?.runtimeLocal?.current?.trim() ||
+        t('web.credentials.runtimeLocal.cliDefault')
+    const detail =
+        draft?.framework === 'claude-code' && draft.effort
+            ? formatClaudeEffortLabel(draft.effort, t)
+            : draft?.framework === 'codex' && draft.intelligence
+              ? formatCodexIntelligenceLabel(draft.intelligence, t)
+              : null
+    return { name, detail }
 }
 
 const formatCodexComposerLabel = (
