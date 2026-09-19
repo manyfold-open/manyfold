@@ -3,11 +3,14 @@ import test from 'node:test'
 import {
     PRESERVED_SECRET_ENV_KEYS,
     buildSidecarIngress,
+    buildDeployment,
+    buildService,
     mergePreservedSecretEnv,
     readSecretEnv,
     resourceName,
     type K8sResourceSpec
 } from '../src/modules/agents/orchestration/k8s-resource-builder'
+import { NarraNexusK8sBootstrap } from '../src/modules/agents/bootstrap/narranexus-k8s'
 import type { K8sSidecarSpec } from '../src/modules/agents/bootstrap/k8s-framework-bootstrap'
 
 // Carved out of k8s-runtime-sidecar.service.test.ts when the k8s hermes
@@ -89,6 +92,7 @@ test('a Secret rewrite preserves provision-time keys under the fresh plan', () =
         MF_DAEMON_HOST_NAME: 'pod-runner:art_1',
         MF_PROFILE: 'podrunner',
         MF_CONFIG_DIR: '/home/node/.manyfold',
+        MF_DAEMON_WORKSPACE_ROOT: '/workspace',
         SOME_PLAN_KEY: 'stale'
     }
     const planned = {
@@ -158,4 +162,22 @@ test('readSecretEnv decodes k8s data and treats a missing Secret as nothing to p
         ),
         /boom/
     )
+})
+
+test('NarraNexus shares its PVC and Pod network with a runner without exposing a port', () => {
+    const bootstrap = new NarraNexusK8sBootstrap({ get: () => 'runner:fixture' } as never)
+    const plan = bootstrap.plan({} as never, { gatewayToken: 'fixture' })
+    const withRunner = { ...spec, framework: 'narranexus' as const, port: plan.port, pvcMountPath: plan.pvcMountPath, sidecars: plan.sidecars }
+    const deployment = buildDeployment(withRunner)
+    const runner = deployment.spec?.template.spec?.containers.find(c => c.name === 'mf-runner')
+    assert.ok(runner)
+    assert.equal(runner.ports, undefined)
+    assert.deepEqual(runner.volumeMounts, [{ name: 'data', mountPath: '/data' }])
+    assert.deepEqual(runner.envFrom, [{ secretRef: { name: spec.envSecretName } }])
+    assert.ok(buildService(withRunner).spec?.ports?.every(p => p.name !== 'mf-runner'))
+})
+
+test('NarraNexus rejects provisioning without a configured runner image', () => {
+    const bootstrap = new NarraNexusK8sBootstrap({ get: () => undefined } as never)
+    assert.throws(() => bootstrap.plan({} as never, {}), /MF_POD_RUNNER_IMAGE/)
 })

@@ -160,9 +160,8 @@ export interface ApiChatAdapterContext {
         taskId?: string | null
         upstreamMessageId?: string | null
     }) => void | Promise<void>
-    // When set, this turn runs through the sprite's own runner over the daemon
-    // transport rather than a direct sprite exec. The turn is already stamped
-    // with daemon_id/daemon_exec_ref by then, so it is resumable.
+    // Required at dispatch for runtime-backed chat; external adapters omit it.
+    // The carrying daemon is stamped durably before the adapter starts.
     runnerDaemonId?: string | null
 }
 

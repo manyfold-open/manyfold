@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { PgDialect } from 'drizzle-orm/pg-core'
@@ -107,9 +108,8 @@ const makeService = (
         }
     }
 
-    const service = new ChatService(
-        {} as never,
-        repo as never,
+    const service = new ChatService({} as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         {} as never,
         {} as never,
@@ -122,7 +122,7 @@ const makeService = (
         undefined,
         undefined,
         undefined,
-        undefined,
+        readyChatRunner(undefined),
         undefined,
         undefined,
         options?.turnAdoption as never

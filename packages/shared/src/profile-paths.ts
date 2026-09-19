@@ -63,6 +63,7 @@ const MF_ENV_DAEMON_TOKEN = 'MF_DAEMON_TOKEN'
 const MF_ENV_DAEMON_HOST_NAME = 'MF_DAEMON_HOST_NAME'
 const MF_ENV_PROFILE = 'MF_PROFILE'
 const MF_ENV_CONFIG_DIR = 'MF_CONFIG_DIR'
+const MF_ENV_DAEMON_WORKSPACE_ROOT = 'MF_DAEMON_WORKSPACE_ROOT'
 
 // Every key buildPodRunnerEnv writes. The Secret has more than one writer: the
 // two provisioners merge these in, but a later credential update REBUILDS the
@@ -74,7 +75,8 @@ export const POD_RUNNER_ENV_KEYS = [
     MF_ENV_DAEMON_TOKEN,
     MF_ENV_DAEMON_HOST_NAME,
     MF_ENV_PROFILE,
-    MF_ENV_CONFIG_DIR
+    MF_ENV_CONFIG_DIR,
+    MF_ENV_DAEMON_WORKSPACE_ROOT
 ] as const
 
 interface PodRunnerEnvInput {
@@ -96,6 +98,7 @@ interface PodRunnerEnvInput {
     // `codingAgentWorkspacePath('k8s', id)` is `<K8S_HOME_BASE>/.manyfold/
     // workspaces/<id>`, so passing the coding pvcMountPath satisfies both.
     homeRoot: string
+    workspaceRoot?: string
 }
 
 export const buildPodRunnerEnv = (
@@ -105,7 +108,8 @@ export const buildPodRunnerEnv = (
     [MF_ENV_DAEMON_TOKEN]: input.daemonToken,
     [MF_ENV_DAEMON_HOST_NAME]: podRunnerHostName(input.runtimeId),
     [MF_ENV_PROFILE]: POD_RUNNER_PROFILE,
-    [MF_ENV_CONFIG_DIR]: input.homeRoot.replace(/\/+$/, '')
+    [MF_ENV_CONFIG_DIR]: input.homeRoot.replace(/\/+$/, ''),
+    ...(input.workspaceRoot ? { [MF_ENV_DAEMON_WORKSPACE_ROOT]: input.workspaceRoot } : {})
 })
 
 export interface ProfilePaths {

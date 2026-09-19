@@ -1,12 +1,10 @@
 import {
-    DAEMON_FEATURE_AUTH_CONTEXT,
     CHAT_ATTACHMENT_MAX_COUNT,
     CHAT_ATTACHMENT_MAX_FILE_BYTES,
     CHAT_ATTACHMENT_MAX_TOTAL_BYTES,
     CHAT_UPLOAD_MAX_COUNT,
     CHAT_UPLOAD_MAX_FILE_BYTES,
     CHAT_UPLOAD_MAX_TOTAL_BYTES,
-    DAEMON_FEATURE_TURN_HERMES,
     DEFAULT_CLAUDE_CODE_PERMISSION_MODE,
     DEFAULT_CODEX_PERMISSION_MODE,
     DEFAULT_HERMES_PERMISSION_MODE,
@@ -82,7 +80,6 @@ import {
     K8S_CREATE_CLEANUP_PENDING,
     K8S_CREATE_INITIAL_AGENT
 } from '@/modules/agent-runtimes/provisioning/k8s-create-cleanup.service'
-import { runtimeAuthSelectionFor } from '@/modules/agents/model-config/runtime-auth-selection'
 import {
     decodeMessageCursor,
     encodeMessageCursor,
@@ -104,7 +101,7 @@ import {
     type PersistedStreamEventType
 } from '@/modules/chat/sse-broadcaster'
 import { ChatAdapterRegistry } from '@/modules/chat/adapters/adapter-registry.service'
-import { daemonAdvertisesFeature } from '@/modules/chat/chat-adapter'
+import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
 import type {
     ChannelSource,
     ChatTurnTimings,
@@ -154,10 +151,6 @@ import {
     TURN_LEASE_RENEW_MS
 } from '@/modules/chat/turn-adoption.service'
 import {
-    podRunnerAttemptedFor,
-    spriteRunnerEnabledFor
-} from '@/modules/chat/runner/runner-rollout'
-import {
     RunnerManagerService,
     classifyExecEndpointFailure,
     type RunnerExecFailure,
@@ -175,8 +168,6 @@ import {
     type SpriteExecTerminal
 } from '@/modules/chat/sprite-exec-terminal'
 import { ChatCancelBus } from '@/modules/chat/chat-cancel-bus'
-import { ChatPermissionBus } from '@/modules/chat/chat-permission-bus'
-import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import {
     recoverTurnFromClaudeJsonl,
@@ -461,37 +452,6 @@ const ADOPT_REPOLL_MAX_MS = (() => {
     const raw = Number(process.env.MF_TURN_ADOPT_REPOLL_MS ?? 600_000)
     return Number.isFinite(raw) && raw >= 0 ? raw : 600_000
 })()
-// Resume a runner stream from the last durably-recorded transport seq instead
-// of replaying the whole turn. Default OFF: it changes the one runtime whose
-// mid-turn recovery is already seamless (daemon), so it flips on only after a
-// real daemon restart drill. See resumeFromSeq().
-const RESUME_FROM_CURSOR = ['1', 'true', 'yes'].includes(
-    (process.env.MF_TURN_RESUME_CURSOR ?? '').toLowerCase()
-)
-
-// hermes turns are ACP-only and the runner-owned client is the resumable
-// variant, so the attempt is always worth making: the allowlist does not
-// apply. openclaw is the opposite case — its sprite turns are ACP too, but
-// the API drives that bridge itself over the exec channel, so a runner is
-// pure cost: the bring-up is paid for, `runnerDaemonId` is then ignored, and
-// the turn is stamped with a daemonExecRef no resume can honour (a later
-// hello would terminalize a healthy turn `openclaw_resume_failed`). Dispatch
-// policy, deliberately not a frameworkCapabilities field — the same layering
-// argument ADR-0021 makes for the exec-env surfaces.
-const spriteRunnerAttemptedFor = (
-    framework: AgentFramework,
-    agentId: string
-): boolean =>
-    framework === 'hermes' ||
-    (framework !== 'openclaw' && spriteRunnerEnabledFor(agentId))
-
-// What a resolved managed runner gives the dispatch site. `exec` is the sprite
-// bootstrap transport, kept only so the caller can hold that VM awake for the
-// duration of the turn; a pod never sleeps, so its runner carries none.
-interface ManagedRunner {
-    daemonId: string
-    exec: SpriteExecFn | null
-}
 
 // Thrown when a turn cannot start because the session already has one running.
 // Extends ConflictException so HTTP callers get a 409; the channel bridge catches
@@ -691,10 +651,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // Same rule. The hermes interactive-permission answer path: the
         // coordinator holds this instance's blocked asks, the bus reaches the
         // peers, and the registry reaches a daemon-carried turn.
-        @Optional()
-        private readonly permissionCoordinator?: HermesPermissionCoordinator,
-        @Optional()
-        private readonly permissionBus?: ChatPermissionBus,
         @Optional()
         private readonly daemonRegistry?: DaemonRegistryService,
         // Same rule. Absent = no session-list push; the sidebar falls back to
@@ -1469,26 +1425,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             throw new NotFoundException('message not found')
         const terminal = await this.repo.findTerminalStreamEvent(messageId)
         if (terminal) throw new ConflictException('the turn has already ended')
-        const local = this.permissionCoordinator?.respondLocal(
-            messageId,
-            requestId,
-            optionId
-        )
-        if (local === 'delivered') {
-            await this.repo
-                .insertPermissionAnswer({
-                    messageId,
-                    requestId,
-                    optionId,
-                    userId
-                })
-                .catch(() => false)
-            return
-        }
-        if (local === 'unknown')
-            throw new ConflictException(
-                'the permission request is no longer pending'
-            )
         if (message.daemonId && message.daemonExecRef) {
             if (!this.daemonRegistry)
                 throw new BadGatewayException(
@@ -1525,17 +1461,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 .catch(() => false)
             return
         }
-        const inserted = await this.repo.insertPermissionAnswer({
-            messageId,
-            requestId,
-            optionId,
-            userId
-        })
-        if (!inserted)
-            throw new ConflictException(
-                'the permission request was already answered'
-            )
-        this.permissionBus?.notify(messageId, requestId, optionId)
+        throw new ConflictException('the permission request has no daemon runner')
     }
 
     async hasInflightTurn(sessionId: string): Promise<boolean> {
@@ -1957,14 +1883,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // that owes the user an answer.
             if (await this.spriteExecHealth?.isKnownUnavailable(agent.hostId))
                 return
-            const { driver } = await this.execDrivers!.forAgent(agentId, agent)
-            const handle = driver.stream({
-                cmd: ['true'],
-                stdin: '',
-                timeoutMs: 20_000
-            })
-            for await (const chunk of handle.stdout) void chunk
-            await handle.result
+            await this.execDrivers!.resolveRunner(agent)
             this.telemetry.event('chat.prewarm', { agentId })
         } catch (err) {
             // Quota rejections and transient wake failures are expected here;
@@ -4340,16 +4259,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         }
     }
 
-    // Where to restart a runner stream after the API process that was relaying
-    // it went away. Historically always 0: replay the WHOLE turn and let the
-    // source_event_key / (message,seq) unique indexes drop what was already
-    // stored. That is correct but re-ships every byte of a long turn, so with
-    // MF_TURN_RESUME_CURSOR on we skip to the last durably-recorded transport
-    // seq instead, leaving only the tail after it to be re-derived (still
-    // dedup-covered, so a stale or missing cursor degrades to the old
-    // behaviour rather than losing content).
+    // Resume only from a proven durable transport watermark.
     private async resumeFromSeq(messageId: string): Promise<number> {
-        if (!RESUME_FROM_CURSOR) return 0
         // Prefer the EXACT cursor recorded on the stream-event rows. It is the
         // only one safe for a token-level turn: the source-row cursor stops one
         // line short and lets that line be re-sent, which block-level output
@@ -4388,216 +4299,6 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         return seq
     }
 
-    // Bring this agent's sprite-side runner up, if this framework attempts it
-    // (hermes always; others via the allowlist). Returns no handle for every
-    // other case (not attempted, not a sprite, no runner manager, bring-up
-    // failed) so the turn silently keeps using its direct transport —
-    // a runner is an optimisation and must never be the reason a turn cannot
-    // start.
-    //
-    // The ONE exception rides back in `execFailure`: a bring-up that died
-    // because the sprite's exec endpoint could not give it a socket has proven
-    // something about the fallback too, and the caller terminalizes on it
-    // instead of walking into the same transport (#730).
-    // Which managed runner, if any, carries this turn. Both kinds hand back the
-    // same thing — a daemon id the transport swaps onto — but they are reached
-    // by completely different means, so the runtime picks the resolver rather
-    // than one resolver branching internally.
-    // A profile-bound agent may only run on a runner that honours the auth
-    // context; the runner manager treats a runner without it as unavailable.
-    private async requiredRunnerFeatures(
-        agentId: string,
-        preloaded: Agent | null | undefined
-    ): Promise<readonly string[]> {
-        const agent =
-            preloaded && preloaded.id === agentId
-                ? preloaded
-                : (
-                      await this.db
-                          .select()
-                          .from(agents)
-                          .where(eq(agents.id, agentId))
-                          .limit(1)
-                  )[0]
-        if (!agent) return []
-        return runtimeAuthSelectionFor(agent).mode === 'profile'
-            ? [DAEMON_FEATURE_AUTH_CONTEXT]
-            : []
-    }
-
-    private async resolveManagedRunner(args: {
-        agentId: string
-        userId: string
-        framework: AgentFramework
-        runtime: AgentRuntime
-        runtimeId: string | null
-        spriteName: string | null
-        workspacePath?: string | null
-        requiredFeatures?: readonly string[]
-    }): Promise<{
-        runner: ManagedRunner | null
-        execFailure?: RunnerExecFailure
-    }> {
-        if (args.runtime === 'k8s')
-            return { runner: await this.resolvePodRunner(args) }
-        return this.resolveSpriteRunner(args)
-    }
-
-    // A pod's runner needs no bring-up, no exec transport and no awake lease:
-    // the daemon is in the image and the pod never sleeps. So this is a lookup
-    // and a workspace preflight, and anything less than an online runner simply
-    // leaves the turn on the pod-exec path.
-    private async resolvePodRunner(args: {
-        agentId: string
-        userId: string
-        framework: AgentFramework
-        runtimeId: string | null
-        workspacePath?: string | null
-    }): Promise<ManagedRunner | null> {
-        const { agentId, userId, runtimeId } = args
-        if (!this.runnerManager || !runtimeId) return null
-        if (!podRunnerAttemptedFor(args.framework, agentId)) return null
-        const startedAt = Date.now()
-        try {
-            const resolution = await this.runnerManager.resolvePodRunner({
-                userId,
-                runtimeId,
-                workspacePath: args.workspacePath ?? null
-            })
-            this.telemetry.event('chat.runner.resolve', {
-                agentId,
-                runnerKind: 'pod',
-                outcome: resolution.handle ? 'runner' : 'fallback',
-                broughtUp: false,
-                durationMs: Date.now() - startedAt,
-                workspacePreflight: resolution.workspace.outcome,
-                resolvedGeneration: resolution.handle?.generation ?? null,
-                ...(resolution.fallbackReason
-                    ? { fallbackReason: resolution.fallbackReason }
-                    : {}),
-                ...(resolution.workspace.ensureMs !== undefined
-                    ? { workspaceEnsureMs: resolution.workspace.ensureMs }
-                    : {})
-            })
-            return resolution.handle
-                ? { daemonId: resolution.handle.daemonId, exec: null }
-                : null
-        } catch (err) {
-            this.logger.warn(
-                `pod runner unavailable agentId=${agentId} class=${safeErrorClass(err)}`
-            )
-            return null
-        }
-    }
-
-    private async resolveSpriteRunner(args: {
-        agentId: string
-        userId: string
-        framework: AgentFramework
-        runtime: AgentRuntime
-        spriteName: string | null
-        workspacePath?: string | null
-        requiredFeatures?: readonly string[]
-    }): Promise<{
-        runner: ManagedRunner | null
-        execFailure?: RunnerExecFailure
-    }> {
-        const { agentId, userId } = args
-        if (!this.runnerManager) return { runner: null }
-        if (args.runtime !== 'sprites' || !args.spriteName)
-            return { runner: null }
-        // A profile-bound turn has no fallback transport — the bare sprite
-        // exec refuses an auth context outright — so it always attempts the
-        // runner; the rollout list only governs turns that could run either
-        // way.
-        const authContextTurn = Boolean(
-            args.requiredFeatures?.includes(DAEMON_FEATURE_AUTH_CONTEXT)
-        )
-        if (
-            !authContextTurn &&
-            !spriteRunnerAttemptedFor(args.framework, agentId)
-        )
-            return { runner: null }
-        const startedAt = Date.now()
-        try {
-            const exec = await this.spriteExecFor(agentId, args.spriteName)
-            if (!exec) return { runner: null }
-            const spriteName = args.spriteName
-            const resolution = await this.runnerManager.ensureRunner({
-                agentId,
-                userId,
-                spriteName,
-                requiredFeatures: args.requiredFeatures,
-                exec,
-                workspacePath: args.workspacePath ?? null,
-                // The inspect is the turn's first exec and the one a dead
-                // endpoint surfaces on, so it is bounded by the exec-health
-                // budget rather than by a command budget (#730).
-                firstExecTimeoutMs: spriteExecHealthConfig().firstExecTimeoutMs
-            })
-            let runner = resolution.handle
-            // A hermes runner is only usable when its daemon can OWN the ACP
-            // client (turn.hermes): the caller stamps daemonId/daemonExecRef
-            // from this handle, and a stamp against a daemon that cannot
-            // serve turn.start would advertise a resume path that does not
-            // exist. Decided at resolution time so the stamps stay truthful
-            // and the turn falls to the interactive transport instead.
-            let missingTurnRpc = false
-            if (runner && args.framework === 'hermes') {
-                const capable = await daemonAdvertisesFeature(
-                    this.db,
-                    runner.daemonId,
-                    DAEMON_FEATURE_TURN_HERMES
-                ).catch(() => false)
-                if (!capable) {
-                    runner = null
-                    missingTurnRpc = true
-                }
-            }
-            const fallbackReason =
-                resolution.fallbackReason ??
-                (missingTurnRpc ? 'runner_missing_turn_rpc' : undefined)
-            // The question this answers, which cost hours of log archaeology to
-            // answer once: how often does a turn actually GET a runner, and what
-            // did waiting for one cost it? A cold bring-up can exceed its budget
-            // and fall back, so `fallback` with a large ms is the signal that
-            // matters — it is latency the user paid for nothing. fallbackReason
-            // splits that bucket (#592): workspace_timeout is a frozen socket
-            // eating the setup deadline, workspace_connection_closed died
-            // mid-ensure, runner_unavailable never had a runner to lose; and
-            // workspacePreflight=cached is the per-generation short-circuit
-            // doing its job on a turn that used to pay an RPC.
-            this.telemetry.event('chat.runner.resolve', {
-                agentId,
-                runnerKind: 'sprite',
-                outcome: runner ? 'runner' : 'fallback',
-                broughtUp: runner?.started ?? false,
-                durationMs: Date.now() - startedAt,
-                workspacePreflight: resolution.workspace.outcome,
-                // The socket generation the handle was resolved against
-                // (#619): lets a later dispatch-recovery event say whether
-                // the generation changed between resolve and turn dispatch.
-                resolvedGeneration: runner?.generation ?? null,
-                ...(fallbackReason ? { fallbackReason } : {}),
-                ...(resolution.workspace.ensureMs !== undefined
-                    ? { workspaceEnsureMs: resolution.workspace.ensureMs }
-                    : {})
-            })
-            return runner
-                ? { runner: { daemonId: runner.daemonId, exec } }
-                : {
-                      runner: null,
-                      ...(resolution.execFailure
-                          ? { execFailure: resolution.execFailure }
-                          : {})
-                  }
-        } catch (err) {
-            this.logger.warn(
-                `sprite runner unavailable agentId=${agentId} class=${safeErrorClass(err)}`
-            )
-            return { runner: null }
-        }
-    }
 
     // The durable exec-health verdict for the sprite this turn is bound to,
     // consulted BEFORE the first exec of the turn — the runner inspect for an
@@ -4761,8 +4462,8 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         agentId: string,
         spriteName: string
     ): Promise<SpriteExecFn | null> {
-        const handle = await this.execDrivers?.recoveryFsForAgent(agentId)
-        const client = handle?.spritesClient
+        const agent = await this.loadAgent(agentId)
+        const client = await this.execDrivers?.spritesClientForAgent(agent)
         if (!client) return null
         return (a) =>
             execSprite(client, spriteName, {
@@ -5732,36 +5433,28 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // reverse-WS resume path finds an orphan by (daemon_id, daemon_exec_ref).
         // A runner turn needs the same row, so resolve the runner FIRST and stamp
         // whichever daemon will actually carry the stream.
-        const resolution =
-            fastFail || blockedTerminal
-                ? null
-                : await this.resolveManagedRunner({
-                      agentId: session.agentId,
-                      userId: session.userId,
-                      framework: agentCtx.framework,
-                      runtime: agentCtx.runtime,
-                      runtimeId: agentCtx.runtimeId,
-                      spriteName: agentCtx.spriteName,
-                      workspacePath: agentCtx.workspacePath,
-                      requiredFeatures: await this.requiredRunnerFeatures(
-                          session.agentId,
-                          agent
-                      )
-                  })
-        const runner = resolution?.runner ?? null
-        // A runner bring-up that died ON the exec endpoint is the one fallback
-        // the direct sprite adapter cannot serve: it dials the same socket the
-        // inspect just proved dead, so the fallback pays a second full budget to
-        // be told the same thing (39s + 39s in #730). Quarantine and terminalize
-        // instead. Every other fallback reason is untouched.
-        const execTerminal =
-            blockedTerminal ??
-            (resolution?.execFailure
-                ? await this.markSpriteExecUnavailable(
-                      session.agentId,
-                      agentCtx.hostId,
-                      resolution.execFailure
-                  )
+        let runner: ChatRunner | null = null
+        let runnerFailure: ChatRunnerError | null = null
+        if (!fastFail && !blockedTerminal && agentCtx.runtime !== 'external') {
+            try {
+                if (!this.execDrivers) throw new ChatRunnerError(agentCtx.runtime, 'runner service unavailable')
+                runner = await this.execDrivers.resolveRunner(agent ?? session.agentId)
+            } catch (err) {
+                runnerFailure = err instanceof ChatRunnerError
+                    ? err
+                    : new ChatRunnerError(agentCtx.runtime, 'runner resolution failed')
+                this.logger.warn(`runner resolution failed agentId=${session.agentId} class=${safeErrorClass(err)}`)
+            }
+            this.telemetry.event('chat.runner.resolve', {
+                agentId: session.agentId,
+                runnerKind: agentCtx.runtime,
+                outcome: runner ? 'runner' : 'unavailable',
+                errorCode: runnerFailure?.chatError.code ?? null
+            })
+        }
+        const execTerminal = blockedTerminal ??
+            (runnerFailure?.execFailure
+                ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerFailure.execFailure)
                 : null)
         const runnerDaemonId = runner?.daemonId ?? null
         // A runner turn produces no platform-visible activity, so the sprite
@@ -5779,14 +5472,13 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                       turnId: assistantMessageId
                   })
                 : null
-        const carryingDaemonId =
-            agentCtx.runtime === 'daemon' ? agentCtx.daemonId : runnerDaemonId
+        const carryingDaemonId = runnerDaemonId
         // A fail-fast turn never reaches a daemon and is terminal within
         // milliseconds, so it needs neither a resume ref nor an adoption lease:
         // stamping either would advertise work nobody is doing. A turn spared by
         // the exec-health verdict is the same case — nothing was dispatched, so
         // there is nothing for a fresh instance to adopt or resume.
-        if (!fastFail && !execTerminal && carryingDaemonId) {
+        if (!fastFail && !execTerminal && !runnerFailure && carryingDaemonId) {
             await this.db
                 .update(chatMessagesTable)
                 .set({
@@ -5826,7 +5518,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
             // no second writer to arbitrate with, so no row.
             (agentCtx.runtime === 'k8s' && carryingDaemonId !== null) ||
             (agentCtx.runtime === 'daemon' && carryingDaemonId !== null)
-        if (stampedRuntime && this.turnAdoption && !fastFail && !execTerminal) {
+        if (stampedRuntime && this.turnAdoption && !fastFail && !execTerminal && !runnerFailure) {
             const ownerId = this.turnAdoption.ownerId
             try {
                 turnFence = await this.repo.upsertTurnExecution({
@@ -6001,7 +5693,11 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                   )
                 : execTerminal
                   ? sandboxExecUnavailableStream(execTerminal)
-                  : null
+                  : runnerFailure
+                    ? (async function* (): AsyncIterable<EmittedChatEvent> {
+                          yield { type: 'error', error: runnerFailure!.chatError }
+                      })()
+                    : null
             const adapterStream =
                 sparedStream ??
                 adapter.sendMessage(

@@ -178,8 +178,8 @@ const stubRoutes = (adapter: NarraNexusChatAdapter, routes: string[]): void => {
 // THE #555 pin: with the registry forwarded, the exact conditions that route
 // an openclaw turn onto turn.start route a narranexus turn too. Reverting the
 // constructor to `undefined` turns this red.
-test('a narranexus turn takes turn.start when flag, capability and runner align', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+test('a narranexus turn takes turn.start when capability and runner align', async () => {
+    await withEnv({}, async () => {
         const { adapter } = buildHarness({ lines: [], result: { ok: {} } })
         const routes: string[] = []
         stubRoutes(adapter, routes)
@@ -190,41 +190,23 @@ test('a narranexus turn takes turn.start when flag, capability and runner align'
     })
 })
 
-test('flag off keeps narranexus on the direct gateway path', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '' }, async () => {
-        const { adapter } = buildHarness({ lines: [], result: { ok: {} } })
+test('a missing runner or registry refuses instead of direct HTTP', async () => {
+    for (const withRegistry of [true, false]) {
+        const { adapter } = buildHarness({ lines: [], result: { ok: {} } }, { withRegistry })
         const routes: string[] = []
         stubRoutes(adapter, routes)
-        await drain(
-            adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
-        )
-        assert.deepEqual(routes, ['sse'])
-    })
-})
-
-// The registry stays @Optional — six-arg positional construction (and a boot
-// where DI cannot resolve it) must fall back to the gateway transport, never
-// crash.
-test('without a registry the flag alone cannot move narranexus off the gateway', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
-        const { adapter } = buildHarness(
-            { lines: [], result: { ok: {} } },
-            { withRegistry: false }
-        )
-        const routes: string[] = []
-        stubRoutes(adapter, routes)
-        await drain(
-            adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
-        )
-        assert.deepEqual(routes, ['sse'])
-    })
+        await assert.rejects(drain(adapter.sendMessage(ctx({
+            runnerDaemonId: withRegistry ? undefined : 'dh_runner'
+        }), userMsg)), /runner/i)
+        assert.deepEqual(routes, [])
+    }
 })
 
 // The inherited resume is live once the registry exists: it attaches via
 // exec.resume from seq 0 and a stopReason final licenses done — before #555
 // this yielded `openclaw_resume_unsupported` unconditionally.
 test('a narranexus resume replays through exec.resume and completes', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+    await withEnv({}, async () => {
         const h = buildHarness({
             lines: [deltaLine('whole answer')],
             result: { ok: { stopReason: 'done', sessionId: null } }
@@ -239,7 +221,7 @@ test('a narranexus resume replays through exec.resume and completes', async () =
 })
 
 test('a narranexus resume without a registry stays unsupported-retryable', async () => {
-    await withEnv({ MF_OPENCLAW_TURN_RPC: '1' }, async () => {
+    await withEnv({}, async () => {
         const h = buildHarness(
             { lines: [], result: { ok: {} } },
             { withRegistry: false }
@@ -249,7 +231,7 @@ test('a narranexus resume without a registry stays unsupported-retryable', async
         assert.equal(events[0].type, 'error')
         assert.equal(
             (events[0] as { error: { code: string } }).error.code,
-            'openclaw_resume_unsupported'
+            'chat_runner_unavailable'
         )
         assert.equal(h.calls.length, 0, 'no RPC may be attempted')
     })

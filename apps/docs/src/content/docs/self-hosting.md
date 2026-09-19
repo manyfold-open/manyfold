@@ -251,3 +251,7 @@ Rotate `MF_API_CRYPTO_KEY` by moving the old key to `API_CRYPTO_KEY_V0`
 (decrypt-only) and setting the new key as `API_CRYPTO_KEY`. Keep the old key
 configured until no stored row still records key version 0; the
 `.env.example` in the repo documents the same flow for non-compose runs.
+
+## Chat Runner Requirements
+
+Claude Code, Codex, Gemini CLI, OpenClaw, Hermes and NarraNexus chat require a connected mf daemon runner. Update older daemons with `mf update` and restart them. For Kubernetes, update the runtime image while preserving its PVC. OpenClaw and Hermes images must run the gateway and daemon together; NarraNexus uses a runner sidecar configured with `MF_POD_RUNNER_IMAGE`. `PUBLIC_API_BASE_URL` must be reachable from the runtime. Missing or outdated runners produce an explicit error; chat does not switch to direct runtime execution. Dify, Langflow and A2A continue to use their external APIs.

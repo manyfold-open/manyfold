@@ -111,27 +111,3 @@ test('observedResult survives a rejection nobody awaits at all', async () => {
     })
     assert.deepEqual(seen, [])
 })
-
-test('the k8s driver observes its pod-exec result too', async () => {
-    // Same class of exposure, different transport: K8sExecDriver forwards the
-    // pod-exec handle's promise as-is, so a dispatch failure there was fatal in
-    // exactly the same way.
-    const podExec = {
-        stream: () => ({
-            stdout: (async function* () {})(),
-            stderr: (async function* () {})(),
-            result: Promise.reject(new Error('pod gone')),
-            abort: () => {}
-        })
-    }
-    const { K8sExecDriver } = await import(
-        '../src/modules/chat/adapters/k8s-exec-driver'
-    )
-    const driver = new K8sExecDriver(podExec as never)
-    const seen = await captureUnhandled(async () => {
-        const handle = driver.stream({ cmd: ['echo'], timeoutMs: 1_000 })
-        await sleep(20)
-        await assert.rejects(handle.result, /pod gone/)
-    })
-    assert.deepEqual(seen, [])
-})

@@ -489,7 +489,7 @@ test('a turn cancelled while it is being prepared never reaches the daemon', asy
 
 // The API-driven cells own their ACP client, so a lost API loses the turn —
 // there is nothing buffered to replay. Only the daemon cell is resumable.
-test('a sprite or k8s openclaw resume is refused, with no RPC attempted', async () => {
+test('a sprite or k8s openclaw turn resumes through its carrying runner', async () => {
     for (const runtimeKind of ['sprites', 'k8s'] as const) {
         const rig = buildRig({
             lines: [],
@@ -504,9 +504,8 @@ test('a sprite or k8s openclaw resume is refused, with no RPC attempted', async 
                 fromSeq: 0
             } as ApiChatResumeContext)
         )
-        assert.equal(rig.calls.length, 0, `${runtimeKind}: no RPC`)
-        const err = errorOf(events)
-        assert.equal(err?.code, 'openclaw_resume_unsupported')
-        assert.equal(err?.retryable, false)
+        assert.equal(rig.calls.length, 1)
+        assert.equal(rig.calls[0].method, 'exec.resume')
+        assert.equal(events.at(-1)?.type, 'done')
     }
 })

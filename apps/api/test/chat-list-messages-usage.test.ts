@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatContentBlock } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -182,9 +183,8 @@ const serviceOver = (repo: Record<string, unknown>): ChatService => {
     const adapters = {} as never
     const usage = {} as never
     const files = {} as never
-    return new ChatService(
-        db,
-        repo as never,
+    return new ChatService(db,
+        withRunnerCursors(repo as never),
         broadcaster,
         adapters,
         usage,
@@ -193,7 +193,11 @@ const serviceOver = (repo: Record<string, unknown>): ChatService => {
         undefined as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 }
 

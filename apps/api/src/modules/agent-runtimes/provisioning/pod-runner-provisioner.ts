@@ -1,12 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { BadRequestException, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import type { Database } from '@manyfold/db'
 import {
     buildPodRunnerEnv,
+    supportsRuntime,
+    frameworkCapability,
     podRunnerHostName,
     type AgentFramework
 } from '@manyfold/shared'
-import { podRunnerCarries } from '@/modules/chat/runner/runner-rollout'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { DaemonTokenService } from '@/modules/daemon/daemon-token.service'
 
@@ -17,14 +18,7 @@ export interface PodRunnerProvision {
     tokenId: string
 }
 
-// Bakes the credential that lets a k8s agent pod enrol its own `mf daemon`.
-//
-// Unlike a sprite runner there is no bring-up here: the binary is in the image
-// and the entrypoint owns the process, so provisioning's whole job is to put a
-// token, a profile and a host name in the Secret the pod already reads. If that
-// does not happen the pod simply runs the framework alone and every turn takes
-// the pod-exec path it took before pod runners existed — which is what makes
-// this safe to bake unconditionally and gate only at dispatch.
+// Every supported Pod needs a persistent daemon registration before it can chat.
 @Injectable()
 export class PodRunnerProvisioner {
     private readonly log = new Logger(PodRunnerProvisioner.name)
@@ -34,11 +28,8 @@ export class PodRunnerProvisioner {
         private readonly config: ConfigService
     ) {}
 
-    // Service frameworks are deliberately excluded; podRunnerCarries says why,
-    // and is the same predicate dispatch consults, so a pod either gets a
-    // credential AND can be routed to, or neither.
     supports(framework: AgentFramework): boolean {
-        return podRunnerCarries(framework)
+        return supportsRuntime(framework, 'k8s')
     }
 
     async mint(
@@ -54,9 +45,7 @@ export class PodRunnerProvisioner {
     ): Promise<PodRunnerProvision | null> {
         if (!this.supports(args.framework)) return null
         const apiBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')
-        // Without a reachable API there is nothing for the daemon to dial, so
-        // the pod is better off with no credential than with one it cannot use.
-        if (!apiBaseUrl) return null
+        if (!apiBaseUrl) throw new BadRequestException('PUBLIC_API_BASE_URL is required for the Pod daemon runner')
 
         // No expiry, deliberately. The daemon presents this token on every
         // websocket connect, and nothing re-mints it: a sprite runner is
@@ -82,7 +71,9 @@ export class PodRunnerProvisioner {
                 apiBaseUrl: publicApiUrlWithApiPrefix(apiBaseUrl),
                 daemonToken: minted.plaintext,
                 runtimeId: args.runtimeId,
-                homeRoot: args.homeRoot
+                homeRoot: frameworkCapability(args.framework).kind === 'coding'
+                    ? args.homeRoot : `${args.homeRoot}/.manyfold-runner`,
+                ...(frameworkCapability(args.framework).kind === 'coding' ? {} : { workspaceRoot: args.homeRoot })
             }),
             tokenId: minted.tokenId
         }

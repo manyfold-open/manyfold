@@ -62,7 +62,7 @@ const resolveBudgetMs = (raw: string | undefined, fallback: number): number => {
 
 // Read per call rather than frozen at module load: these are operational knobs
 // an operator flips on a running fleet, and freezing them at import time also
-// makes them untestable (same reasoning as MF_SPRITE_RUNNER_AGENTS).
+// makes them untestable.
 export const resolveTurnBudgets = (): TurnBudgets => ({
     idleTimeoutMs: resolveBudgetMs(
         process.env.MF_TURN_IDLE_TIMEOUT_MS,

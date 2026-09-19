@@ -209,34 +209,17 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         userMessage: ChatMessage
     ): AsyncIterable<EmittedChatEvent> {
         const {
-            driver: spriteDriver,
+            driver,
+            daemonId: carryingDaemonId,
+            authContext,
             creds,
             resolvePriceScope,
             supportsExecResources,
             runtime,
-            agent,
-            baseEnv,
-            authContext
+            agent
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
-            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined)
-        // A runner turn swaps the transport only — `runtime` stays
-        // 'sprites' so credentials, the bash bootstrap and the workspace cwd all
-        // keep their sprite meaning. See claude-code.adapter, including why
-        // baseEnv must ride along (#581).
-        const viaRunner = !!ctx.runnerDaemonId
-        const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(
-                  ctx.runnerDaemonId,
-                  baseEnv,
-                  authContext
-              )
-            : spriteDriver
-        // Whoever holds the exec, and can therefore hand it back: losing that
-        // socket must SUSPEND the turn (no terminal, so the resume path can
-        // still find it) rather than fail it. Mirrors the carrying daemon
-        // chat.service stamps on the message.
-        const carryingDaemonId =
-            runtime === 'daemon' ? agent.daemonId : (ctx.runnerDaemonId ?? null)
+            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
+            ctx.runnerDaemonId ?? undefined)
         const geminiCreds = creds as ResolvedGeminiCliCredentials | null
         // modelConfig null + tuning present = runtime-local turn (see
         // resolveTurnConfig). Gating the env on it keeps GEMINI_API_KEY out
@@ -300,6 +283,10 @@ export class GeminiCliAdapter implements ApiChatAdapter {
         await ctx.onServedPriceScope?.(servedScope)
         ctx.abortSignal?.throwIfAborted()
         ctx = { ...ctx, ...servedScope }
+        if (ctx.abortSignal?.aborted) {
+            yield { type: 'error', error: { code: 'cancelled_by_user', message: 'Cancelled by user', retryable: false } }
+            return
+        }
         const handle = driver.stream({
             cmd: env && runtime !== 'sprites' ? [
                 'bash', '-lc', `${PATH_PREPEND_LOCAL_BIN}\nexport GEMINI_CLI_TRUST_WORKSPACE=true\nexec node -e "$1" -- "\${@:2}"`,
@@ -321,9 +308,7 @@ export class GeminiCliAdapter implements ApiChatAdapter {
             onExecSession: ctx.onExecSession,
             // refId == messageId is what lets the reverse-WS resume path find
             // this stream again by (daemon_id, daemon_exec_ref).
-            ...((runtime === 'daemon' && agent.daemonId) || viaRunner
-                ? { execHandle: ctx.messageId }
-                : {})
+            execHandle: ctx.messageId
         })
 
         ctx.abortSignal?.addEventListener('abort', () => handle.abort(), {

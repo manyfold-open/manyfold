@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatCancelBus } from '../src/modules/chat/chat-cancel-bus'
@@ -46,9 +47,8 @@ const makeService = (opts: { inflight?: string } = {}): ServiceHarness => {
             notified.push(messageId)
         }
     }
-    const service = new ChatService(
-        {} as never,
-        repo as never,
+    const service = new ChatService({} as never,
+        withRunnerCursors(repo as never),
         {} as never,
         {} as never,
         {} as never,
@@ -64,7 +64,7 @@ const makeService = (opts: { inflight?: string } = {}): ServiceHarness => {
         undefined,
         undefined,
         undefined,
-        undefined,
+        readyChatRunner(undefined),
         undefined,
         undefined,
         undefined,

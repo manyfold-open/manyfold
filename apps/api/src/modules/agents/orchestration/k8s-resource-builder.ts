@@ -212,12 +212,9 @@ export const buildDeployment = (spec: K8sResourceSpec): V1Deployment => {
                 name: sidecar.name,
                 image: sidecar.image,
                 imagePullPolicy: 'IfNotPresent',
-                ports: [
-                    {
-                        containerPort: sidecar.containerPort,
-                        name: sidecar.servicePortName
-                    }
-                ],
+                ...(sidecar.containerPort !== undefined ? {
+                    ports: [{ containerPort: sidecar.containerPort, name: sidecar.servicePortName }]
+                } : {}),
                 resources: sidecar.resources ?? {
                     requests: { cpu: '50m', memory: '64Mi' },
                     limits: { cpu: '300m', memory: '256Mi' }
@@ -280,6 +277,7 @@ export const buildService = (spec: K8sResourceSpec): V1Service => {
         protocol: 'TCP'
     })
     for (const sidecar of spec.sidecars ?? []) {
+        if (sidecar.containerPort === undefined || sidecar.servicePort === undefined || !sidecar.servicePortName) continue
         ports.push({
             name: sidecar.servicePortName,
             port: sidecar.servicePort,
@@ -312,6 +310,7 @@ export const buildSidecarIngress = (
     spec: K8sResourceSpec,
     sidecar: K8sSidecarSpec
 ): V1Ingress => {
+    if (!sidecar.servicePort) throw new Error('sidecar has no service port')
     if (!sidecar.ingressPath)
         throw new Error(
             `sidecar ${sidecar.name} has no ingressPath — cannot build ingress`

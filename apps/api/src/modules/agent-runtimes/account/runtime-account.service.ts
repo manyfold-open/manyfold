@@ -11,7 +11,7 @@ import type {
     RuntimeAccountView,
     RuntimeAccountViewStatus
 } from '@manyfold/shared'
-import { Injectable, Logger, NotFoundException } from '@nestjs/common'
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common'
 import type { AgentRuntimeRow, SpritesAccount } from '@manyfold/db'
 import {
     createClient as createSpritesClient,
@@ -26,11 +26,10 @@ import {
 } from '@/modules/runtime-access/runtime-access.service'
 import { SpritesAccountsService } from '@/modules/sprites-accounts/sprites-accounts.service'
 import {
-    credentialContextFor,
-    runtimeInspectScript
+    credentialContextFor
 } from '@/modules/agents/model-config/agent-model-config.service'
 import { AgentRuntimesService } from '../agent-runtimes.service'
-import { runtimeAccountScript } from './runtime-account-script'
+import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 
 // One runtime page open = one vendor usage call, and Anthropic's endpoint has
 // a tight budget, so identical requests inside this window share a result and
@@ -46,17 +45,6 @@ const USAGE_TTL_MS = 10 * 60_000
 const DAEMON_RPC_TIMEOUT_MS = 20_000
 const SANDBOX_EXEC_TIMEOUT_MS = 30_000
 const MAX_ERROR_CHARS = 300
-
-// The account script only needs the credential facts from the model inspect
-// script, so its catalog (which shapes the discarded model lists) stays empty.
-const EMPTY_INSPECT_CATALOG = {
-    claudeAliases: [],
-    codexModels: [],
-    codexSpeeds: [],
-    codexIntelligence: [],
-    geminiModels: [],
-    geminiAliases: []
-}
 
 type HostView = RuntimeAccountView['host']
 
@@ -87,7 +75,8 @@ export class RuntimeAccountService {
         private readonly daemonHosts: DaemonHostService,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly accounts: SpritesAccountsService,
-        private readonly runtimeAccess: RuntimeAccessService
+        private readonly runtimeAccess: RuntimeAccessService,
+        @Optional() private readonly runnerManager?: RunnerManagerService
     ) {}
 
     async getView(
@@ -299,30 +288,29 @@ export class RuntimeAccountService {
                 host: hostView,
                 error: 'sandbox account unavailable'
             })
-        const script = [
-            'export PATH="$HOME/.local/bin:$PATH"',
-            runtimeInspectScript(framework, EMPTY_INSPECT_CATALOG),
-            runtimeAccountScript(framework, undefined, { fetchUsage })
-        ].join('\n')
-        const result = await this.exec(
-            this.spritesClientFor(account),
-            host.spriteName,
-            {
-                cmd: ['bash', '-lc', script],
-                stdin: '',
-                timeoutMs: SANDBOX_EXEC_TIMEOUT_MS
-            }
-        )
-        if (result.exitCode !== 0)
-            throw new Error(
-                result.stderr.trim() ||
-                    `account inspect exited with code ${result.exitCode}`
-            )
-        return this.viewFromProbe(
-            row,
-            mergeSandboxProbe(result.stdout),
-            hostView
-        )
+        if (!this.runnerManager)
+            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
+        const client = this.spritesClientFor(account)
+        const resolved = await this.runnerManager.ensureRunner({
+            agentId: row.primaryAgentId ?? row.id,
+            userId: row.userId,
+            spriteName: host.spriteName,
+            exec: (args) => this.exec(client, host.spriteName!, { ...args, stdin: args.stdin ?? '' })
+        })
+        if (!resolved.handle)
+            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
+        const runner = await this.daemonHosts.findById(resolved.handle.daemonId)
+        if (!runner || runner.userId !== row.userId)
+            return this.view(row, 'probe-failed', { host: hostView, error: 'daemon runner unavailable' })
+        if (!runner.clientFeatures.includes(DAEMON_FEATURE_ACCOUNT_INSPECT))
+            return this.view(row, 'daemon-upgrade-required', { host: hostView })
+        const payload = await this.daemonRegistry.rpc({
+            daemonId: runner.id,
+            method: 'account.inspect',
+            payload: { framework, usage: fetchUsage },
+            timeoutMs: SANDBOX_EXEC_TIMEOUT_MS
+        })
+        return this.viewFromProbe(row, payload, hostView)
     }
 
     // Public seam for the auth-profiles listing, which receives the ambient

@@ -127,12 +127,14 @@ const buildDrivers = () => {
         runnerDrivers,
         streamEnvs,
         drivers: {
-            forAgent: async () => ({
+            forAgent: async () => {
+                runnerDrivers.push({ daemonId: 'dh_runner', baseEnv: IDENTITY_ENV })
+                return ({
+                daemonId: 'dh_runner',
                 driver: {
-                    stream: () => {
-                        throw new Error(
-                            'runner turn must not use the sprite driver'
-                        )
+                    stream: (req: { env?: Record<string, string> }) => {
+                        streamEnvs.push(req.env)
+                        return emptyHandle()
                     }
                 },
                 creds: {
@@ -151,7 +153,7 @@ const buildDrivers = () => {
                     extras: {}
                 },
                 baseEnv: IDENTITY_ENV
-            }),
+            }) },
             daemonDriverFor: (
                 daemonId: string,
                 baseEnv?: Record<string, string>

@@ -1,11 +1,12 @@
-import { DAEMON_FEATURE_TURN_OPENCLAW, agentBaseUrl } from '@manyfold/shared'
+import { ChatRunnerError } from '../runner/chat-runner'
+import { NARRANEXUS_PORT } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { DAEMON_FEATURE_TURN_OPENCLAW } from '@manyfold/shared'
 import type {
     AgentFramework,
     ChatAttachmentBlock,
     ChatCapabilities,
     ChatMessage,
-    DaemonOpenclawTurnPayload,
-    OpenclawCredentialsInput
+    DaemonOpenclawTurnPayload
 } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
@@ -26,8 +27,7 @@ import {
     type ApiChatAdapter,
     type ApiChatAdapterContext,
     type ApiChatResumeContext,
-    type EmittedChatEvent,
-    type EmittedErrorEvent
+    type EmittedChatEvent
 } from '@/modules/chat/chat-adapter'
 import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
@@ -39,35 +39,9 @@ import {
 } from './openclaw-turn-shared'
 
 const OPENCLAW_HISTORY_BUDGET = 30
-const OPENCLAW_PREFLIGHT_TIMEOUT_MS = Math.max(
-    500,
-    Number(process.env.OPENCLAW_PREFLIGHT_TIMEOUT_MS ?? 5_000)
-)
-// Total budget for the preflight retry loop. Sprite-hosted gateways
-// auto-suspend on idle; Fly's wake-from-suspend takes ~10–20s before
-// the gateway socket binds, so a single 5s attempt is not enough.
-// Each attempt still bounded by OPENCLAW_PREFLIGHT_TIMEOUT_MS so a
-// permanently-broken gateway (TCP refused) still fast-fails on each try.
-const OPENCLAW_PREFLIGHT_BUDGET_MS = Math.max(
-    OPENCLAW_PREFLIGHT_TIMEOUT_MS,
-    Number(process.env.OPENCLAW_PREFLIGHT_BUDGET_MS ?? 30_000)
-)
-const OPENCLAW_PREFLIGHT_RETRY_DELAY_MS = 500
 const OPENCLAW_STREAM_PARSER_NAME = 'openclaw-openai-sse'
 const OPENCLAW_STREAM_PARSER_VERSION = '1'
 
-// Gates the runner-owned transport (turn.start) AND its resume for the
-// gateway-http frameworks — today narranexus alone (contract row
-// `narranexus × sprites × turn-rpc`, #555). Read per call so drills and tests
-// can flip it without a process restart. The per-daemon capability check keeps
-// it a no-op against CLIs that predate the RPC either way.
-const openclawTurnRpcEnabled = (): boolean =>
-    ['1', 'true', 'yes'].includes(
-        (process.env.MF_OPENCLAW_TURN_RPC ?? '').toLowerCase()
-    )
-
-// Decode state shared between one turn's deltas — the live SSE loop and the
-// replayed turn stream both thread it through decodeDelta.
 interface OpenclawDecodeState {
     firstTokenAt: number | null
     usage: OpenAIUsage | null
@@ -88,10 +62,6 @@ export interface OpenclawRuntime {
     modelId: string
     displayModel: string | null
 }
-
-// Which budget fired. Named separately from the error codes because the
-// runner-carried path reports the same three kinds back over RPC.
-type OpenclawTimeoutKind = 'headers' | 'stream_idle' | 'max_duration'
 
 interface OpenAIToolCallDelta {
     index?: number
@@ -152,26 +122,10 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
 
     abstract getCapabilities(): ChatCapabilities
 
-    // Overridable per framework — narranexus cold wake includes app boot and
-    // needs a longer preflight budget.
-    protected preflightBudgetMs(): number {
-        return OPENCLAW_PREFLIGHT_BUDGET_MS
-    }
-
     protected streamBudgets(): Promise<OpenclawStreamBudgets> {
         return resolveOpenclawStreamBudgets(this.adminSettings)
     }
 
-    // OpenClaw protocol note: Manyfold uses the OpenAI-compatible
-    // `/v1/chat/completions` endpoint (instead of OpenClaw's native WebSocket
-    // RPC) for SENDING because the native RPC requires device-pairing
-    // approval that we can't obtain over the public ingress with token-only
-    // auth. The RPC client in openclaw-rpc-client.ts is live regardless:
-    // session recovery dials it first (sessions.history/sessions.list) and
-    // falls back to file scans. To still give recovery a usable
-    // `framework_session_ref`, we scan the agent's session directory over the
-    // recovery fs — sprite, daemon or pod alike — after the upstream call
-    // completes and backfill the newest jsonl's UUID into the DB.
     async *sendMessage(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage
@@ -180,7 +134,8 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             .select({
                 runtime: agents.runtime,
                 internalId: agents.internalId,
-                daemonId: agents.daemonId
+                daemonId: agents.daemonId,
+                workspacePath: agents.workspacePath
             })
             .from(agents)
             .where(eq(agents.id, ctx.agentId))
@@ -199,61 +154,15 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             runtime: string
             internalId: string | null
             daemonId: string | null
+            workspacePath?: string | null
         }
     ): AsyncIterable<EmittedChatEvent> {
         const runtime = await this.resolveRuntime(ctx.agentId)
-        // A runner-carried sprite turn moves the SSE socket INSIDE the sprite
-        // (turn.start), holding it in a process that outlives the API so the
-        // turn is recoverable.
-        const viaTurnRpc =
-            !!ctx.runnerDaemonId &&
-            !!this.daemonRegistry &&
-            openclawTurnRpcEnabled() &&
-            (await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
-        let succeeded = false
-        try {
-            const source = viaTurnRpc
-                ? this.sendViaTurnRpc(
-                      ctx,
-                      userMessage,
-                      runtime,
-                      ctx.runnerDaemonId!
-                  )
-                : this.sendOpenAiCompat(ctx, userMessage, runtime)
-            for await (const ev of source) {
-                if (ev.type === 'done') succeeded = true
-                if (ev.type === 'error') succeeded = false
-                yield ev
-            }
-        } finally {
-            if (succeeded && !ctx.frameworkSessionRef) {
-                await this.backfillSessionRefFromFs(ctx).catch((err) => {
-                    this.logger.warn(
-                        `openclaw ref backfill failed for ${ctx.sessionId}: ${(err as Error).message}`
-                    )
-                })
-            }
-        }
-    }
-
-    private async backfillSessionRefFromFs(
-        ctx: ApiChatAdapterContext
-    ): Promise<void> {
-        const handle = await this.drivers.recoveryFsForAgent(ctx.agentId)
-        const script = `find "$HOME"/.openclaw/agents/*/sessions -type f -name '*.jsonl' ! -name '*.bak-*' ! -name '*.trajectory.jsonl' -printf '%T@ %p\\n' 2>/dev/null | sort -rn | head -1 | awk '{print $2}'`
-        const path = await handle.fs.locate(script)
-        if (!path) return
-        const m = path.match(/([0-9a-f-]{36})\.jsonl$/i)
-        const uuid = m?.[1]
-        if (!uuid) return
-        await this.chatRepo.updateFrameworkSessionRef(
-            ctx.sessionId,
-            uuid,
-            ctx.turnFence
-        )
-        this.logger.log(
-            `backfilled openclaw framework_session_ref for ${ctx.sessionId} → ${uuid}`
-        )
+        if (!ctx.runnerDaemonId || !this.daemonRegistry)
+            throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
+        if (!await this.daemonSupportsTurnRpc(ctx.runnerDaemonId))
+            throw new ChatRunnerError(ctx.runtimeKind, 'turn.openclaw missing', true)
+        yield* this.sendViaTurnRpc(ctx, userMessage, runtime, ctx.runnerDaemonId)
     }
 
     // NarraNexus's /v1/chat/completions accepts channel_provider +
@@ -303,285 +212,6 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         }
     }
 
-    private async *sendOpenAiCompat(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage,
-        runtime: OpenclawRuntime
-    ): AsyncIterable<EmittedChatEvent> {
-        const baseUrl = agentBaseUrl(runtime.ingressHost)
-        const truncated = truncateHistory(
-            [...ctx.history, userMessage],
-            OPENCLAW_HISTORY_BUDGET
-        )
-        const tStart = Date.now()
-        let tHeadersReceived: number | null = null
-        const budgets = await this.streamBudgets()
-        const decode = freshDecodeState()
-        const emitOutcome = (
-            outcome: string,
-            extra: Record<string, string | number | boolean> = {}
-        ): void => {
-            this.telemetry.event('openclaw_chat_completed', {
-                'nca.agent_id': ctx.agentId,
-                'nca.session_id': ctx.sessionId,
-                'nca.framework': this.framework,
-                'nca.outcome': outcome,
-                'nca.duration_ms': Date.now() - tStart,
-                'nca.headers_ms': tHeadersReceived
-                    ? tHeadersReceived - tStart
-                    : null,
-                'nca.first_token_ms': decode.firstTokenAt
-                    ? decode.firstTokenAt - tStart
-                    : null,
-                // Replaces nca.fetch_timeout_ms: there is no single "the"
-                // budget any more, and reporting one would keep telling triage
-                // that a 240s absolute cut was an inactivity stall (#513).
-                'nca.headers_timeout_ms': budgets.headersTimeoutMs,
-                'nca.stream_idle_timeout_ms': budgets.idleTimeoutMs,
-                'nca.max_duration_ms': budgets.maxDurationMs,
-                ...extra
-            })
-        }
-
-        // P2.b preflight — fail fast if gateway isn't accepting connections
-        // (no point waiting OPENCLAW_FETCH_TIMEOUT_MS for the streaming chat
-        // to discover the pod isn't up). HEAD `/` always returns 200 from
-        // the Control UI SPA once the HTTP server binds, so any response
-        // means the gateway socket is alive. Retry until the budget is
-        // exhausted so that sprite cold-wake (Fly auto-resume from suspend)
-        // gets enough time to bind the gateway socket.
-        const preflightBudgetMs = this.preflightBudgetMs()
-        const preflightDeadline = tStart + preflightBudgetMs
-        let preflightOk = false
-        let lastPreflightErr: Error | null = null
-        let lastAttemptTimedOut = false
-        let preflightAttempts = 0
-        while (!preflightOk) {
-            preflightAttempts++
-            const remaining = preflightDeadline - Date.now()
-            if (remaining <= 0) break
-            const attemptSignal = AbortSignal.timeout(
-                Math.min(OPENCLAW_PREFLIGHT_TIMEOUT_MS, remaining)
-            )
-            try {
-                await fetch(baseUrl, {
-                    method: 'HEAD',
-                    signal: attemptSignal
-                })
-                preflightOk = true
-            } catch (err) {
-                const e = err as Error
-                lastPreflightErr = e
-                lastAttemptTimedOut =
-                    attemptSignal.aborted || e.name === 'TimeoutError'
-                if (
-                    Date.now() + OPENCLAW_PREFLIGHT_RETRY_DELAY_MS >=
-                    preflightDeadline
-                )
-                    break
-                await new Promise((r) =>
-                    setTimeout(r, OPENCLAW_PREFLIGHT_RETRY_DELAY_MS)
-                )
-            }
-        }
-        if (!preflightOk) {
-            const e = lastPreflightErr ?? new Error('preflight failed')
-            emitOutcome(
-                lastAttemptTimedOut ? 'not_ready' : 'preflight_failed',
-                {
-                    'nca.error_class': e.name,
-                    'nca.preflight_attempts': preflightAttempts,
-                    'nca.preflight_budget_ms': preflightBudgetMs
-                }
-            )
-            yield {
-                type: 'error',
-                error: {
-                    code: `${this.framework}_not_ready`,
-                    message: lastAttemptTimedOut
-                        ? `${this.framework} gateway did not accept preflight within ${preflightBudgetMs / 1000}s — pod may still be starting`
-                        : `${this.framework} gateway preflight failed: ${e.message}`,
-                    retryable: true
-                }
-            }
-            return
-        }
-
-        // One controller, three independent budgets. `fired` records WHICH one
-        // aborted so the error code describes what actually happened instead of
-        // inferring "silence" from "headers had arrived".
-        const controller = new AbortController()
-        const fired: { kind: OpenclawTimeoutKind | null } = { kind: null }
-        const lastActivity = { at: tStart }
-        const fire = (kind: OpenclawTimeoutKind): void => {
-            if (fired.kind === null) fired.kind = kind
-            controller.abort()
-        }
-        const headersTimer = setTimeout(
-            () => fire('headers'),
-            budgets.headersTimeoutMs
-        )
-        const maxTimer = setTimeout(
-            () => fire('max_duration'),
-            budgets.maxDurationMs
-        )
-        let idleTimer: NodeJS.Timeout | null = null
-        // Rearmed on every body chunk — this is what makes it an INACTIVITY
-        // budget rather than a deadline.
-        const touch = (): void => {
-            lastActivity.at = Date.now()
-            if (idleTimer) clearTimeout(idleTimer)
-            idleTimer = setTimeout(
-                () => fire('stream_idle'),
-                budgets.idleTimeoutMs
-            )
-        }
-        const onCancel = (): void => controller.abort()
-        ctx.abortSignal?.addEventListener('abort', onCancel, { once: true })
-        const timeoutError = (err: Error): EmittedErrorEvent =>
-            buildOpenclawFetchError(
-                err,
-                fired.kind,
-                budgets,
-                Date.now() - lastActivity.at
-            )
-        const timeoutAttrs = (): Record<string, string | number> => ({
-            'nca.timeout_kind': fired.kind ?? 'none',
-            'nca.last_activity_age_ms': Date.now() - lastActivity.at
-        })
-        try {
-            let res: Response
-            try {
-                res = await fetch(`${baseUrl}/v1/chat/completions`, {
-                    method: 'POST',
-                    headers: {
-                        'content-type': 'application/json',
-                        authorization: `Bearer ${runtime.gatewayToken}`,
-                        accept: 'text/event-stream'
-                    },
-                    body: JSON.stringify({
-                        model: runtime.modelId,
-                        stream: true,
-                        stream_options: { include_usage: true },
-                        messages: truncated.map((m) => ({
-                            role: m.role,
-                            content: messageToPromptText(m)
-                        })),
-                        ...this.channelBodyFields(ctx, userMessage)
-                    }),
-                    signal: controller.signal
-                })
-                tHeadersReceived = Date.now()
-                clearTimeout(headersTimer)
-                touch()
-            } catch (err) {
-                if (ctx.abortSignal?.aborted) {
-                    emitOutcome('cancelled')
-                    yield cancelledEvent()
-                    return
-                }
-                const ev = timeoutError(err as Error)
-                emitOutcome(ev.error.code, {
-                    'nca.error_message': ev.error.message,
-                    ...timeoutAttrs()
-                })
-                yield ev
-                return
-            }
-            if (!res.ok || !res.body) {
-                const text = await res.text().catch(() => '')
-                const parsed = safeJson<OpenAIError>(text)
-                const upstream =
-                    parsed?.error?.message ?? text.slice(0, 256) ?? ''
-                const managedChannelFailure =
-                    classifyManagedChannelFailureSignal({
-                        status: res.status,
-                        message: text
-                    })
-                emitOutcome('upstream', {
-                    'nca.upstream_status': res.status,
-                    'nca.upstream_status_text': res.statusText
-                })
-                yield {
-                    type: 'error',
-                    ...(managedChannelFailure ? { managedChannelFailure } : {}),
-                    error: {
-                        code: 'openclaw_upstream',
-                        message: `${res.status} ${res.statusText}: ${upstream}`,
-                        retryable: res.status >= 500
-                    }
-                }
-                return
-            }
-            const reader = res.body.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ''
-            let terminated = false
-            let sourceSeq = 0
-            try {
-                while (!terminated) {
-                    const { value, done } = await reader.read()
-                    if (done) break
-                    touch()
-                    buffer += decoder.decode(value, { stream: true })
-                    let boundary = buffer.indexOf('\n\n')
-                    while (boundary !== -1) {
-                        const frame = buffer.slice(0, boundary)
-                        buffer = buffer.slice(boundary + 2)
-                        const payload = parseSseFrame(frame)
-                        if (payload === null) {
-                            boundary = buffer.indexOf('\n\n')
-                            continue
-                        }
-                        if (payload === '[DONE]') {
-                            terminated = true
-                            break
-                        }
-                        const delta = safeJson<OpenAIDelta>(payload)
-                        if (!delta) {
-                            boundary = buffer.indexOf('\n\n')
-                            continue
-                        }
-                        sourceSeq++
-                        yield* this.decodeDelta(delta, sourceSeq, ctx, decode)
-                        if (decode.inlineError) {
-                            emitOutcome('upstream_inline', {
-                                'nca.error_message': decode.inlineError
-                            })
-                            terminated = true
-                            break
-                        }
-                        boundary = buffer.indexOf('\n\n')
-                    }
-                }
-            } catch (err) {
-                if (ctx.abortSignal?.aborted) {
-                    emitOutcome('cancelled')
-                    yield cancelledEvent()
-                    return
-                }
-                const ev = timeoutError(err as Error)
-                emitOutcome(ev.error.code, {
-                    'nca.error_message': ev.error.message,
-                    ...timeoutAttrs()
-                })
-                yield ev
-                return
-            }
-            yield* this.usageFromDecode(decode, ctx, runtime, tStart)
-            emitOutcome('ok', { 'nca.tokens_emitted': sourceSeq })
-            yield { type: 'done', finalMessageId: ctx.messageId }
-        } finally {
-            clearTimeout(headersTimer)
-            clearTimeout(maxTimer)
-            if (idleTimer) clearTimeout(idleTimer)
-            ctx.abortSignal?.removeEventListener('abort', onCancel)
-        }
-    }
-
-    // One delta → chat events. Shared VERBATIM by the live SSE loop above and
-    // the replayed turn.start stream (drainTurnStream), so a recovered turn
-    // cannot decode differently from the turn it is recovering.
     private *decodeDelta(
         delta: OpenAIDelta,
         seq: number,
@@ -713,19 +343,11 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
     async *resumeMessage(
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
-        if (!openclawTurnRpcEnabled() || !this.daemonRegistry) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_resume_unsupported',
-                    message: 'openclaw turn resume is not enabled',
-                    retryable: true
-                }
-            }
+        if (!this.daemonRegistry) {
+            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'runner registry unavailable').chatError }
             return
         }
         if (
-            ctx.runtimeKind !== 'sprites' ||
             !ctx.daemonId ||
             !ctx.daemonExecRef
         ) {
@@ -773,13 +395,11 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             [...ctx.history, userMessage],
             OPENCLAW_HISTORY_BUDGET
         )
-        // The exact request sendOpenAiCompat would have made — only the
-        // socket-holder changes. Same three budgets too, so a turn cannot be
-        // truncated by one transport and survive on the other.
+        // The runner owns the gateway socket and journals its SSE frames.
         const budgets = await this.streamBudgets()
         const payload: DaemonOpenclawTurnPayload = {
             framework: 'openclaw',
-            url: `${agentBaseUrl(runtime.ingressHost)}/v1/chat/completions`,
+            url: `http://127.0.0.1:${NARRANEXUS_PORT}/v1/chat/completions`,
             token: runtime.gatewayToken,
             body: {
                 model: runtime.modelId,
@@ -834,6 +454,10 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             }
         }
     ): AsyncIterable<EmittedChatEvent> {
+        if (ctx.abortSignal?.aborted) {
+            yield cancelledEvent()
+            return
+        }
         const registry = this.daemonRegistry
         if (!registry) {
             yield {
@@ -991,8 +615,14 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
                 }
                 return
             }
+            const gatewayStatus = /^openclaw gateway (\d{3}) /.exec(rpcError.message)?.[1]
+            const managedChannelFailure = classifyManagedChannelFailureSignal({
+                status: gatewayStatus ? Number(gatewayStatus) : null,
+                message: rpcError.message
+            })
             yield {
                 type: 'error',
+                ...(managedChannelFailure ? { managedChannelFailure } : {}),
                 error: {
                     code: args.errorCode,
                     message: rpcError.message,
@@ -1027,7 +657,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             )
         } catch (err) {
             this.logger.warn(
-                `turn.openclaw capability lookup failed for ${daemonId}: ${(err as Error).message} — using the gateway transport`
+                `turn.openclaw capability lookup failed for ${daemonId}: ${(err as Error).message} — refusing the turn`
             )
             return false
         }
@@ -1046,8 +676,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             .where(eq(agents.id, agentId))
             .limit(1)
         const agent = agentRows[0]
-        if (!agent?.ingressHost)
-            throw new Error(`agent ${agentId} has no ingress host`)
+        if (!agent) throw new Error(`agent ${agentId} not found`)
         if (!agent.runtimeId)
             throw new Error(`agent ${agentId} has no linked runtime`)
 
@@ -1071,29 +700,14 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
                     `agent ${agentId} narranexus runtime missing gatewayToken — rebuild the runtime`
                 )
             return {
-                ingressHost: agent.ingressHost,
+                ingressHost: agent.ingressHost ?? '',
                 gatewayToken: creds.gatewayToken,
                 modelId: agent.internalId,
                 displayModel: agent.name
             }
         }
 
-        const creds = JSON.parse(credsPlain) as OpenclawCredentialsInput
-        if (!creds.gatewayToken)
-            throw new Error(
-                `agent ${agentId} credentials missing gatewayToken — rebuild the agent`
-            )
-        if (!creds.primaryModelName)
-            throw new Error(
-                `agent ${agentId} credentials missing primaryModelName — rebuild the agent`
-            )
-
-        return {
-            ingressHost: agent.ingressHost,
-            gatewayToken: creds.gatewayToken,
-            modelId: 'openclaw',
-            displayModel: creds.primaryModelName
-        }
+        throw new Error('gateway HTTP turns are only supported for NarraNexus')
     }
 }
 
@@ -1111,14 +725,6 @@ const truncateHistory = (
     return [...systemPrefix, ...recent]
 }
 
-const parseSseFrame = (frame: string): string | null => {
-    const dataLines: string[] = []
-    for (const line of frame.split('\n'))
-        if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
-    const payload = dataLines.join('\n').trim()
-    return payload.length === 0 ? null : payload
-}
-
 const safeJson = <T>(text: string): T | null => {
     try {
         return JSON.parse(text) as T
@@ -1129,52 +735,3 @@ const safeJson = <T>(text: string): T | null => {
 
 const stringValue = (value: unknown): string | null =>
     typeof value === 'string' && value.length > 0 ? value : null
-
-// `kind` is the budget that actually fired. Nothing is inferred from whether
-// headers arrived: that inference is exactly what made an active stream cut at
-// the absolute deadline report itself as "went silent" (#513).
-const buildOpenclawFetchError = (
-    err: Error,
-    kind: OpenclawTimeoutKind | null,
-    budgets: OpenclawStreamBudgets,
-    silentForMs: number
-): EmittedErrorEvent => {
-    if (kind === null)
-        return {
-            type: 'error',
-            error: {
-                code: 'openclaw_network',
-                message: err.message,
-                retryable: true
-            }
-        }
-    if (kind === 'headers')
-        return {
-            type: 'error',
-            error: {
-                code: 'openclaw_no_response',
-                message: `openclaw did not return response headers within ${budgets.headersTimeoutMs / 1000}s — gateway is busy installing plugins or upstream is unreachable`,
-                retryable: true
-            }
-        }
-    if (kind === 'stream_idle')
-        return {
-            type: 'error',
-            error: {
-                code: 'openclaw_stream_stall',
-                message: `openclaw stream went silent for ${Math.round(silentForMs / 1000)}s (inactivity budget ${budgets.idleTimeoutMs / 1000}s) — upstream model or gateway is stuck`,
-                retryable: true
-            }
-        }
-    // Not retryable: the turn was still producing output and was stopped by a
-    // configured ceiling, so an identical retry burns the same budget again.
-    // Raising the admin chat exec max timeout is the actual remedy.
-    return {
-        type: 'error',
-        error: {
-            code: 'openclaw_turn_timeout',
-            message: `openclaw turn was still streaming when it hit its ${budgets.maxDurationMs / 1000}s maximum duration — raise the chat exec max timeout if turns legitimately run this long`,
-            retryable: false
-        }
-    }
-}

@@ -80,6 +80,7 @@ const fakeCtx = (
     messageId: 'm-1',
     framework,
     runtimeKind: 'sprites',
+    runnerDaemonId: 'dh_runner',
     model: null,
     modelOverride: null,
     modelConfig: null,
@@ -117,57 +118,40 @@ const larkSource = (): ChannelSource => ({
     mirrored: false
 })
 
-const sseResponse = (frames: string[]) => {
-    const encoder = new TextEncoder()
-    let next = 0
-    return {
-        ok: true,
-        status: 200,
-        statusText: 'OK',
-        body: {
-            getReader: () => ({
-                read: async () =>
-                    next < frames.length
-                        ? { value: encoder.encode(frames[next++]), done: false }
-                        : { value: undefined, done: true }
-            })
+const runnerTransport = (
+    adapter: NarraNexusChatAdapter,
+    onStart: (payload: Record<string, unknown>) => void,
+    error?: string
+): void => {
+    const target = adapter as unknown as Record<string, unknown>
+    target.daemonSupportsTurnRpc = async () => true
+    target.daemonRegistry = {
+        streamRpc: (args: { payload: Record<string, unknown>; onEvent?: (kind: string, data: string) => void }) => {
+            onStart(args.payload)
+            return {
+                refId: 'm-1',
+                result: error ? Promise.reject(new Error(error)) : Promise.resolve({ stopReason: 'done' }),
+                cancel() {}
+            }
         }
     }
 }
 
-// Runs a full send with an immediately-healthy gateway and returns the parsed
-// /v1/chat/completions POST body.
 const captureCompletionsBody = async (
     adapter: NarraNexusChatAdapter,
-    ctx: ApiChatAdapterContext
+    ctx: ApiChatAdapterContext,
+    message = userMessage()
 ): Promise<Record<string, unknown>> => {
-    const bodies: string[] = []
-    const orig = globalThis.fetch
-    globalThis.fetch = (async (
-        _input: unknown,
-        init?: { method?: string; body?: string }
-    ) => {
-        if ((init?.method ?? 'GET') === 'HEAD') return { ok: true, status: 200 }
-        bodies.push(init?.body ?? '')
-        return sseResponse([
-            'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n',
-            'data: [DONE]\n\n'
-        ])
-    }) as never
-    try {
-        const events = []
-        for await (const ev of adapter.sendMessage(ctx, userMessage()))
-            events.push(ev)
-        assert.equal(
-            events.at(-1)?.type,
-            'done',
-            'the send must stream to done — body capture is only meaningful for a completed turn'
-        )
-    } finally {
-        globalThis.fetch = orig
-    }
-    assert.equal(bodies.length, 1, 'exactly one completions POST expected')
-    return JSON.parse(bodies[0]) as Record<string, unknown>
+    const bodies: Record<string, unknown>[] = []
+    runnerTransport(adapter, payload => {
+        assert.equal(payload.url, 'http://127.0.0.1:8000/v1/chat/completions')
+        bodies.push(payload.body as Record<string, unknown>)
+    })
+    const events = []
+    for await (const event of adapter.sendMessage(ctx, message)) events.push(event)
+    assert.equal(events.at(-1)?.type, 'done')
+    assert.equal(bodies.length, 1)
+    return bodies[0]
 }
 
 test('narranexus turn with a lark channelSource carries channel_provider + channel_context', async () => {
@@ -199,36 +183,12 @@ test('narranexus turn with a lark channelSource carries channel_provider + chann
 
 test('the gateway adapter marks the owned structured pool exhaustion', async () => {
     const adapter = new NarraNexusChatAdapter(...adapterArgs('narranexus'))
-    const orig = globalThis.fetch
-    globalThis.fetch = (async (_input: unknown, init?: { method?: string }) => {
-        if ((init?.method ?? 'GET') === 'HEAD') return { ok: true, status: 200 }
-        return {
-            ok: false,
-            status: 503,
-            statusText: 'Service Unavailable',
-            body: null,
-            text: async () =>
-                JSON.stringify({
-                    error: {
-                        message: 'No available accounts: no available accounts'
-                    }
-                })
-        }
-    }) as never
-    try {
-        const events: EmittedChatEvent[] = []
-        for await (const event of adapter.sendMessage(
-            fakeCtx('narranexus'),
-            userMessage()
-        ))
-            events.push(event)
-        const error = events.find((event) => event.type === 'error')
-        assert.ok(error && error.type === 'error')
-        assert.equal(error.managedChannelFailure, 'account_pool_empty')
-        assert.equal(error.error.code, 'openclaw_upstream')
-    } finally {
-        globalThis.fetch = orig
-    }
+    runnerTransport(adapter, () => {}, 'openclaw gateway 503 Service Unavailable: {"error":{"message":"No available accounts: no available accounts"}}')
+    const events: EmittedChatEvent[] = []
+    for await (const event of adapter.sendMessage(fakeCtx('narranexus'), userMessage())) events.push(event)
+    const error = events.find(event => event.type === 'error')
+    assert.ok(error && error.type === 'error')
+    assert.equal(error.managedChannelFailure, 'account_pool_empty')
 })
 
 // Every field past the four base keys is optional on the wire. A source that
@@ -429,42 +389,13 @@ test('only matrix reads differently once the row is a NarraNexus mirror', () => 
 // path instead of parsing the prose the prompt also carries.
 test('workspace attachments ride along as structured refs', async () => {
     const adapter = new NarraNexusChatAdapter(...adapterArgs('narranexus'))
-    const bodies: string[] = []
-    const orig = globalThis.fetch
-    globalThis.fetch = (async (
-        _input: unknown,
-        init?: { method?: string; body?: string }
-    ) => {
-        if ((init?.method ?? 'GET') === 'HEAD') return { ok: true, status: 200 }
-        bodies.push(init?.body ?? '')
-        return sseResponse([
-            'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
-            'data: [DONE]\n\n'
-        ])
-    }) as never
-    try {
-        const withFile: ChatMessage = {
-            ...userMessage(),
-            contentBlocks: [
-                { type: 'text', text: 'look at this' },
-                {
-                    type: 'attachment',
-                    name: 'cat.png',
-                    path: 'chat-attachments/s-1/uuid/cat.png',
-                    rootId: 'workspace',
-                    contentType: 'image/png',
-                    size: 8870
-                }
-            ]
-        }
-        for await (const _ of adapter.sendMessage(
-            fakeCtx('narranexus', larkSource()),
-            withFile
-        ));
-    } finally {
-        globalThis.fetch = orig
-    }
-    const body = JSON.parse(bodies[0]) as Record<string, unknown>
+    const body = await captureCompletionsBody(adapter, fakeCtx('narranexus', larkSource()), {
+        ...userMessage(),
+        contentBlocks: [{ type: 'text', text: 'look at this' }, {
+            type: 'attachment', name: 'cat.png', path: 'chat-attachments/s-1/uuid/cat.png',
+            rootId: 'workspace', contentType: 'image/png', size: 8870
+        }]
+    })
     assert.deepEqual(
         (body.channel_context as Record<string, unknown>).attachments,
         [

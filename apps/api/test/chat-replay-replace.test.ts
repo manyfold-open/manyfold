@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatContentBlock } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -229,9 +230,8 @@ const makeHarness = (opts: {
         framework: 'dify',
         convergeTurn: (_ctx: ApiChatConvergeContext) => opts.converge()
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         { get: () => adapter } as never,
         { record: async () => {} } as never,
@@ -244,7 +244,7 @@ const makeHarness = (opts: {
         undefined as never,
         undefined as never,
         undefined as never,
-        undefined as never,
+        readyChatRunner(undefined as never),
         undefined as never,
         undefined as never,
         {

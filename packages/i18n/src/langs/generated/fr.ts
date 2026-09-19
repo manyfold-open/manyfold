@@ -1551,6 +1551,8 @@ const fr: Record<string, string> = {
     'web.chat.error.modelAuth': 'Le fournisseur de modèles a rejeté la demande : sa clé de connexion ou sa clé API est invalide ou a expiré. Mettez à jour les informations d’identification du fournisseur de modèles et réessayez.',
     'web.chat.error.modelBilling': 'Le fournisseur du modèle a rejeté la demande : la clé est peut-être à court de crédit. Mettez à jour la clé ou passez aux crédits de la plateforme.',
     'web.chat.error.accountPoolEmpty': "Le fournisseur de ce modèle n'a aucun compte disponible pour le moment. Réessayez plus tard.",
+    'web.chat.error.runnerUnavailable': "Le processus de l’agent est indisponible. Reconnectez-le et réessayez.",
+    'web.chat.error.runnerUpgradeRequired': "Le processus de l’agent doit être mis à jour pour continuer la conversation.",
     'web.chat.error.threadBusy': 'Cette conversation est ouverte dans un terminal, et une seule session peut y écrire à la fois. Quittez la TUI là-bas, puis renvoyez.',
     'web.chat.error.updateKey': 'Clé de mise à jour',
     'web.chat.error.switchToPlatform': 'Passer aux crédits de plateforme',

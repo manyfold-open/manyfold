@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
@@ -477,9 +478,8 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         return out
     }
 
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         {} as never,
@@ -500,7 +500,11 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         } as never,
         { registerHandler: () => {} } as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     const internals = service as unknown as {

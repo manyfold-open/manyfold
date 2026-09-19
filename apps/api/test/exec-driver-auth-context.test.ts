@@ -5,10 +5,6 @@ import { DAEMON_FEATURE_AUTH_CONTEXT } from '@manyfold/shared'
 import { agentCredentials, runtimeHosts, userModelProviders, type Agent } from '@manyfold/db'
 import { ExecDriverFactory } from '../src/modules/chat/adapters/exec-driver-factory'
 import { DaemonExecDriver } from '../src/modules/chat/adapters/daemon-exec-driver'
-import {
-    SpritesExecDriver,
-    wrapSpriteCommand
-} from '../src/modules/chat/adapters/sprites-exec-driver'
 
 const ref: DaemonAuthContextRef = {
     framework: 'codex',
@@ -22,7 +18,7 @@ test('per-turn auth selection controls the actual driver, and local/profile oper
     const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({ limit: async () => {
         if (table === userModelProviders) { providerReads++; throw new Error('stale provider cannot be decrypted') }
         if (table === agentCredentials) return []
-        if (table === runtimeHosts) return [{ clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
+        if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.1.0', rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
     const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never,
@@ -92,23 +88,4 @@ test('the codex HOME relocation no longer re-pins CODEX_HOME over a daemon-injec
     })
     const cmd = payloads[0].cmd as string[]
     assert.match(cmd[2], /CODEX_HOME="\$\{CODEX_HOME:-\$HOME\/\.codex\}"/)
-    const sprite = wrapSpriteCommand(
-        ['codex', 'exec'],
-        '/ws',
-        undefined,
-        '/ws/agt'
-    )
-    assert.match(sprite[2], /CODEX_HOME="\$\{CODEX_HOME:-\$HOME\/\.codex\}"/)
-})
-
-test('bare sprite exec refuses a profile-bound agent instead of running the sandbox sign-in', () => {
-    const driver = new SpritesExecDriver({} as never, 'sprite-1', {} as never, {
-        sessionRegistry: {} as never,
-        agentId: 'agt',
-        authContext: ref
-    })
-    assert.throws(
-        () => driver.stream({ cmd: ['codex', 'exec'], timeoutMs: 1000 }),
-        /auth_context_unsupported/
-    )
 })

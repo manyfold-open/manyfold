@@ -83,8 +83,8 @@ for (const surface of execEnvSurfaces.filter(
                 USER_MESSAGE
             )
         )
-        assert.equal(seam.runnerDrivers.length, 1, `${key}: one runner swap`)
-        assert.deepEqual(seam.runnerDrivers[0].authContext, {
+        assert.equal(seam.runnerDrivers.length, 0, `${key}: no transport swap`)
+        assert.deepEqual(seam.streams[0].authContext, {
             ...REF,
             framework: surface.framework
         })

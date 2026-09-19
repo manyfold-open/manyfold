@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
 import 'dotenv/config'
@@ -85,29 +86,28 @@ test(
                 yield { type: 'done', finalMessageId: messageId }
             }
         }
-        const service = new ChatService(
-            db,
-            repo,
-            broadcaster,
-            { get: () => adapter } as never,
-            { record: async () => {} } as never,
-            {} as never,
-            { publishStatus: () => {} } as never,
-            {
+        const service = new ChatService(db,
+        withRunnerCursors(repo),
+        broadcaster,
+        { get: () => adapter } as never,
+        { record: async () => {} } as never,
+        {} as never,
+        { publishStatus: () => {} } as never,
+        {
                 event: (name: string, attrs: Record<string, unknown>) =>
                     telemetry.push({ name, attrs }),
                 error: () => {}
             } as never,
-            undefined as never,
-            undefined as never,
-            undefined as never,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            { ownerId: 'resume-owner', enabled: true } as never
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined),
+        undefined,
+        undefined,
+        { ownerId: 'resume-owner', enabled: true } as never
         )
         try {
             await db

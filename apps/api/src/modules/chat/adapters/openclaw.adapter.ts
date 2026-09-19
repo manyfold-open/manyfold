@@ -1,16 +1,14 @@
+import { ChatRunnerError } from '../runner/chat-runner'
 import {
     DAEMON_FEATURE_TURN_OPENCLAW_ACP,
-    acpEventsFromFrame,
-    decodeOpenclawTurnUsage
+    acpEventsFromFrame
 } from '@manyfold/shared'
 import type {
     AgentFramework,
     ChatCapabilities,
     ChatMessage,
-    ChatUsage,
     DaemonOpenclawAcpTurnPayload,
-    OpenclawTurnUsage,
-    OpenclawTurnUsageDecode
+    OpenclawTurnUsage
 } from '@manyfold/shared'
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { type Database } from '@manyfold/db'
@@ -20,13 +18,11 @@ import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import {
-    ExecDriverFactory,
-    type ExecDriverHandle
+    ExecDriverFactory
 } from '@/modules/chat/adapters/exec-driver-factory'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
-import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import {
     daemonAdvertisesFeature,
@@ -40,15 +36,11 @@ import {
 } from '@/modules/chat/chat-adapter'
 import { messageToPromptText } from './message-content'
 import {
-    AcpTurn,
-    type AcpEvent,
-    type AcpRequestTimeouts
-} from './hermes-acp-client'
-import { OPENCLAW_ACP_DIALECT } from '@manyfold/shared'
+    type AcpEvent
+} from '@manyfold/shared'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import {
-    GatewayHttpChatAdapter,
-    type OpenclawRuntime
+    GatewayHttpChatAdapter
 } from './gateway-http-chat.adapter'
 import { openclawCancelledEvent as cancelledEvent } from './openclaw-turn-shared'
 
@@ -63,91 +55,6 @@ const gatewayProbeAge = (checkedAt: string): string => {
     return `probed ${minutes}m ago`
 }
 
-// `openclaw acp` is a bridge to the resident gateway that runs INSIDE the
-// sprite/pod, so it connects over loopback — never the public ingress (which
-// device-pairs and proxy-attributes as of 2026.8.1). The gateway is resolved
-// from the box's own ~/.openclaw/openclaw.json (gateway.port + auth.token, the
-// file Manyfold writes at bootstrap) rather than passed as `--url`: measured on
-// openclaw@2026.5.18 [2026-09-08], an explicit --url is treated as a REMOTE
-// override that refuses env/config credentials ("gateway url override requires
-// explicit credentials"), so against the token-auth gateway every sprite and
-// pod runs, `--url ws://127.0.0.1:18789` + OPENCLAW_GATEWAY_TOKEN was rejected
-// with token_missing while the url-less form connected (config or env token).
-const OPENCLAW_ACP_ARGS = ['acp', '--no-prefix-cwd']
-
-// The bridge is exec'd with its stdin fed through `cat`, and the shell that
-// became the bridge is SIGTERMed the moment `cat` sees EOF. Measured on
-// openclaw@2026.5.18 [2026-09-08]: `openclaw acp` ignores stdin EOF (still
-// running 10 s later), so a bare bridge would burn the ACP client's whole close
-// grace on every turn and, on k8s — where abort only closes the exec stream —
-// outlive the turn inside the pod. SIGTERM exits it in ~100 ms; the launcher
-// shim forwards the signal to the process it respawns, so no orphan is left.
-const OPENCLAW_ACP_BRIDGE_SCRIPT = `exec openclaw ${OPENCLAW_ACP_ARGS.join(' ')} < <(cat; kill -TERM $$)`
-
-// The exec command for an openclaw ACP turn. In `dontAsk` with no model pick
-// there is nothing to set — the bridge runs directly. Otherwise the session's
-// exec-approval level / model is pre-patched over the loopback gateway BEFORE
-// the bridge starts, then `exec` hands off. Verified against openclaw@2026.5.18
-// [2026-09-07]: sessions.patch UPSERTS the (deterministic) key, so the level
-// applies from this turn; `openclaw gateway call` runs in-box over loopback with
-// the gateway token, so it needs no device pairing (the off-box ingress would).
-const shellQuoteArg = (value: string): string =>
-    `'${value.replace(/'/g, "'\\''")}'`
-
-const openclawAcpCmd = (opts: {
-    sessionKey: string
-    execAsk: string | null
-    model: string | null
-    cwd: string | null
-}): string[] => {
-    // Enter the agent workspace from INSIDE the bridge, never via the exec
-    // transport's `dir`: wrapSpriteCommand turns `dir` into `cd <dir> && …`, and
-    // a fresh sprite's workspace is created lazily by openclaw (nothing mkdirs
-    // it at bootstrap), so that cd runs before openclaw and the shell exits 1.
-    // Seen on sprites [2026-09-08]: `cd: /home/sprite/.openclaw/workspace: No
-    // such file or directory` → `openclaw acp exited with code 1` before the
-    // bridge started. mkdir -p makes it exist; the cd is tolerant because
-    // `--no-prefix-cwd` means openclaw resolves its workspace from config.
-    const enter = opts.cwd
-        ? `mkdir -p ${shellQuoteArg(opts.cwd)} 2>/dev/null; cd ${shellQuoteArg(opts.cwd)} 2>/dev/null; `
-        : ''
-    const bridge = `${enter}${OPENCLAW_ACP_BRIDGE_SCRIPT}`
-    if (!opts.execAsk && !opts.model) return ['bash', '-lc', bridge]
-    const patchParams: Record<string, unknown> = { key: opts.sessionKey }
-    // The gateway registers each catalog model under the `primary` provider, so
-    // a pick routes as `primary/<model>`. Probe-verified [2026-09-07] to change
-    // a live session's model from the next prompt and stick to the key.
-    if (opts.model) patchParams.model = `primary/${opts.model}`
-    if (opts.execAsk) patchParams.execAsk = opts.execAsk
-    const params = JSON.stringify(patchParams)
-    const patch = `openclaw gateway call sessions.patch --params '${params}' >/dev/null 2>&1 || true`
-    return ['bash', '-lc', `${patch}; ${bridge}`]
-}
-
-// A one-shot in-box gateway RPC (the CLI speaks to the loopback gateway with
-// its token). `--json` makes stdout the bare result object.
-const openclawGatewayCallCmd = (
-    method: string,
-    params: Record<string, unknown>
-): string[] => [
-    'openclaw',
-    'gateway',
-    'call',
-    method,
-    '--params',
-    JSON.stringify(params),
-    '--json',
-    '--timeout',
-    '10000'
-]
-
-// How many recent transcript messages the post-turn usage read-back asks for.
-// The turn's own user message must be inside the window to anchor the sum; a
-// full window with no anchor means a longer tool loop, so it is retried once at
-// the wide limit rather than paying that payload on every turn.
-const OPENCLAW_USAGE_WINDOW = 60
-const OPENCLAW_USAGE_WINDOW_WIDE = 400
-const OPENCLAW_USAGE_CALL_TIMEOUT_MS = 20_000
 // Deny-on-timeout deadline the daemon runner applies to an unanswered ACP
 // permission ask. Kept in step with hermes so a card behaves the same on either
 // framework.
@@ -262,13 +169,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         @Optional() adminSettings?: AdminSettingsService,
         // Same rule. Absent, turn.start dispatches unfenced as before (#619).
         @Optional()
-        fencedDispatch?: DaemonFencedDispatchService,
-        // Same rule — appended last. The permission coordinator is
-        // framework-agnostic (keyed by messageId); absent, an ask-mode turn
-        // still surfaces the request as a stream event but cannot take the
-        // answer back, so it degrades to auto-approve.
-        @Optional()
-        private readonly permissionCoordinator?: HermesPermissionCoordinator
+        fencedDispatch?: DaemonFencedDispatchService
     ) {
         super(
             db,
@@ -305,25 +206,17 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             runtime: string
             internalId: string | null
             daemonId: string | null
+            workspacePath?: string | null
         }
     ): AsyncIterable<EmittedChatEvent> {
-        if (agentRow.runtime === 'daemon') {
-            if (!agentRow.daemonId)
-                throw new Error(
-                    `daemon openclaw agent ${ctx.agentId} missing daemonId`
-                )
-            const refusal = await this.daemonAdmissionRefusal(agentRow.daemonId)
-            if (refusal) {
-                yield refusal
-                return
-            }
-            yield* this.sendViaDaemonAcp(ctx, userMessage, agentRow.daemonId)
+        const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
+        if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
+        const refusal = await this.daemonAdmissionRefusal(daemonId)
+        if (refusal) {
+            yield refusal
             return
         }
-        // The ACP path persists its own (deterministic) gateway key, so it
-        // never needs the base's legacy FS session-ref backfill.
-        const runtime = await this.resolveRuntime(ctx.agentId)
-        yield* this.sendViaOpenclawAcp(ctx, userMessage, runtime)
+        yield* this.sendViaDaemonAcp(ctx, userMessage, daemonId, agentRow.workspacePath)
     }
 
     // Whether this daemon may be sent an openclaw ACP turn, and if not, the
@@ -430,7 +323,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     private async *sendViaDaemonAcp(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        daemonId: string
+        daemonId: string,
+        workspacePath?: string | null
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
@@ -447,6 +341,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         const payload: DaemonOpenclawAcpTurnPayload = {
             framework: 'openclaw',
             transport: 'acp',
+            ...(workspacePath ? { dir: workspacePath } : {}),
             prompt: messageToPromptText(userMessage),
             sessionKey,
             ...(patch.execAsk || patch.model ? { patch } : {}),
@@ -706,390 +601,10 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         yield { type: 'done', finalMessageId: ctx.messageId }
     }
 
-    // API-driven ACP for the sprites-no-runner and k8s cells: the API drives
-    // `openclaw acp` (a bridge to the resident gateway) over an interactive
-    // exec, exactly like hermes's sendViaInteractiveAcp. Non-resumable by
-    // construction — ACP is client-driven, so a lost API loses the turn — and
-    // every failure is a retryable error, never `suspended`. Simpler than
-    // hermes: openclaw's model is per-agent (no set_model) and its permission
-    // lever is a gateway-side execAsk, so this path only runs the turn.
-    private async *sendViaOpenclawAcp(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage,
-        runtime: OpenclawRuntime
-    ): AsyncIterable<EmittedChatEvent> {
-        if (ctx.abortSignal?.aborted) {
-            yield cancelledEvent()
-            return
-        }
-        let handle
-        try {
-            handle = await this.drivers.forAgent(ctx.agentId)
-        } catch (err) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_acp_failed',
-                    message: (err as Error).message,
-                    retryable: true
-                }
-            }
-            return
-        }
-        const streamInteractive = handle.driver.streamInteractive?.bind(
-            handle.driver
-        )
-        if (!streamInteractive) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'openclaw_acp_failed',
-                    message: `runtime ${handle.runtime} has no interactive exec transport`,
-                    retryable: false
-                }
-            }
-            return
-        }
-        const budgets = await this.streamBudgets()
-        const acpBudgets: AcpRequestTimeouts = {
-            idleTimeoutMs: budgets.idleTimeoutMs,
-            maxDurationMs: budgets.maxDurationMs
-        }
-        const cwd = handle.agent.workspacePath ?? null
-        const prompt = messageToPromptText(userMessage)
-        const sessionKey = openclawGatewaySessionKey(ctx.sessionId)
-        // `default` turns exec approval on for this session; `dontAsk` (the
-        // default) leaves the gateway's shipped tools.exec.ask:'off', so nothing
-        // is patched and nothing prompts — byte-for-byte today's behaviour.
-        const permissionMode = ctx.openclawPermissionMode ?? 'dontAsk'
-        const interactive = permissionMode === 'default'
-        // 'on-miss' asks for out-of-allowlist commands (the "ask about risky
-        // things" posture). The patch mechanism and the approval round-trip are
-        // probe-verified; the exact enum is a tunable posture.
-        const execAsk = interactive ? 'on-miss' : null
-        // The per-message model pick, applied via the same in-box patch. Null
-        // (the common case) leaves the session on its current/default model.
-        const modelOverride = ctx.modelOverride
-
-        if (ctx.abortSignal?.aborted) {
-            yield cancelledEvent()
-            return
-        }
-
-        const tStart = Date.now()
-        const queue: AcpEvent[] = []
-        const waker: { resolve: (() => void) | null } = { resolve: null }
-        const wake = (): void => {
-            const r = waker.resolve
-            waker.resolve = null
-            if (r) r()
-        }
-        const transport = streamInteractive({
-            cmd: openclawAcpCmd({ sessionKey, execAsk, model: modelOverride, cwd }),
-            env: {
-                // The bridge authenticates to the loopback gateway with its own
-                // token; the model call happens inside that gateway, which
-                // already holds the provider key, so no alias env rides here.
-                OPENCLAW_GATEWAY_TOKEN: runtime.gatewayToken,
-                OPENCLAW_HIDE_BANNER: '1',
-                OPENCLAW_SUPPRESS_NOTES: '1'
-            },
-            // NOT `dir: cwd`: wrapSpriteCommand would `cd <cwd> && …` before the
-            // bridge, and the workspace may not exist yet (see openclawAcpCmd).
-            // The bridge enters it itself, creating it first.
-            timeoutMs: acpBudgets.maxDurationMs,
-            keepAliveMs: budgets.headersTimeoutMs
-        })
-        const turn = new AcpTurn({
-            transport,
-            onEvent: (ev) => {
-                queue.push(ev)
-                wake()
-            },
-            dialect: OPENCLAW_ACP_DIALECT,
-            sessionKey,
-            logger: this.logger,
-            permissionPolicy: interactive ? 'interactive' : 'auto'
-        })
-        const unregisterPermissions =
-            interactive && this.permissionCoordinator
-                ? this.permissionCoordinator.register(ctx.messageId, {
-                      respond: (requestId, optionId) =>
-                          turn.respondPermission(requestId, optionId),
-                      pendingIds: () => turn.pendingPermissionIds
-                  })
-                : null
-
-        const state = { finished: false, aborted: false }
-        const onAbort = (): void => {
-            state.aborted = true
-            turn.abort()
-            wake()
-        }
-        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-        const seq = { current: 0 }
-        const fatal = { yielded: false }
-        const firstToken: { at: number | null } = { at: null }
-        const drainQueue = function* (
-            this: OpenclawAdapter
-        ): IterableIterator<EmittedChatEvent> {
-            while (queue.length > 0) {
-                const ev = queue.shift()!
-                if (ev.type === 'error') {
-                    if (fatal.yielded) continue
-                    const managedChannelFailure =
-                        classifyManagedChannelFailureSignal({
-                            message: ev.detail ?? ev.message
-                        })
-                    yield {
-                        type: 'error',
-                        ...(managedChannelFailure ? { managedChannelFailure } : {}),
-                        error: {
-                            code: 'openclaw_acp_event',
-                            message: ev.message,
-                            retryable: managedChannelFailure !== null
-                        }
-                    }
-                    fatal.yielded = true
-                    state.aborted = true
-                    turn.abort()
-                    return
-                }
-                if (ev.type === 'usage_update' || ev.type === 'turn_end')
-                    continue
-                if (ev.type === 'text' && firstToken.at === null)
-                    firstToken.at = Date.now()
-                seq.current += 1
-                yield* openclawAcpEventToChatEvents(ev, ctx, seq.current)
-            }
-        }.bind(this)
-
-        const errorRef: { current: Error | null } = { current: null }
-        const promptDone = (async (): Promise<void> => {
-            try {
-                await turn.initialize(30_000)
-                // Continuity is the gateway session's, keyed by _meta.sessionKey
-                // — the ACP sessionId is disposable — so every turn is a fresh
-                // session/new on the same key. No session/resume.
-                await turn.newSession({ cwd: cwd ?? '.', timeoutMs: 30_000 })
-                await turn.prompt({ prompt, timeouts: acpBudgets })
-            } finally {
-                state.finished = true
-                wake()
-            }
-        })()
-        promptDone.catch((err) => {
-            errorRef.current = err as Error
-        })
-
-        // The ACP stream carries no token usage, so a clean turn reads its
-        // usage back from the gateway transcript. Started before close() so
-        // the CLI round trip overlaps the bridge teardown instead of adding to
-        // the tail the user waits through.
-        let usageFetch: Promise<ChatUsage | null> | null = null
-        try {
-            while (!state.finished || queue.length > 0) {
-                if (queue.length === 0)
-                    await new Promise<void>((resolve) => {
-                        waker.resolve = resolve
-                    })
-                for (const ev of drainQueue()) yield ev
-                if (state.aborted) break
-            }
-            // Settle the prompt chain first: its rejection handler may still be
-            // a microtask behind the last drained event.
-            await promptDone.catch(() => undefined)
-            if (!fatal.yielded && !state.aborted && !errorRef.current)
-                usageFetch = this.fetchOpenclawAcpUsage({
-                    handle,
-                    runtime,
-                    sessionKey,
-                    promptText: prompt,
-                    ctx,
-                    tStart,
-                    firstTokenAt: firstToken.at
-                })
-        } finally {
-            await turn.close().catch(() => {})
-            unregisterPermissions?.()
-            ctx.abortSignal?.removeEventListener('abort', onAbort)
-        }
-
-        if (fatal.yielded) {
-            yield { type: 'done', finalMessageId: ctx.messageId }
-            return
-        }
-        if (state.aborted) {
-            yield cancelledEvent()
-            return
-        }
-        const runError = errorRef.current
-        if (runError) {
-            const managedChannelFailure = classifyManagedChannelFailureSignal({
-                message: runError.message
-            })
-            yield {
-                type: 'error',
-                ...(managedChannelFailure ? { managedChannelFailure } : {}),
-                error: {
-                    code: 'openclaw_acp_failed',
-                    message: runError.message,
-                    retryable: true
-                }
-            }
-            return
-        }
-        const usage = usageFetch ? await usageFetch : null
-        if (usage) yield { type: 'usage', usage }
-        // Persist the deterministic gateway key so the next turn skips the
-        // legacy FS backfill and knows a session exists.
-        if (ctx.frameworkSessionRef !== sessionKey)
-            await this.chatRepo
-                .updateFrameworkSessionRef(ctx.sessionId, sessionKey, ctx.turnFence)
-                .catch((err) =>
-                    this.logger.warn(
-                        `openclaw acp session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
-                    )
-                )
-        yield { type: 'done', finalMessageId: ctx.messageId }
-    }
-
-    // Post-turn billing for the ACP path: one in-box `sessions.get` on the
-    // turn's key, summed by the shared decoder. A miss is logged and counted,
-    // never fatal — the user already has the answer, and failing the turn after
-    // the fact would hide the billing gap behind a retry rather than measure it.
-    private async fetchOpenclawAcpUsage(args: {
-        handle: ExecDriverHandle
-        runtime: OpenclawRuntime
-        sessionKey: string
-        promptText: string
-        ctx: ApiChatAdapterContext
-        tStart: number
-        firstTokenAt: number | null
-    }): Promise<ChatUsage | null> {
-        const t0 = Date.now()
-        const outcome = (
-            status: string,
-            extra: Record<string, string | number> = {}
-        ): void => {
-            this.telemetry.event('openclaw_acp_usage', {
-                'nca.agent_id': args.ctx.agentId,
-                'nca.session_id': args.ctx.sessionId,
-                'nca.outcome': status,
-                'nca.duration_ms': Date.now() - t0,
-                ...extra
-            })
-        }
-        try {
-            let decoded = await this.readOpenclawTurnUsage(
-                args,
-                OPENCLAW_USAGE_WINDOW
-            )
-            if (decoded.status === 'no_user_message' && decoded.windowFull)
-                decoded = await this.readOpenclawTurnUsage(
-                    args,
-                    OPENCLAW_USAGE_WINDOW_WIDE
-                )
-            if (decoded.status !== 'ok') {
-                this.logger.warn(
-                    `openclaw acp usage unavailable for ${args.ctx.sessionId}: ${decoded.status}`
-                )
-                outcome(decoded.status)
-                return null
-            }
-            const { usage } = decoded
-            outcome('ok', { 'nca.provider_calls': usage.calls })
-            return buildOpenAiUsage(
-                {
-                    inputTokens: usage.inputTokens,
-                    outputTokens: usage.outputTokens,
-                    cacheRead: usage.cacheReadTokens,
-                    cacheWrite: usage.cacheCreationTokens
-                },
-                usage.model ??
-                    args.ctx.model ??
-                    args.runtime.displayModel ??
-                    args.runtime.modelId,
-                args.tStart,
-                args.firstTokenAt,
-                this.pricing,
-                args.ctx
-            )
-        } catch (err) {
-            const message = (err as Error).message
-            this.logger.warn(
-                `openclaw acp usage read-back failed for ${args.ctx.sessionId}: ${message}`
-            )
-            outcome('error', { 'nca.error_message': message })
-            return null
-        }
-    }
-
-    private async readOpenclawTurnUsage(
-        args: {
-            handle: ExecDriverHandle
-            runtime: OpenclawRuntime
-            sessionKey: string
-            promptText: string
-        },
-        limit: number
-    ): Promise<OpenclawTurnUsageDecode> {
-        const exec = args.handle.driver.stream({
-            cmd: openclawGatewayCallCmd('sessions.get', {
-                key: args.sessionKey,
-                limit
-            }),
-            env: {
-                OPENCLAW_GATEWAY_TOKEN: args.runtime.gatewayToken,
-                OPENCLAW_HIDE_BANNER: '1',
-                OPENCLAW_SUPPRESS_NOTES: '1'
-            },
-            timeoutMs: OPENCLAW_USAGE_CALL_TIMEOUT_MS
-        })
-        const collect = async (
-            chunks: AsyncIterable<string>
-        ): Promise<string> => {
-            let out = ''
-            for await (const chunk of chunks) out += chunk
-            return out
-        }
-        const [stdout, stderr] = await Promise.all([
-            collect(exec.stdout),
-            collect(exec.stderr)
-        ])
-        const result = await exec.result
-        if (result.exitCode !== 0)
-            throw new Error(
-                `openclaw gateway call sessions.get exited ${result.exitCode}: ${(stderr || stdout).trim().slice(0, 300)}`
-            )
-        const start = stdout.indexOf('{')
-        const end = stdout.lastIndexOf('}')
-        if (start === -1 || end <= start)
-            throw new Error(
-                'openclaw gateway call sessions.get returned no JSON object'
-            )
-        let parsed: unknown
-        try {
-            parsed = JSON.parse(stdout.slice(start, end + 1))
-        } catch (err) {
-            throw new Error(
-                `openclaw gateway call sessions.get returned unparsable JSON: ${(err as Error).message}`
-            )
-        }
-        return decodeOpenclawTurnUsage(parsed, args.promptText, { limit })
-    }
-
-    // Recover a turn from the buffer of the daemon that carried it: the frames
-    // are the ACP ones the daemon buffered, replayed through the same drain
-    // that produced them, converging the message the turn suspended as. The
-    // API-driven cells (sprites, k8s) own their ACP client, so a lost API
-    // loses the turn — there is nothing to replay.
     async *resumeMessage(
         ctx: ApiChatResumeContext
     ): AsyncIterable<EmittedChatEvent> {
         if (
-            ctx.runtimeKind !== 'daemon' ||
             !ctx.daemonId ||
             !ctx.daemonExecRef
         ) {
@@ -1119,4 +634,3 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         })
     }
 }
-

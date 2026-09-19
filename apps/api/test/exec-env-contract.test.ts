@@ -77,49 +77,15 @@ test('every framework × supported runtime has at least one declared surface', (
     assert.deepEqual(missing, [])
 })
 
-test('a coding framework on sprites declares both its direct and runner surfaces', () => {
-    // The runner allowlist is framework-agnostic: any sprite coding turn can be
-    // carried by that sprite's runner. A coding framework with a sprite-exec row
-    // but no runner-exec row is precisely the blind spot #581 lived in.
+test('each coding runtime has exactly one daemon-carried surface', () => {
     for (const framework of ALL_FRAMEWORKS) {
         const capability = frameworkCapabilities[framework]
         if (capability.kind !== 'coding') continue
-        if (!capability.runtimes.includes('sprites')) continue
-        const transports = execEnvSurfacesFor(framework, 'sprites').map(
-            (surface) => surface.transport
-        )
-        assert.ok(
-            transports.includes('sprite-exec'),
-            `${framework} × sprites is missing its sprite-exec surface`
-        )
-        assert.ok(
-            transports.includes('runner-exec'),
-            `${framework} × sprites is missing its runner-exec surface`
-        )
-    }
-})
-
-test('a coding framework on k8s declares both its direct and runner surfaces', () => {
-    // The k8s twin of the sprites ratchet above, and it exists for the same
-    // reason: the pod-runner transport is the one that carries identity,
-    // connection and extras env, so a framework that grows a pod-exec row
-    // without a runner-exec row is a cell nobody would notice was never
-    // wired — exactly #581's blind spot, one runtime over.
-    for (const framework of ALL_FRAMEWORKS) {
-        const capability = frameworkCapabilities[framework]
-        if (capability.kind !== 'coding') continue
-        if (!capability.runtimes.includes('k8s')) continue
-        const transports = execEnvSurfacesFor(framework, 'k8s').map(
-            (surface) => surface.transport
-        )
-        assert.ok(
-            transports.includes('pod-exec'),
-            `${framework} × k8s is missing its pod-exec surface`
-        )
-        assert.ok(
-            transports.includes('runner-exec'),
-            `${framework} × k8s is missing its runner-exec surface`
-        )
+        for (const runtime of capability.runtimes) {
+            const rows = execEnvSurfacesFor(framework, runtime)
+            assert.equal(rows.length, 1)
+            assert.equal(rows[0].transport, runtime === 'daemon' ? 'daemon-exec' : 'runner-exec')
+        }
     }
 })
 
@@ -231,7 +197,7 @@ const factoryDb = (
                                 }
                             ]
                         )
-                    if (table === runtimeHosts) return [{ clientFeatures: [] }]
+                    if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.1.0', rpcLastSeenAt: new Date(), clientFeatures: ['turn.openclaw.acp', 'turn.hermes', 'turn.openclaw'] }]
                     if (table === agents)
                         return [
                             {
@@ -322,7 +288,11 @@ const buildFactory = (
                     : 'staging'
         } as never,
         undefined,
-        opts.runtimeTokens as never
+        opts.runtimeTokens as never,
+        {
+            ensureRunner: async () => ({ handle: { daemonId: 'dh_runner' }, workspace: { outcome: 'base' } }),
+            resolvePodRunner: async () => ({ handle: { daemonId: 'dh_runner' }, workspace: { outcome: 'base' } })
+        } as never
     )
 
 test('a sprites agent gets the full per-exec base env, exposed for transport swaps', async () => {
@@ -360,7 +330,7 @@ test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', asy
     // carries no connection env or extras at all, and its MF_AGENT_ID names
     // whichever agent provisioned the pod — so a turn carried by the pod's own
     // runner has to be handed the per-agent env instead of inheriting it.
-    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+    await withEnv({}, async () => {
         const handle = await buildFactory('k8s').forAgent('agt_factory')
         assert.equal(handle.runtime, 'k8s')
         const baseEnv = handle.baseEnv ?? {}
@@ -379,31 +349,12 @@ test('a k8s coding agent exposes the base env a pod-runner turn swaps onto', asy
     })
 })
 
-test('a k8s coding agent outside the pod-runner rollout pays for no base env', async () => {
-    // The connection env is a network mint (a GitHub installation token) and
-    // seven call sites reach forAgent per turn. With the transport swap not
-    // even possible for this agent, assembling the env would be pure cost on
-    // the pod-exec hot path — and the pod-exec driver never receives it.
-    await withEnv({ MF_POD_RUNNER_AGENTS: '' }, async () => {
-        let connectionMints = 0
-        const factory = buildFactory('k8s', 'claude-code', {
-            onConnectionEnv: () => {
-                connectionMints++
-            }
-        })
-        const handle = await factory.forAgent('agt_factory')
-        assert.equal(handle.runtime, 'k8s')
-        assert.equal(handle.baseEnv, undefined)
-        assert.equal(connectionMints, 0, 'no GitHub token minted for nothing')
-    })
-})
-
 test('a k8s coding agent whose active identity cannot be decrypted is never rotated', async () => {
     // The pod is running on the identity its Secret was provisioned with. A
     // legacy row with no ciphertext used to trigger ensure→mint→REVOKE of that
     // very token; the pod then 401s on every `mf` call under the default
     // pod-exec transport. The read-through path must leave it alone.
-    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+    await withEnv({}, async () => {
         const ensured: unknown[] = []
         let readOrMintCalls = 0
         const factory = buildFactory('k8s', 'claude-code', {
@@ -436,7 +387,7 @@ test('a k8s service agent still gets no platform base env', async () => {
     // Symmetric with the BYOD daemon case below: only coding frameworks take
     // the pod-runner transport, so assembling an env for a service framework
     // would build a channel nothing reads.
-    await withEnv({ MF_POD_RUNNER_AGENTS: '*' }, async () => {
+    await withEnv({}, async () => {
         const handle = await buildFactory('k8s', 'openclaw').forAgent(
             'agt_factory'
         )

@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type {
@@ -529,9 +530,8 @@ const makeHarness = (
     // travel through postgres to reach the owner's listener, and it never does.
     const peerBus = new ChatCancelBus({ $client: rejectingPgClient } as never)
 
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         {} as never,
@@ -547,16 +547,15 @@ const makeHarness = (
         undefined,
         undefined,
         undefined,
-        undefined,
+        readyChatRunner(undefined),
         undefined,
         undefined,
         undefined,
         undefined,
         ownerBus
     )
-    const peer = new ChatService(
-        db as never,
-        repo as never,
+    const peer = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         {} as never,
@@ -572,7 +571,7 @@ const makeHarness = (
         undefined,
         undefined,
         undefined,
-        undefined,
+        readyChatRunner(undefined),
         undefined,
         undefined,
         undefined,
