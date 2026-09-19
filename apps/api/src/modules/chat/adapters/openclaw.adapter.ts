@@ -194,11 +194,8 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         }
     }
 
-    // Every openclaw chat turn speaks ACP (ADR-0027): the API drives the
-    // `openclaw acp` bridge over an interactive exec on sprites and k8s, and a
-    // BYOD daemon drives its own against the host's gateway. The base's
-    // OpenAI-compatible transports are narranexus's alone now — an openclaw
-    // turn never reaches them, which is why this override never calls super.
+    // Every OpenClaw turn is owned by the runtime's daemon ACP client.
+    // The base's gateway HTTP transport belongs to NarraNexus alone.
     protected async *dispatchTurn(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
@@ -206,7 +203,6 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             runtime: string
             internalId: string | null
             daemonId: string | null
-            workspacePath?: string | null
         }
     ): AsyncIterable<EmittedChatEvent> {
         const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
@@ -216,7 +212,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
             yield refusal
             return
         }
-        yield* this.sendViaDaemonAcp(ctx, userMessage, daemonId, agentRow.workspacePath)
+        yield* this.sendViaDaemonAcp(ctx, userMessage, daemonId)
     }
 
     // Whether this daemon may be sent an openclaw ACP turn, and if not, the
@@ -323,8 +319,7 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
     private async *sendViaDaemonAcp(
         ctx: ApiChatAdapterContext,
         userMessage: ChatMessage,
-        daemonId: string,
-        workspacePath?: string | null
+        daemonId: string
     ): AsyncIterable<EmittedChatEvent> {
         if (ctx.abortSignal?.aborted) {
             yield cancelledEvent()
@@ -341,7 +336,6 @@ export class OpenclawAdapter extends GatewayHttpChatAdapter {
         const payload: DaemonOpenclawAcpTurnPayload = {
             framework: 'openclaw',
             transport: 'acp',
-            ...(workspacePath ? { dir: workspacePath } : {}),
             prompt: messageToPromptText(userMessage),
             sessionKey,
             ...(patch.execAsk || patch.model ? { patch } : {}),

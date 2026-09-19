@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { DAEMON_MIN_CLI_VERSION } from '@manyfold/shared'
+import { DaemonHostService } from '../src/modules/daemon/daemon-host.service'
 import {
     parseRunnerStatus,
     RunnerManagerService,
@@ -28,6 +30,7 @@ const buildHarness = (opts: {
     hostIdUpfront?: string | null
     onlineAfterStart?: boolean
     onlineUpfront?: boolean
+    hostVersion?: string
     // what `mf --version` reports inside the sprite
     version?: string
     execExit?: (cmd: string) => number
@@ -39,6 +42,7 @@ const buildHarness = (opts: {
     const calls: ExecCall[] = []
     let hostId = opts.hostIdUpfront ?? null
     let online = opts.onlineUpfront ?? false
+    let hostVersion = opts.hostVersion ?? DAEMON_MIN_CLI_VERSION
     let minted = 0
     const mintedPurposes: Array<string | undefined> = []
     const deleteUnboundCalls: Array<{ tokenId: string; userId: string }> = []
@@ -78,7 +82,10 @@ const buildHarness = (opts: {
             }
         }
         if (cmd.includes('daemon start')) {
-            if (exitCode === 0 && opts.onlineAfterStart !== false) online = true
+            if (exitCode === 0 && opts.onlineAfterStart !== false) {
+                online = true
+                hostVersion = DAEMON_MIN_CLI_VERSION
+            }
             return { exitCode, stdout: '', stderr: '' }
         }
         return { exitCode, stdout: '', stderr: '' }
@@ -96,7 +103,7 @@ const buildHarness = (opts: {
     }
     // Readiness is the HOST ROW (cross-instance), not a local socket map.
     const hosts = {
-        isOnline: (row: { id: string }) => online && row.id === hostId,
+        isOnline: (row: { id: string }) => online && row.id === hostId && DaemonHostService.prototype.isOnline({ status: 'active', cliVersion: hostVersion, rpcLastSeenAt: new Date() } as never),
         findById: async (id: string) =>
             hostId && id === hostId
                 ? {
@@ -1608,4 +1615,17 @@ test('wake: an exec that throws is exec-failed, never thrown', async () => {
     const res = await h.wake()
     assert.equal(res.outcome, 'exec-failed')
     assert.equal(res.handle, null)
+})
+
+test('a recently connected Sprite below the CLI floor enters bring-up and upgrades', async () => {
+    const h = buildHarness({
+        hostIdUpfront: 'dh_runner',
+        onlineUpfront: true,
+        hostVersion: '0.33.0',
+        version: '0.33.0'
+    })
+    const result = await h.service.ensureRunner(args(h.exec as never))
+    assert.equal(result.handle?.daemonId, 'dh_runner')
+    assert.ok(h.calls.some(call => call.cmd.includes('install.sh')))
+    assert.ok(h.calls.some(call => call.cmd.includes('daemon start')))
 })

@@ -12,6 +12,7 @@ import type {
     ApiChatAdapterContext,
     EmittedChatEvent
 } from '../src/modules/chat/chat-adapter'
+import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
 import { ChatService } from '../src/modules/chat/chat.service'
 import { buildTelemetryCaptureOptions } from '../src/sentry-grouping'
 
@@ -368,6 +369,8 @@ const errorEvent = (
 interface HarnessOptions {
     script?: EmittedChatEvent[]
     throws?: Error
+    runnerThrows?: Error
+    onAdapter?: () => void
     persisted?: boolean
 }
 
@@ -455,6 +458,7 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         sendMessage: async function* (
             ctx: ApiChatAdapterContext
         ): AsyncIterable<EmittedChatEvent> {
+            opts.onAdapter?.()
             yield { type: 'token', text: 'hi' }
             if (opts.throws) throw opts.throws
             for (const event of opts.script ?? [])
@@ -504,7 +508,7 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
         undefined,
         undefined,
         undefined,
-        readyChatRunner(undefined)
+        readyChatRunner(opts.runnerThrows ? { resolveRunner: async () => { throw opts.runnerThrows } } : undefined)
     )
 
     const internals = service as unknown as {
@@ -598,4 +602,26 @@ const makeHarness = (opts: HarnessOptions = {}): Harness => {
             )
         }
     }
+}
+test('runner admission preserves the quota code and never dispatches the adapter', async () => {
+    let calls = 0
+    const harness = makeHarness({
+        runnerThrows: new ForbiddenException({ code: 'active_hours_exceeded', message: 'active host quota reached' }),
+        onAdapter: () => { calls++ }
+    })
+    await harness.send()
+    assert.equal(calls, 0)
+    assert.equal(harness.streamErrors.length, 1)
+    assert.equal(harness.streamErrors[0].attrs.errorCode, 'active_hours_exceeded')
+})
+
+for (const stage of ['runner', 'adapter'] as const) {
+    test(`${stage} exception preserves the non-retryable runner upgrade error`, async () => {
+        const error = new ChatRunnerError('k8s', 'missing capability', true)
+        const harness = makeHarness(stage === 'runner' ? { runnerThrows: error } : { throws: error })
+        await harness.send()
+        assert.equal(harness.streamErrors.length, 1)
+        assert.equal(harness.streamErrors[0].attrs.errorCode, 'chat_runner_upgrade_required')
+        assert.equal(harness.streamErrors[0].attrs.retryable, false)
+    })
 }

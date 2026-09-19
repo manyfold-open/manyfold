@@ -21,8 +21,7 @@ test('per-turn auth selection controls the actual driver, and local/profile oper
         if (table === runtimeHosts) return [{ kind: 'daemon', status: 'active', cliVersion: '4.1.0', rpcLastSeenAt: new Date(), clientFeatures: [DAEMON_FEATURE_AUTH_CONTEXT] }]
         return []
     } }) }) }) }
-    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never,
-        {} as never, {} as never, {} as never, {} as never, {} as never, {} as never,
+    const factory = new ExecDriverFactory(db as never, {} as never, { decrypt: () => { throw new Error('unused stale provider') } } as never, {} as never, {} as never, {} as never,
         { resolveAgentEnv: async () => ({}) } as never)
     const agent = { id: 'agent', userId: 'user', framework: 'codex', runtime: 'daemon', runtimeId: 'runtime',
         daemonId: 'daemon', modelProviderId: 'old-provider', runtimeAuthProfileId: ref.profileId, runtimeAuthBindingVersion: 4,

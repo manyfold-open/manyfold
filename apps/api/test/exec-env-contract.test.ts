@@ -251,30 +251,9 @@ const buildFactory = (
                     ? IDENTITY_TOKEN
                     : JSON.stringify({ anthropicAuthToken: 'sk-factory' })
         } as never,
-        // k8s: enough of a client + pod lookup for the arm to reach its return.
-        // The pod-exec transport itself is not what these tests pin — the env
-        // the handle EXPOSES for the transport swap is.
-        {
-            getClient: async () => ({
-                apis: {
-                    core: {
-                        listNamespacedPod: async () => ({
-                            items: [
-                                {
-                                    metadata: { name: 'pod-factory' },
-                                    status: { phase: 'Running' }
-                                }
-                            ]
-                        })
-                    }
-                }
-            })
-        } as never,
-        { forClient: () => ({}) } as never,
         {} as never,
         { reserveActiveSlot: async () => {} } as never,
         { measureIfDue: () => {} } as never,
-        {} as never,
         {
             resolveAgentEnv: async () => {
                 opts.onConnectionEnv?.()

@@ -167,11 +167,24 @@ test('readSecretEnv decodes k8s data and treats a missing Secret as nothing to p
 test('NarraNexus shares its PVC and Pod network with a runner without exposing a port', () => {
     const bootstrap = new NarraNexusK8sBootstrap({ get: () => 'runner:fixture' } as never)
     const plan = bootstrap.plan({} as never, { gatewayToken: 'fixture' })
-    const withRunner = { ...spec, framework: 'narranexus' as const, port: plan.port, pvcMountPath: plan.pvcMountPath, sidecars: plan.sidecars }
+    const withRunner = { ...spec, framework: 'narranexus' as const, port: plan.port, pvcMountPath: plan.pvcMountPath, sidecars: plan.sidecars, envSecretKeys: [...PRESERVED_SECRET_ENV_KEYS, 'PROVIDER_KEY'] }
     const deployment = buildDeployment(withRunner)
     const runner = deployment.spec?.template.spec?.containers.find(c => c.name === 'mf-runner')
     assert.ok(runner)
+    const main = deployment.spec?.template.spec?.containers[0]
+    assert.equal(main?.envFrom, undefined)
+    const mainKeys = main?.env?.map(e => e.name) ?? []
+    assert.ok(mainKeys.includes('MF_API_URL'))
+    assert.ok(mainKeys.includes('MF_API_TOKEN'))
+    assert.ok(mainKeys.includes('PROVIDER_KEY'))
+    assert.ok(!mainKeys.some(k => k.startsWith('MF_DAEMON_')))
+    assert.ok(!mainKeys.includes('MF_PROFILE'))
+    assert.ok(!mainKeys.includes('MF_CONFIG_DIR'))
     assert.equal(runner.ports, undefined)
+    assert.deepEqual(runner.resources, {
+        requests: { cpu: '50m', memory: '64Mi' },
+        limits: { cpu: '300m', memory: '256Mi' }
+    })
     assert.deepEqual(runner.volumeMounts, [{ name: 'data', mountPath: '/data' }])
     assert.deepEqual(runner.envFrom, [{ secretRef: { name: spec.envSecretName } }])
     assert.ok(buildService(withRunner).spec?.ports?.every(p => p.name !== 'mf-runner'))

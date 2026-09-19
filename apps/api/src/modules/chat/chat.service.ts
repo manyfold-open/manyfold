@@ -5434,27 +5434,31 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
         // A runner turn needs the same row, so resolve the runner FIRST and stamp
         // whichever daemon will actually carry the stream.
         let runner: ChatRunner | null = null
-        let runnerFailure: ChatRunnerError | null = null
+        let runnerFailure: EmittedErrorEvent | null = null
+        let runnerExecFailure: ChatRunnerError['execFailure']
         if (!fastFail && !blockedTerminal && agentCtx.runtime !== 'external') {
             try {
                 if (!this.execDrivers) throw new ChatRunnerError(agentCtx.runtime, 'runner service unavailable')
                 runner = await this.execDrivers.resolveRunner(agent ?? session.agentId)
             } catch (err) {
-                runnerFailure = err instanceof ChatRunnerError
-                    ? err
-                    : new ChatRunnerError(agentCtx.runtime, 'runner resolution failed')
+                runnerFailure = adapterExceptionEvent(
+                    err instanceof ChatRunnerError || err instanceof HttpException
+                        ? err
+                        : new ChatRunnerError(agentCtx.runtime, 'runner resolution failed')
+                )
+                if (err instanceof ChatRunnerError) runnerExecFailure = err.execFailure
                 this.logger.warn(`runner resolution failed agentId=${session.agentId} class=${safeErrorClass(err)}`)
             }
             this.telemetry.event('chat.runner.resolve', {
                 agentId: session.agentId,
                 runnerKind: agentCtx.runtime,
                 outcome: runner ? 'runner' : 'unavailable',
-                errorCode: runnerFailure?.chatError.code ?? null
+                errorCode: runnerFailure?.error.code ?? null
             })
         }
         const execTerminal = blockedTerminal ??
-            (runnerFailure?.execFailure
-                ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerFailure.execFailure)
+            (runnerExecFailure
+                ? await this.markSpriteExecUnavailable(session.agentId, agentCtx.hostId, runnerExecFailure)
                 : null)
         const runnerDaemonId = runner?.daemonId ?? null
         // A runner turn produces no platform-visible activity, so the sprite
@@ -5695,7 +5699,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                   ? sandboxExecUnavailableStream(execTerminal)
                   : runnerFailure
                     ? (async function* (): AsyncIterable<EmittedChatEvent> {
-                          yield { type: 'error', error: runnerFailure!.chatError }
+                          yield runnerFailure!
                       })()
                     : null
             const adapterStream =
@@ -6115,10 +6119,7 @@ export class ChatService implements OnApplicationBootstrap, OnModuleDestroy {
                 ? turnBudgetErrorEvent(budgetErr)
                 : abortSignal.aborted
                   ? cancelledByUserEvent()
-                  : adapterErrorEvent(
-                        (err as Error).message,
-                        httpErrorCode(err)
-                    )
+                  : adapterExceptionEvent(err)
             const terminalContent = await prepareTerminalContent()
             const persisted = (
                 await this.broadcaster.emit(
@@ -6923,6 +6924,11 @@ const adapterErrorEvent = (
         retryable: true
     })
 })
+
+const adapterExceptionEvent = (err: unknown): EmittedErrorEvent =>
+    err instanceof ChatRunnerError
+        ? { type: 'error', error: normalizeChatError(err.chatError) }
+        : adapterErrorEvent(err instanceof Error ? err.message : String(err), httpErrorCode(err))
 
 const safeErrorClass = (err: unknown): string => {
     if (err instanceof SpritesError) return `SpritesError:${err.code}`

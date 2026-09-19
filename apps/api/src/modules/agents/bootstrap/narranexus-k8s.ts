@@ -52,7 +52,11 @@ export class NarraNexusK8sBootstrap implements K8sFrameworkBootstrap {
                 image: runnerImage,
                 command: ['mf-daemon-boot'],
                 envFromMainSecret: true,
-                mountPvc: true
+                mountPvc: true,
+                resources: {
+                    requests: { cpu: '50m', memory: '64Mi' },
+                    limits: { cpu: '300m', memory: '256Mi' }
+                }
             }],
             envSecretData: env,
             readinessProbe: {

@@ -1,3 +1,4 @@
+import { redactCredentialText } from '@/common/telemetry/redact-credentials'
 import { ChatRunnerError } from '../runner/chat-runner'
 import {
     DAEMON_FEATURE_TURN_HERMES,
@@ -277,8 +278,9 @@ export class HermesAdapter implements ApiChatAdapter {
                 yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'turn.hermes missing', true).chatError }
                 return
             }
-        } catch {
-            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'capability lookup failed').chatError }
+        } catch (err) {
+            const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
+            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, `capability lookup failed: ${detail}`).chatError }
             return
         }
         const override = await this.daemonModelOverride({ daemonId, modelTarget, explicit: explicitModelSwitch })
@@ -291,7 +293,18 @@ export class HermesAdapter implements ApiChatAdapter {
             yield permission.refusal
             return
         }
-        const aliasEnv = agentRow.runtime === 'daemon' ? {} : await this.providerAliasEnv(ctx.agentId)
+        let aliasEnv: Record<string, string> = {}
+        try {
+            if (agentRow.runtime !== 'daemon') aliasEnv = await this.providerAliasEnv(ctx.agentId)
+        } catch (err) {
+            const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
+            yield { type: 'error', error: {
+                code: 'hermes_daemon_acp_failed',
+                message: `hermes provider credentials unavailable: ${detail}`,
+                retryable: true
+            } }
+            return
+        }
         yield* this.sendViaTurnRpc(ctx, userMessage, {
             daemonId,
             cwd: agentRow.workspacePath ?? agentRow.mountPath ?? null,

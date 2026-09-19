@@ -48,9 +48,6 @@ test(
             {} as never,
             {} as never,
             {} as never,
-            {} as never,
-            {} as never,
-            {} as never,
             {} as never
         )
         const agent = {

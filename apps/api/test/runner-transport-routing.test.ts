@@ -33,6 +33,7 @@ const rig = (
     } = {}
 ) => {
     const calls: string[] = []
+    const workspaces: unknown[] = []
     const agent = {
         id: 'agt_one',
         userId: 'usr_one',
@@ -80,7 +81,8 @@ const rig = (
             })
         })
     }
-    const resolution = async () => {
+    const resolution = async (args: { workspacePath?: string | null }) => {
+        workspaces.push(args.workspacePath)
         calls.push('resolve')
         return options.reason
             ? {
@@ -93,11 +95,9 @@ const rig = (
     const factory = new ExecDriverFactory(
         db as never,
         {
-            getById: async () => ({ slug: 'account' }),
+            getById: async () => { calls.push('account'); return { slug: 'account' } },
             decryptToken: () => 'fixture'
         } as never,
-        {} as never,
-        {} as never,
         {} as never,
         {
             streamRpc: () => {
@@ -109,16 +109,15 @@ const rig = (
                 }
             }
         } as never,
-        { reserveActiveSlot: async () => {} } as never,
+        { reserveActiveSlot: async () => { calls.push('reserve') } } as never,
         { measureIfDue: () => {} } as never,
-        {} as never,
         { resolveAgentEnv: async () => ({ CONNECTION: 'value' }) } as never,
         { get: () => 'https://api.example.test' } as never,
         undefined,
         undefined,
         { ensureRunner: resolution, resolvePodRunner: resolution } as never
     )
-    return { factory, agent, calls }
+    return { factory, agent, calls, workspaces }
 }
 
 for (const [framework, capability] of Object.entries(frameworkCapabilities)) {
@@ -177,3 +176,45 @@ for (const reason of [
         assert.deepEqual(calls, ['resolve'])
     })
 }
+
+test('a newly starting Pod without a registered runner is retryable', async () => {
+    const { factory, agent } = rig('k8s', 'codex', { reason: 'runner_missing' })
+    await assert.rejects(factory.resolveRunner(agent), (err: unknown) => {
+        assert.ok(err instanceof ChatRunnerError)
+        assert.equal(err.chatError.code, 'chat_runner_unavailable')
+        assert.equal(err.chatError.retryable, true)
+        return true
+    })
+})
+
+for (const runtime of ['sprites', 'k8s'] as const) {
+    test(`${runtime}: OpenClaw leaves workspace resolution to its gateway`, async () => {
+        const { factory, agent, workspaces } = rig(runtime, 'openclaw')
+        agent.workspacePath = '/not-yet-created/workspace'
+        await factory.resolveRunner(agent)
+        assert.deepEqual(workspaces, [null])
+        const coding = rig(runtime, 'codex')
+        await coding.factory.resolveRunner(coding.agent)
+        assert.deepEqual(coding.workspaces, [coding.agent.workspacePath])
+    })
+}
+
+test('Sprite recovery reserves a slot and reads its account only once', async () => {
+    const { factory, agent, calls } = rig('sprites', 'codex')
+    const handle = await factory.recoveryFsForAgent(agent.id)
+    assert.ok(handle.spritesClient)
+    assert.deepEqual(calls, ['reserve', 'account', 'resolve'])
+})
+
+test('managed Sprite upgrade errors direct operators to the managed runner', () => {
+    const error = new ChatRunnerError('sprites', 'missing feature', true)
+    assert.match(error.chatError.message, /administrator.*managed Sprite runner/)
+    assert.doesNotMatch(error.chatError.message, /Run mf update/)
+})
+
+test('OpenClaw history reuses the filesystem carrier without a second Sprite wake', async () => {
+    const { factory, agent, calls } = rig('sprites', 'openclaw')
+    const handle = await factory.recoveryFsForAgent(agent.id)
+    assert.ok(await factory.openclawRpcForAgent(agent.id, handle.daemonId))
+    assert.deepEqual(calls, ['reserve', 'account', 'resolve'])
+})

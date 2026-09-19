@@ -45,8 +45,6 @@ import {
     decryptActiveIdentityToken,
     type RuntimeKind
 } from '@/modules/auth/runtime-token.service'
-import { KubernetesService } from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
 import type { ExecDriver } from './exec-driver'
 import { DaemonExecDriver } from './daemon-exec-driver'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
@@ -58,7 +56,6 @@ import {
 import { OpenclawRpcClient } from './openclaw-rpc-client'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
 import { RunnerManagerService, type RunnerResolution } from '@/modules/chat/runner/runner-manager.service'
 import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
@@ -82,6 +79,7 @@ export interface ExecDriverHandle {
 }
 
 export interface RecoveryFsHandle {
+    daemonId: string
     fs: RecoveryFs
     runtime: 'sprites' | 'k8s' | 'daemon'
     agent: Agent
@@ -97,12 +95,9 @@ export class ExecDriverFactory {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly accounts: SpritesAccountsService,
         private readonly crypto: CryptoService,
-        _k8s: KubernetesService,
-        _podExecFactory: PodExecFactory,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly spriteStorage: SpriteStorageService,
-        _sessionRegistry: SpritesSessionRegistry,
         private readonly connections: ConnectionsService,
         @Optional() private readonly config?: ConfigService,
         // Appended LAST and @Optional so positional test construction keeps
@@ -208,6 +203,11 @@ export class ExecDriverFactory {
             throw new Error('external agents have no runner')
         let daemonId = agent.daemonId
         let exec: ChatRunner['exec'] = null
+        let spritesClient: SpritesClient | undefined
+        // OpenClaw's gateway owns its workspace; the ACP bridge needs no cwd.
+        const workspacePath = agent.framework === 'openclaw'
+            ? null
+            : agent.workspacePath ?? agent.mountPath
         if (agent.runtime !== 'daemon') {
             if (!this.runnerManager)
                 throw new ChatRunnerError(
@@ -217,6 +217,7 @@ export class ExecDriverFactory {
             let resolution: RunnerResolution
             if (agent.runtime === 'sprites') {
                 const client = await this.spritesClientForAgent(agent)
+                spritesClient = client
                 exec = (args) =>
                     execSprite(client, agent.spriteName!, {
                         ...args,
@@ -226,7 +227,7 @@ export class ExecDriverFactory {
                     agentId: agent.id,
                     userId: agent.userId,
                     spriteName: agent.spriteName!,
-                    workspacePath: agent.workspacePath ?? agent.mountPath,
+                    workspacePath,
                     firstExecTimeoutMs:
                         spriteExecHealthConfig().firstExecTimeoutMs,
                     exec
@@ -237,15 +238,14 @@ export class ExecDriverFactory {
                 resolution = await this.runnerManager.resolvePodRunner({
                     userId: agent.userId,
                     runtimeId: agent.runtimeId,
-                    workspacePath: agent.workspacePath ?? agent.mountPath
+                    workspacePath
                 })
             }
             if (!resolution.handle)
                 throw new ChatRunnerError(
                     agent.runtime,
                     resolution.fallbackReason ?? 'runner unavailable',
-                    resolution.fallbackReason === 'runner_missing' ||
-                        resolution.fallbackReason === 'runner_cli_too_old' ||
+                    resolution.fallbackReason === 'runner_cli_too_old' ||
                         resolution.fallbackReason === 'runner_missing_turn_rpc',
                     resolution.execFailure
                 )
@@ -295,7 +295,7 @@ export class ExecDriverFactory {
                 DAEMON_ONLINE_THRESHOLD_MS
         )
             throw new ChatRunnerError(agent.runtime, 'runner offline')
-        return { daemonId, exec }
+        return { daemonId, exec, spritesClient }
     }
 
     async spritesClientForAgent(agent: Agent): Promise<SpritesClient> {
@@ -372,15 +372,17 @@ export class ExecDriverFactory {
         if (agent.runtime === 'external') throw new Error('external agents have no recovery filesystem')
         const runner = await this.resolveRunner(agent)
         return {
+            daemonId: runner.daemonId,
             fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
             runtime: agent.runtime,
             agent,
-            ...(agent.runtime === 'sprites' ? { spritesClient: await this.spritesClientForAgent(agent) } : {})
+            spritesClient: runner.spritesClient
         }
     }
 
     async openclawRpcForAgent(
-        agentId: string
+        agentId: string,
+        carryingDaemonId?: string
     ): Promise<OpenclawRpcClient | null> {
         const [agent] = await this.db
             .select()
@@ -389,8 +391,8 @@ export class ExecDriverFactory {
             .limit(1)
         if (!agent) return null
         if (agent.framework !== 'openclaw') return null
-        const runner = await this.resolveRunner(agent)
-        return new OpenclawRpcClient(this.daemonDriverFor(runner.daemonId))
+        const daemonId = carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
+        return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
     }
 
     // The agent's active identity for a runtime kind, minted lazily on the

@@ -174,7 +174,21 @@ export const buildDeployment = (spec: K8sResourceSpec): V1Deployment => {
         name: AGENT_CONTAINER_NAME,
         image: spec.image,
         imagePullPolicy: 'IfNotPresent',
-        envFrom,
+        // A separate runner owns registration; the gateway never needs its keys.
+        ...(spec.sidecars?.some((sidecar) => sidecar.name === 'mf-runner')
+            ? {
+                  env: spec.envSecretKeys
+                      .filter((key) => !POD_RUNNER_ENV_KEYS.some(
+                          (runnerKey) => runnerKey === key && runnerKey !== 'MF_API_URL'
+                      ))
+                      .map((name) => ({
+                          name,
+                          valueFrom: {
+                              secretKeyRef: { name: spec.envSecretName, key: name }
+                          }
+                      }))
+              }
+            : { envFrom }),
         volumeMounts: [{ name: 'data', mountPath: spec.pvcMountPath }],
         resources: spec.resources ?? DEFAULT_RESOURCES
     }

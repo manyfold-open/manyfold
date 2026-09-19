@@ -134,8 +134,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             .select({
                 runtime: agents.runtime,
                 internalId: agents.internalId,
-                daemonId: agents.daemonId,
-                workspacePath: agents.workspacePath
+                daemonId: agents.daemonId
             })
             .from(agents)
             .where(eq(agents.id, ctx.agentId))
@@ -154,7 +153,6 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
             runtime: string
             internalId: string | null
             daemonId: string | null
-            workspacePath?: string | null
         }
     ): AsyncIterable<EmittedChatEvent> {
         const runtime = await this.resolveRuntime(ctx.agentId)

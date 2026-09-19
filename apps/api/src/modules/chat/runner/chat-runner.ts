@@ -1,9 +1,11 @@
+import type { SpritesClient } from '@manyfold/sprites'
 import type { AgentRuntime, ChatError } from '@manyfold/shared'
 import type { RunnerExecFailure, SpriteExecFn } from './runner-manager.service'
 
 export interface ChatRunner {
     daemonId: string
     exec: SpriteExecFn | null
+    spritesClient?: SpritesClient
 }
 
 export class ChatRunnerError extends Error {
@@ -18,7 +20,9 @@ export class ChatRunnerError extends Error {
         const action = upgradeRequired
             ? runtime === 'k8s'
                 ? 'Update the Pod image with a current mf daemon runner.'
-                : 'Run mf update and restart the daemon runner.'
+                : runtime === 'sprites'
+                  ? 'Ask an administrator to update the managed Sprite runner.'
+                  : 'Run mf update and restart the daemon runner.'
             : 'Check the daemon runner connection and retry.'
         super(`Chat runner unavailable (${reason}). ${action}`)
         this.chatError = {

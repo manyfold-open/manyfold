@@ -784,3 +784,18 @@ test('turn.start serializes the ask mode, its timeout, and drops YOLO', async ()
         'ask modes must not freeze YOLO into the child'
     )
 })
+
+test('Hermes admission and credential failures retain redacted diagnostic context', async () => {
+    for (const phase of ['requireTurnHermes', 'providerAliasEnv']) {
+        const h = routingHarness({ runtime: 'sprites', daemonId: null })
+        h.a.requireTurnHermes = async () => true
+        h.a[phase] = async () => { throw new Error('database unavailable; token=private-fixture-token') }
+        const events = await drain(h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg))
+        assert.deepEqual(h.routes, [])
+        const err = events[0] as { error: { code: string; message: string; retryable: boolean } }
+        assert.equal(err.error.code, phase === 'requireTurnHermes' ? 'chat_runner_unavailable' : 'hermes_daemon_acp_failed')
+        assert.equal(err.error.retryable, true)
+        assert.match(err.error.message, /database unavailable/)
+        assert.doesNotMatch(err.error.message, /private-fixture-token/)
+    }
+})

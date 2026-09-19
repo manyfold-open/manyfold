@@ -100,7 +100,8 @@ const buildRig = (script: {
                             {
                                 runtime: 'daemon',
                                 internalId: 'oc1',
-                                daemonId: 'dh_byod'
+                                daemonId: 'dh_byod',
+                                workspacePath: '/not-yet-created/workspace'
                             }
                         ]
                     }
@@ -203,6 +204,7 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         assert.equal(payload.sessionKey, 'agent:main:mf-cts_1')
         assert.equal('patch' in payload, false) // dontAsk, no model → no patch
         assert.equal(payload.env, undefined) // never an env channel
+        assert.equal(payload.dir, undefined) // gateway owns the workspace
 
         // Frames became tokens; the read-back usage became a usage event; done.
         const tokens = events
