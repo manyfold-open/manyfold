@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import {
     ChatContentBlock,
     createObjectId
@@ -80,9 +81,8 @@ const makeHarness = (
         read: async () => Buffer.from(''),
         delete: async () => undefined
     }
-    return new ChatService(
-        db as never,
-        repo as never,
+    return new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         {} as never,
@@ -94,7 +94,8 @@ const makeHarness = (
         undefined as never,
         undefined,
         undefined,
-        uploads as never
+        uploads as never,
+        readyChatRunner(undefined)
     )
 }
 

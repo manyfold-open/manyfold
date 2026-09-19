@@ -94,6 +94,7 @@ export interface CapturedStream {
     // the real SpritesExecDriver merges it under the request env.
     driverEnv?: Record<string, string>
     execHandle?: string
+    authContext?: DaemonAuthContextRef | null
 }
 
 export interface CapturedRpc {
@@ -126,7 +127,8 @@ const emptyHandle = () => ({
 const captureDriver = (
     seam: Seam,
     via: 'factory' | 'runner',
-    driverEnv?: Record<string, string>
+    driverEnv?: Record<string, string>,
+    authContext?: DaemonAuthContextRef | null
 ) => ({
     stream: (req: {
         cmd: string[]
@@ -135,6 +137,7 @@ const captureDriver = (
     }) => {
         seam.streams.push({
             via,
+            authContext,
             cmd: req.cmd,
             env: req.env,
             ...(driverEnv ? { driverEnv } : {}),
@@ -193,9 +196,10 @@ const factoryHandleFor = (
     // Mirrors ExecDriverFactory: the sprites driver is CONSTRUCTED with the
     // base env, the k8s one is not. Getting this wrong would let the pod-exec
     // cell claim env its production driver never carries.
-    const driverEnv = runtime === 'k8s' ? undefined : baseEnv
+    const driverEnv = baseEnv
     return {
-        driver: captureDriver(seam, 'factory', driverEnv),
+        driver: captureDriver(seam, runtime === 'daemon' ? 'factory' : 'runner', driverEnv, authContext),
+        daemonId: runtime === 'daemon' ? 'dh_byod' : 'dh_runner',
         creds: {
             anthropicBaseUrl: 'https://anthropic.marker.test',
             anthropicAuthToken: PROVIDER_MARKERS.anthropicAuthToken,
@@ -444,17 +448,13 @@ export const buildAdapter = (
             return openclaw as unknown as AdapterUnderTest
         }
         case 'hermes':
-            return new HermesAdapter(
-                db as never,
-                // Passthrough decrypt: the alias-env derivation reads the
-                // stored blob for real, only the cipher is elided.
-                { decrypt: (args: { ciphertext: string }) => args.ciphertext } as never,
-                pricing as never,
-                registry as never,
-                chatRepo as never,
-                adminSettings as never,
-                undefined as never,
-                drivers as never
+            return new HermesAdapter(db as never,
+            { decrypt: (args: { ciphertext: string }) => args.ciphertext } as never,
+            pricing as never,
+            registry as never,
+            chatRepo as never,
+            adminSettings as never,
+            undefined as never
             ) as unknown as AdapterUnderTest
         case 'narranexus':
             return opts.withRegistry === false

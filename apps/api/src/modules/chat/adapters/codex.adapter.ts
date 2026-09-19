@@ -93,33 +93,16 @@ export class CodexAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const tAdapterStart = Date.now()
         const {
-            driver: spriteDriver,
+            driver,
+            daemonId: carryingDaemonId,
+            authContext,
             agent,
             creds,
             resolvePriceScope,
-            runtime,
-            baseEnv,
-            authContext
+            runtime
         } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
-            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined)
-        // Only the TRANSPORT changes for a runner turn — `runtime`
-        // stays 'sprites', so credentials, workspace cwd and the codex HOME
-        // relocation keep their sprite meaning. See claude-code.adapter,
-        // including why baseEnv must ride along (#581).
-        const viaRunner = !!ctx.runnerDaemonId
-        const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(
-                  ctx.runnerDaemonId,
-                  baseEnv,
-                  authContext
-              )
-            : spriteDriver
-        // Whoever holds the exec, and can therefore hand it back: losing that
-        // socket must SUSPEND the turn (no terminal, so the resume path can
-        // still find it) rather than fail it. Mirrors the carrying daemon
-        // chat.service stamps on the message.
-        const carryingDaemonId =
-            runtime === 'daemon' ? agent.daemonId : (ctx.runnerDaemonId ?? null)
+            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
+            ctx.runnerDaemonId ?? undefined)
         const codexCreds = creds as ResolvedCodexCredentials | null
         const resumeSessionRef = ctx.frameworkSessionRef?.trim() || null
         const prompt = resumeSessionRef
@@ -185,6 +168,10 @@ export class CodexAdapter implements ApiChatAdapter {
         await ctx.onServedPriceScope?.(servedScope)
         ctx.abortSignal?.throwIfAborted()
         ctx = { ...ctx, ...servedScope }
+        if (ctx.abortSignal?.aborted) {
+            yield { type: 'error', error: { code: 'cancelled_by_user', message: 'Cancelled by user', retryable: false } }
+            return
+        }
         const handle = driver.stream({
             cmd,
             env,
@@ -206,9 +193,7 @@ export class CodexAdapter implements ApiChatAdapter {
             onExecSession: ctx.onExecSession,
             // refId == messageId is what lets the reverse-WS resume path find
             // this stream again by (daemon_id, daemon_exec_ref).
-            ...((runtime === 'daemon' && agent.daemonId) || viaRunner
-                ? { execHandle: ctx.messageId }
-                : {})
+            execHandle: ctx.messageId
         })
 
         ctx.abortSignal?.addEventListener('abort', () => handle.abort(), {

@@ -42,7 +42,6 @@ const gateEnv = (surface: ExecEnvSurface): Record<string, string> => {
     const env: Record<string, string> = {}
     for (const gate of surface.gatedBy ?? []) {
         if (gate.startsWith('daemon:')) continue
-        if (gate === 'MF_SPRITE_RUNNER_AGENTS') continue
         env[gate] = '1'
     }
     return env
@@ -56,7 +55,7 @@ const daemonFeatures = (surface: ExecEnvSurface): string[] =>
 // A runner-carried sprite turn is the only way a sprite reaches a daemon
 // transport; a BYOD daemon agent is already on one.
 const carriesRunner = (surface: ExecEnvSurface): boolean =>
-    surface.runtime === 'sprites' && surface.transport === 'turn-rpc'
+    surface.runtime !== 'daemon' && surface.transport === 'turn-rpc'
 
 const dispatch = async (
     surface: ExecEnvSurface,
@@ -141,27 +140,14 @@ for (const surface of execEnvSurfaces.filter(
             )
     })
 
-    test(`${key} falls back to the gateway when a gate is closed`, async () => {
-        // Each declared flag is load-bearing on its own: closing any one of
-        // them must take the cell off the daemon transport rather than half
-        // enable it.
-        for (const flag of Object.keys(gateEnv(surface))) {
-            // Every remaining env gate is opt-in, so empty reads as off.
-            const off = ''
-            const seam = await dispatch(surface, {
-                flags: { ...gateEnv(surface), [flag]: off }
-            })
-            assert.equal(
-                seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,
-                0,
-                `${key}: ${flag} off must not reach turn.start`
-            )
-        }
-    })
-
     if (surface.capabilityCheckedAt !== 'resolution')
         test(`${key} never dispatches turn.start when the daemon does not advertise the capability`, async () => {
-            const seam = await dispatch(surface, { features: [] })
+            let seam: Seam
+            try { seam = await dispatch(surface, { features: [] }) }
+            catch (err) {
+                assert.match(String(err), /runner|capability|missing/)
+                return
+            }
             assert.equal(
                 seam.rpcs.filter((rpc) => rpc.method === 'turn.start').length,
                 0,
@@ -229,9 +215,9 @@ test('every transport observed at the seam has a declared surface', async () => 
     // call and each RPC method name themselves. A new kind of seam event must
     // extend this observer, or its transport ships unswept.
     const factoryTransport: Partial<Record<AgentRuntime, ExecTransport>> = {
-        sprites: 'sprite-exec',
+        sprites: 'runner-exec',
         daemon: 'daemon-exec',
-        k8s: 'pod-exec'
+        k8s: 'runner-exec'
     }
     const observedFor = (
         seam: Seam,
@@ -263,9 +249,7 @@ test('every transport observed at the seam has a declared surface', async () => 
             // carrying runner, so both variants are swept; daemon and k8s
             // have a single shape.
             const carriers =
-                runtime === 'sprites'
-                    ? [RUNNER_DAEMON_ID, undefined]
-                    : [undefined]
+                runtime === 'daemon' ? [undefined] : [RUNNER_DAEMON_ID]
             for (const carrier of carriers) {
                 const seam = createSeam()
                 const adapter = buildAdapter(seam, {
@@ -284,7 +268,7 @@ test('every transport observed at the seam has a declared surface', async () => 
                 stubGatewayResolution(adapter)
                 await withEnv(
                     {
-                        MF_OPENCLAW_TURN_RPC: '1'
+
                     },
                     async () => {
                         await withGatewayFetch(seam, async () => {

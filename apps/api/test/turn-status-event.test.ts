@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatStreamEvent } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -253,9 +254,8 @@ const makeHarness = (opts: {
               })
           }
         : undefined
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         { get: () => adapter } as never,
         { record: async () => undefined } as never,
@@ -272,7 +272,7 @@ const makeHarness = (opts: {
         undefined,
         undefined,
         undefined,
-        execDrivers as never,
+        readyChatRunner(execDrivers as never),
         undefined,
         { emit: () => undefined } as never,
         {
@@ -348,6 +348,7 @@ test('a sprites turn with no transcript recovery announces nothing', async () =>
     // recovery this instance cannot perform would leave the user waiting on it.
     const h = makeHarness({ runtime: 'sprites', framework: 'claude-code' })
 
+    Object.assign(h.service, { execDrivers: undefined })
     await h.service.adoptTurnExecution(
         executionRow({ runtime: 'sprites', spriteName: 'sprite-1' })
     )

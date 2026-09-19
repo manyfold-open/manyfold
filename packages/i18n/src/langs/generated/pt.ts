@@ -1551,6 +1551,8 @@ const pt: Record<string, string> = {
     'web.chat.error.modelAuth': 'O provedor do modelo rejeitou a solicitação — seu login ou chave de API é inválido ou expirou. Atualize as credenciais do provedor de modelo e tente novamente.',
     'web.chat.error.modelBilling': 'O fornecedor do modelo rejeitou a solicitação — a chave pode estar sem crédito. Atualize a chave ou mude para os créditos da plataforma.',
     'web.chat.error.accountPoolEmpty': 'O provedor deste modelo não tem contas disponíveis no momento. Tente novamente mais tarde.',
+    'web.chat.error.runnerUnavailable': "O executor do agente não está disponível. Reconecte-o e tente novamente.",
+    'web.chat.error.runnerUpgradeRequired': "O executor do agente precisa ser atualizado para continuar a conversa.",
     'web.chat.error.threadBusy': 'Esta conversa está aberta em um terminal, e só uma sessão pode escrever nela por vez. Saia da TUI lá e envie novamente.',
     'web.chat.error.updateKey': 'Chave de atualização',
     'web.chat.error.switchToPlatform': 'Mudar para créditos da plataforma',

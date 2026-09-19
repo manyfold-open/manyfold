@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
@@ -222,9 +223,8 @@ const makeHarness = (
         get: () => (resumeMessage ? { resumeMessage } : {})
     }
 
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         { record: async () => {} } as never,
@@ -245,7 +245,7 @@ const makeHarness = (
         undefined,
         undefined,
         undefined,
-        undefined,
+        readyChatRunner(undefined),
         undefined,
         { emit: (name: string) => appEvents.push(name) } as never,
         { ownerId: 'owner-1', enabled: true } as never,

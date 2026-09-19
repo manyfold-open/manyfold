@@ -41,7 +41,6 @@ const UNMAPPED =
     'no durable mapping today; a causeVia=code_unmapped count in telemetry is the signal to map it'
 const EXCLUDED_CODES = new Map<string, string>([
     ['cancelled_by_user', CANCEL],
-    ['hermes_aborted', CANCEL],
     ['hermes_daemon_aborted', CANCEL],
     ['openclaw_aborted', CANCEL],
     ['openclaw_daemon_aborted', CANCEL],
@@ -64,9 +63,7 @@ const EXCLUDED_CODES = new Map<string, string>([
     ['service_restarting', PINNED_NULL],
     ['missing_binding', PINNED_NULL],
     ['external_converge_unavailable', PINNED_NULL],
-    ['sprite_exec_result_lost', UNMAPPED],
     ['external_provider_unavailable', UNMAPPED],
-    ['openclaw_network', UNMAPPED],
     ['server_restart', UNMAPPED],
     ['a2a_resolve_failed', UNMAPPED],
     ['unsafe_provider_endpoint', UNMAPPED],
@@ -77,10 +74,6 @@ const EXCLUDED_CODES = new Map<string, string>([
 // exact source text: the runtime domain is not expandable statically, so each
 // entry records why its family is classified (or not) as a whole.
 const DYNAMIC_CODE_SOURCES = new Map<string, string>([
-    [
-        '${this.framework}_not_ready',
-        'readiness-timeout family; our own prose, unmapped like its per-framework members'
-    ],
     [
         '${this.framework}_upstream_cancelled',
         'cancel family — a user decision, not an incident to classify'

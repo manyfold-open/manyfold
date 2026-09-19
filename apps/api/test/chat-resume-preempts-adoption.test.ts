@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
@@ -265,9 +266,8 @@ const makeHarness = (
         yield { type: 'done', finalMessageId: TURN }
     }
 
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         { get: () => ({ resumeMessage }) } as never,
         { record: async () => undefined } as never,
@@ -280,11 +280,9 @@ const makeHarness = (
         undefined,
         undefined,
         undefined,
-        // execDrivers: adoption only needs a recovery handle to reach the
-        // transcript stream, and that stream is the one thing stubbed below.
-        {
+        readyChatRunner({
             recoveryFsForAgent: async () => ({ fs: {}, spritesClient: null })
-        } as never,
+        } as never),
         undefined,
         undefined,
         {

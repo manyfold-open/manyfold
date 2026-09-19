@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
@@ -15,9 +16,8 @@ const sessionRow = (id: string, title: string): Record<string, unknown> => ({
 })
 
 test('listSessions attaches channel metadata and keeps manual sessions null', async () => {
-    const service = new ChatService(
-        agentAccessDb() as never,
-        {
+    const service = new ChatService(agentAccessDb() as never,
+        withRunnerCursors({
             listSessions: async () => [
                 sessionRow('session-manual', 'Manual'),
                 sessionRow('session-channel', 'Channel')
@@ -53,7 +53,7 @@ test('listSessions attaches channel metadata and keeps manual sessions null', as
                     )
                 }
             ]
-        } as never,
+        } as never),
         {} as never,
         {} as never,
         {} as never,
@@ -62,7 +62,11 @@ test('listSessions attaches channel metadata and keeps manual sessions null', as
         { event: () => {}, error: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     const sessions = await service.listSessions('user-1', 'agent-1')

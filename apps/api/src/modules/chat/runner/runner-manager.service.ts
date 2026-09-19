@@ -160,6 +160,7 @@ export interface RunnerHandle {
 
 export type RunnerFallbackReason =
     | 'runner_unavailable'
+    | 'runner_missing'
     | 'sprite_exec_unavailable'
     | 'workspace_timeout'
     | 'workspace_connection_closed'
@@ -391,23 +392,12 @@ export class RunnerManagerService {
             userId: args.userId,
             hostName: podRunnerHostName(args.runtimeId)
         })
-        if (!existing?.online)
-            return {
-                handle: null,
-                fallbackReason: 'runner_unavailable',
-                workspace: { outcome: 'none' }
-            }
-        // The same floor the sprite runner enforces by reinstalling. Nothing
-        // in the API checks a daemon's exec.stdin support per turn; below the
-        // floor the prompt would be sent on a stdin the daemon never reads and
-        // the framework would sit waiting for it. The image pins the version,
-        // and the pin is operator-overridable, so this is where it is checked.
+        if (!existing)
+            return { handle: null, fallbackReason: 'runner_missing', workspace: { outcome: 'none' } }
         if (isCliVersionTooOld(existing.cliVersion, DAEMON_MIN_CLI_VERSION))
-            return {
-                handle: null,
-                fallbackReason: 'runner_cli_too_old',
-                workspace: { outcome: 'none' }
-            }
+            return { handle: null, fallbackReason: 'runner_cli_too_old', workspace: { outcome: 'none' } }
+        if (!existing.online)
+            return { handle: null, fallbackReason: 'runner_unavailable', workspace: { outcome: 'none' } }
         const workspace = await this.workspacePreflight(
             existing.id,
             args.workspacePath,

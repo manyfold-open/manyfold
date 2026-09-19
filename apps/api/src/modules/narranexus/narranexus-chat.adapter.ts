@@ -14,6 +14,7 @@ import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
+import { DaemonFencedDispatchService } from '@/modules/chat/adapters/daemon-fenced-dispatch.service'
 import { GatewayHttpChatAdapter } from '@/modules/chat/adapters/gateway-http-chat.adapter'
 import type {
     ApiChatAdapterContext,
@@ -29,14 +30,6 @@ import { manyfoldUserToNarraNexusUserId } from './narranexus-paths'
 const SLOT_BINDING_ERROR_RE =
     /\[error\][^\n]*is missing the following slot bindings:\s*\[[^\]]+\][^\n]*/i
 
-// With keep-alive default-off a cold wake now includes startService + run.sh
-// boot, which is unmeasured — 2x the openclaw default, env-tunable so ops can
-// adjust without a release.
-const NARRANEXUS_PREFLIGHT_BUDGET_MS = Math.max(
-    500,
-    Number(process.env.NARRANEXUS_PREFLIGHT_BUDGET_MS ?? 60_000)
-)
-
 @Injectable()
 export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
     readonly framework: AgentFramework = 'narranexus'
@@ -49,7 +42,8 @@ export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
         drivers: ExecDriverFactory,
         telemetry: TelemetryService,
         @Optional() daemonRegistry?: DaemonRegistryService,
-        @Optional() adminSettings?: AdminSettingsService
+        @Optional() adminSettings?: AdminSettingsService,
+        @Optional() fencedDispatch?: DaemonFencedDispatchService
     ) {
         super(
             db,
@@ -59,7 +53,8 @@ export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
             drivers,
             telemetry,
             daemonRegistry,
-            adminSettings
+            adminSettings,
+            fencedDispatch
         )
     }
 
@@ -76,10 +71,6 @@ export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
             attachments: true,
             multiTurn: true
         }
-    }
-
-    protected override preflightBudgetMs(): number {
-        return NARRANEXUS_PREFLIGHT_BUDGET_MS
     }
 
     async *sendMessage(

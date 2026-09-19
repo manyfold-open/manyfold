@@ -234,7 +234,7 @@ test('a daemon without turn.hermes gets the non-retryable upgrade error', async 
     assert.deepEqual(h.routes, [])
     assert.equal(events.length, 1)
     const err = events[0] as { error: { code: string; retryable: boolean } }
-    assert.equal(err.error.code, 'hermes_daemon_upgrade_required')
+    assert.equal(err.error.code, 'chat_runner_upgrade_required')
     assert.equal(err.error.retryable, false)
 })
 
@@ -248,7 +248,7 @@ test('a capability lookup failure is retryable, not an upgrade demand', async ()
     const events = await drain(h.adapter.sendMessage(ctx(), userMsg))
     assert.deepEqual(h.routes, [])
     const err = events[0] as { error: { code: string; retryable: boolean } }
-    assert.equal(err.error.code, 'hermes_daemon_acp_failed')
+    assert.equal(err.error.code, 'chat_runner_unavailable')
     assert.equal(err.error.retryable, true)
 })
 
@@ -258,6 +258,7 @@ test('a capability lookup failure is retryable, not an upgrade demand', async ()
 // provider has no API key at all.
 test('a runner-carried sprite turn injects the provider alias env', async () => {
     const h = routingHarness({ runtime: 'sprites', daemonId: null })
+    h.a.requireTurnHermes = async () => true
     h.a.providerAliasEnv = async () => ({ OPENROUTER_API_KEY: 'sk-1' })
     const events = await drain(
         h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg)
@@ -782,4 +783,19 @@ test('turn.start serializes the ask mode, its timeout, and drops YOLO', async ()
         undefined,
         'ask modes must not freeze YOLO into the child'
     )
+})
+
+test('Hermes admission and credential failures retain redacted diagnostic context', async () => {
+    for (const phase of ['requireTurnHermes', 'providerAliasEnv']) {
+        const h = routingHarness({ runtime: 'sprites', daemonId: null })
+        h.a.requireTurnHermes = async () => true
+        h.a[phase] = async () => { throw new Error('database unavailable; token=private-fixture-token') }
+        const events = await drain(h.adapter.sendMessage(ctx({ runnerDaemonId: 'dh_runner' }), userMsg))
+        assert.deepEqual(h.routes, [])
+        const err = events[0] as { error: { code: string; message: string; retryable: boolean } }
+        assert.equal(err.error.code, phase === 'requireTurnHermes' ? 'chat_runner_unavailable' : 'hermes_daemon_acp_failed')
+        assert.equal(err.error.retryable, true)
+        assert.match(err.error.message, /database unavailable/)
+        assert.doesNotMatch(err.error.message, /private-fixture-token/)
+    }
 })

@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadGatewayException, ConflictException } from '@nestjs/common'
@@ -45,9 +46,8 @@ const buildService = (opts: {
             return true
         }
     }
-    const service = new ChatService(
-        {} as never,
-        repo as never,
+    const service = new ChatService({} as never,
+        withRunnerCursors(repo as never),
         {} as never,
         { get: () => ({}) } as never,
         {} as never,
@@ -60,6 +60,7 @@ const buildService = (opts: {
         undefined as never,
         undefined as never,
         undefined as never,
+        readyChatRunner(undefined as never),
         undefined as never,
         undefined as never,
         undefined as never,
@@ -67,12 +68,6 @@ const buildService = (opts: {
         undefined as never,
         undefined as never,
         undefined as never,
-        undefined as never,
-        (opts.coordinator ?? undefined) as never,
-        {
-            notify: (m: string, r: string, o: string) =>
-                notified.push([m, r, o])
-        } as never,
         (opts.daemonRpc
             ? {
                   rpc: async (args: {
@@ -102,28 +97,11 @@ const daemonMessage = {
     daemonExecRef: 'msg_1'
 }
 
-test('a local holder gets the answer and the audit row lands', async () => {
-    const seen: Array<[string, string, string]> = []
-    const h = buildService({
-        message: interactiveMessage,
-        coordinator: {
-            respondLocal: (m, r, o) => {
-                seen.push([m, r, o])
-                return 'delivered'
-            }
-        }
-    })
-    await h.service.answerPermission(
-        'user-1',
-        'agt_1',
-        'cts_1',
-        'msg_1',
-        'req-1',
-        'allow_once'
-    )
-    assert.deepEqual(seen, [['msg_1', 'req-1', 'allow_once']])
-    assert.equal(h.inserted.length, 1)
-    assert.equal(h.notified.length, 0, 'a delivered answer needs no broadcast')
+test('a turn without a runner rejects permission answers without writing an audit row', async () => {
+    const h = buildService({ message: interactiveMessage })
+    await assert.rejects(h.service.answerPermission('user-1', 'agt_1', 'cts_1', 'msg_1', 'req-1', 'allow_once'), ConflictException)
+    assert.deepEqual(h.inserted, [])
+    assert.deepEqual(h.rpcCalls, [])
 })
 
 test('a holder that no longer knows the request is a 409', async () => {
@@ -202,33 +180,6 @@ test('a daemon that reports unknown_request is a 409; a dead transport is a 502'
     )
 })
 
-test('a peer-owned interactive turn gets the durable row plus the broadcast, once', async () => {
-    const h = buildService({
-        message: interactiveMessage,
-        coordinator: { respondLocal: () => 'no_holder' }
-    })
-    await h.service.answerPermission(
-        'user-1',
-        'agt_1',
-        'cts_1',
-        'msg_1',
-        'req-4',
-        'allow_once'
-    )
-    assert.deepEqual(h.notified, [['msg_1', 'req-4', 'allow_once']])
-    // the second click races the first and loses on the PK
-    await assert.rejects(
-        h.service.answerPermission(
-            'user-1',
-            'agt_1',
-            'cts_1',
-            'msg_1',
-            'req-4',
-            'deny'
-        ),
-        ConflictException
-    )
-})
 
 test('a turn that already ended refuses every answer', async () => {
     const h = buildService({ message: interactiveMessage, terminal: true })

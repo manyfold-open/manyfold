@@ -29,9 +29,11 @@ import { DaemonModule } from '@/modules/daemon/daemon.module'
 import { SpriteKeepAliveLeaseService } from '@/modules/agents/keep-alive/sprite-keepalive-lease.service'
 import { McpConfigMaterializer } from './mcp/mcp-config-materializer.service'
 import { RuntimeAccountService } from './account/runtime-account.service'
+import { RunnerModule } from '@/modules/chat/runner/runner.module'
 
 @Module({
     imports: [
+        RunnerModule,
         AuthModule,
         SpritesAccountsModule,
         K8sModule,

@@ -2673,6 +2673,8 @@ const zh: Translations = {
                     '模型 Provider 拒绝了请求 —— key 可能没额度了。更新 key 或改用平台额度。',
                 accountPoolEmpty:
                     '此模型的提供商暂时没有可用账号，请稍后重试。',
+                runnerUnavailable: 'Agent runner 暂时不可用，请恢复连接后重试。',
+                runnerUpgradeRequired: 'Agent runner 需要升级后才能继续聊天。',
                 threadBusy:
                     '这段对话正在某个终端里打开，同一时刻只能有一个会话写入它。先退出那里的 TUI，再重新发送。',
                 updateKey: '更新 key',

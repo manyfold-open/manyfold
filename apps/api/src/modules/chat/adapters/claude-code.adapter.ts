@@ -28,7 +28,6 @@ import {
     type ApiChatResumeContext,
     type EmittedChatEvent
 } from '@/modules/chat/chat-adapter'
-import { SpritesError } from '@manyfold/sprites'
 import type { ExecDriver, ExecStreamHandle } from './exec-driver'
 import { ChatRepository } from '@/modules/chat/chat.repository'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
@@ -50,28 +49,9 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { TurnFenceLostError } from '@/modules/chat/turn-fence'
-import {
-    recoverTurnFromClaudeJsonl,
-    type TurnRecoveryVerdict,
-    type TurnSeenState
-} from '@/modules/chat/recovery/turn-jsonl-recovery'
 
-// Overall bound on the post-drop JSONL recovery attempt. SpriteRecoveryFs already
-// bounds its own locate (30s) and read (60s); this caps their sum + parse so a
-// slow sprite fs can't stall an already-failed turn indefinitely.
-const RECOVERY_OVERALL_TIMEOUT_MS = 75_000
 const CLAUDE_XHIGH_MIN_CLI_VERSION = '2.1.111'
 const CLAUDE_VERSION_PROBE_TIMEOUT_MS = 5_000
-
-// Off by default: it re-enables delta output for runner turns. Safe since
-// their resumes moved to the exact cursor (see resumeFromSeq()); the default
-// is a rollout choice, not a safety gate. Read per call rather than frozen at
-// module load so a same-process test or drill can exercise both sides without
-// reloading the module (same reasoning as MF_SPRITE_RUNNER_AGENTS).
-const runnerDeltaStreamingEnabled = (): boolean =>
-    ['1', 'true', 'yes'].includes(
-        (process.env.MF_RUNNER_DELTA_STREAM ?? '').toLowerCase()
-    )
 
 @Injectable()
 export class ClaudeCodeAdapter implements ApiChatAdapter {
@@ -101,27 +81,15 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
     ): AsyncIterable<EmittedChatEvent> {
         const tAdapterStart = Date.now()
         const {
-            driver: spriteDriver,
+            driver,
+            daemonId: carryingDaemonId,
             creds,
             runtime,
-            agent,
-            baseEnv,
-            authContext
-        } = await this.drivers.forAgent(ctx.agentId, ctx.agent)
+            agent
+        } = await this.drivers.forAgent(ctx.agentId, ctx.agent,
+            ctx.modelConfig ? 'platform' : ctx.runtimeLocalTuning ? 'runtime-local' : undefined,
+            ctx.runnerDaemonId ?? undefined)
         const claudeCreds = creds as ResolvedClaudeCodeCredentials | null
-        // Only the TRANSPORT changes for a runner turn: runtime stays 'sprites'
-        // so credential injection, workspace path and model config keep the
-        // sprite semantics (the daemon exec RPC forwards env, stdin and cwd).
-        // baseEnv rides along: the sprite driver carries the per-agent identity
-        // (MF_API_TOKEN et al) internally, so the swapped transport must carry
-        // the same or every `mf` call in the turn 401s (#581).
-        const driver = ctx.runnerDaemonId
-            ? this.drivers.daemonDriverFor(
-                  ctx.runnerDaemonId,
-                  baseEnv,
-                  authContext
-              )
-            : spriteDriver
         const prompt = messageToPromptText(userMessage)
 
         const cmd = [
@@ -159,36 +127,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         if (ctx.frameworkSessionRef) {
             cmd.push('--resume', ctx.frameworkSessionRef)
         }
-        // Token-level streaming: without this flag the CLI only emits complete
-        // assistant lines, so first visible text waits for the model to finish
-        // its whole first content block. Sprite/k8s images pin a CLI that
-        // supports the flag; daemon runs the user's local CLI, so it stays
-        // block-level rather than risking an unknown-option failure.
-        const viaRunner = !!ctx.runnerDaemonId
-        // A runner turn was block-level because resuming a DELTA stream from a
-        // cursor could silently drop content — the conservative cursor re-sent
-        // one line, and a re-sent delta row can collide with a row holding
-        // different text once the broadcaster's merge boundaries shift. The
-        // exact cursor (chat_stream_events.runner_seq) re-sends nothing, so
-        // token-level output is safe here now. What still keeps a runner turn
-        // block-level is MF_RUNNER_DELTA_STREAM defaulting off — a rollout
-        // lever, not a safety gate, kept separate from the runner allowlist so
-        // streaming can be rolled back without giving up resumability.
-        const runnerDeltaOk = viaRunner && runnerDeltaStreamingEnabled()
-        // Whoever is holding the exec, and therefore whoever can hand it back:
-        // losing that socket must SUSPEND the turn (no terminal, so the resume
-        // path can still find it) rather than fail it. Mirrors the carrying
-        // daemon chat.service stamps on the message.
-        const carryingDaemonId =
-            runtime === 'daemon' ? agent.daemonId : (ctx.runnerDaemonId ?? null)
-        const includePartial =
-            runtime !== 'daemon' &&
-            (!viaRunner || runnerDeltaOk) &&
-            (this.adminSettings
-                ? await this.adminSettings.isFeatureEnabled(
-                      'claude_partial_stream'
-                  )
-                : false)
+        const includePartial = runtime !== 'daemon'
         if (includePartial) cmd.push('--include-partial-messages')
         const modelEnv = claudeModelMapEnv(modelConfig)
         const credentialEnv = claudeCreds
@@ -228,6 +167,10 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             ctx.timings.setupMs = Date.now() - tAdapterStart
             ctx.timings.execDispatchedAt = Date.now()
         }
+        if (ctx.abortSignal?.aborted) {
+            yield { type: 'error', error: { code: 'cancelled_by_user', message: 'Cancelled by user', retryable: false } }
+            return
+        }
         const handle = driver.stream({
             cmd,
             env,
@@ -239,9 +182,7 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
             onExecSession: ctx.onExecSession,
             // refId == messageId is what lets the reverse-WS resume path find
             // this stream again by (daemon_id, daemon_exec_ref).
-            ...((runtime === 'daemon' && agent.daemonId) || viaRunner
-                ? { execHandle: ctx.messageId }
-                : {})
+            execHandle: ctx.messageId
         })
 
         ctx.abortSignal?.addEventListener('abort', () => handle.abort(), {
@@ -254,7 +195,6 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
         const tStart = Date.now()
         // Recovery may synthesize usage; a result-line usage lives in the
         // consumer and the tail below prefers the recovered one.
-        let recoveredUsage: ChatUsage | null = null
         // Owns the per-turn parse state (delta coalescing, seen tracking for
         // recovery, usage/result capture); shared with cross-process turn
         // adoption, which re-runs it over an exec re-attach's stdout replay.
@@ -389,117 +329,11 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                 }
                 return
             }
-            const spriteExecSessionId =
-                transportError instanceof SpritesError
-                    ? transportError.execSessionId
-                    : undefined
-            const baseAttrs = this.recoveryAttrs(
-                ctx,
-                runtime,
-                spriteExecSessionId
-            )
-            // Only the sprite reap (structured reason, never abort/timeout/
-            // liveness which carry no reason) is recoverable; a user cancel
-            // mid-flight opts out so the turn ends promptly as cancelled.
-            const gone =
-                runtime === 'sprites' &&
-                transportError instanceof SpritesError &&
-                transportError.reason === 'exec_session_gone' &&
-                !ctx.abortSignal?.aborted
-            const recoveryRef =
-                consumer.frameworkSessionRef ?? ctx.frameworkSessionRef
-
-            if (gone && consumer.sawResultLine && !consumer.errorLast) {
-                // The terminal result already streamed; only the exit frame was
-                // lost to the reap. Fall through to the normal usage+done tail.
-                this.telemetry?.event('chat.exec.recovery', {
-                    ...baseAttrs,
-                    outcome: 'recovered_noop'
-                })
-            } else if (gone && recoveryRef) {
-                const tRecoveryStart = Date.now()
-                const verdict = await this.attemptTurnRecovery(
-                    ctx,
-                    recoveryRef,
-                    prompt,
-                    consumer.seen,
-                    consumer.sourceSeq,
-                    tStart,
-                    consumer.tFirstToken
-                )
-                const durationMs = Date.now() - tRecoveryStart
-                if (verdict.outcome === 'recovered') {
-                    for (const ev of verdict.events) yield ev
-                    recoveredUsage = verdict.usage
-                    // errored stays false: the ref-persist / usage / done tail
-                    // below completes the assistant message exactly once.
-                    this.telemetry?.event('chat.exec.recovery', {
-                        ...baseAttrs,
-                        outcome: 'recovered',
-                        recoveredLines: verdict.recoveredLines,
-                        sourceFile: verdict.sourceFile,
-                        synthOutputTokens: verdict.usage.outputTokens,
-                        durationMs
-                    })
-                } else if (verdict.outcome === 'result_lost') {
-                    for (const ev of verdict.events) yield ev
-                    this.telemetry?.event('chat.exec.recovery', {
-                        ...baseAttrs,
-                        outcome: 'result_lost',
-                        detail: verdict.detail,
-                        sourceFile: verdict.sourceFile,
-                        durationMs
-                    })
-                    yield {
-                        type: 'error',
-                        error: {
-                            code: 'sprite_exec_result_lost',
-                            message:
-                                'claude finished or died while the runtime connection was interrupted, and no final result could be recovered from the session log; partial output was kept — send a new message to continue from the last saved state',
-                            retryable: true
-                        }
-                    }
-                    errored = true
-                } else {
-                    this.telemetry?.event('chat.exec.recovery', {
-                        ...baseAttrs,
-                        outcome: 'failed',
-                        detail: verdict.detail,
-                        durationMs
-                    })
-                    this.logger.warn(
-                        `claude exec transport error (recovery failed: ${verdict.detail}): ${transportError.message}`
-                    )
-                    yield {
-                        type: 'error',
-                        error: {
-                            code: 'claude_exec_failed',
-                            message: transportError.message,
-                            retryable: true
-                        }
-                    }
-                    errored = true
-                }
-            } else {
-                if (gone && !recoveryRef)
-                    this.telemetry?.event('chat.exec.recovery', {
-                        ...baseAttrs,
-                        outcome: 'skipped',
-                        detail: 'no_session_ref'
-                    })
-                this.logger.warn(
-                    `claude exec transport error: ${transportError.message}`
-                )
-                yield {
-                    type: 'error',
-                    error: {
-                        code: 'claude_exec_failed',
-                        message: transportError.message,
-                        retryable: true
-                    }
-                }
-                errored = true
+            yield {
+                type: 'error',
+                error: { code: 'claude_exec_failed', message: transportError.message, retryable: true }
             }
+            errored = true
         }
 
         if (!errored && execResult && execResult.exitCode !== 0) {
@@ -524,79 +358,10 @@ export class ClaudeCodeAdapter implements ApiChatAdapter {
                 ctx.turnFence
             )
 
-        const finalUsage = recoveredUsage ?? consumer.pendingUsage
+        const finalUsage = consumer.pendingUsage
         if (!errored && finalUsage) yield { type: 'usage', usage: finalUsage }
 
         if (!errored) yield { type: 'done', finalMessageId: ctx.messageId }
-    }
-
-    // Bounded, never-throwing JSONL recovery for a reaped sprite exec session.
-    // Fresh RecoveryFs (its own connections, independent of the dead exec
-    // session) raced against an overall cap and the turn's abort signal.
-    private async attemptTurnRecovery(
-        ctx: ApiChatAdapterContext,
-        frameworkSessionRef: string,
-        promptText: string,
-        seen: TurnSeenState,
-        firstSourceSeq: number,
-        tStart: number,
-        tFirstToken: number | null
-    ): Promise<TurnRecoveryVerdict> {
-        try {
-            const { fs } = await this.drivers.recoveryFsForAgent(ctx.agentId)
-            return await Promise.race([
-                recoverTurnFromClaudeJsonl({
-                    fs,
-                    frameworkSessionRef,
-                    promptText,
-                    seen,
-                    firstSourceSeq,
-                    model: ctx.model,
-                    tStart,
-                    tFirstToken
-                }),
-                new Promise<TurnRecoveryVerdict>((resolve) => {
-                    const timer = setTimeout(
-                        () =>
-                            resolve({
-                                outcome: 'failed',
-                                detail: 'recovery timed out'
-                            }),
-                        RECOVERY_OVERALL_TIMEOUT_MS
-                    )
-                    if (typeof timer.unref === 'function') timer.unref()
-                    ctx.abortSignal?.addEventListener(
-                        'abort',
-                        () =>
-                            resolve({
-                                outcome: 'failed',
-                                detail: 'aborted during recovery'
-                            }),
-                        { once: true }
-                    )
-                })
-            ])
-        } catch (err) {
-            return {
-                outcome: 'failed',
-                detail: err instanceof Error ? err.message : String(err)
-            }
-        }
-    }
-
-    private recoveryAttrs(
-        ctx: ApiChatAdapterContext,
-        runtime: string,
-        spriteExecSessionId: string | undefined
-    ): Record<string, string | number | boolean | null | undefined> {
-        return {
-            agentId: ctx.agentId,
-            sessionId: ctx.sessionId,
-            messageId: ctx.messageId,
-            frameworkSessionRef: ctx.frameworkSessionRef,
-            runtime,
-            spriteExecSessionId
-        }
     }
 
     // Resume a turn whose exec is still buffered on the daemon that ran it,

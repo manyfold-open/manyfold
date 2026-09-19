@@ -40,9 +40,9 @@ export interface K8sSidecarSpec {
     command?: string[]
     args?: string[]
     envFromMainSecret?: boolean
-    containerPort: number
-    servicePortName: string
-    servicePort: number
+    containerPort?: number
+    servicePortName?: string
+    servicePort?: number
     ingressHost?: string
     ingressPath?: string
     ingressPathType?: 'Prefix' | 'Exact' | 'ImplementationSpecific'
