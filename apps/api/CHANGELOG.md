@@ -1,5 +1,11 @@
 # @manyfold/api
 
+## 7.0.1
+
+### Patch Changes
+
+- [#490](https://github.com/manyfold-open/manyfold/pull/490) [`da6954f`](https://github.com/manyfold-open/manyfold/commit/da6954f699b13d9b4472f4490438ce63c1316b4e) Thanks [@yingca1](https://github.com/yingca1)! - Allow a fresh NarraNexus runner turn to reach its local gateway before the gateway has lazily created the agent workspace. Runner admission no longer rejects the not-yet-created NarraNexus workspace; coding and Hermes workspace checks remain unchanged. Session history reads now hold a Sprite awake through daemon filesystem and gateway RPC work, then release the lease.
+
 ## 7.0.0
 
 ### Major Changes
