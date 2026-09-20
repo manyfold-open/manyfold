@@ -1,5 +1,13 @@
 # @manyfold/web
 
+## 2.2.2
+
+### Patch Changes
+
+- [#486](https://github.com/manyfold-open/manyfold/pull/486) [`d97866a`](https://github.com/manyfold-open/manyfold/commit/d97866a0a6c86fab0570dae607e8f52a4f2e3985) Thanks [@yingca1](https://github.com/yingca1)! - Require an mf daemon runner for all runtime-backed chat, including model inspection, history, cancellation and permission answers. Remove direct Sprite/Pod exec and API-owned ACP/gateway chat transports, runner rollout switches, and the Claude partial-stream toggle. Enable safe cursor recovery and managed Claude delta streaming unconditionally.
+
+    Existing environments without a compatible runner must update their daemon or Pod image before chatting. K8s service images must start a runner with persistent state; NarraNexus Pods additionally require MF_POD_RUNNER_IMAGE to name the runner image. External Dify, Langflow and A2A integrations retain their HTTP transport.
+
 ## 2.2.1
 
 ### Patch Changes
