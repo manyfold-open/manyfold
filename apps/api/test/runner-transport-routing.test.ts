@@ -34,6 +34,7 @@ const rig = (
 ) => {
     const calls: string[] = []
     const workspaces: unknown[] = []
+    let awakeReleases = 0
     const agent = {
         id: 'agt_one',
         userId: 'usr_one',
@@ -115,9 +116,18 @@ const rig = (
         { get: () => 'https://api.example.test' } as never,
         undefined,
         undefined,
-        { ensureRunner: resolution, resolvePodRunner: resolution } as never
+        {
+            ensureRunner: resolution,
+            resolvePodRunner: resolution,
+            keepSpriteAwake: () => ({
+                release: async () => {
+                    awakeReleases++
+                },
+                detach() {}
+            })
+        } as never
     )
-    return { factory, agent, calls, workspaces }
+    return { factory, agent, calls, workspaces, awakeReleases: () => awakeReleases }
 }
 
 for (const [framework, capability] of Object.entries(frameworkCapabilities)) {
@@ -202,10 +212,13 @@ for (const runtime of ['sprites', 'k8s'] as const) {
 }
 
 test('Sprite recovery reserves a slot and reads its account only once', async () => {
-    const { factory, agent, calls } = rig('sprites', 'codex')
+    const { factory, agent, calls, awakeReleases } = rig('sprites', 'codex')
     const handle = await factory.recoveryFsForAgent(agent.id)
     assert.ok(handle.spritesClient)
+    assert.ok(handle.awakeHold)
     assert.deepEqual(calls, ['reserve', 'account', 'resolve'])
+    await handle.awakeHold?.release()
+    assert.equal(awakeReleases(), 1)
 })
 
 test('managed Sprite upgrade errors direct operators to the managed runner', () => {
