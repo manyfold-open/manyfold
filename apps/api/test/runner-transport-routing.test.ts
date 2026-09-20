@@ -188,11 +188,13 @@ test('a newly starting Pod without a registered runner is retryable', async () =
 })
 
 for (const runtime of ['sprites', 'k8s'] as const) {
-    test(`${runtime}: OpenClaw leaves workspace resolution to its gateway`, async () => {
-        const { factory, agent, workspaces } = rig(runtime, 'openclaw')
-        agent.workspacePath = '/not-yet-created/workspace'
-        await factory.resolveRunner(agent)
-        assert.deepEqual(workspaces, [null])
+    test(`${runtime}: gateway frameworks leave workspace resolution to the gateway`, async () => {
+        for (const framework of ['openclaw', 'narranexus'] as const) {
+            const { factory, agent, workspaces } = rig(runtime, framework)
+            agent.workspacePath = '/not-yet-created/workspace'
+            await factory.resolveRunner(agent)
+            assert.deepEqual(workspaces, [null])
+        }
         const coding = rig(runtime, 'codex')
         await coding.factory.resolveRunner(coding.agent)
         assert.deepEqual(coding.workspaces, [coding.agent.workspacePath])

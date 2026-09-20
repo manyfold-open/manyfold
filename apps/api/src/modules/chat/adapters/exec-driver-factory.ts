@@ -204,8 +204,9 @@ export class ExecDriverFactory {
         let daemonId = agent.daemonId
         let exec: ChatRunner['exec'] = null
         let spritesClient: SpritesClient | undefined
-        // OpenClaw's gateway owns its workspace; the ACP bridge needs no cwd.
-        const workspacePath = agent.framework === 'openclaw'
+        // Gateway-backed frameworks create/resolve their own workspace on the
+        // first turn; admission must not require that lazy path to exist yet.
+        const workspacePath = ['openclaw', 'narranexus'].includes(agent.framework)
             ? null
             : agent.workspacePath ?? agent.mountPath
         if (agent.runtime !== 'daemon') {
