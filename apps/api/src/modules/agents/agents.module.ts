@@ -67,6 +67,7 @@ import { SandboxActiveDurationModule } from '@/modules/agents/sandbox-active-dur
 import { BackupsModule } from '@/modules/backups/backups.module'
 import { K8sModule } from '@/modules/k8s/k8s.module'
 import { ExecDriverFactory } from '@/modules/chat/adapters/exec-driver-factory'
+import { RunnerModule } from '@/modules/chat/runner/runner.module'
 import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import {
     A2aAgentAdapter,
@@ -77,6 +78,7 @@ import {
 @Module({
     imports: [
         AuthModule,
+        RunnerModule,
         SpritesAccountsModule,
         AgentRuntimesModule,
         RuntimeAuthModule,

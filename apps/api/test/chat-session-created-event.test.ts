@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { ChatSessionsChangedEvent } from '@manyfold/shared'
@@ -17,9 +18,8 @@ const buildService = (
     broadcaster: unknown
 ): { service: ChatService; created: { id: string } } => {
     const created = { id: '' }
-    const service = new ChatService(
-        agentAccessDb() as never,
-        {
+    const service = new ChatService(agentAccessDb() as never,
+        withRunnerCursors({
             createSession: async (row: { id: string }) => {
                 created.id = row.id
                 return {
@@ -28,7 +28,7 @@ const buildService = (
                     updatedAt: new Date('2026-05-06T10:00:00.000Z')
                 }
             }
-        } as never,
+        } as never),
         {} as never,
         {} as never,
         {} as never,
@@ -37,7 +37,11 @@ const buildService = (
         { event: () => {}, error: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
     // The broadcaster is appended last and @Optional, so reaching it by field
     // survives the next optional dep being appended ahead of it.

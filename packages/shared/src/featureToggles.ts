@@ -1,6 +1,5 @@
 export const FEATURE_TOGGLE_KEYS = Object.freeze({
     CLOUD_COMPUTER: 'cloud_computer',
-    CLAUDE_PARTIAL_STREAM: 'claude_partial_stream',
     ACTIVE_HOURS_ENFORCEMENT: 'active_hours_enforcement',
     STORAGE_HARD_LIMIT: 'storage_hard_limit'
 } as const)
@@ -41,13 +40,6 @@ export const FEATURE_TOGGLES: readonly FeatureToggleDefinition[] = Object.freeze
         description:
             'Master switch for the persistent k8s container runtime. When off, the option is hidden for every user and new reservations are blocked, regardless of per-user access.',
         defaultEnabled: false
-    },
-    {
-        key: FEATURE_TOGGLE_KEYS.CLAUDE_PARTIAL_STREAM,
-        label: 'Claude token-level streaming',
-        description:
-            'Runs sprite/k8s Claude Code turns with --include-partial-messages so chat streams text as the model writes it instead of waiting for each complete content block. Turn off to fall back to block-level streaming (the pre-rollout behavior) if delta parsing or event volume misbehaves. Daemon runtime always stays block-level.',
-        defaultEnabled: true
     },
     {
         key: FEATURE_TOGGLE_KEYS.ACTIVE_HOURS_ENFORCEMENT,

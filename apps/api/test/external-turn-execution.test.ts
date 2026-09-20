@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test, { mock } from 'node:test'
 import type { TurnExecutionRow } from '@manyfold/db'
@@ -372,9 +373,8 @@ const makeHarness = (opts: {
             return opts.converge ? opts.converge(ctx) : null
         }
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         { get: () => adapter } as never,
         {} as never,
@@ -398,7 +398,7 @@ const makeHarness = (opts: {
         undefined as never,
         undefined as never,
         undefined as never,
-        undefined as never,
+        readyChatRunner(undefined as never),
         undefined as never,
         undefined as never,
         {
@@ -937,6 +937,7 @@ test('a sprites turn never reaches the external convergence path', async () => {
         }
     })
 
+    Object.assign(h.service, { execDrivers: undefined })
     await h.service.adoptTurnExecution(
         executionRow({ runtime: 'sprites', spriteName: 'sprite-1' })
     )

@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ChatService } from '../src/modules/chat/chat.service'
@@ -72,9 +73,8 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
             touchedRuntimes.push(runtime)
         }
     }
-    const service = new ChatService(
-        db as never,
-        {} as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors({} as never),
         {} as never,
         {} as never,
         {} as never,
@@ -85,7 +85,9 @@ const makeWakeHarness = (agentOver: Record<string, unknown> = {}) => {
         spritesProvisioner as never,
         runtimes as never,
         undefined as never,
-        reconcile as never
+        reconcile as never,
+        undefined,
+        readyChatRunner(undefined)
     )
     service['logger'].warn = (msg: string) => {
         warnings.push(msg)
@@ -207,9 +209,8 @@ test('sendMessage has no agent.status gate: a stopped agent still accepts and pe
             }
         })
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         adapters as never,
         {} as never,
@@ -220,7 +221,9 @@ test('sendMessage has no agent.status gate: a stopped agent still accepts and pe
         { wakeSpriteRuntime: async () => undefined } as never,
         { findById: async () => runtimeRow } as never,
         undefined as never,
-        { touchRuntime: () => undefined } as never
+        { touchRuntime: () => undefined } as never,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     const result = await service.sendMessage(

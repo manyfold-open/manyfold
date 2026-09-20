@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatStreamEvent } from '@manyfold/shared'
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
@@ -223,9 +224,21 @@ for (const outcome of ['done', 'error'] as const) {
             unsubscribe = undefined
             assert.deepEqual(oldEvents, [])
             assert.deepEqual(resumedEvents.map(event => [event.type, event.eventId]), [[outcome, String(terminalId)]])
-            const service = new ChatService(h.db, h.repo, broadcaster, undefined as never,
-                undefined as never, undefined as never, undefined as never,
-                {} as never, {} as never, {} as never, {} as never)
+            const service = new ChatService(h.db,
+        withRunnerCursors(h.repo),
+        broadcaster,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined))
             const page = await service.listMessagePage(h.userId, h.agentId, h.sessionId, { limit: 50 })
             assert.equal(page.inflightAssistantMessageId, null)
             assert.equal(page.streamCursorEventId, String(terminalId))
@@ -466,18 +479,21 @@ test(
                     return fn(armed)
                 })
 
-            const service = new ChatService(
-                h.db,
-                wrapped,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                {} as never,
-                {} as never,
-                {} as never,
-                {} as never
+            const service = new ChatService(h.db,
+        withRunnerCursors(wrapped),
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
             )
             const page = await service.listMessagePage(
                 h.userId,
@@ -585,18 +601,21 @@ test(
         let broadcaster: ChatSseBroadcaster | null = null
         try {
             const firstTerminalId = await terminate(h, 'done')
-            const service = new ChatService(
-                h.db,
-                h.repo,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                undefined as never,
-                {} as never,
-                {} as never,
-                {} as never,
-                {} as never
+            const service = new ChatService(h.db,
+        withRunnerCursors(h.repo),
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
             )
             const page = await service.listMessagePage(
                 h.userId,

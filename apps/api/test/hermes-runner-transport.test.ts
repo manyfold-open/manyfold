@@ -125,7 +125,7 @@ test('a runner-carried sprite hermes turn goes to ACP over that runner', async (
     )
 })
 
-test('a sprite hermes turn with no runner falls to the interactive ACP transport', async () => {
+test('a sprite hermes turn with no runner refuses without direct exec', async () => {
     const h = buildHarness({ runtime: 'sprites' })
 
     const out = await drain(
@@ -135,8 +135,9 @@ test('a sprite hermes turn with no runner falls to the interactive ACP transport
         } as never)
     )
 
-    assert.ok(out.ok, out.error)
-    assert.deepEqual(h.interactiveCalls, ['agt_1'])
+    assert.equal(out.ok, false)
+    assert.match(out.error!, /runner missing/)
+    assert.deepEqual(h.interactiveCalls, [])
     assert.deepEqual(h.acpCalls, [])
 })
 
@@ -166,7 +167,7 @@ test("a daemon hermes turn still uses the agent's own daemon, not a runner", asy
 // so the Nth ACP event is the same event in both runs.
 test('ACP content events carry a stable, replay-identical source key', async () => {
     const { acpEventsFromNotification } = await import(
-        '../src/modules/chat/adapters/hermes-acp-client'
+        '@manyfold/shared'
     )
     const note = {
         jsonrpc: '2.0' as const,
@@ -217,7 +218,7 @@ test('resume without daemon refs declines as unsupported', async () => {
 // reported as success, staging 2026-07-28).
 test('turn_end is the only thing that licenses a done terminal', async () => {
     const { acpEventsFromNotification } = await import(
-        '../src/modules/chat/adapters/hermes-acp-client'
+        '@manyfold/shared'
     )
     const turnEnd = acpEventsFromNotification({
         jsonrpc: '2.0',

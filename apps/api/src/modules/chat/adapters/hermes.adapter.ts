@@ -1,3 +1,5 @@
+import { redactCredentialText } from '@/common/telemetry/redact-credentials'
+import { ChatRunnerError } from '../runner/chat-runner'
 import {
     DAEMON_FEATURE_TURN_HERMES,
     DAEMON_FEATURE_TURN_HERMES_OPTIONS,
@@ -46,17 +48,12 @@ import { messageToPromptText } from './message-content'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { hermesProviderAliasEnv } from '@/modules/agents/bootstrap/hermes-shared'
-import { HermesPermissionCoordinator } from '@/modules/chat/hermes-permission-coordinator'
-import { ExecDriverFactory, type ExecDriverHandle } from './exec-driver-factory'
 import {
     acpEventsFromFrame,
-    acpModelMatches,
-    AcpTurn,
-    HERMES_ACP_CMD,
     type AcpEvent,
     type AcpRequestTimeouts,
     type AcpSessionState
-} from './hermes-acp-client'
+} from '@manyfold/shared'
 
 // #556: this was a hard-coded 240s over the whole turn, and the streamed
 // session/update notifications never reset it — so it capped total duration
@@ -81,16 +78,6 @@ const HERMES_PERMISSION_TIMEOUT_MS = Math.max(
     10_000,
     Number(process.env.HERMES_PERMISSION_TIMEOUT_MS ?? 300_000)
 )
-
-// hermesPermissionModes -> hermes's own ACP session mode ids.
-const hermesAcpModeId = (
-    mode: 'default' | 'acceptEdits' | 'dontAsk'
-): string =>
-    mode === 'acceptEdits'
-        ? 'accept_edits'
-        : mode === 'dontAsk'
-          ? 'dont_ask'
-          : 'default'
 
 // Content mapping for one ACP event, shared by the live drain and the resume
 // replay so a recovered turn cannot decode differently from the turn it is
@@ -215,16 +202,7 @@ export class HermesAdapter implements ApiChatAdapter {
         @Optional() private readonly adminSettings?: AdminSettingsService,
         // Same rule. Absent, turn.start dispatches unfenced as before (#619).
         @Optional()
-        private readonly fencedDispatch?: DaemonFencedDispatchService,
-        // Same rule. Carries the interactive exec transports (sprite WSS /
-        // pod exec) for the runtimes where no daemon can own the ACP client.
-        @Optional()
-        private readonly execDrivers?: ExecDriverFactory,
-        // Same rule. Routes user answers to a blocked interactive ask; absent
-        // (tests), ask-mode turns still run — answers just cannot be
-        // delivered from the HTTP endpoint.
-        @Optional()
-        private readonly permissionCoordinator?: HermesPermissionCoordinator
+        private readonly fencedDispatch?: DaemonFencedDispatchService
     ) {}
 
     private async chatExecTimeouts(): Promise<{
@@ -268,6 +246,7 @@ export class HermesAdapter implements ApiChatAdapter {
                 runtime: agents.runtime,
                 daemonId: agents.daemonId,
                 workspacePath: agents.workspacePath,
+                mountPath: agents.mountPath,
                 extras: agents.extras,
                 model: agents.model
             })
@@ -292,143 +271,47 @@ export class HermesAdapter implements ApiChatAdapter {
                 ? ctx.hermesPermissionMode
                 : null
 
-        if (agentRow.runtime === 'daemon') {
-            if (!agentRow.daemonId)
-                throw new Error(
-                    `daemon hermes agent ${ctx.agentId} missing daemonId`
-                )
-            let turnRpc: boolean
-            try {
-                turnRpc = await this.requireTurnHermes(agentRow.daemonId)
-            } catch (err) {
-                yield {
-                    type: 'error',
-                    error: {
-                        code: 'hermes_daemon_acp_failed',
-                        message: `turn.hermes capability lookup failed: ${(err as Error).message}`,
-                        retryable: true
-                    }
-                }
+        const daemonId = agentRow.runtime === 'daemon' ? agentRow.daemonId : ctx.runnerDaemonId
+        if (!daemonId) throw new ChatRunnerError(ctx.runtimeKind, 'runner missing')
+        try {
+            if (!await this.requireTurnHermes(daemonId)) {
+                yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, 'turn.hermes missing', true).chatError }
                 return
             }
-            if (!turnRpc) {
-                // The in-API pipe client is gone (#427's retirement gate):
-                // every hermes turn is owned by an ACP client that survives
-                // this process, or is refused with the fix in hand.
-                yield {
-                    type: 'error',
-                    error: {
-                        code: 'hermes_daemon_upgrade_required',
-                        message:
-                            "this daemon's mf CLI predates the hermes turn RPC; run `mf update` on the daemon host and restart the daemon",
-                        retryable: false
-                    }
-                }
-                return
-            }
-            const override = await this.daemonModelOverride({
-                daemonId: agentRow.daemonId,
-                modelTarget,
-                explicit: explicitModelSwitch
-            })
-            if (override.refusal) {
-                yield override.refusal
-                return
-            }
-            const permission = await this.daemonPermissionMode({
-                daemonId: agentRow.daemonId,
-                askMode
-            })
-            if (permission.refusal) {
-                yield permission.refusal
-                return
-            }
-            yield* this.sendViaTurnRpc(ctx, userMessage, {
-                daemonId: agentRow.daemonId,
-                cwd: agentRow.workspacePath ?? null,
-                // A BYOD daemon spawns `hermes acp` fresh each turn, so the
-                // agent's env text rides the payload (#781).
-                env: envTextToRecord(envTextFromExtras(agentRow.extras)),
-                modelOverride: override.value,
-                modelOverrideRequired: explicitModelSwitch,
-                permissionMode: permission.value
-            })
+        } catch (err) {
+            const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
+            yield { type: 'error', error: new ChatRunnerError(ctx.runtimeKind, `capability lookup failed: ${detail}`).chatError }
             return
         }
-
-        // A sprite hermes turn prefers its runner: the runner daemon owns the
-        // ACP client inside the sprite, so the turn survives an api restart.
-        // Measured on staging 2026-07-28: `hermes acp` runs inside the sprite
-        // alongside the still-running resident gateway services without
-        // disturbing them. Runner resolution already verified turn.hermes —
-        // rechecking here would turn a transient lookup failure into a silent
-        // downgrade AFTER chat.service stamped the daemon refs.
-        if (ctx.runnerDaemonId) {
-            let aliasEnv: Record<string, string>
-            try {
-                aliasEnv = await this.providerAliasEnv(ctx.agentId)
-            } catch (err) {
-                // Same policy as the interactive path's decrypt failure: an
-                // infra error must not silently dispatch a keyless turn that
-                // fails with a provider auth error pointing nowhere near the
-                // cause.
-                yield {
-                    type: 'error',
-                    error: {
-                        code: 'hermes_daemon_acp_failed',
-                        message: `provider credentials unavailable: ${(err as Error).message}`,
-                        retryable: true
-                    }
-                }
-                return
-            }
-            this.logger.log(
-                `hermes sprite turn via runner agent=${ctx.agentId} daemonId=${ctx.runnerDaemonId}`
-            )
-            const override = await this.daemonModelOverride({
-                daemonId: ctx.runnerDaemonId,
-                modelTarget,
-                explicit: explicitModelSwitch
-            })
-            if (override.refusal) {
-                yield override.refusal
-                return
-            }
-            const permission = await this.daemonPermissionMode({
-                daemonId: ctx.runnerDaemonId,
-                askMode
-            })
-            if (permission.refusal) {
-                yield permission.refusal
-                return
-            }
-            yield* this.sendViaTurnRpc(ctx, userMessage, {
-                daemonId: ctx.runnerDaemonId,
-                cwd: agentRow.workspacePath ?? null,
-                // The runner daemon was started detached from a plain exec
-                // session, so the resident gateway's service env — agent
-                // extras and provider alias keys included — never reaches the
-                // child it spawns. Both must ride the payload, or a
-                // non-custom provider has no API key and the Environment
-                // settings silently stop applying. Alias last: the platform
-                // key must win a name collision.
-                env: {
-                    ...envTextToRecord(envTextFromExtras(agentRow.extras)),
-                    ...aliasEnv
-                },
-                modelOverride: override.value,
-                modelOverrideRequired: explicitModelSwitch,
-                permissionMode: permission.value
-            })
+        const override = await this.daemonModelOverride({ daemonId, modelTarget, explicit: explicitModelSwitch })
+        if (override.refusal) {
+            yield override.refusal
             return
         }
-
-        // Sprites without a runner and k8s: API-owned ACP over the runtime's
-        // interactive exec channel. Same protocol as every other hermes turn;
-        // not resumable, exactly like the gateway POST this replaced.
-        yield* this.sendViaInteractiveAcp(ctx, userMessage, {
-            modelTarget: modelTarget ?? agentRow.model ?? null,
-            explicitModelSwitch
+        const permission = await this.daemonPermissionMode({ daemonId, askMode })
+        if (permission.refusal) {
+            yield permission.refusal
+            return
+        }
+        let aliasEnv: Record<string, string> = {}
+        try {
+            if (agentRow.runtime !== 'daemon') aliasEnv = await this.providerAliasEnv(ctx.agentId)
+        } catch (err) {
+            const detail = redactCredentialText(err instanceof Error ? err.message : String(err)).slice(0, 1024)
+            yield { type: 'error', error: {
+                code: 'hermes_daemon_acp_failed',
+                message: `hermes provider credentials unavailable: ${detail}`,
+                retryable: true
+            } }
+            return
+        }
+        yield* this.sendViaTurnRpc(ctx, userMessage, {
+            daemonId,
+            cwd: agentRow.workspacePath ?? agentRow.mountPath ?? null,
+            env: { ...envTextToRecord(envTextFromExtras(agentRow.extras)), ...aliasEnv },
+            modelOverride: override.value,
+            modelOverrideRequired: explicitModelSwitch,
+            permissionMode: permission.value
         })
     }
 
@@ -491,7 +374,7 @@ export class HermesAdapter implements ApiChatAdapter {
         const payload: DaemonTurnStartPayload = {
             framework: 'hermes',
             prompt: messageToPromptText(userMessage),
-            dir: args.cwd || process.env.HOME || '.',
+            ...(args.cwd ? { dir: args.cwd } : {}),
             sessionId: ctx.frameworkSessionRef ?? null,
             ...(args.modelOverride
                 ? {
@@ -985,409 +868,7 @@ export class HermesAdapter implements ApiChatAdapter {
     // construction (ACP is client-driven), so failures here are retryable
     // errors and never `suspended` — nothing could resume a suspended turn,
     // which would make it invisible to every later recovery attempt.
-    private async *sendViaInteractiveAcp(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage,
-        opts: { modelTarget: string | null; explicitModelSwitch: boolean }
-    ): AsyncIterable<EmittedChatEvent> {
-        // addEventListener never fires for an already-aborted signal, so a
-        // cancel that landed before this point must short-circuit here or the
-        // child is spawned and runs — and bills — the whole answer (#665's
-        // class, which the retired gateway path prevented by handing the
-        // signal to fetch).
-        if (ctx.abortSignal?.aborted) {
-            yield abortedEvent()
-            return
-        }
-        if (!this.execDrivers) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_acp_failed',
-                    message:
-                        'interactive exec transport unavailable (no ExecDriverFactory)',
-                    retryable: false
-                }
-            }
-            return
-        }
-        let handle: ExecDriverHandle
-        try {
-            handle = await this.execDrivers.forAgent(ctx.agentId)
-        } catch (err) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_acp_failed',
-                    message: (err as Error).message,
-                    retryable: true
-                }
-            }
-            return
-        }
-        const streamInteractive = handle.driver.streamInteractive?.bind(
-            handle.driver
-        )
-        if (!streamInteractive) {
-            yield {
-                type: 'error',
-                error: {
-                    code: 'hermes_acp_failed',
-                    message: `runtime ${handle.runtime} has no interactive exec transport`,
-                    retryable: false
-                }
-            }
-            return
-        }
-        const creds = (handle.creds ?? {}) as HermesCredentialsInput
-        const execTimeouts = await this.chatExecTimeouts()
-        const budgets: AcpRequestTimeouts = {
-            idleTimeoutMs: HERMES_TURN_IDLE_TIMEOUT_MS,
-            maxDurationMs: execTimeouts.timeoutMs
-        }
-        const permissionMode = ctx.hermesPermissionMode ?? 'dontAsk'
-        const interactive = permissionMode !== 'dontAsk'
-        const cwd = handle.agent.workspacePath ?? null
-        const prompt = messageToPromptText(userMessage)
-        const tStart = Date.now()
-        let firstTokenAt: number | null = null
-
-        // The pre-dispatch awaits above (forAgent, admin settings) are where
-        // a cancel is most likely to land; recheck before spawning.
-        if (ctx.abortSignal?.aborted) {
-            yield abortedEvent()
-            return
-        }
-
-        const queue: AcpEvent[] = []
-        const waker: { resolve: (() => void) | null } = { resolve: null }
-        const wake = (): void => {
-            const r = waker.resolve
-            waker.resolve = null
-            if (r) r()
-        }
-        const enqueue = (ev: AcpEvent): void => {
-            queue.push(ev)
-            wake()
-        }
-        const transport = streamInteractive({
-            cmd: HERMES_ACP_CMD,
-            env: {
-                // The sprite driver already carries the per-agent base env
-                // (extras/identity/connections); only per-turn keys ride here.
-                // The alias is the same fix the runner path needs: an exec'd
-                // child never sees the resident gateway's service env.
-                ...hermesProviderAliasEnv(
-                    (creds.primaryModelProvider as string | undefined) ??
-                        'openai',
-                    creds.primaryModelApiKey ?? ''
-                ),
-                // YOLO bypasses hermes's terminal-approval layer at import
-                // time; the ask modes need it OFF so dangerous commands route
-                // to session/request_permission and reach the user's card.
-                ...(interactive ? {} : { HERMES_YOLO_MODE: '1' })
-            },
-            ...(cwd ? { dir: cwd } : {}),
-            // Bounds the ACP child's whole lifetime, so it has to be the
-            // turn's ceiling and not the inactivity budget. The heartbeat
-            // keeps an idle LB from dropping the WSS during a silent tool
-            // call — with reattach off, that drop would kill the child.
-            timeoutMs: budgets.maxDurationMs,
-            keepAliveMs: execTimeouts.keepAliveMs,
-            livenessTimeoutMs: execTimeouts.livenessTimeoutMs
-        })
-        const turn = new AcpTurn({
-            transport,
-            onEvent: enqueue,
-            logger: this.logger,
-            permissionPolicy: interactive ? 'interactive' : 'auto',
-            permissionTimeoutMs: HERMES_PERMISSION_TIMEOUT_MS
-        })
-        const unregisterPermissions =
-            interactive && this.permissionCoordinator
-                ? this.permissionCoordinator.register(ctx.messageId, {
-                      respond: (requestId, optionId) =>
-                          turn.respondPermission(requestId, optionId),
-                      pendingIds: () => turn.pendingPermissionIds
-                  })
-                : null
-        const state: { finished: boolean; aborted: boolean } = {
-            finished: false,
-            aborted: false
-        }
-        const onAbort = (): void => {
-            state.aborted = true
-            turn.abort()
-            wake()
-        }
-        ctx.abortSignal?.addEventListener('abort', onAbort, { once: true })
-
-        const fatal: { yielded: boolean } = { yielded: false }
-        // Ordinal over ACP events, persisted as the row identity so an
-        // interrupted turn can be replayed without duplicating what it already
-        // stored. Before this the ACP path emitted no source rows at all, so
-        // its stream events had a null key, insertStreamEvent plain-inserted
-        // them, and a replay would have appended the whole answer a second
-        // time.
-        const acpSeq = { current: 0 }
-        const acpXSeq = { current: 0 }
-        const contextRef: {
-            current: { size: number; used: number } | null
-        } = { current: null }
-        const drainQueue = function* (): IterableIterator<EmittedChatEvent> {
-            while (queue.length > 0) {
-                const ev = queue.shift()!
-                switch (ev.type) {
-                    case 'text':
-                    case 'thinking':
-                    case 'tool_call': {
-                        if (ev.type === 'text' && firstTokenAt === null)
-                            firstTokenAt = Date.now()
-                        acpSeq.current += 1
-                        yield* acpEventToChatEvents(ev, acpSeq.current)
-                        break
-                    }
-                    case 'tool_result': {
-                        acpXSeq.current += 1
-                        yield* acpEventToChatEvents(ev, acpXSeq.current)
-                        break
-                    }
-                    case 'permission_request':
-                    case 'permission_resolution': {
-                        acpXSeq.current += 1
-                        yield* acpEventToChatEvents(ev, acpXSeq.current)
-                        break
-                    }
-                    case 'usage_update': {
-                        const cu = contextUsageFromUpdate(ev.usage)
-                        if (cu) contextRef.current = cu
-                        break
-                    }
-                    case 'turn_end':
-                        break
-                    case 'error': {
-                        if (fatal.yielded) break
-                        // The gateway path classified pool exhaustion from
-                        // its 503 body; over ACP the same managed-proxy
-                        // refusal only surfaces on stderr, so classify the
-                        // fatal line PLUS its tail (the 503 body can print on
-                        // a different line than the Aborting marker) or the
-                        // breaker (#660) never trips for hermes. A managed
-                        // refusal is retryable — the breaker and retry
-                        // ladder exist to absorb exactly it — while every
-                        // other fatal line stays terminal.
-                        const managedChannelFailure =
-                            classifyManagedChannelFailureSignal({
-                                message: ev.detail ?? ev.message
-                            })
-                        yield {
-                            type: 'error',
-                            ...(managedChannelFailure
-                                ? { managedChannelFailure }
-                                : {}),
-                            error: {
-                                code: 'hermes_acp_event',
-                                message: ev.message,
-                                retryable: managedChannelFailure !== null
-                            }
-                        }
-                        fatal.yielded = true
-                        state.aborted = true
-                        turn.abort()
-                        return
-                    }
-                    default:
-                        break
-                }
-            }
-        }
-
-        const errorRef: { current: Error | null } = { current: null }
-        const resultRef: {
-            current: Record<string, unknown> | undefined
-        } = { current: undefined }
-        const promptDone = (async (): Promise<void> => {
-            try {
-                await turn.initialize(30_000)
-                const sessionCwd = cwd ?? '.'
-                if (ctx.frameworkSessionRef) {
-                    try {
-                        await turn.resumeSession({
-                            cwd: sessionCwd,
-                            sessionId: ctx.frameworkSessionRef,
-                            timeoutMs: 30_000
-                        })
-                    } catch (err) {
-                        this.logger.warn(
-                            `hermes session/resume failed (${(err as Error).message}); creating new session`
-                        )
-                        await turn.newSession({
-                            cwd: sessionCwd,
-                            timeoutMs: 30_000
-                        })
-                    }
-                } else {
-                    await turn.newSession({
-                        cwd: sessionCwd,
-                        timeoutMs: 30_000
-                    })
-                }
-                // Best-effort: aligns hermes's own edit-approval policy with
-                // the chosen mode so accept_edits/dont_ask stop asking for
-                // what they auto-allow. A failure only means hermes asks
-                // MORE, and the interactive bridge (or auto-approve) absorbs
-                // that.
-                await turn.setMode({
-                    modeId: hermesAcpModeId(permissionMode),
-                    timeoutMs: 30_000
-                })
-                // Reconcile the session's persisted model with what this turn
-                // claims to run (override ?? agent default). Diff against the
-                // reported state so an untouched session costs no RPC; a build
-                // that reports no state only gets set_model for an explicit
-                // switch, where failing loudly beats running the wrong model.
-                const target = opts.modelTarget
-                if (target) {
-                    const state = turn.sessionState
-                    const shouldSet = state
-                        ? !acpModelMatches(state.currentModelId, target)
-                        : opts.explicitModelSwitch
-                    if (shouldSet)
-                        await turn.setModel({
-                            modelId: target,
-                            timeoutMs: 30_000
-                        })
-                }
-                resultRef.current = await turn.prompt({
-                    prompt,
-                    timeouts: budgets
-                })
-            } finally {
-                state.finished = true
-                wake()
-            }
-        })()
-        promptDone.catch((err) => {
-            errorRef.current = err as Error
-        })
-
-        try {
-            while (!state.finished || queue.length > 0) {
-                if (queue.length === 0) {
-                    await new Promise<void>((resolve) => {
-                        waker.resolve = resolve
-                    })
-                }
-                for (const ev of drainQueue()) yield ev
-                if (state.aborted) break
-            }
-        } finally {
-            // Close BEFORE dropping the abort listener: close() waits a
-            // bounded grace for the child to exit on EOF, and a cancel that
-            // lands inside that window must still reach the transport.
-            await turn.close().catch(() => {})
-            unregisterPermissions?.()
-            ctx.abortSignal?.removeEventListener('abort', onAbort)
-        }
-
-        if (fatal.yielded) {
-            yield { type: 'done', finalMessageId: ctx.messageId }
-            return
-        }
-
-        if (state.aborted) {
-            yield abortedEvent()
-            return
-        }
-
-        const runError = errorRef.current
-        if (runError) {
-            // A set_model failure is its own story: method-not-found means
-            // the hermes build predates model switching (fix is a rebuild /
-            // `mf update`, not a retry); anything else is worth retrying.
-            // Never proceed-with-warning — the user named a model, and
-            // answering with a different one silently violates the choice and
-            // mislabels billing.
-            if (runError.message.includes('session/set_model')) {
-                const unsupported = /method not found/i.test(runError.message)
-                yield {
-                    type: 'error',
-                    error: {
-                        code: unsupported
-                            ? 'hermes_set_model_unsupported'
-                            : 'hermes_set_model_failed',
-                        message: unsupported
-                            ? "this agent's hermes build predates model switching; rebuild the agent image or switch back to the default model"
-                            : runError.message,
-                        retryable: !unsupported
-                    }
-                }
-                return
-            }
-            const managedChannelFailure = classifyManagedChannelFailureSignal({
-                message: runError.message
-            })
-            yield {
-                type: 'error',
-                ...(managedChannelFailure ? { managedChannelFailure } : {}),
-                error: {
-                    code: 'hermes_acp_failed',
-                    message: runError.message,
-                    retryable: true
-                }
-            }
-            return
-        }
-
-        const sid = turn.currentSessionId
-        // `sid !== ref`, not `!ref`: when session/resume fails and the
-        // fallback creates a fresh session, the stale stored ref must be
-        // REPLACED or every later turn retries the dead session and hermes
-        // never regains cross-turn memory. Same condition as drainTurnStream.
-        if (sid && sid !== ctx.frameworkSessionRef) {
-            await this.chatRepo
-                .updateFrameworkSessionRef(ctx.sessionId, sid, ctx.turnFence)
-                .catch((err) =>
-                    this.logger.warn(
-                        `hermes session ref persist failed for ${ctx.sessionId}: ${(err as Error).message}`
-                    )
-                )
-        }
-        this.persistHermesAcpState(ctx.agentId, turn.sessionState)
-
-        if (contextRef.current)
-            yield { type: 'context_usage', context: contextRef.current }
-        const usage = extractAcpUsage(resultRef.current)
-        if (usage) {
-            yield {
-                type: 'usage',
-                usage: buildOpenAiUsage(
-                    usage,
-                    ctx.model ??
-                        stringValue(creds.primaryModelName ?? null) ??
-                        'hermes',
-                    tStart,
-                    firstTokenAt,
-                    this.pricing,
-                    ctx
-                )
-            }
-        }
-        yield { type: 'done', finalMessageId: ctx.messageId }
-    }
 }
-
-// The interactive-ACP cancel terminal. Distinct from hermes_daemon_aborted so
-// a cancelled API-owned turn and a cancelled daemon turn stay separable in
-// triage; both normalize to cancelled_by_user in chat.service.
-const abortedEvent = (): EmittedErrorEvent => ({
-    type: 'error',
-    error: {
-        code: 'hermes_aborted',
-        message: 'hermes turn aborted',
-        retryable: false
-    }
-})
 
 const stringValue = (value: unknown): string | null =>
     typeof value === 'string' && value.length > 0 ? value : null

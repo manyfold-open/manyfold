@@ -5,6 +5,8 @@ export type ChatErrorKind =
     | 'model_auth'
     | 'model_billing'
     | 'thread_busy'
+    | 'runner_unavailable'
+    | 'runner_upgrade_required'
     | 'account_pool_empty'
     | null
 
@@ -23,6 +25,14 @@ export const resolveChatErrorDisplay = (
     t: TFn
 ): ChatErrorDisplay => {
     const message = error.message.trim()
+    if (error.code === 'chat_runner_unavailable' || error.code === 'chat_runner_upgrade_required') {
+        const upgrade = error.code === 'chat_runner_upgrade_required'
+        return {
+            kind: upgrade ? 'runner_upgrade_required' : 'runner_unavailable',
+            title: t(upgrade ? 'web.chat.error.runnerUpgradeRequired' : 'web.chat.error.runnerUnavailable'),
+            detail: message || null
+        }
+    }
     if (error.cause === 'account_pool_empty') {
         return {
             kind: 'account_pool_empty',

@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatContentBlock } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -456,18 +457,21 @@ const makeServiceHarness = (): {
         }
     }
     return {
-        service: new ChatService(
-            db as never,
-            repo as never,
-            broadcaster as never,
-            adapters as never,
-            {} as never,
-            files as never,
-            { publishStatus: () => {} } as never,
-            { event: () => {} } as never,
-            undefined as never,
-            undefined as never,
-            undefined as never
+        service: new ChatService(db as never,
+        withRunnerCursors(repo as never),
+        broadcaster as never,
+        adapters as never,
+        {} as never,
+        files as never,
+        { publishStatus: () => {} } as never,
+        { event: () => {} } as never,
+        undefined as never,
+        undefined as never,
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
         ),
         get title() {
             return harness.title

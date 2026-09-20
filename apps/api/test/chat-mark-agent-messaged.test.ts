@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { agents } from '@manyfold/db'
@@ -80,9 +81,8 @@ const makeHarness = (opts: { updateFails?: boolean } = {}) => {
         updateTitleIfEmpty: async () => undefined,
         touchSession: async () => undefined
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         {
             setStreamFence: () => undefined,
             beginStream: () => undefined,
@@ -104,7 +104,9 @@ const makeHarness = (opts: { updateFails?: boolean } = {}) => {
         { wakeSpriteRuntime: async () => undefined } as never,
         { findById: async () => runtimeRow } as never,
         undefined as never,
-        { touchRuntime: () => undefined } as never
+        { touchRuntime: () => undefined } as never,
+        undefined,
+        readyChatRunner(undefined)
     )
     service['logger'].warn = (msg: string) => {
         warnings.push(msg)

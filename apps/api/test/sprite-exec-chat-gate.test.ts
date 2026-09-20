@@ -4,7 +4,8 @@ import { createServer, type Server } from 'node:http'
 import type { Duplex } from 'node:stream'
 import { WebSocketServer, type WebSocket } from 'ws'
 import { getTableName } from 'drizzle-orm'
-import type { SpritesClient } from '@manyfold/sprites'
+import { execSprite, type SpritesClient } from '@manyfold/sprites'
+import { ChatRunnerError } from '../src/modules/chat/runner/chat-runner'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
@@ -696,20 +697,23 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         }
     }
 
-    const emptyHandle = () => ({
-        stdout: (async function* () {})(),
-        stderr: (async function* () {})(),
-        result: Promise.resolve({ exitCode: 0, stdout: '', stderr: '' }),
-        abort: () => {}
-    })
     const execDrivers = {
-        recoveryFsForAgent: async () => ({
-            spritesClient: spritesClientFor(opts.port),
-            agent: currentAgent
-        }),
-        forAgent: async () => {
+        spritesClientForAgent: async () => spritesClientFor(opts.port),
+        resolveRunner: async () => {
             calls.forAgent += 1
-            return { driver: { stream: () => emptyHandle() } }
+            if (!opts.runner) return { daemonId: 'dh_runner', exec: null }
+            const resolution = await runnerManager.ensureRunner({
+                agentId: currentAgent.id,
+                userId: currentAgent.userId,
+                spriteName: currentAgent.spriteName!,
+                exec: args => execSprite(spritesClientFor(opts.port), currentAgent.spriteName!, {
+                    ...args, stdin: args.stdin ?? ''
+                }),
+                firstExecTimeoutMs: 1000
+            })
+            if (!resolution.handle)
+                throw new ChatRunnerError('sprites', resolution.fallbackReason ?? 'runner unavailable', false, resolution.execFailure)
+            return { daemonId: resolution.handle.daemonId, exec: null }
         }
     }
 
@@ -774,18 +778,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         }
     }
 
-    const withRollout = async (body: () => Promise<void>): Promise<void> => {
-        const previous = process.env.MF_SPRITE_RUNNER_AGENTS
-        if (opts.runner) process.env.MF_SPRITE_RUNNER_AGENTS = '*'
-        else delete process.env.MF_SPRITE_RUNNER_AGENTS
-        try {
-            await body()
-        } finally {
-            if (previous === undefined)
-                delete process.env.MF_SPRITE_RUNNER_AGENTS
-            else process.env.MF_SPRITE_RUNNER_AGENTS = previous
-        }
-    }
+    const withDispatch = (body: () => Promise<void>): Promise<void> => body()
 
     return {
         adapterCalls,
@@ -797,7 +790,7 @@ const makeHarness = (opts: HarnessOptions): Harness => {
         named: (name) =>
             events.filter((e) => e.name === name).map((e) => e.props),
         send: () =>
-            withRollout(async () => {
+            withDispatch(async () => {
                 await service.sendMessage(
                     'user-1',
                     'agent-1',

@@ -142,7 +142,9 @@ const harness = (opts: {
             host && host.id === id ? host : null
     }
     const daemonHosts = {
-        findById: async (id: string) => (host && host.id === id ? host : null),
+        findById: async (id: string) => id === 'dh_runner'
+            ? { ...hostRow(), id: 'dh_runner' }
+            : (host && host.id === id ? host : null),
         isOnline: () => opts.online ?? true
     }
     const daemonRegistry = {
@@ -172,7 +174,8 @@ const harness = (opts: {
         daemonHosts as never,
         daemonRegistry as never,
         accounts as never,
-        runtimeAccess as never
+        runtimeAccess as never,
+        { ensureRunner: async () => { calls.push('ensureRunner'); return { handle: { daemonId: 'dh_runner' } } } } as never
     )
     return {
         service,
@@ -325,13 +328,10 @@ test('sandbox: a page open never wakes a sleeping VM; a wake reserves the slot f
     assert.deepEqual(h.calls, [
         'reserveActiveSlot:host-sb',
         'spritesClientFor',
-        'exec:art-1'
+        'ensureRunner',
+        'rpc:account.inspect:{"framework":"codex","usage":true}'
     ])
-    const [exec] = h.execs
-    assert.deepEqual(exec.cmd.slice(0, 2), ['bash', '-lc'])
-    // One exec carries both scripts: the facts and the account probe.
-    assert.match(exec.cmd[2], /MF_MODEL_INSPECT_NODE/)
-    assert.match(exec.cmd[2], /MF_ACCOUNT_INSPECT_NODE/)
+    assert.equal(h.execs.length, 0, 'account probe must use RPC')
 })
 
 test('sandbox: a wake refused by the active-slot cap is its own state, and is not cached', async () => {
@@ -359,9 +359,7 @@ test('sandbox: a running VM is read on a plain page open', async () => {
     )
     const view = await h.service.getView('user-1', 'art_1', { wake: false })
     assert.equal(view.status, 'ok')
-    // No facts line: the evaluator fails open rather than calling it missing.
-    assert.equal(view.credentialStatus, 'missing')
-    assert.equal(view.credentialReason, 'not-reported')
+    assert.equal(view.credentialStatus, 'valid')
     assert.equal(h.calls[0], 'reserveActiveSlot:host-sb')
 })
 

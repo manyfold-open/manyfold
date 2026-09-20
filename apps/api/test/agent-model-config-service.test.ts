@@ -1197,7 +1197,7 @@ test('AgentModelConfigService refreshes daemon runtime-local capability', async 
     assert.equal(db.agent.extras?.modelProviderModels, undefined)
 })
 
-test('AgentModelConfigService refreshes sprites runtime-local capability through exec inspect', async () => {
+test('AgentModelConfigService refreshes sprites runtime-local capability through runner model.inspect', async () => {
     const db = new FakeDb({
         ...baseAgent,
         runtime: 'sprites',
@@ -1228,21 +1228,10 @@ test('AgentModelConfigService refreshes sprites runtime-local capability through
             }
         ]
     })
-    const service = makeService(db, [], undefined, {
-        forAgent: async () => ({
-            driver: {
-                stream: () => ({
-                    stdout: chunks(`${payload}\n`),
-                    stderr: chunks(''),
-                    result: Promise.resolve({
-                        exitCode: 0,
-                        stdout: payload,
-                        stderr: ''
-                    }),
-                    abort: () => {}
-                })
-            }
-        })
+    const service = makeService(db, [], {
+        rpc: async () => JSON.parse(payload)
+    }, {
+        resolveRunner: async () => ({ daemonId: 'dh_runner', exec: null })
     })
 
     const result = await service.refreshProviderModels(
@@ -1918,7 +1907,7 @@ const makeService = (
     db: FakeDb,
     models: string[] | null,
     daemonRegistry?: { rpc: () => Promise<Record<string, unknown>> },
-    execDrivers?: { forAgent: () => Promise<unknown> },
+    execDrivers?: { resolveRunner: () => Promise<unknown> },
     enabledModels: ProtocolModelMap | null = null
 ): AgentModelConfigService =>
     new AgentModelConfigService(
@@ -1982,9 +1971,7 @@ const makeService = (
         execDrivers as never
     )
 
-const chunks = async function* (...values: string[]): AsyncIterable<string> {
-    for (const value of values) yield value
-}
+
 
 class FakeDb {
     credentialPayload: Record<string, unknown> = {}

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { Injectable } from '@nestjs/common'
+import { BadRequestException, Injectable } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import type {
     K8sBootstrapContext,
     K8sBootstrapPlan,
@@ -27,7 +28,11 @@ export const generateNarraNexusGatewayToken = (
 export class NarraNexusK8sBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'narranexus' as const
 
+    constructor(private readonly config: ConfigService) {}
+
     plan(_ctx: K8sBootstrapContext, credentials: unknown): K8sBootstrapPlan {
+        const runnerImage = this.config.get<string>('MF_POD_RUNNER_IMAGE')?.trim()
+        if (!runnerImage) throw new BadRequestException('MF_POD_RUNNER_IMAGE is required for the NarraNexus daemon runner')
         const creds = (credentials ?? {}) as NarraNexusCredentialsInput
         const gatewayToken = generateNarraNexusGatewayToken(creds.gatewayToken)
 
@@ -42,6 +47,17 @@ export class NarraNexusK8sBootstrap implements K8sFrameworkBootstrap {
             framework: 'narranexus',
             port: NARRANEXUS_PORT,
             pvcMountPath: PVC_MOUNT,
+            sidecars: [{
+                name: 'mf-runner',
+                image: runnerImage,
+                command: ['mf-daemon-boot'],
+                envFromMainSecret: true,
+                mountPvc: true,
+                resources: {
+                    requests: { cpu: '50m', memory: '64Mi' },
+                    limits: { cpu: '300m', memory: '256Mi' }
+                }
+            }],
             envSecretData: env,
             readinessProbe: {
                 httpGet: { path: '/healthz', port: NARRANEXUS_PORT },

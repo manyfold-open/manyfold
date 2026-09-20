@@ -22,6 +22,8 @@ import {
 // a specific code with no safe mapping stays unclassified. Only the broad
 // legacy codes below carry the actual failure in a message.
 const CAUSE_BY_CODE: Readonly<Record<string, ChatFailureCause>> = {
+    chat_runner_unavailable: 'daemon_offline',
+    chat_runner_upgrade_required: 'unsupported_capability',
     [CODEX_PROVIDER_OVERLOADED_CODE]: 'provider_overloaded',
     [CODEX_RATE_LIMITED_CODE]: 'rate_limited',
     // The breaker refused the turn because the managed pool is already known

@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatContentBlock } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -40,9 +41,8 @@ const messageRow = (
 })
 
 const makeService = (repo: Record<string, unknown>): ChatService =>
-    new ChatService(
-        {} as never,
-        repo as never,
+    new ChatService({} as never,
+        withRunnerCursors(repo as never),
         {} as never,
         {} as never,
         {} as never,
@@ -51,7 +51,11 @@ const makeService = (repo: Record<string, unknown>): ChatService =>
         undefined as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
 const responseCode = (err: unknown): string | undefined => {

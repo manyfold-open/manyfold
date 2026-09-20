@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type {
     ChatContentBlock,
     ChatMessage
@@ -289,9 +290,8 @@ const makeHarness = (
             yield { type: 'done' as const, finalMessageId: ctx.messageId }
         }
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         broadcaster as never,
         { get: () => adapter } as never,
         {} as never,
@@ -300,7 +300,11 @@ const makeHarness = (
         { event: () => {}, error: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     return {

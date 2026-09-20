@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import {
     DEFAULT_CHAT_EXEC_TIMEOUTS,
     resolveChatExecTimeoutMs
@@ -70,9 +71,8 @@ test('ChatService rejects unsupported model override before inserting messages',
             return userMessage
         }
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         {} as never,
         { get: () => ({}) } as never,
         {} as never,
@@ -81,7 +81,11 @@ test('ChatService rejects unsupported model override before inserting messages',
         { event: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     await assert.rejects(
@@ -120,9 +124,8 @@ test('ChatService accepts a hermes model override at the gate', async () => {
         }),
         insertMessage: async () => userMessage
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         {} as never,
         { get: () => ({}) } as never,
         {} as never,
@@ -131,7 +134,11 @@ test('ChatService accepts a hermes model override at the gate', async () => {
         { event: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
     await assert.rejects(
         () =>
@@ -169,9 +176,8 @@ test('ChatService rejects Claude permission mode for non-Claude agents before in
             return userMessage
         }
     }
-    const service = new ChatService(
-        db as never,
-        repo as never,
+    const service = new ChatService(db as never,
+        withRunnerCursors(repo as never),
         {} as never,
         { get: () => ({}) } as never,
         {} as never,
@@ -180,7 +186,11 @@ test('ChatService rejects Claude permission mode for non-Claude agents before in
         { event: () => {} } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
 
     await assert.rejects(

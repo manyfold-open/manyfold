@@ -3,20 +3,24 @@ import {
     MF_ENV_API_TOKEN,
     MF_ENV_API_URL,
     MF_ENV_DEPLOY_ENV,
-    agentWsUrl,
     envTextFromExtras,
     envTextToRecord,
     frameworkCapability,
+    DAEMON_FEATURE_AUTH_CONTEXT,
+    DAEMON_FEATURE_TURN_HERMES,
+    DAEMON_FEATURE_TURN_OPENCLAW,
+    DAEMON_FEATURE_TURN_OPENCLAW_ACP,
+    DAEMON_MIN_CLI_VERSION,
+    DAEMON_ONLINE_THRESHOLD_MS,
+    isCliVersionTooOld,
     DAEMON_FEATURE_EXEC_RESOURCES
 } from '@manyfold/shared'
-import type { AgentModelConfigSource, OpenclawCredentialsInput } from '@manyfold/shared'
+import type { AgentModelConfigSource } from '@manyfold/shared'
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { eq } from 'drizzle-orm'
-import type { V1Pod } from '@kubernetes/client-node'
+import { and, eq } from 'drizzle-orm'
 import {
     runtimeHosts,
-    agentRuntimes,
     agents,
     agentCredentials,
     userModelProviders,
@@ -41,58 +45,45 @@ import {
     decryptActiveIdentityToken,
     type RuntimeKind
 } from '@/modules/auth/runtime-token.service'
-import {
-    KubernetesService,
-    type K8sClient
-} from '@/modules/k8s/kubernetes.service'
-import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import { AGENT_CONTAINER_NAME } from '@/modules/agents/orchestration/k8s-resource-builder'
 import type { ExecDriver } from './exec-driver'
-import { SpritesExecDriver } from './sprites-exec-driver'
-import { K8sExecDriver } from './k8s-exec-driver'
 import { DaemonExecDriver } from './daemon-exec-driver'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from './daemon-fenced-dispatch.service'
 import {
     DaemonRecoveryFs,
-    K8sRecoveryFs,
-    SpriteRecoveryFs,
     type RecoveryFs
 } from '@/modules/chat/recovery/recovery-fs'
 import { OpenclawRpcClient } from './openclaw-rpc-client'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
-import { SpritesSessionRegistry } from '@/modules/agents/sprite-sessions/sprite-sessions.registry'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
-import { podRunnerAttemptedFor } from '@/modules/chat/runner/runner-rollout'
+import { RunnerManagerService, type RunnerResolution } from '@/modules/chat/runner/runner-manager.service'
+import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
+import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
+import { execSprite } from '@manyfold/sprites'
 import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { ConnectionsService } from '@/modules/connections/connections.service'
 import { UNKNOWN_PRICE_SCOPE, verifiedCodingPriceScope, type ServedPriceScope } from '@/modules/usage/served-price-scope'
 
 export interface ExecDriverHandle {
     driver: ExecDriver
+    daemonId: string
     creds: unknown
     resolvePriceScope?: () => Promise<ServedPriceScope>
     supportsExecResources?: () => Promise<boolean>
     runtime: 'sprites' | 'k8s' | 'daemon'
     agent: Agent
-    // Per-agent runtime identity + connection env (sprites), or connection +
-    // extras env (coding daemons, #781). Already baked into `driver`; exposed
-    // so a runner turn that swaps the transport via daemonDriverFor() can
-    // carry the same identity (#581).
+    // Already included in the daemon driver's environment.
     baseEnv?: Record<string, string>
-    // The agent's auth selection resolved once per exec: a runner turn that
-    // swaps onto daemonDriverFor() must pass it along, or the runner would
-    // run the sprite's native sign-in for a profile-bound agent.
     authContext: DaemonAuthContextRef | null
 }
 
 export interface RecoveryFsHandle {
+    daemonId: string
     fs: RecoveryFs
     runtime: 'sprites' | 'k8s' | 'daemon'
     agent: Agent
-    // sprites only: the same client backing `fs`, exposed so turn adoption can
-    // check exec-session liveness (listExecSessions) as a stall signal.
+    // Sprite bootstrap/health only; transcript access always uses the daemon.
     spritesClient?: SpritesClient
 }
 
@@ -104,12 +95,9 @@ export class ExecDriverFactory {
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly accounts: SpritesAccountsService,
         private readonly crypto: CryptoService,
-        private readonly k8s: KubernetesService,
-        private readonly podExecFactory: PodExecFactory,
         private readonly daemonRegistry: DaemonRegistryService,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly spriteStorage: SpriteStorageService,
-        private readonly sessionRegistry: SpritesSessionRegistry,
         private readonly connections: ConnectionsService,
         @Optional() private readonly config?: ConfigService,
         // Appended LAST and @Optional so positional test construction keeps
@@ -119,13 +107,15 @@ export class ExecDriverFactory {
         // Same convention; absent, a daemon agent with no minted identity
         // simply gets no MF_API_TOKEN (#781).
         @Optional()
-        private readonly runtimeTokens?: RuntimeTokenService
+        private readonly runtimeTokens?: RuntimeTokenService,
+        @Optional() private readonly runnerManager?: RunnerManagerService
     ) {}
 
     async forAgent(
         agentId: string,
         preloaded?: Agent,
-        turnSource?: AgentModelConfigSource
+        turnSource?: AgentModelConfigSource,
+        carryingDaemonId?: string
     ): Promise<ExecDriverHandle> {
         const agent =
             preloaded?.id === agentId
@@ -143,188 +133,190 @@ export class ExecDriverFactory {
             throw new Error(`agent ${agentId} has no linked runtime`)
         // Per-turn platform/local selection can differ from the saved default.
         // The driver and the injected credentials must use that same selection.
-        const selectedAuthContext = authContextRefFor(turnSource
-            ? { ...agent, extras: { modelConfig: { source: turnSource } } }
-            : agent)
-
-        if (agent.runtime === 'daemon') {
-            if (!agent.daemonId)
-                throw new Error(`daemon agent ${agentId} missing daemonId`)
-            // A coding daemon turn spawns per exec, so the same identity +
-            // connection + extras base env the sprites branch assembles rides
-            // each dispatch (#781). Service frameworks stay bare: openclaw's
-            // turn payload has no env channel (#783), and hermes carries the
-            // extras inside its own turn payload.
-            const coding =
-                frameworkCapability(agent.framework).kind === 'coding'
-            const [creds, connectionEnv, identityToken] = await Promise.all([
-                this.tryDecryptCreds(agent.runtimeId),
-                coding ? this.connections.resolveAgentEnv(agent) : undefined,
-                coding ? this.lazyIdentityToken(agent, 'daemon') : null
-            ])
-            const baseEnv = coding
-                ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
-                : undefined
-            const authContext = selectedAuthContext
-            if (authContext)
-                assertHostHonoursAuthContext(
-                    authContext,
-                    await this.hostFeatures(agent.daemonId),
-                    'this machine'
-                )
-            return {
-                driver: new DaemonExecDriver(
-                    this.daemonRegistry,
-                    agent.daemonId,
-                    baseEnv,
-                    this.fencedDispatch,
-                    authContext
-                ),
-                creds,
-                resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
-                supportsExecResources: async () => (await this.hostFeatures(agent.daemonId!))?.clientFeatures.includes(DAEMON_FEATURE_EXEC_RESOURCES) ?? false,
-                runtime: 'daemon',
-                agent,
-                ...(baseEnv ? { baseEnv } : {}),
-                authContext
-            }
-        }
-
-        if (agent.runtime === 'k8s') {
-            // The pod Secret is baked once, at provision, from ONE agent's
-            // identity — so on a pod carrying several agents it names the wrong
-            // one, and it carries no connection env or agent extras at all
-            // (#782). A pod-runner turn spawns per exec and can therefore be
-            // given the same per-agent env every other per-exec surface gets.
-            //
-            // Only exposed, never pushed into K8sExecDriver: the direct pod-exec
-            // transport injects exactly what it injected before. (The pod's
-            // ENVIRONMENT did change — the Secret now also carries the runner's
-            // keys, which every process in the container inherits, the same
-            // way a sprite runner's children inherit its profile — but that is
-            // the provisioner's doing, not this transport's.) And only
-            // assembled when the swap can actually be chosen: the connection
-            // env is a network mint (a GitHub installation token) that seven
-            // call sites would otherwise pay per turn for nothing.
-            const swapPossible = podRunnerAttemptedFor(
-                agent.framework,
-                agent.id
-            )
-            // Identity follows the same rule provisioning applies (§3.5): mint
-            // only with a reachable API URL to use it against. Without one no
-            // pod runner can have been provisioned either, so an identity read
-            // here would only ever create an inert row.
-            const identityPossible =
-                swapPossible &&
-                !!this.config?.get<string>('PUBLIC_API_BASE_URL')?.trim()
-            const [creds, connectionEnv, identityToken] = await Promise.all([
-                this.decryptCreds(agent.runtimeId),
-                swapPossible
-                    ? this.connections.resolveAgentEnv(agent)
-                    : undefined,
-                // Read, never rotate: the pod is running on the identity its
-                // Secret was provisioned with, and rotating an active row the
-                // platform cannot decrypt would revoke exactly that token
-                // under the pod-exec path nobody opted out of. A missing token
-                // here is fine — the daemon inherits the Secret's.
-                identityPossible ? this.podIdentityToken(agent) : null
-            ])
-            const baseEnv = swapPossible
-                ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
-                : undefined
-            if (!agent.namespace)
-                throw new Error(`k8s agent ${agentId} missing namespace`)
-            const podLookupId = await this.k8sPodLookupId(agent)
-            const client = await this.k8s.getClient(agent.clusterId)
-            const pod = await this.pickRunningPod(
-                client,
-                agent.namespace,
-                podLookupId
-            )
-            if (!pod?.metadata?.name)
-                throw new Error(
-                    `no running pod for agent ${agentId} (looked up via ${podLookupId}) in ${agent.namespace}`
-                )
-            const podExec = this.podExecFactory.forClient(
-                client,
-                agent.namespace,
-                pod.metadata.name,
-                AGENT_CONTAINER_NAME
-            )
-            assertHostHonoursAuthContext(selectedAuthContext, null, 'a pod')
-            return {
-                driver: new K8sExecDriver(podExec),
-                creds,
-                resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
-                runtime: 'k8s',
-                agent,
-                ...(baseEnv ? { baseEnv } : {}),
-                authContext: null
-            }
-        }
-
-        if (!agent.accountId)
-            throw new Error(`sprites agent ${agentId} missing accountId`)
-        if (!agent.spriteName)
-            throw new Error(`sprites agent ${agentId} missing spriteName`)
-        if (!agent.hostId)
-            throw new Error(`sprites agent ${agentId} missing hostId`)
-        // Independent reads/decrypts batched to keep them off the turn's
-        // critical path; if reserveActiveSlot rejects, the sibling reads are
-        // side-effect-free, and if a read rejects after the slot opened, the
-        // status sync reconciles the host like any exec that failed to start.
-        const [creds, , account, identityToken, connectionEnv] =
-            await Promise.all([
-                this.decryptCreds(agent.runtimeId),
-                this.runtimeAccess.reserveActiveSlot({
-                    userId: agent.userId,
-                    hostId: agent.hostId
-                }),
-                this.accounts.getById(agent.accountId),
-                // Per-agent identity injected at exec time (the sprite's shared
-                // profile no longer carries a token, so co-resident agents stay
-                // distinct).
-                decryptActiveIdentityToken(
-                    this.db,
-                    this.crypto,
-                    agent.id,
-                    'sprites'
-                ),
-                this.connections.resolveAgentEnv(agent)
-            ])
-        if (!account)
-            throw new Error(
-                `sprites account ${agent.accountId} not found for agent ${agentId}`
-            )
-        const token = this.accounts.decryptToken(account)
-        const logger = spritesLoggerFor(this.log, agent.id)
-        const client = createSpritesClient({
-            token,
-            accountSlug: account.slug,
-            logger
-        })
-        void this.spriteStorage.measureIfDue(agent.id, 'chat')
-        const baseEnv = agentBaseEnv(
-            this.config,
-            agent,
-            connectionEnv,
-            identityToken
+        const selectedAuthContext = authContextRefFor(
+            turnSource
+                ? { ...agent, extras: { modelConfig: { source: turnSource } } }
+                : agent
         )
-        const authContext = selectedAuthContext
+
+        if (agent.runtime === 'external')
+            throw new Error('external agents have no exec driver')
+        const daemonId =
+            carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
+        const coding = frameworkCapability(agent.framework).kind === 'coding'
+        const [creds, connectionEnv, identityToken] = await Promise.all([
+            agent.runtime === 'daemon'
+                ? this.tryDecryptCreds(agent.runtimeId)
+                : this.decryptCreds(agent.runtimeId),
+            coding ? this.connections.resolveAgentEnv(agent) : undefined,
+            coding
+                ? agent.runtime === 'k8s'
+                    ? this.podIdentityToken(agent)
+                    : this.lazyIdentityToken(agent, agent.runtime)
+                : null
+        ])
+        const baseEnv = coding
+            ? agentBaseEnv(this.config, agent, connectionEnv, identityToken)
+            : undefined
+        if (selectedAuthContext)
+            assertHostHonoursAuthContext(
+                selectedAuthContext,
+                await this.hostFeatures(daemonId),
+                'this runner'
+            )
+        if (agent.runtime === 'sprites')
+            void this.spriteStorage.measureIfDue(agent.id, 'chat')
         return {
-            driver: new SpritesExecDriver(client, agent.spriteName, logger, {
-                sessionRegistry: this.sessionRegistry,
-                agentId: agent.id,
-                env: baseEnv,
-                authContext
-            }),
+            driver: this.daemonDriverFor(
+                daemonId,
+                baseEnv,
+                selectedAuthContext
+            ),
+            daemonId,
             creds,
-            resolvePriceScope: () => this.priceScopeForCredentials(agent, creds),
-            runtime: 'sprites',
+            resolvePriceScope: () =>
+                this.priceScopeForCredentials(agent, creds),
+            supportsExecResources: async () =>
+                (await this.hostFeatures(daemonId))?.clientFeatures.includes(
+                    DAEMON_FEATURE_EXEC_RESOURCES
+                ) ?? false,
+            runtime: agent.runtime,
             agent,
             baseEnv,
-            authContext
+            authContext: selectedAuthContext
         }
+    }
+
+    async resolveRunner(input: Agent | string): Promise<ChatRunner> {
+        const agent =
+            typeof input === 'string'
+                ? (
+                      await this.db
+                          .select()
+                          .from(agents)
+                          .where(eq(agents.id, input))
+                          .limit(1)
+                  )[0]
+                : input
+        if (!agent) throw new Error('agent not found')
+        if (agent.runtime === 'external')
+            throw new Error('external agents have no runner')
+        let daemonId = agent.daemonId
+        let exec: ChatRunner['exec'] = null
+        let spritesClient: SpritesClient | undefined
+        // OpenClaw's gateway owns its workspace; the ACP bridge needs no cwd.
+        const workspacePath = agent.framework === 'openclaw'
+            ? null
+            : agent.workspacePath ?? agent.mountPath
+        if (agent.runtime !== 'daemon') {
+            if (!this.runnerManager)
+                throw new ChatRunnerError(
+                    agent.runtime,
+                    'runner manager unavailable'
+                )
+            let resolution: RunnerResolution
+            if (agent.runtime === 'sprites') {
+                const client = await this.spritesClientForAgent(agent)
+                spritesClient = client
+                exec = (args) =>
+                    execSprite(client, agent.spriteName!, {
+                        ...args,
+                        stdin: args.stdin ?? ''
+                    })
+                resolution = await this.runnerManager.ensureRunner({
+                    agentId: agent.id,
+                    userId: agent.userId,
+                    spriteName: agent.spriteName!,
+                    workspacePath,
+                    firstExecTimeoutMs:
+                        spriteExecHealthConfig().firstExecTimeoutMs,
+                    exec
+                })
+            } else {
+                if (!agent.runtimeId)
+                    throw new ChatRunnerError(agent.runtime, 'runtime missing')
+                resolution = await this.runnerManager.resolvePodRunner({
+                    userId: agent.userId,
+                    runtimeId: agent.runtimeId,
+                    workspacePath
+                })
+            }
+            if (!resolution.handle)
+                throw new ChatRunnerError(
+                    agent.runtime,
+                    resolution.fallbackReason ?? 'runner unavailable',
+                    resolution.fallbackReason === 'runner_cli_too_old' ||
+                        resolution.fallbackReason === 'runner_missing_turn_rpc',
+                    resolution.execFailure
+                )
+            daemonId = resolution.handle.daemonId
+        }
+        if (!daemonId)
+            throw new ChatRunnerError(agent.runtime, 'runner missing')
+        const [host] = await this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(
+                    eq(runtimeHosts.id, daemonId),
+                    eq(runtimeHosts.userId, agent.userId)
+                )
+            )
+            .limit(1)
+        if (!host || host.kind !== 'daemon')
+            throw new ChatRunnerError(agent.runtime, 'runner missing')
+        const required = [
+            ...(authContextRefFor(agent) ? [DAEMON_FEATURE_AUTH_CONTEXT] : []),
+            ...(agent.framework === 'hermes'
+                ? [DAEMON_FEATURE_TURN_HERMES]
+                : []),
+            ...(agent.framework === 'openclaw'
+                ? [DAEMON_FEATURE_TURN_OPENCLAW_ACP]
+                : []),
+            ...(agent.framework === 'narranexus'
+                ? [DAEMON_FEATURE_TURN_OPENCLAW]
+                : [])
+        ]
+        if (
+            isCliVersionTooOld(host.cliVersion, DAEMON_MIN_CLI_VERSION) ||
+            required.some(
+                (feature) => !(host.clientFeatures ?? []).includes(feature)
+            )
+        )
+            throw new ChatRunnerError(
+                agent.runtime,
+                'runner version or capability',
+                true
+            )
+        if (
+            host.status !== 'active' ||
+            !host.rpcLastSeenAt ||
+            Date.now() - host.rpcLastSeenAt.getTime() >=
+                DAEMON_ONLINE_THRESHOLD_MS
+        )
+            throw new ChatRunnerError(agent.runtime, 'runner offline')
+        return { daemonId, exec, spritesClient }
+    }
+
+    async spritesClientForAgent(agent: Agent): Promise<SpritesClient> {
+        if (
+            agent.runtime !== 'sprites' ||
+            !agent.accountId ||
+            !agent.spriteName ||
+            !agent.hostId
+        )
+            throw new Error('agent has no sprite host')
+        await this.runtimeAccess.reserveActiveSlot({
+            userId: agent.userId,
+            hostId: agent.hostId
+        })
+        const account = await this.accounts.getById(agent.accountId)
+        if (!account) throw new Error('sprite account not found')
+        return createSpritesClient({
+            token: this.accounts.decryptToken(account),
+            accountSlug: account.slug,
+            logger: spritesLoggerFor(this.log, agent.id)
+        })
     }
 
     private async priceScopeForCredentials(agent: Agent, credentials: unknown): Promise<ServedPriceScope> {
@@ -354,12 +346,7 @@ export class ExecDriverFactory {
         return row ? { clientFeatures: row.clientFeatures ?? [] } : null
     }
 
-    // Dispatch a sprite turn through that sprite's own runner instead of a
-    // bare sprite exec. Same transport the daemon runtime uses, so
-    // the turn gets a sequenced, resumable stream; the sprite handle (fs,
-    // spritesClient) stays available to the caller for transcript fallback.
-    // baseEnv: the ExecDriverHandle's per-agent identity env — without it the
-    // runner child falls back to the shared spriterunner profile (#581).
+    // Resume uses this directly, with no new credentials or environment.
     daemonDriverFor(
         daemonId: string,
         baseEnv?: Record<string, string>,
@@ -382,81 +369,20 @@ export class ExecDriverFactory {
             .limit(1)
         if (!agent) throw new Error(`agent ${agentId} not found`)
 
-        if (agent.runtime === 'daemon') {
-            if (!agent.daemonId)
-                throw new Error(`daemon agent ${agentId} missing daemonId`)
-            return {
-                fs: new DaemonRecoveryFs(this.daemonRegistry, agent.daemonId),
-                runtime: 'daemon',
-                agent
-            }
+        if (agent.runtime === 'external') throw new Error('external agents have no recovery filesystem')
+        const runner = await this.resolveRunner(agent)
+        return {
+            daemonId: runner.daemonId,
+            fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
+            runtime: agent.runtime,
+            agent,
+            spritesClient: runner.spritesClient
         }
-
-        if (agent.runtime === 'sprites') {
-            if (!agent.accountId)
-                throw new Error(`sprites agent ${agentId} missing accountId`)
-            if (!agent.spriteName)
-                throw new Error(`sprites agent ${agentId} missing spriteName`)
-            if (!agent.hostId)
-                throw new Error(`sprites agent ${agentId} missing hostId`)
-            const [, account] = await Promise.all([
-                this.runtimeAccess.reserveActiveSlot({
-                    userId: agent.userId,
-                    hostId: agent.hostId
-                }),
-                this.accounts.getById(agent.accountId)
-            ])
-            if (!account)
-                throw new Error(
-                    `sprites account ${agent.accountId} not found for agent ${agentId}`
-                )
-            const token = this.accounts.decryptToken(account)
-            const logger = spritesLoggerFor(this.log, agent.id)
-            const client = createSpritesClient({
-                token,
-                accountSlug: account.slug,
-                logger
-            })
-            return {
-                fs: new SpriteRecoveryFs(client, agent.spriteName, logger),
-                runtime: 'sprites',
-                agent,
-                spritesClient: client
-            }
-        }
-
-        if (agent.runtime === 'k8s') {
-            if (!agent.namespace)
-                throw new Error(`k8s agent ${agentId} missing namespace`)
-            const podLookupId = await this.k8sPodLookupId(agent)
-            const client = await this.k8s.getClient(agent.clusterId)
-            const pod = await this.pickRunningPod(
-                client,
-                agent.namespace,
-                podLookupId
-            )
-            if (!pod?.metadata?.name)
-                throw new Error(
-                    `no running pod for agent ${agentId} (looked up via ${podLookupId}) in ${agent.namespace}`
-                )
-            const podExec = this.podExecFactory.forClient(
-                client,
-                agent.namespace,
-                pod.metadata.name,
-                AGENT_CONTAINER_NAME
-            )
-            return {
-                fs: new K8sRecoveryFs(podExec),
-                runtime: 'k8s',
-                agent
-            }
-        }
-
-        throw new Error(`unsupported runtime for agent ${agentId}`)
     }
 
     async openclawRpcForAgent(
-        agentId: string
+        agentId: string,
+        carryingDaemonId?: string
     ): Promise<OpenclawRpcClient | null> {
         const [agent] = await this.db
             .select()
@@ -465,28 +391,8 @@ export class ExecDriverFactory {
             .limit(1)
         if (!agent) return null
         if (agent.framework !== 'openclaw') return null
-        if (!agent.ingressHost) return null
-        if (!agent.runtimeId) return null
-        const creds = (await this.decryptCreds(
-            agent.runtimeId
-        )) as OpenclawCredentialsInput
-        if (!creds.gatewayToken) return null
-        const url = agentWsUrl(agent.ingressHost)
-        const client = new OpenclawRpcClient({
-            url,
-            token: creds.gatewayToken,
-            logger: this.log
-        })
-        try {
-            await client.connect()
-        } catch (err) {
-            this.log.warn(
-                `openclawRpcForAgent connect failed for ${agentId}: ${(err as Error).message}`
-            )
-            client.disconnect()
-            return null
-        }
-        return client
+        const daemonId = carryingDaemonId ?? (await this.resolveRunner(agent)).daemonId
+        return new OpenclawRpcClient(this.daemonDriverFor(daemonId))
     }
 
     // The agent's active identity for a runtime kind, minted lazily on the
@@ -566,29 +472,7 @@ export class ExecDriverFactory {
         )
     }
 
-    private async pickRunningPod(
-        client: K8sClient,
-        namespace: string,
-        agentId: string
-    ): Promise<V1Pod | undefined> {
-        const { core } = client.apis
-        const res = await core.listNamespacedPod({
-            namespace,
-            labelSelector: `nca.netmind.ai/agent-id=${agentId}`
-        })
-        const pods = res.items ?? []
-        return pods.find((p) => p.status?.phase === 'Running')
-    }
 
-    private async k8sPodLookupId(agent: Agent): Promise<string> {
-        if (!agent.runtimeId) return agent.id
-        const [runtime] = await this.db
-            .select({ primaryAgentId: agentRuntimes.primaryAgentId })
-            .from(agentRuntimes)
-            .where(eq(agentRuntimes.id, agent.runtimeId))
-            .limit(1)
-        return runtime?.primaryAgentId ?? agent.id
-    }
 }
 
 export const manyfoldRuntimeEnv = (

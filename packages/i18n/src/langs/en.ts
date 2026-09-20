@@ -2755,6 +2755,8 @@ const en = {
                     'The model provider rejected the request — the key may be out of credit. Update the key or switch to platform credits.',
                 accountPoolEmpty:
                     "This model's provider has no available accounts right now. Try again later.",
+                runnerUnavailable: 'The agent runner is unavailable. Reconnect it and try again.',
+                runnerUpgradeRequired: 'The agent runner needs an update before chat can continue.',
                 threadBusy:
                     'This conversation is open in a terminal, and only one session can write to it at a time. Exit the TUI there, then send again.',
                 updateKey: 'Update key',

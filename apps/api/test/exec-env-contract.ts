@@ -131,23 +131,11 @@ export interface ExecEnvSurface {
 // provider credentials come from and in what puts the activation dir on PATH —
 // which is exactly what the rows below record.
 const codingSurfaces: readonly ExecEnvSurface[] = [
-    {
-        framework: 'claude-code',
-        runtime: 'sprites',
-        transport: 'sprite-exec',
-        identity: 'per-exec',
-        connections: 'per-exec',
-        extras: 'per-exec',
-        providerCreds: 'per-exec',
-        auth: 'ambient',
-        path: 'wrapper-prepend',
-        resume: 'transparent-reattach'
-    },
+
     {
         framework: 'claude-code',
         runtime: 'sprites',
         transport: 'runner-exec',
-        gatedBy: ['MF_SPRITE_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -157,24 +145,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         resume: 'attach-no-env',
         note: 'The swapped transport must carry the same baseEnv as the sprite driver it replaced (#581). Its argv is bare `claude`: the activation dir has to already be on the runner process PATH, which the sprite bootstrap now guarantees through the managed profile block rather than this cell (#611).'
     },
-    {
-        framework: 'claude-code',
-        runtime: 'k8s',
-        transport: 'pod-exec',
-        identity: 'pod-secret',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'pod-secret',
-        auth: 'ambient',
-        path: 'image-env',
-        resume: 'none',
-        note: 'Connection env and the agent extras reach sprites only; on k8s neither is provisioned into the Secret.'
-    },
+
     {
         framework: 'claude-code',
         runtime: 'k8s',
         transport: 'runner-exec',
-        gatedBy: ['MF_POD_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -197,24 +172,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         resume: 'attach-no-env',
         note: 'A coding daemon turn spawns per exec, so the factory hands it the same identity + connection + extras base env a sprite turn gets (#781). Model creds ride the request env and win over the base env.'
     },
-    {
-        framework: 'codex',
-        runtime: 'sprites',
-        transport: 'sprite-exec',
-        identity: 'per-exec',
-        connections: 'per-exec',
-        extras: 'per-exec',
-        providerCreds: 'sprite-resident',
-        auth: 'ambient',
-        path: 'wrapper-prepend',
-        resume: 'transparent-reattach',
-        note: 'Sprite codex authenticates from its own ~/.codex written at bootstrap, so no credential env rides the turn.'
-    },
+
     {
         framework: 'codex',
         runtime: 'sprites',
         transport: 'runner-exec',
-        gatedBy: ['MF_SPRITE_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -223,23 +185,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         path: 'daemon-ambient',
         resume: 'attach-no-env'
     },
-    {
-        framework: 'codex',
-        runtime: 'k8s',
-        transport: 'pod-exec',
-        identity: 'pod-secret',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'pod-secret',
-        auth: 'ambient',
-        path: 'image-env',
-        resume: 'none'
-    },
+
     {
         framework: 'codex',
         runtime: 'k8s',
         transport: 'runner-exec',
-        gatedBy: ['MF_POD_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -261,24 +211,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         path: 'daemon-ambient',
         resume: 'attach-no-env'
     },
-    {
-        framework: 'gemini-cli',
-        runtime: 'sprites',
-        transport: 'sprite-exec',
-        identity: 'per-exec',
-        connections: 'per-exec',
-        extras: 'per-exec',
-        providerCreds: 'per-exec',
-        auth: 'ambient',
-        path: 'adapter-bootstrap',
-        resume: 'transparent-reattach',
-        note: 'Gemini always wraps its argv in its own auth bootstrap, which prepends the activation dir itself — so this cell keeps the guarantee even where the driver wrapper is absent.'
-    },
+
     {
         framework: 'gemini-cli',
         runtime: 'sprites',
         transport: 'runner-exec',
-        gatedBy: ['MF_SPRITE_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -287,23 +224,11 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
         path: 'adapter-bootstrap',
         resume: 'attach-no-env'
     },
-    {
-        framework: 'gemini-cli',
-        runtime: 'k8s',
-        transport: 'pod-exec',
-        identity: 'pod-secret',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'pod-secret',
-        auth: 'ambient',
-        path: 'adapter-bootstrap',
-        resume: 'none'
-    },
+
     {
         framework: 'gemini-cli',
         runtime: 'k8s',
         transport: 'runner-exec',
-        gatedBy: ['MF_POD_RUNNER_AGENTS'],
         identity: 'per-exec',
         connections: 'per-exec',
         extras: 'per-exec',
@@ -332,152 +257,29 @@ const codingSurfaces: readonly ExecEnvSurface[] = [
     }
 ]
 
-// Service frameworks run as a resident process started at bootstrap, so a turn
-// is normally an HTTP call rather than a spawn. The daemon-carried transports
-// exist so the socket that would cancel the run on close lives somewhere that
-// outlives an API restart.
 const serviceSurfaces: readonly ExecEnvSurface[] = [
-    {
-        framework: 'openclaw',
-        runtime: 'daemon',
-        transport: 'turn-rpc',
+    ...(['daemon', 'sprites', 'k8s'] as const).map((runtime): ExecEnvSurface => ({
+        framework: 'openclaw', runtime, transport: 'turn-rpc',
         gatedBy: ['daemon:turn.openclaw.acp'],
-        identity: 'none',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'daemon-local',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'attach-no-env',
-        payloadEnvKeys: [],
-        note: "The BYOD daemon ACP cell (ADR-0027, O6): the daemon drives `openclaw acp` against the HOST's own resident gateway — discovered from the user's openclaw config on the heartbeat, never started, its token never sent to the API. So the turn.start payload carries no env at all (unlike the hermes daemon turn, whose payload channels the agent extras): the bridge resolves the gateway port and token from the box's own openclaw.json, and the model call runs inside that gateway with its provider key. The daemon must advertise turn.openclaw.acp and its last heartbeat must report a gateway it could reach; a daemon that does neither is refused with openclaw_daemon_upgrade_required / openclaw_daemon_gateway_unavailable rather than falling back — the CLI spawn it used to fall back to is gone (ADR-0027 O9). Resumable — the daemon buffers the ACP frames, replayed via exec.resume."
-    },
-    {
-        framework: 'openclaw',
-        runtime: 'sprites',
-        transport: 'sprite-exec',
-        identity: 'per-exec',
-        connections: 'per-exec',
-        extras: 'per-exec',
-        providerCreds: 'service-env',
-        auth: 'none',
-        path: 'wrapper-prepend',
-        resume: 'none',
-        note: "The no-runner ACP cell (ADR-0027): the API drives `openclaw acp` — a bridge to the resident gateway — over the duplex sprite exec channel. The sprite driver carries the per-agent base env (identity/connections/extras) unconditionally, same as the hermes sprite-exec cell; the provider key is NOT on the exec — the model call runs inside the resident gateway, which holds it — and the bridge itself only needs OPENCLAW_GATEWAY_TOKEN (added per-turn). The API owning the client is exactly why it is not resumable. A clean turn is followed by one one-shot exec on the same channel (`openclaw gateway call sessions.get`, same token env) that reads the turn's token usage back from the gateway transcript, because the ACP stream carries none; openclaw-acp-interactive.test.ts pins that call."
-    },
-    {
-        framework: 'openclaw',
-        runtime: 'k8s',
-        transport: 'pod-exec',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        auth: 'none',
-        path: 'image-env',
-        resume: 'none',
-        note: "The k8s ACP cell (ADR-0027): the API drives `openclaw acp` over an interactive pod exec. The gateway token is inherited from the pod Secret the resident gateway already reads, so the exec injects nothing; the model call runs inside that gateway with its provider key. The bridge is exec'd behind a cat/kill wrapper because it ignores stdin EOF and a pod exec abort only closes the stream — without it the bridge would outlive every turn in the pod. The same post-turn `sessions.get` read-back as the sprite cell follows a clean turn."
-    },
-    {
-        framework: 'hermes',
-        runtime: 'sprites',
-        transport: 'turn-rpc',
+        identity: 'none', connections: 'none', extras: 'none',
+        providerCreds: runtime === 'daemon' ? 'daemon-local' : 'service-env',
+        auth: 'none', path: 'not-applicable', resume: 'attach-no-env', payloadEnvKeys: []
+    })),
+    ...(['daemon', 'sprites', 'k8s'] as const).map((runtime): ExecEnvSurface => ({
+        framework: 'hermes', runtime, transport: 'turn-rpc',
         gatedBy: ['daemon:turn.hermes'],
-        capabilityCheckedAt: 'resolution',
-        identity: 'none',
-        connections: 'none',
-        extras: 'per-exec',
-        providerCreds: 'per-exec',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'attach-no-env',
-        payloadEnvKeys: ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY'],
-        note: 'The preferred sprite transport (unconditional since the ACP unification). The runner daemon was started detached from a plain exec session, so the resident gateway service env never reaches the child it spawns: agent extras and the provider alias key must ride the payload. The alias key follows the primary provider; OPENROUTER_API_KEY is the harness marker shape.'
-    },
-    {
-        framework: 'hermes',
-        runtime: 'sprites',
-        transport: 'sprite-exec',
-        identity: 'per-exec',
-        connections: 'per-exec',
-        extras: 'per-exec',
-        providerCreds: 'per-exec',
-        auth: 'none',
-        path: 'wrapper-prepend',
-        resume: 'none',
-        note: 'The no-runner fallback since gateway-http chat was retired: the API drives `hermes acp` over the duplex sprite exec channel. Same protocol as every other hermes turn; the API owning the client is exactly why it is not resumable.'
-    },
-    {
-        framework: 'hermes',
-        runtime: 'k8s',
-        transport: 'pod-exec',
-        identity: 'pod-secret',
-        connections: 'none',
-        extras: 'none',
-        providerCreds: 'per-exec',
-        auth: 'none',
-        path: 'image-env',
-        resume: 'none',
-        note: 'The only k8s hermes transport since gateway-http chat was retired. The pod Secret carries HERMES_* but the alias key hermes actually reads is re-exported only inside the container entrypoint, which an exec session never runs — so the alias rides each exec. Extras are not in the Secret at all (#782 owns k8s Environment delivery).'
-    },
-    {
-        framework: 'hermes',
-        runtime: 'daemon',
-        transport: 'turn-rpc',
-        gatedBy: ['daemon:turn.hermes'],
-        identity: 'daemon-local',
-        connections: 'none',
-        extras: 'per-exec',
-        providerCreds: 'daemon-local',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'attach-no-env',
-        payloadEnvKeys: ['HERMES_YOLO_MODE'],
-        note: 'Unlike openclaw, a daemon hermes turn is carried by the same turn.start transport as a runner turn — and its payload env channel is what carries the agent extras on a BYOD daemon (#781). A daemon without turn.hermes is refused with a typed upgrade error: the in-API pipe fallback was retired with the ACP unification (#427).'
-    },
-    {
-        framework: 'narranexus',
-        runtime: 'sprites',
-        transport: 'gateway-http',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'none'
-    },
-    {
-        framework: 'narranexus',
-        runtime: 'sprites',
-        transport: 'turn-rpc',
-        gatedBy: [
-            'MF_SPRITE_RUNNER_AGENTS',
-            'MF_OPENCLAW_TURN_RPC',
-            'daemon:turn.openclaw'
-        ],
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'attach-no-env',
-        payloadEnvKeys: [],
-        note: 'NarraNexus inherits the openclaw transport wholesale, including its gate. Reaching this cell at all requires the registry the subclass must forward (#555).'
-    },
-    {
-        framework: 'narranexus',
-        runtime: 'k8s',
-        transport: 'gateway-http',
-        identity: 'none',
-        connections: 'none',
-        extras: 'service-env',
-        providerCreds: 'service-env',
-        auth: 'none',
-        path: 'not-applicable',
-        resume: 'none'
-    }
+        identity: runtime === 'daemon' ? 'daemon-local' : 'none',
+        connections: 'none', extras: 'per-exec',
+        providerCreds: runtime === 'daemon' ? 'daemon-local' : 'per-exec',
+        auth: 'none', path: 'not-applicable', resume: 'attach-no-env',
+        payloadEnvKeys: runtime === 'daemon' ? ['HERMES_YOLO_MODE'] : ['HERMES_YOLO_MODE', 'OPENROUTER_API_KEY']
+    })),
+    ...(['sprites', 'k8s'] as const).map((runtime): ExecEnvSurface => ({
+        framework: 'narranexus', runtime, transport: 'turn-rpc',
+        gatedBy: ['daemon:turn.openclaw'],
+        identity: 'none', connections: 'none', extras: 'service-env', providerCreds: 'service-env',
+        auth: 'none', path: 'not-applicable', resume: 'attach-no-env', payloadEnvKeys: []
+    }))
 ]
 
 // External frameworks are HTTP to somebody else's runtime. Manyfold launches no

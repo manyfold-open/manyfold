@@ -33,7 +33,6 @@ const gateEnv = (surface: ExecEnvSurface): Record<string, string> => {
     const env: Record<string, string> = {}
     for (const gate of surface.gatedBy ?? []) {
         if (gate.startsWith('daemon:')) continue
-        if (gate === 'MF_SPRITE_RUNNER_AGENTS') continue
         env[gate] = '1'
     }
     return env
@@ -115,12 +114,7 @@ for (const surface of driverSeamSurfaces) {
         const seam = await dispatch(surface)
         const stream = soleStream(seam, key)
         if (transport === 'runner-exec') {
-            assert.equal(
-                seam.runnerDrivers.length,
-                1,
-                `${key}: the turn must swap onto the runner transport`
-            )
-            assert.equal(seam.runnerDrivers[0].daemonId, RUNNER_DAEMON_ID)
+            assert.equal(seam.runnerDrivers.length, 0, 'the factory already returns the runner driver')
             assert.equal(stream.via, 'runner')
             assert.equal(
                 stream.execHandle,
@@ -257,4 +251,13 @@ for (const surface of driverSeamSurfaces) {
                 `${key}: resume must not carry a base env`
             )
         })
+}
+
+for (const surface of driverSeamSurfaces) {
+    test(`${execEnvSurfaceKey(surface)} does not start a cancelled turn after setup`, async () => {
+        const controller = new AbortController()
+        controller.abort()
+        const seam = await dispatch(surface, { abortSignal: controller.signal })
+        assert.equal(seam.streams.length, 0)
+    })
 }

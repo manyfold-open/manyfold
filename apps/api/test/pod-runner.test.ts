@@ -130,39 +130,21 @@ test('the declared workspace root contains the agent workspaces on that pod', ()
     )
 })
 
-test('a service pod gets no runner credential at all', async () => {
-    // Its k8s runtime IS the resident gateway, so a daemon there would be a
-    // second surface on the same instance. Declared here rather than left to
-    // the dispatch gate so no credential is ever baked for one.
-    const { provisioner, mints } = buildProvisioner({
-        apiBaseUrl: 'https://api.test'
-    })
+test('service pods register a runner under the existing PVC root', async () => {
+    const { provisioner, mints } = buildProvisioner({ apiBaseUrl: 'https://api.test' })
     for (const framework of ['openclaw', 'hermes', 'narranexus'] as const) {
-        assert.equal(provisioner.supports(framework), false)
-        assert.equal(
-            await provisioner.mint({
-                userId: 'user_1',
-                runtimeId: 'art_pod',
-                framework,
-                homeRoot: '/home/node/.openclaw'
-            }),
-            null
-        )
+        assert.equal(provisioner.supports(framework), true)
+        const result = await provisioner.mint({ userId: 'user_1', runtimeId: 'art_pod', framework, homeRoot: '/data' })
+        assert.ok(result)
+        assert.equal(result.env.MF_CONFIG_DIR, '/data/.manyfold-runner')
+        assert.equal(result.env.MF_DAEMON_WORKSPACE_ROOT, '/data')
     }
-    assert.equal(mints.length, 0)
+    assert.equal(mints.length, 3)
 })
 
-test('no API base url means no credential rather than an unusable one', async () => {
+test('a Pod without a reachable API URL is rejected before minting a token', async () => {
     const { provisioner, mints } = buildProvisioner({})
-    assert.equal(
-        await provisioner.mint({
-            userId: 'user_1',
-            runtimeId: 'art_pod',
-            framework: 'codex',
-            homeRoot: '/home/node/.manyfold'
-        }),
-        null
-    )
+    await assert.rejects(provisioner.mint({ userId: 'user_1', runtimeId: 'art_pod', framework: 'codex', homeRoot: '/home/node/.manyfold' }), /PUBLIC_API_BASE_URL/)
     assert.equal(mints.length, 0)
 })
 
@@ -308,7 +290,7 @@ test('a pod runner that never reported a version is not used either', async () =
     assert.equal(resolution.fallbackReason, 'runner_cli_too_old')
 })
 
-test('an offline pod runner degrades to the pod-exec path', async () => {
+test('an offline pod runner reports unavailability', async () => {
     const { service } = buildResolver({
         hostName: podRunnerHostName('art_pod'),
         online: false
@@ -321,14 +303,14 @@ test('an offline pod runner degrades to the pod-exec path', async () => {
     assert.equal(resolution.fallbackReason, 'runner_unavailable')
 })
 
-test('a pod with no registered runner degrades to the pod-exec path', async () => {
+test('a pod with no registered runner reports that an image upgrade is needed', async () => {
     const { service } = buildResolver({})
     const resolution = await service.resolvePodRunner({
         userId: 'user_1',
         runtimeId: 'art_pod'
     })
     assert.equal(resolution.handle, null)
-    assert.equal(resolution.fallbackReason, 'runner_unavailable')
+    assert.equal(resolution.fallbackReason, 'runner_missing')
 })
 
 test('a workspace outside the declared root is registered before dispatch', async () => {

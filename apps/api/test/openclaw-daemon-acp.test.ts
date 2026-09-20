@@ -100,7 +100,8 @@ const buildRig = (script: {
                             {
                                 runtime: 'daemon',
                                 internalId: 'oc1',
-                                daemonId: 'dh_byod'
+                                daemonId: 'dh_byod',
+                                workspacePath: '/not-yet-created/workspace'
                             }
                         ]
                     }
@@ -203,6 +204,7 @@ test('a daemon ACP turn decodes frames to tokens, bills the read-back usage, per
         assert.equal(payload.sessionKey, 'agent:main:mf-cts_1')
         assert.equal('patch' in payload, false) // dontAsk, no model → no patch
         assert.equal(payload.env, undefined) // never an env channel
+        assert.equal(payload.dir, undefined) // gateway owns the workspace
 
         // Frames became tokens; the read-back usage became a usage event; done.
         const tokens = events
@@ -489,7 +491,7 @@ test('a turn cancelled while it is being prepared never reaches the daemon', asy
 
 // The API-driven cells own their ACP client, so a lost API loses the turn —
 // there is nothing buffered to replay. Only the daemon cell is resumable.
-test('a sprite or k8s openclaw resume is refused, with no RPC attempted', async () => {
+test('a sprite or k8s openclaw turn resumes through its carrying runner', async () => {
     for (const runtimeKind of ['sprites', 'k8s'] as const) {
         const rig = buildRig({
             lines: [],
@@ -504,9 +506,8 @@ test('a sprite or k8s openclaw resume is refused, with no RPC attempted', async 
                 fromSeq: 0
             } as ApiChatResumeContext)
         )
-        assert.equal(rig.calls.length, 0, `${runtimeKind}: no RPC`)
-        const err = errorOf(events)
-        assert.equal(err?.code, 'openclaw_resume_unsupported')
-        assert.equal(err?.retryable, false)
+        assert.equal(rig.calls.length, 1)
+        assert.equal(rig.calls[0].method, 'exec.resume')
+        assert.equal(events.at(-1)?.type, 'done')
     }
 })

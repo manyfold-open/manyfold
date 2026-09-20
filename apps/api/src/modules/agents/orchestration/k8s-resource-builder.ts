@@ -174,7 +174,21 @@ export const buildDeployment = (spec: K8sResourceSpec): V1Deployment => {
         name: AGENT_CONTAINER_NAME,
         image: spec.image,
         imagePullPolicy: 'IfNotPresent',
-        envFrom,
+        // A separate runner owns registration; the gateway never needs its keys.
+        ...(spec.sidecars?.some((sidecar) => sidecar.name === 'mf-runner')
+            ? {
+                  env: spec.envSecretKeys
+                      .filter((key) => !POD_RUNNER_ENV_KEYS.some(
+                          (runnerKey) => runnerKey === key && runnerKey !== 'MF_API_URL'
+                      ))
+                      .map((name) => ({
+                          name,
+                          valueFrom: {
+                              secretKeyRef: { name: spec.envSecretName, key: name }
+                          }
+                      }))
+              }
+            : { envFrom }),
         volumeMounts: [{ name: 'data', mountPath: spec.pvcMountPath }],
         resources: spec.resources ?? DEFAULT_RESOURCES
     }
@@ -212,12 +226,9 @@ export const buildDeployment = (spec: K8sResourceSpec): V1Deployment => {
                 name: sidecar.name,
                 image: sidecar.image,
                 imagePullPolicy: 'IfNotPresent',
-                ports: [
-                    {
-                        containerPort: sidecar.containerPort,
-                        name: sidecar.servicePortName
-                    }
-                ],
+                ...(sidecar.containerPort !== undefined ? {
+                    ports: [{ containerPort: sidecar.containerPort, name: sidecar.servicePortName }]
+                } : {}),
                 resources: sidecar.resources ?? {
                     requests: { cpu: '50m', memory: '64Mi' },
                     limits: { cpu: '300m', memory: '256Mi' }
@@ -280,6 +291,7 @@ export const buildService = (spec: K8sResourceSpec): V1Service => {
         protocol: 'TCP'
     })
     for (const sidecar of spec.sidecars ?? []) {
+        if (sidecar.containerPort === undefined || sidecar.servicePort === undefined || !sidecar.servicePortName) continue
         ports.push({
             name: sidecar.servicePortName,
             port: sidecar.servicePort,
@@ -312,6 +324,7 @@ export const buildSidecarIngress = (
     spec: K8sResourceSpec,
     sidecar: K8sSidecarSpec
 ): V1Ingress => {
+    if (!sidecar.servicePort) throw new Error('sidecar has no service port')
     if (!sidecar.ingressPath)
         throw new Error(
             `sidecar ${sidecar.name} has no ingressPath — cannot build ingress`

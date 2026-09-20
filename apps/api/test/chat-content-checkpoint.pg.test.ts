@@ -1,3 +1,4 @@
+import { readyChatRunner, withRunnerCursors } from './chat-runner-fixture'
 import type { ChatContentBlock } from '@manyfold/shared'
 import 'tsconfig-paths/register'
 import 'reflect-metadata'
@@ -142,9 +143,8 @@ const buildHarness = async (tail: EmittedChatEvent[]): Promise<Harness> => {
         }
     }
     const telemetry: TelemetryEvent[] = []
-    const service = new ChatService(
-        db,
-        new ChatRepository(db),
+    const service = new ChatService(db,
+        withRunnerCursors(new ChatRepository(db)),
         new ChatSseBroadcaster(new ChatRepository(db), noopBus),
         { get: () => adapter } as never,
         {} as never,
@@ -157,7 +157,11 @@ const buildHarness = async (tail: EmittedChatEvent[]): Promise<Harness> => {
         } as never,
         undefined as never,
         undefined as never,
-        undefined as never
+        undefined as never,
+        undefined,
+        undefined,
+        undefined,
+        readyChatRunner(undefined)
     )
     let turnFinishedResolve!: () => void
     const turnFinished = new Promise<void>((r) => {

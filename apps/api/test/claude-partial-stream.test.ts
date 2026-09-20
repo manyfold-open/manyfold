@@ -93,7 +93,7 @@ const collect = async (
 const chatRepo = { updateFrameworkSessionRef: async () => undefined } as never
 
 const adminSettingsEnabled = {
-    isFeatureEnabled: async (key: string) => key === 'claude_partial_stream',
+    isFeatureEnabled: async () => { throw new Error('streaming has no toggle') },
     getCachedChatExecTimeoutMs: async () => ({
         keepAliveMs: 20_000,
         livenessTimeoutMs: 75_000,
@@ -319,7 +319,7 @@ test('daemon runtime never gets the partial-messages flag', async () => {
     )
 })
 
-test('toggle off keeps the legacy invocation', async () => {
+test('managed Claude always requests partial messages', async () => {
     const adminSettingsDisabled = {
         isFeatureEnabled: async () => false,
         getCachedChatExecTimeoutMs: async () => ({
@@ -338,6 +338,6 @@ test('toggle off keeps the legacy invocation', async () => {
     await collect(adapter.sendMessage(baseCtx, userMessage))
     assert.equal(
         handle.request?.cmd.includes('--include-partial-messages'),
-        false
+        true
     )
 })
