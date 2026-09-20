@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
     MF_ENV_AGENT_ID,
     MF_ENV_API_TOKEN,
@@ -57,7 +58,11 @@ import { OpenclawRpcClient } from './openclaw-rpc-client'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { SpriteStorageService } from '@/modules/agents/sprite-storage/sprite-storage.service'
 import { publicApiUrlWithApiPrefix } from '@/common/public-api-url'
-import { RunnerManagerService, type RunnerResolution } from '@/modules/chat/runner/runner-manager.service'
+import {
+    RunnerManagerService,
+    type RunnerResolution,
+    type SpriteAwakeHold
+} from '@/modules/chat/runner/runner-manager.service'
 import { ChatRunnerError, type ChatRunner } from '@/modules/chat/runner/chat-runner'
 import { spriteExecHealthConfig } from '@/modules/agents/sprite-exec-health/sprite-exec-health.service'
 import { execSprite } from '@manyfold/sprites'
@@ -83,6 +88,7 @@ export interface RecoveryFsHandle {
     fs: RecoveryFs
     runtime: 'sprites' | 'k8s' | 'daemon'
     agent: Agent
+    awakeHold?: SpriteAwakeHold
     // Sprite bootstrap/health only; transcript access always uses the daemon.
     spritesClient?: SpritesClient
 }
@@ -204,8 +210,9 @@ export class ExecDriverFactory {
         let daemonId = agent.daemonId
         let exec: ChatRunner['exec'] = null
         let spritesClient: SpritesClient | undefined
-        // OpenClaw's gateway owns its workspace; the ACP bridge needs no cwd.
-        const workspacePath = agent.framework === 'openclaw'
+        // Gateway-backed frameworks create/resolve their own workspace on the
+        // first turn; admission must not require that lazy path to exist yet.
+        const workspacePath = ['openclaw', 'narranexus'].includes(agent.framework)
             ? null
             : agent.workspacePath ?? agent.mountPath
         if (agent.runtime !== 'daemon') {
@@ -376,6 +383,14 @@ export class ExecDriverFactory {
             fs: new DaemonRecoveryFs(this.daemonRegistry, runner.daemonId),
             runtime: agent.runtime,
             agent,
+            ...(runner.exec && this.runnerManager
+                ? {
+                      awakeHold: this.runnerManager.keepSpriteAwake({
+                          exec: runner.exec,
+                          turnId: `recovery-${agent.id}-${randomUUID()}`
+                      })
+                  }
+                : {}),
             spritesClient: runner.spritesClient
         }
     }

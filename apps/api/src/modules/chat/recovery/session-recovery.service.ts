@@ -177,6 +177,7 @@ export class SessionRecoveryService {
             )
         } finally {
             openclawRpc?.disconnect()
+            await handle.awakeHold?.release()
         }
         if (result.messages.length === 0)
             throw new BadRequestException({
@@ -374,8 +375,9 @@ export class SessionRecoveryService {
             `${agent.id}:${limit}`,
             async (): Promise<LocalScanOutcome> => {
                 let openclawRpc: OpenclawRpcClient | null = null
+                let handle: RecoveryFsHandle | null = null
                 try {
-                    const handle = await this.drivers.recoveryFsForAgent(
+                    handle = await this.drivers.recoveryFsForAgent(
                         agent.id
                     )
                     openclawRpc =
@@ -403,6 +405,7 @@ export class SessionRecoveryService {
                     }
                 } finally {
                     openclawRpc?.disconnect()
+                    await handle?.awakeHold?.release()
                 }
             }
         )
@@ -536,6 +539,7 @@ export class SessionRecoveryService {
             }
         } finally {
             openclawRpc?.disconnect()
+            await handle.awakeHold?.release()
         }
     }
 
@@ -638,6 +642,7 @@ export class SessionRecoveryService {
             )
         } finally {
             openclawRpc?.disconnect()
+            await handle.awakeHold?.release()
         }
         if (result.messages.length === 0) return null
 
@@ -756,6 +761,7 @@ export class SessionRecoveryService {
             )
         } finally {
             openclawRpc?.disconnect()
+            await handle.awakeHold?.release()
         }
         if (result.messages.length === 0)
             throw new BadRequestException({
@@ -911,6 +917,7 @@ export class SessionRecoveryService {
             )
         } finally {
             openclawRpc?.disconnect()
+            await handle.awakeHold?.release()
         }
 
         const warnings = [...result.warnings]
