@@ -1378,6 +1378,7 @@ const ar: Record<string, string> = {
     'web.consent.disable': 'إيقاف',
     'web.consent.enable': 'تشغيل',
     'web.consent.message': 'نستخدم Google Analytics لفهم كيفية استخدام Manyfold. يعمل فقط إذا وافقت، ويمكنك تغيير اختيارك في أي وقت.',
+    'web.consent.messageImplied': 'نستخدم Google Analytics لفهم كيفية استخدام Manyfold. يعمل ما لم تقم بإيقافه، ويمكنك تغيير اختيارك في أي وقت.',
     'web.consent.privacyLink': 'سياسة الخصوصية',
     'web.consent.settingsDescription': 'يساعدنا Google Analytics في فهم استخدام المنتج. يقوم بتعيين ملفات تعريف الارتباط _ga ويعمل فقط بموافقتك.',
     'web.consent.settingsTitle': 'ملفات تعريف ارتباط التحليلات',

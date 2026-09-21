@@ -2059,6 +2059,8 @@ const zh: Translations = {
         consent: {
             message:
                 '我们使用 Google Analytics 了解 Manyfold 的使用情况。只有在你同意后才会启用，你可以随时更改选择。',
+            messageImplied:
+                '我们使用 Google Analytics 了解 Manyfold 的使用情况。除非你关闭，否则会启用，你可以随时更改选择。',
             accept: '接受分析',
             decline: '拒绝',
             privacyLink: '隐私政策',

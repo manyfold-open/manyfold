@@ -2118,6 +2118,8 @@ const en = {
         consent: {
             message:
                 'We use Google Analytics to understand how Manyfold is used. It only runs if you accept, and you can change your choice at any time.',
+            messageImplied:
+                'We use Google Analytics to understand how Manyfold is used. It runs unless you turn it off, and you can change your choice at any time.',
             accept: 'Accept analytics',
             decline: 'Decline',
             privacyLink: 'Privacy policy',

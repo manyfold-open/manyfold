@@ -75,5 +75,6 @@ Copy `.env.example` to `.env`:
 - `VITE_AXIOM_TOKEN` / `VITE_AXIOM_DATASET` — frontend RUM; the token is ingest-only and ships in the bundle
 - `VITE_SENTRY_DSN` — error tracking; empty means Sentry is never initialised
 - `VITE_GA_MEASUREMENT_ID` — GA4; production only, empty means gtag.js never loads
+- `VITE_ANALYTICS_CONSENT_MODE` — `opt-in` (default: analytics is off until the visitor accepts) or `regional` (opt-in stays the rule for visitors whose browser time zone is in Europe or an EEA Atlantic zone; elsewhere an undecided visitor counts as consenting until they decline, and the banner says so)
 - `MF_DEV_API_TARGET` — dev-only, vite proxy upstream, defaults to `http://localhost:2222`
 - `VITE_DEV_BEARER_TOKEN` — dev-only, PAT used as the bearer to skip login

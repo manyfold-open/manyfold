@@ -1211,6 +1211,7 @@ const ja: Record<string, string> = {
     'web.channelsPage.docTitle':
         'Claude Code と Codex が、いつも使っているアプリの中に · Manyfold',
     'web.consent.message': 'Manyfold がどのように使用されているかを理解するために Google Analytics を使用します。同意した場合にのみ実行され、いつでも選択を変更できます。',
+    'web.consent.messageImplied': 'Manyfold の利用状況を把握するために Google Analytics を使用しています。オフにしない限り有効で、選択はいつでも変更できます。',
     'web.consent.accept': '分析を受け入れる',
     'web.consent.decline': '拒否',
     'web.consent.privacyLink': 'プライバシーポリシー',

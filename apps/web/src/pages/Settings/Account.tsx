@@ -16,6 +16,7 @@ import { useProductConfirm } from '@/components/ProductConfirmDialog'
 import SettingsPageHeader from '@/components/SettingsPageHeader'
 import {
     analyticsConsent,
+    analyticsConsentImplied,
     setAnalyticsConsent,
     subscribeAnalyticsConsent
 } from '@/lib/analyticsConsent'
@@ -135,10 +136,16 @@ const Account: FC = (): ReactNode => {
     const client = useApiClient()
     const auth = useAppAuth()
     const { t } = useI18n()
-    const consent = useSyncExternalStore(
+    const storedConsent = useSyncExternalStore(
         subscribeAnalyticsConsent,
         analyticsConsent
     )
+    // A regional build's implied consent reads as "on", so the toggle turns
+    // it off rather than "accepting" what is already running.
+    const consent =
+        storedConsent === 'unset' && analyticsConsentImplied()
+            ? 'granted'
+            : storedConsent
     const { confirm, confirmDialog } = useProductConfirm()
     const netmindConfigured = useNetmindConfigured()
     const [items, setItems] = useState<AuthIdentitySummary[]>([])

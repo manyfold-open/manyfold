@@ -1217,6 +1217,7 @@ const hi: Record<string, string> = {
     'web.channelsPage.docTitle':
         'Claude Code और Codex, अब आपके रोज़मर्रा के ऐप में · Manyfold',
     'web.consent.message': 'Manyfold का उपयोग कैसे किया जाता है यह समझने के लिए हम Google एनालिटिक्स का उपयोग करते हैं। यह केवल तभी चलता है जब आप स्वीकार करते हैं, और आप किसी भी समय अपनी पसंद बदल सकते हैं।',
+    'web.consent.messageImplied': 'हम यह समझने के लिए Google Analytics का उपयोग करते हैं कि Manyfold का उपयोग कैसे किया जाता है। जब तक आप इसे बंद नहीं करते, यह चलता रहता है, और आप कभी भी अपना चुनाव बदल सकते हैं।',
     'web.consent.accept': 'विश्लेषण स्वीकार करें',
     'web.consent.decline': 'अस्वीकार करें',
     'web.consent.privacyLink': 'गोपनीयता नीति',

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FC, type ReactNode } from 'react'
 import {
     analyticsConsent,
+    analyticsConsentImplied,
     setAnalyticsConsent,
     subscribeConsentPrompt
 } from '@/lib/analyticsConsent'
@@ -43,7 +44,11 @@ const AnalyticsConsentBanner: FC = (): ReactNode => {
             className='popover-panel bg-surface-elevated shadow-elevated consent-banner fixed left-1/2 z-[60] flex w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 flex-col gap-3 rounded-md p-4 sm:flex-row sm:items-center'
         >
             <p className='text-ui text-fg min-w-0 flex-1'>
-                {t('web.consent.message')}{' '}
+                {t(
+                    analyticsConsentImplied()
+                        ? 'web.consent.messageImplied'
+                        : 'web.consent.message'
+                )}{' '}
                 <a
                     href={docsHref('/privacy')}
                     target='_blank'

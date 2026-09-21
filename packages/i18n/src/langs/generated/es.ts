@@ -1219,6 +1219,7 @@ const es: Record<string, string> = {
     'web.channelsPage.docTitle':
         'Claude Code y Codex, ahora en tus apps de cada día · Manyfold',
     'web.consent.message': 'Usamos Google Analytics para comprender cómo se usa Manyfold. Sólo se ejecuta si aceptas y puedes cambiar tu elección en cualquier momento.',
+    'web.consent.messageImplied': 'Usamos Google Analytics para entender cómo se usa Manyfold. Se ejecuta a menos que lo desactives, y puedes cambiar tu elección en cualquier momento.',
     'web.consent.accept': 'Aceptar análisis',
     'web.consent.decline': 'Rechazar',
     'web.consent.privacyLink': 'Política de privacidad',

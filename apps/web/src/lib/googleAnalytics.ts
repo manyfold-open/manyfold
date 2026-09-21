@@ -1,7 +1,7 @@
 import { useEffect, type FC } from 'react'
 import { useLocation } from 'react-router-dom'
 import {
-    analyticsConsent,
+    effectiveAnalyticsConsent,
     subscribeAnalyticsConsent
 } from '@/lib/analyticsConsent'
 import { gaPageLocation } from '@/lib/googleAnalyticsUrl'
@@ -151,13 +151,16 @@ const disableAnalytics = (): void => {
 
 const initializeAnalytics = (): void => {
     // A returning visitor who already accepted gets analytics from the first
-    // paint; everyone else gets zero Google traffic until they accept. Waiting
-    // for the initial catalog keeps the first page title in the selected
-    // language without requiring top-level await in the production bundle.
-    if (measurementId && analyticsConsent() === 'granted') enableAnalytics()
+    // paint; everyone else gets zero Google traffic until they accept — or,
+    // on a 'regional' build outside an opt-in jurisdiction, until they
+    // decline. Waiting for the initial catalog keeps the first page title in
+    // the selected language without requiring top-level await in the
+    // production bundle.
+    if (measurementId && effectiveAnalyticsConsent() === 'granted')
+        enableAnalytics()
 
     subscribeAnalyticsConsent(() => {
-        if (analyticsConsent() === 'granted') enableAnalytics()
+        if (effectiveAnalyticsConsent() === 'granted') enableAnalytics()
         else disableAnalytics()
     })
 }
