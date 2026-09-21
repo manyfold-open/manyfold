@@ -1210,6 +1210,7 @@ const ko: Record<string, string> = {
     "web.channelsPage.docTitle":
         "Claude Code와 Codex, 이제 매일 쓰는 앱 안에 · Manyfold",
     "web.consent.message": "우리는 Google 분석을 사용하여 Manyfold가 어떻게 사용되는지 이해합니다. 동의하는 경우에만 실행되며 언제든지 선택을 변경할 수 있습니다.",
+    "web.consent.messageImplied": "Manyfold가 어떻게 사용되는지 이해하기 위해 Google 애널리틱스를 사용합니다. 끄지 않는 한 실행되며 언제든지 선택을 변경할 수 있습니다.",
     "web.consent.accept": "분석 수락",
     "web.consent.decline": "거부",
     "web.consent.privacyLink": "개인 정보 보호 정책",

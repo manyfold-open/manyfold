@@ -1220,6 +1220,7 @@ const ru: Record<string, string> = {
     'web.channelsPage.docTitle':
         'Claude Code и Codex теперь в ваших повседневных приложениях · Manyfold',
     'web.consent.message': 'Мы используем аналитику Google, чтобы понять, как используется Manyfold. Она запускается только в том случае, если вы согласны, и вы можете изменить свой выбор в любое время.',
+    'web.consent.messageImplied': 'Мы используем Google Analytics, чтобы понимать, как используется Manyfold. Он работает, пока вы его не отключите, и вы можете изменить свой выбор в любое время.',
     'web.consent.accept': 'Принять аналитику',
     'web.consent.decline': 'Отклонить',
     'web.consent.privacyLink': 'Политика конфиденциальности',
