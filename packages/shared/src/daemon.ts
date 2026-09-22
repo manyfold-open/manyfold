@@ -134,6 +134,9 @@ export interface DaemonHostSummary {
     // This daemon's pty.open runs a supplied command as the shell's argv, so a
     // terminal on it can open straight into a framework TUI.
     canResumeInTerminal: boolean
+    // herdr is installed on this machine and the daemon can open a chat
+    // session's TUI in it (ADR-0031); false hides the handoff in the web.
+    canOpenInHerdr: boolean
     startupMethod: DaemonStartupMethod | null
     homeDir: string | null
     workspaceBaseDir: string | null
@@ -201,6 +204,8 @@ export type DaemonRpcMethod =
     | 'pty.input'
     | 'pty.resize'
     | 'pty.close'
+    | 'terminal.herdr.open'
+    | 'terminal.herdr.focus'
     | 'fs.list'
     | 'fs.stat'
     | 'fs.read'
@@ -266,6 +271,36 @@ export interface DaemonOwnedTerminal {
     terminalId: string
     attached: boolean
     startedAt: string
+}
+
+// The frameworks whose TUI a herdr pane can resume (ADR-0031): the same two
+// with a resume-by-id form the browser terminal supports.
+export type DaemonHerdrFramework = 'claude-code' | 'codex'
+
+// terminal.herdr.open (ADR-0031): run a chat session's framework TUI in a
+// herdr pane on the daemon's machine. The API composes command and env
+// exactly as for pty.open (terminal identity, token, resume env); the daemon
+// owns the herdr topology — a workspace per agent, a tab per session — and
+// reports the pane it landed in.
+export interface DaemonHerdrOpenPayload {
+    terminalId: string
+    framework: DaemonHerdrFramework
+    command: string[]
+    cwd?: string
+    env: Record<string, string>
+    // Human labels for herdr's tab and pane; the agent name becomes the
+    // workspace label so herdr mirrors the web's agent → session shape.
+    title: string
+    agentName: string
+    authSelection?: unknown
+}
+
+export interface DaemonHerdrOpenResult {
+    paneId: string
+    tabId: string
+    workspaceId: string
+    // herdr had a client attached and the pane was raised for it.
+    focused: boolean
 }
 
 export type DaemonWsFrame =
@@ -584,6 +619,14 @@ export const DAEMON_FEATURE_PTY_COMMAND = 'pty.command'
 // daemon's word instead of a tunnel lease. Without it the API opens pty
 // streams the old way, one process per stream.
 export const DAEMON_FEATURE_PTY_TERMINAL = 'pty.terminal.v1'
+// The daemon can hand a chat session to herdr on its own machine (ADR-0031):
+// `terminal.herdr.open` starts the framework TUI in a herdr pane named after
+// the session, `terminal.herdr.focus` raises that pane, `pty.close` by
+// terminalId closes it, and the hello/heartbeat inventory lists herdr-hosted
+// terminals alongside owned ones. Computed at runtime: present only while
+// the `herdr` binary is found on the machine, so the web can offer the
+// handoff exactly where it can work.
+export const DAEMON_FEATURE_HERDR_TERMINAL = 'terminal.herdr.v1'
 
 // The daemon answers `account.inspect` (who is signed in on this machine per
 // coding CLI, plus the raw vendor usage response). The API must check this

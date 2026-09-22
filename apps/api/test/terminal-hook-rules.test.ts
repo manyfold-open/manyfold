@@ -15,6 +15,7 @@ const TERMINAL = {
     userId: 'user-1',
     agentId: 'agt_1',
     runtime: 'daemon' as const,
+    client: 'web' as const,
     hostId: null,
     runtimeId: 'art_1',
     heldSessionId: null as string | null,

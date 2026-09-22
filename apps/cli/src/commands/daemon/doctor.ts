@@ -1,6 +1,7 @@
 import type { Command } from 'commander'
 import kleur from 'kleur'
 import { detectFrameworks } from '@/daemon/detect'
+import { detectHerdr } from '@/daemon/herdr'
 import { checkPtySupport } from '@/daemon/pty-backend'
 import {
     getInitUnitStatus,
@@ -40,6 +41,7 @@ export const registerDaemonDoctor = (program: Command): void => {
     ).action(async (opts: { json?: boolean }) => {
         const detected = await detectFrameworks()
         const terminalSupport = await checkPtySupport()
+        const herdr = await detectHerdr()
         const [userUnit, systemUnit, hooks] = await Promise.all([
             getInitUnitStatus('user'),
             getInitUnitStatus('system'),
@@ -58,6 +60,7 @@ export const registerDaemonDoctor = (program: Command): void => {
             {
                 frameworks: detected,
                 terminal: terminalSupport,
+                herdr,
                 autostart: { user: userUnit, system: systemUnit },
                 sessionHooks: hooks,
                 execSurvival: survival
@@ -91,6 +94,12 @@ export const registerDaemonDoctor = (program: Command): void => {
                         `${kleur.cyan('terminal'.padEnd(12))} available     ${kleur.gray(`(${label})`)}`
                     )
                 }
+
+                console.log(
+                    herdr
+                        ? `${kleur.cyan('herdr'.padEnd(12))} available     ${kleur.gray(herdr.path)}`
+                        : `${kleur.gray('herdr'.padEnd(12))} not found     ${kleur.gray('install herdr to hand chat sessions to it')}`
+                )
 
                 console.log(
                     `${kleur.cyan('autostart/u'.padEnd(12))} ${summarizeUnit(userUnit)}`

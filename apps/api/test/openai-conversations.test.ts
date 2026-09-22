@@ -32,6 +32,7 @@ const summary = (
     channel: null,
     holderTerminalId: null,
     holderAcquiredAt: null,
+    holderClient: null,
     importPendingSince: null,
     origin: null,
     createdAt: CREATED_ISO,

@@ -1,4 +1,4 @@
-import { DAEMON_ONLINE_THRESHOLD_MS } from '@manyfold/shared'
+import { DAEMON_ONLINE_THRESHOLD_MS, type TerminalClient } from '@manyfold/shared'
 import type {
     ChannelProviderName,
     ChatContentBlock
@@ -76,6 +76,7 @@ export interface SessionHolderState {
     inflightMessageId: string | null
     holderTerminalId: string | null
     holderAcquiredAt: Date | null
+    holderClient: TerminalClient | null
     importPendingSince: Date | null
     frameworkSessionRef: string | null
 }
@@ -2124,6 +2125,7 @@ export class ChatRepository {
                 inflightMessageId: chatSessions.inflightMessageId,
                 holderTerminalId: chatSessions.holderTerminalId,
                 holderAcquiredAt: chatSessions.holderAcquiredAt,
+                holderClient: chatSessions.holderClient,
                 importPendingSince: chatSessions.importPendingSince,
                 frameworkSessionRef: chatSessions.frameworkSessionRef
             })
@@ -2140,13 +2142,15 @@ export class ChatRepository {
     async acquireSessionHolder(
         sessionId: string,
         terminalId: string,
-        expectedRef: string
+        expectedRef: string,
+        client: TerminalClient = 'web'
     ): Promise<boolean> {
         const rows = await this.db
             .update(chatSessions)
             .set({
                 holderTerminalId: terminalId,
                 holderAcquiredAt: new Date(),
+                holderClient: client,
                 updatedAt: new Date()
             })
             .where(
@@ -2202,6 +2206,7 @@ export class ChatRepository {
             .set({
                 holderTerminalId: null,
                 holderAcquiredAt: null,
+                holderClient: null,
                 importPendingSince: pendingSince,
                 updatedAt: pendingSince
             })

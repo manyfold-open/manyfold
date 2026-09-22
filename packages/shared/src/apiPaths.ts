@@ -60,6 +60,12 @@ export const apiPaths = {
         `/agents/${agentId}/sessions/${sessionId}/import/retry`,
     AGENT_SESSION_IMPORT_ABANDON: (agentId: string, sessionId: string) =>
         `/agents/${agentId}/sessions/${sessionId}/import/abandon`,
+    // Hand the session to herdr on the agent's machine, and raise it there
+    // again (ADR-0031).
+    AGENT_SESSION_HERDR_OPEN: (agentId: string, sessionId: string) =>
+        `/agents/${agentId}/sessions/${sessionId}/herdr/open`,
+    AGENT_SESSION_HERDR_FOCUS: (agentId: string, sessionId: string) =>
+        `/agents/${agentId}/sessions/${sessionId}/herdr/focus`,
     CHAT_SHARED_BY_ID: (shareId: string) =>
         `/chat/shared/${encodeURIComponent(shareId)}`,
     CHAT_SHARED_MESSAGES: (shareId: string) =>

@@ -176,6 +176,13 @@
       "when": 1789675696428,
       "tag": "0024_terminal_session_refs",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790086715121,
+      "tag": "0025_terminal_client",
+      "breakpoints": true
     }
   ]
 }

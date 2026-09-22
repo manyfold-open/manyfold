@@ -40,6 +40,10 @@ const zh: Translations = {
             forbidden: '没有执行该操作的权限。',
             not_found: '请求的资源不存在。',
             bad_request: '请求无效。',
+            turn_in_flight: '这段对话还在回答中。等回答结束后再试。',
+            herdr_not_running: 'herdr 没有在你的电脑上运行。启动它后再试。',
+            herdr_unavailable: '这个智能体无法使用 herdr：需要一台在线的自有电脑，装有 herdr 且 Manyfold CLI 为最新版本。',
+            herdr_launch_failed: 'herdr 未能启动这段对话。检查你电脑上的 herdr 后再试。',
             internal_error: '服务端发生异常，请稍后再试。',
             CONCURRENT_ACTIVE_LIMIT_REACHED:
                 '已达到并发活跃沙箱上限，请先停止其他沙箱或升级套餐。',
@@ -2901,6 +2905,12 @@ const zh: Translations = {
         sessionView: {
             switchToTerminal: '切换到TUI',
             switchToChat: '切换到Chat UI',
+            switchToHerdr: '切换到 herdr',
+            herdrNeedsSession: '先开始一段对话，再把它交给 herdr。',
+            herdrNeedsSessionRef: '这段对话还没有可恢复的 CLI 会话。先发送一条消息。',
+            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
+            herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
+            herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
             resumeNeedsCredentials:
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
             resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
@@ -2914,6 +2924,11 @@ const zh: Translations = {
         sessionHolder: {
             heldBanner: '这段对话正在终端中进行。释放之前，来自 web、channel 与 API 的消息都会被拒绝。',
             backToWeb: '回到 web',
+            heldByHerdr: '这段对话正在你电脑上的 herdr 中进行。在那里退出 TUI 即可回到这里继续；在此之前，来自 web、channel 与 API 的消息都会被拒绝。',
+            showInHerdr: '在 herdr 中查看',
+            continueInWeb: '在 web 中继续',
+            openedInHerdr: '已在你电脑上的 herdr 中打开。在那里退出 TUI 即可回到这里继续。',
+            composerHeldHerdr: '正在 herdr 中进行 —— 在那里退出 TUI，或点「在 web 中继续」。',
             releasing: '正在释放…',
             importPending: '正在把终端里说过的内容导入这段对话…',
             importFailed: '终端里说过的内容还没能导入，这段对话暂时挂起。等 runtime 可达后重试，或放弃导入。',

@@ -17,7 +17,8 @@ import {
     auditAction,
     type ChatSessionChangeDetail,
     type ChatSessionListChangeReason,
-    type SessionHolderReleaseResponse
+    type SessionHolderReleaseResponse,
+    type TerminalClient
 } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 import { ChatRepository } from '@/modules/chat/chat.repository'
@@ -80,11 +81,15 @@ export class TerminalHolderService {
         agentId: string
         sessionId: string
         expectedRef: string
+        // Where the holder shows its TUI (ADR-0031); the browser terminal
+        // when absent.
+        client?: TerminalClient
     }): Promise<TerminalResumeOutcome> {
         const acquired = await this.chatRepo.acquireSessionHolder(
             args.sessionId,
             args.terminalId,
-            args.expectedRef
+            args.expectedRef,
+            args.client ?? 'web'
         )
         if (acquired) {
             await this.terminals.markHeld(args.terminalId, args.sessionId)
@@ -127,7 +132,8 @@ export class TerminalHolderService {
     // of opening another (ADR-0029 §6): the one it names from before its
     // reconnect, or the one holding the very session it wants to resume. A
     // plain shell is only reused for a plain shell; a hold is only reused
-    // for its own session.
+    // for its own session. A herdr pane (ADR-0031) is never a browser
+    // attachment target: nothing streams its screen to the API.
     async reusableTerminal(args: {
         userId: string
         agentId: string
@@ -148,6 +154,7 @@ export class TerminalHolderService {
                 row.userId !== args.userId ||
                 row.agentId !== args.agentId ||
                 row.runtime !== 'daemon' ||
+                row.client === 'herdr' ||
                 row.processHandle !== row.id ||
                 (row.heldSessionId ?? null) !== args.sessionId
             )

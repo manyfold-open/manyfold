@@ -61,6 +61,15 @@ import {
     resizeOwnedTerminal,
     type OwnedTerminalAttachment
 } from './owned-terminals'
+import {
+    closeHerdrTerminal,
+    focusHerdrTerminal,
+    herdrErrorString,
+    herdrTerminal,
+    herdrTerminalCount,
+    isHerdrFramework,
+    openInHerdr
+} from './herdr'
 import { machineWorkspacesRoot } from '@manyfold/shared'
 import { resolveConfigDir } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
@@ -973,6 +982,7 @@ export const daemonActivitySnapshot = (): {
     activePtys: number
     ownedTerminals: number
     attachedTerminals: number
+    herdrTerminals: number
     updatePending: boolean
 } => ({
     activeExecs: execChildren.size + fileExecRegistry.size(),
@@ -982,6 +992,7 @@ export const daemonActivitySnapshot = (): {
     activePtys: ptySessions.size,
     ownedTerminals: ownedTerminalCount(),
     attachedTerminals: attachedTerminalCount(),
+    herdrTerminals: herdrTerminalCount(),
     updatePending: updateCoordinator.blocksNewSessions()
 })
 
@@ -2153,6 +2164,15 @@ const handlers: Partial<
         return { ok: true }
     },
     'pty.close': async (payload) => {
+        // A terminal herdr hosts (ADR-0031) is closed through herdr: its
+        // pane goes, the TUI with it, and the inventory drops the terminal.
+        if (
+            isOwnedTerminalId(payload.terminalId) &&
+            herdrTerminal(payload.terminalId)
+        ) {
+            await closeHerdrTerminal(payload.terminalId)
+            return { ok: true }
+        }
         // By terminal id from any API instance (a release, a takeover, the
         // reaper): the process is killed, its attachment learns from the exit.
         if (isOwnedTerminalId(payload.terminalId)) {
@@ -2166,6 +2186,82 @@ const handlers: Partial<
         } catch {}
         releasePtySession(String(payload.refId ?? ''))
         return { ok: true }
+    },
+    // Hand a chat session's TUI to herdr on this machine (ADR-0031). The
+    // gates are pty.open's: a terminal id the API minted, no new session
+    // while an update drains, a cwd under an allowed root, and a
+    // profile-bound agent's context held for as long as the pane lives.
+    'terminal.herdr.open': async (payload) => {
+        if (!isOwnedTerminalId(payload.terminalId))
+            return { ok: false, error: 'invalid terminalId' }
+        if (updateCoordinator.blocksNewSessions())
+            return { ok: false, error: UPDATE_PENDING_ERROR }
+        if (!isHerdrFramework(payload.framework))
+            return {
+                ok: false,
+                error: `herdr_launch_failed: no herdr agent kind for ${String(payload.framework)}`
+            }
+        const command = Array.isArray(payload.command)
+            ? (payload.command as unknown[]).filter(
+                  (part): part is string => typeof part === 'string'
+              )
+            : []
+        if (command.length === 0)
+            return { ok: false, error: 'herdr_launch_failed: command is required' }
+        let cwd: string
+        try {
+            cwd = payload.cwd
+                ? ensureUnderAllowedRoot(String(payload.cwd))
+                : homedir()
+        } catch (err) {
+            return { ok: false, error: (err as Error).message }
+        }
+        const callerEnv = (payload.env ?? {}) as Record<string, string>
+        let authContext: Awaited<ReturnType<typeof resolveAuthContext>> = null
+        try {
+            authContext = await resolveAuthContext(
+                payload.authSelection,
+                callerEnv,
+                `herdr:${payload.terminalId}`
+            )
+        } catch (err) {
+            return authError(err)
+        }
+        // herdr composes the pane's base env itself, so the profile's
+        // context rides on top of the caller's block: the TUI answers as
+        // the agent's account, while the machine's ambient sign-in (which
+        // a pty under a profile strips) stays whatever herdr's shell has.
+        const env = { ...callerEnv, ...(authContext?.env ?? {}) }
+        const release = authContext
+        try {
+            const result = await openInHerdr({
+                terminalId: payload.terminalId,
+                framework: payload.framework,
+                command,
+                cwd,
+                env,
+                title: typeof payload.title === 'string' ? payload.title : '',
+                agentName:
+                    typeof payload.agentName === 'string'
+                        ? payload.agentName
+                        : '',
+                release: release ? () => release.release() : null
+            })
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            if (release) await release.release().catch(() => {})
+            return { ok: false, error: herdrErrorString(err) }
+        }
+    },
+    'terminal.herdr.focus': async (payload) => {
+        if (!isOwnedTerminalId(payload.terminalId))
+            return { ok: false, error: 'invalid terminalId' }
+        try {
+            const result = await focusHerdrTerminal(payload.terminalId)
+            return { ok: true, payload: { ...result } }
+        } catch (err) {
+            return { ok: false, error: herdrErrorString(err) }
+        }
     }
 }
 

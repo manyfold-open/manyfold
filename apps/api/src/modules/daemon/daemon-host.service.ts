@@ -16,7 +16,8 @@ import {
     createObjectId,
     isCliUpdateAvailable,
     isCliVersionTooOld,
-    isObjectId
+    isObjectId,
+    DAEMON_FEATURE_HERDR_TERMINAL
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -533,6 +534,9 @@ export class DaemonHostService {
             canResumeInTerminal: host.clientFeatures.includes(
                 DAEMON_FEATURE_PTY_COMMAND
             ),
+            canOpenInHerdr:
+                host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
+                host.clientFeatures.includes(DAEMON_FEATURE_PTY_COMMAND),
             startupMethod: host.startupMethod,
             homeDir: host.homeDir,
             workspaceBaseDir: host.workspaceBaseDir,

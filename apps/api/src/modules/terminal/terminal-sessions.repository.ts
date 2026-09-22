@@ -6,7 +6,7 @@ import {
     type Database,
     type TerminalSessionRow
 } from '@manyfold/db'
-import { createObjectId } from '@manyfold/shared'
+import { createObjectId, type TerminalClient } from '@manyfold/shared'
 import { DRIZZLE } from '@/db/tokens'
 
 // The tunnel that owns a terminal renews its lease every minute; the reaper
@@ -30,6 +30,9 @@ export class TerminalSessionsRepository {
         runtime: 'sprites' | 'daemon'
         hostId: string | null
         runtimeId: string | null
+        // Absent, the browser terminal; `herdr` for a pane on the agent's
+        // machine (ADR-0031).
+        client?: TerminalClient
     }): Promise<TerminalSessionRow> {
         const [row] = await this.db
             .insert(terminalSessions)

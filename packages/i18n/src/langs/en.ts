@@ -38,6 +38,10 @@ const en = {
             forbidden: 'You do not have permission to perform this action.',
             not_found: 'The requested resource was not found.',
             bad_request: 'The request was invalid.',
+            turn_in_flight: 'This conversation is still being answered. Try again once the answer finishes.',
+            herdr_not_running: 'herdr is not running on your computer. Start it, then try again.',
+            herdr_unavailable: 'herdr is not available for this agent. It needs a self-owned computer that is online, with herdr installed and an up-to-date Manyfold CLI.',
+            herdr_launch_failed: 'herdr could not start the conversation. Check herdr on your computer, then try again.',
             internal_error:
                 'Something went wrong on our end. Please try again.',
             CONCURRENT_ACTIVE_LIMIT_REACHED:
@@ -3039,6 +3043,12 @@ const en = {
         sessionView: {
             switchToTerminal: 'Switch to TUI',
             switchToChat: 'Switch to Chat UI',
+            switchToHerdr: 'Switch to herdr',
+            herdrNeedsSession: 'Start a conversation first, then hand it to herdr.',
+            herdrNeedsSessionRef: 'This conversation has no CLI session to resume yet. Send a message first.',
+            herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
+            herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
+            herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
             resumeNeedsCredentials:
                 'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
             resumeNeedsSignIn:
@@ -3053,6 +3063,11 @@ const en = {
         sessionHolder: {
             heldBanner: 'This conversation is open in a terminal. Messages from the web, channels and the API are refused until it is released.',
             backToWeb: 'Back to web',
+            heldByHerdr: 'This conversation is open in herdr on your computer. Quit the TUI there to continue here; until then, messages from the web, channels and the API are refused.',
+            showInHerdr: 'Show in herdr',
+            continueInWeb: 'Continue in web',
+            openedInHerdr: 'Opened in herdr on your computer. Quit the TUI there to continue here.',
+            composerHeldHerdr: 'Open in herdr — quit the TUI there, or use “Continue in web”.',
             releasing: 'Releasing…',
             importPending: 'Bringing what was said in the terminal into this conversation…',
             importFailed: 'What was said in the terminal could not be imported yet, so this conversation is paused. Retry once the runtime is reachable, or abandon the import.',

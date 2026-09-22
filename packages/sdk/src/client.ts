@@ -248,6 +248,9 @@ import type {
     RuntimeSessionSyncResponse,
     SessionHolderReleaseResponse,
     SessionImportAbandonResponse,
+    SessionHerdrOpenRequest,
+    SessionHerdrOpenResponse,
+    SessionHerdrFocusResponse,
     SessionImportRetryResponse,
     AgentSessionListBody,
     AgentSessionListResponse,
@@ -1524,6 +1527,17 @@ export interface NcaClient {
             agentId: string,
             sessionId: string
         ) => Promise<SessionImportAbandonResponse>
+        // Hand the session to herdr on the agent's own machine, and raise
+        // its pane there again (ADR-0031).
+        openInHerdr: (
+            agentId: string,
+            sessionId: string,
+            body?: SessionHerdrOpenRequest
+        ) => Promise<SessionHerdrOpenResponse>
+        focusInHerdr: (
+            agentId: string,
+            sessionId: string
+        ) => Promise<SessionHerdrFocusResponse>
     }
     health: () => Promise<{ status: string; db: string; version: string }>
 }
@@ -3626,6 +3640,19 @@ export const createClient = (options: ClientOptions): NcaClient => {
             importAbandon: (agentId, sessionId) =>
                 request<SessionImportAbandonResponse>(
                     apiPaths.AGENT_SESSION_IMPORT_ABANDON(agentId, sessionId),
+                    { method: 'POST' }
+                ),
+            openInHerdr: (agentId, sessionId, body) =>
+                request<SessionHerdrOpenResponse>(
+                    apiPaths.AGENT_SESSION_HERDR_OPEN(agentId, sessionId),
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body ?? {})
+                    }
+                ),
+            focusInHerdr: (agentId, sessionId) =>
+                request<SessionHerdrFocusResponse>(
+                    apiPaths.AGENT_SESSION_HERDR_FOCUS(agentId, sessionId),
                     { method: 'POST' }
                 )
         },

@@ -55,6 +55,7 @@ const makeHost = (over: Partial<DaemonHostSummary> = {}): DaemonHostSummary => {
         canRemoteUpgrade: true,
         canCrossChannelUpgrade: false,
         canResumeInTerminal: false,
+        canOpenInHerdr: false,
         startupMethod: 'launchd-user',
         homeDir: null,
         workspaceBaseDir: null,

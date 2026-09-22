@@ -11,6 +11,7 @@ import {
 import { enumerateInflightForHello, gcStaleBuffers } from './exec-buffer'
 import { recoverFileExecs } from './exec-files'
 import { listOwnedTerminals } from './owned-terminals'
+import { listHerdrTerminals } from './herdr'
 
 export interface RpcContext {
     refId: string
@@ -36,8 +37,10 @@ export interface WsClientOptions {
     onDisconnected?: (reason: string) => void
     handleRpc?: RpcHandler
     log?: (msg: string) => void
-    // Runtime-computed capabilities ride here; absent, the constant list.
-    clientFeatures?: string[]
+    // Runtime-computed capabilities ride here; absent, the constant list. A
+    // getter when they can change while the daemon runs (herdr installed
+    // after start, ADR-0031): each hello reads the current set.
+    clientFeatures?: string[] | (() => string[])
     // One-shot reports for the hello (exec recovery, an update rollback);
     // called per hello, so the caller decides what is still worth sending.
     helloExtras?: () => Pick<
@@ -54,6 +57,13 @@ const BACKOFF_MAX_MS = 30_000
 // output) piled up on the user's disk and every reconnect re-enumerated them.
 const GC_INTERVAL_MS = 60 * 60 * 1000
 const CLIENT_INSTANCE_ID = randomUUID()
+
+const currentClientFeatures = (
+    features: WsClientOptions['clientFeatures']
+): string[] =>
+    typeof features === 'function'
+        ? features()
+        : (features ?? DAEMON_CLIENT_FEATURES)
 
 export class DaemonWsClient {
     private ws: WebSocket | null = null
@@ -155,13 +165,16 @@ export class DaemonWsClient {
             // Same rule for the terminals this daemon owns (ADR-0029 §6).
             let terminals: DaemonOwnedTerminal[] | null = null
             try {
-                terminals = listOwnedTerminals().map(
-                    ({ terminalId, attached, startedAt }) => ({
-                        terminalId,
-                        attached,
-                        startedAt
-                    })
-                )
+                terminals = [
+                    ...listOwnedTerminals().map(
+                        ({ terminalId, attached, startedAt }) => ({
+                            terminalId,
+                            attached,
+                            startedAt
+                        })
+                    ),
+                    ...listHerdrTerminals()
+                ]
             } catch (err) {
                 this.log(
                     `terminal enumeration failed: ${(err as Error).message}`
@@ -176,8 +189,7 @@ export class DaemonWsClient {
                         this.opts.clientInstanceId ?? CLIENT_INSTANCE_ID,
                     pid: process.pid
                 },
-                clientFeatures:
-                    this.opts.clientFeatures ?? DAEMON_CLIENT_FEATURES,
+                clientFeatures: currentClientFeatures(this.opts.clientFeatures),
                 ...(inflightStreams !== null ? { inflightStreams } : {}),
                 ...(terminals !== null ? { terminals } : {}),
                 ...(this.opts.helloExtras?.() ?? {})

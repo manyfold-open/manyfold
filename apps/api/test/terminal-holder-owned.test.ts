@@ -92,6 +92,7 @@ test('only a live, owned, daemon terminal of the same user and agent holding the
         ['another user', { ...OWNED, userId: 'u2' }, 'cs-1'],
         ['another agent', { ...OWNED, agentId: 'agt-2' }, 'cs-1'],
         ['a sprites terminal', { ...OWNED, runtime: 'sprites' }, 'cs-1'],
+        ['a herdr pane', { ...OWNED, client: 'herdr' }, 'cs-1'],
         ['a stream-bound pty', { ...OWNED, processHandle: 'ref-1' }, 'cs-1'],
         ['a hold on another session', OWNED, 'cs-2'],
         [
