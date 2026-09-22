@@ -475,6 +475,9 @@ test('focus raises the pane again and a gone pane is forgotten', async () => {
     fake.calls.length = 0
     assert.deepEqual(await focusHerdrTerminal(terminalId), { focused: true })
     assert.deepEqual(fake.calls_('pane.focus')[0].params, { pane_id: 'w1:p1' })
+    // The web refocuses on every move between held conversations; only a
+    // handoff announces itself in herdr.
+    assert.equal(fake.calls_('notification.show').length, 0)
     fake.failures.set('pane.focus', {
         code: 'not_found',
         message: 'pane not found'

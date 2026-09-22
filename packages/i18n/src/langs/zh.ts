@@ -24,6 +24,7 @@ const zh: Translations = {
         unknown: '未知',
         dismiss: '关闭',
         moreActions: '更多操作',
+        moreInfo: '说明',
         breadcrumb: '面包屑导航',
         liveStatus: '实时状态 · 点击立即刷新',
         sandboxStatusAria:
@@ -2906,6 +2907,9 @@ const zh: Translations = {
             switchToTerminal: '切换到TUI',
             switchToChat: '切换到Chat UI',
             switchToHerdr: '切换到 herdr',
+            hintHerdr: '在 herdr 中打开这段对话的 TUI，并在这里显示 herdr。在 herdr 里退出 TUI，或选择 Switch to Chat UI，即可回到聊天。',
+            hintTerminal: '在这里的终端中打开这段对话的 TUI。退出 TUI，或选择 Switch to Chat UI，即可回到聊天。',
+            hintChat: '把对话收回到聊天：关闭 TUI，并把在其中说过的内容加入这段对话。',
             herdrNeedsSession: '先开始一段对话，再把它交给 herdr。',
             herdrNeedsSessionRef: '这段对话还没有可恢复的 CLI 会话。先发送一条消息。',
             herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
@@ -2941,7 +2945,6 @@ const zh: Translations = {
             reclaimed: '打开这段对话的终端已停止响应，对话已被释放。',
             attachRefusedTurn: '终端打开了一段正在运行 turn 的对话，未接管；等 turn 结束后再在终端里继续。',
             attachRefusedHeld: '终端打开了一段已在另一个终端中打开的对话，未接管。',
-            dismiss: '关闭',
             composerHeld: '正在终端中进行。在那里退出 TUI，或打开终端视图再切回 Chat UI 来接管。',
             composerImporting: '正在导入终端里说过的内容…'
         },

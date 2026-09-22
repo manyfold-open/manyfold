@@ -136,8 +136,10 @@ import {
     type TerminalResumeOutcome
 } from '@/lib/terminalResume'
 import {
+    herdrFollowDelayMs,
     herdrHandoffAvailability,
-    herdrHandoffBlockedLabel
+    herdrHandoffBlockedLabel,
+    viewSwitchHint
 } from '@/lib/herdrHandoff'
 import {
     applyRegeneratedUserMessage,
@@ -190,10 +192,6 @@ const RUNTIME_SYNC_THROTTLE_MS = 15_000
 const IMPORT_PENDING_STALE_MS = 10_000
 const OWNERSHIP_BANNER_CLASS =
     'border-divider/80 bg-surface text-caption text-muted mb-2 flex items-center justify-between gap-3 rounded-md border px-3 py-1.5'
-// How long a herdr hold this tab did not take itself must stand before the
-// view follows it (ADR-0031); see the effect that uses it.
-const HERDR_FOLLOW_HOLD_DELAY_MS = 1200
-
 const OWNERSHIP_ACTION_CLASS =
     'text-caption text-fg hover:bg-soft inline-flex h-5 shrink-0 items-center rounded-md px-1.5 font-medium transition-colors disabled:opacity-60'
 const isSessionOwnershipCode = (code: unknown): boolean =>
@@ -1266,14 +1264,8 @@ const AgentChat: FC = (): ReactNode => {
         if (!currentAgent) return
         setSessionTerminal((prev) => {
             if (!prev) return prev
-            // A herdr viewer belongs to the session it was opened for; a
-            // different session either has its own hold (the effect below
-            // mounts a fresh viewer) or none (the chat view returns).
-            if (prev.herdrViewer)
-                return prev.id ===
-                    `session-herdr-${currentAgent.id}-${activeSessionId ?? 'none'}`
-                    ? prev
-                    : null
+            // A herdr viewer follows session switches on its own (below).
+            if (prev.herdrViewer) return prev
             const base = `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}`
             // Advance-rebuilds append a `-g<N>` generation to the same base;
             // only an actual session change may retarget the terminal.
@@ -1659,9 +1651,10 @@ const AgentChat: FC = (): ReactNode => {
             agentId: currentAgent.id,
             agentName: currentAgent.name,
             framework: currentAgent.framework,
-            id: `session-herdr-${currentAgent.id}-${activeSessionId ?? 'none'}`,
+            id: `session-herdr-${currentAgent.id}`,
             index: 1,
             herdrViewer: true,
+            viewerSessionId: activeSessionId ?? undefined,
             seedMessageId: null,
             runtime: currentAgent.runtime,
             status: 'connecting'
@@ -1745,45 +1738,85 @@ const AgentChat: FC = (): ReactNode => {
         )
             dismissedHolderRef.current = null
     }, [holderTerminalId])
+    const holderAcquiredAt = activeSession?.holderAcquiredAt ?? null
     useEffect(() => {
         if (!heldByHerdr || ownershipBusy || !agentId || !activeSessionId)
             return
         if (dismissedHolderRef.current === holderTerminalId) return
         if (sessionTerminal?.herdrViewer && sessionView === 'terminal') return
-        // A hold another client took is followed once it has stood for a
-        // moment: a handoff that herdr refuses holds the session for well
-        // under a second, and a list refetch that lands late can still show
-        // it, so this tab must not jump into a viewer over a hold that is
-        // already gone.
-        const timer = setTimeout(() => {
+        const follow = (): void => {
             mountHerdrViewer()
             // Another pane may have taken herdr's focus since the handoff;
             // the viewer should open on the session's pane.
             void client.chat
                 .focusInHerdr(agentId, activeSessionId)
                 .catch(() => {})
-        }, HERDR_FOLLOW_HOLD_DELAY_MS)
+        }
+        // A session left in herdr comes back in herdr at once; only a hold
+        // that has just appeared waits a moment (see herdrFollowDelayMs).
+        const wait = herdrFollowDelayMs(holderAcquiredAt, Date.now())
+        if (wait === 0) {
+            follow()
+            return
+        }
+        const timer = setTimeout(follow, wait)
         return () => clearTimeout(timer)
     }, [
         activeSessionId,
         agentId,
         client,
         heldByHerdr,
+        holderAcquiredAt,
         holderTerminalId,
         mountHerdrViewer,
         ownershipBusy,
         sessionTerminal?.herdrViewer,
         sessionView
     ])
+    // The viewer belongs to the agent. Moving to another session herdr
+    // holds keeps it and moves herdr's focus to that session's pane, so
+    // going between handed-off conversations is as quick as herdr's own tab
+    // switch; moving to a session herdr does not hold brings the chat back.
+    useEffect(() => {
+        if (!sessionTerminal?.herdrViewer || !agentId) return
+        if (sessionTerminal.viewerSessionId === (activeSessionId ?? undefined))
+            return
+        if (heldByHerdr && activeSessionId) {
+            setSessionTerminal((prev) =>
+                prev?.herdrViewer
+                    ? { ...prev, viewerSessionId: activeSessionId }
+                    : prev
+            )
+            void client.chat
+                .focusInHerdr(agentId, activeSessionId)
+                .catch(() => {})
+            return
+        }
+        setSessionTerminal(null)
+    }, [
+        activeSessionId,
+        agentId,
+        client,
+        heldByHerdr,
+        sessionTerminal?.herdrViewer,
+        sessionTerminal?.viewerSessionId
+    ])
     useEffect(() => {
         if (sessionView !== 'terminal' || !sessionTerminal || heldByTerminal)
             return
-        if (sessionTerminal.herdrViewer && !viewerSawHoldRef.current) return
+        if (
+            sessionTerminal.herdrViewer &&
+            (!viewerSawHoldRef.current ||
+                sessionTerminal.viewerSessionId !==
+                    (activeSessionId ?? undefined))
+        )
+            return
         if (!sessionTerminal.herdrViewer && !sessionTerminal.hadHold) return
         setSessionView('chat')
         setSessionTerminal(null)
         void syncRuntimeSessionAndReload(true)
     }, [
+        activeSessionId,
         heldByTerminal,
         sessionTerminal,
         sessionView,
@@ -2669,25 +2702,17 @@ const AgentChat: FC = (): ReactNode => {
               }
             : null
 
-    // Holds are announced, not acted on, here (ADR-0031): the view follows
-    // the hold on its own, and "Switch to Chat UI" in the header is the one
-    // way to take a session back.
-    const ownershipBanner: ReactNode = heldByTerminal ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>
-                {heldByHerdr
-                    ? t('web.sessionHolder.heldByHerdr')
-                    : t('web.sessionHolder.heldBanner')}
-            </span>
-        </div>
-    ) : importPendingSince ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>
-                {importPendingStale
-                    ? t('web.sessionHolder.importFailed')
-                    : t('web.sessionHolder.importPending')}
-            </span>
-            {importPendingStale && (
+    // Above the composer only the stuck import remains: it pauses the
+    // conversation and carries the only way out (retry or abandon). The
+    // rest (who holds the session, an import in flight, what the last
+    // hand-back brought) is behind the "?" on the header's view switch
+    // (ADR-0031).
+    const ownershipBanner: ReactNode =
+        !heldByTerminal && importPendingSince && importPendingStale ? (
+            <div className={OWNERSHIP_BANNER_CLASS}>
+                <span className='min-w-0 truncate'>
+                    {t('web.sessionHolder.importFailed')}
+                </span>
                 <div className='flex shrink-0 items-center gap-1'>
                     <button
                         type='button'
@@ -2706,20 +2731,33 @@ const AgentChat: FC = (): ReactNode => {
                         {t('web.sessionHolder.abandonImport')}
                     </button>
                 </div>
-            )}
-        </div>
-    ) : ownershipNotice ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>{ownershipNotice}</span>
-            <button
-                type='button'
-                onClick={() => setOwnershipNotice(null)}
-                className={OWNERSHIP_ACTION_CLASS}
-            >
-                {t('web.sessionHolder.dismiss')}
-            </button>
-        </div>
-    ) : null
+            </div>
+        ) : null
+
+    const viewSwitchMode =
+        sessionView === 'terminal'
+            ? ('chat' as const)
+            : herdrHeaderState
+              ? ('herdr' as const)
+              : ('terminal' as const)
+    const viewSwitchHintText = viewSwitchHint(
+        {
+            mode: viewSwitchMode,
+            disabledReason:
+                viewSwitchMode === 'herdr'
+                    ? herdrHeaderState?.available
+                        ? null
+                        : (herdrHeaderState?.disabledReason ?? null)
+                    : viewSwitchMode === 'terminal' &&
+                        terminalAvailability.reason
+                      ? terminalBlockedLabel(terminalAvailability.reason, t)
+                      : null,
+            heldBy: heldByHerdr ? 'herdr' : heldByTerminal ? 'terminal' : null,
+            importing: importPendingSince !== null && !importPendingStale,
+            notice: ownershipNotice
+        },
+        t
+    )
 
     return (
         <div className='flex h-full min-h-0 overflow-hidden'>
@@ -2737,6 +2775,7 @@ const AgentChat: FC = (): ReactNode => {
                 }
                 onSelectSessionView={handleSelectSessionView}
                 switchBusy={ownershipBusy}
+                viewSwitchHint={viewSwitchHintText}
                 herdrHandoff={herdrHeaderState}
                 onOpenInHerdr={() => void handleOpenInHerdr()}
                 onShare={
@@ -3068,6 +3107,9 @@ interface AgentChatHeaderProps {
     onSelectSessionView: (mode: SessionViewMode) => void
     // A release is in flight: the view switch waits for it.
     switchBusy: boolean
+    // Behind the "?" after the view switch: what it does, or why it cannot
+    // act, plus what used to be announced above the composer.
+    viewSwitchHint: string
     // Offered in place of the browser TUI switch when the agent's computer
     // runs herdr (ADR-0031); null keeps the browser terminal control.
     herdrHandoff: { available: boolean; disabledReason: string | null } | null
@@ -3088,6 +3130,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     terminalDisabledReason,
     onSelectSessionView,
     switchBusy,
+    viewSwitchHint,
     herdrHandoff,
     onOpenInHerdr,
     onShare,
@@ -3121,7 +3164,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                   label: t('web.sessionView.switchToHerdr'),
                   onSelect: onOpenInHerdr,
                   disabled: !herdrHandoff.available,
-                  disabledReason: herdrHandoff.disabledReason ?? undefined
+                  hint: viewSwitchHint
               }
             : {
                   label:
@@ -3136,10 +3179,7 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
                       sessionView === 'chat'
                           ? terminalDisabledReason !== null
                           : switchBusy,
-                  disabledReason:
-                      sessionView === 'chat'
-                          ? (terminalDisabledReason ?? undefined)
-                          : undefined
+                  hint: viewSwitchHint
               }
     const overflowItems: OverflowMenuEntry[] = [
         viewSwitch,

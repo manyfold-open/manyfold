@@ -77,6 +77,10 @@ export interface TerminalTabModel {
     // The shell runs herdr's TUI (ADR-0031) rather than a resume or a plain
     // shell; it never holds anything itself.
     herdrViewer?: boolean
+    // The session whose pane a herdr viewer shows. The viewer belongs to
+    // the agent, not the session: moving between sessions herdr holds keeps
+    // it and only moves herdr's focus.
+    viewerSessionId?: string
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }
@@ -534,8 +538,14 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                     )}
                 </div>
             )}
+            {/* herdr is mouse-first and brings its own right-click menu
+                (ADR-0031): xterm already hands the click to herdr while it
+                tracks the mouse, so the browser's menu would only cover it. */}
             <div
                 ref={containerRef}
+                onContextMenu={
+                    tab.herdrViewer ? (e) => e.preventDefault() : undefined
+                }
                 className='mf-terminal bg-surface h-full w-full overflow-hidden'
             />
         </div>

@@ -923,15 +923,9 @@ export const focusHerdrTerminal = async (
             forget(t, 'pane is gone')
         throw err
     }
-    await herdrCall(
-        'notification.show',
-        {
-            title: 'Manyfold',
-            body: 'The web asked for this conversation.',
-            sound: 'request'
-        },
-        { socketPath: t.socketPath }
-    ).catch(() => {})
+    // No notification here, unlike a handoff: focus follows the web moving
+    // between conversations herdr holds, several times a minute, and a
+    // toast with a sound in the user's own herdr on every one is noise.
     return { focused: true }
 }
 

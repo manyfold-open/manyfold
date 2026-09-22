@@ -22,6 +22,7 @@ const en = {
         unknown: 'Unknown',
         dismiss: 'Dismiss',
         moreActions: 'More actions',
+        moreInfo: 'More info',
         breadcrumb: 'Breadcrumb',
         liveStatus: 'Live status · click to refresh now',
         sandboxStatusAria:
@@ -3044,6 +3045,9 @@ const en = {
             switchToTerminal: 'Switch to TUI',
             switchToChat: 'Switch to Chat UI',
             switchToHerdr: 'Switch to herdr',
+            hintHerdr: 'Opens this conversation\'s TUI in herdr and shows herdr here. Quit the TUI in herdr, or choose Switch to Chat UI, to come back to the chat.',
+            hintTerminal: 'Opens this conversation\'s TUI in a terminal here. Quit the TUI, or choose Switch to Chat UI, to come back to the chat.',
+            hintChat: 'Takes the conversation back to the chat: the TUI is closed and what was said in it is added to this conversation.',
             herdrNeedsSession: 'Start a conversation first, then hand it to herdr.',
             herdrNeedsSessionRef: 'This conversation has no CLI session to resume yet. Send a message first.',
             herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
@@ -3080,7 +3084,6 @@ const en = {
             reclaimed: 'The terminal that had this conversation open stopped responding, so the conversation was released.',
             attachRefusedTurn: 'The terminal opened a conversation that is running a turn right now. It was not taken over; wait for the turn to finish before continuing there.',
             attachRefusedHeld: 'The terminal opened a conversation that another terminal already has open. It was not taken over.',
-            dismiss: 'Dismiss',
             composerHeld: 'Open in a terminal. Quit the TUI there, or open the terminal view and switch back to Chat UI to take it over.',
             composerImporting: 'Importing what was said in the terminal…'
         },
