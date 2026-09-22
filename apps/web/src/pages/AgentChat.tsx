@@ -1677,7 +1677,17 @@ const AgentChat: FC = (): ReactNode => {
     // releases the hold and the effect below returns to the chat — or
     // "Switch to Chat UI", which releases it.
     const handleOpenInHerdr = useCallback(async (): Promise<void> => {
-        if (!agentId || !activeSessionId || ownershipBusy) return
+        if (!agentId || !activeSessionId || ownershipBusy || !currentAgent)
+            return
+        // A sandbox's herdr runs as its terminal: the same opt-in the
+        // browser terminal asks for, asked the same way.
+        const allowed = await ensureSandboxTerminalEnabled({
+            agent: currentAgent,
+            client,
+            confirm,
+            t
+        })
+        if (!allowed) return
         dismissedHolderRef.current = null
         if (heldByHerdr) {
             mountHerdrViewer()
@@ -1706,6 +1716,8 @@ const AgentChat: FC = (): ReactNode => {
         activeSessionId,
         agentId,
         client,
+        confirm,
+        currentAgent,
         heldByHerdr,
         mountHerdrViewer,
         ownershipBusy,
