@@ -716,6 +716,25 @@ export class AgentRuntimesService {
             )
     }
 
+    // herdr inside the sandbox (ADR-0031), as the probe or an install found
+    // it; null clears a version the sandbox no longer has.
+    async setSandboxHerdrVersion(
+        userId: string,
+        hostId: string,
+        herdrVersion: string | null
+    ): Promise<void> {
+        await this.db
+            .update(runtimeHosts)
+            .set({ herdrVersion, updatedAt: new Date() })
+            .where(
+                and(
+                    eq(runtimeHosts.id, hostId),
+                    eq(runtimeHosts.userId, userId),
+                    eq(runtimeHosts.kind, 'sandbox')
+                )
+            )
+    }
+
     // Fold a sandbox detect into provisioned runtimes: the probed CLI version IS
     // the installed version for that framework on the sprite, so back-fill the
     // runtime rows too (fixes "version pending" without a per-agent refresh).

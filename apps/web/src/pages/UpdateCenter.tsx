@@ -61,6 +61,7 @@ const ghostTargetWidth = ['w-24', 'w-20', 'w-28', 'w-20']
 
 const kindLabelKeys: Record<UpdateKind, string> = {
     cli: 'web.updates.kindCli',
+    herdr: 'web.updates.kindHerdr',
     framework: 'web.updates.kindFramework',
     cliUsage: 'web.updates.kindCliUsage',
     skill: 'web.updates.kindSkill'

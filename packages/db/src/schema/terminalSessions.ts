@@ -37,6 +37,11 @@ export const terminalSessions = pgTable(
         // sprites: the vendor exec session id; daemon: the pty stream refId.
         // Null until the upstream reports it.
         processHandle: text('process_handle'),
+        // The daemon that hosts a herdr terminal (ADR-0031): the agent's own
+        // daemon on a self-owned computer, or the sandbox's runner daemon for
+        // a sprites agent, which `agents.daemonId` does not name. Snapshot,
+        // not a foreign key, like the host and runtime ids.
+        daemonId: text('daemon_id'),
         tokenId: text('token_id').references(() => apiTokens.id, {
             onDelete: 'set null'
         }),

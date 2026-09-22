@@ -1,12 +1,19 @@
 import test, { afterEach, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import {
+    chmodSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync
+} from 'node:fs'
 import { createServer, type Server, type Socket } from 'node:net'
 import { join } from 'node:path'
 import { createObjectId } from '@manyfold/shared'
 import {
     closeHerdrTerminal,
     configureHerdr,
+    detectHerdr,
     focusHerdrTerminal,
     herdrAgentName,
     herdrSocketPath,
@@ -15,7 +22,9 @@ import {
     listHerdrTerminals,
     openInHerdr,
     paneShellIdle,
-    resetHerdrForTest
+    parseHerdrVersion,
+    resetHerdrForTest,
+    updateHerdr
 } from '../src/daemon/herdr'
 import { rpcHandler } from '../src/daemon/rpc'
 
@@ -43,6 +52,11 @@ class FakeHerdr {
     shellIdle = true
     workspaces: Array<{ workspace_id: string; label: string }> = []
     failures = new Map<string, { code: string; message: string }>()
+    // Fail a method the next N times, then answer normally.
+    failTimes = new Map<
+        string,
+        { times: number; code: string; message: string }
+    >()
 
     private result(call: Call): Record<string, unknown> {
         switch (call.method) {
@@ -127,6 +141,14 @@ class FakeHerdr {
                         this.subscribers.push(socket)
                         socket.write(
                             `${JSON.stringify({ id: request.id, result: { type: 'subscription_started' } })}\n`
+                        )
+                        continue
+                    }
+                    const transient = this.failTimes.get(request.method)
+                    if (transient && transient.times > 0) {
+                        transient.times -= 1
+                        socket.write(
+                            `${JSON.stringify({ id: request.id, error: { code: transient.code, message: transient.message } })}\n`
                         )
                         continue
                     }
@@ -354,6 +376,18 @@ test('a start herdr refuses closes the pane it made and reports a launch failure
     assert.equal(listHerdrTerminals().length, 0)
 })
 
+test('a pane whose shell herdr still calls busy is asked again before the handoff fails', async () => {
+    fake.failTimes.set('agent.start', {
+        times: 2,
+        code: 'agent_pane_busy',
+        message: 'agent target pane w1:p1 is not an available shell'
+    })
+    const result = await open()
+    assert.equal(result.paneId, 'w1:p1')
+    assert.equal(fake.calls_('agent.start').length, 3)
+    assert.equal(fake.calls_('pane.close').length, 0)
+})
+
 test('a TUI blocked at a startup prompt still counts as running', async () => {
     fake.failures.set('agent.start', {
         code: 'agent_not_ready',
@@ -451,4 +485,116 @@ test('focus raises the pane again and a gone pane is forgotten', async () => {
         focusHerdrTerminal(terminalId),
         (err: unknown) => err instanceof HerdrError && err.code === 'not_found'
     )
+})
+
+test('the version is cut from whatever `herdr --version` prints', () => {
+    assert.equal(parseHerdrVersion('herdr 0.9.1\n'), '0.9.1')
+    assert.equal(
+        parseHerdrVersion('herdr 0.10.0-beta.1+build.7'),
+        '0.10.0-beta.1+build.7'
+    )
+    assert.equal(parseHerdrVersion('herdr: command not found'), null)
+    assert.equal(parseHerdrVersion(''), null)
+})
+
+// A stand-in `herdr` on PATH: `--version` reads its version from a file,
+// `update` bumps it (or fails when told to), `server` exits at once so the
+// handoff's wait loop is what brings the fake server up.
+const fakeBinary = (
+    version: string,
+    behaviour: 'update-ok' | 'update-fails' = 'update-ok'
+): { dir: string; restore: () => void } => {
+    const dir = mkdtempSync(join('/tmp', 'mfh-bin-'))
+    writeFileSync(join(dir, 'version'), version)
+    writeFileSync(
+        join(dir, 'herdr'),
+        [
+            '#!/bin/sh',
+            `DIR="${dir}"`,
+            'case "$1" in',
+            '  --version) echo "herdr $(cat "$DIR/version")";;',
+            behaviour === 'update-ok'
+                ? '  update) echo "0.9.2" > "$DIR/version"; echo "updated";;'
+                : '  update) echo "no network" >&2; exit 3;;',
+            '  server) exit 0;;',
+            'esac'
+        ].join('\n') + '\n'
+    )
+    chmodSync(join(dir, 'herdr'), 0o755)
+    const previousPath = process.env.PATH
+    process.env.PATH = `${dir}:${previousPath ?? ''}`
+    return {
+        dir,
+        restore: () => {
+            process.env.PATH = previousPath
+            rmSync(dir, { recursive: true, force: true })
+        }
+    }
+}
+
+test('detection finds herdr on PATH with its version, and an update re-reads what it left behind', async () => {
+    const bin = fakeBinary('0.9.1')
+    try {
+        const found = await detectHerdr()
+        assert.equal(found?.path, join(bin.dir, 'herdr'))
+        assert.equal(found?.version, '0.9.1')
+        assert.deepEqual(await updateHerdr(), {
+            ok: true,
+            fromVersion: '0.9.1',
+            toVersion: '0.9.2'
+        })
+        assert.equal(
+            readFileSync(join(bin.dir, 'version'), 'utf8').trim(),
+            '0.9.2'
+        )
+    } finally {
+        bin.restore()
+    }
+})
+
+test('an update herdr refuses reports its exit and words, and the version stays', async () => {
+    const bin = fakeBinary('0.9.1', 'update-fails')
+    try {
+        await detectHerdr()
+        const result = await updateHerdr()
+        assert.equal(result.ok, false)
+        assert.equal(result.fromVersion, '0.9.1')
+        assert.equal(result.toVersion, '0.9.1')
+        assert.match(result.error ?? '', /exited 3: no network/)
+    } finally {
+        bin.restore()
+    }
+})
+
+test('a handoff told to start the server waits for herdr to come up on the socket', async () => {
+    const bin = fakeBinary('0.9.1')
+    const late = new FakeHerdr()
+    try {
+        await detectHerdr()
+        const opening = open({
+            socketPath: late.socketPath,
+            autoStartServer: true
+        })
+        await new Promise((resolve) => setTimeout(resolve, 450))
+        await late.start()
+        const result = await opening
+        assert.equal(result.paneId, 'w1:p1')
+        assert.equal(late.calls_('ping').length >= 1, true)
+        assert.equal(late.calls_('agent.start').length, 1)
+        // Without the say-so, no server means no handoff.
+        const silent = new FakeHerdr()
+        try {
+            await assert.rejects(
+                open({ socketPath: silent.socketPath }),
+                (err: unknown) =>
+                    err instanceof HerdrError &&
+                    err.code === 'herdr_not_running'
+            )
+        } finally {
+            await silent.stop()
+        }
+    } finally {
+        await late.stop()
+        bin.restore()
+    }
 })

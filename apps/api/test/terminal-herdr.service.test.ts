@@ -58,9 +58,15 @@ const harness = (
         resolve?: Record<string, unknown>
         acquire?: string
         open?: () => Promise<Record<string, unknown>>
+        // The sprites arm: the sandbox row and what resolving its runner
+        // gives; absent, the service was built without those services.
+        sandbox?: Record<string, unknown> | null
+        runner?: { host: Record<string, unknown> | null; availability: string }
+        row?: Record<string, unknown>
     } = {}
 ) => {
     const created: Array<Record<string, unknown>> = []
+    const resolves: Array<Record<string, unknown>> = []
     const handles: Array<[string, string]> = []
     const tokens: Array<[string, string]> = []
     const acquires: Array<Record<string, unknown>> = []
@@ -79,15 +85,19 @@ const harness = (
         } as never,
         { getSession: async () => session } as never,
         {
-            resolve: async () =>
-                overrides.resolve ?? {
-                    resume: {
-                        command: ['claude', '--resume', 'ref-1'],
-                        env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' }
-                    },
-                    outcome: 'applied',
-                    ref: 'ref-1'
-                }
+            resolve: async (args: Record<string, unknown>) => {
+                resolves.push(args)
+                return (
+                    overrides.resolve ?? {
+                        resume: {
+                            command: ['claude', '--resume', 'ref-1'],
+                            env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' }
+                        },
+                        outcome: 'applied',
+                        ref: 'ref-1'
+                    }
+                )
+            }
         } as never,
         {
             create: async (input: Record<string, unknown>) => {
@@ -104,7 +114,9 @@ const harness = (
                 id,
                 agentId: 'agt-1',
                 endedAt: null,
-                client: 'herdr'
+                client: 'herdr',
+                daemonId: null,
+                ...overrides.row
             })
         } as never,
         {
@@ -133,11 +145,22 @@ const harness = (
                 focuses.push([daemonId, terminalId])
                 return true
             }
-        } as never
+        } as never,
+        ...(overrides.runner
+            ? [
+                  {
+                      resolveRuntimeHost: async () => overrides.runner
+                  } as never,
+                  {
+                      findHostById: async () => overrides.sandbox ?? null
+                  } as never
+              ]
+            : [])
     )
     return {
         service,
         created,
+        resolves,
         handles,
         tokens,
         acquires,
@@ -255,7 +278,7 @@ test('a running turn or a session without a ref is refused before any row exists
 test('only a running agent on an online self-owned computer that advertises herdr can hand off', async () => {
     const cases: Array<[string, Parameters<typeof harness>[0], number]> = [
         [
-            'a sprites agent',
+            'a sprites agent where sandboxes cannot reach herdr',
             { agent: { runtime: 'sprites', daemonId: null } },
             409
         ],
@@ -310,4 +333,110 @@ test('focus reaches the daemon only for a session herdr holds', async () => {
         free.service.focus('u1', 'agt-1', 'cs-1'),
         (err: unknown) => codeOf(err) === HERDR_UNAVAILABLE_CODE
     )
+})
+
+// The sprites arm (ADR-0031): the sandbox's runner daemon hosts herdr, so
+// the row and the pane are addressed through it, not through the agent.
+const SPRITES_AGENT = {
+    runtime: 'sprites',
+    daemonId: null,
+    hostId: 'sbx-1',
+    runtimeId: 'rt-1'
+}
+const SANDBOX = {
+    id: 'sbx-1',
+    herdrVersion: '0.9.1',
+    terminalModelCredentials: true
+}
+const RUNNER = {
+    id: 'dh-runner',
+    clientFeatures: [DAEMON_FEATURE_PTY_COMMAND, DAEMON_FEATURE_HERDR_TERMINAL]
+}
+
+test('a sprites agent hands off through its sandbox runner, with the row addressed to that daemon', async () => {
+    const h = harness({
+        agent: SPRITES_AGENT,
+        sandbox: SANDBOX,
+        runner: { host: RUNNER, availability: 'ok' }
+    })
+    const result = await h.service.open('u1', 'agt-1', 'cs-1', {})
+    assert.equal(result.terminalId, 'tms_new')
+    assert.equal(h.created[0].runtime, 'sprites')
+    assert.equal(h.created[0].hostId, 'sbx-1')
+    assert.equal(h.created[0].daemonId, 'dh-runner')
+    assert.equal(h.opens[0].daemonId, 'dh-runner')
+    // The sandbox opted in to lending the platform's credentials, and a
+    // sandbox TUI gets them injected as the browser terminal does.
+    assert.equal(h.resolves[0].modelCredentialsAllowed, true)
+    assert.equal(h.resolves[0].injectModelCredentials, true)
+    const noLending = harness({
+        agent: SPRITES_AGENT,
+        sandbox: { ...SANDBOX, terminalModelCredentials: false },
+        runner: { host: RUNNER, availability: 'ok' }
+    })
+    await noLending.service.open('u1', 'agt-1', 'cs-1', {})
+    assert.equal(noLending.resolves[0].modelCredentialsAllowed, false)
+})
+
+test('a sandbox needs herdr installed and a ready runner that can reach it', async () => {
+    const cases: Array<[string, Parameters<typeof harness>[0], number]> = [
+        [
+            'no herdr in the sandbox',
+            {
+                agent: SPRITES_AGENT,
+                sandbox: { ...SANDBOX, herdrVersion: null },
+                runner: { host: RUNNER, availability: 'ok' }
+            },
+            409
+        ],
+        [
+            'a runner still waking',
+            {
+                agent: SPRITES_AGENT,
+                sandbox: SANDBOX,
+                runner: { host: RUNNER, availability: 'starting' }
+            },
+            503
+        ],
+        [
+            'a runner too old for herdr',
+            {
+                agent: SPRITES_AGENT,
+                sandbox: SANDBOX,
+                runner: {
+                    host: {
+                        ...RUNNER,
+                        clientFeatures: [DAEMON_FEATURE_PTY_COMMAND]
+                    },
+                    availability: 'ok'
+                }
+            },
+            409
+        ]
+    ]
+    for (const [label, overrides, status] of cases) {
+        const h = harness(overrides)
+        await assert.rejects(
+            h.service.open('u1', 'agt-1', 'cs-1', {}),
+            (err: unknown) =>
+                codeOf(err) === HERDR_UNAVAILABLE_CODE &&
+                (err as HttpException).getStatus() === status,
+            label
+        )
+        assert.equal(h.created.length, 0, label)
+    }
+})
+
+test('focus for a sandbox session goes to the daemon the row names', async () => {
+    const h = harness({
+        agent: SPRITES_AGENT,
+        sandbox: SANDBOX,
+        runner: { host: RUNNER, availability: 'ok' },
+        session: { holderTerminalId: 'tms_h', holderClient: 'herdr' },
+        row: { daemonId: 'dh-runner' }
+    })
+    assert.deepEqual(await h.service.focus('u1', 'agt-1', 'cs-1'), {
+        focused: true
+    })
+    assert.deepEqual(h.focuses, [['dh-runner', 'tms_h']])
 })

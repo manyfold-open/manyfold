@@ -98,6 +98,9 @@ export interface DaemonHerdrOpenRequest {
     resume: ResolvedTerminalResume
     title: string
     cwd?: string
+    // The agent's own daemon when absent; a sandbox's runner daemon for a
+    // sprites agent (ADR-0031).
+    daemonId?: string
     onToken?: (tokenId: string) => void
 }
 
@@ -220,9 +223,9 @@ export class DaemonTerminal {
     // again, and the caller ends the row.
     async openInHerdr(req: DaemonHerdrOpenRequest): Promise<DaemonHerdrOpenResult> {
         const { agent } = req
-        if (!agent.daemonId)
-            throw new NotFoundException('daemon agent missing daemonId')
-        const daemonId = agent.daemonId
+        const daemonId = req.daemonId ?? agent.daemonId
+        if (!daemonId)
+            throw new NotFoundException('agent has no daemon to open herdr on')
         const connectionEnv = await this.connections.resolveAgentEnv({
             userId: agent.userId,
             extras: agent.extras

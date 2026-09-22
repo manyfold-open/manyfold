@@ -2330,6 +2330,11 @@ export interface SandboxSummary {
     cliVersion: string | null
     latestCliVersion: string | null
     cliUpdateAvailable: boolean
+    // herdr inside the sandbox (ADR-0031): null version = not installed;
+    // the Update Center then offers the install as an upgrade to the latest.
+    herdrVersion: string | null
+    latestHerdrVersion: string | null
+    herdrUpdateAvailable: boolean
     // Accrued `running` seconds for this sandbox in the OWNER's current usage
     // period (subscription billing period, or UTC calendar month for free
     // users). 0 when never active this period. Format for display via the

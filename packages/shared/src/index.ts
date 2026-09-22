@@ -871,6 +871,8 @@ export type {
     DaemonHerdrFramework,
     DaemonHerdrOpenPayload,
     DaemonHerdrOpenResult,
+    DaemonHerdrUpdateResult,
+    UpgradeHerdrResponse,
     DaemonInflightStream,
     DaemonInflightStreamStatus,
     DaemonTurnStartPayload,

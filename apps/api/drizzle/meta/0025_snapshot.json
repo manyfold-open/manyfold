@@ -1,5 +1,5 @@
 {
-  "id": "4244c3a7-1062-4ccc-aa60-7267ae46195d",
+  "id": "947add7e-227c-48e1-a9b4-e2b185ff5528",
   "prevId": "74250384-f0a8-4db1-a922-11aa42fcfed1",
   "version": "7",
   "dialect": "postgresql",
@@ -1269,6 +1269,12 @@
         },
         "cli_version": {
           "name": "cli_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "herdr_version": {
+          "name": "herdr_version",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -3833,6 +3839,12 @@
         },
         "process_handle": {
           "name": "process_handle",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "daemon_id": {
+          "name": "daemon_id",
           "type": "text",
           "primaryKey": false,
           "notNull": false

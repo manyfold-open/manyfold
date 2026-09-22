@@ -42,6 +42,7 @@ import type {
     IssueDaemonTokenBody,
     IssueDaemonTokenResponse,
     UpgradeDaemonHostResponse,
+    UpgradeHerdrResponse,
     AgentBackupRestoreSummary,
     AgentBackupSummary,
     AgentControlUiUrlResponse,
@@ -659,6 +660,8 @@ export interface SandboxesClient {
     detectFrameworks: (id: string) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
+    // Install or upgrade herdr inside the sandbox (ADR-0031).
+    upgradeHerdr: (id: string) => Promise<SandboxSummary>
     installFramework: (
         id: string,
         framework: string,
@@ -690,6 +693,8 @@ export interface DaemonsClient {
         id: string,
         targetVersion?: string
     ) => Promise<UpgradeDaemonHostResponse>
+    // herdr on the machine, through herdr's own updater (ADR-0031).
+    upgradeHerdr: (id: string) => Promise<UpgradeHerdrResponse>
     listTokens: () => Promise<DaemonTokenSummary[]>
     issueToken: (
         body: IssueDaemonTokenBody
@@ -2656,6 +2661,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     method: 'POST',
                     body: JSON.stringify({ targetVersion })
                 }),
+            upgradeHerdr: (id) =>
+                request<SandboxSummary>(apiPaths.SANDBOX_HERDR_UPGRADE(id), {
+                    method: 'POST'
+                }),
             listServices: (id) =>
                 request<SandboxServiceSummary[]>(apiPaths.SANDBOX_SERVICES(id)),
             deleteService: (id, name) =>
@@ -2686,6 +2695,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<UpgradeDaemonHostResponse>(
                     apiPaths.DAEMON_HOST_UPGRADE(id),
                     { method: 'POST', body: JSON.stringify({ targetVersion }) }
+                ),
+            upgradeHerdr: (id) =>
+                request<UpgradeHerdrResponse>(
+                    apiPaths.DAEMON_HOST_HERDR_UPGRADE(id),
+                    { method: 'POST' }
                 ),
             listTokens: () =>
                 request<DaemonTokenSummary[]>(apiPaths.DAEMON_TOKENS),

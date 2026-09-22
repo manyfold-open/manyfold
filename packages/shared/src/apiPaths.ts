@@ -227,6 +227,7 @@ export const apiPaths = {
         `/sandboxes/${id}/detect-frameworks`,
     SANDBOX_REFRESH_STATUS: (id: string) => `/sandboxes/${id}/refresh-status`,
     SANDBOX_CLI_UPGRADE: (id: string) => `/sandboxes/${id}/cli/upgrade`,
+    SANDBOX_HERDR_UPGRADE: (id: string) => `/sandboxes/${id}/herdr/upgrade`,
     SANDBOX_FRAMEWORK_INSTALL: (id: string, framework: string) =>
         `/sandboxes/${id}/frameworks/${framework}/install`,
     SANDBOX_FRAMEWORK_RUNTIME: (id: string, framework: string) =>
@@ -456,6 +457,8 @@ export const apiPaths = {
     DAEMON_HOST_BY_ID: (id: string) => `/daemon/hosts/${id}`,
     DAEMON_HOST_DELETE: (id: string) => `/daemon/hosts/${id}/permanent`,
     DAEMON_HOST_UPGRADE: (id: string) => `/daemon/hosts/${id}/upgrade`,
+    DAEMON_HOST_HERDR_UPGRADE: (id: string) =>
+        `/daemon/hosts/${id}/herdr/upgrade`,
     DAEMON_HOST_RENAME: (id: string) => `/daemon/hosts/${id}/name`,
     DAEMON_WS: '/daemon/ws',
     ADMIN_DAEMON_HOSTS: '/admin/daemon/hosts',

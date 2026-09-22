@@ -368,6 +368,15 @@ export class TerminalHolderService {
             .where(eq(agents.id, row.agentId))
             .limit(1)
         try {
+            // A herdr pane is closed through the daemon that opened it
+            // (ADR-0031): the agent's own, or the sandbox's runner.
+            if (row.client === 'herdr') {
+                const daemonId = row.daemonId ?? agent?.daemonId
+                if (!daemonId)
+                    throw new Error('herdr terminal has no daemon to close it')
+                await this.daemon.closePty(daemonId, row.processHandle)
+                return
+            }
             if (row.runtime === 'sprites') {
                 if (!agent?.accountId || !agent.spriteName)
                     throw new Error('agent has no sprite to kill on')

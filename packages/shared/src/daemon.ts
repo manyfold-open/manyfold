@@ -66,6 +66,8 @@ export interface RegisterDaemonRequest {
     skillsDir?: string
     detectedFrameworks: DetectedFramework[]
     terminalPty?: boolean
+    // herdr's version on this machine (ADR-0031), null when not installed.
+    herdrVersion?: string | null
 }
 
 export interface RegisterDaemonResponse {
@@ -84,6 +86,7 @@ export interface HeartbeatRequest {
     terminalPty?: boolean
     clientFeatures?: string[]
     terminals?: DaemonOwnedTerminal[]
+    herdrVersion?: string | null
 }
 
 export interface HeartbeatResponse {
@@ -137,6 +140,11 @@ export interface DaemonHostSummary {
     // herdr is installed on this machine and the daemon can open a chat
     // session's TUI in it (ADR-0031); false hides the handoff in the web.
     canOpenInHerdr: boolean
+    // herdr's installed version, the newest herdr.dev publishes, and whether
+    // the Update Center should offer the upgrade (ADR-0031).
+    herdrVersion: string | null
+    latestHerdrVersion: string | null
+    herdrUpdateAvailable: boolean
     startupMethod: DaemonStartupMethod | null
     homeDir: string | null
     workspaceBaseDir: string | null
@@ -206,6 +214,7 @@ export type DaemonRpcMethod =
     | 'pty.close'
     | 'terminal.herdr.open'
     | 'terminal.herdr.focus'
+    | 'herdr.update'
     | 'fs.list'
     | 'fs.stat'
     | 'fs.read'
@@ -301,6 +310,21 @@ export interface DaemonHerdrOpenResult {
     workspaceId: string
     // herdr had a client attached and the pane was raised for it.
     focused: boolean
+}
+
+// herdr.update (ADR-0031): the daemon runs herdr's own updater and reports
+// the version it left behind.
+export interface DaemonHerdrUpdateResult {
+    ok: boolean
+    fromVersion: string | null
+    toVersion: string | null
+    error?: string
+}
+
+export interface UpgradeHerdrResponse {
+    ok: boolean
+    fromVersion: string | null
+    toVersion: string | null
 }
 
 export type DaemonWsFrame =

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common'
-import { and, asc, eq, inArray, isNull, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm'
 import {
     agents,
     terminalSessions,
@@ -33,6 +33,9 @@ export class TerminalSessionsRepository {
         // Absent, the browser terminal; `herdr` for a pane on the agent's
         // machine (ADR-0031).
         client?: TerminalClient
+        // The daemon a herdr terminal is reached through (the agent's own,
+        // or a sandbox's runner).
+        daemonId?: string | null
     }): Promise<TerminalSessionRow> {
         const [row] = await this.db
             .insert(terminalSessions)
@@ -140,9 +143,10 @@ export class TerminalSessionsRepository {
         return rows.length
     }
 
-    // The live terminals a daemon owns: daemon-arm rows addressed by their
-    // own id (the handle an owned terminal gets at creation), reached through
-    // the agent's current daemon.
+    // The live terminals a daemon owns: rows addressed by their own id (the
+    // handle an owned or herdr terminal gets at creation), reached through
+    // the daemon the row names or, for a daemon-arm row that predates the
+    // column, the agent's current daemon.
     async listLiveOwnedByDaemon(
         daemonId: string
     ): Promise<TerminalSessionRow[]> {
@@ -152,8 +156,14 @@ export class TerminalSessionsRepository {
             .innerJoin(agents, eq(agents.id, terminalSessions.agentId))
             .where(
                 and(
-                    eq(agents.daemonId, daemonId),
-                    eq(terminalSessions.runtime, 'daemon'),
+                    or(
+                        eq(terminalSessions.daemonId, daemonId),
+                        and(
+                            isNull(terminalSessions.daemonId),
+                            eq(agents.daemonId, daemonId),
+                            eq(terminalSessions.runtime, 'daemon')
+                        )
+                    ),
                     isNull(terminalSessions.endedAt),
                     eq(terminalSessions.processHandle, terminalSessions.id)
                 )

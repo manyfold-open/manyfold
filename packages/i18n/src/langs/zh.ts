@@ -2919,17 +2919,12 @@ const zh: Translations = {
             resumeTurnInFlight:
                 '这是一个普通 shell：这轮对话还在生成中，同一时刻只能有一个会话写入它。等回答结束后重新打开终端即可。',
             resumeSessionHeld:
-                '这是一个普通 shell：另一个终端已经打开了这段对话，同一时刻只能有一个终端写入它。关掉那个终端，或在 chat 视图里点「回到 web」，再在这里重新打开终端。'
+                '这是一个普通 shell：另一个终端已经打开了这段对话，同一时刻只能有一个终端写入它。关掉那个终端，或在这里切换到 Chat UI 来接管，再重新打开终端。'
         },
         sessionHolder: {
             heldBanner: '这段对话正在终端中进行。释放之前，来自 web、channel 与 API 的消息都会被拒绝。',
-            backToWeb: '回到 web',
-            heldByHerdr: '这段对话正在你电脑上的 herdr 中进行。在那里退出 TUI 即可回到这里继续；在此之前，来自 web、channel 与 API 的消息都会被拒绝。',
-            showInHerdr: '在 herdr 中查看',
-            continueInWeb: '在 web 中继续',
-            openedInHerdr: '已在你电脑上的 herdr 中打开。在那里退出 TUI 即可回到这里继续。',
-            composerHeldHerdr: '正在 herdr 中进行 —— 在那里退出 TUI，或点「在 web 中继续」。',
-            releasing: '正在释放…',
+            heldByHerdr: '这段对话正在 herdr 中进行。在那里退出 TUI 即可在这里继续；在此之前，来自 web、渠道和 API 的消息都会被拒绝。',
+            composerHeldHerdr: '正在 herdr 中进行。在那里退出 TUI，或切到 herdr 再切回 Chat UI 来接管。',
             importPending: '正在把终端里说过的内容导入这段对话…',
             importFailed: '终端里说过的内容还没能导入，这段对话暂时挂起。等 runtime 可达后重试，或放弃导入。',
             retrySync: '重试导入',
@@ -2944,7 +2939,7 @@ const zh: Translations = {
             attachRefusedTurn: '终端打开了一段正在运行 turn 的对话，未接管；等 turn 结束后再在终端里继续。',
             attachRefusedHeld: '终端打开了一段已在另一个终端中打开的对话，未接管。',
             dismiss: '关闭',
-            composerHeld: '正在终端中进行 —— 点「回到 web」在这里继续。',
+            composerHeld: '正在终端中进行。在那里退出 TUI，或打开终端视图再切回 Chat UI 来接管。',
             composerImporting: '正在导入终端里说过的内容…'
         },
         composer: {
@@ -3336,6 +3331,7 @@ const zh: Translations = {
             pickTarget: '为 {{name}} 选择版本',
             badgeCta: '更新到 {{version}}',
             kindCli: 'mf CLI',
+            kindHerdr: 'herdr',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
             kindCliUsage: 'Manyfold CLI 用法',
@@ -4573,6 +4569,11 @@ const zh: Translations = {
             deleteTaskDescription:
                 '删除任务“{{name}}”？它的活动租约会释放，沙箱随后可在空闲时挂起。',
             cliLabel: 'mf CLI',
+            herdrLabel: 'herdr',
+            sandboxHerdrDescription: '沙箱里的 herdr，交接过去的对话在这里打开。安装与升级都是原地进行，不会重启任何东西。',
+            daemonHerdrDescription: '这台电脑上的 herdr。升级时运行 herdr 自己的更新器。',
+            installVersion: '安装 {{version}}',
+            herdrUpgradedMessage: 'herdr 已升级到 v{{version}}',
             sandboxCliDescription:
                 '此沙箱中安装的平台 CLI。升级会原地完成，不会重启。',
             daemonCliDescription:

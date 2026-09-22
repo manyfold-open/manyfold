@@ -97,7 +97,7 @@ export const registerDaemonDoctor = (program: Command): void => {
 
                 console.log(
                     herdr
-                        ? `${kleur.cyan('herdr'.padEnd(12))} available     ${kleur.gray(herdr.path)}`
+                        ? `${kleur.cyan('herdr'.padEnd(12))} ${(herdr.version ?? kleur.gray('(no --version output)')).padEnd(13)} ${kleur.gray(herdr.path)}`
                         : `${kleur.gray('herdr'.padEnd(12))} not found     ${kleur.gray('install herdr to hand chat sessions to it')}`
                 )
 

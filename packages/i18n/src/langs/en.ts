@@ -3058,17 +3058,12 @@ const en = {
             resumeTurnInFlight:
                 'This is a plain shell: this conversation is still being answered, and only one session can write to it at a time. Reopen the terminal once the answer finishes.',
             resumeSessionHeld:
-                'This is a plain shell: another terminal already has this conversation open, and only one can write to it at a time. Close that terminal, or use “Back to web” in the chat view, then reopen the terminal here.'
+                'This is a plain shell: another terminal already has this conversation open, and only one can write to it at a time. Close that terminal, or switch to Chat UI here to take it over, then reopen the terminal.'
         },
         sessionHolder: {
             heldBanner: 'This conversation is open in a terminal. Messages from the web, channels and the API are refused until it is released.',
-            backToWeb: 'Back to web',
-            heldByHerdr: 'This conversation is open in herdr on your computer. Quit the TUI there to continue here; until then, messages from the web, channels and the API are refused.',
-            showInHerdr: 'Show in herdr',
-            continueInWeb: 'Continue in web',
-            openedInHerdr: 'Opened in herdr on your computer. Quit the TUI there to continue here.',
-            composerHeldHerdr: 'Open in herdr — quit the TUI there, or use “Continue in web”.',
-            releasing: 'Releasing…',
+            heldByHerdr: 'This conversation is open in herdr. Quit the TUI there to continue here; until then, messages from the web, channels and the API are refused.',
+            composerHeldHerdr: 'Open in herdr. Quit the TUI there, or switch to herdr and back to Chat UI to take it over.',
             importPending: 'Bringing what was said in the terminal into this conversation…',
             importFailed: 'What was said in the terminal could not be imported yet, so this conversation is paused. Retry once the runtime is reachable, or abandon the import.',
             retrySync: 'Retry import',
@@ -3083,7 +3078,7 @@ const en = {
             attachRefusedTurn: 'The terminal opened a conversation that is running a turn right now. It was not taken over; wait for the turn to finish before continuing there.',
             attachRefusedHeld: 'The terminal opened a conversation that another terminal already has open. It was not taken over.',
             dismiss: 'Dismiss',
-            composerHeld: 'Open in a terminal — use “Back to web” to continue here.',
+            composerHeld: 'Open in a terminal. Quit the TUI there, or open the terminal view and switch back to Chat UI to take it over.',
             composerImporting: 'Importing what was said in the terminal…'
         },
         composer: {
@@ -3498,6 +3493,7 @@ const en = {
             pickTarget: 'Choose a version for {{name}}',
             badgeCta: 'Update to {{version}}',
             kindCli: 'mf CLI',
+            kindHerdr: 'herdr',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
             kindCliUsage: 'Manyfold CLI usage',
@@ -4799,6 +4795,11 @@ const en = {
             deleteTaskDescription:
                 'Delete task "{{name}}"? Its activity lease is released; the sandbox can then suspend when idle.',
             cliLabel: 'mf CLI',
+            herdrLabel: 'herdr',
+            sandboxHerdrDescription: 'herdr inside this sandbox, where handed-off conversations open. Installs and upgrades are in-place; nothing restarts.',
+            daemonHerdrDescription: 'herdr on this machine. Upgrading runs herdr’s own updater.',
+            installVersion: 'Install {{version}}',
+            herdrUpgradedMessage: 'herdr upgraded to v{{version}}',
             sandboxCliDescription:
                 'Platform CLI installed in this sandbox. Upgrades are in-place; nothing restarts.',
             daemonCliDescription:

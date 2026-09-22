@@ -77,6 +77,10 @@ export const runtimeHosts = pgTable(
         os: text('os'),
         arch: text('arch'),
         cliVersion: text('cli_version'),
+        // herdr's version on the machine or inside the sandbox (ADR-0031);
+        // null = not installed. Daemons report it with every heartbeat, a
+        // sandbox is probed like its CLIs.
+        herdrVersion: text('herdr_version'),
         startupMethod: text('startup_method', {
             enum: [
                 'launchd-user',

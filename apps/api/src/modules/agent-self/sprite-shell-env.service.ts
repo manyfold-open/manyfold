@@ -82,6 +82,20 @@ export const buildCliInstallScript = (
     ].join('\n')
 }
 
+// herdr inside a sandbox (ADR-0031): the same installer herdr publishes for
+// users, into the bin dir the sprite's PATH already carries. The version line
+// after it is what the caller parses; the marker is the success contract.
+export const HERDR_INSTALL_URL = 'https://herdr.dev/install.sh'
+export const HERDR_INSTALL_MARKER = 'MF_HERDR_OK'
+
+export const buildHerdrInstallScript = (): string =>
+    [
+        'set -eu',
+        `curl -fsSL ${HERDR_INSTALL_URL} | HERDR_INSTALL_DIR="$HOME/.local/bin" sh`,
+        'echo "herdr-installed=$("$HOME/.local/bin/herdr" --version 2>/dev/null | head -1)"',
+        `echo ${HERDR_INSTALL_MARKER}`
+    ].join('\n')
+
 @Injectable()
 export class SpriteShellEnvService {
     private readonly log = new Logger(SpriteShellEnvService.name)

@@ -18,7 +18,7 @@ import type {
     SandboxSummary
 } from '@manyfold/shared'
 
-export type UpdateKind = 'cli' | 'framework' | 'cliUsage' | 'skill'
+export type UpdateKind = 'cli' | 'herdr' | 'framework' | 'cliUsage' | 'skill'
 export type UpdateSeverity = 'recommended' | 'required'
 
 // Why a row cannot join a batch. null = the platform can drive this update
@@ -40,6 +40,9 @@ export type UpdateExec =
     // which is what the endpoints do with an absent `targetVersion`.
     | { type: 'daemonCli'; hostId: string; targetVersion: string | null }
     | { type: 'sandboxCli'; sandboxId: string; targetVersion: string | null }
+    // herdr rides herdr's own updater, always to its latest (ADR-0031).
+    | { type: 'daemonHerdr'; hostId: string }
+    | { type: 'sandboxHerdr'; sandboxId: string }
     | { type: 'skillInstall'; skillId: string; agentId: string }
     // Nothing the platform can run: either a copy-a-command guide for the
     // framework, or a link to wherever the human does it.
@@ -93,9 +96,10 @@ export const shortRevision = (revision: string): string => revision.slice(0, 7)
 
 const kindOrder: Record<UpdateKind, number> = {
     cli: 0,
-    framework: 1,
-    cliUsage: 2,
-    skill: 3
+    herdr: 1,
+    framework: 2,
+    cliUsage: 3,
+    skill: 4
 }
 
 const compareRows = (a: UpdateRow, b: UpdateRow): number => {
@@ -192,6 +196,60 @@ const cliRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
                 sandboxId: sandbox.id,
                 targetVersion: null
             }
+        })
+    }
+    return rows
+}
+
+// herdr on each machine and inside each sandbox (ADR-0031). A daemon only
+// offers it while online; a sandbox without herdr gets an install row
+// (installed null), since the platform can put it there.
+const herdrRows = (inputs: UpdateCenterInputs): UpdateRow[] => {
+    const rows: UpdateRow[] = []
+    for (const host of inputs.daemonHosts) {
+        if (!host.herdrUpdateAvailable) continue
+        const blocker: UpdateBlocker | null = host.online ? null : 'offline'
+        rows.push({
+            id: `herdr:daemon:${host.id}`,
+            kind: 'herdr',
+            subjectLabel: 'herdr',
+            framework: null,
+            targetKind: 'daemon',
+            targetKey: `daemon:${host.id}`,
+            targetLabel: host.name,
+            installedVersion: host.herdrVersion,
+            latestVersion: host.latestHerdrVersion,
+            targetChoices: [],
+            severity: 'recommended',
+            blockedReason: null,
+            blocker,
+            exec:
+                blocker === null
+                    ? { type: 'daemonHerdr', hostId: host.id }
+                    : {
+                          type: 'none',
+                          guideFramework: null,
+                          href: '/settings/runtimes/local-daemons'
+                      }
+        })
+    }
+    for (const sandbox of inputs.sandboxes) {
+        if (!sandbox.herdrUpdateAvailable) continue
+        rows.push({
+            id: `herdr:sandbox:${sandbox.id}`,
+            kind: 'herdr',
+            subjectLabel: 'herdr',
+            framework: null,
+            targetKind: 'sandbox',
+            targetKey: `sandbox:${sandbox.id}`,
+            targetLabel: sandbox.name,
+            installedVersion: sandbox.herdrVersion,
+            latestVersion: sandbox.latestHerdrVersion,
+            targetChoices: [],
+            severity: 'recommended',
+            blockedReason: null,
+            blocker: null,
+            exec: { type: 'sandboxHerdr', sandboxId: sandbox.id }
         })
     }
     return rows
@@ -407,6 +465,7 @@ export const buildUpdateRows = (
 ): UpdateRow[] =>
     [
         ...cliRows(inputs),
+        ...herdrRows(inputs),
         ...frameworkRows(inputs, frameworkLabel),
         ...skillRows(inputs)
     ].sort(compareRows)
@@ -506,6 +565,7 @@ export const groupUpdateRows = (
 
 const kindParams: Record<UpdateKind, string> = {
     cli: 'cli',
+    herdr: 'herdr',
     framework: 'framework',
     cliUsage: 'cli-usage',
     skill: 'skill'
@@ -547,6 +607,8 @@ export type BatchStep =
           sandboxId: string
           targetVersion: string | null
       }
+    | { type: 'daemonHerdr'; rowId: string; hostId: string }
+    | { type: 'sandboxHerdr'; rowId: string; sandboxId: string }
 
 export const SKILL_INSTALL_BATCH_LIMIT = 50
 
@@ -555,8 +617,10 @@ const stepOrder = (step: BatchStep): number => {
         case 'skillBatch':
             return 0
         case 'sandboxCli':
+        case 'sandboxHerdr':
             return 1
         case 'daemonCli':
+        case 'daemonHerdr':
             return 2
         case 'framework':
             // A rebuild takes minutes while every other step takes seconds, so
@@ -613,6 +677,20 @@ export const planBatch = (
                     rowId: row.id,
                     sandboxId: row.exec.sandboxId,
                     targetVersion: picked ?? row.exec.targetVersion
+                })
+                break
+            case 'daemonHerdr':
+                steps.push({
+                    type: 'daemonHerdr',
+                    rowId: row.id,
+                    hostId: row.exec.hostId
+                })
+                break
+            case 'sandboxHerdr':
+                steps.push({
+                    type: 'sandboxHerdr',
+                    rowId: row.id,
+                    sandboxId: row.exec.sandboxId
                 })
                 break
             case 'agentFramework':

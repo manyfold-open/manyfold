@@ -21,6 +21,7 @@ import {
     type DaemonConfig
 } from '@/daemon/config'
 import { detectFrameworks } from '@/daemon/detect'
+import { detectHerdr } from '@/daemon/herdr'
 import { checkPtySupport } from '@/daemon/pty-backend'
 import { defaultScope } from '@/daemon/init-unit'
 import { MF_CLI_VERSION } from '@/version'
@@ -126,6 +127,7 @@ export const registerDaemonHost = async (opts: {
     const daemonUuid = await loadOrCreateDaemonUuid()
     const detectedFrameworks = await detectFrameworks()
     const terminalSupport = await checkPtySupport()
+    const herdr = await detectHerdr()
     const homeDir = os.homedir()
     const configDir = resolveConfigDir()
     const workspaceBaseDir = opts.workspaceRoot ?? machineWorkspacesRoot(configDir)
@@ -141,7 +143,8 @@ export const registerDaemonHost = async (opts: {
         workspaceBaseDir,
         skillsDir,
         detectedFrameworks,
-        terminalPty: !('problem' in terminalSupport)
+        terminalPty: !('problem' in terminalSupport),
+        herdrVersion: herdr?.version ?? null
     }
 
     const url = `${opts.apiUrl}${apiPaths.DAEMON_REGISTER}`

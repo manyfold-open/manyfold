@@ -68,10 +68,11 @@ import {
     herdrTerminal,
     herdrTerminalCount,
     isHerdrFramework,
-    openInHerdr
+    openInHerdr,
+    updateHerdr
 } from './herdr'
-import { machineWorkspacesRoot } from '@manyfold/shared'
-import { resolveConfigDir } from '@/config'
+import { machineWorkspacesRoot, RUNNER_PROFILE } from '@manyfold/shared'
+import { resolveConfigDir, resolveProfile } from '@/config'
 import { daemonPaths, loadDaemonConfig } from './config'
 import type { ConfigurableFramework } from '@manyfold/shared'
 import {
@@ -975,6 +976,23 @@ const releaseExecChild = (refId: string): void => {
 const releasePtySession = (refId: string): void => {
     if (ptySessions.delete(refId)) updateCoordinator.onSessionEnd()
 }
+
+// End a pty the way its terminal closing would: a hangup, which an
+// interactive shell honours (it ignores SIGTERM) and passes on to what it
+// runs, then a kill for anything that stayed. Seen on macOS dev [2026-09-22]:
+// `zsh -il` running herdr's TUI outlived SIGTERM on every viewer disconnect.
+const hangUpPtySession = (session: TerminalSession): void => {
+    try {
+        session.kill('SIGHUP')
+    } catch {}
+    const late = setTimeout(() => {
+        try {
+            session.kill('SIGKILL')
+        } catch {}
+    }, PTY_HANGUP_GRACE_MS)
+    late.unref?.()
+}
+const PTY_HANGUP_GRACE_MS = 2_000
 
 export const daemonActivitySnapshot = (): {
     activeExecs: number
@@ -2128,9 +2146,7 @@ const handlers: Partial<
         }
         ptySessions.set(ctx.refId, term)
         ctx.onCancel(() => {
-            try {
-                term.kill('SIGTERM')
-            } catch {}
+            hangUpPtySession(term)
             releasePtySession(ctx.refId)
         })
         const exitCode = await term.exited
@@ -2181,9 +2197,7 @@ const handlers: Partial<
         }
         const session = ptySessions.get(String(payload.refId ?? ''))
         if (!session) return { ok: true }
-        try {
-            session.kill('SIGTERM')
-        } catch {}
+        hangUpPtySession(session)
         releasePtySession(String(payload.refId ?? ''))
         return { ok: true }
     },
@@ -2245,7 +2259,11 @@ const handlers: Partial<
                     typeof payload.agentName === 'string'
                         ? payload.agentName
                         : '',
-                release: release ? () => release.release() : null
+                release: release ? () => release.release() : null,
+                // A platform runner owns its sandbox: herdr's server is started
+                // on demand there. A self-owned computer's herdr is the user's
+                // to start.
+                autoStartServer: resolveProfile() === RUNNER_PROFILE
             })
             return { ok: true, payload: { ...result } }
         } catch (err) {
@@ -2262,6 +2280,17 @@ const handlers: Partial<
         } catch (err) {
             return { ok: false, error: herdrErrorString(err) }
         }
+    },
+    // The Update Center's herdr upgrade (ADR-0031): herdr's own updater, the
+    // version it left behind reported back and on the next heartbeat.
+    'herdr.update': async () => {
+        const result = await updateHerdr()
+        return result.ok
+            ? { ok: true, payload: { ...result } }
+            : {
+                  ok: false,
+                  error: `herdr_update_failed: ${result.error ?? 'unknown'}`
+              }
     }
 }
 

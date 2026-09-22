@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { access } from 'node:fs/promises'
 import { createConnection, type Socket } from 'node:net'
@@ -6,6 +7,7 @@ import { basename, delimiter, dirname, join } from 'node:path'
 import type {
     DaemonHerdrFramework,
     DaemonHerdrOpenResult,
+    DaemonHerdrUpdateResult,
     DaemonOwnedTerminal
 } from '@manyfold/shared'
 
@@ -29,6 +31,13 @@ export const HERDR_METADATA_SOURCE = 'manyfold'
 // herdr accepts 3 s < timeout <= 300 s for an agent start; a cold `claude`
 // on a slow disk takes a while to draw its prompt.
 export const HERDR_AGENT_START_TIMEOUT_MS = 60_000
+// herdr answers agent_pane_busy while a new pane's shell is still coming up
+// ("not an available shell"), even after process_info shows the shell alone.
+// Seen on macOS dev [2026-09-22]: a workspace created a second after its
+// predecessor closed refused the first start. The start is asked again a few
+// times before that counts as a failure.
+export const HERDR_AGENT_START_BUSY_RETRIES = 8
+export const HERDR_AGENT_START_BUSY_DELAY_MS = 400
 const CALL_TIMEOUT_MS = 10_000
 const PING_TIMEOUT_MS = 3_000
 const SHELL_PROMPT_WAIT_MS = 5_000
@@ -89,28 +98,155 @@ export const herdrSocketPath = (
 
 export interface HerdrDetection {
     path: string
+    // From `herdr --version` ("herdr 0.9.1"); null when the binary would
+    // not answer.
+    version: string | null
 }
+
+const VERSION_TIMEOUT_MS = 5_000
+const UPDATE_TIMEOUT_MS = 180_000
+const SERVER_START_WAIT_MS = 8_000
+
+const runHerdr = (
+    binary: string,
+    args: string[],
+    timeoutMs: number
+): Promise<{ exitCode: number | null; stdout: string; stderr: string }> =>
+    new Promise((resolve) => {
+        const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+        let stdout = ''
+        let stderr = ''
+        let settled = false
+        const finish = (exitCode: number | null): void => {
+            if (settled) return
+            settled = true
+            clearTimeout(timer)
+            resolve({ exitCode, stdout, stderr })
+        }
+        const timer = setTimeout(() => {
+            try {
+                child.kill('SIGKILL')
+            } catch {}
+            finish(null)
+        }, timeoutMs)
+        child.stdout.setEncoding('utf8')
+        child.stderr.setEncoding('utf8')
+        child.stdout.on('data', (chunk: string) => {
+            stdout += chunk
+        })
+        child.stderr.on('data', (chunk: string) => {
+            stderr += chunk
+        })
+        child.on('error', () => finish(null))
+        child.on('close', (code) => finish(code))
+    })
+
+export const parseHerdrVersion = (output: string): string | null => {
+    const match = /(\d+\.\d+\.\d+[0-9A-Za-z.+-]*)/.exec(output)
+    return match ? match[1] : null
+}
+
+const herdrVersionOf = async (binary: string): Promise<string | null> => {
+    const result = await runHerdr(binary, ['--version'], VERSION_TIMEOUT_MS)
+    return result.exitCode === 0 ? parseHerdrVersion(result.stdout) : null
+}
+
+let lastDetection: HerdrDetection | null = null
 
 // Installed or not: PATH (augmented from the login shell at daemon start,
 // which is where `~/.local/bin` usually comes from) plus herdr's own default
 // install location. Whether its server is running is a question for the
-// moment a handoff is asked for, not for the capability flag.
+// moment a handoff is asked for, not for the capability flag. The result is
+// kept for the heartbeat and refreshed on the framework-detect cadence and
+// after an update.
 export const detectHerdr = async (): Promise<HerdrDetection | null> => {
+    lastDetection = await probeHerdr()
+    return lastDetection
+}
+
+export const currentHerdr = (): HerdrDetection | null => lastDetection
+
+const probeHerdr = async (): Promise<HerdrDetection | null> => {
     if (process.platform === 'win32') return null
-    for (const dir of (process.env.PATH ?? '').split(delimiter)) {
-        if (!dir) continue
-        const candidate = join(dir, HERDR_BINARY)
+    const candidates = (process.env.PATH ?? '')
+        .split(delimiter)
+        .filter(Boolean)
+        .map((dir) => join(dir, HERDR_BINARY))
+    candidates.push(join(homedir(), '.local', 'bin', HERDR_BINARY))
+    for (const candidate of candidates) {
         try {
             await access(candidate)
-            return { path: candidate }
-        } catch {}
+        } catch {
+            continue
+        }
+        return { path: candidate, version: await herdrVersionOf(candidate) }
     }
-    const fallback = join(homedir(), '.local', 'bin', HERDR_BINARY)
-    try {
-        await access(fallback)
-        return { path: fallback }
-    } catch {}
     return null
+}
+
+// herdr's own updater (`herdr update`), for the Update Center (ADR-0031).
+// The version it left behind is re-probed so the next heartbeat carries it.
+export const updateHerdr = async (): Promise<DaemonHerdrUpdateResult> => {
+    const before = lastDetection ?? (await detectHerdr())
+    if (!before)
+        return {
+            ok: false,
+            fromVersion: null,
+            toVersion: null,
+            error: 'herdr is not installed on this machine'
+        }
+    const result = await runHerdr(before.path, ['update'], UPDATE_TIMEOUT_MS)
+    const after = await detectHerdr()
+    const ok = result.exitCode === 0
+    return {
+        ok,
+        fromVersion: before.version,
+        toVersion: after?.version ?? null,
+        ...(ok
+            ? {}
+            : {
+                  error:
+                      result.exitCode === null
+                          ? 'herdr update timed out'
+                          : `herdr update exited ${result.exitCode}: ${(result.stderr || result.stdout).trim().slice(0, 200)}`
+              })
+    }
+}
+
+// Start herdr's server headless when a handoff finds none. Only where the
+// daemon owns the environment (a platform runner inside a sandbox); on a
+// self-owned computer the user's herdr is theirs to start.
+const startHerdrServer = async (
+    socketPath: string,
+    binary: string
+): Promise<void> => {
+    const child = spawn(binary, ['server'], {
+        detached: true,
+        stdio: 'ignore',
+        env: { ...process.env, HERDR_SOCKET_PATH: socketPath }
+    })
+    // A binary that vanished since detection surfaces as the wait below
+    // running out, not as an unhandled 'error' event taking the daemon down.
+    child.on('error', () => {})
+    child.unref()
+    const deadline = Date.now() + SERVER_START_WAIT_MS
+    while (Date.now() < deadline) {
+        try {
+            await herdrCall(
+                'ping',
+                {},
+                { socketPath, timeoutMs: PING_TIMEOUT_MS }
+            )
+            return
+        } catch {}
+        await new Promise((resolve) =>
+            setTimeout(resolve, SHELL_PROMPT_POLL_MS)
+        )
+    }
+    throw new HerdrError(
+        'herdr_not_running',
+        `herdr server did not come up on ${socketPath} within ${SERVER_START_WAIT_MS}ms`
+    )
 }
 
 interface HerdrReply {
@@ -604,6 +740,8 @@ export interface OpenInHerdrArgs {
     agentName: string
     release?: (() => Promise<void>) | null
     socketPath?: string
+    // Start herdr's server if none answers (platform runners only).
+    autoStartServer?: boolean
 }
 
 // Open a chat session's TUI in herdr: find (or create) the agent's
@@ -631,7 +769,18 @@ export const openInHerdr = async (
     const title = args.title.trim() || args.agentName.trim() || 'Manyfold chat'
     const workspaceLabel = args.agentName.trim() || 'Manyfold'
 
-    await call('ping', {}, PING_TIMEOUT_MS)
+    try {
+        await call('ping', {}, PING_TIMEOUT_MS)
+    } catch (err) {
+        const binary = lastDetection?.path ?? HERDR_BINARY
+        if (
+            !args.autoStartServer ||
+            !(err instanceof HerdrError && err.code === 'herdr_not_running')
+        )
+            throw err
+        log(`herdr server not running on ${socketPath}; starting it`)
+        await startHerdrServer(socketPath, binary)
+    }
 
     const listed = await call<{
         workspaces?: Array<{ workspace_id?: string; label?: string }>
@@ -676,23 +825,39 @@ export const openInHerdr = async (
 
     try {
         await waitForShellPrompt(call, paneId)
-        try {
-            await call(
-                'agent.start',
-                {
-                    name: herdrAgentName(args.terminalId),
-                    kind,
-                    pane_id: paneId,
-                    args: agentArgs,
-                    timeout_ms: HERDR_AGENT_START_TIMEOUT_MS
-                },
-                HERDR_AGENT_START_TIMEOUT_MS + PING_TIMEOUT_MS
-            )
-        } catch (err) {
-            // Blocked during startup (a folder-trust prompt, a login) is
-            // still the TUI running in the pane; the user answers it there.
-            if (!(err instanceof HerdrError && err.code === 'agent_not_ready'))
+        for (let attempt = 0; ; attempt += 1) {
+            try {
+                await call(
+                    'agent.start',
+                    {
+                        name: herdrAgentName(args.terminalId),
+                        kind,
+                        pane_id: paneId,
+                        args: agentArgs,
+                        timeout_ms: HERDR_AGENT_START_TIMEOUT_MS
+                    },
+                    HERDR_AGENT_START_TIMEOUT_MS + PING_TIMEOUT_MS
+                )
+                break
+            } catch (err) {
+                // Blocked during startup (a folder-trust prompt, a login) is
+                // still the TUI running in the pane; the user answers it
+                // there.
+                if (err instanceof HerdrError && err.code === 'agent_not_ready')
+                    break
+                if (
+                    err instanceof HerdrError &&
+                    err.code === 'agent_pane_busy' &&
+                    attempt < HERDR_AGENT_START_BUSY_RETRIES
+                ) {
+                    await new Promise((resolve) =>
+                        setTimeout(resolve, HERDR_AGENT_START_BUSY_DELAY_MS)
+                    )
+                    await waitForShellPrompt(call, paneId)
+                    continue
+                }
                 throw err
+            }
         }
         await call('pane.rename', { pane_id: paneId, label: title }).catch(
             () => {}

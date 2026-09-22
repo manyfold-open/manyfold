@@ -48,6 +48,7 @@ import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
 import { listOwnedTerminals } from '@/daemon/owned-terminals'
 import {
     configureHerdr,
+    currentHerdr,
     detectHerdr,
     herdrSocketPath,
     listHerdrTerminals
@@ -193,20 +194,22 @@ const runClaimedForeground = async (
         // re-probed with the frameworks so an install after start shows up,
         // which is why the capability list is read fresh per hello and
         // heartbeat.
-        let herdr = await detectHerdr()
+        const herdr = await detectHerdr()
         // The socket is resolved the way herdr itself does (HERDR_SOCKET_PATH,
         // then HERDR_SESSION, then the default), so a daemon started from
         // inside a herdr pane inherits that pane's session: say which.
         await log(
             herdr
-                ? `herdr: available (${herdr.path}); socket ${herdrSocketPath()}`
+                ? `herdr: available (${herdr.path}, ${herdr.version ?? 'version unknown'}); socket ${herdrSocketPath()}`
                 : 'herdr: not found'
         )
         const baseClientFeatures = manualUpdateCapable
             ? [...DAEMON_CLIENT_FEATURES, DAEMON_FEATURE_MANUAL_UPDATE]
             : [...DAEMON_CLIENT_FEATURES]
+        // Read per hello and heartbeat: the detection cache moves when the
+        // framework probe re-runs or an update lands (herdr.update).
         const clientFeatures = (): string[] =>
-            herdr
+            currentHerdr()
                 ? [...baseClientFeatures, DAEMON_FEATURE_HERDR_TERMINAL]
                 : baseClientFeatures
         // What the last update on this install did, reported once.
@@ -276,7 +279,7 @@ const runClaimedForeground = async (
             if (stopping) return
             if (Date.now() - lastDetectAt > DETECT_REFRESH_MS) {
                 detectedFrameworks = await detectFrameworks()
-                herdr = await detectHerdr()
+                await detectHerdr()
                 lastDetectAt = Date.now()
             }
             if (stopping) return
@@ -286,6 +289,7 @@ const runClaimedForeground = async (
                 startupMethod,
                 terminalPty,
                 clientFeatures: clientFeatures(),
+                herdrVersion: currentHerdr()?.version ?? null,
                 // The terminals this daemon owns (ADR-0029 §6) or hosts in
                 // herdr (ADR-0031), as proof of life for their rows; left
                 // out when the list cannot be built.
