@@ -2335,6 +2335,10 @@ export interface SandboxSummary {
     herdrVersion: string | null
     latestHerdrVersion: string | null
     herdrUpdateAvailable: boolean
+    // herdr is installed and the sandbox's runner (if it has one yet) can
+    // drive it (ADR-0031); false with herdr installed means the runner's
+    // Manyfold CLI predates the handoff and the Update Center has the fix.
+    canOpenInHerdr: boolean
     // Accrued `running` seconds for this sandbox in the OWNER's current usage
     // period (subscription billing period, or UTC calendar month for free
     // users). 0 when never active this period. Format for display via the

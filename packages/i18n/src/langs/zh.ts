@@ -42,7 +42,7 @@ const zh: Translations = {
             bad_request: '请求无效。',
             turn_in_flight: '这段对话还在回答中。等回答结束后再试。',
             herdr_not_running: 'herdr 没有在你的电脑上运行。启动它后再试。',
-            herdr_unavailable: '这个智能体无法使用 herdr：需要一台在线的自有电脑，装有 herdr 且 Manyfold CLI 为最新版本。',
+            herdr_unavailable: 'herdr 对这个 agent 不可用。它所在的电脑或沙箱需要在线、装有 herdr，并且 Manyfold CLI 是最新的。',
             herdr_launch_failed: 'herdr 未能启动这段对话。检查你电脑上的 herdr 后再试。',
             internal_error: '服务端发生异常，请稍后再试。',
             CONCURRENT_ACTIVE_LIMIT_REACHED:
@@ -2911,6 +2911,8 @@ const zh: Translations = {
             herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
             herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
             herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
+            herdrNeedsSandboxCliUpgrade: '先在 Update Center 里更新这个沙箱的 Manyfold CLI，才能把对话交给 herdr。',
+            herdrNeedsCredentials: '先为这个沙箱开启「终端中的模型凭证」；herdr 用它们来恢复对话。',
             resumeNeedsCredentials:
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
             resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',

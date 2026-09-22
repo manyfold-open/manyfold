@@ -1,6 +1,7 @@
 import {
     DAEMON_ONLINE_THRESHOLD_MS as SHARED_DAEMON_ONLINE_THRESHOLD_MS,
-    agentBaseUrl
+    agentBaseUrl,
+    runnerHostName
 } from '@manyfold/shared'
 import type {
     AgentCreateStep,
@@ -81,6 +82,8 @@ export interface RuntimeProvisioningPatch {
     frameworkVersion?: string | null
     frameworkVersionCheckedAt?: Date | null
 }
+
+const RUNNER_HOST_NAME_PREFIX = runnerHostName('')
 
 @Injectable()
 export class AgentRuntimesService {
@@ -520,6 +523,23 @@ export class AgentRuntimesService {
             accountSlug: r.accountSlug ?? null,
             agentsCount: Number(r.agentsCount ?? 0)
         }))
+    }
+
+    // The sprite-runner daemons (one per sandbox, named runnerHostName(sprite))
+    // for one user or, with null, for everyone: what a sandbox's runner can do
+    // is read off its host row even while the sandbox sleeps.
+    async listRunnerHosts(userId: string | null): Promise<RuntimeHostRow[]> {
+        return this.db
+            .select()
+            .from(runtimeHosts)
+            .where(
+                and(
+                    ...(userId ? [eq(runtimeHosts.userId, userId)] : []),
+                    eq(runtimeHosts.kind, 'daemon'),
+                    ne(runtimeHosts.status, 'revoked'),
+                    sql`${runtimeHosts.name} like ${`${RUNNER_HOST_NAME_PREFIX}%`}`
+                )
+            )
     }
 
     async listAllSandboxes(): Promise<

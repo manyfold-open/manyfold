@@ -8,7 +8,9 @@ import {
     parseProbedSemver,
     isVersionedFramework,
     resolveFrameworkRepo,
-    supportsRuntime
+    supportsRuntime,
+    DAEMON_FEATURE_HERDR_TERMINAL,
+    runnerHostName
 } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
@@ -155,6 +157,9 @@ export class SandboxesService {
             : await this.runtimes.listSandboxesForUser(userId)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
+        const runnerCanHerdr = await this.runnerHerdrByHost(
+            isAdmin ? null : userId
+        )
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost(
                 rows.map((r) => ({ id: r.host.id, userId: r.host.userId }))
@@ -166,7 +171,8 @@ export class SandboxesService {
                 r.agentsCount,
                 latest,
                 activeSeconds.get(r.host.id) ?? 0,
-                latestHerdr
+                latestHerdr,
+                runnerCanHerdr(r.host)
             )
         )
     }
@@ -182,6 +188,7 @@ export class SandboxesService {
         if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
+        const runnerCanHerdr = await this.runnerHerdrByHost(r.host.userId)
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost([
                 { id: r.host.id, userId: r.host.userId }
@@ -192,8 +199,31 @@ export class SandboxesService {
             r.agentsCount,
             latest,
             activeSeconds.get(r.host.id) ?? 0,
-            latestHerdr
+            latestHerdr,
+            runnerCanHerdr(r.host)
         )
+    }
+
+    // Whether each sandbox's runner can drive herdr (ADR-0031): a runner that
+    // exists but predates the handoff cannot, until the Update Center moves its
+    // CLI; a sandbox with no runner yet gets one on the current CLI.
+    private async runnerHerdrByHost(
+        userId: string | null
+    ): Promise<(host: RuntimeHostRow) => boolean> {
+        const runners = new Map<string, RuntimeHostRow>()
+        for (const runner of await this.runtimes.listRunnerHosts(userId))
+            runners.set(`${runner.userId}:${runner.name}`, runner)
+        return (host) => {
+            if (!host.spriteName) return false
+            const runner = runners.get(
+                `${host.userId}:${runnerHostName(host.spriteName)}`
+            )
+            return runner
+                ? (runner.clientFeatures ?? []).includes(
+                      DAEMON_FEATURE_HERDR_TERMINAL
+                  )
+                : true
+        }
     }
 
     // Admin paths address sandboxes across all users. We resolve the real owner
@@ -226,6 +256,8 @@ export class SandboxesService {
         const full = await this.runtimes.getSandboxForUser(userId, host.id)
         const latest = await this.cliVersion.getCachedLatest()
         const latestHerdr = await this.latestHerdr()
+        // A sandbox this new has no runner yet; the one its first turn brings
+        // up runs the current CLI.
         return full
             ? toSandboxSummary(
                   full.host,
@@ -233,9 +265,10 @@ export class SandboxesService {
                   full.agentsCount,
                   latest,
                   0,
-                  latestHerdr
+                  latestHerdr,
+                  true
               )
-            : toSandboxSummary(host, null, 0, latest, 0, latestHerdr)
+            : toSandboxSummary(host, null, 0, latest, 0, latestHerdr, true)
     }
 
     async delete(
@@ -1333,7 +1366,8 @@ const toSandboxSummary = (
     agentsCount: number,
     latest: LatestCliVersion,
     activeSecondsThisPeriod: number,
-    latestHerdrVersion: string | null
+    latestHerdrVersion: string | null,
+    runnerCanHerdr: boolean
 ): SandboxSummary => ({
     id: host.id,
     userId: host.userId,
@@ -1362,6 +1396,7 @@ const toSandboxSummary = (
                 host.herdrVersion,
                 latestHerdrVersion
             )),
+    canOpenInHerdr: host.herdrVersion !== null && runnerCanHerdr,
     activeSecondsThisPeriod,
     emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
     createdAt: host.createdAt.toISOString(),

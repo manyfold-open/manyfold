@@ -10,18 +10,20 @@ import {
 } from '@/lib/terminalResume'
 
 /* "Switch to herdr" (ADR-0031) takes the browser TUI's place in the chat
-   header when the agent's own computer runs herdr: the daemon advertises it
-   (DaemonHostSummary.canOpenInHerdr) and the handoff resumes the session
-   there instead of in an embedded terminal. Machines without herdr keep the
-   browser terminal and its old name, so the control is offered — with its
-   herdr label — only where it can work, and the reasons it is disabled are
-   the resume's own plus the two the handoff adds: no session on screen yet,
-   and an agent that is not running. */
+   header when the agent's runtime has herdr: a self-owned computer whose
+   daemon advertises it (DaemonHostSummary.canOpenInHerdr), or a sandbox
+   with herdr installed (SandboxSummary.herdrVersion). Runtimes without
+   herdr keep the browser terminal and its old name, so the control is
+   offered — with its herdr label — only where it can work, and the reasons
+   it is disabled are the resume's own plus what the handoff adds: no
+   session on screen yet, an agent that is not running, and a sandbox
+   runner whose Manyfold CLI predates the handoff. */
 
 export type HerdrHandoffBlocked =
     | 'no-herdr'
     | 'agent-not-running'
     | 'no-session'
+    | 'sandbox-runner-needs-upgrade'
     | TerminalResumeBlocked
 
 export interface HerdrHandoffAvailability {
@@ -38,17 +40,30 @@ export const herdrHandoffAvailability = (args: {
     framework: AgentFramework
     daemonCanOpenInHerdr: boolean
     daemonCanResume: boolean
+    // The agent's sandbox: herdr installed there, its runner able to drive
+    // it, and the terminal credential opt-in the sandbox resume needs.
+    sandboxHasHerdr: boolean
+    sandboxCanOpenInHerdr: boolean
+    sandboxModelCredentials: boolean
     sessionId: string | null
     frameworkSessionRef: string | null
     modelSource: AgentModelConfigSource | null
     runtimeLocalReady: boolean
 }): HerdrHandoffAvailability => {
-    if (args.runtime !== 'daemon' || !args.daemonCanOpenInHerdr)
+    const onDaemon = args.runtime === 'daemon' && args.daemonCanOpenInHerdr
+    const onSandbox = args.runtime === 'sprites' && args.sandboxHasHerdr
+    if (!onDaemon && !onSandbox)
         return { offered: false, available: false, blocked: 'no-herdr' }
     if (!args.running)
         return { offered: true, available: false, blocked: 'agent-not-running' }
     if (!args.sessionId)
         return { offered: true, available: false, blocked: 'no-session' }
+    if (onSandbox && !args.sandboxCanOpenInHerdr)
+        return {
+            offered: true,
+            available: false,
+            blocked: 'sandbox-runner-needs-upgrade'
+        }
     const resume = terminalResumeAvailability({
         framework: args.framework,
         runtime: args.runtime,
@@ -57,7 +72,7 @@ export const herdrHandoffAvailability = (args: {
         modelSource: args.modelSource,
         runtimeLocalReady: args.runtimeLocalReady,
         // A daemon never needs the sandbox credential opt-in.
-        sandboxModelCredentials: false
+        sandboxModelCredentials: onSandbox && args.sandboxModelCredentials
     })
     return resume.available
         ? { offered: true, available: true, blocked: null }
@@ -65,7 +80,7 @@ export const herdrHandoffAvailability = (args: {
 }
 
 // The tooltip on the disabled control. `no-herdr` never shows (the control
-// is not offered) and the sandbox-only reasons cannot occur on a daemon.
+// is not offered).
 export const herdrHandoffBlockedLabel = (
     blocked: HerdrHandoffBlocked,
     t: TFn
@@ -83,6 +98,10 @@ export const herdrHandoffBlockedLabel = (
             return t('web.sessionView.herdrNeedsDaemonUpgrade')
         case 'needs-runtime-signin':
             return t('web.sessionView.herdrNeedsSignIn')
+        case 'sandbox-runner-needs-upgrade':
+            return t('web.sessionView.herdrNeedsSandboxCliUpgrade')
+        case 'needs-credential-toggle':
+            return t('web.sessionView.herdrNeedsCredentials')
         default:
             return null
     }

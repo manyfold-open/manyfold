@@ -80,6 +80,7 @@ const makeSandbox = (over: Partial<SandboxSummary> = {}): SandboxSummary => {
         herdrVersion: null,
         latestHerdrVersion: null,
         herdrUpdateAvailable: false,
+        canOpenInHerdr: false,
         activeSecondsThisPeriod: 0,
         emptiedAt: null,
         createdAt: '2026-07-01T00:00:00.000Z',

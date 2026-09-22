@@ -1335,6 +1335,10 @@ const AgentChat: FC = (): ReactNode => {
               framework: currentAgent.framework,
               daemonCanOpenInHerdr: sessionDaemon?.canOpenInHerdr === true,
               daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
+              sandboxHasHerdr: sessionSandbox?.herdrVersion != null,
+              sandboxCanOpenInHerdr: sessionSandbox?.canOpenInHerdr === true,
+              sandboxModelCredentials:
+                  sessionSandbox?.terminalModelCredentials === true,
               sessionId: activeSessionId,
               frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
               modelSource: effectiveModelConfigView?.source ?? null,

@@ -70,6 +70,7 @@ const sandbox = (patch: Partial<SandboxSummary> = {}): SandboxSummary => ({
     herdrVersion: null,
     latestHerdrVersion: null,
     herdrUpdateAvailable: false,
+    canOpenInHerdr: false,
     emptiedAt: null,
     createdAt: '2026-06-20T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',

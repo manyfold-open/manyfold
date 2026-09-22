@@ -47,6 +47,7 @@ const baseHost = (over: Record<string, unknown> = {}) => ({
 
 const makeService = (host: Record<string, unknown> = baseHost()) => {
     const runtimes = {
+        listRunnerHosts: async () => [],
         getSandboxForUser: async () => ({ host }),
         getSandboxById: async () => ({ host })
     }

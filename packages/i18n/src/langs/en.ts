@@ -40,7 +40,7 @@ const en = {
             bad_request: 'The request was invalid.',
             turn_in_flight: 'This conversation is still being answered. Try again once the answer finishes.',
             herdr_not_running: 'herdr is not running on your computer. Start it, then try again.',
-            herdr_unavailable: 'herdr is not available for this agent. It needs a self-owned computer that is online, with herdr installed and an up-to-date Manyfold CLI.',
+            herdr_unavailable: 'herdr is not available for this agent. Its computer or sandbox must be online, with herdr installed and an up-to-date Manyfold CLI.',
             herdr_launch_failed: 'herdr could not start the conversation. Check herdr on your computer, then try again.',
             internal_error:
                 'Something went wrong on our end. Please try again.',
@@ -3049,6 +3049,8 @@ const en = {
             herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
             herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
             herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
+            herdrNeedsSandboxCliUpgrade: 'Update the Manyfold CLI in this sandbox from the Update Center to hand conversations to herdr.',
+            herdrNeedsCredentials: 'Turn on model credentials in the terminal for this sandbox first; herdr resumes the conversation with them.',
             resumeNeedsCredentials:
                 'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
             resumeNeedsSignIn:

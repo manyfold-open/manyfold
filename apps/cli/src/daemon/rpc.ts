@@ -63,7 +63,9 @@ import {
 } from './owned-terminals'
 import {
     closeHerdrTerminal,
+    currentHerdr,
     focusHerdrTerminal,
+    HERDR_BINARY,
     herdrErrorString,
     herdrTerminal,
     herdrTerminalCount,
@@ -2092,12 +2094,19 @@ const handlers: Partial<
         // exec leaves the interactive shell the user would otherwise have had,
         // so quitting whatever it started is not a dead end.
         const command = login
-            ? login.command
+            ? [...login.command]
             : Array.isArray(payload.command)
               ? (payload.command as unknown[]).filter(
                     (part): part is string => typeof part === 'string'
                 )
               : []
+        // herdr's TUI as the terminal (the ADR-0031 viewer) runs the binary
+        // the daemon detected: a sandbox's login shell need not have
+        // ~/.local/bin on PATH.
+        if (command[0] === HERDR_BINARY) {
+            const found = currentHerdr()
+            if (found) command[0] = found.path
+        }
         const args = command.length
             ? [
                   '-ilc',

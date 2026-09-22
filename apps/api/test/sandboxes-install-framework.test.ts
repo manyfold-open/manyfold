@@ -66,6 +66,7 @@ const buildHarness = (opts: {
     const persisted: { frameworks?: unknown; applied?: unknown; cli?: string } =
         {}
     const runtimes = {
+        listRunnerHosts: async () => [],
         getSandboxForUser: async () => ({
             host,
             accountSlug: 'acct',
