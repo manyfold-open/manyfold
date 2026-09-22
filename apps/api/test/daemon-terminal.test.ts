@@ -500,3 +500,103 @@ test('closePty addresses an owned terminal by its id and a stream-bound pty by i
         [{ terminalId: TERMINAL_ID }, { refId: 'ref-1' }]
     )
 })
+
+// ADR-0031: a herdr handoff carries the same env a pty would — the agent's
+// env text, its connection tokens, the resume's own variables and the
+// platform block with the terminal id and a fresh terminal token — as one
+// unary call; a refusal drops the token again.
+test('openInHerdr sends the pty env, the resume command and the labels in one rpc', async () => {
+    const rpcCalls: Array<Record<string, unknown>> = []
+    const registry = {
+        streamRpc: () => {
+            throw new Error('not a stream')
+        },
+        rpc: async (call: Record<string, unknown>) => {
+            rpcCalls.push(call)
+            return { paneId: 'w1:p2', tabId: 'w1:t2', workspaceId: 'w1', focused: true }
+        }
+    }
+    const apiTokens = makeApiTokens()
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        apiTokens as never
+    )
+    const tokens: string[] = []
+    const result = await terminal.openInHerdr({
+        agent: { ...makeAgent(), name: 'Reviewer' } as never,
+        terminalId: 'tms_1',
+        framework: 'claude-code',
+        resume: {
+            command: ['claude', '--resume', 'ref-1', '--dangerously-skip-permissions'],
+            env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' }
+        },
+        title: 'Fix the login bug',
+        onToken: (tokenId) => tokens.push(tokenId)
+    })
+    assert.deepEqual(result, {
+        paneId: 'w1:p2',
+        tabId: 'w1:t2',
+        workspaceId: 'w1',
+        focused: true
+    })
+    assert.deepEqual(tokens, ['tok-1'])
+    assert.equal(rpcCalls.length, 1)
+    assert.equal(rpcCalls[0].method, 'terminal.herdr.open')
+    const payload = rpcCalls[0].payload as {
+        terminalId: string
+        framework: string
+        command: string[]
+        cwd: string
+        env: Record<string, string>
+        title: string
+        agentName: string
+    }
+    assert.equal(payload.terminalId, 'tms_1')
+    assert.equal(payload.framework, 'claude-code')
+    assert.deepEqual(payload.command, [
+        'claude',
+        '--resume',
+        'ref-1',
+        '--dangerously-skip-permissions'
+    ])
+    assert.equal(payload.cwd, '/Users/cy/.nca/workspaces/agent-1')
+    assert.equal(payload.title, 'Fix the login bug')
+    assert.equal(payload.agentName, 'Reviewer')
+    assert.equal(payload.env.MY_FLAG, 'on')
+    assert.equal(payload.env.GH_TOKEN, 'gho_terminal')
+    assert.equal(payload.env.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE, '1')
+    assert.equal(payload.env.MF_TERMINAL_ID, 'tms_1')
+    assert.equal(payload.env.MF_API_TOKEN, 'mfr_terminal_token')
+    assert.equal(payload.env.TERM, 'xterm-256color')
+    assert.deepEqual(apiTokens.calls.deleted, [])
+})
+
+test('a herdr launch the daemon refuses drops the freshly minted token', async () => {
+    const registry = {
+        streamRpc: () => {
+            throw new Error('not a stream')
+        },
+        rpc: async () => {
+            throw new DaemonRpcResponseError('herdr_not_running: start herdr')
+        }
+    }
+    const apiTokens = makeApiTokens()
+    const terminal = new DaemonTerminal(
+        registry as never,
+        fakeConnections as never,
+        apiTokens as never
+    )
+    await assert.rejects(
+        terminal.openInHerdr({
+            agent: makeAgent() as never,
+            terminalId: 'tms_1',
+            framework: 'codex',
+            resume: { command: ['codex', 'resume', 'thr_1'], env: {} },
+            title: 't'
+        }),
+        (err: unknown) => err instanceof DaemonRpcResponseError
+    )
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(apiTokens.calls.deleted, ['tok-1'])
+})

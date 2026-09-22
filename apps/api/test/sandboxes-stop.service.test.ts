@@ -95,6 +95,7 @@ const makeStop = (opts: {
     const stopCounts = new Map<string, number>()
 
     const runtimes = {
+        listRunnerHosts: async () => [],
         getSandboxForUser: async () => ({ host }),
         getSandboxById: async () => ({ host }),
         listAgentsByHost: async () => opts.agents ?? [],

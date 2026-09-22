@@ -35,6 +35,8 @@ export interface DaemonLocalHealth {
     // Terminals this daemon owns (ADR-0029 §6) and how many have a viewer.
     ownedTerminals?: number
     attachedTerminals?: number
+    // Terminals hosted in herdr on this machine (ADR-0031).
+    herdrTerminals?: number
     updatePending: boolean
     autoUpdate: boolean
     startupMethod: DaemonStartupMethod

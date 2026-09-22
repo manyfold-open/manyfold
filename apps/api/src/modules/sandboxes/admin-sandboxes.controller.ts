@@ -113,6 +113,15 @@ export class AdminSandboxesController {
         return this.sandboxes.upgradeCli(user.userId, id, body?.targetVersion, true)
     }
 
+    @Post(':id/herdr/upgrade')
+    @HttpCode(200)
+    upgradeHerdr(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.upgradeHerdr(user.userId, id, true)
+    }
+
     @Get(':id/services')
     listServices(
         @CurrentUser() user: AuthPrincipal,

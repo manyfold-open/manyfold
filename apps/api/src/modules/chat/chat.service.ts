@@ -6765,6 +6765,7 @@ const toApiSession = (
     channel,
     holderTerminalId: row.holderTerminalId,
     holderAcquiredAt: row.holderAcquiredAt?.toISOString() ?? null,
+    holderClient: row.holderClient ?? null,
     importPendingSince: row.importPendingSince?.toISOString() ?? null,
     origin: row.origin,
     createdAt: row.createdAt.toISOString(),

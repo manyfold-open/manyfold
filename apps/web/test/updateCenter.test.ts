@@ -55,6 +55,10 @@ const makeHost = (over: Partial<DaemonHostSummary> = {}): DaemonHostSummary => {
         canRemoteUpgrade: true,
         canCrossChannelUpgrade: false,
         canResumeInTerminal: false,
+        canOpenInHerdr: false,
+        herdrVersion: null,
+        latestHerdrVersion: null,
+        herdrUpdateAvailable: false,
         startupMethod: 'launchd-user',
         homeDir: null,
         workspaceBaseDir: null,
@@ -85,6 +89,10 @@ const makeSandbox = (over: Partial<SandboxSummary> = {}): SandboxSummary => {
         cliVersion: '0.30.0',
         latestCliVersion: '0.31.0',
         cliUpdateAvailable: true,
+        herdrVersion: null,
+        latestHerdrVersion: null,
+        herdrUpdateAvailable: false,
+        canOpenInHerdr: false,
         activeSecondsThisPeriod: 0,
         emptiedAt: null,
         createdAt: '2026-01-01T00:00:00.000Z',
@@ -711,6 +719,71 @@ test('the plan runs the quick work first and the multi-minute rebuild last', () 
     )
 })
 
+// herdr next to the CLI (ADR-0031): a machine's herdr rides its own updater
+// while the daemon is online; a sandbox without herdr is offered an install,
+// which the platform can do, so the row is executable with nothing installed.
+test('herdr on an online machine is a recommended row driven by its own updater', () => {
+    const rows = build({
+        daemonHosts: [
+            makeHost({
+                updateAvailable: false,
+                herdrVersion: '0.9.0',
+                latestHerdrVersion: '0.9.1',
+                herdrUpdateAvailable: true
+            })
+        ]
+    })
+    assert.equal(rows.length, 1)
+    assert.equal(rows[0].kind, 'herdr')
+    assert.equal(rows[0].severity, 'recommended')
+    assert.equal(rows[0].installedVersion, '0.9.0')
+    assert.equal(rows[0].latestVersion, '0.9.1')
+    assert.deepEqual(rows[0].exec, {
+        type: 'daemonHerdr',
+        hostId: rows[0].id.replace('herdr:daemon:', '')
+    })
+    assert.deepEqual(planBatch(rows).map((s) => s.type), ['daemonHerdr'])
+})
+
+test('herdr on an offline machine waits, like its CLI', () => {
+    const rows = build({
+        daemonHosts: [
+            makeHost({
+                updateAvailable: false,
+                online: false,
+                herdrVersion: '0.9.0',
+                latestHerdrVersion: '0.9.1',
+                herdrUpdateAvailable: true
+            })
+        ]
+    })
+    assert.equal(rows[0].blocker, 'offline')
+    assert.equal(rows[0].exec.type, 'none')
+    assert.deepEqual(planBatch(rows), [])
+})
+
+test('a sandbox without herdr is offered an install, ordered with its CLI', () => {
+    const rows = build({
+        sandboxes: [
+            makeSandbox({
+                herdrVersion: null,
+                latestHerdrVersion: '0.9.1',
+                herdrUpdateAvailable: true
+            })
+        ],
+        daemonHosts: [makeHost()]
+    })
+    const herdr = rows.find((r) => r.kind === 'herdr')
+    assert.ok(herdr)
+    assert.equal(herdr.installedVersion, null)
+    assert.equal(herdr.latestVersion, '0.9.1')
+    assert.equal(herdr.exec.type, 'sandboxHerdr')
+    assert.deepEqual(
+        planBatch(rows).map((s) => s.type),
+        ['sandboxCli', 'sandboxHerdr', 'daemonCli']
+    )
+})
+
 test('rows the platform cannot drive are dropped from the plan, not failed', () => {
     const rows = build({
         daemonHosts: [
@@ -871,11 +944,10 @@ test('a picked version overrides the default target for every executable kind', 
         ])
     )
     assert.deepEqual(
-        planBatch(rows, targets).map((step) =>
-            step.type === 'skillBatch'
-                ? [step.type, null]
-                : [step.type, step.targetVersion]
-        ),
+        planBatch(rows, targets).map((step) => [
+            step.type,
+            'targetVersion' in step ? step.targetVersion : null
+        ]),
         [
             ['sandboxCli', '0.30.0'],
             ['daemonCli', '0.30.0'],
@@ -895,7 +967,7 @@ test('an unpicked row keeps its default target', () => {
     // the framework carries the catalog's latest.
     assert.deepEqual(
         planBatch(rows).map((step) =>
-            step.type === 'skillBatch' ? null : step.targetVersion
+            'targetVersion' in step ? step.targetVersion : null
         ),
         [null, '2.1.0']
     )

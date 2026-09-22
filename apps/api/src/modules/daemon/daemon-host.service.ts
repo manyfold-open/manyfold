@@ -16,7 +16,9 @@ import {
     createObjectId,
     isCliUpdateAvailable,
     isCliVersionTooOld,
-    isObjectId
+    isObjectId,
+    DAEMON_FEATURE_HERDR_TERMINAL,
+    type UpgradeHerdrResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -27,7 +29,8 @@ import {
     Logger,
     NotFoundException,
     ServiceUnavailableException,
-    UnauthorizedException
+    UnauthorizedException,
+    Optional
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
@@ -53,12 +56,15 @@ import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.se
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { DaemonRegistryService } from './daemon-registry.service'
 import { DaemonRateLimitService } from './daemon-rate-limit.service'
+import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
 import { DaemonCliVersionService } from './daemon-cli-version.service'
 import { CliVersionCatalogService } from './cli-version-catalog.service'
 
 const UPGRADE_RATE_LIMIT = 5
 const UPGRADE_RATE_WINDOW_MS = 60_000
 const UPGRADE_RPC_TIMEOUT_MS = 180_000
+// herdr's updater downloads a binary; give it the room of an install.
+const HERDR_UPGRADE_RPC_TIMEOUT_MS = 200_000
 
 const isInitUnitStartup = (
     method: DaemonStartupMethod | null
@@ -89,7 +95,11 @@ export class DaemonHostService {
         private readonly rateLimit: DaemonRateLimitService,
         private readonly cliVersion: DaemonCliVersionService,
         private readonly cliCatalog: CliVersionCatalogService,
-        private readonly config: ConfigService
+        private readonly config: ConfigService,
+        // Appended last + @Optional so positional test construction keeps
+        // working; absent, no herdr update is ever offered.
+        @Optional()
+        private readonly herdrVersions?: HerdrVersionService
     ) {}
 
     // The terminals a daemon owns (ADR-0029 §6), as its hello and heartbeat
@@ -225,6 +235,7 @@ export class DaemonHostService {
                 skillsDir: request.skillsDir ?? null,
                 detectedFrameworks: request.detectedFrameworks,
                 terminalPty: request.terminalPty ?? null,
+                herdrVersion: request.herdrVersion ?? null,
                 lastSeenAt: now,
                 lastIp,
                 status: 'active' as const
@@ -291,6 +302,9 @@ export class DaemonHostService {
         startupMethod: DaemonStartupMethod
         terminalPty?: boolean
         clientFeatures?: string[]
+        // undefined = an older daemon that does not report it (kept as is);
+        // null = looked and found nothing.
+        herdrVersion?: string | null
     }): Promise<RuntimeHostRow | null> {
         this.assertSupportedVersion(args.cliVersion)
         const host = await this.findById(args.daemonId)
@@ -315,6 +329,11 @@ export class DaemonHostService {
             !isDeepStrictEqual(host.clientFeatures, args.clientFeatures)
         )
             changed.clientFeatures = args.clientFeatures
+        if (
+            args.herdrVersion !== undefined &&
+            host.herdrVersion !== args.herdrVersion
+        )
+            changed.herdrVersion = args.herdrVersion
         if (host.status !== 'active') changed.status = 'active'
         const patch: Partial<RuntimeHostRow> = {
             ...changed,
@@ -506,6 +525,8 @@ export class DaemonHostService {
             await this.adminSettings.getCachedCliMinimumVersion()
         const { version: latestCliVersion, channel } =
             await this.cliVersion.getCachedLatest()
+        const latestHerdrVersion =
+            (await this.herdrVersions?.getCachedLatest())?.version ?? null
         return {
             id: host.id,
             name: host.name,
@@ -533,6 +554,15 @@ export class DaemonHostService {
             canResumeInTerminal: host.clientFeatures.includes(
                 DAEMON_FEATURE_PTY_COMMAND
             ),
+            canOpenInHerdr:
+                host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL) &&
+                host.clientFeatures.includes(DAEMON_FEATURE_PTY_COMMAND),
+            herdrVersion: host.herdrVersion,
+            latestHerdrVersion,
+            herdrUpdateAvailable: HerdrVersionService.updateAvailable(
+                host.herdrVersion,
+                latestHerdrVersion
+            ),
             startupMethod: host.startupMethod,
             homeDir: host.homeDir,
             workspaceBaseDir: host.workspaceBaseDir,
@@ -544,6 +574,52 @@ export class DaemonHostService {
             agentCount,
             runtimes
         }
+    }
+
+    // herdr on the machine (ADR-0031): herdr's own updater, run by the daemon,
+    // which reports the version it left behind.
+    async upgradeHerdr(args: {
+        host: RuntimeHostRow
+        actorId: string
+    }): Promise<UpgradeHerdrResponse> {
+        const { host, actorId } = args
+        if (host.status === 'revoked')
+            throw new BadRequestException('daemon host has been revoked')
+        if (!this.isOnline(host))
+            throw new BadRequestException('daemon is offline')
+        if (!host.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL))
+            throw new BadRequestException(
+                'herdr is not installed on this machine, or its Manyfold CLI is too old to update it from here'
+            )
+        this.rateLimit.consume({
+            key: `daemon:upgrade:${actorId}`,
+            limit: UPGRADE_RATE_LIMIT,
+            windowMs: UPGRADE_RATE_WINDOW_MS
+        })
+        let ack: Record<string, unknown> | undefined
+        try {
+            ack = await this.registry.rpc({
+                daemonId: host.id,
+                method: 'herdr.update',
+                payload: {},
+                timeoutMs: HERDR_UPGRADE_RPC_TIMEOUT_MS
+            })
+        } catch (err) {
+            throw new ServiceUnavailableException(
+                `herdr upgrade failed: ${(err as Error).message}`
+            )
+        }
+        const toVersion =
+            typeof ack?.toVersion === 'string' ? ack.toVersion : null
+        if (toVersion && toVersion !== host.herdrVersion)
+            await this.db
+                .update(runtimeHosts)
+                .set({ herdrVersion: toVersion, updatedAt: new Date() })
+                .where(eq(runtimeHosts.id, host.id))
+        this.log.log(
+            `daemon.herdr.upgraded daemonId=${host.id} from=${host.herdrVersion ?? 'none'} to=${toVersion ?? 'unknown'}`
+        )
+        return { ok: true, fromVersion: host.herdrVersion, toVersion }
     }
 
     private async resolveDaemonTarget(

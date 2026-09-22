@@ -75,6 +75,7 @@ const buildHarness = (opts: {
     const setVersions: string[] = []
     const restartCalls: RestartCall[] = []
     const runtimes = {
+        listRunnerHosts: async () => [],
         getSandboxForUser: async () => ({
             host,
             accountSlug: 'acct',

@@ -40,6 +40,10 @@ const zh: Translations = {
             forbidden: '没有执行该操作的权限。',
             not_found: '请求的资源不存在。',
             bad_request: '请求无效。',
+            turn_in_flight: '这段对话还在回答中。等回答结束后再试。',
+            herdr_not_running: 'herdr 没有在你的电脑上运行。启动它后再试。',
+            herdr_unavailable: 'herdr 对这个 agent 不可用。它所在的电脑或沙箱需要在线、装有 herdr，并且 Manyfold CLI 是最新的。',
+            herdr_launch_failed: 'herdr 未能启动这段对话。检查你电脑上的 herdr 后再试。',
             internal_error: '服务端发生异常，请稍后再试。',
             CONCURRENT_ACTIVE_LIMIT_REACHED:
                 '已达到并发活跃沙箱上限，请先停止其他沙箱或升级套餐。',
@@ -2901,6 +2905,15 @@ const zh: Translations = {
         sessionView: {
             switchToTerminal: '切换到TUI',
             switchToChat: '切换到Chat UI',
+            switchToHerdr: '切换到 herdr',
+            herdrNeedsSession: '先开始一段对话，再把它交给 herdr。',
+            herdrNeedsSessionRef: '这段对话还没有可恢复的 CLI 会话。先发送一条消息。',
+            herdrUnsupportedFramework: 'herdr 只能恢复 Claude Code 与 Codex 的对话。',
+            herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
+            herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
+            herdrNeedsSandboxCliUpgrade: '先在 Update Center 里更新这个沙箱的 Manyfold CLI，才能把对话交给 herdr。',
+            herdrNeedsSandboxCliRelease: '这个沙箱里的 Manyfold CLI 还不能把对话交给 herdr。下一个 Manyfold CLI 版本发布后会出现在 Update Center。',
+            herdrNeedsCredentials: '先为这个沙箱开启「终端中的模型凭证」；herdr 用它们来恢复对话。',
             resumeNeedsCredentials:
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',
             resumeNeedsSignIn: '这是一个普通 shell：要在这里继续对话，需要编程 CLI 已在该运行时上登录。',
@@ -2909,12 +2922,12 @@ const zh: Translations = {
             resumeTurnInFlight:
                 '这是一个普通 shell：这轮对话还在生成中，同一时刻只能有一个会话写入它。等回答结束后重新打开终端即可。',
             resumeSessionHeld:
-                '这是一个普通 shell：另一个终端已经打开了这段对话，同一时刻只能有一个终端写入它。关掉那个终端，或在 chat 视图里点「回到 web」，再在这里重新打开终端。'
+                '这是一个普通 shell：另一个终端已经打开了这段对话，同一时刻只能有一个终端写入它。关掉那个终端，或在这里切换到 Chat UI 来接管，再重新打开终端。'
         },
         sessionHolder: {
             heldBanner: '这段对话正在终端中进行。释放之前，来自 web、channel 与 API 的消息都会被拒绝。',
-            backToWeb: '回到 web',
-            releasing: '正在释放…',
+            heldByHerdr: '这段对话正在 herdr 中进行。在那里退出 TUI 即可在这里继续；在此之前，来自 web、渠道和 API 的消息都会被拒绝。',
+            composerHeldHerdr: '正在 herdr 中进行。在那里退出 TUI，或切到 herdr 再切回 Chat UI 来接管。',
             importPending: '正在把终端里说过的内容导入这段对话…',
             importFailed: '终端里说过的内容还没能导入，这段对话暂时挂起。等 runtime 可达后重试，或放弃导入。',
             retrySync: '重试导入',
@@ -2929,7 +2942,7 @@ const zh: Translations = {
             attachRefusedTurn: '终端打开了一段正在运行 turn 的对话，未接管；等 turn 结束后再在终端里继续。',
             attachRefusedHeld: '终端打开了一段已在另一个终端中打开的对话，未接管。',
             dismiss: '关闭',
-            composerHeld: '正在终端中进行 —— 点「回到 web」在这里继续。',
+            composerHeld: '正在终端中进行。在那里退出 TUI，或打开终端视图再切回 Chat UI 来接管。',
             composerImporting: '正在导入终端里说过的内容…'
         },
         composer: {
@@ -3321,6 +3334,7 @@ const zh: Translations = {
             pickTarget: '为 {{name}} 选择版本',
             badgeCta: '更新到 {{version}}',
             kindCli: 'mf CLI',
+            kindHerdr: 'herdr',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
             kindCliUsage: 'Manyfold CLI 用法',
@@ -4558,6 +4572,11 @@ const zh: Translations = {
             deleteTaskDescription:
                 '删除任务“{{name}}”？它的活动租约会释放，沙箱随后可在空闲时挂起。',
             cliLabel: 'mf CLI',
+            herdrLabel: 'herdr',
+            sandboxHerdrDescription: '沙箱里的 herdr，交接过去的对话在这里打开。安装与升级都是原地进行，不会重启任何东西。',
+            daemonHerdrDescription: '这台电脑上的 herdr。升级时运行 herdr 自己的更新器。',
+            installVersion: '安装 {{version}}',
+            herdrUpgradedMessage: 'herdr 已升级到 v{{version}}',
             sandboxCliDescription:
                 '此沙箱中安装的平台 CLI。升级会原地完成，不会重启。',
             daemonCliDescription:

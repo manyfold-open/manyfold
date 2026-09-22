@@ -20,6 +20,12 @@ export const terminalSessions = pgTable(
             .notNull()
             .references(() => agents.id, { onDelete: 'cascade' }),
         runtime: text('runtime', { enum: ['sprites', 'daemon'] }).notNull(),
+        // Where this terminal shows its TUI: the browser terminal over the
+        // API tunnel, or a herdr pane on the daemon's machine (ADR-0031).
+        // Rows that predate the column were all browser terminals.
+        client: text('client', { enum: ['web', 'herdr'] })
+            .notNull()
+            .default('web'),
         // Snapshot of the agent's runtime identity when the terminal opened,
         // deliberately not foreign keys: a host that has since been replaced
         // must still compare unequal to the agent's current one.
@@ -31,6 +37,11 @@ export const terminalSessions = pgTable(
         // sprites: the vendor exec session id; daemon: the pty stream refId.
         // Null until the upstream reports it.
         processHandle: text('process_handle'),
+        // The daemon that hosts a herdr terminal (ADR-0031): the agent's own
+        // daemon on a self-owned computer, or the sandbox's runner daemon for
+        // a sprites agent, which `agents.daemonId` does not name. Snapshot,
+        // not a foreign key, like the host and runtime ids.
+        daemonId: text('daemon_id'),
         tokenId: text('token_id').references(() => apiTokens.id, {
             onDelete: 'set null'
         }),

@@ -124,6 +124,10 @@ export const registerDaemonStatus = (program: Command): void => {
                                       local.ownedTerminals === 1 ? '' : 's'
                                   } kept, ${local.attachedTerminals ?? 0} attached)`
                                 : ''
+                        }${
+                            local.herdrTerminals
+                                ? `, ${local.herdrTerminals} in herdr`
+                                : ''
                         }`
                     )
                     console.log(

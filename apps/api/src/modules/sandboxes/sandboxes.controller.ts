@@ -129,6 +129,17 @@ export class SandboxesController {
         return this.sandboxes.upgradeCli(user.userId, id, body?.targetVersion)
     }
 
+    // Install or upgrade herdr inside the sandbox (ADR-0031).
+    @Post(':id/herdr/upgrade')
+    @HttpCode(200)
+    @RequireApiTokenScope('sandboxes:edit')
+    async upgradeHerdr(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<SandboxSummary> {
+        return this.sandboxes.upgradeHerdr(user.userId, id)
+    }
+
     // Install (or move to a version of) a coding CLI on a sandbox that has no
     // runtime for it yet — the create form's Install / Upgrade before the agent
     // exists. Runs in the sandbox and may take a minute.

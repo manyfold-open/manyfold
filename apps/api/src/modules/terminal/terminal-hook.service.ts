@@ -130,7 +130,8 @@ export class TerminalHookService {
                 userId: terminal.userId,
                 agentId: terminal.agentId,
                 sessionId: existing.id,
-                expectedRef: body.sessionRef
+                expectedRef: body.sessionRef,
+                client: terminal.client
             })
             if (acquired === 'applied') {
                 await this.record(terminal, body, existing.id)

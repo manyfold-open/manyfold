@@ -223,6 +223,7 @@ const consumer = async (
     const service = Object.create(SandboxesService.prototype)
     Object.assign(service, {
         runtimes: {
+            listRunnerHosts: async () => [],
             getSandboxForUser: async () => ({
                 host: {
                     id: 'sbx_fixture',

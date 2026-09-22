@@ -9,7 +9,8 @@ import {
     isCliVersionTooOld,
     podRunnerHostName,
     profilePaths,
-    runnerHostName
+    runnerHostName,
+    DAEMON_FEATURE_HERDR_TERMINAL
 } from '@manyfold/shared'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -23,7 +24,9 @@ import { resolveMfDeployEnv } from '@/common/deploy-env'
 import { DRIZZLE } from '@/db/tokens'
 import {
     buildCliInstallScript,
-    cliInstallChannelForDeployEnv
+    cliInstallChannelForDeployEnv,
+    buildHerdrInstallScript,
+    HERDR_INSTALL_MARKER
 } from '@/modules/agent-self/sprite-shell-env.service'
 import { DaemonHostService } from '@/modules/daemon/daemon-host.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
@@ -253,6 +256,8 @@ interface RunnerSpriteState {
     installed: boolean
     registered: boolean
     version: string | null
+    // herdr present in the sandbox (ADR-0031); null when the probe did not say.
+    herdr: boolean | null
 }
 
 // How wakeRunner got to an answering runner, for the caller's log line. The
@@ -870,6 +875,10 @@ export class RunnerManagerService {
             const ok = await this.installCli(args)
             if (!ok) return 'install-failed'
         }
+        // herdr rides along with the runner (ADR-0031), best effort: a
+        // sandbox without it still chats, it just cannot hand a session to
+        // herdr until the Update Center installs it.
+        if (state.herdr === false) await this.installHerdr(args)
         if (!state.registered) {
             let registered = await this.register(args)
             // A CLI that predates `--token -` takes the dash LITERALLY and
@@ -1005,7 +1014,8 @@ export class RunnerManagerService {
             // Free: we are already paying for this exec. Without it the runner
             // keeps whatever CLI it was first given, forever — there is no
             // upgrade path for a binary the platform installed inside a sprite.
-            `echo version=$("$HOME/.local/bin/mf" --version 2>/dev/null | tr -d '[:space:]')`
+            `echo version=$("$HOME/.local/bin/mf" --version 2>/dev/null | tr -d '[:space:]')`,
+            `{ command -v herdr >/dev/null 2>&1 || test -x "$HOME/.local/bin/herdr"; } && echo herdr=1 || echo herdr=0`
         ].join('; ')
         let res
         try {
@@ -1032,8 +1042,70 @@ export class RunnerManagerService {
             state: {
                 installed: res.stdout.includes('installed=1'),
                 registered: res.stdout.includes('registered=1'),
-                version: /version=([^\s]+)/.exec(res.stdout)?.[1] ?? null
+                version: /version=([^\s]+)/.exec(res.stdout)?.[1] ?? null,
+                herdr: res.stdout.includes('herdr=1')
+                    ? true
+                    : res.stdout.includes('herdr=0')
+                      ? false
+                      : null
             }
+        }
+    }
+
+    private async installHerdr(args: EnsureRunnerArgs): Promise<void> {
+        try {
+            const res = await args.exec({
+                cmd: ['bash', '-lc', buildHerdrInstallScript()],
+                timeoutMs: 180_000
+            })
+            if (res.exitCode !== 0 || !res.stdout.includes(HERDR_INSTALL_MARKER))
+                this.logger.warn(
+                    `runner herdr install failed sprite=${args.spriteName} exit=${res.exitCode}`
+                )
+        } catch (err) {
+            this.logger.warn(
+                `runner herdr install failed sprite=${args.spriteName}: ${(err as Error).message}`
+            )
+        }
+    }
+
+    // herdr inside the sandbox, through the runner (ADR-0031): the daemon runs
+    // herdr's updater and reports the version it left behind.
+    async upgradeHerdrViaDaemon(args: {
+        userId: string
+        spriteName: string
+    }): Promise<
+        | { kind: 'not-capable' }
+        | { kind: 'dispatched'; toVersion: string | null }
+        | { kind: 'failed'; error: string }
+    > {
+        const existing = await this.findRunnerHost({
+            userId: args.userId,
+            hostName: runnerHostName(args.spriteName)
+        })
+        if (
+            !existing?.online ||
+            !existing.clientFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
+        )
+            return { kind: 'not-capable' }
+        try {
+            const ack = await this.registry.rpc({
+                daemonId: existing.id,
+                method: 'herdr.update',
+                payload: {},
+                timeoutMs: RUNNER_UPGRADE_RPC_TIMEOUT_MS
+            })
+            return {
+                kind: 'dispatched',
+                toVersion:
+                    typeof ack?.toVersion === 'string' ? ack.toVersion : null
+            }
+        } catch (err) {
+            const error = (err as Error).message
+            this.logger.warn(
+                `herdr upgrade via herdr.update failed sprite=${args.spriteName}: ${error}`
+            )
+            return { kind: 'failed', error }
         }
     }
 

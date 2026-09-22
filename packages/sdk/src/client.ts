@@ -42,6 +42,7 @@ import type {
     IssueDaemonTokenBody,
     IssueDaemonTokenResponse,
     UpgradeDaemonHostResponse,
+    UpgradeHerdrResponse,
     AgentBackupRestoreSummary,
     AgentBackupSummary,
     AgentControlUiUrlResponse,
@@ -248,6 +249,9 @@ import type {
     RuntimeSessionSyncResponse,
     SessionHolderReleaseResponse,
     SessionImportAbandonResponse,
+    SessionHerdrOpenRequest,
+    SessionHerdrOpenResponse,
+    SessionHerdrFocusResponse,
     SessionImportRetryResponse,
     AgentSessionListBody,
     AgentSessionListResponse,
@@ -656,6 +660,8 @@ export interface SandboxesClient {
     detectFrameworks: (id: string) => Promise<SandboxSummary>
     refreshStatus: (id: string) => Promise<SandboxSummary>
     upgradeCli: (id: string, targetVersion?: string) => Promise<SandboxSummary>
+    // Install or upgrade herdr inside the sandbox (ADR-0031).
+    upgradeHerdr: (id: string) => Promise<SandboxSummary>
     installFramework: (
         id: string,
         framework: string,
@@ -687,6 +693,8 @@ export interface DaemonsClient {
         id: string,
         targetVersion?: string
     ) => Promise<UpgradeDaemonHostResponse>
+    // herdr on the machine, through herdr's own updater (ADR-0031).
+    upgradeHerdr: (id: string) => Promise<UpgradeHerdrResponse>
     listTokens: () => Promise<DaemonTokenSummary[]>
     issueToken: (
         body: IssueDaemonTokenBody
@@ -1524,6 +1532,17 @@ export interface NcaClient {
             agentId: string,
             sessionId: string
         ) => Promise<SessionImportAbandonResponse>
+        // Hand the session to herdr on the agent's own machine, and raise
+        // its pane there again (ADR-0031).
+        openInHerdr: (
+            agentId: string,
+            sessionId: string,
+            body?: SessionHerdrOpenRequest
+        ) => Promise<SessionHerdrOpenResponse>
+        focusInHerdr: (
+            agentId: string,
+            sessionId: string
+        ) => Promise<SessionHerdrFocusResponse>
     }
     health: () => Promise<{ status: string; db: string; version: string }>
 }
@@ -2642,6 +2661,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
                     method: 'POST',
                     body: JSON.stringify({ targetVersion })
                 }),
+            upgradeHerdr: (id) =>
+                request<SandboxSummary>(apiPaths.SANDBOX_HERDR_UPGRADE(id), {
+                    method: 'POST'
+                }),
             listServices: (id) =>
                 request<SandboxServiceSummary[]>(apiPaths.SANDBOX_SERVICES(id)),
             deleteService: (id, name) =>
@@ -2672,6 +2695,11 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 request<UpgradeDaemonHostResponse>(
                     apiPaths.DAEMON_HOST_UPGRADE(id),
                     { method: 'POST', body: JSON.stringify({ targetVersion }) }
+                ),
+            upgradeHerdr: (id) =>
+                request<UpgradeHerdrResponse>(
+                    apiPaths.DAEMON_HOST_HERDR_UPGRADE(id),
+                    { method: 'POST' }
                 ),
             listTokens: () =>
                 request<DaemonTokenSummary[]>(apiPaths.DAEMON_TOKENS),
@@ -3626,6 +3654,19 @@ export const createClient = (options: ClientOptions): NcaClient => {
             importAbandon: (agentId, sessionId) =>
                 request<SessionImportAbandonResponse>(
                     apiPaths.AGENT_SESSION_IMPORT_ABANDON(agentId, sessionId),
+                    { method: 'POST' }
+                ),
+            openInHerdr: (agentId, sessionId, body) =>
+                request<SessionHerdrOpenResponse>(
+                    apiPaths.AGENT_SESSION_HERDR_OPEN(agentId, sessionId),
+                    {
+                        method: 'POST',
+                        body: JSON.stringify(body ?? {})
+                    }
+                ),
+            focusInHerdr: (agentId, sessionId) =>
+                request<SessionHerdrFocusResponse>(
+                    apiPaths.AGENT_SESSION_HERDR_FOCUS(agentId, sessionId),
                     { method: 'POST' }
                 )
         },

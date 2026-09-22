@@ -155,11 +155,17 @@ const OverflowMenu: FC<{
                                     )}
                                 </button>
                             )
+                            // The reason is a sentence and the menu hangs
+                            // off the right edge of the header: it sits
+                            // beside the panel, wrapped, rather than over
+                            // the items below (which a bottom placement
+                            // covered) or off the right of the screen.
                             return item.disabled && item.disabledReason ? (
                                 <ShortcutTooltip
                                     key={item.label}
                                     label={item.disabledReason}
-                                    placement='bottom-end'
+                                    placement='left'
+                                    multiline
                                     className='block w-full'
                                 >
                                     {row}

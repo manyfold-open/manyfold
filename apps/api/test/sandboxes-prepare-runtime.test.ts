@@ -57,6 +57,8 @@ const buildHarness = (opts: {
         summaries: unknown[]
     } = { prepare: [], inserted: [], runner: [], summaries: [] }
     const runtimes = {
+                listRunnerHosts: async () => [],
+
         getSandboxForUser: async () => ({
             host,
             accountSlug: 'acct',
