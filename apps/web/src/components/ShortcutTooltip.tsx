@@ -14,6 +14,7 @@ type TooltipPlacement =
     | 'bottom'
     | 'bottom-end'
     | 'bottom-start'
+    | 'left'
     | 'right'
     | 'top'
 
@@ -101,6 +102,9 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
         } else if (placement === 'right') {
             left = rootRect.right + tooltipGap
             top = rootRect.top + rootRect.height / 2 - tooltipRect.height / 2
+        } else if (placement === 'left') {
+            left = rootRect.left - tooltipGap - tooltipRect.width
+            top = rootRect.top + rootRect.height / 2 - tooltipRect.height / 2
         } else if (placement === 'top') {
             top = rootRect.top - tooltipGap - tooltipRect.height
         }
@@ -171,7 +175,14 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                         ref={tooltipRef}
                         role='tooltip'
                         className={[
-                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[90] hidden items-center gap-2 px-2.5 py-1.5 transition-opacity duration-100 md:inline-flex',
+                            // The top of the stack: a tooltip annotates
+                            // whatever is under the pointer, including an
+                            // item inside a z-[110] menu or a dialog over
+                            // its z-[100] overlay. Seen on the chat header
+                            // menu [2026-09-22]: at z-[90] a disabled item's
+                            // reason slid under the menu panel and only the
+                            // few characters outside it could be read.
+                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[120] hidden items-center gap-2 px-2.5 py-1.5 transition-opacity duration-100 md:inline-flex',
                             multiline
                                 ? 'max-w-[22rem] font-normal leading-relaxed'
                                 : 'max-w-[18rem] font-medium',
