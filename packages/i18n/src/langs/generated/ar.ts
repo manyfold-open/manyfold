@@ -2325,6 +2325,7 @@ const ar: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': 'حدّث Manyfold CLI على هذا الجهاز لتسليم المحادثات إلى herdr.',
     'web.sessionView.herdrNeedsSignIn': 'سجّل الدخول أولاً إلى CLI البرمجة على هذا الجهاز؛ يستأنف herdr المحادثة بذلك التسجيل.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'حدّث Manyfold CLI في هذا الصندوق الرملي من Update Center لتسليم المحادثات إلى herdr.',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'لا يستطيع Manyfold CLI في هذا الصندوق الرملي تسليم المحادثات إلى herdr بعد. سيظهر إصدار Manyfold CLI التالي في Update Center.',
     'web.sessionView.herdrNeedsCredentials': 'فعّل أولًا بيانات اعتماد النموذج في الطرفية لهذا الصندوق الرملي؛ يستأنف herdr المحادثة بها.',
     'web.terminal.enablePromptConfirm': 'تمكين الوحدة الطرفية',
     'web.terminal.enablePromptTitle': 'هل تريد تمكين الوحدة الطرفية؟',

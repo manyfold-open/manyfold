@@ -13,6 +13,7 @@ const base = {
     daemonCanResume: true,
     sandboxHasHerdr: false,
     sandboxCanOpenInHerdr: false,
+    sandboxCliUpdateAvailable: false,
     sandboxModelCredentials: false,
     sessionId: 'cs-1',
     frameworkSessionRef: 'sess-abc',
@@ -64,10 +65,20 @@ test('a sandbox handoff waits for its runner CLI and for the credential opt-in',
         sandboxCanOpenInHerdr: true,
         sandboxModelCredentials: true
     }
+    // A runner too old for herdr points at the Update Center only when it
+    // has something to offer; on the newest release it waits for the next.
+    assert.equal(
+        herdrHandoffAvailability({
+            ...sandbox,
+            sandboxCanOpenInHerdr: false,
+            sandboxCliUpdateAvailable: true
+        }).blocked,
+        'sandbox-runner-needs-upgrade'
+    )
     assert.equal(
         herdrHandoffAvailability({ ...sandbox, sandboxCanOpenInHerdr: false })
             .blocked,
-        'sandbox-runner-needs-upgrade'
+        'sandbox-runner-needs-release'
     )
     assert.equal(
         herdrHandoffAvailability({ ...sandbox, sandboxModelCredentials: false })
@@ -127,6 +138,7 @@ test('every disabled reason the control can show has a label', () => {
         'framework-unsupported',
         'daemon-needs-upgrade',
         'sandbox-runner-needs-upgrade',
+        'sandbox-runner-needs-release',
         'needs-credential-toggle',
         'needs-runtime-signin'
     ] as const)

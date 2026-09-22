@@ -24,6 +24,7 @@ export type HerdrHandoffBlocked =
     | 'agent-not-running'
     | 'no-session'
     | 'sandbox-runner-needs-upgrade'
+    | 'sandbox-runner-needs-release'
     | TerminalResumeBlocked
 
 export interface HerdrHandoffAvailability {
@@ -44,6 +45,9 @@ export const herdrHandoffAvailability = (args: {
     // it, and the terminal credential opt-in the sandbox resume needs.
     sandboxHasHerdr: boolean
     sandboxCanOpenInHerdr: boolean
+    // Whether the Update Center has a newer Manyfold CLI for the sandbox:
+    // the difference between "update it there" and "nothing to update yet".
+    sandboxCliUpdateAvailable: boolean
     sandboxModelCredentials: boolean
     sessionId: string | null
     frameworkSessionRef: string | null
@@ -58,11 +62,17 @@ export const herdrHandoffAvailability = (args: {
         return { offered: true, available: false, blocked: 'agent-not-running' }
     if (!args.sessionId)
         return { offered: true, available: false, blocked: 'no-session' }
+    // The sandbox's runner predates the handoff. When a newer CLI is on
+    // offer the Update Center is the way out; when the runner already runs
+    // the newest release, the handoff waits for the next one, and saying
+    // "update" would send the user to an empty page.
     if (onSandbox && !args.sandboxCanOpenInHerdr)
         return {
             offered: true,
             available: false,
-            blocked: 'sandbox-runner-needs-upgrade'
+            blocked: args.sandboxCliUpdateAvailable
+                ? 'sandbox-runner-needs-upgrade'
+                : 'sandbox-runner-needs-release'
         }
     const resume = terminalResumeAvailability({
         framework: args.framework,
@@ -100,6 +110,8 @@ export const herdrHandoffBlockedLabel = (
             return t('web.sessionView.herdrNeedsSignIn')
         case 'sandbox-runner-needs-upgrade':
             return t('web.sessionView.herdrNeedsSandboxCliUpgrade')
+        case 'sandbox-runner-needs-release':
+            return t('web.sessionView.herdrNeedsSandboxCliRelease')
         case 'needs-credential-toggle':
             return t('web.sessionView.herdrNeedsCredentials')
         default:

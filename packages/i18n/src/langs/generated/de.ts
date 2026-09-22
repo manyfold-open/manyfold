@@ -1682,6 +1682,7 @@ const de: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': 'Aktualisiere die Manyfold CLI auf diesem Rechner, um Unterhaltungen an herdr zu übergeben.',
     'web.sessionView.herdrNeedsSignIn': 'Melde zuerst die Coding-CLI auf diesem Rechner an; herdr setzt die Unterhaltung mit dieser Anmeldung fort.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'Aktualisiere die Manyfold CLI in dieser Sandbox über das Update Center, um Unterhaltungen an herdr zu übergeben.',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'Die Manyfold CLI in dieser Sandbox kann Unterhaltungen noch nicht an herdr übergeben. Die nächste Manyfold-CLI-Version erscheint im Update Center.',
     'web.sessionView.herdrNeedsCredentials': 'Schalte zuerst Modell-Anmeldedaten im Terminal für diese Sandbox ein; herdr setzt die Unterhaltung damit fort.',
     'web.composer.askPlaceholder': 'Fragen Sie {{target}} alles.',
     'web.composer.chatAdapterPending': 'Chat-Adapter ausstehend',

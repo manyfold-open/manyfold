@@ -2912,6 +2912,7 @@ const zh: Translations = {
             herdrNeedsDaemonUpgrade: '升级这台电脑上的 Manyfold CLI 后才能把对话交给 herdr。',
             herdrNeedsSignIn: '先在这台电脑上登录编程 CLI；herdr 会用该登录恢复对话。',
             herdrNeedsSandboxCliUpgrade: '先在 Update Center 里更新这个沙箱的 Manyfold CLI，才能把对话交给 herdr。',
+            herdrNeedsSandboxCliRelease: '这个沙箱里的 Manyfold CLI 还不能把对话交给 herdr。下一个 Manyfold CLI 版本发布后会出现在 Update Center。',
             herdrNeedsCredentials: '先为这个沙箱开启「终端中的模型凭证」；herdr 用它们来恢复对话。',
             resumeNeedsCredentials:
                 '这是一个普通 shell：要在这里继续对话，需要开启「终端内的模型凭证」，该沙箱当前未开启。',

@@ -1683,6 +1683,7 @@ const ru: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': 'Обновите Manyfold CLI на этом компьютере, чтобы передавать диалоги в herdr.',
     'web.sessionView.herdrNeedsSignIn': 'Сначала войдите в CLI для программирования на этом компьютере; herdr возобновит диалог с этим входом.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'Обновите Manyfold CLI в этой песочнице через Update Center, чтобы передавать диалоги в herdr.',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'Manyfold CLI в этой песочнице пока не умеет передавать диалоги в herdr. Следующий выпуск Manyfold CLI появится в Update Center.',
     'web.sessionView.herdrNeedsCredentials': 'Сначала включите учётные данные модели в терминале для этой песочницы; herdr продолжит диалог с ними.',
     'web.composer.askPlaceholder': 'Спросите {{target}} что угодно.',
     'web.composer.chatAdapterPending': 'адаптер чата находится на рассмотрении',

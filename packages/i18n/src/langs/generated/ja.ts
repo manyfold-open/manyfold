@@ -1674,6 +1674,7 @@ const ja: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': '会話を herdr に引き継ぐには、このコンピューターの Manyfold CLI を更新してください。',
     'web.sessionView.herdrNeedsSignIn': 'まずこのコンピューターでコーディング CLI にサインインしてください。herdr はそのサインインで会話を再開します。',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'このサンドボックスの Manyfold CLI を Update Center から更新すると、会話を herdr に引き継げます。',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'このサンドボックスの Manyfold CLI はまだ会話を herdr に引き継げません。次の Manyfold CLI リリースは Update Center に表示されます。',
     'web.sessionView.herdrNeedsCredentials': 'まずこのサンドボックスでターミナル内のモデル認証情報を有効にしてください。herdr はそれを使って会話を再開します。',
     'web.composer.askPlaceholder': '{{target}}に何でも質問してください。',
     'web.composer.chatAdapterPending': 'チャットアダプターは保留中です',

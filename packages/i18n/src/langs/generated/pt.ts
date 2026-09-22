@@ -1682,6 +1682,7 @@ const pt: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': 'Atualize a Manyfold CLI neste computador para entregar conversas ao herdr.',
     'web.sessionView.herdrNeedsSignIn': 'Entre primeiro na CLI de programação neste computador; o herdr retoma a conversa com esse login.',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'Atualize a Manyfold CLI deste sandbox pelo Update Center para entregar conversas ao herdr.',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'A Manyfold CLI deste sandbox ainda não consegue entregar conversas ao herdr. A próxima versão da Manyfold CLI aparecerá no Update Center.',
     'web.sessionView.herdrNeedsCredentials': 'Ative primeiro as credenciais de modelo no terminal para este sandbox; o herdr retoma a conversa com elas.',
     'web.composer.askPlaceholder': 'Pergunte qualquer coisa ao {{target}}.',
     'web.composer.chatAdapterPending': 'adaptador de bate-papo pendente',

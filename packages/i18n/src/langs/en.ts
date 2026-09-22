@@ -3050,6 +3050,7 @@ const en = {
             herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
             herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
             herdrNeedsSandboxCliUpgrade: 'Update the Manyfold CLI in this sandbox from the Update Center to hand conversations to herdr.',
+            herdrNeedsSandboxCliRelease: 'The Manyfold CLI in this sandbox cannot hand conversations to herdr yet. The next Manyfold CLI release will show up in the Update Center.',
             herdrNeedsCredentials: 'Turn on model credentials in the terminal for this sandbox first; herdr resumes the conversation with them.',
             resumeNeedsCredentials:
                 'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',

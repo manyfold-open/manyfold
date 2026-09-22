@@ -1673,6 +1673,7 @@ const ko: Record<string, string> = {
     "web.sessionView.herdrNeedsDaemonUpgrade": "대화를 herdr에 넘기려면 이 컴퓨터의 Manyfold CLI를 업데이트하세요.",
     "web.sessionView.herdrNeedsSignIn": "먼저 이 컴퓨터에서 코딩 CLI에 로그인하세요. herdr는 그 로그인으로 대화를 이어갑니다.",
     "web.sessionView.herdrNeedsSandboxCliUpgrade": "Update Center에서 이 샌드박스의 Manyfold CLI를 업데이트하면 대화를 herdr에 넘길 수 있습니다.",
+    "web.sessionView.herdrNeedsSandboxCliRelease": "이 샌드박스의 Manyfold CLI는 아직 대화를 herdr에 넘길 수 없습니다. 다음 Manyfold CLI 릴리스는 Update Center에 표시됩니다.",
     "web.sessionView.herdrNeedsCredentials": "먼저 이 샌드박스의 터미널에서 모델 자격 증명을 켜세요. herdr이 그것으로 대화를 이어갑니다.",
     "web.composer.askPlaceholder": "{{target}}에게 무엇이든 물어보세요.",
     "web.composer.chatAdapterPending": "채팅 어댑터 대기 중",

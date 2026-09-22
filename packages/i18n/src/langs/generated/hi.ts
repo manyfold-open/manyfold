@@ -1680,6 +1680,7 @@ const hi: Record<string, string> = {
     'web.sessionView.herdrNeedsDaemonUpgrade': 'बातचीत herdr को सौंपने के लिए इस कंप्यूटर पर Manyfold CLI अपडेट करें।',
     'web.sessionView.herdrNeedsSignIn': 'पहले इस कंप्यूटर पर कोडिंग CLI में साइन इन करें; herdr उसी साइन-इन से बातचीत फिर से शुरू करता है।',
     'web.sessionView.herdrNeedsSandboxCliUpgrade': 'बातचीत herdr को सौंपने के लिए Update Center से इस सैंडबॉक्स की Manyfold CLI अपडेट करें।',
+    'web.sessionView.herdrNeedsSandboxCliRelease': 'इस सैंडबॉक्स की Manyfold CLI अभी बातचीत herdr को नहीं सौंप सकती। अगला Manyfold CLI रिलीज़ Update Center में दिखेगा।',
     'web.sessionView.herdrNeedsCredentials': 'पहले इस सैंडबॉक्स के लिए टर्मिनल में मॉडल क्रेडेंशियल चालू करें; herdr उन्हीं से बातचीत फिर से शुरू करता है।',
     'web.composer.askPlaceholder': '{{target}} से कुछ भी पूछें।',
     'web.composer.chatAdapterPending': 'चैट एडॉप्टर लंबित है',

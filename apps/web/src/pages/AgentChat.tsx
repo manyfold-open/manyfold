@@ -1337,6 +1337,8 @@ const AgentChat: FC = (): ReactNode => {
               daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
               sandboxHasHerdr: sessionSandbox?.herdrVersion != null,
               sandboxCanOpenInHerdr: sessionSandbox?.canOpenInHerdr === true,
+              sandboxCliUpdateAvailable:
+                  sessionSandbox?.cliUpdateAvailable === true,
               sandboxModelCredentials:
                   sessionSandbox?.terminalModelCredentials === true,
               sessionId: activeSessionId,
