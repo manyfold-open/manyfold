@@ -47,6 +47,7 @@ import {
 import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
 import { listOwnedTerminals } from '@/daemon/owned-terminals'
 import {
+    adoptHerdrPanes,
     configureHerdr,
     currentHerdr,
     detectHerdr,
@@ -333,10 +334,14 @@ const runClaimedForeground = async (
         // second instead of a tick (ADR-0031).
         configureHerdr({
             log: (message) => void log(message),
+            owner: config.daemonUuid,
             onInventoryChange: () => {
                 void heartbeat()
             }
         })
+        // Before the first hello: an inventory without the panes this daemon
+        // opened before it restarted would end their terminals at once.
+        if (currentHerdr()) await adoptHerdrPanes().catch(() => 0)
 
         ws = new DaemonWsClient({
             apiUrl: config.apiUrl,

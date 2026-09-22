@@ -301,6 +301,10 @@ export interface DaemonHerdrOpenPayload {
     // workspace label so herdr mirrors the web's agent → session shape.
     title: string
     agentName: string
+    // The chat session the TUI resumes: the daemon tags the pane with it so
+    // a later handoff of the same conversation takes over this tab instead
+    // of adding another. Absent from APIs that predate it.
+    chatSessionId?: string
     authSelection?: unknown
 }
 

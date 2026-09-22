@@ -532,6 +532,7 @@ test('openInHerdr sends the pty env, the resume command and the labels in one rp
             env: { CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: '1' }
         },
         title: 'Fix the login bug',
+        chatSessionId: 'cts_1',
         onToken: (tokenId) => tokens.push(tokenId)
     })
     assert.deepEqual(result, {
@@ -551,8 +552,11 @@ test('openInHerdr sends the pty env, the resume command and the labels in one rp
         env: Record<string, string>
         title: string
         agentName: string
+        chatSessionId?: string
     }
     assert.equal(payload.terminalId, 'tms_1')
+    // The daemon keeps one herdr tab per conversation with it.
+    assert.equal(payload.chatSessionId, 'cts_1')
     assert.equal(payload.framework, 'claude-code')
     assert.deepEqual(payload.command, [
         'claude',

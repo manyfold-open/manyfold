@@ -190,6 +190,7 @@ test('a handoff creates a herdr terminal row, takes the hold as herdr, and repor
     assert.equal(h.acquires.length, 1)
     assert.equal(h.opens.length, 1)
     assert.equal(h.opens[0].title, 'Fix the login bug')
+    assert.equal(h.opens[0].chatSessionId, 'cs-1')
     assert.equal(h.opens[0].terminalId, 'tms_new')
     assert.deepEqual(h.tokens, [['tms_new', 'tok-1']])
     assert.deepEqual(h.finished, [])

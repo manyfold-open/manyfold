@@ -219,6 +219,7 @@ export class TerminalHerdrService {
                 framework: agent.framework,
                 resume: resolution.resume,
                 title,
+                chatSessionId: sessionId,
                 daemonId: host.id,
                 onToken: (tokenId) => {
                     void this.terminals
