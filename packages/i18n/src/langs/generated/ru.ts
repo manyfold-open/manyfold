@@ -2104,6 +2104,7 @@ const ru: Record<string, string> = {
     'web.agentNewV4.cost.providerUntested': 'Проверенных моделей пока нет · сначала проверьте его в настройках',
     'web.agentNewV4.cost.signedIn': 'Вход выполнен',
     'web.agentNewV4.cost.inUseBy': 'Используется агентами: {{count}}',
+    'web.agentNewV4.cost.sharedAccount': 'На этой машине уже работают агенты: {{count}}; те, что оплачиваются с вашей учётной записи, перейдут на выбранный здесь вариант.',
     'web.agentNewV4.cost.expired': 'Срок действия учётных данных истёк — потребуется новый вход',
     'web.agentNewV4.cost.aboutAMinute': 'около минуты',
     'web.agentNewV4.cost.signInTo': 'Ваша учётная запись {{vendor}}',

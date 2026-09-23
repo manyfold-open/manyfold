@@ -48,10 +48,12 @@ import {
     runsOnOurMachine
 } from '@/pages/AgentNew/v4/frameworkCatalog'
 import {
+    bindsModelAfterJoin,
     bindsModelAtCreate,
+    joinBindingFor,
     serviceCreateBody,
-    withServiceBinding
-} from '@/pages/AgentNew/v4/serviceModel'
+    withBinding
+} from '@/pages/AgentNew/v4/providerBinding'
 import {
     costFull,
     costShort,
@@ -163,6 +165,16 @@ const AgentNewV4: FC = (): ReactNode => {
     // answers — so a moving number is the only honest evidence the page is
     // still alive. Everything else would be a progress bar we invented.
     const [creatingFor, setCreatingFor] = useState(0)
+    // An agent the create made but whose step ③ answer could not be bound
+    // afterwards. It exists either way, so the button stops offering to make
+    // another one and opens this one instead.
+    const [unbound, setUnbound] = useState<{ id: string; name: string } | null>(
+        null
+    )
+    // The binding requests run after the create has answered, so the create's
+    // own busy flag is already down; without this the button would come back
+    // for the second or so they take, and a second press makes a second agent.
+    const [binding, setBinding] = useState(false)
     // Connecting the user's own computer, in place. v3 already did this with
     // `ConnectDaemonDialog`; v4 had regressed to sending them to settings.
     const [connectingDaemon, setConnectingDaemon] = useState(false)
@@ -232,6 +244,22 @@ const AgentNewV4: FC = (): ReactNode => {
     const runtimeId =
         flow.runtime?.kind === 'runtime' ? flow.runtime.runtimeId : null
     const auth = useRuntimeAuthList(flow.step === 'cost' ? runtimeId : null)
+
+    // Whether the step ③ answer names the provider row the agent is bound to:
+    // always for a coding CLI, and for a service framework only when it is
+    // installed with the agent — one joining an instance that already runs
+    // inherits that instance's provider.
+    const bindsModel =
+        framework !== null &&
+        (bindsModelAfterJoin(framework) ||
+            (bindsModelAtCreate(framework) &&
+                flow.runtime?.kind === 'runtime' &&
+                flow.runtime.runtimeId === null))
+    const sharedWith =
+        runtimeId === null
+            ? 0
+            : (create.runtimes.find((row) => row.id === runtimeId)
+                  ?.agentsCount ?? 0)
 
     // Loading the external provider list is the one fetch that depends on the
     // type, so it waits until a type that needs it has been chosen.
@@ -395,13 +423,12 @@ const AgentNewV4: FC = (): ReactNode => {
                               defaultWorkspace === null
                                   ? undefined
                                   : optionalWorkspace(flow.workspace),
+                          // The join only applies a sign-in on the machine;
+                          // an account-level answer is bound right after.
                           modelConfigSource:
                               flow.cost?.kind === 'runtime-local'
                                   ? 'runtime-local'
-                                  : flow.cost?.kind === 'platform' ||
-                                      flow.cost?.kind === 'provider'
-                                    ? 'platform'
-                                    : undefined,
+                                  : undefined,
                           runtimeAuthProfileId:
                               flow.cost?.kind === 'runtime-local'
                                   ? flow.cost.profileId
@@ -409,6 +436,38 @@ const AgentNewV4: FC = (): ReactNode => {
                       }
                   })
         if (created === null) return
+        const join =
+            target.runtimeId === null
+                ? null
+                : joinBindingFor(flow.framework, flow.cost, create.providers)
+        if (join !== null) {
+            setBinding(true)
+            try {
+                await client.agents.credentials.update(
+                    created.id,
+                    join.credentials
+                )
+                if (join.modelConfig)
+                    await client.agents.updateModelConfig(
+                        created.id,
+                        join.modelConfig
+                    )
+            } catch (err) {
+                // The agent exists either way; saying so beats a bare failure
+                // that hides it, and a second press must not make another.
+                await refreshAgents()
+                setUnbound({ id: created.id, name: created.name })
+                setStepError(
+                    t('web.agentNew.providerChangeFailed', {
+                        name: created.name,
+                        reason: apiErrorMessage(err)
+                    })
+                )
+                return
+            } finally {
+                setBinding(false)
+            }
+        }
         // Seen on staging [2026-09-15]: navigating straight to the new chat
         // showed "Agent not found — it may have been deleted", because the
         // sidebar's list is what the chat page resolves the id against and it
@@ -418,7 +477,7 @@ const AgentNewV4: FC = (): ReactNode => {
         // had answered the question a second time and got it wrong.
         await refreshAgents()
         navigate('/agents/' + created.id + '/chat')
-    }, [create, flow, navigate, refreshAgents, t])
+    }, [client, create, flow, navigate, refreshAgents, t])
 
     // Create the profile if this is a new account, then ask the host to start
     // the CLI's own login and keep the operation it hands back. The terminal
@@ -534,8 +593,10 @@ const AgentNewV4: FC = (): ReactNode => {
         }
     }, [reloadAuth, signIn])
 
+    // One wait from the user's side: the create and the binding after it.
+    const creating = create.busy || binding
     useEffect(() => {
-        if (!create.busy) {
+        if (!creating) {
             setCreatingFor(0)
             return
         }
@@ -545,7 +606,7 @@ const AgentNewV4: FC = (): ReactNode => {
             1000
         )
         return () => clearInterval(timer)
-    }, [create.busy])
+    }, [creating])
 
     const advance = useCallback(async (): Promise<void> => {
         setStepError(null)
@@ -586,6 +647,10 @@ const AgentNewV4: FC = (): ReactNode => {
             return
         }
         if (flow.step === 'name') {
+            if (unbound !== null) {
+                navigate('/agents/' + unbound.id + '/chat')
+                return
+            }
             await submit()
             return
         }
@@ -604,14 +669,13 @@ const AgentNewV4: FC = (): ReactNode => {
             }
             const choice = costChoiceFor(costPick)
             if (choice === null) return
-            // When the install is part of the create, the answer also has to
-            // say WHICH provider row and model the install gets — decided
-            // here, once, so step ④ shows exactly what the request will send.
-            const bound =
-                flow.runtime?.kind === 'runtime' &&
-                flow.runtime.runtimeId === null
-                    ? withServiceBinding(choice, framework, create.providers)
-                    : choice
+            // When the answer is bound — at install for a service framework,
+            // right after the join for a coding CLI — it also has to say
+            // WHICH provider row and model the agent gets: decided here,
+            // once, so step ④ shows exactly what the requests will send.
+            const bound = bindsModel
+                ? withBinding(choice, framework, create.providers)
+                : choice
             if (bound === null) {
                 setStepError(t('web.agentNewV4.error.noModel'))
                 return
@@ -630,6 +694,8 @@ const AgentNewV4: FC = (): ReactNode => {
         machinePick,
         costPick,
         signIn,
+        bindsModel,
+        unbound,
         create.providers,
         finishSignIn,
         startSignIn,
@@ -641,7 +707,7 @@ const AgentNewV4: FC = (): ReactNode => {
         t
     ])
 
-    const busy = preparing !== null || create.busy
+    const busy = preparing !== null || creating
 
     // The managed row's second line. "Billed by usage" alone asks the user
     // to choose how to pay without saying whether there is anything to pay
@@ -824,12 +890,14 @@ const AgentNewV4: FC = (): ReactNode => {
             : machineAsleep
               ? t('web.agentNewV4.primary.createFineAsleep')
               : t('web.agentNewV4.primary.createFine')
+        if (unbound !== null)
+            return { label: t('web.shell.openAgent', { name: unbound.name }) }
         // The button does not claim to know WHICH phase it is in — the server
         // tells us nothing until it answers, and on a cold machine most of
         // this is the wake, which the cost line beside it already explains.
         // Measured on staging [2026-09-15]: 692ms warm, ~60s cold; an
         // OpenClaw install is 1–2 minutes on top.
-        if (create.busy)
+        if (creating)
             return creatingPrimary(
                 creatingFor,
                 installing
@@ -859,9 +927,10 @@ const AgentNewV4: FC = (): ReactNode => {
         serviceProviderId,
         remoteRef,
         signIn,
-        create.busy,
+        creating,
         creatingFor,
         machineAsleep,
+        unbound,
         t
     ])
 
@@ -988,11 +1057,8 @@ const AgentNewV4: FC = (): ReactNode => {
                     managedUnavailableReason={t(
                         'web.agentNewV4.cost.managedUnavailable'
                     )}
-                    bindsModel={
-                        bindsModelAtCreate(framework) &&
-                        flow.runtime?.kind === 'runtime' &&
-                        flow.runtime.runtimeId === null
-                    }
+                    bindsModel={bindsModel}
+                    sharedWith={sharedWith}
                     value={costPick}
                     onChange={setCostPick}
                     onBackToType={() => goTo('type')}

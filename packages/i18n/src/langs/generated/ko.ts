@@ -2094,6 +2094,7 @@ const ko: Record<string, string> = {
     "web.agentNewV4.cost.providerUntested": "아직 테스트된 모델이 없음 · 먼저 설정에서 테스트하세요",
     "web.agentNewV4.cost.signedIn": "로그인됨",
     "web.agentNewV4.cost.inUseBy": "에이전트 {{count}} 개가 사용 중",
+    "web.agentNewV4.cost.sharedAccount": "이 머신에서는 이미 에이전트 {{count}} 개가 실행 중입니다. 계정으로 과금되는 에이전트는 여기서 고른 방식으로 함께 바뀝니다.",
     "web.agentNewV4.cost.expired": "자격 증명이 만료되어 다시 로그인해야 합니다",
     "web.agentNewV4.cost.aboutAMinute": "1 분 정도",
     "web.agentNewV4.cost.signInTo": "내 {{vendor}} 계정",

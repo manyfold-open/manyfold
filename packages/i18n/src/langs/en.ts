@@ -3721,6 +3721,7 @@ const en = {
                 providerUntested: 'No tested models yet · test it in Settings first',
                 signedIn: 'Signed in',
                 inUseBy: 'In use by {{count}} agents',
+                sharedAccount: 'This machine already runs {{count}} agents; those billed to your account switch to what you pick here.',
                 expired: 'Credentials expired — picking this needs a new sign-in',
                 aboutAMinute: 'about a minute',
                 signInTo: 'Your {{vendor}} account',
