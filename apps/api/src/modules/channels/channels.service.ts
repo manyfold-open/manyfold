@@ -1,6 +1,6 @@
 import { DEFAULT_WEB_BASE_URL } from '@/common/brand'
 import { configString } from '@/common/config-alias'
-import { createObjectId } from '@manyfold/shared'
+import { createObjectId, frameworkDefinition } from '@manyfold/shared'
 import type {
     ChannelConfig,
     ChannelCredentials,
@@ -24,6 +24,7 @@ import {
     Injectable,
     Logger,
     NotFoundException,
+    Optional,
     forwardRef
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -54,7 +55,7 @@ import {
     buildGithubAppManifest,
     convertGithubAppManifestCode
 } from './providers/github.provider'
-import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 
 // GitHub's create-app-from-manifest page can sit open for a while before the
 // user clicks Create; the code itself then lives one hour.
@@ -75,7 +76,11 @@ export class ChannelsService {
         private readonly manager: ChannelManagerService,
         private readonly router: ChannelSessionRouter,
         private readonly runtimeAccess: RuntimeAccessService,
-        config: ConfigService
+        config: ConfigService,
+        // Appended last + @Optional: frameworks a module registers (ADR-0034);
+        // absent means no framework takes agent-managed replies.
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {
         const fallback = `http://localhost:${config.get('PORT') ?? 2222}`
         this.publicBaseUrl = (
@@ -498,11 +503,9 @@ export class ChannelsService {
     ): Promise<ChannelDetail> {
         const existing = await this.loadOwned(userId, id, isAdmin)
         // The sync reconciler (and operators) go through the admin path;
-        // owners must edit the source binding in the NarraNexus dashboard.
+        // owners must edit the source binding in its framework's dashboard.
         if (existing.origin && !isAdmin)
-            throw new ConflictException(
-                'this channel mirrors a NarraNexus binding — manage it in the NarraNexus dashboard'
-            )
+            throw new ConflictException(mirroredChannelMessage(existing.origin))
         const provider = this.providers.get(existing.provider)
         const nextConfig =
             body.config !== undefined
@@ -569,9 +572,7 @@ export class ChannelsService {
     ): Promise<void> {
         const owned = await this.loadOwned(userId, id, isAdmin)
         if (owned.origin && !isAdmin)
-            throw new ConflictException(
-                'this channel mirrors a NarraNexus binding — manage it in the NarraNexus dashboard'
-            )
+            throw new ConflictException(mirroredChannelMessage(owned.origin))
         const provider = this.providers.get(owned.provider)
         if (provider.unregister) {
             try {
@@ -903,9 +904,9 @@ export class ChannelsService {
     }
 
     // agentManagedReply suppresses Manyfold's outbound delivery, so it is only
-    // valid where the agent can deliver instead: a narranexus agent on a
-    // provider NarraNexus maps to a WorkingSource. Anything else would leave
-    // the channel silent.
+    // valid where the agent can deliver instead: an agent whose framework
+    // takes managed replies, on a provider that framework can deliver on.
+    // Anything else would leave the channel silent.
     private async assertAgentManagedReplyAllowed(
         agentId: string,
         provider: ChannelProviderName,
@@ -913,22 +914,26 @@ export class ChannelsService {
         origin: MirrorOrigin | null
     ): Promise<void> {
         if (config.agentManagedReply !== true) return
-        if (
-            !manyfoldProviderToNarraNexusChannelProvider(provider, {
-                mirrored: origin?.kind === 'narranexus'
-            })
-        )
-            throw new BadRequestException(
-                `config.agentManagedReply is not supported for provider "${provider}"`
-            )
         const rows = await this.db
             .select({ framework: agents.framework })
             .from(agents)
             .where(eq(agents.id, agentId))
             .limit(1)
-        if (rows[0]?.framework !== 'narranexus')
+        const framework = rows[0]?.framework
+        const policy = framework
+            ? this.extensions.get(framework)?.channels?.managedReply
+            : undefined
+        if (!policy)
             throw new BadRequestException(
-                'config.agentManagedReply requires a narranexus agent'
+                `config.agentManagedReply is not supported for this agent's framework`
+            )
+        if (
+            !policy.supportsProvider(provider, {
+                mirrored: origin?.kind === framework
+            })
+        )
+            throw new BadRequestException(
+                `config.agentManagedReply is not supported for provider "${provider}"`
             )
     }
 
@@ -1007,4 +1012,10 @@ export class ChannelsService {
     private inboundUrlFor(row: ChannelRow): string {
         return `${this.publicBaseUrl}/api/channels/hooks/${row.provider}/${row.id}`
     }
+}
+
+// A mirror's source of truth is its framework: owners edit the binding there.
+const mirroredChannelMessage = (origin: MirrorOrigin): string => {
+    const name = frameworkDefinition(origin.kind)?.displayName ?? origin.kind
+    return `this channel mirrors a ${name} binding — manage it in the ${name} dashboard`
 }

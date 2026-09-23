@@ -9,7 +9,9 @@ import {
     UserModelProvider,
     auditAction,
     createObjectId,
+    credentialsManagedByRuntime,
     defaultProtocolForProvider,
+    frameworkCapability,
     isExternal,
     mcpConfigFromExtras
 } from '@manyfold/shared'
@@ -143,8 +145,8 @@ export class AgentCredentialsService {
                 localManaged: true
             }
         }
-        if (agent.framework === 'narranexus')
-            return narranexusPlaceholderView(agent)
+        if (credentialsManagedByRuntime(agent.framework))
+            return runtimeUiPlaceholderView(agent)
         if (isExternal(agent.framework))
             return externalPlaceholderView(agent)
         const cred = await this.requireCredentialsRow(agent)
@@ -168,9 +170,9 @@ export class AgentCredentialsService {
                     'daemon agents manage credentials locally; reveal is unavailable',
                 code: 'credentials_local_managed'
             })
-        if (agent.framework === 'narranexus')
+        if (credentialsManagedByRuntime(agent.framework))
             throw new BadRequestException(
-                'narranexus agents manage provider credentials in the native UI'
+                `${agent.framework} agents manage provider credentials in the native UI`
             )
         if (isExternal(agent.framework))
             throw new BadRequestException(
@@ -203,10 +205,9 @@ export class AgentCredentialsService {
         isAdmin: boolean
     ): Promise<AgentCredentialsView> {
         const agent = await this.requireAgent(callerUserId, agentId, isAdmin)
-        if (agent.framework === 'narranexus')
+        if (credentialsManagedByRuntime(agent.framework))
             throw new BadRequestException({
-                message:
-                    'narranexus agents manage provider credentials in the native UI',
+                message: `${agent.framework} agents manage provider credentials in the native UI`,
                 code: 'unsupported_framework'
             })
         if (isExternal(agent.framework))
@@ -377,11 +378,7 @@ export class AgentCredentialsService {
         agent: Agent,
         resolved: ResolvedAgentCredentials
     ): Promise<void> {
-        if (
-            resolved.framework === 'hermes' ||
-            resolved.framework === 'openclaw' ||
-            resolved.framework === 'narranexus'
-        ) {
+        if (frameworkCapability(resolved.framework).kind === 'service') {
             // Gateway frameworks keep their model/provider in files and
             // service env the bootstrap wrote. The restart service re-runs
             // exactly that bootstrap dance with the freshly saved creds —
@@ -579,9 +576,9 @@ export class AgentCredentialsService {
             keyVersion: cred.keyVersion
         })
         const parsed = JSON.parse(plain) as Record<string, unknown>
-        if (framework === 'narranexus')
+        if (credentialsManagedByRuntime(framework))
             throw new BadRequestException(
-                'narranexus credentials live in the runtime sqlite, not Manyfold'
+                `${framework} credentials live in the runtime, not Manyfold`
             )
         if (isExternal(framework))
             throw new BadRequestException(
@@ -607,9 +604,9 @@ export class AgentCredentialsService {
                 return this.geminiCliK8s
             case 'pi':
                 return this.piK8s
-            case 'narranexus':
+            default:
                 throw new InternalServerErrorException(
-                    'narranexus credentials do not flow through K8s bootstrap apply'
+                    `${framework} credentials do not flow through K8s bootstrap apply`
                 )
         }
     }
@@ -658,7 +655,7 @@ const daemonPlaceholderView = (agent: Agent): AgentCredentialsView => ({
     updatedAt: agent.updatedAt.toISOString()
 })
 
-const narranexusPlaceholderView = (agent: Agent): AgentCredentialsView => ({
+const runtimeUiPlaceholderView = (agent: Agent): AgentCredentialsView => ({
     framework: agent.framework,
     provider: null,
     apiKeyMasked: null,

@@ -10,6 +10,7 @@ import type { AgentRuntimeRow } from '@manyfold/db'
 import type { AuthPrincipal } from '../src/common/guards/auth.guard'
 import { AgentRuntimesController } from '../src/modules/agent-runtimes/agent-runtimes.controller'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 
 // PATCH /agent-runtimes/:id/keep-alive contracts: every sprite framework is
 // eligible (coding agents run a lease-only keep-alive), non-sprite runtimes
@@ -112,9 +113,7 @@ const buildHarness = (opts: {
         {} as never,
         {} as never,
         {} as never,
-        {} as never,
-        {} as never,
-        {} as never,
+        new SpriteServiceBootstraps({} as never, {} as never),
         runtimeAccess as never,
         { get: () => undefined } as never,
         {} as never,

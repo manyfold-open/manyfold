@@ -58,6 +58,12 @@ export const supportsRuntime = (
 export const isExternal = (framework: AgentFramework): boolean =>
     frameworkDefinition(framework)?.kind === 'external'
 
+// The runtime manages its own model credentials in its own UI
+// (FrameworkDefinition.credentials 'runtime-ui'); Manyfold stores none.
+export const credentialsManagedByRuntime = (
+    framework: AgentFramework
+): boolean => frameworkDefinition(framework)?.credentials === 'runtime-ui'
+
 export const frameworkMcpSupport = (
     framework: AgentFramework
 ): FrameworkMcpSupport | undefined => frameworkDefinition(framework)?.mcp

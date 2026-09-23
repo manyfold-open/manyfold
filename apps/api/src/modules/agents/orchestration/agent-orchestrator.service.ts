@@ -14,6 +14,7 @@ import {
     codingAgentWorkspacePath,
     configurableFrameworkRuntimeDefaults,
     createObjectId,
+    frameworkDefinition,
     isExternal,
     isModelConfigFramework,
     normalizeAgentName,
@@ -99,8 +100,8 @@ import {
     MANYFOLD_CONTEXT_VERSION,
     contextDocInstructionFile
 } from '@/modules/agent-self/agent-context-doc.service'
-import { narraNexusSeedWorkspacePath } from '@/modules/narranexus/narranexus-paths'
 import { ExternalAgentProvisioner } from '@/modules/agent-runtimes/provisioning/external-provisioner'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import type { CreateAgentDto } from '@/modules/agents/dto/create-agent.dto'
 import { CredentialsResolverService } from '@/modules/agents/credentials/credentials-resolver.service'
 import type { ResolvedAgentCredentials } from '@/modules/agents/credentials/resolved-credentials'
@@ -123,15 +124,6 @@ export interface AgentProgressEmitter {
 }
 
 const noopEmitter: AgentProgressEmitter = { step: () => {} }
-
-const PLATFORM_RUNTIME_DEFAULTS: Partial<Record<AgentFramework, AgentRuntime>> =
-    {
-        'claude-code': agentRuntime.SPRITES,
-        codex: agentRuntime.SPRITES,
-        'gemini-cli': agentRuntime.SPRITES,
-        pi: agentRuntime.SPRITES,
-        narranexus: agentRuntime.SPRITES
-    }
 
 type ConfigurableRuntimeDefaultFramework =
     keyof FrameworkRuntimeDefaultsSettings['defaults']
@@ -174,7 +166,7 @@ export const resolveRuntime = (
         const adminOverride = defaults?.defaults[framework]
         if (adminOverride) return adminOverride
     }
-    const platformDefault = PLATFORM_RUNTIME_DEFAULTS[framework]
+    const platformDefault = frameworkDefinition(framework)?.defaultRuntime
     if (platformDefault) return platformDefault
     throw new ConflictException(
         `framework ${framework} requires an explicit runtime or configured admin default`
@@ -341,7 +333,11 @@ export class AgentOrchestratorService {
         // branch needs it; when absent that branch answers CONTAINER_REQUIRED
         // exactly like the purchased-container edition.
         @Optional()
-        private readonly k8sProvisioner?: K8sContainerProvisioner
+        private readonly k8sProvisioner?: K8sContainerProvisioner,
+        // Appended last + @Optional: frameworks a module registers
+        // (ADR-0034); absent means only the core frameworks.
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     // Version a new sprite agent installs: what the caller asked for, else the
@@ -1261,7 +1257,12 @@ export class AgentOrchestratorService {
         const agentId = createObjectId('agent')
         const workspace = resolveWorkspaceSelection(
             dto.workspace,
-            defaultSpriteWorkspaceFor(dto.framework, agentId, userId)
+            defaultSpriteWorkspaceFor(
+                dto.framework,
+                agentId,
+                userId,
+                this.extensions
+            )
         )
 
         const frameworkVersion = await this.resolveFrameworkVersion(
@@ -1434,11 +1435,11 @@ export class AgentOrchestratorService {
                 keyVersion: credEnc.keyVersion
             })
 
-            if (dto.framework === 'narranexus') {
-                // NarraNexus container starts with an empty agents table.
-                // Push the primary agent now so reconcile's listAgents finds
-                // it on the first pass (instead of marking it stopped). The
-                // local `runtime` variable predates applyProvisioningPatch's
+            if (this.extensions.get(dto.framework)?.pushPrimaryAgent) {
+                // The framework's own agent list starts empty. Push the
+                // primary agent now so reconcile's listAgents finds it on the
+                // first pass (instead of marking it stopped). The local
+                // `runtime` variable predates applyProvisioningPatch's
                 // ingressHost write — refresh so the adapter has a host to
                 // hit.
                 const refreshedRuntime = await this.runtimes.findById(
@@ -1446,9 +1447,9 @@ export class AgentOrchestratorService {
                 )
                 if (!refreshedRuntime)
                     throw new InternalServerErrorException(
-                        `narranexus runtime ${runtime.id} vanished after provision`
+                        `${dto.framework} runtime ${runtime.id} vanished after provision`
                     )
-                const adapter = this.adapterRegistry.get('narranexus')
+                const adapter = this.adapterRegistry.get(dto.framework)
                 await adapter.addAgent({
                     runtime: refreshedRuntime,
                     primaryAgentId: null,
@@ -1659,21 +1660,21 @@ export class AgentOrchestratorService {
 const defaultSpriteWorkspaceFor = (
     framework: AgentFramework,
     agentId: string,
-    userId: string
+    userId: string,
+    extensions: FrameworkExtensionsRegistry
 ): string => {
-    // Service-kind frameworks (Hermes/OpenClaw/NarraNexus on sprite) own
-    // their own home dir; the workspace should match what the bootstraps
-    // actually use, not the coding-agent .manyfold/workspaces convention.
+    // Service-kind frameworks own their own home dir; the workspace should
+    // match what the bootstraps actually use, not the coding-agent
+    // .manyfold/workspaces convention.
     if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
     if (framework === 'openclaw')
         return `${SPRITE_HOME_BASE}/.openclaw/workspace`
-    if (framework === 'narranexus')
-        // A seed only: the NarraNexus agent does not exist yet, so its gateway
-        // cannot be asked where the workspace will be. The layout is theirs and
-        // has changed before, so nothing may address a file through this —
-        // FilesContextBuilder resolves and rewrites it. See narranexus-paths.ts.
-        return narraNexusSeedWorkspacePath('sprites', agentId, userId)
-    return codingAgentWorkspacePath('sprites', agentId)
+    return (
+        extensions
+            .get(framework)
+            ?.spriteService?.workspaceSeed(agentId, userId) ??
+        codingAgentWorkspacePath('sprites', agentId)
+    )
 }
 
 const extractHost = (url: string | null): string | null => {
@@ -1688,14 +1689,9 @@ const extractHost = (url: string | null): string | null => {
 const extractSpritesCredentials = (
     resolved: ResolvedAgentCredentials
 ): unknown => {
-    if (resolved.framework === 'claude-code') return resolved.value
-    if (resolved.framework === 'codex') return resolved.value
-    if (resolved.framework === 'gemini-cli') return resolved.value
-    if (resolved.framework === 'pi') return resolved.value
-    if (resolved.framework === 'hermes') return resolved.value
-    if (resolved.framework === 'openclaw') return resolved.value
-    if (resolved.framework === 'narranexus') return resolved.value
-    throw new Error(`unsupported sprites framework: ${resolved.framework}`)
+    if (!supportsRuntime(resolved.framework, 'sprites'))
+        throw new Error(`unsupported sprites framework: ${resolved.framework}`)
+    return resolved.value
 }
 
 const errorClassOf = (err: unknown): string => {

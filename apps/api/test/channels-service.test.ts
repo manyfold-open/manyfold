@@ -10,6 +10,13 @@ import type {
     NewChannelRow
 } from '@manyfold/db'
 import { ChannelsService } from '../src/modules/channels/channels.service'
+import { narraNexusChannels } from '../src/modules/narranexus/channels/narranexus-channels'
+import { extensionsWith } from './helpers/framework-extensions-stub'
+
+const narraNexusExtensions = extensionsWith({
+    framework: 'narranexus',
+    channels: narraNexusChannels
+}) as never
 import { LarkChannelProvider } from '../src/modules/channels/providers/lark.provider'
 
 test('ChannelsService.create activates and starts Lark websocket channels', async () => {
@@ -70,7 +77,8 @@ test('ChannelsService.create activates and starts Lark websocket channels', asyn
                 key === 'PUBLIC_API_BASE_URL'
                     ? 'https://api.example.com'
                     : undefined
-        } as never
+        } as never,
+        narraNexusExtensions
     )
 
     const created = await service.create('user-1', {
@@ -123,7 +131,8 @@ test('ChannelsService.create rejects Lark mention gating without botName', async
         { reload: async () => null } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
 
     await assert.rejects(
@@ -209,7 +218,8 @@ test('ChannelsService.test restarts an active Lark websocket before giving up', 
         } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
 
     const result = await service.test('user-1', 'channel-1')
@@ -285,7 +295,8 @@ const makeRegisterHarness = (
         { reload: async () => undefined } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
     return { service, row: () => row }
 }
@@ -408,7 +419,8 @@ const makeRebindHarness = (
         } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
     return { service, row: () => row, rebinds, reloads }
 }
@@ -480,7 +492,8 @@ test('create rejects agentManagedReply for a non-narranexus agent', async () => 
         { reload: async () => null } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
 
     await assert.rejects(
@@ -496,7 +509,7 @@ test('create rejects agentManagedReply for a non-narranexus agent', async () => 
             },
             credentials: { appSecret: 'secret' }
         } satisfies CreateChannelBody),
-        /requires a narranexus agent/,
+        /not supported for this agent's framework/,
         'a non-narranexus agent has no channel send tools — the flag would silence the channel'
     )
 })
@@ -532,7 +545,8 @@ test('create rejects agentManagedReply on a provider NarraNexus cannot send thro
         { reload: async () => null } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
 
     await assert.rejects(
@@ -589,7 +603,8 @@ test('create accepts agentManagedReply on a matrix row that mirrors a NarraNexus
         { reload: async () => null } as never,
         { fork: async () => null, switchTo: async () => null } as never,
         { reserveChannelSlot: async () => undefined } as never,
-        { get: () => undefined } as never
+        { get: () => undefined } as never,
+        narraNexusExtensions
     )
 
     // Only the guard is under test here; the reload/get tail needs a whole
@@ -633,7 +648,7 @@ test('update rejects flipping agentManagedReply on for a non-narranexus agent', 
         h.service.update('user-1', 'channel-1', {
             config: { agentManagedReply: true }
         } as never),
-        /requires a narranexus agent/,
+        /not supported for this agent's framework/,
         'the config-only update path must enforce the guard — it bypasses assertAgentOwned'
     )
     assert.deepEqual(
@@ -651,7 +666,7 @@ test('update rejects rebinding a flag-on channel away from narranexus before mut
 
     await assert.rejects(
         h.service.update('user-1', 'channel-1', { agentId: 'agent-2' }),
-        /requires a narranexus agent/,
+        /not supported for this agent's framework/,
         'a stale flag on a rebound channel would suppress Manyfold with nothing to deliver'
     )
     assert.equal(

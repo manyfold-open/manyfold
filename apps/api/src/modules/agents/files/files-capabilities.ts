@@ -1,7 +1,8 @@
 import {
     DAEMON_FS_WRITE_MAX_BYTES,
     FILES_UPLOAD_MAX_BYTES,
-    FileRootCapabilitiesSdk
+    FileRootCapabilitiesSdk,
+    frameworkDefinition
 } from '@manyfold/shared'
 import { PayloadTooLargeException } from '@nestjs/common'
 import type { Agent, FileRoot } from '@manyfold/db'
@@ -9,9 +10,6 @@ import {
     POD_EXEC_READ_MAX_BYTES,
     POD_EXEC_WRITE_MAX_BYTES
 } from '@/modules/agents/files/k8s-pod-files-client'
-
-// The gateway refuses larger reads itself (413 with a "preview limit" message).
-const NARRANEXUS_READ_MAX_BYTES = 64 * 1024 * 1024
 
 export interface CapabilityInput {
     agent: Agent
@@ -26,12 +24,14 @@ export const rootCapabilities = ({
     root,
     binaryWriteSafe
 }: CapabilityInput): FileRootCapabilitiesSdk => {
-    // every NarraNexus root is read-only, whether it is served by the gateway or
-    // by direct sprite access; binarySafe describes the reads, which are exact
-    if (agent.framework === 'narranexus')
+    // A framework that serves its own files owns their layout: every root is
+    // read-only, whether the framework's API or the runtime's transport serves
+    // it; binarySafe describes the reads, which are exact
+    const files = frameworkDefinition(agent.framework)?.files
+    if (files?.servedBy === 'framework')
         return {
             maxUploadBytes: 0,
-            maxDownloadBytes: NARRANEXUS_READ_MAX_BYTES,
+            maxDownloadBytes: files.maxDownloadBytes,
             streamRead: true,
             streamWrite: false,
             binarySafe: true,

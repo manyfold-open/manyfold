@@ -1,4 +1,5 @@
 import type {
+    AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource
 } from '@manyfold/shared'
@@ -6,14 +7,7 @@ import type { Logger } from '@nestjs/common'
 import type { V1Probe } from '@kubernetes/client-node'
 import type { PodExec } from '@/modules/k8s/pod-exec'
 
-export type K8sFramework =
-    | 'openclaw'
-    | 'hermes'
-    | 'claude-code'
-    | 'codex'
-    | 'gemini-cli'
-    | 'pi'
-    | 'narranexus'
+export type K8sFramework = AgentFramework
 
 export interface K8sBootstrapContext {
     agentId: string
@@ -95,6 +89,11 @@ export interface K8sPostProvisionContext {
 
 export interface K8sFrameworkBootstrap {
     readonly framework: K8sFramework
+    // The API config key naming the framework's container image.
+    readonly imageEnvKey: string
+    // The id the framework knows the runtime's first agent by; the agent id
+    // itself when absent.
+    primaryInternalId?(agentId: string): string
     plan(ctx: K8sBootstrapContext, credentials: unknown): K8sBootstrapPlan
     postProvision?(ctx: K8sPostProvisionContext): Promise<void>
 }

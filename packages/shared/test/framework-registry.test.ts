@@ -34,6 +34,7 @@ import {
 // runs after the registration test, in declaration order.
 const fixture: FrameworkDefinition = {
     id: 'fixture-gateway',
+    displayName: 'Fixture Gateway',
     kind: 'service',
     runtimes: ['sprites', 'k8s'],
     chat: {

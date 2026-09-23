@@ -11,7 +11,8 @@ import {
     AutomationSummary,
     CreateAutomationBody,
     UpdateAutomationBody,
-    createObjectId
+    createObjectId,
+    frameworkDefinition
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -65,9 +66,9 @@ type AutomationWithAgent = {
     agent: Agent
 }
 
-// Mirror of an external framework schedule (the NarraNexus sync reconciler is
-// the only writer): a one-shot alarm at nextRunAt, re-armed by the reconciler
-// after each run instead of by an RRULE recurrence.
+// Mirror of an external framework schedule (the framework's sync reconciler
+// is the only writer): a one-shot alarm at nextRunAt, re-armed by the
+// reconciler after each run instead of by an RRULE recurrence.
 export interface ManagedAutomationSpec {
     title: string
     prompt: string
@@ -1136,10 +1137,12 @@ const assertRunnableAgent = (agent: Agent, model: string | null): void => {
 }
 
 const assertNotManaged = (row: AutomationRow): void => {
-    if (row.origin)
-        throw new ConflictException(
-            'this automation mirrors a NarraNexus job — manage it in the NarraNexus dashboard'
-        )
+    if (!row.origin) return
+    const name =
+        frameworkDefinition(row.origin.kind)?.displayName ?? row.origin.kind
+    throw new ConflictException(
+        `this automation mirrors a ${name} job — manage it in the ${name} dashboard`
+    )
 }
 
 const toSummary = (

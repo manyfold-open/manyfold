@@ -65,12 +65,6 @@ export interface ResolvedExternalCredentials {
     providerId: string
 }
 
-// NarraNexus has no Manyfold-side BYO credentials. The container manages its
-// own user_providers internally; users configure them via the native UI
-// (fragment-auth deep link). Empty-object shape keeps the discriminated union
-// exhaustive.
-export type ResolvedNarraNexusCredentials = Record<string, never>
-
 export type ResolvedAgentCredentials = {
     providerId: string | null
 } & (
@@ -80,7 +74,6 @@ export type ResolvedAgentCredentials = {
     | { framework: 'pi'; value: ResolvedPiCredentials }
     | { framework: 'openclaw'; value: ResolvedOpenclawCredentials }
     | { framework: 'hermes'; value: ResolvedHermesCredentials }
-    | { framework: 'narranexus'; value: ResolvedNarraNexusCredentials }
     | { framework: 'dify'; value: ResolvedExternalCredentials }
     | { framework: 'langflow'; value: ResolvedExternalCredentials }
 )

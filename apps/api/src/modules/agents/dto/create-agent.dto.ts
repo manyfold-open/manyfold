@@ -1,4 +1,5 @@
 import {
+    AgentFramework,
     AgentModelConfig,
     AgentModelConfigSource,
     PI_PROVIDERS,
@@ -7,6 +8,8 @@ import {
     agentModelConfigSources,
     inputValidation,
     isModelConfigFramework,
+    isRegisteredFramework,
+    listFrameworks,
     supportsRuntime
 } from '@manyfold/shared'
 import { Transform, Type } from 'class-transformer'
@@ -416,17 +419,24 @@ class SaveCredentialAsDto {
     providerName!: string
 }
 
-export type AgentFrameworkInput =
-    | 'claude-code'
-    | 'codex'
-    | 'gemini-cli'
-    | 'pi'
-    | 'openclaw'
-    | 'hermes'
-    | 'narranexus'
-    | 'dify'
-    | 'langflow'
-    | 'a2a'
+// Checked per request, not when the class is defined: an edition registers
+// its frameworks after the core modules load (ADR-0034).
+const IsRegisteredFramework =
+    (options?: ValidationOptions) =>
+    (target: object, propertyName: string): void => {
+        registerDecorator({
+            name: 'IsRegisteredFramework',
+            target: target.constructor,
+            propertyName,
+            options: options ?? {},
+            validator: {
+                validate: (value: unknown): boolean =>
+                    isRegisteredFramework(value),
+                defaultMessage: (args?: ValidationArguments): string =>
+                    `${args?.property ?? 'framework'} must be one of the following values: ${listFrameworks().join(', ')}`
+            }
+        })
+    }
 
 export type AgentRuntimeInput = 'sprites' | 'k8s' | 'external'
 
@@ -517,19 +527,8 @@ export class CreateAgentDto {
     @IsAgentName()
     name!: string
 
-    @IsIn([
-        'claude-code',
-        'codex',
-        'gemini-cli',
-        'pi',
-        'openclaw',
-        'hermes',
-        'narranexus',
-        'dify',
-        'langflow',
-        'a2a'
-    ])
-    framework!: AgentFrameworkInput
+    @IsRegisteredFramework()
+    framework!: AgentFramework
 
     @IsOptional()
     @IsIn(['sprites', 'k8s', 'external'])

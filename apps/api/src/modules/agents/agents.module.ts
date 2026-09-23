@@ -22,7 +22,7 @@ import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
 import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
 import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
 import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
-import { NarraNexusK8sBootstrap } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { K8sBootstraps } from '@/modules/agents/bootstrap/k8s-bootstraps'
 import { createClient, spriteMkdir, spriteRm } from '@manyfold/sprites'
 import { SpritesAgentAttacher } from '@/modules/agents/adapters/sprites-agent-attacher'
 import { K8sAgentAttacher } from '@/modules/agents/adapters/k8s-agent-attacher'
@@ -35,7 +35,6 @@ import { GeminiCliAgentAdapter } from '@/modules/agents/adapters/gemini-cli-agen
 import { PiAgentAdapter } from '@/modules/agents/adapters/pi-agent.adapter'
 import { OpenclawAgentAdapter } from '@/modules/agents/adapters/openclaw-agent.adapter'
 import { HermesAgentAdapter } from '@/modules/agents/adapters/hermes-agent.adapter'
-import { NarraNexusModule } from '@/modules/narranexus/narranexus.module'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
 import { FrameworkExecResolver } from '@/modules/agents/adapters/framework-exec'
 import { AgentReconcileService } from '@/modules/agents/reconcile/agent-reconcile.service'
@@ -96,7 +95,6 @@ import {
         BackupsModule,
         K8sModule,
         DaemonModule,
-        NarraNexusModule,
         ConnectionsModule,
         AgentSelfModule
     ],
@@ -121,7 +119,7 @@ import {
         PiK8sBootstrap,
         OpenClawBootstrap,
         HermesBootstrap,
-        NarraNexusK8sBootstrap,
+        K8sBootstraps,
         {
             provide: SpritesAgentAttacher,
             useFactory: (accounts: SpritesAccountsService) =>

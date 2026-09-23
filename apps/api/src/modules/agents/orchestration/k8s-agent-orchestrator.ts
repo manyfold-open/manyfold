@@ -46,16 +46,8 @@ import {
 } from '@/modules/k8s/kubernetes.service'
 import type { K8sApis } from '@/modules/k8s/kubernetes.service'
 import { PodExecFactory } from '@/modules/k8s/pod-exec'
-import {
-    OpenClawBootstrap,
-    openclawDefaultWorkspace
-} from '@/modules/agents/bootstrap/openclaw'
-import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
-import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
-import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
-import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
-import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
-import { NarraNexusK8sBootstrap } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { openclawDefaultWorkspace } from '@/modules/agents/bootstrap/openclaw'
+import { K8sBootstraps } from '@/modules/agents/bootstrap/k8s-bootstraps'
 import { buildFileRoots } from '@/modules/agents/bootstrap/file-roots'
 import type {
     K8sBootstrapContext,
@@ -75,6 +67,7 @@ import {
 } from '@/modules/agents/orchestration/k8s-resource-builder'
 import { teardownAgent } from '@/modules/agents/orchestration/k8s-teardown'
 import { AgentAdapterRegistry } from '@/modules/agents/adapters/adapter-registry'
+import { FrameworkExtensionsRegistry } from '@/modules/frameworks/framework-extensions.registry'
 import { AgentRuntimesService } from '@/modules/agent-runtimes/agent-runtimes.service'
 import { K8sProvisioner } from '@/modules/agent-runtimes/provisioning/k8s-provisioner'
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
@@ -185,13 +178,7 @@ export class K8sAgentOrchestrator {
         private readonly crypto: CryptoService,
         private readonly k8s: KubernetesService,
         private readonly config: ConfigService,
-        private readonly openclaw: OpenClawBootstrap,
-        private readonly hermes: HermesBootstrap,
-        private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
-        private readonly codexK8s: CodexK8sBootstrap,
-        private readonly geminiCliK8s: GeminiCliK8sBootstrap,
-        private readonly piK8s: PiK8sBootstrap,
-        private readonly narraNexusK8s: NarraNexusK8sBootstrap,
+        private readonly bootstraps: K8sBootstraps,
         private readonly podExecFactory: PodExecFactory,
         private readonly runtimes: AgentRuntimesService,
         private readonly k8sProvisioner: K8sProvisioner,
@@ -201,7 +188,11 @@ export class K8sAgentOrchestrator {
         private readonly backups: BackupsService,
         private readonly modelConfig: AgentModelConfigService,
         private readonly podRunner: PodRunnerProvisioner,
-        @Optional() private readonly runtimeToken?: RuntimeTokenService
+        @Optional() private readonly runtimeToken?: RuntimeTokenService,
+        // Appended last + @Optional: frameworks a module registers
+        // (ADR-0034); absent means only the core frameworks.
+        @Optional()
+        private readonly extensions: FrameworkExtensionsRegistry = new FrameworkExtensionsRegistry()
     ) {}
 
     // A pod that got far enough to register leaves an online managed daemon
@@ -304,7 +295,7 @@ export class K8sAgentOrchestrator {
             throw new InternalServerErrorException(
                 `K8sAgentOrchestrator invoked for non-k8s framework: ${framework}`
             )
-        const bootstrap = this.pickBootstrap(framework as K8sFramework)
+        const bootstrap = this.bootstraps.get(framework)
         const displayName = normalizeAgentName(dto.name)
         const resolved = await this.credentialsResolver.resolve(userId, dto)
         const credentials = extractK8sCredentials(resolved)
@@ -360,11 +351,7 @@ export class K8sAgentOrchestrator {
                 runtime: 'k8s',
                 status: 'pending',
                 runtimeId,
-                internalId: primaryInternalId(
-                    framework as K8sFramework,
-                    agentId,
-                    displayName
-                ),
+                internalId: primaryInternalId(bootstrap, agentId),
                 currentPhase: 'preparing_namespace'
             })
             const hostSuffix =
@@ -372,7 +359,7 @@ export class K8sAgentOrchestrator {
                 this.config.get<string>('K8S_INGRESS_HOST_SUFFIX') ??
                 DEFAULT_HOST_SUFFIX
             host = `${resourceName(agentId)}.${hostSuffix}`
-            const image = this.imageForFramework(framework as K8sFramework)
+            const image = this.bootstraps.image(framework)
             const apiBaseUrl = this.config.get<string>('PUBLIC_API_BASE_URL')
             const deployEnv = this.config.get<string>('MF_DEPLOY_ENV')
             // Mint the agent's k8s identity only with a reachable API URL to use
@@ -649,18 +636,14 @@ export class K8sAgentOrchestrator {
                 keyVersion: credEnc.keyVersion
             })
 
-            if (framework === 'narranexus') {
-                const adapter = this.adapterRegistry.get('narranexus')
+            if (this.extensions.get(framework)?.pushPrimaryAgent) {
+                const adapter = this.adapterRegistry.get(framework)
                 const runtimeRow = await this.runtimes.findById(runtimeId)
                 if (!runtimeRow)
                     throw new InternalServerErrorException(
-                        `narranexus runtime ${runtimeId} vanished after provision`
+                        `${framework} runtime ${runtimeId} vanished after provision`
                     )
-                const internalId = primaryInternalId(
-                    framework as K8sFramework,
-                    agentId,
-                    displayName
-                )
+                const internalId = primaryInternalId(bootstrap, agentId)
                 const addResult = await adapter.addAgent({
                     runtime: runtimeRow,
                     primaryAgentId: null,
@@ -668,11 +651,9 @@ export class K8sAgentOrchestrator {
                     internalId,
                     name: displayName
                 })
-                // Bring the freshly-inserted agent row in line with NarraNexus's
-                // own per-agent workspace convention (the legacy K8s create path
-                // initially stored agentMountPath = pvcMountPath = '/data', the
-                // PVC root, not the per-agent dir NarraNexus actually creates
-                // at <BASE_WORKING_PATH>/<agent_id>_<mf_user>).
+                // Bring the freshly-inserted agent row in line with the
+                // framework's own per-agent workspace (the create path stored
+                // the PVC root, not the per-agent dir the framework creates).
                 if (addResult.workspace) {
                     await this.db
                         .update(agents)
@@ -884,24 +865,6 @@ export class K8sAgentOrchestrator {
         return row?.name ?? null
     }
 
-    private pickBootstrap(framework: K8sFramework): K8sFrameworkBootstrap {
-        switch (framework) {
-            case 'openclaw':
-                return this.openclaw
-            case 'hermes':
-                return this.hermes
-            case 'claude-code':
-                return this.claudeCodeK8s
-            case 'codex':
-                return this.codexK8s
-            case 'gemini-cli':
-                return this.geminiCliK8s
-            case 'pi':
-                return this.piK8s
-            case 'narranexus':
-                return this.narraNexusK8s
-        }
-    }
 
     private async enforceNameUnique(
         userId: string,
@@ -918,25 +881,6 @@ export class K8sAgentOrchestrator {
             )
     }
 
-    private imageForFramework(framework: K8sFramework): string {
-        const key =
-            framework === 'openclaw'
-                ? 'K8S_IMAGE_OPENCLAW'
-                : framework === 'hermes'
-                  ? 'K8S_IMAGE_HERMES'
-                  : framework === 'claude-code'
-                    ? 'K8S_IMAGE_CLAUDE_CODE'
-                    : framework === 'codex'
-                      ? 'K8S_IMAGE_CODEX'
-                      : framework === 'gemini-cli'
-                        ? 'K8S_IMAGE_GEMINI_CLI'
-                        : framework === 'pi'
-                          ? 'K8S_IMAGE_PI'
-                          : 'K8S_IMAGE_NARRANEXUS'
-        const image = this.config.get<string>(key)
-        if (!image) throw new InternalServerErrorException(`${key} not set`)
-        return image
-    }
 
     private async waitForReadiness(args: {
         apis: K8sApis
@@ -1041,18 +985,13 @@ export class K8sAgentOrchestrator {
 }
 
 const primaryInternalId = (
-    framework: K8sFramework,
-    agentId: string,
-    _name: string
-): string => {
-    if (framework === 'openclaw') return 'main'
-    if (framework === 'hermes') return 'default'
-    if (framework === 'narranexus') return agentId.replace(/_/g, '-')
+    bootstrap: K8sFrameworkBootstrap,
+    agentId: string
+): string =>
     // claude-code / codex / gemini-cli: internalId mirrors agents.id (UUID) so
     // reconcile's listAgents (which reads from the agents table and returns
     // row.id) can join cleanly. See migration 0030.
-    return agentId
-}
+    bootstrap.primaryInternalId?.(agentId) ?? agentId
 
 const extractK8sCredentials = (resolved: ResolvedAgentCredentials): unknown =>
     resolved.value

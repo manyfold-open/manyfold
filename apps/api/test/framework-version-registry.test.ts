@@ -6,6 +6,7 @@ import {
 } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import './helpers/narranexus-version'
 import { execFileSync } from 'node:child_process'
 import {
     buildNpmLatestInstallShell,

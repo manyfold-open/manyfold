@@ -1,11 +1,12 @@
 import type {
     AgentFramework,
+    ChatAttachmentBlock,
     ChatCapabilities,
     ChatMessage
 } from '@manyfold/shared'
 import { Inject, Injectable, Optional } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agents, type Database } from '@manyfold/db'
+import { agentCredentials, agents, type Database } from '@manyfold/db'
 import { DRIZZLE } from '@/db/tokens'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
@@ -15,12 +16,19 @@ import { TelemetryService } from '@/common/telemetry/telemetry.service'
 import { AdminSettingsService } from '@/modules/admin-settings/admin-settings.service'
 import { DaemonRegistryService } from '@/modules/daemon/daemon-registry.service'
 import { DaemonFencedDispatchService } from '@/modules/chat/adapters/daemon-fenced-dispatch.service'
-import { GatewayHttpChatAdapter } from '@/modules/chat/adapters/gateway-http-chat.adapter'
+import {
+    GatewayHttpChatAdapter,
+    type OpenclawRuntime
+} from '@/modules/chat/adapters/gateway-http-chat.adapter'
 import type {
     ApiChatAdapterContext,
     EmittedChatEvent
 } from '@/modules/chat/chat-adapter'
-import { manyfoldUserToNarraNexusUserId } from './narranexus-paths'
+import { NARRANEXUS_PORT } from '../bootstrap/narranexus-k8s'
+import {
+    manyfoldProviderToNarraNexusChannelProvider,
+    manyfoldUserToNarraNexusUserId
+} from '../narranexus-paths'
 
 // NarraNexus surfaces resolver failures as a single content chunk prefixed
 // with `[error] User '<user_id>' is missing the following slot bindings: [...]`
@@ -43,7 +51,10 @@ export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
         telemetry: TelemetryService,
         @Optional() daemonRegistry?: DaemonRegistryService,
         @Optional() adminSettings?: AdminSettingsService,
-        @Optional() fencedDispatch?: DaemonFencedDispatchService
+        // No @Optional, unlike the base: boot must fail when this module
+        // cannot see the service, rather than dispatch without the #619
+        // generation fence.
+        fencedDispatch?: DaemonFencedDispatchService
     ) {
         super(
             db,
@@ -70,6 +81,92 @@ export class NarraNexusChatAdapter extends GatewayHttpChatAdapter {
             // throughout.
             attachments: true,
             multiTurn: true
+        }
+    }
+
+    // NarraNexus's /v1/chat/completions accepts channel_provider +
+    // channel_context and flips the turn from owner-chat into channel mode:
+    // the agent then delivers its own reply through its local channel tools
+    // (backend/routes/manyfold_sync.py).
+    //
+    // Everything past the four base keys is optional on the wire: NarraNexus
+    // reads what a given provider's reply command needs (context_token for
+    // wechat_send, thread_id for threaded replies, chat_type/is_mention for
+    // group etiquette and silent memory ingest) and ignores the rest.
+    protected channelBodyFields(
+        ctx: ApiChatAdapterContext,
+        userMessage: ChatMessage
+    ): Record<string, unknown> {
+        const src = ctx.channelSource
+        if (!src) return {}
+        const channelProvider = manyfoldProviderToNarraNexusChannelProvider(
+            src.provider,
+            { mirrored: src.mirrored === true }
+        )
+        if (!channelProvider) return {}
+        const attachments = userMessage.contentBlocks
+            .filter((b): b is ChatAttachmentBlock => b.type === 'attachment')
+            .map((b) => ({
+                name: b.name,
+                mime: b.contentType,
+                size: b.size,
+                path: b.path
+            }))
+        return {
+            channel_provider: channelProvider,
+            channel_context: {
+                room_id: src.chatId,
+                sender_id: src.senderId,
+                sender_name: src.senderName ?? null,
+                source_message_id: src.messageId ?? null,
+                chat_type: src.chatType,
+                ...(src.threadId ? { thread_id: src.threadId } : {}),
+                ...(src.isMention !== undefined
+                    ? { is_mention: src.isMention }
+                    : {}),
+                ...(src.replyToken ? { reply_token: src.replyToken } : {}),
+                ...(attachments.length > 0 ? { attachments } : {})
+            }
+        }
+    }
+
+    protected async resolveRuntime(agentId: string): Promise<OpenclawRuntime> {
+        const [agent] = await this.db
+            .select({
+                ingressHost: agents.ingressHost,
+                runtimeId: agents.runtimeId,
+                internalId: agents.internalId,
+                name: agents.name
+            })
+            .from(agents)
+            .where(eq(agents.id, agentId))
+            .limit(1)
+        if (!agent) throw new Error(`agent ${agentId} not found`)
+        if (!agent.runtimeId)
+            throw new Error(`agent ${agentId} has no linked runtime`)
+        const [credRow] = await this.db
+            .select()
+            .from(agentCredentials)
+            .where(eq(agentCredentials.runtimeId, agent.runtimeId))
+            .limit(1)
+        if (!credRow)
+            throw new Error(`no stored credentials for agent ${agentId}`)
+        const creds = JSON.parse(
+            this.crypto.decrypt({
+                ciphertext: credRow.payloadCiphertext,
+                keyVersion: credRow.keyVersion
+            })
+        ) as { gatewayToken?: string }
+        if (!creds.gatewayToken)
+            throw new Error(
+                `agent ${agentId} narranexus runtime missing gatewayToken — rebuild the runtime`
+            )
+        return {
+            ingressHost: agent.ingressHost ?? '',
+            gatewayToken: creds.gatewayToken,
+            modelId: agent.internalId,
+            displayModel: agent.name,
+            port: NARRANEXUS_PORT
         }
     }
 

@@ -20,6 +20,11 @@ export { openclawDefaultWorkspace }
 @Injectable()
 export class OpenClawBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'openclaw' as const
+    readonly imageEnvKey = 'K8S_IMAGE_OPENCLAW'
+
+    primaryInternalId(): string {
+        return 'main'
+    }
 
     plan(ctx: K8sBootstrapContext, credentials: unknown): K8sBootstrapPlan {
         const creds = credentials as ResolvedOpenclawCredentials

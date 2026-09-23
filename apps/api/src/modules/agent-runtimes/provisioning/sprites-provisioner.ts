@@ -3,7 +3,6 @@ import {
     AgentModelConfig,
     AgentModelConfigSource,
     FrameworkInstallSource,
-    NARRANEXUS_SPRITE_BASE_WORKING_PATH,
     SPRITE_HOME_BASE,
     VersionedFramework,
     codingAgentWorkspacePath,
@@ -44,9 +43,7 @@ import { ClaudeCodeBootstrap } from '@/modules/agents/bootstrap/claude-code'
 import { CodexBootstrap } from '@/modules/agents/bootstrap/codex'
 import { GeminiCliBootstrap } from '@/modules/agents/bootstrap/gemini'
 import { PiBootstrap } from '@/modules/agents/bootstrap/pi'
-import { HermesSpriteBootstrap } from '@/modules/agents/bootstrap/hermes-sprite'
-import { OpenClawSpriteBootstrap } from '@/modules/agents/bootstrap/openclaw-sprite'
-import { NarraNexusSpriteBootstrap } from '@/modules/agents/bootstrap/narranexus-sprite'
+import { SpriteServiceBootstraps } from '@/modules/agents/bootstrap/sprite-service-bootstraps'
 import {
     BootstrapError,
     type BootstrapContext
@@ -149,11 +146,6 @@ export interface SpritesProvisionOutput {
 export class SpritesProvisioner {
     private readonly log = new Logger(SpritesProvisioner.name)
 
-    private readonly serviceBootstraps: ReadonlyMap<
-        AgentFramework,
-        SpriteServiceBootstrap
-    >
-
     constructor(
         @Inject(DRIZZLE) private readonly db: Database,
         private readonly accounts: SpritesAccountsService,
@@ -162,9 +154,7 @@ export class SpritesProvisioner {
         private readonly codexBootstrap: CodexBootstrap,
         private readonly geminiBootstrap: GeminiCliBootstrap,
         private readonly piBootstrap: PiBootstrap,
-        hermesSpriteBootstrap: HermesSpriteBootstrap,
-        openclawSpriteBootstrap: OpenClawSpriteBootstrap,
-        narraNexusSpriteBootstrap: NarraNexusSpriteBootstrap,
+        private readonly serviceBootstraps: SpriteServiceBootstraps,
         private readonly runtimeAccess: RuntimeAccessService,
         private readonly config: ConfigService,
         private readonly shellEnv: SpriteShellEnvService,
@@ -172,16 +162,7 @@ export class SpritesProvisioner {
         private readonly activeDuration: SandboxActiveDurationService,
         @Optional() private readonly runtimeToken?: RuntimeTokenService,
         @Optional() private readonly mcp?: McpConfigMaterializer
-    ) {
-        this.serviceBootstraps = new Map<
-            AgentFramework,
-            SpriteServiceBootstrap
-        >([
-            ['hermes', hermesSpriteBootstrap],
-            ['openclaw', openclawSpriteBootstrap],
-            ['narranexus', narraNexusSpriteBootstrap]
-        ])
-    }
+    ) {}
 
     // Run a daemon (service-kind) bootstrap, degrading to the framework's
     // built-in version when we only *implicitly* asked for the newest upstream
@@ -862,7 +843,9 @@ export class SpritesProvisioner {
         // The row's mount path is a seed only: a coding agent brings its own
         // workspace when it attaches, and a service framework's home is what
         // its bootstrap uses.
-        const mountPath = serviceBootstrapHome(framework)
+        const mountPath =
+            this.serviceBootstraps.mountPath(framework) ??
+            CODING_WORKSPACES_ROOT
         const { runtimeId, reserved } = await this.reserveHealthyRuntime({
             userId,
             framework,
@@ -1258,15 +1241,9 @@ const spritesLoggerFor = (log: Logger): SpritesLogger => ({
         log.error(`[sprites] ${m} ${JSON.stringify(meta ?? {})}`)
 })
 
-// Where a framework's runtime lives on the sprite: the service frameworks'
-// own homes (what their bootstraps write to), the coding CLIs' workspace root.
-const serviceBootstrapHome = (framework: AgentFramework): string => {
-    if (framework === 'hermes') return `${SPRITE_HOME_BASE}/.hermes`
-    if (framework === 'openclaw')
-        return `${SPRITE_HOME_BASE}/.openclaw/workspace`
-    if (framework === 'narranexus') return NARRANEXUS_SPRITE_BASE_WORKING_PATH
-    return `${SPRITE_HOME_BASE}/.manyfold/workspaces`
-}
+// Where the coding CLIs' workspaces live on a sprite; a service framework's
+// runtime lives in its own home instead (SpriteServiceBootstraps.mountPath).
+const CODING_WORKSPACES_ROOT = `${SPRITE_HOME_BASE}/.manyfold/workspaces`
 
 const extractIngressHost = (endpointUrl: string | null): string | null => {
     if (!endpointUrl) return null

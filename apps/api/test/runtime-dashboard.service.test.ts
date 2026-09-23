@@ -6,6 +6,8 @@ import {
     InternalServerErrorException
 } from '@nestjs/common'
 import { RuntimeDashboardService } from '../src/modules/agent-runtimes/orchestration/runtime-dashboard.service'
+import { narraNexusControlUi } from '../src/modules/narranexus/dashboard/narranexus-deep-link'
+import { extensionsWith } from './helpers/framework-extensions-stub'
 
 const runtime = (patch: Record<string, unknown> = {}) => ({
     id: 'runtime-1',
@@ -597,7 +599,11 @@ const serviceFor = (deps: {
         {} as never,
         (deps.crypto ?? defaultCrypto()) as never,
         (deps.hermesBootstrap ?? {}) as never,
-        (deps.openclawBootstrap ?? {}) as never
+        (deps.openclawBootstrap ?? {}) as never,
+        extensionsWith({
+            framework: 'narranexus',
+            controlUi: narraNexusControlUi
+        })
     )
 
 // Bypass the agent-row/account/client assembly (integration concern) so the

@@ -3,6 +3,8 @@ import {
     AgentFramework,
     AgentSummary,
     createObjectId,
+    isExternal,
+    isRegisteredFramework,
     normalizeAgentName
 } from '@manyfold/shared'
 import {
@@ -41,16 +43,10 @@ import {
     workspaceExtras
 } from '@/modules/agents/workspace/workspace-preflight'
 
-const SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS: ReadonlySet<AgentFramework> =
-    new Set<AgentFramework>([
-        'claude-code',
-        'codex',
-        'gemini-cli',
-        'pi',
-        'openclaw',
-        'hermes',
-        'narranexus'
-    ])
+// Every framework that runs in a runtime of its own can take a live agent;
+// the external-API frameworks cannot.
+const supportsLiveAgents = (framework: AgentFramework): boolean =>
+    isRegisteredFramework(framework) && !isExternal(framework)
 
 const frameworkInternalIdForAgentId = (agentId: string): string =>
     agentId.replace(/_/g, '-')
@@ -136,7 +132,7 @@ export class RuntimeAgentAttachService {
                 })
             runtime = current
         }
-        if (!SUPPORTED_FRAMEWORKS_FOR_LIVE_AGENTS.has(runtime.framework))
+        if (!supportsLiveAgents(runtime.framework))
             throw new ConflictException(
                 `framework ${runtime.framework} does not support add-agent`
             )

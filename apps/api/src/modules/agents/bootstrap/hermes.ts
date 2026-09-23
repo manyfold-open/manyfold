@@ -19,6 +19,11 @@ const MOUNT = `${K8S_HOME_BASE}/.hermes`
 @Injectable()
 export class HermesBootstrap implements K8sFrameworkBootstrap {
     readonly framework = 'hermes' as const
+    readonly imageEnvKey = 'K8S_IMAGE_HERMES'
+
+    primaryInternalId(): string {
+        return 'default'
+    }
 
     constructor(private readonly skills: SkillMaterializerService) {}
 

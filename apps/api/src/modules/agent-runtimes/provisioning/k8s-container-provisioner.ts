@@ -33,17 +33,10 @@ import {
     isApiNotFound,
     type K8sApis
 } from '@/modules/k8s/kubernetes.service'
-import { OpenClawBootstrap } from '@/modules/agents/bootstrap/openclaw'
-import { HermesBootstrap } from '@/modules/agents/bootstrap/hermes'
-import { ClaudeCodeK8sBootstrap } from '@/modules/agents/bootstrap/claude-code-k8s'
-import { CodexK8sBootstrap } from '@/modules/agents/bootstrap/codex-k8s'
-import { GeminiCliK8sBootstrap } from '@/modules/agents/bootstrap/gemini-k8s'
-import { PiK8sBootstrap } from '@/modules/agents/bootstrap/pi-k8s'
-import { NarraNexusK8sBootstrap } from '@/modules/agents/bootstrap/narranexus-k8s'
+import { K8sBootstraps } from '@/modules/agents/bootstrap/k8s-bootstraps'
 import type {
     K8sBootstrapContext,
-    K8sFramework,
-    K8sFrameworkBootstrap
+    K8sFramework
 } from '@/modules/agents/bootstrap/k8s-framework-bootstrap'
 import {
     buildDeployment,
@@ -155,13 +148,7 @@ export class K8sContainerProvisioner {
         private readonly k8s: KubernetesService,
         private readonly config: ConfigService,
         private readonly crypto: CryptoService,
-        private readonly openclaw: OpenClawBootstrap,
-        private readonly hermes: HermesBootstrap,
-        private readonly claudeCodeK8s: ClaudeCodeK8sBootstrap,
-        private readonly codexK8s: CodexK8sBootstrap,
-        private readonly geminiCliK8s: GeminiCliK8sBootstrap,
-        private readonly piK8s: PiK8sBootstrap,
-        private readonly narraNexusK8s: NarraNexusK8sBootstrap,
+        private readonly bootstraps: K8sBootstraps,
         private readonly podRunner: PodRunnerProvisioner,
         private readonly createCleanup: K8sCreateCleanupService
     ) {}
@@ -195,7 +182,7 @@ export class K8sContainerProvisioner {
             this.config.get<string>('K8S_INGRESS_HOST_SUFFIX') ??
             DEFAULT_HOST_SUFFIX
         const host = `${resourceName(runtimeId)}.${hostSuffix}`
-        const image = this.imageForFramework(framework)
+        const image = this.bootstraps.image(framework)
 
         // The bootstrap plan is built before the row insert so mountPath can
         // record the pod's actual persistent mount. Seen on a kind BYO
@@ -203,7 +190,7 @@ export class K8sContainerProvisioner {
         // outside the PVC for service frameworks (openclaw mounts at
         // ~/.openclaw), so workspace derivation hit 'mkdir /workspace:
         // Permission denied' inside the pod.
-        const bootstrap = this.pickBootstrap(framework)
+        const bootstrap = this.bootstraps.get(framework)
         const bootstrapCtx: K8sBootstrapContext = {
             agentId: runtimeId,
             runtimeId,
@@ -636,44 +623,7 @@ export class K8sContainerProvisioner {
             .where(eq(agentRuntimes.id, runtime.id))
     }
 
-    private pickBootstrap(framework: K8sFramework): K8sFrameworkBootstrap {
-        switch (framework) {
-            case 'openclaw':
-                return this.openclaw
-            case 'hermes':
-                return this.hermes
-            case 'claude-code':
-                return this.claudeCodeK8s
-            case 'codex':
-                return this.codexK8s
-            case 'gemini-cli':
-                return this.geminiCliK8s
-            case 'pi':
-                return this.piK8s
-            case 'narranexus':
-                return this.narraNexusK8s
-        }
-    }
 
-    private imageForFramework(framework: K8sFramework): string {
-        const key =
-            framework === 'openclaw'
-                ? 'K8S_IMAGE_OPENCLAW'
-                : framework === 'hermes'
-                  ? 'K8S_IMAGE_HERMES'
-                  : framework === 'claude-code'
-                    ? 'K8S_IMAGE_CLAUDE_CODE'
-                    : framework === 'codex'
-                      ? 'K8S_IMAGE_CODEX'
-                      : framework === 'gemini-cli'
-                        ? 'K8S_IMAGE_GEMINI_CLI'
-                        : framework === 'pi'
-                          ? 'K8S_IMAGE_PI'
-                          : 'K8S_IMAGE_NARRANEXUS'
-        const image = this.config.get<string>(key)
-        if (!image) throw new InternalServerErrorException(`${key} not set`)
-        return image
-    }
 
     private async persistRuntimeCredentials(
         runtimeId: string,

@@ -859,7 +859,7 @@ export class SandboxesService {
         name: string,
         isAdmin = false
     ): Promise<void> {
-        // Manyfold's own framework services (hermes/openclaw/narranexus) are
+        // Manyfold's own framework services (one per service framework) are
         // platform infrastructure — never deletable from this surface.
         if (isServiceFrameworkName(name))
             throw new BadRequestException(

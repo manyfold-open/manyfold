@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { NarraNexusChatAdapter } from '../src/modules/narranexus/narranexus-chat.adapter'
+import { NarraNexusChatAdapter } from '../src/modules/narranexus/chat/narranexus-chat.adapter'
 import type {
     ApiChatAdapterContext,
     ApiChatResumeContext,

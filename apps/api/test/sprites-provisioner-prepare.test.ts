@@ -4,6 +4,7 @@ import { ConflictException } from '@nestjs/common'
 import type { AgentRuntimeRow } from '@manyfold/db'
 import type { BootstrapContext } from '../src/modules/agents/bootstrap/framework-bootstrap'
 import { SpritesProvisioner } from '../src/modules/agent-runtimes/provisioning/sprites-provisioner'
+import { SpriteServiceBootstraps } from '../src/modules/agents/bootstrap/sprite-service-bootstraps'
 import type { SandboxExecProbeResult } from '../src/modules/agent-runtimes/provisioning/sandbox-exec-health'
 
 // WHY: preparing a runtime on a bare sandbox is agent create's provisioning
@@ -136,23 +137,24 @@ const buildHarness = () => {
                 calls.piSetups.push(ctx)
             }
         } as never,
-        {
-            framework: 'hermes',
-            run: async (ctx: BootstrapContext, credentials: unknown) => {
-                calls.hermesRuns.push({ ctx, credentials })
-                return {
-                    homeDir: '/home/sprite/.hermes',
-                    serviceName: 'hermes',
-                    endpointUrl: 'https://sbx-1.sprites.app',
-                    generatedCredentials: {
-                        apiServerKey: 'k1',
-                        runtimeReportToken: 'r1'
+        new SpriteServiceBootstraps(
+            {
+                framework: 'hermes',
+                run: async (ctx: BootstrapContext, credentials: unknown) => {
+                    calls.hermesRuns.push({ ctx, credentials })
+                    return {
+                        homeDir: '/home/sprite/.hermes',
+                        serviceName: 'hermes',
+                        endpointUrl: 'https://sbx-1.sprites.app',
+                        generatedCredentials: {
+                            apiServerKey: 'k1',
+                            runtimeReportToken: 'r1'
+                        }
                     }
                 }
-            }
-        } as never,
-        { framework: 'openclaw' } as never,
-        { framework: 'narranexus' } as never,
+            } as never,
+            { framework: 'openclaw' } as never
+        ),
         {
             reserveSpriteRuntime: async (input: Record<string, unknown>) => {
                 calls.reserve.push(input)

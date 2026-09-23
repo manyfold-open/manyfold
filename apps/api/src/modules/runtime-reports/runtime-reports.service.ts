@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
+import { frameworkDefinition } from '@manyfold/shared'
 import {
     ConflictException,
     Inject,
@@ -125,9 +126,7 @@ export class RuntimeReportsService {
 }
 
 const isServiceFramework = (framework: string): boolean =>
-    framework === 'hermes' ||
-    framework === 'openclaw' ||
-    framework === 'narranexus'
+    frameworkDefinition(framework)?.kind === 'service'
 
 const serviceReportGeneration = (
     capabilities: Record<string, unknown> | null

@@ -19,12 +19,12 @@ import {
     loadNarraNexusGatewayToken,
     narraNexusFetch,
     NARRANEXUS_LIST_TIMEOUT_MS
-} from './narranexus-http'
+} from '../narranexus-http'
 import {
     manyfoldUserToNarraNexusUserId,
     narraNexusSeedWorkspacePath
-} from './narranexus-paths'
-import { narraNexusListRoots } from './narranexus-files-client'
+} from '../narranexus-paths'
+import { narraNexusListRoots } from '../files/narranexus-files-client'
 
 interface NarraNexusAgentRow {
     agent_id: string

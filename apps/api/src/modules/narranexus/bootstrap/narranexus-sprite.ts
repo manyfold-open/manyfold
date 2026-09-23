@@ -18,7 +18,7 @@ import {
     generateNarraNexusGatewayToken,
     NARRANEXUS_PORT,
     type NarraNexusCredentialsInput
-} from '@/modules/agents/bootstrap/narranexus-k8s'
+} from './narranexus-k8s'
 import type {
     SpriteServiceBootstrap,
     SpriteServiceBootstrapResult

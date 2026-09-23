@@ -1,7 +1,7 @@
 import { agentBaseUrl } from '@manyfold/shared'
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import type { FsEntry } from '@manyfold/sprites'
-import { narraNexusFetch } from './narranexus-http'
+import { narraNexusFetch } from '../narranexus-http'
 
 interface NarraNexusListEntry {
     name: string

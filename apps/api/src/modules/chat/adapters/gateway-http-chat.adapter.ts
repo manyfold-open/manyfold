@@ -1,16 +1,14 @@
 import { ChatRunnerError } from '../runner/chat-runner'
-import { NARRANEXUS_PORT } from '@/modules/agents/bootstrap/narranexus-k8s'
 import { DAEMON_FEATURE_TURN_OPENCLAW } from '@manyfold/shared'
 import type {
     AgentFramework,
-    ChatAttachmentBlock,
     ChatCapabilities,
     ChatMessage,
     DaemonOpenclawTurnPayload
 } from '@manyfold/shared'
 import { Logger } from '@nestjs/common'
 import { eq } from 'drizzle-orm'
-import { agents, agentCredentials, type Database } from '@manyfold/db'
+import { agents, type Database } from '@manyfold/db'
 import { buildOpenAiUsage, type OpenAIUsage } from './openai-usage'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 import { UsagePricingService } from '@/modules/usage/usage-pricing.service'
@@ -29,7 +27,6 @@ import {
     type ApiChatResumeContext,
     type EmittedChatEvent
 } from '@/modules/chat/chat-adapter'
-import { manyfoldProviderToNarraNexusChannelProvider } from '@/modules/narranexus/narranexus-paths'
 import { classifyManagedChannelFailureSignal } from '@/modules/chat/managed-channel-failure-signal'
 import { messageToPromptText } from './message-content'
 import {
@@ -61,6 +58,9 @@ export interface OpenclawRuntime {
     gatewayToken: string
     modelId: string
     displayModel: string | null
+    // The gateway's port inside the runtime, which the runner dials on
+    // loopback.
+    port: number
 }
 
 interface OpenAIToolCallDelta {
@@ -95,15 +95,16 @@ interface OpenAIError {
 
 // The OpenAI-compatible gateway chat transport: a turn is a POST to the
 // agent's `/v1/chat/completions` ingress, carrying a truncated history and
-// reading an SSE stream back, optionally moved inside the runtime by a runner
-// that holds the socket (turn-rpc). NarraNexus is its live framework;
-// OpenclawAdapter descends from it for the transports openclaw has not yet
-// retired (ADR-0027).
+// reading an SSE stream back, moved inside the runtime by a runner that holds
+// the socket (turn-rpc). A framework that chats this way extends it and
+// resolves its gateway (resolveRuntime); OpenclawAdapter descends from it for
+// the transports openclaw has not yet retired (ADR-0027).
 //
 // Abstract because `framework` decides the wire model id, the readiness code
 // and whether the channel fields ride the body.
 export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
     abstract readonly framework: AgentFramework
+    readonly resumeReplaysFromStart = true
     protected readonly logger = new Logger(this.constructor.name)
 
     // Not decorated: this class is never a Nest provider. Every concrete
@@ -163,51 +164,14 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         yield* this.sendViaTurnRpc(ctx, userMessage, runtime, ctx.runnerDaemonId)
     }
 
-    // NarraNexus's /v1/chat/completions accepts channel_provider +
-    // channel_context and flips the turn from owner-chat into channel mode:
-    // the agent then delivers its own reply through its local channel tools
-    // (backend/routes/manyfold_sync.py). Plain openclaw gateways get the
-    // unchanged 4-field body.
-    //
-    // Everything past the four base keys is optional on the wire: NarraNexus
-    // reads what a given provider's reply command needs (context_token for
-    // wechat_send, thread_id for threaded replies, chat_type/is_mention for
-    // group etiquette and silent memory ingest) and ignores the rest.
+    // Extra body fields for a turn that arrived from a channel. A framework
+    // whose gateway can deliver the reply through the channel itself names
+    // the channel here; the plain four-field body is the default.
     protected channelBodyFields(
-        ctx: ApiChatAdapterContext,
-        userMessage: ChatMessage
+        _ctx: ApiChatAdapterContext,
+        _userMessage: ChatMessage
     ): Record<string, unknown> {
-        const src = ctx.channelSource
-        if (!src || ctx.framework !== 'narranexus') return {}
-        const channelProvider = manyfoldProviderToNarraNexusChannelProvider(
-            src.provider,
-            { mirrored: src.mirrored === true }
-        )
-        if (!channelProvider) return {}
-        const attachments = userMessage.contentBlocks
-            .filter((b): b is ChatAttachmentBlock => b.type === 'attachment')
-            .map((b) => ({
-                name: b.name,
-                mime: b.contentType,
-                size: b.size,
-                path: b.path
-            }))
-        return {
-            channel_provider: channelProvider,
-            channel_context: {
-                room_id: src.chatId,
-                sender_id: src.senderId,
-                sender_name: src.senderName ?? null,
-                source_message_id: src.messageId ?? null,
-                chat_type: src.chatType,
-                ...(src.threadId ? { thread_id: src.threadId } : {}),
-                ...(src.isMention !== undefined
-                    ? { is_mention: src.isMention }
-                    : {}),
-                ...(src.replyToken ? { reply_token: src.replyToken } : {}),
-                ...(attachments.length > 0 ? { attachments } : {})
-            }
-        }
+        return {}
     }
 
     private *decodeDelta(
@@ -397,7 +361,7 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         const budgets = await this.streamBudgets()
         const payload: DaemonOpenclawTurnPayload = {
             framework: 'openclaw',
-            url: `http://127.0.0.1:${NARRANEXUS_PORT}/v1/chat/completions`,
+            url: `http://127.0.0.1:${runtime.port}/v1/chat/completions`,
             token: runtime.gatewayToken,
             body: {
                 model: runtime.modelId,
@@ -661,51 +625,12 @@ export abstract class GatewayHttpChatAdapter implements ApiChatAdapter {
         }
     }
 
-    protected async resolveRuntime(agentId: string): Promise<OpenclawRuntime> {
-        const agentRows = await this.db
-            .select({
-                ingressHost: agents.ingressHost,
-                runtimeId: agents.runtimeId,
-                framework: agents.framework,
-                internalId: agents.internalId,
-                name: agents.name
-            })
-            .from(agents)
-            .where(eq(agents.id, agentId))
-            .limit(1)
-        const agent = agentRows[0]
-        if (!agent) throw new Error(`agent ${agentId} not found`)
-        if (!agent.runtimeId)
-            throw new Error(`agent ${agentId} has no linked runtime`)
-
-        const credRows = await this.db
-            .select()
-            .from(agentCredentials)
-            .where(eq(agentCredentials.runtimeId, agent.runtimeId))
-            .limit(1)
-        const credRow = credRows[0]
-        if (!credRow)
-            throw new Error(`no stored credentials for agent ${agentId}`)
-        const credsPlain = this.crypto.decrypt({
-            ciphertext: credRow.payloadCiphertext,
-            keyVersion: credRow.keyVersion
-        })
-
-        if (agent.framework === 'narranexus') {
-            const creds = JSON.parse(credsPlain) as { gatewayToken?: string }
-            if (!creds.gatewayToken)
-                throw new Error(
-                    `agent ${agentId} narranexus runtime missing gatewayToken — rebuild the runtime`
-                )
-            return {
-                ingressHost: agent.ingressHost ?? '',
-                gatewayToken: creds.gatewayToken,
-                modelId: agent.internalId,
-                displayModel: agent.name
-            }
-        }
-
-        throw new Error('gateway HTTP turns are only supported for NarraNexus')
+    // The gateway a turn goes to. A framework that chats over this transport
+    // overrides it.
+    protected async resolveRuntime(_agentId: string): Promise<OpenclawRuntime> {
+        throw new Error(
+            `gateway HTTP turns are not supported for ${this.framework}`
+        )
     }
 }
 

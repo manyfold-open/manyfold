@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
-import { narraNexusWrite } from '../src/modules/narranexus/narranexus-files-client'
+import { narraNexusWrite } from '../src/modules/narranexus/files/narranexus-files-client'
 
 // The gateway's only write entrypoint, and the one that turns chat attachments
 // from "downloaded then dropped" into a file the agent can Read. It is reached
