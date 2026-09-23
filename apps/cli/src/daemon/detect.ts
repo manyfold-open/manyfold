@@ -5,7 +5,10 @@ import type { DetectedFramework } from '@manyfold/shared'
 import { resolveBinariesViaLoginShell } from './login-shell-path'
 import { discoverOpenclawGateway } from './openclaw-gateway'
 
-const BINARY_FOR_FRAMEWORK: Record<DetectedFramework['framework'], string> = {
+export const BINARY_FOR_FRAMEWORK: Record<
+    DetectedFramework['framework'],
+    string
+> = {
     'claude-code': 'claude',
     codex: 'codex',
     'gemini-cli': 'gemini',

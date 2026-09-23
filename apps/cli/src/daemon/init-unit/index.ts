@@ -1,5 +1,6 @@
 import { realpath } from 'node:fs/promises'
 import type { DaemonStartupMethod } from '@manyfold/shared'
+import { isValidProfileName } from '@manyfold/shared'
 import { homedir, userInfo } from 'node:os'
 import { daemonPaths } from '@/daemon/config'
 import { resolveProfile } from '@/config'
@@ -99,7 +100,9 @@ export const uninstallInitUnit = async (opts: {
 }
 
 export const getInitUnitStatus = async (
-    scope: Scope
+    scope: Scope,
+    // `mf doctor` reads every profile's unit; everything else omits this.
+    profile: string = resolveProfile()
 ): Promise<InitUnitInfo> => {
     if (!isPlatformSupported())
         return {
@@ -109,10 +112,60 @@ export const getInitUnitStatus = async (
             active: false,
             unitPath: ''
         }
-    const profile = resolveProfile()
     if (process.platform === 'darwin') return darwin.status(scope, profile)
     return linux.status(scope, profile)
 }
+
+// Unit files read back by `mf doctor`, which inspects every profile's unit
+// and lists the directories to find units whose profile has no state dir.
+export const initUnitDirs = (
+    platform: NodeJS.Platform,
+    home: string
+): Record<Scope, string> | null => {
+    if (platform === 'darwin')
+        return {
+            user: darwin.launchdDir('user', home),
+            system: darwin.launchdDir('system', home)
+        }
+    if (platform === 'linux')
+        return {
+            user: linux.systemdDir('user', home),
+            system: linux.systemdDir('system', home)
+        }
+    return null
+}
+
+export const initUnitFileName = (
+    platform: NodeJS.Platform,
+    profile: string
+): string =>
+    platform === 'darwin'
+        ? `${darwin.launchdLabelFor(profile)}.plist`
+        : linux.systemdUnitNameFor(profile)
+
+export const profileOfInitUnitFile = (
+    platform: NodeJS.Platform,
+    file: string
+): string | null => {
+    const name = (
+        platform === 'darwin'
+            ? /^ai\.manyfold\.daemon\.(.+)\.plist$/
+            : /^mf-daemon-(.+)\.service$/
+    ).exec(file)?.[1]
+    return name &&
+        isValidProfileName(name) &&
+        initUnitFileName(platform, name) === file
+        ? name
+        : null
+}
+
+export const parseInitUnitProgram = (
+    platform: NodeJS.Platform,
+    text: string
+): string[] | null =>
+    platform === 'darwin'
+        ? darwin.parsePlistProgramArgs(text)
+        : linux.parseExecStart(text)
 
 export interface ExecSurvival {
     survive: boolean

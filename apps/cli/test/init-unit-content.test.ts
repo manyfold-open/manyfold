@@ -1,8 +1,17 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildPlist } from '../src/daemon/init-unit/darwin'
-import { buildUnit } from '../src/daemon/init-unit/linux'
-import type { InstallContext, Scope } from '../src/daemon/init-unit'
+import {
+    buildPlist,
+    parsePlistProgramArgs
+} from '../src/daemon/init-unit/darwin'
+import { buildUnit, parseExecStart } from '../src/daemon/init-unit/linux'
+import {
+    initUnitDirs,
+    initUnitFileName,
+    profileOfInitUnitFile,
+    type InstallContext,
+    type Scope
+} from '../src/daemon/init-unit'
 
 const context = (scope: Scope): InstallContext => ({
     scope,
@@ -40,4 +49,42 @@ test('systemd sends raw stdout and stderr to the daemon error sink', () => {
         assert.match(unit, /ExecStart=.*daemon start --foreground/)
         assert.match(unit, /Environment=MF_PROFILE=team-a/)
     }
+})
+
+test('an installed unit reads back to the program it runs', () => {
+    const programArgs = [
+        '/Users/o&brien/My Tools/<mf>',
+        '/opt/mf/index "quoted".js',
+        'daemon',
+        'start',
+        '--foreground'
+    ]
+    for (const scope of ['user', 'system'] as const) {
+        const ctx = { ...context(scope), programArgs }
+        assert.deepEqual(parsePlistProgramArgs(buildPlist(ctx)), programArgs)
+        assert.deepEqual(parseExecStart(buildUnit(ctx)), programArgs)
+    }
+    assert.equal(parsePlistProgramArgs('<plist></plist>'), null)
+    assert.equal(parseExecStart('[Service]\nType=simple\n'), null)
+})
+
+test('unit file names map back to their profile', () => {
+    for (const platform of ['darwin', 'linux'] as const) {
+        const file = initUnitFileName(platform, 'team-a')
+        assert.equal(profileOfInitUnitFile(platform, file), 'team-a')
+    }
+    assert.equal(
+        profileOfInitUnitFile('darwin', 'ai.manyfold.daemon.plist'),
+        null
+    )
+    assert.equal(profileOfInitUnitFile('linux', 'mf-daemon.service'), null)
+    assert.equal(
+        profileOfInitUnitFile('darwin', 'ai.manyfold.daemon.Bad Name.plist'),
+        null
+    )
+    assert.deepEqual(initUnitDirs('darwin', '/Users/test'), {
+        user: '/Users/test/Library/LaunchAgents',
+        system: '/Library/LaunchDaemons'
+    })
+    assert.equal(initUnitDirs('win32', 'C:\\Users\\test'), null)
 })

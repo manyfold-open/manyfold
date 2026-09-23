@@ -72,6 +72,10 @@ else
 fi
 ```
 
+`mf doctor` is the one exception: it exits `1` when any check fails, but its
+report still goes to stdout and stderr stays empty. Read `ok`, or each check's
+`status`, from `mf doctor --json`.
+
 ## Commands without JSON mode
 
 These commands intentionally use a raw stream, interactive flow, or long-lived

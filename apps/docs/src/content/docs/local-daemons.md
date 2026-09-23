@@ -105,6 +105,7 @@ mf daemon start               # install autostart unit and start (default: login
 mf daemon stop                # stop the daemon (and the execs it owns), remove its autostart unit
 mf daemon stop --keep-execs   # stop the daemon but leave running execs for the next one to adopt
 mf daemon doctor              # diagnose registration / framework detection issues
+mf doctor                     # check every profile's daemon, sign-in and API, with a fix for each problem
 mf daemon hooks status        # claude / codex session hooks (see below)
 ```
 
@@ -264,6 +265,11 @@ many have a viewer; a daemon keeps at most 8. A daemon restart still ends
 its terminals.
 
 ## Troubleshooting
+
+Run `mf doctor` first. It checks each profile's registration, the daemon process
+and its autostart unit, whether the daemon still runs the binary on disk, and
+why it is offline, and prints the fix for each problem. It detects most of the
+cases below.
 
 - **`daemon register requires --token <token>`** — the command was run without a token. Re-copy the full command from the web UI.
 - **`token must start with ldt_`** — the token was truncated during copy. Re-copy it.

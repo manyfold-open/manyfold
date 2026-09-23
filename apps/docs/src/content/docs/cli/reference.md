@@ -33,6 +33,7 @@ Run `mf <command> --help` to confirm syntax for the version installed on your ma
 | [`mf profile`](/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |
 | [`mf update`](/docs/cli/reference/update/) | Update the mf CLI to the latest version |
 | [`mf version`](/docs/cli/reference/version/) | Show the installed version, update channel and build metadata |
+| [`mf doctor`](/docs/cli/reference/doctor/) | Diagnose this machine's mf setup: the install, every profile's sign-in and API, and local daemons |
 | [`mf help`](/docs/cli/reference/help/) | display help for a command; --agent prints the agent operations guide |
 
 ## Global options

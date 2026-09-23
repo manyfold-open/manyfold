@@ -113,7 +113,7 @@ Global options can override the configured context for one command:
 
 | Option or environment variable    | Purpose                                                                                                                                                   |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--profile <name>` / `MF_PROFILE` | Select an isolated CLI profile. Stable binaries default to `default`; dev binaries default to `staging`.                                                  |
+| `--profile <name>` / `MF_PROFILE` | Select an isolated CLI profile. Stable binaries default to `default`; dev binaries default to `dev`.                                                      |
 | `--api-url <url>` / `MF_API_URL`  | Use a different Manyfold API deployment.                                                                                                                  |
 | `--token <token>` / `MF_TOKEN`    | Override the stored credential for one shell or command. Use `--token -` to read from stdin; direct values may appear in shell history and process lists. |
 | `--agent-id <id>` / `MF_AGENT_ID` | Select an agent context for commands that support it.                                                                                                     |
@@ -142,15 +142,17 @@ The command produces a consent URL for the user to approve. Never share or print
 ## Updating and troubleshooting
 
 ```sh
+mf doctor
 mf update --check
 mf update
 mf help
 ```
 
+- Run `mf doctor` first. It checks the install, every profile's sign-in and API, and the local daemons, and prints a fix for each problem it finds. It exits `1` when a check fails; `mf doctor --json` returns the same report for scripts.
 - Installed standalone binaries can self-update on macOS, Linux, and Windows. Downloads are SHA-256 verified and extracted in-process; no system `tar` or `unzip` command is required.
 - Use `mf <command> --help` when an option is rejected; commands can change between CLI versions.
 - Use `mf whoami` when authentication or account selection looks wrong.
-- Use `mf daemon doctor` for self-owned computer and local framework problems.
+- Use `mf daemon doctor` for the raw local facts behind the daemon checks: detected frameworks, terminal support, autostart units and session hooks.
 - After updating a running local daemon, restart it so the autostart service uses the new binary.
 
 ## See also

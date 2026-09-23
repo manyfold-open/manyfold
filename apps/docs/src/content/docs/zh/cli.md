@@ -108,7 +108,7 @@ Token 签发、autostart 和故障排查见[注册自有计算机](/zh/docs/loca
 
 | 选项或环境变量                    | 用途                                                                                                             |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `--profile <name>` / `MF_PROFILE` | 选择隔离的 CLI profile；stable binary 默认使用 `default`，dev binary 默认使用 `staging`。                        |
+| `--profile <name>` / `MF_PROFILE` | 选择隔离的 CLI profile；stable binary 默认使用 `default`，dev binary 默认使用 `dev`。                            |
 | `--api-url <url>` / `MF_API_URL`  | 使用不同的 Manyfold API 部署。                                                                                   |
 | `--token <token>` / `MF_TOKEN`    | 为当前 shell 或命令覆盖已保存凭证；用 `--token -` 从 stdin 读取，直接传值可能出现在 shell history 和进程列表中。 |
 | `--agent-id <id>` / `MF_AGENT_ID` | 为支持该参数的命令选择 Agent 上下文。                                                                            |
@@ -136,15 +136,17 @@ mf auth ensure --scopes channels:read,channels:edit
 ## 更新和排查
 
 ```sh
+mf doctor
 mf update --check
 mf update
 mf help
 ```
 
+- 先运行 `mf doctor`。它检查安装、每个 profile 的登录与 API，以及本机 daemon，并为发现的每个问题给出修复方法。有检查失败时退出码为 `1`；`mf doctor --json` 为脚本返回同一份报告。
 - 已安装的 standalone binary 可在 macOS、Linux 和 Windows 上自行更新。下载内容会经过 SHA-256 校验并由进程内置逻辑解压，不依赖系统 `tar` 或 `unzip` 命令。
 - 参数被拒绝时运行 `mf <command> --help`；不同 CLI 版本的命令可能变化。
 - 认证或账号不符合预期时运行 `mf whoami`。
-- 自有计算机或本地 framework 出现问题时运行 `mf daemon doctor`。
+- `mf daemon doctor` 列出 daemon 检查背后的原始本地信息：检测到的 framework、终端支持、autostart unit 和 session hooks。
 - 更新正在运行的 local daemon 后请重启，使 autostart service 使用新二进制。
 
 ## 另请参阅

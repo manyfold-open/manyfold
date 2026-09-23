@@ -17,6 +17,7 @@ import { registerSkills } from '@/commands/skills'
 import { registerUsage } from '@/commands/usage'
 import { registerA2a } from '@/commands/a2a'
 import { registerDaemon } from '@/commands/daemon'
+import { registerDoctor } from '@/commands/doctor'
 import { registerSetup } from '@/commands/setup'
 import { registerUpdate } from '@/commands/update'
 import { registerVersion } from '@/commands/version'
@@ -78,6 +79,7 @@ export const buildProgram = (): Command => {
     registerProfile(program)
     registerUpdate(program)
     registerVersion(program)
+    registerDoctor(program)
     registerHelp(program)
     configureHumanHelp(program)
 

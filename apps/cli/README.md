@@ -44,6 +44,7 @@ mf agent get <agent-id>
 mf runtime list
 mf daemon status              # local rpc daemon
 mf daemon hooks status        # claude / codex session hooks (act only inside Manyfold terminals)
+mf doctor                     # check the install, every profile, and local daemons; exits 1 on a failed check
 ```
 
 Set the API endpoint and token via flags or env:
@@ -111,8 +112,9 @@ at registration (`mf daemon register --workspace-root … --skills-dir …`);
 that is the opt-in mechanism, not the default.
 
 Select a profile with `--profile <name>` or `MF_PROFILE=<name>`; without
-either, a stable binary uses `default` and a dev binary uses `staging`, so a
-dev build never touches production credentials by accident. Names must match
+either, a stable binary uses `default` and a dev binary uses `dev`, so the two
+channels never share credentials by accident (dev binaries used `staging`
+before CLI 0.24; that profile stays reachable with `--profile staging`). Names must match
 `[a-z0-9][a-z0-9_-]{0,31}`. `default` is a name like any other — it has no
 special paths. Init units are per profile too
 (`ai.manyfold.daemon.<name>` / `mf-daemon-<name>.service`), so daemons for

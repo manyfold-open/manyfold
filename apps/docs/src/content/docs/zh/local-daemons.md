@@ -97,6 +97,7 @@ mf daemon start               # 安装自启单元并启动（默认登录级）
 mf daemon stop                # 停止 daemon（连同它拥有的 exec）并移除自启单元
 mf daemon stop --keep-execs   # 只停 daemon，留下正在跑的 exec 给下一个 daemon 接管
 mf daemon doctor              # 诊断注册 / 框架检测问题
+mf doctor                     # 检查每个 profile 的 daemon、登录与 API，并给出修复方法
 mf daemon hooks status        # claude / codex 的 session hook（见下）
 ```
 
@@ -219,6 +220,10 @@ exec 能不能真的活过重启，取决于管着 daemon 的是谁：launchd �
 没有人连着的终端 30 分钟后关闭；跑在 runtime auth profile 下的终端是 5 分钟，因为它一直占着这个 profile 的锁。chat 视图里的"回到 web"会立即结束它。`mf daemon status` 会显示 daemon 保留了多少个终端、其中多少个有人在看；一个 daemon 最多保留 8 个。daemon 重启仍然会结束它的终端。
 
 ## 排错
+
+先运行 `mf doctor`。它会检查每个 profile 的注册、daemon 进程和自启单元、daemon
+是否仍运行着磁盘上的那份二进制，以及它为什么 offline，并为每个问题给出修复方法。
+下面的大多数情况它都能直接识别。
 
 - **`daemon register requires --token <token>`** — 没传 token。回到网页应用重新复制完整命令。
 - **`token must start with ldt_`** — token 被截断了。重新复制。

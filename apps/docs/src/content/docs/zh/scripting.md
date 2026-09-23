@@ -70,6 +70,9 @@ else
 fi
 ```
 
+`mf doctor` 是唯一的例外：有任何检查失败时退出码为 `1`，但报告仍输出到 stdout，
+stderr 为空。脚本请读取 `mf doctor --json` 中的 `ok` 或每项检查的 `status`。
+
 ## 不提供 JSON mode 的命令
 
 以下命令使用 raw stream、interactive flow 或 long-lived process，因此不提供 JSON：

@@ -24,6 +24,9 @@ export const CLI_CHANNEL: CliChannel =
 // explicitly instead (`mf --profile <name> login --api-url …`).
 export const DEFAULT_API_URL = DEFAULT_CLI_API_URL
 
+export const normalizeApiUrl = (value: string): string =>
+    value.trim().replace(/\/+$/, '')
+
 const CLI_RELEASE_REPO = 'manyfold-open/manyfold'
 const DOWNLOAD_BASE = `https://github.com/${CLI_RELEASE_REPO}/releases/download`
 

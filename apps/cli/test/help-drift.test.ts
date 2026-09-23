@@ -31,6 +31,7 @@ const TOPIC_COMMANDS: Record<AgentHelpTopic, string[]> = {
 
 const EXCLUDED_COMMANDS = [
     'daemon',
+    'doctor',
     'profile',
     'setup',
     'update',

@@ -152,6 +152,12 @@ mf daemon status     # local daemon: running, version, auto-update
 
 ## Troubleshooting
 
+`mf doctor` finds most of these by itself: a URL that is not the API (and
+where the API actually is), a daemon registered with another deployment than
+the one its profile signs in to, a proxy that strips the Authorization header
+or does not pass WebSocket upgrades, and coding agents on your `PATH` that the
+daemon cannot see. Run it first.
+
 **`mf whoami` fails, or the account looks empty.** Almost always a CLI signed
 into the hosted API instead of your deployment. Run `mf profile show`; if
 `apiUrl` is not yours, sign in again with `--api-url`.

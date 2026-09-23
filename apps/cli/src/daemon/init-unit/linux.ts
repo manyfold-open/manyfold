@@ -13,10 +13,13 @@ const execFileAsync = promisify(execFile)
 export const systemdUnitNameFor = (profile: string): string =>
     `mf-daemon-${profile}.service`
 
-const unitPathFor = (scope: Scope, home: string, unit: string): string =>
+export const systemdDir = (scope: Scope, home: string): string =>
     scope === 'user'
-        ? join(home, '.config', 'systemd', 'user', unit)
-        : join('/etc', 'systemd', 'system', unit)
+        ? join(home, '.config', 'systemd', 'user')
+        : join('/etc', 'systemd', 'system')
+
+const unitPathFor = (scope: Scope, home: string, unit: string): string =>
+    join(systemdDir(scope, home), unit)
 
 const systemctlArgs = (scope: Scope, ...rest: string[]): string[] =>
     scope === 'user' ? ['--user', ...rest] : rest
@@ -32,6 +35,38 @@ const buildExecStart = (programArgs: string[]): string =>
         .filter((a) => a.length > 0)
         .map(systemdQuote)
         .join(' ')
+
+// The inverse of buildExecStart, for `mf doctor` to read back which binary an
+// installed unit runs.
+export const parseExecStart = (text: string): string[] | null => {
+    const line = /^ExecStart=(.*)$/m.exec(text)?.[1]
+    if (line === undefined) return null
+    const args: string[] = []
+    let i = 0
+    while (i < line.length) {
+        if (line[i] === ' ' || line[i] === '\t') {
+            i += 1
+            continue
+        }
+        let arg = ''
+        if (line[i] === '"') {
+            i += 1
+            while (i < line.length && line[i] !== '"') {
+                if (line[i] === '\\' && i + 1 < line.length) i += 1
+                arg += line[i]
+                i += 1
+            }
+            i += 1
+        } else {
+            while (i < line.length && line[i] !== ' ' && line[i] !== '\t') {
+                arg += line[i]
+                i += 1
+            }
+        }
+        args.push(arg)
+    }
+    return args
+}
 
 export const buildUnit = (ctx: InstallContext): string => {
     const path = [
