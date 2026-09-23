@@ -1,103 +1,95 @@
-# Manyfold coding-agent plugin
+# Manyfold Plugin
 
-The same skills-only package supports Claude Code and Codex. It distributes
-the generated `manyfold-cli-usage` skill also installed by default on
-Manyfold-managed agents. The skill uses existing `mf` commands, selects
-authentication from the actual identity, and shows resources when the host
-has browser controls. Live updates cover automations, channels, skills and
-the personal skill library, connections, agents and model configuration,
-API-managed files, and backups.
+Use Claude Code or Codex to manage your Manyfold agents, channels,
+automations, skills, connections, files, and backups through the `mf` CLI.
+The plugin provides the `manyfold-cli-usage` skill: instructions for choosing
+commands, using the correct identity, verifying results, and linking to the
+Manyfold workbench.
 
-Install from a checkout containing this change:
+## Requirements
+
+- Claude Code or Codex with plugin support and shell access.
+- The [Manyfold CLI](https://docs.manyfold.ai/docs/install/) installed in the
+  environment where the coding agent executes commands. Check with `mf version`.
+- Access to a Manyfold account or self-hosted deployment.
+
+The plugin contains instructions, not the CLI or a browser integration.
+Managing resources does not require `mf setup`, which registers an execution
+host. Supported agents created inside Manyfold already receive this skill
+by default unless their administrator changes that setting; they do not need
+the plugin installed separately.
+
+## Install
+
+### Claude Code
 
 ```sh
-claude plugin marketplace add /absolute/path/to/manyfold
+claude plugin marketplace add manyfold-open/manyfold
 claude plugin install manyfold@manyfold
+```
 
-codex plugin marketplace add /absolute/path/to/manyfold
+### Codex
+
+Use a Codex CLI that supports `codex plugin`; for a Desktop installation,
+use the CLI bundled with that app.
+
+```sh
+codex plugin marketplace add manyfold-open/manyfold
 codex plugin add manyfold@manyfold
 ```
 
-For Codex Desktop use its bundled CLI. Start a new coding-agent conversation
-after installation. The plugin uses existing `mf` resource commands;
-the API and Web must include resource events for live updates.
-Workbench routes and deployment URL rules are maintained in
-[the skill's route reference](skills/manyfold-cli-usage/references/web-routes.md).
-Authenticate with
-`mf --profile <name> login`; the workbench may need its own browser login.
+Start a new coding-agent conversation after installation. For a local source
+checkout, see [development installation](DEVELOPMENT.md#local-installation).
 
-Example request: "Use Manyfold to update my daily summary automation and
-show the changed schedule. Run it once and open the result."
+## Authenticate
 
-The plugin does not install a daemon or an MCP server. Authentication
-material stays in the CLI profile and is never placed in a workbench URL.
+### External Coding Agents
 
-## One skill, two distributions
-
-The maintained source lives in `apps/cli/src/agent-help/`. Do not hand-edit
-the generated files under this plugin's `skills/` directory.
+For the hosted service, sign in and verify your identity:
 
 ```sh
-pnpm --filter '@manyfold/cli^...' build
-pnpm --filter @manyfold/cli build:plugin
-pnpm --filter @manyfold/cli check:skills
+mf --profile manyfold login --api-url https://api.manyfold.ai/api
+mf --profile manyfold whoami --json
 ```
 
-`build:skills` emits `dist-skills/skills/manyfold-cli-usage/` for the existing
-standalone publisher. `build:plugin` writes that same complete bundle here.
-`MF_SKILLS_VERSION` sets the bundle version; the default is a development
-version. Plugin manifest versions control host installation independently.
-The skill retains Manyfold's top-level `version` frontmatter field for
-compatibility with existing discovery and standalone-release readers.
+Use your deployment's API base URL for self-hosted Manyfold. Tell the coding
+agent which CLI profile to use and, when showing results, the corresponding
+Web URL. Browser login is separate from CLI login.
 
-Managed agents continue to install
-`github:protagolabs/manyfold-skills@main:skills/manyfold-cli-usage`.
-They do not need a plugin installer. Creation, attach, existing-skill
-updates, and administrator overrides retain their current installation
-identity and behavior. Publish the updated standalone bundle through the
-normal skills release after the source change is merged.
+### Agents Running Inside Manyfold
 
-The plugin replaces its former `manyfold-platform` skill with the shared
-`manyfold-cli-usage`. Use one distribution per host where possible: managed
-runtimes already receive the standalone skill; external hosts can install
-the plugin or the standalone skill. Updating this plugin removes its old
-entrypoint but does not overwrite separately installed user skills.
+Use the platform-injected identity and API endpoint. Do not replace them
+with a personal login. The skill guides the agent through permission requests
+when an operation needs additional grants.
 
-`check:skills` compares every generated file in the plugin and runs as part
-of CLI type checks. `check:skills:published` compares the complete standalone
-directory at a pinned upstream revision. The reference digest in `SKILL.md`
-also makes older entrypoint-only drift checks notice source reference changes.
+## Use
 
-## Local verification
+Ask the coding agent for the operation you need. For example:
 
-The live Playwright check uses the installed `mf` CLI. It requires explicit
-local dev API and Web URLs plus an existing runnable agent. It creates
-temporary automations and an API token, performs one real model turn, and
-removes its automations and token afterward:
+- "Use the manyfold profile to list my agents and their channels."
+- "Pause my daily summary automation and show its updated schedule."
+- "Install this skill on my research agent and verify the installation."
+- "Read the report in my agent's workspace and show it in Manyfold."
 
-```sh
-MF_PLUGIN_TEST_API_URL=http://localhost:7120/api \
-MF_PLUGIN_TEST_WEB_URL=http://localhost:7121 \
-MF_PLUGIN_TEST_AGENT_ID=<agent-id> \
-node apps/web/test/plugin-automations.live.mjs
-```
+The agent uses `mf` with your existing permissions and reads back results.
+Commands and options are documented by `mf help --agent`.
 
-It defaults to the dev-stack admin login; override `MF_PLUGIN_TEST_EMAIL`
-and `MF_PLUGIN_TEST_PASSWORD` when needed. `MF_PLUGIN_TEST_CLI` optionally
-selects another CLI executable; `MF_PLUGIN_TEST_MODEL` selects an automation
-model override. Screenshots and results go into
-`.e2e-runs/plugin-automations/`. Checks cover two live tabs, unsaved input,
-run completion, result navigation, mobile layout, reconnect, and deletion.
+## View Results
 
-With the same environment variables, run
-`node apps/web/test/plugin-resources.live.mjs` for channel CRUD across two
-tabs, skill library edits and installation, agent updates, MCP draft
-preservation, file tree and preview updates, mobile layout, and settings-page
-stream recovery. It restores the agent's name and MCP configuration and removes
-its temporary resources. Results are saved in `.e2e-runs/plugin-resources/`.
+When the coding-agent host provides browser controls, the skill guides the
+agent to open the relevant workbench page. Otherwise it can return a resource
+link. [Route and deployment rules](skills/manyfold-cli-usage/references/web-routes.md)
+keep the browser and CLI on the same deployment.
 
-The authenticated route owns one reconnecting status stream per tab across
-all workbench layouts. Resource services share the existing account-scoped
-PG/SSE bus through `ResourceEventsModule`; events are emitted after writes
-commit and contain identifiers only. Consumers refetch their authorized data.
-Direct runtime filesystem writes are outside this event coverage.
+Live refresh is a Manyfold API/Web feature. Deployments with resource events
+refresh supported open views when resources change, regardless of which
+client made the change. Installing this plugin alone does not enable live
+refresh on an older deployment or add browser controls to the host.
+
+Supported views include automations, channels, installed skills, the skill
+library list, connections, agent settings, files, and backups. Open drafts
+are preserved. File events cover API/CLI writes; direct filesystem changes
+inside a runtime are not watched. See [workbench guidance](skills/manyfold-cli-usage/references/workbench.md)
+for coverage and result verification.
+
+For generation, publishing, and testing, see [Development](DEVELOPMENT.md).

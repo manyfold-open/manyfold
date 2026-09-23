@@ -99,7 +99,17 @@ const filename = 'mf-resource-' + suffix + '.txt'
 const checks = []
 try {
     await cli(['login', '--token', '-'], grant.token)
-    originalAgent = await request('/agents/' + agentId)
+    const targetAgent = await request('/agents/' + agentId)
+    if (!['claude-code', 'codex'].includes(targetAgent.framework))
+        throw new Error(
+            'The resource test requires a disposable Claude Code or Codex agent'
+        )
+    originalAgent = targetAgent
+    const mcpSupport = frameworkMcpSupport(originalAgent.framework)
+    const mcpFixture = (name) =>
+        mcpSupport.format === 'toml'
+            ? `[mcp_servers.${name}]\ncommand = "true"\n`
+            : JSON.stringify({ [name]: { command: 'true' } })
     browser = await chromium.launch({ headless: true })
     const context = await browser.newContext({
         viewport: { width: 1440, height: 1000 }
@@ -236,16 +246,17 @@ try {
         .first()
         .click()
     const editor = page.locator('textarea').first()
-    await editor.fill('{"unsaved-local-draft":{}}')
-    const scope = frameworkMcpSupport(originalAgent.framework).scopes[0].id
+    const draft = mcpFixture('unsaved-local-draft')
+    await editor.fill(draft)
+    const scope = mcpSupport.scopes[0].id
     const remoteMcp = {
         ...originalAgent.extras?.mcp,
-        [scope]: '{"remote-tool":{"command":"true"}}'
+        [scope]: mcpFixture('remote-tool')
     }
     await request('/agents/' + agentId, { mcp: remoteMcp }, 'PATCH')
     await visible(page, 'Live agent ' + suffix)
     await page.waitForTimeout(700)
-    assert.equal(await editor.inputValue(), '{"unsaved-local-draft":{}}')
+    assert.equal(await editor.inputValue(), draft)
     checks.push('mcp-draft-preserved')
     await page.goto(new URL('/agents/' + agentId + '/chat', web).toString())
     await page
