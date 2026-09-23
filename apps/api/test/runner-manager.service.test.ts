@@ -33,6 +33,9 @@ const buildHarness = (opts: {
     hostVersion?: string
     // what `mf --version` reports inside the sprite
     version?: string
+    // whether the inspect finds herdr in the sprite (ADR-0031); unset = the
+    // probe line is absent, as an older probe's would be
+    herdr?: boolean
     execExit?: (cmd: string) => number
     execThrowOn?: (cmd: string) => boolean
     // host-row root for the workspace-register gate + daemon-RPC behaviour
@@ -69,7 +72,9 @@ const buildHarness = (opts: {
                 exitCode,
                 stdout: `installed=${opts.installed === false ? 0 : 1}\nregistered=${
                     opts.registered === false ? 0 : 1
-                }\nversion=${opts.version ?? '0.34.0'}`,
+                }\nversion=${opts.version ?? '0.34.0'}${
+                    opts.herdr === undefined ? '' : `\nherdr=${opts.herdr ? 1 : 0}`
+                }`,
                 stderr: ''
             }
         }
@@ -336,6 +341,44 @@ test('a cold sprite is inspected, installed, registered, started, then awaited',
                   : 'other'
     )
     assert.deepEqual(order, ['inspect', 'install', 'register', 'start'])
+})
+
+// herdr rides along with the runner (ADR-0031): the same inspect says whether
+// the sandbox has it, and only a sandbox without it pays for the install —
+// which is best effort, so a refusing installer does not stop the bring-up.
+test('a sandbox without herdr gets it installed after the CLI; one with it does not', async () => {
+    const kinds = (h: ReturnType<typeof buildHarness>): string[] =>
+        h.calls.map((c) =>
+            c.cmd.includes('herdr.dev')
+                ? 'herdr'
+                : c.cmd.includes('install.sh')
+                  ? 'install'
+                  : c.cmd.includes('test -x')
+                    ? 'inspect'
+                    : c.cmd.includes('daemon register')
+                      ? 'register'
+                      : c.cmd.includes('daemon start')
+                        ? 'start'
+                        : 'other'
+        )
+    const without = buildHarness({
+        installed: false,
+        registered: false,
+        herdr: false,
+        execExit: (cmd) => (cmd.includes('herdr.dev') ? 1 : 0)
+    })
+    const res = await without.service.ensureRunner(args(without.exec as never))
+    assert.equal(res.handle?.daemonId, 'dh_runner')
+    assert.deepEqual(kinds(without), [
+        'inspect',
+        'install',
+        'herdr',
+        'register',
+        'start'
+    ])
+    const withIt = buildHarness({ installed: false, registered: false, herdr: true })
+    await withIt.service.ensureRunner(args(withIt.exec as never))
+    assert.deepEqual(kinds(withIt), ['inspect', 'install', 'register', 'start'])
 })
 
 // The create path has the VM awake already and does not want to wait the

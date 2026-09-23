@@ -5,6 +5,7 @@ import type { HeartbeatRequest } from '@manyfold/shared'
 import {
     apiPaths,
     DAEMON_CLIENT_FEATURES,
+    DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_MANUAL_UPDATE,
     DAEMON_FRAMEWORK_DETECT_INTERVAL_MS,
     POD_RUNNER_PROFILE
@@ -45,6 +46,14 @@ import {
 } from '@/daemon/rpc'
 import { detachAllFileExecs, takeLastRecovery } from '@/daemon/exec-files'
 import { listOwnedTerminals } from '@/daemon/owned-terminals'
+import {
+    adoptHerdrPanes,
+    configureHerdr,
+    currentHerdr,
+    detectHerdr,
+    herdrSocketPath,
+    listHerdrTerminals
+} from '@/daemon/herdr'
 import { handOffToSuccessor, takeUpdateRollback } from '@/daemon/manual-update'
 import { isBunStandalone } from '@/standalone'
 import {
@@ -181,9 +190,29 @@ const runClaimedForeground = async (
             isBunStandalone() &&
             process.platform !== 'win32' &&
             resolveProfile() !== POD_RUNNER_PROFILE
-        const clientFeatures = manualUpdateCapable
+        // herdr on this machine lets a chat session's TUI open in one of its
+        // panes (ADR-0031). A few stat calls, so it runs before the dial;
+        // re-probed with the frameworks so an install after start shows up,
+        // which is why the capability list is read fresh per hello and
+        // heartbeat.
+        const herdr = await detectHerdr()
+        // The socket is resolved the way herdr itself does (HERDR_SOCKET_PATH,
+        // then HERDR_SESSION, then the default), so a daemon started from
+        // inside a herdr pane inherits that pane's session: say which.
+        await log(
+            herdr
+                ? `herdr: available (${herdr.path}, ${herdr.version ?? 'version unknown'}); socket ${herdrSocketPath()}`
+                : 'herdr: not found'
+        )
+        const baseClientFeatures = manualUpdateCapable
             ? [...DAEMON_CLIENT_FEATURES, DAEMON_FEATURE_MANUAL_UPDATE]
             : [...DAEMON_CLIENT_FEATURES]
+        // Read per hello and heartbeat: the detection cache moves when the
+        // framework probe re-runs or an update lands (herdr.update).
+        const clientFeatures = (): string[] =>
+            currentHerdr()
+                ? [...baseClientFeatures, DAEMON_FEATURE_HERDR_TERMINAL]
+                : baseClientFeatures
         // What the last update on this install did, reported once.
         let pendingRollback = await takeUpdateRollback(
             daemonPaths.updateRollbackPath
@@ -251,6 +280,7 @@ const runClaimedForeground = async (
             if (stopping) return
             if (Date.now() - lastDetectAt > DETECT_REFRESH_MS) {
                 detectedFrameworks = await detectFrameworks()
+                await detectHerdr()
                 lastDetectAt = Date.now()
             }
             if (stopping) return
@@ -259,19 +289,24 @@ const runClaimedForeground = async (
                 cliVersion: MF_CLI_VERSION,
                 startupMethod,
                 terminalPty,
-                clientFeatures,
-                // The terminals this daemon owns, as proof of life for their
-                // rows (ADR-0029 §6); left out when the list cannot be built.
+                clientFeatures: clientFeatures(),
+                herdrVersion: currentHerdr()?.version ?? null,
+                // The terminals this daemon owns (ADR-0029 §6) or hosts in
+                // herdr (ADR-0031), as proof of life for their rows; left
+                // out when the list cannot be built.
                 ...(() => {
                     try {
                         return {
-                            terminals: listOwnedTerminals().map(
-                                ({ terminalId, attached, startedAt }) => ({
-                                    terminalId,
-                                    attached,
-                                    startedAt
-                                })
-                            )
+                            terminals: [
+                                ...listOwnedTerminals().map(
+                                    ({ terminalId, attached, startedAt }) => ({
+                                        terminalId,
+                                        attached,
+                                        startedAt
+                                    })
+                                ),
+                                ...listHerdrTerminals()
+                            ]
                         }
                     } catch {
                         return {}
@@ -293,6 +328,20 @@ const runClaimedForeground = async (
                     await log(`heartbeat failed: ${(err as Error).message}`)
             }
         }
+
+        // A herdr-hosted TUI quitting reaches the API on the next heartbeat;
+        // sending one right away is what makes the web come back within a
+        // second instead of a tick (ADR-0031).
+        configureHerdr({
+            log: (message) => void log(message),
+            owner: config.daemonUuid,
+            onInventoryChange: () => {
+                void heartbeat()
+            }
+        })
+        // Before the first hello: an inventory without the panes this daemon
+        // opened before it restarted would end their terminals at once.
+        if (currentHerdr()) await adoptHerdrPanes().catch(() => 0)
 
         ws = new DaemonWsClient({
             apiUrl: config.apiUrl,

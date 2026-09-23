@@ -136,6 +136,9 @@ export interface ChatSessionSummary {
     // this session; while set, no turn may dispatch into it (ADR-0029 §1).
     holderTerminalId: string | null
     holderAcquiredAt: string | null
+    // Which client the holder shows its TUI in (ADR-0031); null when no
+    // terminal holds the session, or the hold predates the column.
+    holderClient: TerminalClient | null
     // Set from the moment a terminal releases the session until what it
     // wrote has been imported (or the import is abandoned); turns are refused
     // meanwhile (ADR-0029 §2).
@@ -149,6 +152,12 @@ export interface ChatSessionSummary {
 }
 
 export type ChatSessionOrigin = 'terminal'
+
+// Where the terminal holding a session shows its TUI: the browser terminal
+// over the API tunnel (`web`) or a herdr pane on the agent's own machine
+// (`herdr`, ADR-0031).
+export const TERMINAL_CLIENTS = ['web', 'herdr'] as const
+export type TerminalClient = (typeof TERMINAL_CLIENTS)[number]
 
 export interface ChatSessionChannelSummary {
     id: string
@@ -757,6 +766,15 @@ export type RuntimeTranscriptOutcome = 'read' | 'missing' | 'unreadable'
 // channel, A2A and OpenAI-compatible callers branch on them.
 export const CHAT_SESSION_HELD_BY_TERMINAL_CODE = 'session_held_by_terminal'
 export const CHAT_SESSION_IMPORT_PENDING_CODE = 'session_import_pending'
+// 409 when a herdr handoff finds a turn still running on the session, and the
+// codes the herdr arm itself answers with (ADR-0031): herdr is not running
+// on the machine (the user starts it), the agent's host cannot reach herdr
+// at all (offline, no herdr installed, CLI too old), or herdr refused the
+// launch. The web maps each to its own copy.
+export const CHAT_SESSION_TURN_IN_FLIGHT_CODE = 'turn_in_flight'
+export const HERDR_NOT_RUNNING_CODE = 'herdr_not_running'
+export const HERDR_UNAVAILABLE_CODE = 'herdr_unavailable'
+export const HERDR_LAUNCH_FAILED_CODE = 'herdr_launch_failed'
 
 export interface SessionHolderReleaseResponse {
     released: boolean
@@ -772,6 +790,28 @@ export interface SessionImportRetryResponse {
 
 export interface SessionImportAbandonResponse {
     abandoned: boolean
+}
+
+// Hand a chat session to herdr on the agent's own machine (ADR-0031): the
+// API takes the hold and asks the daemon to open the framework TUI in a
+// herdr pane named after the session. The optional title is the label the
+// web shows for the session (an untitled session has none of its own).
+export interface SessionHerdrOpenRequest {
+    title?: string
+}
+
+export interface SessionHerdrOpenResponse {
+    terminalId: string
+    herdr: {
+        paneId: string
+        tabId: string
+        workspaceId: string
+        focused: boolean
+    }
+}
+
+export interface SessionHerdrFocusResponse {
+    focused: boolean
 }
 
 // What a CLI's own SessionStart / SessionEnd hook reports from a terminal

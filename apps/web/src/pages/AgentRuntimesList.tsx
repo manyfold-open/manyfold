@@ -720,6 +720,59 @@ const AvailableFrameworkRow: FC<{
 // mf CLI version, on the shared version-management grammar: mono version
 // tag + latest hint + a quiet "change version…" link that opens the picker
 // dialog. The dialog is the confirmation surface — its description carries
+// herdr's version on a machine or inside a sandbox (ADR-0031): one target,
+// the newest release, so a pill and one action are the whole control. An
+// absent herdr reads as an install.
+const HerdrVersionValue: FC<{
+    current: string | null
+    latest: string | null
+    updateAvailable: boolean
+    busy: boolean
+    onUpgrade?: () => void
+}> = ({ current, latest, updateAvailable, busy, onUpgrade }): ReactNode => {
+    const { t } = useI18n()
+    const target = latest && updateAvailable ? latest : null
+    return (
+        <span className='flex flex-wrap items-center gap-2'>
+            <VersionTag
+                label={
+                    current
+                        ? `v${current}`
+                        : t('web.agentRuntimesList.notInstalled')
+                }
+                mono={!!current}
+                latest={target}
+                kind='herdr'
+            />
+            {latest && !target && (
+                <span className='text-caption text-subtle'>
+                    {t('web.agentRuntimesList.latest')}
+                </span>
+            )}
+            {target && onUpgrade ? (
+                busy ? (
+                    <span className='text-caption text-muted inline-flex items-center gap-1.5'>
+                        <Spinner size={12} />
+                        {t('web.agentRuntimesList.upgrading')}
+                    </span>
+                ) : (
+                    <button
+                        type='button'
+                        onClick={(): void => onUpgrade()}
+                        className='text-caption text-subtle hover:text-fg transition-colors'
+                    >
+                        {current
+                            ? t('web.updates.badgeCta', { version: `v${target}` })
+                            : t('web.agentRuntimesList.installVersion', {
+                                  version: `v${target}`
+                              })}
+                    </button>
+                )
+            ) : null}
+        </span>
+    )
+}
+
 // the restart warning, so there is no separate confirm step. Empty
 // selection = latest. Used for both daemon hosts and sandboxes.
 const CliVersionValue: FC<{
@@ -1017,6 +1070,10 @@ const HostDetailPanel: FC<{
         targetVersion?: string
     ) => void | Promise<void>
     upgradingSandboxCli?: boolean
+    onUpgradeHerdr?: (hostId: string) => void | Promise<void>
+    upgradingHerdr?: boolean
+    onUpgradeSandboxHerdr?: (hostId: string) => void | Promise<void>
+    upgradingSandboxHerdr?: boolean
     onDelete?: (hostId: string) => void | Promise<void>
     onStop?: (hostId: string) => Promise<void>
     onRename?: (name: string) => Promise<void>
@@ -1046,6 +1103,10 @@ const HostDetailPanel: FC<{
     upgradingCli,
     onUpgradeSandboxCli,
     upgradingSandboxCli,
+    onUpgradeHerdr,
+    upgradingHerdr,
+    onUpgradeSandboxHerdr,
+    upgradingSandboxHerdr,
     onDelete,
     onStop,
     onRename,
@@ -1756,6 +1817,38 @@ const HostDetailPanel: FC<{
                                 </div>
                             </div>
                         )}
+                        {sandbox && (
+                            <div className='settings-card-row'>
+                                <div className='min-w-0'>
+                                    <div className='settings-card-label'>
+                                        {t('web.agentRuntimesList.herdrLabel')}
+                                    </div>
+                                    <div className='settings-card-copy'>
+                                        {t(
+                                            'web.agentRuntimesList.sandboxHerdrDescription'
+                                        )}
+                                    </div>
+                                </div>
+                                <div className='settings-card-side'>
+                                    <HerdrVersionValue
+                                        current={sandbox.herdrVersion}
+                                        latest={sandbox.latestHerdrVersion}
+                                        updateAvailable={
+                                            sandbox.herdrUpdateAvailable
+                                        }
+                                        busy={Boolean(upgradingSandboxHerdr)}
+                                        onUpgrade={
+                                            onUpgradeSandboxHerdr
+                                                ? () =>
+                                                      void onUpgradeSandboxHerdr(
+                                                          sandbox.id
+                                                      )
+                                                : undefined
+                                        }
+                                    />
+                                </div>
+                            </div>
+                        )}
                         {host && (
                             <div className='settings-card-row'>
                                 <div className='min-w-0'>
@@ -1770,6 +1863,36 @@ const HostDetailPanel: FC<{
                                 </div>
                                 <div className='settings-card-side'>
                                     {renderCliVersionValue(host)}
+                                </div>
+                            </div>
+                        )}
+                        {host && (
+                            <div className='settings-card-row'>
+                                <div className='min-w-0'>
+                                    <div className='settings-card-label'>
+                                        {t('web.agentRuntimesList.herdrLabel')}
+                                    </div>
+                                    <div className='settings-card-copy'>
+                                        {t(
+                                            'web.agentRuntimesList.daemonHerdrDescription'
+                                        )}
+                                    </div>
+                                </div>
+                                <div className='settings-card-side'>
+                                    <HerdrVersionValue
+                                        current={host.herdrVersion}
+                                        latest={host.latestHerdrVersion}
+                                        updateAvailable={
+                                            host.herdrUpdateAvailable &&
+                                            host.online
+                                        }
+                                        busy={Boolean(upgradingHerdr)}
+                                        onUpgrade={
+                                            onUpgradeHerdr
+                                                ? () => void onUpgradeHerdr(host.id)
+                                                : undefined
+                                        }
+                                    />
                                 </div>
                             </div>
                         )}
@@ -2465,6 +2588,65 @@ const AgentRuntimesList: FC = (): ReactNode => {
         [client]
     )
 
+    // herdr upgrades (ADR-0031): herdr's own updater on a machine, the
+    // installer inside a sandbox; the list re-reads the version it landed on.
+    const [upgradingHerdrHostId, setUpgradingHerdrHostId] = useState<
+        string | null
+    >(null)
+    const [upgradingSandboxHerdrId, setUpgradingSandboxHerdrId] = useState<
+        string | null
+    >(null)
+    const handleUpgradeHostHerdr = useCallback(
+        async (hostId: string): Promise<void> => {
+            if (updateRunStore.isTargetUpdating(`herdr:daemon:${hostId}`)) return
+            setUpgradingHerdrHostId(hostId)
+            setError(null)
+            setMessage(null)
+            try {
+                const res = await client.daemons.upgradeHerdr(hostId)
+                setMessage(
+                    t('web.agentRuntimesList.herdrUpgradedMessage', {
+                        version:
+                            res.toVersion ?? t('web.agentRuntimesList.latest')
+                    })
+                )
+                refresh()
+            } catch (e) {
+                setError((e as Error).message)
+            } finally {
+                setUpgradingHerdrHostId(null)
+            }
+        },
+        [client, refresh]
+    )
+    const handleUpgradeSandboxHerdr = useCallback(
+        async (hostId: string): Promise<void> => {
+            if (updateRunStore.isTargetUpdating(`herdr:sandbox:${hostId}`))
+                return
+            setUpgradingSandboxHerdrId(hostId)
+            setError(null)
+            setMessage(null)
+            try {
+                const updated = await client.sandboxes.upgradeHerdr(hostId)
+                setSandboxRows((prev) =>
+                    prev.map((s) => (s.id === hostId ? updated : s))
+                )
+                setMessage(
+                    t('web.agentRuntimesList.herdrUpgradedMessage', {
+                        version:
+                            updated.herdrVersion ??
+                            t('web.agentRuntimesList.latest')
+                    })
+                )
+            } catch (e) {
+                setError((e as Error).message)
+            } finally {
+                setUpgradingSandboxHerdrId(null)
+            }
+        },
+        [client]
+    )
+
     const breadcrumbItems = useMemo<BreadcrumbItem[]>(() => {
         if (
             !vms ||
@@ -2628,6 +2810,14 @@ const AgentRuntimesList: FC = (): ReactNode => {
                         onUpgradeSandboxCli={handleUpgradeSandboxCli}
                         upgradingSandboxCli={
                             upgradingSandboxCliId === selectedVM.sandbox?.id || queuedSandboxCli
+                        }
+                        onUpgradeHerdr={handleUpgradeHostHerdr}
+                        upgradingHerdr={
+                            upgradingHerdrHostId === selectedVM.host?.id
+                        }
+                        onUpgradeSandboxHerdr={handleUpgradeSandboxHerdr}
+                        upgradingSandboxHerdr={
+                            upgradingSandboxHerdrId === selectedVM.sandbox?.id
                         }
                         onDelete={handleDeleteSandbox}
                         onStop={handleStopSandbox}

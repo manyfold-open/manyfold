@@ -14,6 +14,7 @@ type TooltipPlacement =
     | 'bottom'
     | 'bottom-end'
     | 'bottom-start'
+    | 'left'
     | 'right'
     | 'top'
 
@@ -26,6 +27,10 @@ interface ShortcutTooltipProps {
     // being truncated to one line, and the panel is allowed to be wider.
     // Opt-in, because a shortcut hint that wrapped would be a regression.
     multiline?: boolean
+    // Controlled visibility for a hint opened by a click (an info button)
+    // rather than by hovering; hover and focus then change nothing. Shown on
+    // every screen width, since a tap is how a touch screen opens it.
+    open?: boolean
     placement?: TooltipPlacement
     shortcut?: string
 }
@@ -48,10 +53,13 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
     disabled = false,
     label,
     multiline = false,
+    open: openProp,
     placement = 'bottom',
     shortcut
 }): ReactNode => {
-    const [open, setOpen] = useState(false)
+    const [hovered, setOpen] = useState(false)
+    const controlled = openProp !== undefined
+    const open = controlled ? openProp : hovered
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const rootRef = useRef<HTMLSpanElement | null>(null)
     const tooltipRef = useRef<HTMLSpanElement | null>(null)
@@ -101,6 +109,9 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
         } else if (placement === 'right') {
             left = rootRect.right + tooltipGap
             top = rootRect.top + rootRect.height / 2 - tooltipRect.height / 2
+        } else if (placement === 'left') {
+            left = rootRect.left - tooltipGap - tooltipRect.width
+            top = rootRect.top + rootRect.height / 2 - tooltipRect.height / 2
         } else if (placement === 'top') {
             top = rootRect.top - tooltipGap - tooltipRect.height
         }
@@ -148,7 +159,7 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                 .join(' ')
                 .trim()}
             onMouseEnter={() => {
-                if (disabled) return
+                if (disabled || controlled) return
                 timer.current = setTimeout(() => setOpen(true), HOVER_DELAY_MS)
             }}
             onMouseLeave={() => {
@@ -156,7 +167,7 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                 setOpen(false)
             }}
             onFocus={() => {
-                if (disabled) return
+                if (disabled || controlled) return
                 setOpen(true)
             }}
             onBlur={() => {
@@ -171,7 +182,17 @@ const ShortcutTooltip: FC<ShortcutTooltipProps> = ({
                         ref={tooltipRef}
                         role='tooltip'
                         className={[
-                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[90] hidden items-center gap-2 px-2.5 py-1.5 transition-opacity duration-100 md:inline-flex',
+                            // The top of the stack: a tooltip annotates
+                            // whatever is under the pointer, including an
+                            // item inside a z-[110] menu or a dialog over
+                            // its z-[100] overlay. Seen on the chat header
+                            // menu [2026-09-22]: at z-[90] a disabled item's
+                            // reason slid under the menu panel and only the
+                            // few characters outside it could be read.
+                            'bg-surface-elevated text-fg shadow-ring-light text-caption rounded-xs pointer-events-none fixed z-[120] items-center gap-2 px-2.5 py-1.5 transition-opacity duration-100',
+                            controlled
+                                ? 'inline-flex'
+                                : 'hidden md:inline-flex',
                             multiline
                                 ? 'max-w-[22rem] font-normal leading-relaxed'
                                 : 'max-w-[18rem] font-medium',

@@ -32,6 +32,9 @@ export interface TerminalSessionTarget {
     // that chat session. Only the id travels: the API builds the argv from
     // the session's own stored reference.
     resumeChatSessionId?: string
+    // Run herdr's TUI in the shell instead (ADR-0031): the browser then shows
+    // the runtime's herdr, with the session's pane focused by the handoff.
+    herdrViewer?: boolean
     // A runtime auth sign-in: the API resolves the operation to its runtime,
     // profile and the CLI's own login argv, so no other target field applies.
     operationId?: string
@@ -64,9 +67,20 @@ export interface TerminalTabModel {
     // (ADR-0029 §1) rather than a turn: a different notice, and the chat
     // view's "Back to web" is what clears it.
     resumeHeldElsewhere?: boolean
-    // The API's id for this tab's terminal; compared with the session's
-    // holder to decide whether "Back to web" is an unmount or an API call.
+    // The API's id for this tab's terminal; matched against the session's
+    // holder to learn that this tab's TUI took the session's writes.
     terminalId?: string | null
+    // This tab's TUI held the session at some point: when that hold ends
+    // (the TUI quit, or the session was taken back) the chat view returns
+    // on its own (ADR-0031).
+    hadHold?: boolean
+    // The shell runs herdr's TUI (ADR-0031) rather than a resume or a plain
+    // shell; it never holds anything itself.
+    herdrViewer?: boolean
+    // The session whose pane a herdr viewer shows. The viewer belongs to
+    // the agent, not the session: moving between sessions herdr holds keeps
+    // it and only moves herdr's focus.
+    viewerSessionId?: string
     runtime: SdkAgent['runtime']
     status: TerminalConnectionStatus
 }
@@ -158,6 +172,7 @@ const buildWsUrl = (
     if (tab.cwdRootId) params.set('cwdRootId', tab.cwdRootId)
     if (tab.resumeChatSessionId)
         params.set('resumeChatSessionId', tab.resumeChatSessionId)
+    if (tab.herdrViewer) params.set('viewer', 'herdr')
     // A reconnect names the terminal it replaces so the API retires that one
     // (kills its process, releases its hold) before this one resumes; without
     // it every API restart would leave the tab's own reconnect refused as
@@ -523,8 +538,14 @@ const TerminalSession: FC<TerminalSessionProps> = ({
                     )}
                 </div>
             )}
+            {/* herdr is mouse-first and brings its own right-click menu
+                (ADR-0031): xterm already hands the click to herdr while it
+                tracks the mouse, so the browser's menu would only cover it. */}
             <div
                 ref={containerRef}
+                onContextMenu={
+                    tab.herdrViewer ? (e) => e.preventDefault() : undefined
+                }
                 className='mf-terminal bg-surface h-full w-full overflow-hidden'
             />
         </div>

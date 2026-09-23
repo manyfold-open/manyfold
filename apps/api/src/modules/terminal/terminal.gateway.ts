@@ -25,6 +25,7 @@ import {
     type TerminalResumeOutcome
 } from '@/modules/terminal/terminal-resume.service'
 import {
+    DAEMON_FEATURE_HERDR_TERMINAL,
     DAEMON_FEATURE_PTY_COMMAND,
     DAEMON_FEATURE_PTY_TERMINAL
 } from '@manyfold/shared'
@@ -61,6 +62,11 @@ interface TerminalQuery {
     // restart never leaves the user's own reconnect facing `session-held`.
     prevTerminalId?: string
     rows?: string
+    // `herdr`: the shell runs herdr's TUI (ADR-0031) so the browser shows the
+    // runtime's herdr — with the session's pane already focused by the
+    // handoff — instead of a login shell or the framework TUI. No hold is
+    // taken: the pane herdr hosts has its own terminal row.
+    viewer?: string
 }
 
 const SANDBOX_TERMINAL_CWD = '/home/sprite'
@@ -233,6 +239,7 @@ export class TerminalGateway implements OnModuleInit {
         // agents). Enable it on the sandbox first; doing so authorizes the
         // per-session user api.full token injected by SpritesTerminal.
         let modelCredentialsAllowed = false
+        let sandboxHerdr = false
         if (agent.runtime === 'sprites') {
             const host = agent.hostId
                 ? await this.runtimes.findHostById(agent.hostId)
@@ -246,7 +253,9 @@ export class TerminalGateway implements OnModuleInit {
                 return
             }
             modelCredentialsAllowed = host.terminalModelCredentials
+            sandboxHerdr = host.herdrVersion !== null
         }
+        const herdrViewer = query.viewer?.trim() === 'herdr'
 
         // Open straight into the framework TUI for this chat session when the
         // client asked for it. The client sends only the session id — the argv
@@ -269,15 +278,30 @@ export class TerminalGateway implements OnModuleInit {
         // The daemon keeps its terminals (ADR-0029 §6): the pty is addressed
         // by the row's id, a reconnect attaches to it, and the daemon's
         // inventory, not this tunnel's lease, is its proof of life.
+        // A herdr viewer is a plain process the browser watches: killed with
+        // its socket (never daemon-owned), and never a resume of anything.
         const ownedTerminals =
+            !herdrViewer &&
             agent.runtime === 'daemon' &&
             !!agent.daemonId &&
             daemonFeatures.includes(DAEMON_FEATURE_PTY_TERMINAL)
+        if (herdrViewer) {
+            const available =
+                agent.runtime === 'daemon'
+                    ? daemonCanResume &&
+                      daemonFeatures.includes(DAEMON_FEATURE_HERDR_TERMINAL)
+                    : agent.runtime === 'sprites' && sandboxHerdr
+            if (!available) {
+                sendError(socket, 'herdr is not available on this runtime')
+                socket.close(4409, 'herdr unavailable')
+                return
+            }
+        }
         const resumeSupported =
             agent.runtime === 'sprites' ||
             (agent.runtime === 'daemon' && daemonCanResume)
         const resolution =
-            resumeSessionId && resumeSupported
+            resumeSessionId && resumeSupported && !herdrViewer
                 ? await this.resume.resolve({
                       agentId: agent.id,
                       runtimeId: agent.runtimeId,
@@ -291,12 +315,15 @@ export class TerminalGateway implements OnModuleInit {
                       injectModelCredentials: agent.runtime === 'sprites'
                   })
                 : null
-        let resume = resolution?.resume ?? null
+        let resume = herdrViewer
+            ? { command: ['herdr'], env: {} }
+            : (resolution?.resume ?? null)
         // Only when a resume was asked for: a runtime with no resume path never
         // consults the service, and "unavailable" is the honest word for it.
-        let resumeOutcome: TerminalResumeOutcome | null = resumeSessionId
-            ? (resolution?.outcome ?? 'unavailable')
-            : null
+        let resumeOutcome: TerminalResumeOutcome | null =
+            resumeSessionId && !herdrViewer
+                ? (resolution?.outcome ?? 'unavailable')
+                : null
 
         let cwd: string | undefined
         try {
@@ -359,7 +386,7 @@ export class TerminalGateway implements OnModuleInit {
                         `terminal.supersede_failed prev=${prevTerminalId}: ${err.message}`
                     )
                 )
-        if (resume && resumeSessionId) {
+        if (resume && resumeSessionId && !herdrViewer) {
             const ref = resolution?.ref ?? null
             // A reused terminal already holds this very session.
             const outcome = reused
@@ -407,6 +434,7 @@ export class TerminalGateway implements OnModuleInit {
                     // at connect (and again on every reconnect), against state
                     // its own stream view lags or leads.
                     ...(resumeOutcome ? { resume: resumeOutcome } : {}),
+                    ...(herdrViewer ? { viewer: 'herdr' } : {}),
                     // Sent back as prevTerminalId on the tab's reconnect.
                     ...(terminalId ? { terminal_id: terminalId } : {})
                 })

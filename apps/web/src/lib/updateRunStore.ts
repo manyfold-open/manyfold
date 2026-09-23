@@ -166,6 +166,14 @@ const runSteps = async (
                         )
                         succeed(ids)
                         break
+                    case 'sandboxHerdr':
+                        await client.sandboxes.upgradeHerdr(step.sandboxId)
+                        succeed(ids)
+                        break
+                    case 'daemonHerdr':
+                        await client.daemons.upgradeHerdr(step.hostId)
+                        succeed(ids)
+                        break
                     case 'daemonCli': {
                         if (daemonsThisWindow >= DAEMON_UPGRADES_PER_WINDOW) {
                             const wait =

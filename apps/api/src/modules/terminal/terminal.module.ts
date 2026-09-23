@@ -25,6 +25,8 @@ import { TerminalHookService } from '@/modules/terminal/terminal-hook.service'
 import { TerminalHookController } from '@/modules/terminal/terminal-hook.controller'
 import { ShareRateLimitService } from '@/common/share-rate-limit.service'
 import { TerminalInventoryService } from '@/modules/terminal/terminal-inventory.service'
+import { TerminalHerdrService } from '@/modules/terminal/terminal-herdr.service'
+import { TerminalHerdrController } from '@/modules/terminal/terminal-herdr.controller'
 
 @Module({
     imports: [
@@ -41,7 +43,11 @@ import { TerminalInventoryService } from '@/modules/terminal/terminal-inventory.
         SecretsModule,
         ChatModule
     ],
-    controllers: [TerminalHolderController, TerminalHookController],
+    controllers: [
+        TerminalHolderController,
+        TerminalHookController,
+        TerminalHerdrController
+    ],
     providers: [
         TerminalGateway,
         SpritesTerminal,
@@ -54,6 +60,7 @@ import { TerminalInventoryService } from '@/modules/terminal/terminal-inventory.
         TerminalHookService,
         TerminalLeaseReaper,
         TerminalInventoryService,
+        TerminalHerdrService,
         // Module-local buckets for the hook endpoint's per-terminal limit.
         ShareRateLimitService
     ]

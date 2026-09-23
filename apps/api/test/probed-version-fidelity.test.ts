@@ -107,3 +107,23 @@ test('missing and unparseable probe lines yield nothing', () => {
     assert.deepEqual(frameworks, [])
     assert.equal(cliVersion, null)
 })
+
+// herdr rides the same probe (ADR-0031): `herdr --version` prints
+// "herdr 0.9.1", and a sandbox without herdr prints an empty value, which is
+// what tells the Update Center to offer an install rather than an update.
+test('the sandbox probe keeps herdr’s version and reads an empty line as not installed', () => {
+    assert.equal(
+        parseSpriteFrameworkProbe(probeOutput({ mf: '0.30.0', herdr: 'herdr 0.9.1' }))
+            .herdrVersion,
+        '0.9.1'
+    )
+    assert.equal(
+        parseSpriteFrameworkProbe(probeOutput({ mf: '0.30.0', herdr: '' }))
+            .herdrVersion,
+        null
+    )
+    assert.equal(
+        parseSpriteFrameworkProbe(probeOutput({ mf: '0.30.0' })).herdrVersion,
+        null
+    )
+})

@@ -22,6 +22,7 @@ const en = {
         unknown: 'Unknown',
         dismiss: 'Dismiss',
         moreActions: 'More actions',
+        moreInfo: 'More info',
         breadcrumb: 'Breadcrumb',
         liveStatus: 'Live status · click to refresh now',
         sandboxStatusAria:
@@ -38,6 +39,10 @@ const en = {
             forbidden: 'You do not have permission to perform this action.',
             not_found: 'The requested resource was not found.',
             bad_request: 'The request was invalid.',
+            turn_in_flight: 'This conversation is still being answered. Try again once the answer finishes.',
+            herdr_not_running: 'herdr is not running on your computer. Start it, then try again.',
+            herdr_unavailable: 'herdr is not available for this agent. Its computer or sandbox must be online, with herdr installed and an up-to-date Manyfold CLI.',
+            herdr_launch_failed: 'herdr could not start the conversation. Check herdr on your computer, then try again.',
             internal_error:
                 'Something went wrong on our end. Please try again.',
             CONCURRENT_ACTIVE_LIMIT_REACHED:
@@ -2118,6 +2123,8 @@ const en = {
         consent: {
             message:
                 'We use Google Analytics to understand how Manyfold is used. It only runs if you accept, and you can change your choice at any time.',
+            messageImplied:
+                'We use Google Analytics to understand how Manyfold is used. It runs unless you turn it off, and you can change your choice at any time.',
             accept: 'Accept analytics',
             decline: 'Decline',
             privacyLink: 'Privacy policy',
@@ -3037,6 +3044,18 @@ const en = {
         sessionView: {
             switchToTerminal: 'Switch to TUI',
             switchToChat: 'Switch to Chat UI',
+            switchToHerdr: 'Switch to herdr',
+            hintHerdr: 'Opens this conversation\'s TUI in herdr and shows herdr here. Quit the TUI in herdr, or choose Switch to Chat UI, to come back to the chat.',
+            hintTerminal: 'Opens this conversation\'s TUI in a terminal here. Quit the TUI, or choose Switch to Chat UI, to come back to the chat.',
+            hintChat: 'Takes the conversation back to the chat: the TUI is closed and what was said in it is added to this conversation.',
+            herdrNeedsSession: 'Start a conversation first, then hand it to herdr.',
+            herdrNeedsSessionRef: 'This conversation has no CLI session to resume yet. Send a message first.',
+            herdrUnsupportedFramework: 'herdr can only resume Claude Code and Codex conversations.',
+            herdrNeedsDaemonUpgrade: 'Update the Manyfold CLI on this computer to hand conversations to herdr.',
+            herdrNeedsSignIn: 'Sign the coding CLI in on this computer first; herdr resumes the conversation with that sign-in.',
+            herdrNeedsSandboxCliUpgrade: 'Update the Manyfold CLI in this sandbox from the Update Center to hand conversations to herdr.',
+            herdrNeedsSandboxCliRelease: 'The Manyfold CLI in this sandbox cannot hand conversations to herdr yet. The next Manyfold CLI release will show up in the Update Center.',
+            herdrNeedsCredentials: 'Turn on model credentials in the terminal for this sandbox first; herdr resumes the conversation with them.',
             resumeNeedsCredentials:
                 'This is a plain shell: resuming the conversation here needs model credentials in the terminal, which is off for this sandbox.',
             resumeNeedsSignIn:
@@ -3046,12 +3065,12 @@ const en = {
             resumeTurnInFlight:
                 'This is a plain shell: this conversation is still being answered, and only one session can write to it at a time. Reopen the terminal once the answer finishes.',
             resumeSessionHeld:
-                'This is a plain shell: another terminal already has this conversation open, and only one can write to it at a time. Close that terminal, or use “Back to web” in the chat view, then reopen the terminal here.'
+                'This is a plain shell: another terminal already has this conversation open, and only one can write to it at a time. Close that terminal, or switch to Chat UI here to take it over, then reopen the terminal.'
         },
         sessionHolder: {
             heldBanner: 'This conversation is open in a terminal. Messages from the web, channels and the API are refused until it is released.',
-            backToWeb: 'Back to web',
-            releasing: 'Releasing…',
+            heldByHerdr: 'This conversation is open in herdr. Quit the TUI there to continue here; until then, messages from the web, channels and the API are refused.',
+            composerHeldHerdr: 'Open in herdr. Quit the TUI there, or switch to herdr and back to Chat UI to take it over.',
             importPending: 'Bringing what was said in the terminal into this conversation…',
             importFailed: 'What was said in the terminal could not be imported yet, so this conversation is paused. Retry once the runtime is reachable, or abandon the import.',
             retrySync: 'Retry import',
@@ -3065,8 +3084,7 @@ const en = {
             reclaimed: 'The terminal that had this conversation open stopped responding, so the conversation was released.',
             attachRefusedTurn: 'The terminal opened a conversation that is running a turn right now. It was not taken over; wait for the turn to finish before continuing there.',
             attachRefusedHeld: 'The terminal opened a conversation that another terminal already has open. It was not taken over.',
-            dismiss: 'Dismiss',
-            composerHeld: 'Open in a terminal — use “Back to web” to continue here.',
+            composerHeld: 'Open in a terminal. Quit the TUI there, or open the terminal view and switch back to Chat UI to take it over.',
             composerImporting: 'Importing what was said in the terminal…'
         },
         composer: {
@@ -3481,6 +3499,7 @@ const en = {
             pickTarget: 'Choose a version for {{name}}',
             badgeCta: 'Update to {{version}}',
             kindCli: 'mf CLI',
+            kindHerdr: 'herdr',
             kindFramework: 'Agent framework',
             kindSkill: 'Skill',
             kindCliUsage: 'Manyfold CLI usage',
@@ -4782,6 +4801,11 @@ const en = {
             deleteTaskDescription:
                 'Delete task "{{name}}"? Its activity lease is released; the sandbox can then suspend when idle.',
             cliLabel: 'mf CLI',
+            herdrLabel: 'herdr',
+            sandboxHerdrDescription: 'herdr inside this sandbox, where handed-off conversations open. Installs and upgrades are in-place; nothing restarts.',
+            daemonHerdrDescription: 'herdr on this machine. Upgrading runs herdr’s own updater.',
+            installVersion: 'Install {{version}}',
+            herdrUpgradedMessage: 'herdr upgraded to v{{version}}',
             sandboxCliDescription:
                 'Platform CLI installed in this sandbox. Upgrades are in-place; nothing restarts.',
             daemonCliDescription:

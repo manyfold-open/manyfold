@@ -15,6 +15,7 @@ import { DaemonRuntimeSyncService } from './daemon-runtime-sync.service'
 import { DaemonPresenceService } from './daemon-presence.service'
 import { DaemonRateLimitService } from './daemon-rate-limit.service'
 import { DaemonCliVersionService } from './daemon-cli-version.service'
+import { HerdrVersionService } from './herdr-version.service'
 import { CliVersionCatalogService } from './cli-version-catalog.service'
 import { CliVersionsController } from './cli-versions.controller'
 import { DaemonExecResumeService } from './daemon-exec-resume.service'
@@ -38,6 +39,7 @@ import { DaemonConfigDeliveryService } from './daemon-config-delivery.service'
         DaemonPresenceService,
         DaemonRateLimitService,
         DaemonCliVersionService,
+        HerdrVersionService,
         CliVersionCatalogService,
         DaemonExecResumeService,
         DaemonConfigDeliveryService
@@ -49,6 +51,7 @@ import { DaemonConfigDeliveryService } from './daemon-config-delivery.service'
         DaemonRuntimeSyncService,
         DaemonExecResumeService,
         DaemonCliVersionService,
+        HerdrVersionService,
         CliVersionCatalogService,
         DaemonConfigDeliveryService
     ]

@@ -136,6 +136,12 @@ import {
     type TerminalResumeOutcome
 } from '@/lib/terminalResume'
 import {
+    herdrFollowDelayMs,
+    herdrHandoffAvailability,
+    herdrHandoffBlockedLabel,
+    viewSwitchHint
+} from '@/lib/herdrHandoff'
+import {
     applyRegeneratedUserMessage,
     mergeLatestMessages,
     mergeMessagesById
@@ -277,6 +283,10 @@ const AgentChat: FC = (): ReactNode => {
     const [modelConfigLoading, setModelConfigLoading] = useState(false)
     const [modelConfigRefreshing, setModelConfigRefreshing] = useState(false)
     const [sessionView, setSessionView] = useState<SessionViewMode>('chat')
+    // The holder the user left with "Switch to Chat UI" (ADR-0031): the view
+    // stops following that hold, so a release still in flight — or one that
+    // failed — does not pull this tab back into herdr.
+    const dismissedHolderRef = useRef<string | null>(null)
     /* Created on the first switch to Terminal and kept afterwards: the chat
        and terminal panes both stay mounted so toggling back does not tear
        down the websocket, the pty or the scrollback. */
@@ -320,6 +330,8 @@ const AgentChat: FC = (): ReactNode => {
     // import that follows its release has not settled. Either way the
     // composer is read-only and the banner above it says what to do.
     const heldByTerminal = activeSession?.holderTerminalId != null
+    const heldByHerdr =
+        heldByTerminal && activeSession?.holderClient === 'herdr'
     const importPendingSince =
         !heldByTerminal && activeSession?.importPendingSince
             ? activeSession.importPendingSince
@@ -1252,6 +1264,8 @@ const AgentChat: FC = (): ReactNode => {
         if (!currentAgent) return
         setSessionTerminal((prev) => {
             if (!prev) return prev
+            // A herdr viewer follows session switches on its own (below).
+            if (prev.herdrViewer) return prev
             const base = `session-terminal-${currentAgent.id}-${activeSessionId ?? 'none'}`
             // Advance-rebuilds append a `-g<N>` generation to the same base;
             // only an actual session change may retarget the terminal.
@@ -1263,12 +1277,21 @@ const AgentChat: FC = (): ReactNode => {
                 id: base,
                 status: 'connecting',
                 seedMessageId: null,
+                hadHold: false,
                 resumeWithheld: false,
                 resumeHeldElsewhere: false,
                 resumeChatSessionId: activeSessionId ?? undefined
             }
         })
     }, [activeSessionId, currentAgent, sessionView])
+
+    // The terminal view always shows a terminal: when a session switch drops
+    // a herdr viewer (above) and the new session brings none of its own
+    // (below), the chat is what remains.
+    useEffect(() => {
+        if (sessionView === 'terminal' && !sessionTerminal)
+            setSessionView('chat')
+    }, [sessionTerminal, sessionView])
 
     const terminalAvailability = currentAgent
         ? terminalAvailabilityForAgent(currentAgent)
@@ -1294,13 +1317,64 @@ const AgentChat: FC = (): ReactNode => {
                   sessionSandbox?.terminalModelCredentials === true
           })
         : { available: false, blocked: 'runtime-unsupported' as const }
+    // herdr on the agent's own computer takes the browser TUI's place when
+    // its daemon advertises it (ADR-0031); elsewhere the header keeps the
+    // browser terminal under its old name.
+    const herdrHandoff = currentAgent
+        ? herdrHandoffAvailability({
+              runtime: currentAgent.runtime,
+              running: currentAgent.status === 'running',
+              framework: currentAgent.framework,
+              daemonCanOpenInHerdr: sessionDaemon?.canOpenInHerdr === true,
+              daemonCanResume: sessionDaemon?.canResumeInTerminal === true,
+              sandboxHasHerdr: sessionSandbox?.herdrVersion != null,
+              sandboxCanOpenInHerdr: sessionSandbox?.canOpenInHerdr === true,
+              sandboxCliUpdateAvailable:
+                  sessionSandbox?.cliUpdateAvailable === true,
+              sandboxModelCredentials:
+                  sessionSandbox?.terminalModelCredentials === true,
+              sessionId: activeSessionId,
+              frameworkSessionRef: activeSession?.frameworkSessionRef ?? null,
+              modelSource: effectiveModelConfigView?.source ?? null,
+              runtimeLocalReady:
+                  effectiveModelConfigView?.runtimeLocal?.ready === true
+          })
+        : null
 
     const handleSelectSessionView = useCallback(
         (next: SessionViewMode): void => {
             if (next === 'chat') {
+                // "Switch to Chat UI" is the one way to take a session back
+                // (ADR-0031). A hold — this tab's TUI, a herdr pane, another
+                // tab's terminal — is released (its process killed) and what
+                // it wrote imported; the chat shows at once and folds that in,
+                // forced past the throttle. A herdr viewer is torn down with
+                // it; a plain shell stays mounted, hidden, for the way back.
+                const holder = activeSession?.holderTerminalId ?? null
                 setSessionView('chat')
-                // Coming back from the terminal is the moment to fold in
-                // whatever was said in the TUI. Forced past the throttle.
+                if (sessionTerminal?.herdrViewer) setSessionTerminal(null)
+                if (holder && agentId && activeSessionId) {
+                    // The view must not follow this hold back into herdr
+                    // while the release is in flight or if it fails.
+                    dismissedHolderRef.current = holder
+                    setSessionTerminal(null)
+                    void (async (): Promise<void> => {
+                        setOwnershipBusy(true)
+                        try {
+                            await client.chat.releaseSessionHolder(
+                                agentId,
+                                activeSessionId
+                            )
+                        } catch (err) {
+                            setError(apiErrorMessage(err))
+                        } finally {
+                            await refreshSessionsForAgent(agentId)
+                            setOwnershipBusy(false)
+                        }
+                        void syncRuntimeSessionAndReload(true)
+                    })()
+                    return
+                }
                 if (sessionTerminal) void syncRuntimeSessionAndReload(true)
                 return
             }
@@ -1387,11 +1461,14 @@ const AgentChat: FC = (): ReactNode => {
             })()
         },
         [
+            activeSession?.holderTerminalId,
             activeSessionId,
+            agentId,
             client,
             confirm,
             currentAgent,
             loadedMessagesSessionId,
+            refreshSessionsForAgent,
             sessionTerminal,
             stream.status,
             syncRuntimeSessionAndReload,
@@ -1439,61 +1516,23 @@ const AgentChat: FC = (): ReactNode => {
         []
     )
 
-    // The hold this tab's terminal had was released elsewhere (another tab's
-    // "Back to web", the lease reaper): its process is dead and the socket
-    // closed. Drop the dead tab so the next switch resumes afresh instead of
-    // showing a closed shell. A reconnecting terminal is still `connecting`
-    // and keeps its tab.
-    const lastHolderRef = useRef<string | null>(null)
+    const [ownershipBusy, setOwnershipBusy] = useState(false)
+
+    // Remember that this tab's TUI took the session: the moment that hold
+    // ends is the moment the chat comes back (below), whether the TUI quit
+    // or the session was taken back from elsewhere.
     useEffect(() => {
-        const previous = lastHolderRef.current
-        const current = activeSession?.holderTerminalId ?? null
-        lastHolderRef.current = current
-        if (!previous || current !== null) return
+        const holder = activeSession?.holderTerminalId ?? null
+        if (!holder) return
         setSessionTerminal((prev) =>
             prev &&
-            prev.resumeChatSessionId === activeSessionId &&
-            prev.terminalId === previous &&
-            (prev.status === 'closed' || prev.status === 'error')
-                ? null
+            !prev.hadHold &&
+            prev.terminalId != null &&
+            prev.terminalId === holder
+                ? { ...prev, hadHold: true }
                 : prev
         )
-    }, [activeSession?.holderTerminalId, activeSessionId])
-
-    // "Back to web" (ADR-0029 §7): the API kills the holder through its
-    // process handle and releases the hold, whether it is this tab's own
-    // terminal, another tab's, or one a reload lost. Closing this tab's
-    // socket alone is not enough: a terminal the daemon owns (ADR-0029 §6)
-    // would only detach and keep the hold. The tab's own terminal is
-    // unmounted once the release is through.
-    const [ownershipBusy, setOwnershipBusy] = useState(false)
-    const handleBackToWeb = useCallback(async (): Promise<void> => {
-        if (!agentId || !activeSessionId) return
-        const ownsHold =
-            sessionTerminal?.resumeChatSessionId === activeSessionId &&
-            sessionTerminal.terminalId != null &&
-            sessionTerminal.terminalId === activeSession?.holderTerminalId
-        setOwnershipBusy(true)
-        try {
-            await client.chat.releaseSessionHolder(agentId, activeSessionId)
-            if (ownsHold) {
-                setSessionView('chat')
-                setSessionTerminal(null)
-            }
-        } catch (err) {
-            setError(apiErrorMessage(err))
-        } finally {
-            setOwnershipBusy(false)
-            void refreshSessionsForAgent(agentId)
-        }
-    }, [
-        activeSession?.holderTerminalId,
-        activeSessionId,
-        agentId,
-        client,
-        refreshSessionsForAgent,
-        sessionTerminal
-    ])
+    }, [activeSession?.holderTerminalId])
 
     const handleRetryImport = useCallback(async (): Promise<void> => {
         if (!agentId || !activeSessionId) return
@@ -1600,6 +1639,189 @@ const AgentChat: FC = (): ReactNode => {
             }),
         [agentId, reloadSessionMessages, t]
     )
+
+    // The herdr viewer: this tab's terminal view runs herdr's own TUI on the
+    // agent's runtime (ADR-0031), so the browser shows herdr with the
+    // session's pane focused — the same herdr a native client on that
+    // machine shows. It is a viewer, not a holder: the pane herdr hosts has
+    // its own terminal row, and closing this one changes nothing about it.
+    const mountHerdrViewer = useCallback((): void => {
+        if (!currentAgent) return
+        setSessionTerminal({
+            agentId: currentAgent.id,
+            agentName: currentAgent.name,
+            framework: currentAgent.framework,
+            id: `session-herdr-${currentAgent.id}`,
+            index: 1,
+            herdrViewer: true,
+            viewerSessionId: activeSessionId ?? undefined,
+            seedMessageId: null,
+            runtime: currentAgent.runtime,
+            status: 'connecting'
+        })
+        setSessionView('terminal')
+    }, [activeSessionId, currentAgent])
+
+    // "Switch to herdr" (ADR-0031): the API takes the hold and the daemon
+    // opens the TUI in a herdr pane; this tab then shows herdr itself. When
+    // herdr already holds the session (the user left it, or another tab or
+    // their own herdr opened it) there is nothing to open: the viewer shows
+    // it, on its pane. The way back is automatic — the TUI quitting in herdr
+    // releases the hold and the effect below returns to the chat — or
+    // "Switch to Chat UI", which releases it.
+    const handleOpenInHerdr = useCallback(async (): Promise<void> => {
+        if (!agentId || !activeSessionId || ownershipBusy || !currentAgent)
+            return
+        // A sandbox's herdr runs as its terminal: the same opt-in the
+        // browser terminal asks for, asked the same way.
+        const allowed = await ensureSandboxTerminalEnabled({
+            agent: currentAgent,
+            client,
+            confirm,
+            t
+        })
+        if (!allowed) return
+        dismissedHolderRef.current = null
+        if (heldByHerdr) {
+            mountHerdrViewer()
+            void client.chat
+                .focusInHerdr(agentId, activeSessionId)
+                .catch(() => {})
+            return
+        }
+        setOwnershipBusy(true)
+        try {
+            await client.chat.openInHerdr(agentId, activeSessionId, {
+                title: activeSession?.title ?? t('web.shell.untitledChat')
+            })
+            mountHerdrViewer()
+        } catch (err) {
+            setError(apiErrorMessage(err))
+        } finally {
+            // The hold a failed open took and gave back is visible for a
+            // moment; the list is re-read before the view may follow holds
+            // again, so a refused handoff does not flash the viewer.
+            await refreshSessionsForAgent(agentId)
+            setOwnershipBusy(false)
+        }
+    }, [
+        activeSession?.title,
+        activeSessionId,
+        agentId,
+        client,
+        confirm,
+        currentAgent,
+        heldByHerdr,
+        mountHerdrViewer,
+        ownershipBusy,
+        refreshSessionsForAgent,
+        t
+    ])
+
+    // Views follow the hold (ADR-0031). A session herdr holds — from this
+    // tab, another tab, a reload, or the user's own herdr — shows herdr; a
+    // hold that ends while a terminal is on screen brings the chat back and
+    // folds in what was said. The viewer only returns once it has seen its
+    // hold: the list refetch that reports the hold lags the handoff call by
+    // a moment, and returning inside that gap would unmount a viewer that
+    // just came up.
+    const viewerSawHoldRef = useRef(false)
+    useEffect(() => {
+        if (!sessionTerminal?.herdrViewer) viewerSawHoldRef.current = false
+        else if (heldByHerdr) viewerSawHoldRef.current = true
+    }, [heldByHerdr, sessionTerminal?.herdrViewer])
+    const holderTerminalId = activeSession?.holderTerminalId ?? null
+    useEffect(() => {
+        if (
+            dismissedHolderRef.current &&
+            dismissedHolderRef.current !== holderTerminalId
+        )
+            dismissedHolderRef.current = null
+    }, [holderTerminalId])
+    const holderAcquiredAt = activeSession?.holderAcquiredAt ?? null
+    useEffect(() => {
+        if (!heldByHerdr || ownershipBusy || !agentId || !activeSessionId)
+            return
+        if (dismissedHolderRef.current === holderTerminalId) return
+        if (sessionTerminal?.herdrViewer && sessionView === 'terminal') return
+        const follow = (): void => {
+            mountHerdrViewer()
+            // Another pane may have taken herdr's focus since the handoff;
+            // the viewer should open on the session's pane.
+            void client.chat
+                .focusInHerdr(agentId, activeSessionId)
+                .catch(() => {})
+        }
+        // A session left in herdr comes back in herdr at once; only a hold
+        // that has just appeared waits a moment (see herdrFollowDelayMs).
+        const wait = herdrFollowDelayMs(holderAcquiredAt, Date.now())
+        if (wait === 0) {
+            follow()
+            return
+        }
+        const timer = setTimeout(follow, wait)
+        return () => clearTimeout(timer)
+    }, [
+        activeSessionId,
+        agentId,
+        client,
+        heldByHerdr,
+        holderAcquiredAt,
+        holderTerminalId,
+        mountHerdrViewer,
+        ownershipBusy,
+        sessionTerminal?.herdrViewer,
+        sessionView
+    ])
+    // The viewer belongs to the agent. Moving to another session herdr
+    // holds keeps it and moves herdr's focus to that session's pane, so
+    // going between handed-off conversations is as quick as herdr's own tab
+    // switch; moving to a session herdr does not hold brings the chat back.
+    useEffect(() => {
+        if (!sessionTerminal?.herdrViewer || !agentId) return
+        if (sessionTerminal.viewerSessionId === (activeSessionId ?? undefined))
+            return
+        if (heldByHerdr && activeSessionId) {
+            setSessionTerminal((prev) =>
+                prev?.herdrViewer
+                    ? { ...prev, viewerSessionId: activeSessionId }
+                    : prev
+            )
+            void client.chat
+                .focusInHerdr(agentId, activeSessionId)
+                .catch(() => {})
+            return
+        }
+        setSessionTerminal(null)
+    }, [
+        activeSessionId,
+        agentId,
+        client,
+        heldByHerdr,
+        sessionTerminal?.herdrViewer,
+        sessionTerminal?.viewerSessionId
+    ])
+    useEffect(() => {
+        if (sessionView !== 'terminal' || !sessionTerminal || heldByTerminal)
+            return
+        if (
+            sessionTerminal.herdrViewer &&
+            (!viewerSawHoldRef.current ||
+                sessionTerminal.viewerSessionId !==
+                    (activeSessionId ?? undefined))
+        )
+            return
+        if (!sessionTerminal.herdrViewer && !sessionTerminal.hadHold) return
+        setSessionView('chat')
+        setSessionTerminal(null)
+        void syncRuntimeSessionAndReload(true)
+    }, [
+        activeSessionId,
+        heldByTerminal,
+        sessionTerminal,
+        sessionView,
+        syncRuntimeSessionAndReload
+    ])
 
     /* Only the blocked reasons the user can act on. A framework with no
        resume form, or a session the CLI has not named yet, is not a problem
@@ -2280,7 +2502,9 @@ const AgentChat: FC = (): ReactNode => {
     const composerHint = disabled
         ? (chatAvailability.reason ?? undefined)
         : heldByTerminal
-          ? t('web.sessionHolder.composerHeld')
+          ? heldByHerdr
+              ? t('web.sessionHolder.composerHeldHerdr')
+              : t('web.sessionHolder.composerHeld')
           : importPendingSince !== null
             ? t('web.sessionHolder.composerImporting')
             : modelConfigLoading
@@ -2461,30 +2685,34 @@ const AgentChat: FC = (): ReactNode => {
         />
     )
 
-    const ownershipBanner: ReactNode = heldByTerminal ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>
-                {t('web.sessionHolder.heldBanner')}
-            </span>
-            <button
-                type='button'
-                disabled={ownershipBusy}
-                onClick={() => void handleBackToWeb()}
-                className={OWNERSHIP_ACTION_CLASS}
-            >
-                {ownershipBusy
-                    ? t('web.sessionHolder.releasing')
-                    : t('web.sessionHolder.backToWeb')}
-            </button>
-        </div>
-    ) : importPendingSince ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>
-                {importPendingStale
-                    ? t('web.sessionHolder.importFailed')
-                    : t('web.sessionHolder.importPending')}
-            </span>
-            {importPendingStale && (
+    // The header's herdr control: a session herdr already holds is simply
+    // shown; one a browser terminal holds keeps the browser TUI control (that
+    // terminal is where it can be taken back from); otherwise the resume's
+    // own reason says why the handoff cannot act.
+    const herdrHeaderState =
+        herdrHandoff?.offered && !(heldByTerminal && !heldByHerdr)
+            ? {
+                  available:
+                      !ownershipBusy &&
+                      (heldByHerdr || herdrHandoff.available),
+                  disabledReason:
+                      !heldByHerdr && herdrHandoff.blocked
+                          ? herdrHandoffBlockedLabel(herdrHandoff.blocked, t)
+                          : null
+              }
+            : null
+
+    // Above the composer only the stuck import remains: it pauses the
+    // conversation and carries the only way out (retry or abandon). The
+    // rest (who holds the session, an import in flight, what the last
+    // hand-back brought) is behind the "?" on the header's view switch
+    // (ADR-0031).
+    const ownershipBanner: ReactNode =
+        !heldByTerminal && importPendingSince && importPendingStale ? (
+            <div className={OWNERSHIP_BANNER_CLASS}>
+                <span className='min-w-0 truncate'>
+                    {t('web.sessionHolder.importFailed')}
+                </span>
                 <div className='flex shrink-0 items-center gap-1'>
                     <button
                         type='button'
@@ -2503,20 +2731,33 @@ const AgentChat: FC = (): ReactNode => {
                         {t('web.sessionHolder.abandonImport')}
                     </button>
                 </div>
-            )}
-        </div>
-    ) : ownershipNotice ? (
-        <div className={OWNERSHIP_BANNER_CLASS}>
-            <span className='min-w-0 truncate'>{ownershipNotice}</span>
-            <button
-                type='button'
-                onClick={() => setOwnershipNotice(null)}
-                className={OWNERSHIP_ACTION_CLASS}
-            >
-                {t('web.sessionHolder.dismiss')}
-            </button>
-        </div>
-    ) : null
+            </div>
+        ) : null
+
+    const viewSwitchMode =
+        sessionView === 'terminal'
+            ? ('chat' as const)
+            : herdrHeaderState
+              ? ('herdr' as const)
+              : ('terminal' as const)
+    const viewSwitchHintText = viewSwitchHint(
+        {
+            mode: viewSwitchMode,
+            disabledReason:
+                viewSwitchMode === 'herdr'
+                    ? herdrHeaderState?.available
+                        ? null
+                        : (herdrHeaderState?.disabledReason ?? null)
+                    : viewSwitchMode === 'terminal' &&
+                        terminalAvailability.reason
+                      ? terminalBlockedLabel(terminalAvailability.reason, t)
+                      : null,
+            heldBy: heldByHerdr ? 'herdr' : heldByTerminal ? 'terminal' : null,
+            importing: importPendingSince !== null && !importPendingStale,
+            notice: ownershipNotice
+        },
+        t
+    )
 
     return (
         <div className='flex h-full min-h-0 overflow-hidden'>
@@ -2533,6 +2774,10 @@ const AgentChat: FC = (): ReactNode => {
                         : null
                 }
                 onSelectSessionView={handleSelectSessionView}
+                switchBusy={ownershipBusy}
+                viewSwitchHint={viewSwitchHintText}
+                herdrHandoff={herdrHeaderState}
+                onOpenInHerdr={() => void handleOpenInHerdr()}
                 onShare={
                     shareableSession
                         ? () => setShareSessionOpen(true)
@@ -2860,6 +3105,15 @@ interface AgentChatHeaderProps {
     sessionView: SessionViewMode
     terminalDisabledReason: string | null
     onSelectSessionView: (mode: SessionViewMode) => void
+    // A release is in flight: the view switch waits for it.
+    switchBusy: boolean
+    // Behind the "?" after the view switch: what it does, or why it cannot
+    // act, plus what used to be announced above the composer.
+    viewSwitchHint: string
+    // Offered in place of the browser TUI switch when the agent's computer
+    // runs herdr (ADR-0031); null keeps the browser terminal control.
+    herdrHandoff: { available: boolean; disabledReason: string | null } | null
+    onOpenInHerdr: () => void
     onShare: (() => void) | null
     onRefresh: () => void
     onOpenFiles: (() => void) | null
@@ -2875,6 +3129,10 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     sessionView,
     terminalDisabledReason,
     onSelectSessionView,
+    switchBusy,
+    viewSwitchHint,
+    herdrHandoff,
+    onOpenInHerdr,
     onShare,
     onRefresh,
     onOpenFiles,
@@ -2896,22 +3154,35 @@ const AgentChatHeader: FC<AgentChatHeaderProps> = ({
     // Every non-primary chat action lives in this one overflow menu: the
     // Chat/Terminal view switch (its label flips with the current view), the
     // three side-panel openers, then share / terminal dock / refresh.
+    // A terminal on screen — herdr or the browser TUI — always gets its way
+    // back to the chat, which is also what takes a held session back
+    // (ADR-0031); otherwise a runtime with herdr offers the handoff there
+    // instead of the embedded TUI.
+    const viewSwitch: OverflowMenuEntry =
+        sessionView === 'chat' && herdrHandoff
+            ? {
+                  label: t('web.sessionView.switchToHerdr'),
+                  onSelect: onOpenInHerdr,
+                  disabled: !herdrHandoff.available,
+                  hint: viewSwitchHint
+              }
+            : {
+                  label:
+                      sessionView === 'chat'
+                          ? t('web.sessionView.switchToTerminal')
+                          : t('web.sessionView.switchToChat'),
+                  onSelect: () =>
+                      onSelectSessionView(
+                          sessionView === 'chat' ? 'terminal' : 'chat'
+                      ),
+                  disabled:
+                      sessionView === 'chat'
+                          ? terminalDisabledReason !== null
+                          : switchBusy,
+                  hint: viewSwitchHint
+              }
     const overflowItems: OverflowMenuEntry[] = [
-        {
-            label:
-                sessionView === 'chat'
-                    ? t('web.sessionView.switchToTerminal')
-                    : t('web.sessionView.switchToChat'),
-            onSelect: () =>
-                onSelectSessionView(
-                    sessionView === 'chat' ? 'terminal' : 'chat'
-                ),
-            disabled: sessionView === 'chat' && terminalDisabledReason !== null,
-            disabledReason:
-                sessionView === 'chat'
-                    ? (terminalDisabledReason ?? undefined)
-                    : undefined
-        },
+        viewSwitch,
         { separator: true },
         ...(onOpenFiles
             ? [{ label: t('web.chat.pane.files'), onSelect: onOpenFiles }]

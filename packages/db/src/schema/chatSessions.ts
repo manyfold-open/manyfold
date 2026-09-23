@@ -45,6 +45,12 @@ export const chatSessions = pgTable(
         holderAcquiredAt: timestamp('holder_acquired_at', {
             withTimezone: true
         }),
+        // Which client the holder shows its TUI in (ADR-0031), written by
+        // the statement that takes the hold and cleared by the one that
+        // releases it. Deliberately outside the pair CHECK: an instance
+        // still on older code must keep acquiring holds through a rolling
+        // deploy, and a null here only costs the web its herdr wording.
+        holderClient: text('holder_client', { enum: ['web', 'herdr'] }),
         // Set by the same statement that releases the holder: what the
         // terminal wrote has not been imported yet, and no turn may run until
         // it is or the import is abandoned — a codex turn would otherwise

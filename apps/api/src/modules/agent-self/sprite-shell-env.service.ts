@@ -82,6 +82,31 @@ export const buildCliInstallScript = (
     ].join('\n')
 }
 
+// herdr inside a sandbox (ADR-0031): the same installer herdr publishes for
+// users, into the bin dir the sprite's PATH already carries. The version line
+// after it is what the caller parses; the marker is the success contract.
+export const HERDR_INSTALL_URL = 'https://herdr.dev/install.sh'
+export const HERDR_INSTALL_MARKER = 'MF_HERDR_OK'
+
+// herdr greets its first TUI client with a welcome dialog, which in a sandbox
+// lands over the first handed-off conversation in the browser viewer and has
+// to be dismissed before the TUI under it can be used. The platform owns this
+// herdr, so the dialog is marked seen when herdr arrives — only when there is
+// no config yet, so a sandbox whose herdr was configured by hand keeps it.
+// Seen on a local sandbox [2026-09-22]: the dialog covered Claude Code's
+// first-run screens on the first Switch to herdr.
+const HERDR_CONFIG_SEED = 'onboarding = false'
+
+export const buildHerdrInstallScript = (): string =>
+    [
+        'set -eu',
+        `curl -fsSL ${HERDR_INSTALL_URL} | HERDR_INSTALL_DIR="$HOME/.local/bin" sh`,
+        'mkdir -p "$HOME/.config/herdr"',
+        `[ -e "$HOME/.config/herdr/config.toml" ] || printf '%s\\n' '${HERDR_CONFIG_SEED}' > "$HOME/.config/herdr/config.toml"`,
+        'echo "herdr-installed=$("$HOME/.local/bin/herdr" --version 2>/dev/null | head -1)"',
+        `echo ${HERDR_INSTALL_MARKER}`
+    ].join('\n')
+
 @Injectable()
 export class SpriteShellEnvService {
     private readonly log = new Logger(SpriteShellEnvService.name)

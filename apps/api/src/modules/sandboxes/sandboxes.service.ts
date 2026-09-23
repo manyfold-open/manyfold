@@ -8,7 +8,9 @@ import {
     parseProbedSemver,
     isVersionedFramework,
     resolveFrameworkRepo,
-    supportsRuntime
+    supportsRuntime,
+    DAEMON_FEATURE_HERDR_TERMINAL,
+    runnerHostName
 } from '@manyfold/shared'
 import type {
     AgentRuntimeSummary,
@@ -75,7 +77,12 @@ import {
     type LatestCliVersion
 } from '@/modules/daemon/daemon-cli-version.service'
 import { CliVersionCatalogService } from '@/modules/daemon/cli-version-catalog.service'
-import { buildCliInstallScript } from '@/modules/agent-self/sprite-shell-env.service'
+import { HerdrVersionService } from '@/modules/daemon/herdr-version.service'
+import {
+    buildCliInstallScript,
+    buildHerdrInstallScript,
+    HERDR_INSTALL_MARKER
+} from '@/modules/agent-self/sprite-shell-env.service'
 import { RunnerManagerService } from '@/modules/chat/runner/runner-manager.service'
 import { CryptoService } from '@/modules/secrets/crypto.service'
 
@@ -88,6 +95,7 @@ const SPRITE_CODING_FRAMEWORKS: DetectedFramework['framework'][] = [
 ]
 const DETECT_TIMEOUT_MS = 30_000
 const CLI_UPGRADE_TIMEOUT_MS = 180_000
+const HERDR_UPGRADE_TIMEOUT_MS = 180_000
 const FRAMEWORK_INSTALL_TIMEOUT_MS = 180_000
 
 // One probe for everything a sandbox can host: each coding CLI's version and
@@ -102,7 +110,9 @@ const frameworkProbeShell = (): string =>
         }),
         // The platform-managed mf CLI baked into the sprite image (used for
         // agent auth / a2a). Surfaced as the sandbox's "mf CLI version".
-        'echo "mf=$(mf --version 2>/dev/null | head -1)"'
+        'echo "mf=$(mf --version 2>/dev/null | head -1)"',
+        // herdr, when the runner installed it (ADR-0031).
+        'echo "herdr=$(herdr --version 2>/dev/null | head -1)"'
     ].join('; ')
 
 @Injectable()
@@ -128,8 +138,15 @@ export class SandboxesService {
         // Same convention: only prepareRuntime for a service framework needs
         // it, to store the gateway tokens the bootstrap generated.
         @Optional()
-        private readonly crypto?: CryptoService
+        private readonly crypto?: CryptoService,
+        // Same convention; absent, no herdr update is offered.
+        @Optional()
+        private readonly herdrVersions?: HerdrVersionService
     ) {}
+
+    private async latestHerdr(): Promise<string | null> {
+        return (await this.herdrVersions?.getCachedLatest())?.version ?? null
+    }
 
     async list(
         userId: string,
@@ -139,6 +156,10 @@ export class SandboxesService {
             ? await this.runtimes.listAllSandboxes()
             : await this.runtimes.listSandboxesForUser(userId)
         const latest = await this.cliVersion.getCachedLatest()
+        const latestHerdr = await this.latestHerdr()
+        const runnerCanHerdr = await this.runnerHerdrByHost(
+            isAdmin ? null : userId
+        )
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost(
                 rows.map((r) => ({ id: r.host.id, userId: r.host.userId }))
@@ -149,7 +170,9 @@ export class SandboxesService {
                 r.accountSlug,
                 r.agentsCount,
                 latest,
-                activeSeconds.get(r.host.id) ?? 0
+                activeSeconds.get(r.host.id) ?? 0,
+                latestHerdr,
+                runnerCanHerdr(r.host)
             )
         )
     }
@@ -164,6 +187,8 @@ export class SandboxesService {
             : await this.runtimes.getSandboxForUser(userId, hostId)
         if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
         const latest = await this.cliVersion.getCachedLatest()
+        const latestHerdr = await this.latestHerdr()
+        const runnerCanHerdr = await this.runnerHerdrByHost(r.host.userId)
         const activeSeconds =
             await this.activeDuration.activeSecondsInPeriodByHost([
                 { id: r.host.id, userId: r.host.userId }
@@ -173,8 +198,32 @@ export class SandboxesService {
             r.accountSlug,
             r.agentsCount,
             latest,
-            activeSeconds.get(r.host.id) ?? 0
+            activeSeconds.get(r.host.id) ?? 0,
+            latestHerdr,
+            runnerCanHerdr(r.host)
         )
+    }
+
+    // Whether each sandbox's runner can drive herdr (ADR-0031): a runner that
+    // exists but predates the handoff cannot, until the Update Center moves its
+    // CLI; a sandbox with no runner yet gets one on the current CLI.
+    private async runnerHerdrByHost(
+        userId: string | null
+    ): Promise<(host: RuntimeHostRow) => boolean> {
+        const runners = new Map<string, RuntimeHostRow>()
+        for (const runner of await this.runtimes.listRunnerHosts(userId))
+            runners.set(`${runner.userId}:${runner.name}`, runner)
+        return (host) => {
+            if (!host.spriteName) return false
+            const runner = runners.get(
+                `${host.userId}:${runnerHostName(host.spriteName)}`
+            )
+            return runner
+                ? (runner.clientFeatures ?? []).includes(
+                      DAEMON_FEATURE_HERDR_TERMINAL
+                  )
+                : true
+        }
     }
 
     // Admin paths address sandboxes across all users. We resolve the real owner
@@ -206,15 +255,20 @@ export class SandboxesService {
         })
         const full = await this.runtimes.getSandboxForUser(userId, host.id)
         const latest = await this.cliVersion.getCachedLatest()
+        const latestHerdr = await this.latestHerdr()
+        // A sandbox this new has no runner yet; the one its first turn brings
+        // up runs the current CLI.
         return full
             ? toSandboxSummary(
                   full.host,
                   full.accountSlug,
                   full.agentsCount,
                   latest,
-                  0
+                  0,
+                  latestHerdr,
+                  true
               )
-            : toSandboxSummary(host, null, 0, latest, 0)
+            : toSandboxSummary(host, null, 0, latest, 0, latestHerdr, true)
     }
 
     async delete(
@@ -305,6 +359,11 @@ export class SandboxesService {
                         hostId,
                         probe.cliVersion
                     )
+                await this.runtimes.setSandboxHerdrVersion(
+                    owner,
+                    hostId,
+                    probe.herdrVersion
+                )
             }
         }
         return this.get(owner, hostId)
@@ -451,6 +510,88 @@ export class SandboxesService {
                 })
                 this.log.log(
                     `sandbox cli upgraded host=${hostId} version=${installed} runner=${runner}`
+                )
+                return this.get(owner, hostId)
+            }
+        )
+    }
+
+    // Install or upgrade herdr inside the sandbox (ADR-0031): through the
+    // runner's `herdr.update` when the runner is up and herdr is already
+    // there, else herdr's own installer over the sprite's exec. The version
+    // it lands on is read back and stored; the periodic probe would find it
+    // anyway.
+    async upgradeHerdr(
+        userId: string,
+        hostId: string,
+        isAdmin = false
+    ): Promise<SandboxSummary> {
+        const r = isAdmin
+            ? await this.runtimes.getSandboxById(hostId)
+            : await this.runtimes.getSandboxForUser(userId, hostId)
+        if (!r) throw new NotFoundException(`sandbox ${hostId} not found`)
+        const { host } = r
+        const owner = host.userId
+        if (!host.spriteId || !host.spriteName || !host.accountId)
+            throw new BadRequestException('sandbox is not provisioned')
+        const account = await this.accounts.getById(host.accountId)
+        if (!account)
+            throw new BadRequestException('sandbox account unavailable')
+        const spriteName = host.spriteName
+        return withRuntimeUpgradeLock(
+            this.db,
+            { accountId: host.accountId, spriteName, component: 'herdr' },
+            async () => {
+                if (host.herdrVersion) {
+                    const viaDaemon =
+                        await this.runnerManager.upgradeHerdrViaDaemon({
+                            userId: owner,
+                            spriteName
+                        })
+                    if (viaDaemon.kind === 'dispatched') {
+                        if (viaDaemon.toVersion)
+                            await this.runtimes.setSandboxHerdrVersion(
+                                owner,
+                                hostId,
+                                viaDaemon.toVersion
+                            )
+                        this.log.log(
+                            `sandbox herdr upgrade via herdr.update host=${hostId} to=${viaDaemon.toVersion ?? 'unknown'}`
+                        )
+                        return this.get(owner, hostId)
+                    }
+                }
+                const client = this.spritesClientFor(account)
+                const result = await this.exec(client, spriteName, {
+                    cmd: ['bash', '-lc', buildHerdrInstallScript()],
+                    stdin: '',
+                    timeoutMs: HERDR_UPGRADE_TIMEOUT_MS
+                }).catch((err: Error) => {
+                    throw new ServiceUnavailableException(
+                        `herdr install failed: ${err.message}`
+                    )
+                })
+                const line = `${result.stdout}\n${result.stderr}`
+                    .split('\n')
+                    .find((l) => l.startsWith('herdr-installed='))
+                const installed = parseHerdrVersionLine(
+                    line ? line.slice('herdr-installed='.length) : ''
+                )
+                if (
+                    result.exitCode !== 0 ||
+                    !result.stdout.includes(HERDR_INSTALL_MARKER) ||
+                    !installed
+                )
+                    throw new ServiceUnavailableException(
+                        `herdr install did not complete on ${spriteName}`
+                    )
+                await this.runtimes.setSandboxHerdrVersion(
+                    owner,
+                    hostId,
+                    installed
+                )
+                this.log.log(
+                    `sandbox herdr installed host=${hostId} version=${installed}`
                 )
                 return this.get(owner, hostId)
             }
@@ -1143,6 +1284,7 @@ export class SandboxesService {
     ): Promise<{
         frameworks: DetectedFramework[]
         cliVersion: string | null
+        herdrVersion: string | null
     } | null> {
         const account = await this.accounts.getById(accountId)
         if (!account) return null
@@ -1184,7 +1326,11 @@ export class SandboxesService {
  */
 export const parseSpriteFrameworkProbe = (
     output: string
-): { frameworks: DetectedFramework[]; cliVersion: string | null } => {
+): {
+    frameworks: DetectedFramework[]
+    cliVersion: string | null
+    herdrVersion: string | null
+} => {
     const lines = output.split('\n')
     const frameworks: DetectedFramework[] = []
     for (const f of SPRITE_CODING_FRAMEWORKS) {
@@ -1201,7 +1347,17 @@ export const parseSpriteFrameworkProbe = (
     const cliVersion = parseProbedSemver(
         mfLine ? mfLine.slice('mf='.length) : ''
     )
-    return { frameworks, cliVersion }
+    const herdrLine = lines.find((l) => l.startsWith('herdr='))
+    const herdrVersion = parseHerdrVersionLine(
+        herdrLine ? herdrLine.slice('herdr='.length) : ''
+    )
+    return { frameworks, cliVersion, herdrVersion }
+}
+
+// `herdr --version` prints "herdr 0.9.1"; the version is what is kept.
+export const parseHerdrVersionLine = (output: string): string | null => {
+    const match = /(\d+\.\d+\.\d+[0-9A-Za-z.+-]*)/.exec(output)
+    return match ? match[1] : null
 }
 
 const toSandboxSummary = (
@@ -1209,7 +1365,9 @@ const toSandboxSummary = (
     accountSlug: string | null,
     agentsCount: number,
     latest: LatestCliVersion,
-    activeSecondsThisPeriod: number
+    activeSecondsThisPeriod: number,
+    latestHerdrVersion: string | null,
+    runnerCanHerdr: boolean
 ): SandboxSummary => ({
     id: host.id,
     userId: host.userId,
@@ -1228,6 +1386,17 @@ const toSandboxSummary = (
         host.cliVersion,
         latest.version
     ),
+    herdrVersion: host.herdrVersion,
+    latestHerdrVersion,
+    // An absent herdr is offered as an install to the latest.
+    herdrUpdateAvailable:
+        latestHerdrVersion !== null &&
+        (host.herdrVersion === null ||
+            HerdrVersionService.updateAvailable(
+                host.herdrVersion,
+                latestHerdrVersion
+            )),
+    canOpenInHerdr: host.herdrVersion !== null && runnerCanHerdr,
     activeSecondsThisPeriod,
     emptiedAt: host.emptiedAt ? host.emptiedAt.toISOString() : null,
     createdAt: host.createdAt.toISOString(),

@@ -9,7 +9,8 @@ import {
     RegisterDaemonRequest,
     RegisterDaemonResponse,
     UpgradeDaemonHostResponse,
-    auditAction
+    auditAction,
+    type UpgradeHerdrResponse
 } from '@manyfold/shared'
 import {
     BadRequestException,
@@ -130,7 +131,15 @@ export class DaemonController {
                     : undefined,
             clientFeatures: Array.isArray(body.clientFeatures)
                 ? body.clientFeatures
-                : undefined
+                : undefined,
+            // Absent from an older daemon (kept), null from a daemon that
+            // looked and found nothing (cleared).
+            herdrVersion:
+                body.herdrVersion === undefined
+                    ? undefined
+                    : typeof body.herdrVersion === 'string'
+                      ? body.herdrVersion
+                      : null
         })
         if (host)
             await this.runtimeSync.syncForDaemon({
@@ -341,6 +350,19 @@ export class DaemonController {
             actorId: user.userId,
             targetVersion: body?.targetVersion
         })
+    }
+
+    // herdr on the machine, through herdr's own updater (ADR-0031).
+    @Post('hosts/:id/herdr/upgrade')
+    @UseGuards(AuthGuard)
+    async upgradeHerdr(
+        @CurrentUser() user: AuthPrincipal,
+        @Param('id') id: string
+    ): Promise<UpgradeHerdrResponse> {
+        const host = await this.hosts.findById(id)
+        if (!host || host.userId !== user.userId)
+            throw new NotFoundException('daemon host not found')
+        return this.hosts.upgradeHerdr({ host, actorId: user.userId })
     }
 
     @Patch('hosts/:id/name')

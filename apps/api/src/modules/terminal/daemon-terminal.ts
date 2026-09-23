@@ -1,5 +1,10 @@
 import type {
-    DaemonAuthContextRef, DaemonPtyAuthLogin } from '@manyfold/shared'
+    DaemonAuthContextRef,
+    DaemonHerdrFramework,
+    DaemonHerdrOpenPayload,
+    DaemonHerdrOpenResult,
+    DaemonPtyAuthLogin
+} from '@manyfold/shared'
 import {
     envTextFromExtras,
     envTextToRecord,
@@ -79,6 +84,28 @@ const TERMINAL_BASE_ENV = {
 }
 
 const PTY_CLOSE_TIMEOUT_MS = 5_000
+// herdr creates the tab, waits for its shell, starts the agent (up to a
+// minute for a cold CLI) and labels it before the daemon answers.
+const HERDR_OPEN_TIMEOUT_MS = 90_000
+const HERDR_FOCUS_TIMEOUT_MS = 10_000
+
+// Hand a chat session to herdr on the agent's machine (ADR-0031): the same
+// env a pty would carry, one unary call instead of a stream.
+export interface DaemonHerdrOpenRequest {
+    agent: Agent
+    terminalId: string
+    framework: DaemonHerdrFramework
+    resume: ResolvedTerminalResume
+    title: string
+    // The chat session the TUI resumes; the daemon keeps one herdr tab per
+    // conversation with it.
+    chatSessionId?: string
+    cwd?: string
+    // The agent's own daemon when absent; a sandbox's runner daemon for a
+    // sprites agent (ADR-0031).
+    daemonId?: string
+    onToken?: (tokenId: string) => void
+}
 
 @Injectable()
 export class DaemonTerminal {
@@ -140,20 +167,13 @@ export class DaemonTerminal {
         await this.openPty({
             daemonId,
             cwd: cwd ?? agent.workspacePath ?? agent.mountPath,
-            env: {
-                ...envTextToRecord(envTextFromExtras(agent.extras)),
-                ...connectionEnv,
-                // Resume credentials sit under the platform's own vars: a
-                // session must not be able to rebind MF_API_TOKEN or TERM.
-                ...(resume?.env ?? {}),
-                ...terminalIdentityEnv({
-                    config: this.config,
-                    agentId: agent.id,
-                    terminalId: req.terminalId,
-                    tokenPlaintext: terminalToken.plaintext
-                }),
-                ...TERMINAL_BASE_ENV
-            },
+            env: this.agentTerminalEnv(
+                agent,
+                connectionEnv,
+                resume ?? null,
+                req.terminalId ?? null,
+                terminalToken.plaintext
+            ),
             ...(resume?.command.length ? { command: resume.command } : {}),
             // A profile-bound agent's shell runs inside that profile's
             // context (the daemon composes it and holds the lock while the
@@ -172,6 +192,104 @@ export class DaemonTerminal {
                 : {}),
             release: dropTerminalToken
         })
+    }
+
+    // The env every Manyfold-opened terminal on a daemon gets, browser pty
+    // and herdr pane alike: the agent's env text, its connection tokens, the
+    // resume's own variables, then the platform block on top. Resume
+    // credentials sit under the platform's own vars, so a session can never
+    // rebind MF_API_TOKEN or TERM.
+    private agentTerminalEnv(
+        agent: Agent,
+        connectionEnv: Record<string, string>,
+        resume: ResolvedTerminalResume | null,
+        terminalId: string | null,
+        tokenPlaintext: string
+    ): Record<string, string> {
+        return {
+            ...envTextToRecord(envTextFromExtras(agent.extras)),
+            ...connectionEnv,
+            ...(resume?.env ?? {}),
+            ...terminalIdentityEnv({
+                config: this.config,
+                agentId: agent.id,
+                terminalId,
+                tokenPlaintext
+            }),
+            ...TERMINAL_BASE_ENV
+        }
+    }
+
+    // Open the session's TUI in a herdr pane on the agent's machine
+    // (ADR-0031). The terminal token is minted here like a pty's and bound
+    // to the row through onToken; a launch the daemon refuses drops it
+    // again, and the caller ends the row.
+    async openInHerdr(req: DaemonHerdrOpenRequest): Promise<DaemonHerdrOpenResult> {
+        const { agent } = req
+        const daemonId = req.daemonId ?? agent.daemonId
+        if (!daemonId)
+            throw new NotFoundException('agent has no daemon to open herdr on')
+        const connectionEnv = await this.connections.resolveAgentEnv({
+            userId: agent.userId,
+            extras: agent.extras
+        })
+        const terminalToken = await this.apiTokens.mint({
+            userId: agent.userId,
+            name: `terminal ${daemonId}`,
+            scopes: [API_TOKEN_SCOPE_FULL],
+            expiresInSeconds: TERMINAL_TOKEN_TTL_SECONDS,
+            tokenKind: 'terminal'
+        })
+        req.onToken?.(terminalToken.tokenId)
+        const authContext = authContextRefFor(agent)
+        const cwd = req.cwd ?? agent.workspacePath ?? agent.mountPath
+        const payload: DaemonHerdrOpenPayload = {
+            terminalId: req.terminalId,
+            framework: req.framework,
+            command: req.resume.command,
+            ...(cwd ? { cwd } : {}),
+            env: this.agentTerminalEnv(
+                agent,
+                connectionEnv,
+                req.resume,
+                req.terminalId,
+                terminalToken.plaintext
+            ),
+            title: req.title,
+            agentName: agent.name,
+            ...(req.chatSessionId ? { chatSessionId: req.chatSessionId } : {}),
+            ...(authContext
+                ? { authSelection: { mode: 'profile' as const, ...authContext } }
+                : {})
+        }
+        try {
+            const result = await this.registry.rpc({
+                daemonId,
+                method: 'terminal.herdr.open',
+                payload: payload as unknown as Record<string, unknown>,
+                timeoutMs: HERDR_OPEN_TIMEOUT_MS
+            })
+            return herdrOpenResultOf(result)
+        } catch (err) {
+            void this.apiTokens
+                .hardDelete({
+                    tokenId: terminalToken.tokenId,
+                    userId: agent.userId
+                })
+                .catch(() => {})
+            throw err
+        }
+    }
+
+    // Raise the session's pane in herdr again (ADR-0031).
+    async focusHerdr(daemonId: string, terminalId: string): Promise<boolean> {
+        const result = await this.registry.rpc({
+            daemonId,
+            method: 'terminal.herdr.focus',
+            payload: { terminalId },
+            timeoutMs: HERDR_FOCUS_TIMEOUT_MS
+        })
+        return result?.focused === true
     }
 
     // Close a pty this instance may not own the stream of (a takeover, the
@@ -440,6 +558,19 @@ export class DaemonTerminal {
                     onClose(endCause)
                 }
             })
+    }
+}
+
+const herdrOpenResultOf = (
+    result: Record<string, unknown> | undefined
+): DaemonHerdrOpenResult => {
+    const text = (value: unknown): string =>
+        typeof value === 'string' ? value : ''
+    return {
+        paneId: text(result?.paneId),
+        tabId: text(result?.tabId),
+        workspaceId: text(result?.workspaceId),
+        focused: result?.focused === true
     }
 }
 
