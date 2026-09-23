@@ -1,6 +1,7 @@
 import type {
     ChatSessionsChangedEvent,
     QuotaWarningEvent,
+    ResourceChangedEvent,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
     SpriteStatusUpdate
@@ -109,6 +110,15 @@ export class SpriteStatusBroadcaster {
             this.log.warn(
                 `chat-sessions-changed emit failed: ${(err as Error).message}`
             )
+        }
+    }
+
+    emitResourceChanged(userId: string, event: ResourceChangedEvent): void {
+        try {
+            this.deliverLocal(userId, event, {})
+            this.bus.publish(userId, event)
+        } catch (err) {
+            this.log.warn(`resource-changed emit failed: ${(err as Error).message}`)
         }
     }
 

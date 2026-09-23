@@ -205,6 +205,8 @@ export type {
     SpriteStatusUpdate,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
+    ResourceChangedEvent,
+    ResourceUiLink,
     ChatSessionListChangeReason,
     ChatSessionChangeDetail,
     ChatSessionsChangedEvent,

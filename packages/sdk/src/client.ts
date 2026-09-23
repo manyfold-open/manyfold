@@ -110,6 +110,8 @@ import type {
     SandboxQuotaUsersPage,
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
+    ResourceChangedEvent,
+    ResourceUiLink,
     SpriteStatusUpdate,
     ChatMessage,
     ChatMessagesPage,
@@ -363,6 +365,7 @@ export interface SpriteStatusStreamHandlers {
     onHostUpdate?: (update: SpriteHostStatusUpdate) => void
     onQuotaWarning?: (event: QuotaWarningEvent) => void
     onSessionsChanged?: (event: ChatSessionsChangedEvent) => void
+    onResourceChanged?: (event: ResourceChangedEvent) => void
     onError?: (error: Error) => void
     onOpen?: () => void
     onClose?: () => void
@@ -921,6 +924,7 @@ export interface SkillsClient {
 }
 
 export interface AutomationsClient {
+    ui: (id?: string) => Promise<ResourceUiLink>
     list: (opts?: { agentId?: string }) => Promise<AutomationSummary[]>
     create: (body: CreateAutomationBody) => Promise<AutomationDetail>
     get: (id: string) => Promise<AutomationDetail>
@@ -1820,6 +1824,8 @@ const dispatchSpriteStatusFrame = (
         consumeQuotaWarning(parsed)
     } else if (parsed.type === 'chat-sessions-changed') {
         handlers.onSessionsChanged?.(parsed)
+    } else if (parsed.type === 'resource-changed') {
+        handlers.onResourceChanged?.(parsed)
     }
 }
 
@@ -3308,6 +3314,10 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 )
         },
         automations: {
+            ui: (id) =>
+                request<ResourceUiLink>(
+                    id ? apiPaths.AUTOMATION_UI(id) : apiPaths.AUTOMATIONS_UI
+                ),
             list: (opts) => {
                 const q = new URLSearchParams()
                 if (opts?.agentId) q.set('agentId', opts.agentId)

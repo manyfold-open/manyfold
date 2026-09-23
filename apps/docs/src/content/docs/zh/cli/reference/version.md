@@ -1,7 +1,7 @@
 ---
 title: "mf version"
 description: "Show the installed version, update channel and build metadata"
-order: 20
+order: 21
 ---
 **用法:** `mf version [options]`
 

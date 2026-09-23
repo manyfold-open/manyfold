@@ -1,5 +1,5 @@
 import type { FC, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import type { AutomationSummary } from '@manyfold/shared'
 import {
@@ -22,6 +22,7 @@ import ShortcutTooltip from '@/components/ShortcutTooltip'
 import { Ghost, GhostSettingsRows } from '@/components/Loading'
 import { useLoadingGate } from '@/components/useLoadingGate'
 import { useApiClient } from '@/lib/apiClient'
+import { useResourceRefresh } from '@/hooks/useResourceRefresh'
 import { apiErrorMessage } from '@/lib/errorMessage'
 import { useAppShellContext } from '@/components/AppShell'
 import CreateAutomationModal from './CreateAutomationModal'
@@ -65,8 +66,7 @@ const AutomationsList: FC = (): ReactNode => {
         [automations]
     )
 
-    const refresh = async (): Promise<void> => {
-        setLoading(true)
+    const refresh = useCallback(async (): Promise<void> => {
         try {
             setAutomations(await client.automations.list())
             setError(null)
@@ -75,11 +75,9 @@ const AutomationsList: FC = (): ReactNode => {
         } finally {
             setLoading(false)
         }
-    }
-
-    useEffect(() => {
-        void refresh()
     }, [client])
+
+    useResourceRefresh('automation', undefined, refresh)
 
     useEffect(() => {
         if (requestedAgentId) setCreateOpen(true)

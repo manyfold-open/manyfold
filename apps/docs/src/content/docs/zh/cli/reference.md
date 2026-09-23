@@ -28,6 +28,7 @@ order: 12
 | [`mf sandbox`](/zh/docs/cli/reference/sandbox/) | Inspect sandbox storage |
 | [`mf skills`](/zh/docs/cli/reference/skills/) | Manage installed agent skills |
 | [`mf usage`](/zh/docs/cli/reference/usage/) | Read token + cost usage statistics |
+| [`mf ui`](/zh/docs/cli/reference/ui/) | Resolve platform resources to Manyfold web pages |
 | [`mf a2a`](/zh/docs/cli/reference/a2a/) | Talk to A2A servers and manage this agent exposure and callers |
 | [`mf daemon`](/zh/docs/cli/reference/daemon/) | Local daemon for Manyfold agents (claude-code / codex / gemini-cli / pi) |
 | [`mf profile`](/zh/docs/cli/reference/profile/) | Inspect and manage CLI profiles (ADR-0014) |

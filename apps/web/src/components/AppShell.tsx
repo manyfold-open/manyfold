@@ -59,6 +59,10 @@ import {
     type SessionInvalidationQueue
 } from '@/lib/sessionInvalidation'
 import { useShellPolling } from '@/hooks/useShellPolling'
+import {
+    publishResourceChanged,
+    subscribeResourceChanges
+} from '@/lib/resourceChanges'
 import { subscribeAgentCredentialsOpen } from '@/lib/agentCredentialsEvents'
 import { daysAgoIso, fmtCost, hoursAgoIso } from '@/lib/usageFormat'
 import { useAppAuth } from '@/lib/auth'
@@ -2814,6 +2818,7 @@ const AppShell: FC = (): ReactNode => {
                         )
                         publishSessionsChanged(event)
                     },
+                    onResourceChanged: publishResourceChanged,
                     onError: (err) => {
                         console.error('[sprite-status] SSE error', err)
                         onDown()
@@ -2825,6 +2830,7 @@ const AppShell: FC = (): ReactNode => {
                 })
             },
             onReconnected: () => {
+                publishResourceChanged({ resource: 'automation' })
                 void refreshAgents({ clearOnError: false, showLoading: false })
                 void refreshSandboxes()
                 // Events emitted while the stream was down are gone; refetch
@@ -2854,6 +2860,13 @@ const AppShell: FC = (): ReactNode => {
     useEffect(() => {
         void refreshAutomationCount()
     }, [location.pathname, refreshAutomationCount])
+
+    useEffect(
+        () => subscribeResourceChanges(() => {
+            void refreshAutomationCount()
+        }),
+        [refreshAutomationCount]
+    )
 
     useEffect(() => {
         if (terminalTabs.length === 0) {

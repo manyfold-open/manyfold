@@ -64,6 +64,7 @@ test('AutomationsService runNow creates a chat session and records the run', asy
     )
     const chat = new FakeChat()
     let reservedRunUserId: string | null = null
+    const changes: Array<{ userId: string; event: { reason: string; resourceId: string } }> = []
     const service = new AutomationsService(
         db as never,
         chat as never,
@@ -72,7 +73,10 @@ test('AutomationsService runNow creates a chat session and records the run', asy
             reserveAutomationRun: async (userId: string) => {
                 reservedRunUserId = userId
             }
-        } as never
+        } as never,
+        undefined,
+        undefined,
+        { emitResourceChanged: (userId: string, event: { reason: string; resourceId: string }) => changes.push({ userId, event }) } as never
     )
 
     const run = await service.runNow('user-1', 'automation-1')
@@ -100,6 +104,10 @@ test('AutomationsService runNow creates a chat session and records the run', asy
         }
     ])
     assert.equal(db.insertedRuns.length, 1)
+    assert.deepEqual(changes.map(({ userId, event }) => [userId, event.resourceId, event.reason]), [
+        ['user-1', 'automation-1', 'run'],
+        ['user-1', 'automation-1', 'run']
+    ])
     assert.ok(
         db.updates.some(
             (update) =>

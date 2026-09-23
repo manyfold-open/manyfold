@@ -2114,6 +2114,22 @@ export interface ChatSessionsChangedEvent {
     at: string
 }
 
+export interface ResourceChangedEvent {
+    type: 'resource-changed'
+    resource: 'automation'
+    resourceId: string
+    agentId: string
+    reason: 'created' | 'updated' | 'deleted' | 'run'
+    at: string
+}
+
+export interface ResourceUiLink {
+    resource: 'automation'
+    resourceId?: string
+    url: string
+    runs?: Array<{ runId: string; sessionId: string; url: string }>
+}
+
 export type SpriteStatusEvent =
     | {
           type: 'snapshot'
@@ -2124,6 +2140,7 @@ export type SpriteStatusEvent =
     | ({ type: 'host-update' } & SpriteHostStatusUpdate)
     | QuotaWarningEvent
     | ChatSessionsChangedEvent
+    | ResourceChangedEvent
 
 export interface AgentSummary {
     id: string

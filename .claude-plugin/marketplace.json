@@ -1,0 +1,9 @@
+{
+    "name": "manyfold",
+    "owner": { "name": "Manyfold", "url": "https://manyfold.ai" },
+    "plugins": [{
+        "name": "manyfold",
+        "source": "./plugins/manyfold",
+        "description": "Manage Manyfold resources with mf and review live automation results."
+    }]
+}
