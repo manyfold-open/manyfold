@@ -135,6 +135,10 @@ mf daemon status     # 本地 daemon：是否运行、版本、自动更新
 
 ## 排查
 
+下面这些情况 `mf doctor` 大多能自己发现：URL 不是 API（以及 API 实际在哪里）、
+daemon 注册到的部署和 profile 登录的部署不一致、代理剥掉了 Authorization header
+或不转发 WebSocket 升级，以及 `PATH` 上有、daemon 却看不到的 coding agent。先运行它。
+
 **`mf whoami` 失败，或者账号看起来是空的。** 几乎总是 CLI 登录到了托管 API 而不是
 你的部署。运行 `mf profile show`，如果 `apiUrl` 不是你的，带 `--api-url` 重新登录。
 

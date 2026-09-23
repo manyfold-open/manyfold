@@ -74,7 +74,7 @@ const readProfileInfo = async (
     }
 }
 
-const listProfileNames = async (root: string): Promise<string[]> => {
+export const listProfileNames = async (root: string): Promise<string[]> => {
     let entries: string[]
     try {
         entries = await readdir(profilesRoot(root))

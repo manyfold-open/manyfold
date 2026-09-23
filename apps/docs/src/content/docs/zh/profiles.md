@@ -15,7 +15,7 @@ profile。
 
 1. Root option：`--profile <name>`
 2. 环境变量：`MF_PROFILE`
-3. Binary channel 默认值：stable 使用 `default`，dev 使用 `staging`
+3. Binary channel 默认值：stable 使用 `default`，dev 使用 `dev`
 
 ```sh
 mf --profile default whoami
@@ -89,8 +89,9 @@ mf profile delete staging
 update channel；它不会移动或改写 profile data。
 
 如果没有设置 `--profile` 或 `MF_PROFILE`，从 stable binary 切换到 dev binary
-时，默认选择会从 `default` 变为 `staging`。切换 channel 后先运行
-`mf profile show`，确认下一条命令会使用哪份 credential 和 daemon。
+时，默认选择会从 `default` 变为 `dev`。切换 channel 后先运行
+`mf profile show`，确认下一条命令会使用哪份 credential 和 daemon；这个 profile
+尚未设置时，`mf doctor` 会给出警告并列出已设置的 profile。
 
 ## 从 CLI 0.21 或更早版本升级
 

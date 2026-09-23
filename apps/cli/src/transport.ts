@@ -10,17 +10,21 @@ const TIMEOUT_UNITS: Record<string, number> = {
     h: 3_600_000
 }
 
+// An unusable value is an error, not a silent 30 s: whoever set it expects it
+// to take effect.
 export const resolveHttpTimeoutMs = (
     raw = process.env.MF_HTTP_TIMEOUT
 ): number => {
     const value = raw?.trim().toLowerCase()
     if (!value) return DEFAULT_HTTP_TIMEOUT_MS
     const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/.exec(value)
-    if (!match) return DEFAULT_HTTP_TIMEOUT_MS
-    const amount = Number(match[1])
-    const timeoutMs = amount * TIMEOUT_UNITS[match[2] ?? 's']
+    const timeoutMs = match
+        ? Number(match[1]) * TIMEOUT_UNITS[match[2] ?? 's']
+        : Number.NaN
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0)
-        return DEFAULT_HTTP_TIMEOUT_MS
+        throw new Error(
+            `invalid MF_HTTP_TIMEOUT '${raw}': use a positive number of seconds or a duration such as 500ms, 30s, 2m or 1h`
+        )
     return Math.max(1, Math.round(timeoutMs))
 }
 

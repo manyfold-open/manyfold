@@ -16,7 +16,7 @@ Selection follows this order:
 
 1. Root option: `--profile <name>`
 2. Environment variable: `MF_PROFILE`
-3. Binary channel default: `default` for stable, `staging` for dev
+3. Binary channel default: `default` for stable, `dev` for dev
 
 ```sh
 mf --profile default whoami
@@ -93,9 +93,10 @@ running daemon blocks deletion; stop it with the same profile first. Deleting
 its update channel at machine scope. It does not move or rewrite profile data.
 
 If you do not set `--profile` or `MF_PROFILE`, switching from a stable binary
-to a dev binary changes the default selection from `default` to `staging`.
+to a dev binary changes the default selection from `default` to `dev`.
 Run `mf profile show` after switching channels so you know which credentials
-and daemon the next command will use.
+and daemon the next command will use; `mf doctor` warns when that profile has
+not been set up and lists the ones that have.
 
 ## Upgrading from CLI 0.21 or earlier
 

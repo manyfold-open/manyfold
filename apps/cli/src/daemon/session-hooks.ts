@@ -114,6 +114,34 @@ export const buildSessionHookScript = (invocation: string[]): string =>
         ''
     ].join('\n')
 
+// The inverse of buildSessionHookScript's call line, so `mf doctor` can tell
+// when an installed script calls back into a binary that is no longer there.
+export const sessionHookInvocation = (script: string): string[] | null => {
+    const line = /\| (.+?) daemon hooks report "\$1"/.exec(script)?.[1]
+    if (!line) return null
+    const args: string[] = []
+    let i = 0
+    while (i < line.length) {
+        if (line[i] === ' ') {
+            i += 1
+            continue
+        }
+        if (line[i] !== "'") return null
+        let arg = ''
+        for (;;) {
+            const end = line.indexOf("'", i + 1)
+            if (end < 0) return null
+            arg += line.slice(i + 1, end)
+            i = end + 1
+            if (!line.startsWith("\\''", i)) break
+            arg += "'"
+            i += 2
+        }
+        args.push(arg)
+    }
+    return args.length > 0 ? args : null
+}
+
 export const scriptVersion = (text: string): number | null => {
     const match = SCRIPT_VERSION_LINE.exec(text)
     return match ? Number(match[1]) : null

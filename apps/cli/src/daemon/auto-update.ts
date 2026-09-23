@@ -1,5 +1,5 @@
 import type { DaemonStartupMethod } from '@manyfold/shared'
-import { type CliChannel, DEFAULT_API_URL } from '@/channel'
+import { type CliChannel, DEFAULT_API_URL, normalizeApiUrl } from '@/channel'
 import { resolveUpdateStatus } from '@/commands/update'
 import type { IdleUpdateOutcome } from './update-drain'
 
@@ -15,9 +15,6 @@ export interface AutoUpdateDecision {
     enabled: boolean
     reason: string
 }
-
-const normalizedUrl = (value: string): string =>
-    value.trim().replace(/\/+$/, '')
 
 // Hard gates first (they make a self-restart unsafe regardless of intent),
 // then the explicit env switch, then the multica-style default: on for the
@@ -48,7 +45,7 @@ export const resolveAutoUpdateEnabled = (opts: {
     }
     // Both channels default to the same production API now, so this is a
     // single comparison; the channel only colours the reason string.
-    return normalizedUrl(opts.apiUrl) === normalizedUrl(DEFAULT_API_URL)
+    return normalizeApiUrl(opts.apiUrl) === normalizeApiUrl(DEFAULT_API_URL)
         ? { enabled: true, reason: `official ${opts.channel} channel` }
         : {
               enabled: false,

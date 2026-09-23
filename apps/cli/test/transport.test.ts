@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { buildProgram } from '../src/program'
 import {
     createCliClient,
     createCliFetch,
@@ -31,11 +32,15 @@ const capturingFetch = (): {
     return { calls, fetchImpl }
 }
 
-test('resolveHttpTimeoutMs defaults invalid values and parses seconds or duration suffixes', () => {
+test('resolveHttpTimeoutMs rejects invalid values and parses seconds or duration suffixes', () => {
     assert.equal(resolveHttpTimeoutMs(''), DEFAULT_HTTP_TIMEOUT_MS)
-    assert.equal(resolveHttpTimeoutMs('invalid'), DEFAULT_HTTP_TIMEOUT_MS)
-    assert.equal(resolveHttpTimeoutMs('0'), DEFAULT_HTTP_TIMEOUT_MS)
-    assert.equal(resolveHttpTimeoutMs('-1s'), DEFAULT_HTTP_TIMEOUT_MS)
+    assert.equal(resolveHttpTimeoutMs(undefined), DEFAULT_HTTP_TIMEOUT_MS)
+    for (const value of ['invalid', '0', '-1s', '30 sec', '1d'])
+        assert.throws(
+            () => resolveHttpTimeoutMs(value),
+            new RegExp(`invalid MF_HTTP_TIMEOUT '${value}'`),
+            `must reject ${JSON.stringify(value)}`
+        )
     assert.equal(resolveHttpTimeoutMs('45'), 45_000)
     assert.equal(resolveHttpTimeoutMs('1500ms'), 1_500)
     assert.equal(resolveHttpTimeoutMs('1.5s'), 1_500)
@@ -49,6 +54,29 @@ test('resolveHttpTimeoutMs reads MF_HTTP_TIMEOUT when no value is passed', () =>
     try {
         assert.equal(resolveHttpTimeoutMs(), 250)
     } finally {
+        if (previous === undefined) delete process.env.MF_HTTP_TIMEOUT
+        else process.env.MF_HTTP_TIMEOUT = previous
+    }
+})
+
+test('an invalid MF_HTTP_TIMEOUT stops a command before it runs', async () => {
+    const previous = process.env.MF_HTTP_TIMEOUT
+    process.env.MF_HTTP_TIMEOUT = 'soon'
+    const originalLog = console.log
+    const printed: string[] = []
+    console.log = (line?: unknown) => {
+        printed.push(String(line ?? ''))
+    }
+    try {
+        const program = buildProgram()
+        program.exitOverride()
+        await assert.rejects(
+            program.parseAsync(['node', 'mf', 'version']),
+            /invalid MF_HTTP_TIMEOUT 'soon'/
+        )
+        assert.deepEqual(printed, [])
+    } finally {
+        console.log = originalLog
         if (previous === undefined) delete process.env.MF_HTTP_TIMEOUT
         else process.env.MF_HTTP_TIMEOUT = previous
     }

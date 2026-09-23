@@ -1,0 +1,5 @@
+---
+'@manyfold/cli': minor
+---
+
+New `mf doctor`: one command that finds what is wrong with this machine's mf setup and says how to fix each problem. It checks the install (update available, which `mf` your PATH resolves to, `--api-url`/`--token`/`MF_*` overrides in this shell), then every profile on the machine: its sign-in and API (unreachable, not a Manyfold API — with the `/api` URL it should have been — database down, redirected to a sign-in page, rejected token and why), and its daemon (registration, process, autostart unit, a daemon still running an older binary than the one on disk, why it is offline from the last WebSocket close, coding agents on your PATH the daemon did not detect). Only `--profile` narrows it to one profile. It exits 1 when a check fails, with the report on stdout either way; `--json` gives the same report for scripts. A profile nobody uses (not current, no daemon, no autostart unit) can only warn. It writes nothing locally and never prints a token. The docs now give `dev` as the default profile of dev binaries.
