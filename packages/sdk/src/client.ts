@@ -111,7 +111,6 @@ import type {
     SpriteHostStatusUpdate,
     SpriteStatusEvent,
     ResourceChangedEvent,
-    ResourceUiLink,
     SpriteStatusUpdate,
     ChatMessage,
     ChatMessagesPage,
@@ -924,7 +923,6 @@ export interface SkillsClient {
 }
 
 export interface AutomationsClient {
-    ui: (id?: string) => Promise<ResourceUiLink>
     list: (opts?: { agentId?: string }) => Promise<AutomationSummary[]>
     create: (body: CreateAutomationBody) => Promise<AutomationDetail>
     get: (id: string) => Promise<AutomationDetail>
@@ -3314,10 +3312,6 @@ export const createClient = (options: ClientOptions): NcaClient => {
                 )
         },
         automations: {
-            ui: (id) =>
-                request<ResourceUiLink>(
-                    id ? apiPaths.AUTOMATION_UI(id) : apiPaths.AUTOMATIONS_UI
-                ),
             list: (opts) => {
                 const q = new URLSearchParams()
                 if (opts?.agentId) q.set('agentId', opts.agentId)

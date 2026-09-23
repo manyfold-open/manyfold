@@ -7,13 +7,18 @@ import { setTimeout as wait } from 'node:timers/promises'
 import { chromium } from 'playwright'
 
 const api = process.env.MF_PLUGIN_TEST_API_URL
+const web = process.env.MF_PLUGIN_TEST_WEB_URL
 const agentId = process.env.MF_PLUGIN_TEST_AGENT_ID
-if (!api || !agentId)
-    throw new Error('Set MF_PLUGIN_TEST_API_URL and MF_PLUGIN_TEST_AGENT_ID')
-assert.ok(
-    ['localhost', '127.0.0.1'].includes(new URL(api).hostname),
-    'live test only targets a local dev stack'
-)
+if (!api || !web || !agentId)
+    throw new Error(
+        'Set MF_PLUGIN_TEST_API_URL, MF_PLUGIN_TEST_WEB_URL, and MF_PLUGIN_TEST_AGENT_ID'
+    )
+for (const url of [api, web])
+    assert.ok(
+        ['localhost', '127.0.0.1'].includes(new URL(url).hostname),
+        'live test only targets a local dev stack'
+    )
+const webOrigin = new URL(web).origin
 const root = resolve(import.meta.dirname, '../../..')
 const evidence = resolve(root, '.e2e-runs/plugin-automations')
 await mkdir(evidence, { recursive: true })
@@ -59,16 +64,8 @@ for (const key of ['MF_API_TOKEN', 'MF_TOKEN', 'MF_AGENT_ID', 'MF_API_URL'])
 const cli = (args, stdin) =>
     new Promise((resolveResult, reject) => {
         const child = spawn(
-            process.execPath,
-            [
-                resolve(root, 'apps/cli/dist/index.js'),
-                '--profile',
-                'plugin-test',
-                '--api-url',
-                api,
-                ...args,
-                '--json'
-            ],
+            process.env.MF_PLUGIN_TEST_CLI ?? 'mf',
+            ['--profile', 'plugin-test', '--api-url', api, ...args, '--json'],
             { env: cliEnv, stdio: ['pipe', 'pipe', 'pipe'] }
         )
         let stdout = ''
@@ -104,9 +101,8 @@ let automation
 try {
     browser = await chromium.launch({ headless: true })
     await cli(['login', '--token', '-'], grant.token)
-    const listLink = await cli(['ui', 'resolve', 'automation'])
-    const web = new URL(listLink.url).origin
-    assert.ok(['localhost', '127.0.0.1'].includes(new URL(web).hostname))
+    // Use the plugin skill's route rules with the explicitly selected Web origin.
+    const listUrl = new URL('/automations', webOrigin).toString()
     const context = await browser.newContext({
         viewport: { width: 1440, height: 1000 }
     })
@@ -153,8 +149,8 @@ try {
         if (req.isNavigationRequest() && req.frame() === page.mainFrame())
             documents++
     })
-    await page.goto(listLink.url)
-    await second.goto(listLink.url)
+    await page.goto(listUrl)
+    await second.goto(listUrl)
     await page
         .getByRole('heading', { name: 'Automations', exact: true })
         .waitFor()
@@ -207,8 +203,11 @@ try {
     ])
     await page.getByText(title, { exact: true }).waitFor({ timeout: 10_000 })
     await second.getByText(title, { exact: true }).waitFor({ timeout: 10_000 })
-    const detailLink = await cli(['ui', 'resolve', 'automation', automation.id])
-    await page.goto(detailLink.url)
+    const detailUrl = new URL(
+        `/automations/${encodeURIComponent(automation.id)}`,
+        webOrigin
+    ).toString()
+    await page.goto(detailUrl)
     const titleInput = page.getByRole('textbox', { name: 'Title', exact: true })
     await until(
         async () => (await titleInput.inputValue().catch(() => '')) === title
@@ -234,6 +233,8 @@ try {
         async () => (await titleInput.inputValue()) === title + ' external'
     )
     const detailDocuments = documents
+    const runAgentId = (await cli(['automations', 'get', automation.id]))
+        .agentId
     const run = await cli(['automations', 'run', automation.id])
     console.log(
         JSON.stringify({
@@ -291,19 +292,13 @@ try {
         ),
         true
     )
-    const runLink = await cli([
-        'ui',
-        'resolve',
-        'automation',
-        automation.id,
-        '--run-id',
-        run.id
-    ])
-    assert.equal(
-        new URL(runLink.url).searchParams.get('sessionId'),
-        completed.chatSessionId
+    assert.ok(completed.chatSessionId)
+    const runUrl = new URL(
+        `/agents/${encodeURIComponent(runAgentId)}/chat`,
+        webOrigin
     )
-    await page.goto(runLink.url)
+    runUrl.searchParams.set('sessionId', completed.chatSessionId)
+    await page.goto(runUrl.toString())
     await page
         .getByText('MANYFOLDPLUGINRUNOK', { exact: true })
         .first()

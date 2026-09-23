@@ -154,8 +154,6 @@ export const apiPaths = {
     ADMIN_SKILLS_CATALOG_BY_ID: (skillId: string) =>
         `/admin/skills-catalog/${encodeURIComponent(skillId)}`,
     AUTOMATIONS: '/automations',
-    AUTOMATIONS_UI: '/automations/ui',
-    AUTOMATION_UI: (id: string) => `/automations/${encodeURIComponent(id)}/ui`,
     AUTOMATION_BY_ID: (id: string) => `/automations/${id}`,
     AUTOMATION_RUN: (id: string) => `/automations/${id}/run`,
     CHANNELS: '/channels',

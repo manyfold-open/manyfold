@@ -2123,13 +2123,6 @@ export interface ResourceChangedEvent {
     at: string
 }
 
-export interface ResourceUiLink {
-    resource: 'automation'
-    resourceId?: string
-    url: string
-    runs?: Array<{ runId: string; sessionId: string; url: string }>
-}
-
 export type SpriteStatusEvent =
     | {
           type: 'snapshot'

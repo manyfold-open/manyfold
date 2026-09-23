@@ -1,8 +1,7 @@
 import type {
     AutomationDetail,
     AutomationRunSummary,
-    AutomationSummary,
-    ResourceUiLink
+    AutomationSummary
 } from '@manyfold/shared'
 import {
     Body,
@@ -53,23 +52,6 @@ export class AutomationsController {
         @Body() dto: CreateAutomationDto
     ): Promise<AutomationDetail> {
         return this.automations.create(user.userId, dto)
-    }
-
-    @Get('ui')
-    @RequireApiTokenScope('automations:read')
-    @SubjectAgentFromQuery('agentId')
-    ui(@CurrentUser() user: AuthPrincipal): Promise<ResourceUiLink> {
-        return this.automations.ui(user.userId)
-    }
-
-    @Get(':id/ui')
-    @RequireApiTokenScope('automations:read')
-    @SubjectAgentFromResource('automation', 'id')
-    uiById(
-        @CurrentUser() user: AuthPrincipal,
-        @Param('id') id: string
-    ): Promise<ResourceUiLink> {
-        return this.automations.ui(user.userId, id)
     }
 
     @Get(':id')

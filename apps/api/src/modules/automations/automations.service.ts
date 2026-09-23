@@ -11,6 +11,7 @@ import {
     AutomationSummary,
     CreateAutomationBody,
     UpdateAutomationBody,
+    ResourceChangedEvent,
     createObjectId,
     frameworkDefinition
 } from '@manyfold/shared'
@@ -60,6 +61,7 @@ import { AgentModelConfigService } from '@/modules/agents/model-config/agent-mod
 import { RuntimeAccessService } from '@/modules/runtime-access/runtime-access.service'
 import { ForbiddenException } from '@nestjs/common'
 import { inBackgroundContext } from '@/common/telemetry/background-context'
+import { SpriteStatusBroadcaster } from '@/modules/agents/sprite-status/sprite-status-broadcaster'
 
 type AutomationWithAgent = {
     automation: AutomationRow
@@ -111,7 +113,9 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         @Optional()
         private readonly modelConfigs?: AgentModelConfigService,
         @Optional()
-        private readonly channelBridge?: ChannelBridgeService
+        private readonly channelBridge?: ChannelBridgeService,
+        @Optional()
+        private readonly broadcaster?: SpriteStatusBroadcaster
     ) {}
 
     onModuleInit(): void {
@@ -171,6 +175,19 @@ export class AutomationsService implements OnModuleInit, OnModuleDestroy {
         return this.toDetail(await this.loadOwned(userId, id))
     }
 
+    private changed(
+        row: Pick<AutomationRow, 'id' | 'userId' | 'agentId'>,
+        reason: ResourceChangedEvent['reason']
+    ): void {
+        this.broadcaster?.emitResourceChanged(row.userId, {
+            type: 'resource-changed',
+            resource: 'automation',
+            resourceId: row.id,
+            agentId: row.agentId,
+            reason,
+            at: new Date().toISOString()
+        })
+    }
     async create(
         userId: string,
         body: CreateAutomationBody

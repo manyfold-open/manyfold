@@ -11,7 +11,7 @@ to manage remote resources.
 
 ## Connect and select the target
 
-- Check `mf version`, `mf ui resolve --help`, and `mf profile show --json`.
+- Check `mf version` and `mf profile show --json`.
   If the CLI is missing, use the official installation instructions at
   https://manyfold.ai/cli/install.sh. Do not run `mf setup` unless the user
   also wants to register this computer as an execution host.
@@ -33,6 +33,13 @@ to manage remote resources.
 Never read credential files into model context or put tokens in commands,
 links, chat, or logs. CLI commands read saved credentials themselves.
 
+## Workbench routes
+
+Read [web-routes.md](references/web-routes.md) before opening a resource page.
+This reference owns the deployment-to-Web mapping, route templates, and
+resource ID rules. Construct links from those rules and CLI resource data;
+navigation does not require a CLI command or a URL-resolution API.
+
 ## Operate and show automations
 
 Read `mf help automations --agent` and `mf automations <command> --help`
@@ -41,27 +48,30 @@ Before modifying an existing automation, refresh it with `automations get`.
 Creating a schedule, running it immediately, and delivering to an external
 channel are distinct actions; perform only those authorized by the request.
 
-1. Resolve `mf ui resolve automation --json` and open its `url` so the user
-   can watch the list while work continues.
+1. Establish the Web origin using the route reference, then open the
+   automations list so the user can watch it while work continues.
 2. Create or update through `mf automations`. Capture the returned automation
-   ID, then resolve `mf ui resolve automation <id> --json` for its detail page.
+   ID and use the automation-detail route from the reference.
 3. Open or reuse that URL in the host's browser pane. In Codex, discover its
    browser/open-panel tools; in Claude Code Desktop, discover the Browser
    tools. In CLI-only hosts, return a named link. Prefer one workbench tab.
 4. The page receives resource events for changes and run status. Do not
    navigate or reload it after each command. If it stays stale, reread through
    CLI and check that the page has the same account and deployment.
-5. When execution is requested, `mf automations run <id> --json` returns a
-   run ID. It does not prove completion. Read `mf automations get <id> --json`
+5. When execution is requested, reread the automation and record its
+   `agentId` before calling `mf automations run <id> --json`. Keep that
+   agent ID with the returned run ID. Submission does not prove completion.
+   Read `mf automations get <id> --json`
    with bounded check-backs and inspect that exact run until it succeeds or
    fails. A failure is a result to report, not permission to submit a new run.
-6. Resolve `mf ui resolve automation <id> --run-id <run-id> --json` to open
-   the result conversation. The resolver covers recent runs with a session;
-   wait for session creation when the run has only just started.
+6. Read the matching run's `chatSessionId` and use the conversation route
+   with the recorded run agent ID. Wait for session creation when the run
+   has only just started. Follow the reference's historical-run rule when
+   the run predates this conversation.
 
 Read back the changed fields and inspect the visible page before claiming
 the change is displayed. Preserve any unsaved user edits. If browser access
-is unavailable, report CLI verification and provide the resolved link
+is unavailable, report CLI verification and provide the resource link
 without claiming visual verification.
 
 ## Other resources
@@ -72,7 +82,7 @@ Keep raw JSON on stdout separate from progress and errors on stderr. Do not
 blindly retry a create/run request after a network timeout: first inspect
 whether the resource or run was created.
 
-Live plugin handoff currently covers automations. Other pages have their
-existing refresh behavior, and `mf ui resolve` supports only automation
-links. The CLI does not expose every Web operation; in particular, agent
+Live updates currently cover automations. Use the route reference to open
+other resources, whose pages retain their existing refresh behavior.
+The CLI does not expose every Web operation; in particular, agent
 creation covers only the frameworks and runtime choices shown by its help.

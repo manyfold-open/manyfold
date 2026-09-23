@@ -18,7 +18,6 @@ export const AGENT_HELP_TOPICS = [
     'agent',
     'backups',
     'usage',
-    'ui',
     'a2a'
 ] as const
 
@@ -41,7 +40,6 @@ export const TOPIC_SUMMARIES: Record<AgentHelpTopic, string> = {
     agent: 'agent CRUD, storage, credentials, logs',
     backups: 'agent snapshots: list, create, restore',
     usage: 'token and cost statistics',
-    ui: 'resolve resource and automation-run web links',
     a2a: 'call A2A servers or manage this agent’s A2A exposure and callers'
 }
 

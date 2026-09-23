@@ -15,7 +15,6 @@ import sandbox from './sandbox.md'
 import agent from './agent.md'
 import backups from './backups.md'
 import usage from './usage.md'
-import ui from './ui.md'
 import a2a from './a2a.md'
 
 export const agentHelpDocs: Record<AgentHelpTopic, string> = {
@@ -35,6 +34,5 @@ export const agentHelpDocs: Record<AgentHelpTopic, string> = {
     agent,
     backups,
     usage,
-    ui,
     a2a
 }

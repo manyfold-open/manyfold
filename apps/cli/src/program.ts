@@ -15,7 +15,6 @@ import { registerRuntime } from '@/commands/runtime'
 import { registerSandbox } from '@/commands/sandbox'
 import { registerSkills } from '@/commands/skills'
 import { registerUsage } from '@/commands/usage'
-import { registerUi } from '@/commands/ui'
 import { registerA2a } from '@/commands/a2a'
 import { registerDaemon } from '@/commands/daemon'
 import { registerDoctor } from '@/commands/doctor'
@@ -78,7 +77,6 @@ export const buildProgram = (): Command => {
     registerSandbox(program)
     registerSkills(program)
     registerUsage(program)
-    registerUi(program)
     registerA2a(program)
     registerDaemon(program)
     registerProfile(program)
