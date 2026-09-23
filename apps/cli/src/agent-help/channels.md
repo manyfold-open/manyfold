@@ -10,6 +10,8 @@ a bound channel (`mf channels send`) see `mf help channels send --agent`.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions. Operating your
 > **own** agent (the default) needs no permission.
 
@@ -17,7 +19,7 @@ a bound channel (`mf channels send`) see `mf help channels send --agent`.
 - `channels:edit` — create, update, delete, test, or register channels;
   mutate sessions (new/switch/rename/delete).
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -60,10 +62,7 @@ mf channels sessions delete <channelId> <sessionId> --activate-fallback
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`.
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry.
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`.
+{{AUTH_RECOVERY}}
 - "invalid JSON" / "expected a JSON object" on `--config`/`--credentials`
   → pass an inline JSON object or `@path/to/file.json` (note the `@`).
 - "pass at least one of --label, --status, --config, --credentials" →

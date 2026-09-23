@@ -142,7 +142,7 @@ stderr as `cli Error: …` and exit 1; tokens are never included.
   (existing permissions are kept), retry after they approve.
 - `a2a:edit` missing from a managed identity while changing exposure/callers → run
   `mf auth ensure --scopes a2a:edit` and retry after approval.
-{{AUTH_RECOVERY}}
+- Authentication, scope, or ownership errors (`401`/`403`): check `mf whoami --json` and the structured error, then follow `mf help auth --agent`. Status alone does not determine whether login, an agent grant, or a different target is needed.
 - `needs an agent context` (user token) → add `--agent-id <id>` for an agent
   you own, e.g. `mf --agent-id <id> a2a status`.
 - `too many concurrent A2A delegations` → you have hit the in-flight cap;

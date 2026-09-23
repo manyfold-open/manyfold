@@ -89,6 +89,19 @@ const buildTopicList = (): string =>
 
 export const renderAgentHelp = (content: string): string => {
     const rendered = content
+        .replaceAll(
+            '{{CALLER_CONTEXT}}',
+            'The own-agent and `--account` grant examples describe managed runtime identities. ' +
+            'External user sessions use their token permissions and select an explicit agent; ' +
+            'replace `$MF_AGENT_ID` in examples with that selected ID. ' +
+            'Use `mf help auth --agent` for identity-specific authentication and recovery.'
+        )
+        .replaceAll(
+            '{{AUTH_RECOVERY}}',
+            '- Authentication, scope, or ownership errors (`401`/`403`): check ' +
+            '`mf whoami --json` and the structured error, then follow `mf help auth --agent`. ' +
+            'Status alone does not determine whether login, an agent grant, or a different target is needed.'
+        )
         .replaceAll('{{GRANTABLE_SCOPES}}', grantableScopes.join(', '))
         .replaceAll('{{TOPIC_LIST}}', buildTopicList())
     const unresolved = rendered.match(/\{\{[A-Z_]+\}\}/)

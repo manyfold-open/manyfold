@@ -96,6 +96,7 @@ Reuse the existing workbench tab and keep the current page open during live
 updates. Navigating is a user-facing handoff, not the refresh mechanism.
 Verify the destination's account, resource, and visible result.
 
-Maintainers: check route changes against `apps/web/src/App.tsx`,
+Maintainers: this reference is shared by the standalone skill and plugin.
+Check route changes against `apps/web/src/App.tsx`,
 `apps/web/src/lib/agentSettingsSections.ts`, and the runtime/chat page query
 parameters. Keep the route rules in this skill reference.

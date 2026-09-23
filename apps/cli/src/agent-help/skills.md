@@ -12,6 +12,8 @@ GitHub, or uploaded as a `.skill` archive) instead of a GitHub repo.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions. Operating your
 > **own** agent (the default) needs no permission.
 
@@ -27,7 +29,7 @@ GitHub, or uploaded as a `.skill` archive) instead of a GitHub repo.
   user-only — agent-bound tokens are refused even with `skills:edit`;
   hand those back to the user.
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -93,11 +95,7 @@ unless `--force` (which uninstalls everywhere first).
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`.
-- `401` → missing `skills:read` / `skills:edit`; request just that scope
-  (existing ones are kept):
-  `mf auth ensure --scopes <missing scope>`, then retry.
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`.
+{{AUTH_RECOVERY}}
 - `pass exactly one of --enabled or --disabled` → `update` requires
   exactly one of the two flags.
 - `refusing to delete … without --yes` → deletes never prompt; add `--yes`

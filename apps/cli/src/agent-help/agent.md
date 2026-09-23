@@ -3,11 +3,13 @@
 ## Purpose
 
 CRUD, storage, and credential management for Manyfold agents
-(alias: `mf agents`). Your own agent id is `$MF_AGENT_ID`. Model
+(alias: `mf agents`). In a managed runtime, your agent id is `$MF_AGENT_ID`. Model
 settings are also reachable as `mf agent model-config …` but are
 documented in `mf help model-config --agent`.
 
 ## Required scopes
+
+{{CALLER_CONTEXT}}
 
 > Required **only for `--account`** (account-wide) actions — e.g. `list`ing
 > every agent, `create`, or acting on another agent. Operating your **own**
@@ -18,7 +20,7 @@ documented in `mf help model-config --agent`.
 - `secrets:read` — `credentials get`, `credentials reveal`
 - `secrets:edit` — `credentials update`
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -65,10 +67,7 @@ mf agent credentials update <agent-id> --body '<json-or-@file>'
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - `create` fails with "requires --…" → pass the provider key flag or
   set the matching env var for the chosen framework
 - "nothing to update" → pass at least one update flag (see above)

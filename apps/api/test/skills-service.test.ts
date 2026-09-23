@@ -1,4 +1,5 @@
 import type { AgentFramework, DiscoverableSkillSummary } from '@manyfold/shared'
+import { MANYFOLD_CLI_USAGE_SKILL_ID, PLATFORM_DEFAULT_SKILL_IDS } from '@manyfold/shared'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BadRequestException, Logger } from '@nestjs/common'
@@ -1102,6 +1103,57 @@ class FakeMaterializer {
         return this.inventory.get(input.agent.id) ?? []
     }
 }
+
+test('the unified official skill keeps its default identity for new agents and upgrades in place', async (t) => {
+    const official: DiscoverableSkillSummary = {
+        ...discovered,
+        skillId: MANYFOLD_CLI_USAGE_SKILL_ID,
+        name: 'manyfold-cli-usage',
+        repoOwner: 'protagolabs',
+        repoName: 'manyfold-skills',
+        sourcePath: 'skills/manyfold-cli-usage',
+        installDir: 'manyfold-cli-usage',
+        repoId: 'builtin:protagolabs/manyfold-skills@main',
+        version: '0.3.0',
+        latestRevision: 'unified-revision'
+    }
+    const discovery = new FakeDiscovery()
+    discovery.scanResult = [official]
+    const baseRepo = (await discovery.builtinRepos())[0]
+    t.mock.method(discovery, 'builtinRepos', async () => [{
+        ...baseRepo,
+        id: official.repoId,
+        owner: official.repoOwner,
+        name: official.repoName
+    }])
+    const db = new FakeDb()
+    db.selectResults.push([], [targetRow], [], [], [])
+    const materializer = new FakeMaterializer()
+    const service = newService(db, materializer, discovery, [...PLATFORM_DEFAULT_SKILL_IDS])
+    await service.installDefaults({
+        userId: 'user-1', agentId: 'agent-1',
+        framework: 'claude-code', runtime: 'sprites'
+    })
+    assert.equal(db.insertedUserSkills.length, 1)
+    const installed = db.insertedUserSkills[0]
+    assert.equal(installed.skillId, MANYFOLD_CLI_USAGE_SKILL_ID)
+    assert.equal(installed.installDir, 'manyfold-cli-usage')
+    assert.equal(installed.installedRevision, 'unified-revision')
+
+    discovery.scanResult = [{ ...official, latestRevision: 'updated-references' }]
+    db.selectResults.push([targetRow], [], [installed])
+    db.updateResults.push([{ ...installed, installedRevision: 'updated-references' }])
+    const upgraded = await service.install({
+        userId: 'user-1', agentId: 'agent-1',
+        skillId: MANYFOLD_CLI_USAGE_SKILL_ID
+    })
+    assert.equal(db.insertedUserSkills.length, 1, 'upgrade reuses the installation')
+    assert.equal(upgraded.id, installed.id)
+    assert.equal(upgraded.skillId, MANYFOLD_CLI_USAGE_SKILL_ID)
+    assert.equal(upgraded.installDir, installed.installDir)
+    assert.equal(upgraded.installedRevision, 'updated-references')
+    assert.deepEqual(materializer.calls, ['agent-1', 'agent-1'])
+})
 
 class FakeDb {
     scanState: Record<string, unknown> = { generation: 1, snapshot: null, revision: null, publishedAliases: [] }

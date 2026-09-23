@@ -1,3 +1,10 @@
+---
+name: manyfold-cli-usage
+description: Operate Manyfold resources through mf from managed runtimes or external coding agents, delegate via A2A, and show results in the workbench when available. Not for developing Manyfold source code.
+version: 0.0.0-dev
+metadata:
+  references-sha256: "56d354abe0cffc1854511dfaf9208b70c0e5563ad784b1fb2a8a3e76b6637bb8"
+---
 # Manyfold CLI (`mf`) — agent guide
 
 Operate Manyfold resources on the user's behalf through the `mf` CLI.
@@ -63,7 +70,23 @@ authorized token/profile; `mf auth ensure` grants a managed agent's scopes.
 
 ## Topics
 
-{{TOPIC_LIST}}
+- `mf help --agent` — entry guide: auth, topics, failure recovery
+- `mf help auth --agent` — login, scopes, consent URL, token safety
+- `mf help safety --agent` — hard rules: secrets, consent URL, scope grants
+- `mf help channels --agent` — Telegram, Slack, Discord, Lark channel management
+- `mf help channels create --agent` — creating a channel step by step
+- `mf help channels send --agent` — agent-initiated sends: DM, chat post, native reply
+- `mf help automations --agent` — scheduled jobs: create, run, update, delete
+- `mf help files --agent` — agent workspace files: list, read, write, mv, rm
+- `mf help model-config --agent` — read or update the agent model configuration
+- `mf help skills --agent` — install, discover and manage agent skills
+- `mf help connections --agent` — external accounts (GitHub, Cloudflare, Composio) linked to the agent
+- `mf help runtime --agent` — runtime lifecycle, control UI, dashboard
+- `mf help sandbox --agent` — scoped sandbox storage, cached readings and attribution
+- `mf help agent --agent` — agent CRUD, storage, credentials, logs
+- `mf help backups --agent` — agent snapshots: list, create, restore
+- `mf help usage --agent` — token and cost statistics
+- `mf help a2a --agent` — call A2A servers or manage this agent’s A2A exposure and callers
 
 Add `--json` to any `mf help … --agent` call for a machine-readable
 envelope (`topic`, `cliVersion`, `topics`, `content`). Most commands also
@@ -94,3 +117,26 @@ else. `mf <command> --help` shows human-readable flags.
 - Only share the consent URL with the user — the URL alone is safe.
 - Request the minimum scopes the task needs.
 - Full rules: `mf help safety --agent`
+
+## Optional guidance
+
+Load only the references needed for the current task:
+
+- [Authentication](references/auth.md) covers external user login and managed
+  runtime grants. The verified identity remains authoritative when an older
+  installed CLI's help assumes that every caller is a managed agent.
+- [A2A](references/a2a.md) covers delegation and task tracking. Use it when
+  talking to a peer or an external A2A server.
+- [Workbench](references/workbench.md) covers showing resources and automation
+  results. Use [Web routes](references/web-routes.md) to choose the deployment
+  origin and resource URL.
+
+Browser capability is optional. When a pane is available, reuse it to show
+the live resource; otherwise provide a link when its Web origin is known.
+Missing browser controls or an unknown Web URL must not block authorized
+CLI work. Never claim visual verification without inspecting the page.
+
+The same `manyfold-cli-usage` skill is distributed independently and inside
+the Manyfold plugin. Reuse already-loaded guidance rather than loading a
+second copy for the same task. This skill manages platform resources; it
+does not define how to develop the Manyfold source repository.

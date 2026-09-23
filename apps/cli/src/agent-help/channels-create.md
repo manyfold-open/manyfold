@@ -8,10 +8,12 @@ the output) is what the provider-side webhook must point at.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 - `channels:edit` — create, update, delete, test, or register channels.
 - `channels:read` — list and inspect channels after creation.
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -58,10 +60,7 @@ from the user. Ask for them, pass them straight into the flag (prefer
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - "agent id is required" → pass `--agent-id` or set `$MF_AGENT_ID`
 - `--config: invalid JSON` / `expected a JSON object` → fix the JSON;
   prefer `@file` to avoid shell-quoting damage

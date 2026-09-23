@@ -35,6 +35,7 @@ const run = (cmd, args, opts = {}) =>
 run('pnpm', ['--filter', '@manyfold/cli^...', 'build'], { cwd: repoRoot })
 
 // 2. Regenerate the bundle at this version.
+run('node', ['--import', 'tsx', 'scripts/check-skills.ts'], { cwd: pkgDir })
 run('node', ['--import', 'tsx', 'scripts/build-skills.ts'], {
     cwd: pkgDir,
     env: { ...process.env, MF_SKILLS_VERSION: version }

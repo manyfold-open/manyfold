@@ -69,7 +69,7 @@ mf whoami --json
 
 ## Available grant scopes
 
-{{GRANTABLE_SCOPES}}
+agents:read, agents:edit, agent-runtimes:read, agent-runtimes:edit, sandboxes:read, sandboxes:edit, channels:read, channels:edit, automations:read, automations:edit, chat:read, chat:edit, a2a:read, a2a:edit, model-providers:read, model-providers:edit, model-config:read, model-config:edit, secrets:read, secrets:edit, skills:read, skills:edit, backups:read, backups:edit, terminal:read, terminal:edit, files:read, files:edit, usage:read, byo-providers:read, byo-providers:edit, connections:read, connections:edit
 
 ## Failure recovery
 

@@ -8,6 +8,8 @@ use either. Agent ids come from `$MF_AGENT_ID` or `mf agent list`.
 
 ## Required scopes
 
+{{CALLER_CONTEXT}}
+
 > Required **only for `--account`** (account-wide) actions, e.g. another
 > agent's config. Reading or updating your **own** agent's model config (the
 > default) needs no permission.
@@ -16,7 +18,7 @@ use either. Agent ids come from `$MF_AGENT_ID` or `mf agent list`.
 - `model-config:edit` — needed for `update` and `refresh-models`
   (changes which model the agent runs; may change cost)
 
-Missing a scope? `mf auth ensure --scopes <missing>` — see `mf help auth --agent`.
+For a scope denial, follow `mf help auth --agent` for the current identity.
 
 ## Common commands
 
@@ -50,10 +52,7 @@ output — only entries with `enabled: true` are valid.
 ## Failure recovery
 
 - "not authenticated" → `mf help auth --agent`
-- `401` → missing scope; request just that scope (existing ones are
-  kept): `mf auth ensure --scopes <missing scope>`, then retry
-- `403` → the action targets a different agent than your identity; act on
-  `$MF_AGENT_ID`
+{{AUTH_RECOVERY}}
 - "nothing to update" → pass at least one `update` flag (list above)
 - `validation.valid: false` in `get` output → read
   `validation.messages`; often fixed by `refresh-models` or by mapping
